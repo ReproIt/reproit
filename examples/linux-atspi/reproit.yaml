@@ -1,0 +1,26 @@
+# reproit config for the linux-atspi GTK fixture (in-container harness).
+#
+# platform: gtk  ->  on Linux this resolves to the DesktopAtspi backend, which
+# drives runners/linux-atspi.py over the AT-SPI accessibility bus.
+app:
+  platform: gtk
+  # The runner matches the AT-SPI application name by substring. The GTK
+  # fixture window is titled "ReproIt AT-SPI Fixture".
+  executable: Fixture
+  runnerDir: /work/runners
+
+devices:
+  # Desktop has no simulators; these fields are required by the schema but
+  # unused by the AT-SPI backend.
+  namePrefix: atspi
+
+journeys:
+  # The AT-SPI runner is self-contained (it prints EXPLORE markers itself);
+  # there is no Dart driver. driver is a required schema field, left as a
+  # placeholder.
+  driver: none
+  readyMarker: claimed role
+  doneMarkers:
+    - All tests passed
+  deviceDoneMarker: "JOURNEY DONE"
+  timeoutSec: 120

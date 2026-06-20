@@ -1,0 +1,35 @@
+node_modules/
+dist/
+.reproit/
+*.log
+.DS_Store
+
+
+# Added by cargo
+
+/target
+
+# web runner deps (playwright + browsers, ~90MB)
+web-runner/node_modules/
+web-runner/package-lock.json
+rn-runner/node_modules/
+rn-runner/package-lock.json
+examples/imgui-headless/demo
+.hegel/
+
+# Python caches (desktop runner parity tests)
+__pycache__/
+*.pyc
+
+# Flutter / Swift / Android / Gradle build output (SDKs, demos)
+build/
+.build/
+.dart_tool/
+.swiftpm/
+.gradle/
+Pods/
+*.iml
+
+# Claude Code local state
+.claude/
+runners/node_modules

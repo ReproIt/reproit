@@ -1,0 +1,122 @@
+# reproit on pull_request: fuzz the app, and on a finding deliver a PR comment
+# (the find -> PR delivery pipeline).
+#
+# This is a REUSABLE workflow (`workflow_call`): a consuming repo adds a thin
+# caller (see the example at the bottom of this file) and passes its app id +
+# cloud url. The job:
+#   1. Builds the `reproit` CLI.
+#   2. Runs the HEADLESS fuzz tier (cheap Linux vCPU) as the oracle.
+#   3. On a finding, escalates ONE replay to the simulator tier to record the
+#      minimized repro, annotates + uploads it to the cloud, and posts the PR
+#      comment (summary, suspected file:line, minimized repro, cohort, inline
+#      GIF, dashboard link).
+#
+# Tiering note: steps 1-2 run on ubuntu (fast, cheap). Recording the repro video
+# needs a real iOS simulator, which only exists on a macOS runner; that is why
+# the publish+comment step is gated to run only when a finding lands and (for the
+# video) on macos. Without a macOS runner the comment still posts, minus the
+# inline GIF/video.
+
+name: reproit-pr
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: "Cloud app id the finding's evidence attaches to (e.g. bugzoo)"
+        required: true
+        type: string
+      cloud_url:
+        description: "reproit cloud base URL"
+        required: false
+        default: "https://cloud.reproit.com"
+        type: string
+      journey:
+        description: "Explorer journey to fuzz"
+        required: false
+        default: "explore"
+        type: string
+      runs:
+        description: "Number of fuzz seeds to try"
+        required: false
+        default: "20"
+        type: string
+      app_idx:
+        description: "Finding index in the cloud error list to attach to"
+        required: false
+        default: "0"
+        type: string
+    secrets:
+      REPROIT_API_KEY:
+        description: "reproit cloud API key"
+        required: false
+
+# The comment poster needs write access to the PR (issues: write covers PR
+# comments). GITHUB_TOKEN is provided automatically with these perms.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  fuzz-and-deliver:
+    # macOS so the finding can be confirmed + recorded on an iOS simulator. Use
+    # ubuntu-latest instead if you only want the headless tier + a comment with
+    # no inline video (cheaper).
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build reproit
+        run: cargo build --release --locked -p reproit
+
+      - name: "Install web-runner deps (caption/annotation: headless Chrome + ffmpeg)"
+        run: |
+          cd web-runner
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+
+      - name: Fuzz + deliver on a finding
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPROIT_CLOUD_URL: ${{ inputs.cloud_url }}
+          REPROIT_API_KEY: ${{ secrets.REPROIT_API_KEY }}
+        run: |
+          # The fuzz mode runs the headless oracle, escalates a finding to the
+          # simulator to record the minimized repro, uploads it, and posts the PR
+          # comment. --post-comment makes it POST (the GITHUB_* env from the
+          # pull_request event supplies repo + PR + token); drop it to dry-run.
+          ./target/release/reproit fuzz \
+            --journey "${{ inputs.journey }}" \
+            --runs "${{ inputs.runs }}" \
+            --shrink \
+            --confirm-on-sim \
+            --cloud "${{ inputs.cloud_url }}" \
+            --app "${{ inputs.app }}" \
+            --app-idx "${{ inputs.app_idx }}" \
+            --post-comment
+
+# ---------------------------------------------------------------------------
+# Example caller workflow in a consuming repo (.github/workflows/qa.yml):
+#
+#   name: qa
+#   on:
+#     pull_request:
+#   jobs:
+#     reproit:
+#       uses: <org>/reproit/.github/workflows/reproit-pr.yml@main
+#       with:
+#         app: my-app-id
+#         cloud_url: https://cloud.reproit.com
+#         journey: explore
+#         runs: "30"
+#       secrets:
+#         REPROIT_API_KEY: ${{ secrets.REPROIT_API_KEY }}
+#
+# The default GITHUB_TOKEN posts the comment; no extra secret needed for that.
+# ---------------------------------------------------------------------------

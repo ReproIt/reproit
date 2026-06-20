@@ -1,0 +1,138 @@
+{
+  "app": "example",
+  "version": 1,
+  "states": {
+    "login": {
+      "description": "Dev login screen",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": "/login" },
+      "parameters": []
+    },
+    "home": {
+      "description": "Item list (home)",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": "/home" },
+      "parameters": []
+    },
+    "detail": {
+      "description": "Single item detail",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": "/detail" },
+      "parameters": ["itemId"]
+    },
+    "settings": {
+      "description": "Settings screen",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": "/settings" },
+      "parameters": []
+    },
+    "compose": {
+      "description": "Create a new item",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": "/compose" },
+      "parameters": []
+    },
+    "confirm_delete": {
+      "description": "Delete-item confirmation",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": "/detail/delete" },
+      "parameters": ["itemId"]
+    }
+  },
+  "transitions": [
+    {
+      "from": "login",
+      "to": "home",
+      "action": { "kind": "tap", "finder": "text:Sign in" },
+      "guards": [],
+      "reversibility": "verified_irreversible",
+      "expected": { "diff_bbox": null, "settle_ms": 6000 }
+    },
+    {
+      "from": "home",
+      "to": "detail",
+      "action": { "kind": "tap", "finder": "key:testid:item-row" },
+      "guards": [],
+      "reversibility": "verified_reversible",
+      "expected": { "diff_bbox": null, "settle_ms": 800 }
+    },
+    {
+      "from": "detail",
+      "to": "home",
+      "action": { "kind": "tap", "finder": "text:Back" },
+      "guards": [],
+      "reversibility": "verified_reversible",
+      "expected": { "diff_bbox": null, "settle_ms": 800 }
+    },
+    {
+      "from": "home",
+      "to": "settings",
+      "action": { "kind": "tap", "finder": "text:Settings" },
+      "guards": [],
+      "reversibility": "verified_reversible",
+      "expected": { "diff_bbox": null, "settle_ms": 800 }
+    },
+    {
+      "from": "settings",
+      "to": "home",
+      "action": { "kind": "tap", "finder": "text:Home" },
+      "guards": [],
+      "reversibility": "verified_reversible",
+      "expected": { "diff_bbox": null, "settle_ms": 800 }
+    },
+    {
+      "from": "home",
+      "to": "compose",
+      "action": { "kind": "tap", "finder": "key:testid:add" },
+      "guards": [],
+      "reversibility": "verified_reversible",
+      "expected": { "diff_bbox": null, "settle_ms": 800 }
+    },
+    {
+      "from": "compose",
+      "to": "home",
+      "action": { "kind": "tap", "finder": "text:Save" },
+      "guards": [],
+      "reversibility": "verified_irreversible",
+      "expected": { "diff_bbox": null, "settle_ms": 1200 }
+    },
+    {
+      "from": "detail",
+      "to": "confirm_delete",
+      "action": { "kind": "tap", "finder": "text:Delete" },
+      "guards": [],
+      "reversibility": "verified_reversible",
+      "expected": { "diff_bbox": null, "settle_ms": 600 }
+    },
+    {
+      "from": "confirm_delete",
+      "to": "home",
+      "action": { "kind": "tap", "finder": "text:Confirm" },
+      "guards": [],
+      "reversibility": "proposed_irreversible",
+      "expected": { "diff_bbox": null, "settle_ms": 1200 }
+    }
+  ],
+  "invariants": [
+    {
+      "id": "nav_always_present",
+      "description": "Bottom navigation labels (Home, Settings) visible on every main tab",
+      "scope": { "global": null },
+      "confirmed": true
+    },
+    {
+      "id": "delete_needs_confirm",
+      "description": "Deleting an item always routes through the confirmation screen",
+      "scope": { "state": { "state": "detail" } },
+      "confirmed": false
+    }
+  ],
+  "interrupts": [
+    {
+      "id": "rate_app_dialog",
+      "description": "App-store rating prompt",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": null },
+      "policy": { "accept": { "finder": "text:Not now" } }
+    },
+    {
+      "id": "notifications_dialog",
+      "description": "OS push-notification permission dialog",
+      "signature": { "screenshot_phash": null, "semantics_hash": null, "route": null },
+      "policy": { "accept": { "finder": "native:Allow" } }
+    }
+  ]
+}

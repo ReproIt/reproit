@@ -1,0 +1,147 @@
+# Repro It configuration, by example. Copy to <your-repo>/reproit.yaml and
+# adjust for your app.
+
+app:
+  # Only flutter-ios-sim is implemented today. Android and web adapters later.
+  platform: flutter-ios-sim
+  # Flutter project directory, relative to this file.
+  projectDir: frontend
+  bundleId: com.example.app
+  # --dart-define values passed to every drive. Env interpolation: ${VAR}.
+  defines:
+    DEV_API_HOST: ${DEV_API_HOST}
+
+devices:
+  deviceType: iPhone 16 Plus
+  # Simulators are named <namePrefix>-A, <namePrefix>-B, ... and are the only
+  # sims Repro It will touch (a sim you use for other work is never grabbed).
+  namePrefix: Example
+  determinism:
+    statusBarTime: "9:41"
+    location: [37.7749, -122.4194]
+    disableKeyboardIntro: true
+  # Re-granted on a loop for the whole run: `flutter drive` reinstalls the app,
+  # which resets TCC, so a one-shot grant is unreliable.
+  permissions:
+    - service: location-always
+
+# Test accounts. Credentials live in the encrypted vault (set them with
+# `reproit secrets set alice.password` / `reproit secrets set-totp alice.totp`);
+# only non-secret fields go here. `userId` lets reset clear this account's data
+# by reference (see the reset section), and a multi-actor journey binds an actor
+# to an account by name: `actors: {alice: {login: alice}, bob: {auth: bob}}`.
+auth:
+  accounts:
+    - name: alice
+      userId: dev-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+      username: alice@dev.local
+      passwordRef: alice.password   # vault key
+      totpRef: alice.totp           # vault key (base32 TOTP seed), if 2FA
+      storageRef: alice.session     # vault key (session blob) for auth(<acct>)
+    - name: bob
+      userId: dev-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+      username: bob@dev.local
+      passwordRef: bob.password
+
+# State reset: ordered steps, run before every journey/gate run. This is the
+# customer-facing integration contract (see SPEC.md). Steps are best-effort
+# unless `required: true`.
+reset:
+  steps:
+    - kind: command
+      run: docker compose -f docker-compose.yml exec -T global-redis redis-cli FLUSHALL
+    - kind: command
+      run: docker compose -f docker-compose.yml exec -T region-us-redis redis-cli FLUSHALL
+    - kind: command
+      run: docker compose -f docker-compose.yml exec -T region-eu-redis redis-cli FLUSHALL
+    - kind: http
+      method: POST
+      url: http://api.example.localhost/dev/clear-seed
+    - kind: http
+      method: POST
+      url: http://api.example.localhost/dev/clear-presence
+    - kind: http
+      method: POST
+      url: http://us.example.localhost/dev/clear-presence
+    - kind: http
+      method: POST
+      url: http://eu.example.localhost/dev/clear-presence
+    # Posts live in DynamoDB, not Redis: without this, a beacon created by a
+    # prior run survives and the next create 409s (post_limit_reached). A
+    # dropped reset step shows up disguised as an app bug; port the WHOLE
+    # contract.
+    - kind: http
+      method: POST
+      url: http://us.example.localhost/dev/clear-posts
+      # Templated from auth.accounts, so reset stays in sync with the accounts a
+      # scenario uses (one source of truth for each test user's id).
+      body: '{"user_ids":["${account.alice.userId}","${account.bob.userId}"]}'
+    - kind: http
+      method: POST
+      url: http://eu.example.localhost/dev/clear-posts
+      # Templated from auth.accounts, so reset stays in sync with the accounts a
+      # scenario uses (one source of truth for each test user's id).
+      body: '{"user_ids":["${account.alice.userId}","${account.bob.userId}"]}'
+
+journeys:
+  # Journey targets resolve to <projectDir>/<dir>/journey_<name>.dart
+  dir: integration_test
+  driver: test_driver/screenshot_driver.dart
+  # Orchestration markers, matched as substrings of drive log lines.
+  readyMarker: claimed role
+  doneMarkers:
+    - All tests passed
+    - Some tests failed
+  # Structured action-log lines (parsed into actions.jsonl).
+  actionPrefix: "JOURNEY"
+  # Journey-declared completion: a device printing this counts as done and
+  # passed without waiting for the runner verdict (observer roles' drives can
+  # linger forever). Print as the LAST statement of a role's branch; an
+  # explicit runner failure still overrides it.
+  deviceDoneMarker: "JOURNEY DONE"
+  # Host-interaction hooks: when a device's log prints the marker, run the
+  # command on the host (sh -c, cwd = this file's dir) with {udid} and
+  # {device} substituted. For things unreachable from inside the app, e.g.
+  # clicking the native iOS location permission dialog during the
+  # screenshot tour:
+  # hooks:
+  #   - marker: "ALLOW-LOCATION"
+  #     run: "uv run scripts/click_allow_location.py {udid}"
+  # Hard cap on a single journey run.
+  timeoutSec: 300
+
+evidence:
+  outDir: .reproit/runs
+  video: true
+  # side-by-side ffmpeg compositing for multi-device runs
+  composite: true
+  # `SHOOT:<name>` log lines trigger OS-level screenshots.
+  screenshotMarker: "SHOOT:"
+
+visual:
+  # Current capture vs committed baseline. Determinism is handled upstream
+  # (pinning, seeding); the tolerance absorbs antialiasing noise.
+  shotsDir: frontend/screenshots
+  pixelTol: 16
+  failPct: 1.0
+  # Screens whose content is intentionally non-deterministic: diffed and
+  # reported, but never fail the gate.
+  advisory:
+    - 01-meet.png
+
+# Stability gate: a generated or changed journey must pass this many
+# consecutive runs against a fresh reset before it is accepted/PR'd.
+gate:
+  runs: 5
+
+# Which LLM powers the authoring agent and failure analyzer. Hot-swappable;
+# the deterministic runner never touches it.
+#   codex-cli   `codex exec`  (OpenAI, ChatGPT subscription billing)
+#   claude-cli  `claude -p`   (Anthropic, Claude subscription billing)
+#   claude-api  raw Messages API, per-token (prod/CI)
+#   openai-api  Chat Completions, per-token (requires model:)
+llm:
+  provider: codex-cli
+  # model: gpt-5.2-codex      # optional override, passed as --model
+  # bin: /custom/path/codex   # optional binary override
+  # extraArgs: []             # appended verbatim to the CLI invocation
