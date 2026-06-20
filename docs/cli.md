@@ -209,17 +209,30 @@ purposes:
 - `reproit check <journey>` runs the steps to verify behavior; `shoot:` steps are
   inert (navigate-only, no pictures, no capture overhead).
 - `reproit screenshots <journey>` runs the same steps in capture mode: each
-  `shoot:<name>` writes `<name>.png`, organized as
-  `<out>/<platform>/<locale>/<device>/<name>.png`, which `fastlane deliver` /
-  `supply` ingest directly. Because the state signature is locale-invariant, one
-  tour covers every locale with no per-locale selectors.
+  `shoot:<name>` writes `<name>.png`. Because the state signature is
+  locale-invariant, one tour covers every locale with no per-locale selectors.
+
+**Where shots go.** The root is `--out` (or `screenshots.out`, default
+`screenshots/`). Under it the layout is *journey-led* and collapses the axes that
+do not vary: `<out>/<journey>[/<platform>][/<locale>][/<device>]/<name>.png`. The
+`platform` level appears only when you fan more than one platform; `locale` and
+`device` only when those are set. So:
+
+- one platform/locale, named device -> `screenshots/<journey>/<device>/<name>.png`
+- fan locales -> `screenshots/<journey>/<locale>/<device>/<name>.png`
+- fan platforms too -> `screenshots/<journey>/<platform>/<locale>/<device>/...`
+
+For full control (e.g. to emit the exact structure `fastlane deliver` / `supply`
+expect), set a `--path-template` / `screenshots.pathTemplate` with the
+placeholders `{journey}` `{platform}` `{locale}` `{device}`.
 
 ```sh
 reproit screenshots [tour]
   --locale de,ar,ja      # fan across locales (RTL / i18n); overrides config
   --target ios,android   # fan across platforms/engines
   --device "a,b"         # fan across devices
-  --out fastlane/screenshots
+  --out screenshots      # output root
+  --path-template "{locale}/{device}"   # override the auto layout
   --no-verify            # skip the cross-screen verify gate (on by default)
 ```
 
@@ -228,10 +241,11 @@ Config (`reproit.yaml`):
 ```yaml
 screenshots:
   tour: marketing            # journey whose shoot: steps name the shots
-  out: fastlane/screenshots  # per-platform/locale/device subdirs land here
+  out: screenshots           # output root (journey-led subdirs land under it)
   locales: [en, de, ar, ja]
   devices: ["iPhone 16 Pro Max", "iPad Pro 13"]
   verifySignature: true
+  # pathTemplate: "{locale}/{device}"   # optional: full control of the layout
 ```
 
 Capture works on every supported platform: iOS / Android (simctl / `adb

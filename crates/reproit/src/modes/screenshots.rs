@@ -5,8 +5,11 @@
 //! capture machinery (drive.rs parses the runner's `SHOOT:<name>` markers and
 //! lands `<name>.png` in RunOpts.shots_dir). The difference is fan-out and
 //! organization: we run the same tour once per (platform x device x locale) and
-//! point each run's shots_dir at <out>/<platform>/<locale>/<device>/, so the
-//! result drops straight into `fastlane deliver` / `supply`.
+//! point each run's shots_dir at a journey-led layout that collapses the axes
+//! that do not vary, `<out>/<journey>[/<platform>][/<locale>][/<device>]` (see
+//! `shot_dir`). The user can override the structure entirely with a path
+//! template (placeholders {journey}/{platform}/{locale}/{device}), e.g. to emit
+//! the exact layout `fastlane deliver` / `supply` expect.
 //!
 //! Because the state signature is locale-invariant, ONE tour covers every locale
 //! with no per-locale selectors. The verification gate (v1) checks that every
@@ -38,6 +41,9 @@ pub struct Args {
     pub devices: Vec<String>,
     /// None = use the config default (on); Some(false) = --no-verify.
     pub verify: Option<bool>,
+    /// Explicit per-shot directory template (overrides the auto layout). Supports
+    /// {journey} {platform} {locale} {device}; None = use the config / auto layout.
+    pub path_template: Option<String>,
 }
 
 /// One captured combo and the shot names it produced.
@@ -70,12 +76,17 @@ pub async fn run(ctx: &Ctx, loaded: &Loaded, args: Args) -> Result<bool> {
     let out = args
         .out
         .or_else(|| sc.map(|s| s.out.clone()))
-        .unwrap_or_else(|| "fastlane/screenshots".to_string());
+        .unwrap_or_else(|| "screenshots".to_string());
     let out_root = if Path::new(&out).is_absolute() {
         PathBuf::from(&out)
     } else {
         loaded.root.join(&out)
     };
+    // Explicit directory template (CLI > config). When set, the user fully
+    // controls the per-shot directory; otherwise the auto layout applies.
+    let template = args
+        .path_template
+        .or_else(|| sc.and_then(|s| s.path_template.clone()));
 
     // CLI lists override config lists only when non-empty.
     let locales = if args.locales.is_empty() {
@@ -121,6 +132,9 @@ pub async fn run(ctx: &Ctx, loaded: &Loaded, args: Args) -> Result<bool> {
     let mut all_ok = true;
     let mut runs: Vec<ShotRun> = Vec::new();
 
+    // The platform level only appears when fanning more than one platform.
+    let multi_platform = target_runs.len() > 1;
+
     for tgt in &target_runs {
         let platform = match tgt {
             Some(RunTarget::Platform(t)) => t.as_str().to_string(),
@@ -131,7 +145,15 @@ pub async fn run(ctx: &Ctx, loaded: &Loaded, args: Args) -> Result<bool> {
             for loc in &locale_runs {
                 let loc_label = loc.as_deref().unwrap_or("default");
                 let dev_label = dev.as_deref().unwrap_or("default");
-                let shots_dir = out_root.join(&platform).join(loc_label).join(dev_label);
+                let shots_dir = shot_dir(
+                    &out_root,
+                    template.as_deref(),
+                    &tour,
+                    &platform,
+                    loc.as_deref(),
+                    dev.as_deref(),
+                    multi_platform,
+                );
 
                 // Per-run env: platform/engine + device, restored on drop so a
                 // combo never leaks REPROIT_* into the next (same as run_targets).
@@ -198,6 +220,63 @@ pub async fn run(ctx: &Ctx, loaded: &Loaded, args: Args) -> Result<bool> {
     }
 
     Ok(all_ok)
+}
+
+/// Sanitize an axis value into a filesystem-friendly path segment (spaces and
+/// slashes become hyphens), so a device name like "iPhone 16 Pro Max" is one
+/// clean directory.
+fn seg(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c == ' ' || c == '/' || c == '\\' {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Resolve the per-combo directory a tour's shots land in.
+///
+/// With an explicit `template`, the user fully controls the layout: the
+/// placeholders {journey}/{platform}/{locale}/{device} are substituted (an absent
+/// locale/device renders as "default") and joined under `out_root`.
+///
+/// Otherwise the auto layout is journey-led and collapses axes that do not vary:
+/// `<out>/<journey>[/<platform>][/<locale>][/<device>]`. The platform level only
+/// appears when fanning more than one platform; the locale and device levels only
+/// appear when those axes have a concrete value. So a single platform/locale run
+/// with a named device is just `<out>/<journey>/<device>/`, and fanning locales or
+/// platforms deepens it as needed (so nothing collides).
+fn shot_dir(
+    out_root: &Path,
+    template: Option<&str>,
+    journey: &str,
+    platform: &str,
+    locale: Option<&str>,
+    device: Option<&str>,
+    multi_platform: bool,
+) -> PathBuf {
+    if let Some(t) = template {
+        let rendered = t
+            .replace("{journey}", &seg(journey))
+            .replace("{platform}", &seg(platform))
+            .replace("{locale}", &seg(locale.unwrap_or("default")))
+            .replace("{device}", &seg(device.unwrap_or("default")));
+        return out_root.join(rendered);
+    }
+    let mut p = out_root.join(seg(journey));
+    if multi_platform {
+        p = p.join(seg(platform));
+    }
+    if let Some(l) = locale {
+        p = p.join(seg(l));
+    }
+    if let Some(d) = device {
+        p = p.join(seg(d));
+    }
+    p
 }
 
 /// Collect the `.png` file stems in a shots dir, sorted.
@@ -277,6 +356,77 @@ mod tests {
             locale: locale.to_string(),
             names: names.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    #[test]
+    fn auto_layout_is_journey_led_and_collapses_unfanned_axes() {
+        let out = Path::new("/o");
+        // single platform, no locale, named device -> journey/device
+        assert_eq!(
+            shot_dir(
+                out,
+                None,
+                "marketing",
+                "swift-ios",
+                None,
+                Some("iPhone 16 Pro Max"),
+                false
+            ),
+            Path::new("/o/marketing/iPhone-16-Pro-Max")
+        );
+        // fan locales -> journey/locale/device
+        assert_eq!(
+            shot_dir(
+                out,
+                None,
+                "marketing",
+                "swift-ios",
+                Some("de"),
+                Some("iPhone 16 Pro Max"),
+                false
+            ),
+            Path::new("/o/marketing/de/iPhone-16-Pro-Max")
+        );
+        // fan platforms too -> journey/platform/locale/device
+        assert_eq!(
+            shot_dir(
+                out,
+                None,
+                "marketing",
+                "android",
+                Some("de"),
+                Some("Pixel 9"),
+                true
+            ),
+            Path::new("/o/marketing/android/de/Pixel-9")
+        );
+        // nothing fanned, no device -> just journey
+        assert_eq!(
+            shot_dir(out, None, "marketing", "swift-ios", None, None, false),
+            Path::new("/o/marketing")
+        );
+    }
+
+    #[test]
+    fn path_template_fully_overrides_the_layout() {
+        let out = Path::new("/o");
+        assert_eq!(
+            shot_dir(
+                out,
+                Some("{locale}/{device}"),
+                "marketing",
+                "swift-ios",
+                Some("de"),
+                Some("iPhone 16"),
+                false
+            ),
+            Path::new("/o/de/iPhone-16")
+        );
+        // absent axes render as "default" so the template stays well-formed
+        assert_eq!(
+            shot_dir(out, Some("{locale}/{device}"), "m", "p", None, None, false),
+            Path::new("/o/default/default")
+        );
     }
 
     #[test]

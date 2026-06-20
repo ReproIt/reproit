@@ -418,8 +418,8 @@ pub struct Visual {
 pub struct Screenshots {
     /// The journey ("tour") to drive. Its SHOOT markers name the shots.
     pub tour: String,
-    /// Durable output root. Per-platform/locale/device subdirs land under it.
-    /// Default "fastlane/screenshots" so `fastlane deliver`/`supply` ingest it.
+    /// Durable output root. A journey-led layout (collapsing the axes that do not
+    /// vary) lands under it; see modes/screenshots.rs. Default "screenshots".
     #[serde(default = "default_shots_out")]
     pub out: String,
     /// Locales to fan out across (e.g. de, ar, ja). Empty = app default only.
@@ -434,6 +434,12 @@ pub struct Screenshots {
     /// failing loudly on navigation drift (the correctness gate). Default on.
     #[serde(default = "default_verify_signature")]
     pub verify_signature: bool,
+    /// Explicit per-shot directory template, overriding the auto layout. Supports
+    /// the placeholders {journey} {platform} {locale} {device} (an absent locale/
+    /// device renders as "default"), joined under `out`. None = the auto layout
+    /// (<out>/<journey> then locale/device/platform levels only when they vary).
+    #[serde(default)]
+    pub path_template: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -479,7 +485,7 @@ fn default_shoot_marker() -> String {
     "SHOOT:".into()
 }
 fn default_shots_out() -> String {
-    "fastlane/screenshots".into()
+    "screenshots".into()
 }
 fn default_verify_signature() -> bool {
     true

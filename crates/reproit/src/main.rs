@@ -473,12 +473,13 @@ enum Cmd {
         action: JourneyAction,
     },
     /// Capture store/marketing screenshots: drive a tour (a journey) across
-    /// locales and devices into a fastlane-compatible layout. Reuses the SHOOT
-    /// capture machinery; one locale-invariant tour covers every locale.
+    /// locales and devices into a journey-led layout (or your own --path-template).
+    /// Reuses the SHOOT capture machinery; one locale-invariant tour covers every
+    /// locale.
     Screenshots {
         /// Tour to drive (a journey file stem). Defaults to screenshots.tour.
         tour: Option<String>,
-        /// Output root (default: screenshots.out, else fastlane/screenshots).
+        /// Output root (default: screenshots.out, else `screenshots/`).
         #[arg(long)]
         out: Option<String>,
         /// Comma-separated locales (e.g. de,ar,ja). Overrides config when set.
@@ -493,6 +494,10 @@ enum Cmd {
         /// Skip the cross-screen verification gate (it is on by default).
         #[arg(long)]
         no_verify: bool,
+        /// Per-shot directory template, overriding the auto layout. Placeholders:
+        /// {journey} {platform} {locale} {device}. Example: "{locale}/{device}".
+        #[arg(long)]
+        path_template: Option<String>,
     },
     /// Cloud loop: a fleet + production telemetry. Submit jobs, browse findings,
     /// see blast radius, and reproduce real user sessions deterministically.
@@ -1502,6 +1507,7 @@ async fn main() -> Result<ExitCode> {
             target,
             device,
             no_verify,
+            path_template,
         } => {
             let loaded = config::load(cli.config.as_deref())?;
             let locales = locale
@@ -1531,6 +1537,7 @@ async fn main() -> Result<ExitCode> {
                 targets,
                 devices,
                 verify: if no_verify { Some(false) } else { None },
+                path_template,
             };
             let passed = screenshots::run(&ctx, &loaded, args).await?;
             Ok(if passed {
