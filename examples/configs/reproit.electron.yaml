@@ -1,0 +1,10 @@
+# Electron desktop app: Chromium under the hood, driven over CDP.
+app:
+  platform: electron
+  executable: ${APP_EXECUTABLE:-./dist/MyApp.AppImage}   # the built app
+  runnerDir: ${REPROIT_RUNNERS:-./runners}               # holds electron.mjs
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

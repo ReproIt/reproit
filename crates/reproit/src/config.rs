@@ -630,4 +630,45 @@ mod tests {
         std::env::remove_var("RIT_E2E_WRD");
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    fn examples_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/configs")
+    }
+
+    // Every shipped per-platform example must parse + resolve its platform +
+    // satisfy the schema. This is what would have caught the issue-#1 mistake (a
+    // top-level / misplaced field), and it guards every framework's example, so
+    // they can't silently rot as the schema evolves.
+    #[test]
+    fn all_example_configs_load() {
+        let dir = examples_dir();
+        let mut count = 0;
+        for entry in std::fs::read_dir(&dir).expect("examples/configs") {
+            let p = entry.unwrap().path();
+            if p.extension().and_then(|e| e.to_str()) != Some("yaml") {
+                continue;
+            }
+            super::load(Some(&p))
+                .unwrap_or_else(|e| panic!("{} failed to load: {e:#}", p.display()));
+            count += 1;
+        }
+        assert!(count >= 13, "expected >= 13 example configs, found {count}");
+    }
+
+    // The desktop-toolkit example covers four platform ids in one file; verify
+    // each id actually loads (swap it into the example, load, assert ok).
+    #[test]
+    fn desktop_toolkit_ids_all_load() {
+        let src = std::fs::read_to_string(examples_dir().join("reproit.desktop-toolkit.yaml"))
+            .expect("toolkit example");
+        let dir = std::env::temp_dir().join("rit_toolkit_ids");
+        std::fs::create_dir_all(&dir).unwrap();
+        for id in ["qt", "gtk", "avalonia", "wxwidgets"] {
+            let yaml = src.replace("platform: qt", &format!("platform: {id}"));
+            let path = dir.join("reproit.yaml");
+            std::fs::write(&path, yaml).unwrap();
+            super::load(Some(&path)).unwrap_or_else(|e| panic!("toolkit {id} failed: {e:#}"));
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

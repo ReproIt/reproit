@@ -273,6 +273,10 @@ interpolation: `${VAR}` (empty if unset), `${VAR:-default}` (fallback), and
 `webRunnerDir` lives under `app:`):
 `app.webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}`.
 
+A minimal, ready-to-copy config for every supported platform (each with the
+correct `app:` fields) lives in `examples/configs/`, one file per platform
+(`reproit.web-playwright.yaml`, `reproit.winui.yaml`, `reproit.tui.yaml`, ...).
+
 ## Flags
 
 ```

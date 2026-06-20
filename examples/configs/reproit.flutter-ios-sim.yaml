@@ -1,0 +1,12 @@
+# Flutter on the iOS simulator (flutter drive + Dart VM service).
+app:
+  platform: flutter-ios-sim
+  projectDir: frontend
+  bundleId: ${APP_BUNDLE_ID:-com.example.app}
+  defines:                      # dart-define values, env-interpolated
+    DEV_API_HOST: ${DEV_API_HOST:-http://localhost}
+devices:
+  namePrefix: Example           # sims named Example-A, Example-B, ...
+journeys:
+  driver: test_driver/integration_test.dart
+  doneMarkers: ["All tests passed", "Some tests failed"]

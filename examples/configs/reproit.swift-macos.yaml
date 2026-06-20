@@ -1,0 +1,12 @@
+# Native macOS (AppKit/SwiftUI) read through the AXUIElement API.
+app:
+  platform: swift-macos
+  # An explicit executable, OR fall back to bundleId for the macOS AX runner.
+  executable: ${APP_EXECUTABLE:-/Applications/MyApp.app}
+  bundleId: ${APP_BUNDLE_ID:-com.example.app}
+  runnerDir: ${REPROIT_RUNNERS:-./runners}               # holds macos-ax.swift
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

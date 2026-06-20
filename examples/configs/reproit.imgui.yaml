@@ -1,0 +1,11 @@
+# Dear ImGui: immediate-mode, no a11y; needs the in-app reproit hook
+# (reproit_imgui.h) compiled into the executable.
+app:
+  platform: imgui
+  executable: ${APP_EXECUTABLE:-./build/my-imgui-app}
+  runnerDir: ${REPROIT_RUNNERS:-./runners}
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]
