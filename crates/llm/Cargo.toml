@@ -6,10 +6,10 @@ description = "Provider-agnostic LLM seam: hot-swappable backends (codex-cli, cl
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = "0.1"
-futures-util = "0.3"
+async-trait = "0.1.89"
+futures-util = "0.3.32"
 reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = "2"
+thiserror = "2.0.18"
 tokio = { workspace = true }

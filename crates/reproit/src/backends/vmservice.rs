@@ -147,7 +147,9 @@ async fn rpc(ws: &mut Ws, next_id: &mut u64, method: &str, params: Value) -> Res
     let id = next_id.to_string();
     *next_id += 1;
     ws.send(Message::Text(
-        json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string(),
+        json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+            .to_string()
+            .into(),
     ))
     .await?;
     // Read until our reply id (the service may interleave other frames).

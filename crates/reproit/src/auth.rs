@@ -13,8 +13,6 @@ use crate::config::AuthCfg;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{bail, Context, Result};
-use rand::rngs::OsRng;
-use rand::RngCore;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -66,9 +64,9 @@ impl Vault {
             std::fs::create_dir_all(dir).ok();
         }
         let mut salt = [0u8; SALT_LEN];
-        OsRng.fill_bytes(&mut salt);
+        getrandom::fill(&mut salt).expect("OS RNG");
         let mut nonce = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce);
+        getrandom::fill(&mut nonce).expect("OS RNG");
         let key = derive_key(&salt)?;
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         let pt = serde_json::to_vec(&self.map)?;
@@ -119,7 +117,7 @@ fn machine_keyfile() -> Result<Vec<u8>> {
         }
     }
     let mut b = [0u8; 32];
-    OsRng.fill_bytes(&mut b);
+    getrandom::fill(&mut b).expect("OS RNG");
     write_private(&path, &b)?;
     Ok(b.to_vec())
 }
@@ -162,9 +160,11 @@ pub fn totp_now(secret_base32: &str) -> Option<String> {
 }
 
 fn hotp(key: &[u8], counter: u64) -> u32 {
+    use hmac::digest::KeyInit;
     use hmac::{Hmac, Mac};
     use sha1::Sha1;
-    let mut mac = <Hmac<Sha1> as Mac>::new_from_slice(key).expect("hmac accepts any key length");
+    let mut mac =
+        <Hmac<Sha1> as KeyInit>::new_from_slice(key).expect("hmac accepts any key length");
     mac.update(&counter.to_be_bytes());
     let digest = mac.finalize().into_bytes();
     let off = (digest[19] & 0x0f) as usize;

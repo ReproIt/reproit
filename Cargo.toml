@@ -3,12 +3,12 @@ resolver = "2"
 members = ["crates/llm", "crates/reproit", "crates/tui-sig", "sdk/reproit-tui-rs"]
 
 [workspace.dependencies]
-anyhow = "1"
-regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "io-util", "fs", "sync", "net"] }
+anyhow = "1.0.102"
+regex = "1.12.4"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "process", "time", "io-util", "fs", "sync", "net"] }
 
 # Small, fast release binaries for distribution.
 [profile.release]
