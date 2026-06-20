@@ -34,7 +34,7 @@ import {
   type Snapshot,
 } from './snapshot';
 import type { Node } from './signature';
-import { fingerprintFields } from './fingerprint';
+import { fingerprintFields, FP_VERSION } from './fingerprint';
 import {
   DEFAULTS,
   type Batch,
@@ -59,7 +59,7 @@ export { signatureOf, descriptorOf, valueClass, type Node } from './signature';
 export { setValueNodeSelectors } from './snapshot';
 export { ReproItProvider } from './provider';
 export type { Context, ContextValue } from './context';
-export { fingerprintValue, fingerprintFields } from './fingerprint';
+export { fingerprintValue, fingerprintFields, FP_VERSION } from './fingerprint';
 export type { ValueFingerprint, FieldFingerprint } from './fingerprint';
 export type { ErrorContext } from './types';
 
@@ -333,7 +333,7 @@ class ReproItImpl {
   private errorContext(): ErrorContext | undefined {
     try {
       const fp = fingerprintFields(collectFields());
-      if (fp.length) return { fingerprint: fp };
+      if (fp.length) return { fingerprint: fp, fpVersion: FP_VERSION };
     } catch {
       /* fingerprinting must never break error reporting */
     }

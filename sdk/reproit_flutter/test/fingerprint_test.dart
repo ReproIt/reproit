@@ -66,4 +66,74 @@ void main() {
       expect(jsonEncode(ReproIt.fingerprintValue(raw)).contains(raw), isFalse);
     });
   });
+
+  // ---- v2 features (bytes / scripts / combining / zero-width / newline / ws) --
+  // Parity with the web reference (reproit-web.js) and its fingerprint_test.js.
+  group('fingerprintValue v2 features', () {
+    test('bytes is UTF-8 length, distinct from code-point len', () {
+      // J o s é(2B) 🎉(4B) -> 9 bytes, 5 code points.
+      final r = ReproIt.fingerprintValue('Jos\u{00E9}\u{1F389}');
+      expect(r['len'], 5);
+      expect(r['bytes'], 9);
+      expect(ReproIt.fingerprintValue('hello')['bytes'], 5); // ascii: bytes == len
+    });
+
+    test('scripts lists buckets present, sorted, mixed-script', () {
+      expect(ReproIt.fingerprintValue('hello')['scripts'], ['Latin']);
+      expect(ReproIt.fingerprintValue('hello')['bytes'], 5);
+      // Arabic "مرحبا".
+      final ar =
+          ReproIt.fingerprintValue('\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}');
+      expect(ar['scripts'], ['Arabic']);
+      expect(ar['isRtl'], true);
+      // Mixed Latin + Arabic.
+      expect(
+        ReproIt.fingerprintValue(
+            'hi \u{0645}\u{0631}\u{062D}\u{0628}\u{0627}')['scripts'],
+        ['Arabic', 'Latin'],
+      );
+      // CJK "日本語".
+      expect(
+        ReproIt.fingerprintValue('\u{65E5}\u{672C}\u{8A9E}')['scripts'],
+        ['CJK'],
+      );
+      // Digits are no script.
+      expect(ReproIt.fingerprintValue('12345')['scripts'], <String>[]);
+    });
+
+    test('hasNewline detects LF and CR', () {
+      expect(ReproIt.fingerprintValue('line1\nline2')['hasNewline'], true);
+      expect(ReproIt.fingerprintValue('a\rb')['hasNewline'], true);
+      expect(ReproIt.fingerprintValue('oneline')['hasNewline'], false);
+    });
+
+    test('hasZeroWidth detects invisible code points', () {
+      expect(ReproIt.fingerprintValue('a\u{200B}b')['hasZeroWidth'], true); // ZWSP
+      expect(ReproIt.fingerprintValue('ab')['hasZeroWidth'], false);
+    });
+
+    test('hasCombiningMarks detects decomposed accents', () {
+      // e + combining acute.
+      expect(ReproIt.fingerprintValue('e\u{0301}')['hasCombiningMarks'], true);
+      expect(ReproIt.fingerprintValue('e')['hasCombiningMarks'], false);
+      // Precomposed é.
+      expect(ReproIt.fingerprintValue('\u{00E9}')['hasCombiningMarks'], false);
+    });
+
+    test('leadingTrailingWhitespace flags edge whitespace', () {
+      expect(
+          ReproIt.fingerprintValue(' hello')['leadingTrailingWhitespace'], true);
+      expect(
+          ReproIt.fingerprintValue('hello ')['leadingTrailingWhitespace'], true);
+      expect(
+          ReproIt.fingerprintValue('hello')['leadingTrailingWhitespace'], false);
+      // Interior tab only.
+      expect(
+          ReproIt.fingerprintValue('a\tb')['leadingTrailingWhitespace'], false);
+    });
+
+    test('fpVersion is 2', () {
+      expect(ReproItFingerprint.fpVersion, 2);
+    });
+  });
 }

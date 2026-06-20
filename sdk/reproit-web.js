@@ -589,12 +589,87 @@
     return false;
   }
 
+  // Fingerprint schema version. Bumped to 2 for the byte/script/combining/
+  // zero-width/newline/edge-whitespace features below; the cloud reads it to
+  // stay backward-compatible with v1 fingerprints (len/charset/emoji/rtl/empty).
+  var FP_VERSION = 2;
+
+  // UTF-8 byte length, computed per code point so it's identical across SDKs
+  // regardless of the host's native string encoding. Catches the byte-limit
+  // (DB varchar) overflow class that code-point `len` alone misses.
+  function reproitByteLen(str) {
+    var bytes = 0;
+    for (var i = 0; i < str.length; i++) {
+      var c = str.codePointAt(i);
+      if (c > 0xffff) i++; // astral: skip the low surrogate
+      if (c < 0x80) bytes += 1;
+      else if (c < 0x800) bytes += 2;
+      else if (c < 0x10000) bytes += 3;
+      else bytes += 4;
+    }
+    return bytes;
+  }
+
+  // Zero-width / invisible code points (injection + normalization breakers).
+  function reproitHasZeroWidth(str) {
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if (c === 0x200b || c === 0x200c || c === 0x200d || c === 0x2060 || c === 0xfeff) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Combining marks (a base char + combining accent renders differently than a
+  // precomposed one; a classic normalization/layout breaker).
+  function reproitHasCombining(str) {
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if (
+        (c >= 0x0300 && c <= 0x036f) ||
+        (c >= 0x1ab0 && c <= 0x1aff) ||
+        (c >= 0x1dc0 && c <= 0x1dff) ||
+        (c >= 0x20d0 && c <= 0x20ff) ||
+        (c >= 0xfe20 && c <= 0xfe2f)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // The Unicode SCRIPTS present, as a sorted unique list of coarse bucket names.
+  // Mixed-script (e.g. ["Arabic","Latin"]) is what bidi bugs need, which `isRtl`
+  // alone can't express. Ranges are fixed and shared verbatim across all SDKs.
+  function reproitScripts(str) {
+    var found = {};
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) ||
+          (c >= 0xc0 && c <= 0x24f) || (c >= 0x1e00 && c <= 0x1eff)) found["Latin"] = 1;
+      else if (c >= 0x370 && c <= 0x3ff) found["Greek"] = 1;
+      else if (c >= 0x400 && c <= 0x4ff) found["Cyrillic"] = 1;
+      else if (c >= 0x590 && c <= 0x5ff) found["Hebrew"] = 1;
+      else if ((c >= 0x600 && c <= 0x6ff) || (c >= 0x750 && c <= 0x77f) ||
+               (c >= 0x8a0 && c <= 0x8ff)) found["Arabic"] = 1;
+      else if (c >= 0x900 && c <= 0x97f) found["Devanagari"] = 1;
+      else if (c >= 0xe00 && c <= 0xe7f) found["Thai"] = 1;
+      else if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x3400 && c <= 0x9fff) ||
+               (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff)) found["CJK"] = 1;
+    }
+    return Object.keys(found).sort();
+  }
+
   // Pure fingerprint of a single value. Captures FEATURES, never the value.
-  //   len     : Unicode code-point count (so "José🎉" -> 5)
-  //   charset : "numeric" (all ASCII digits) | "ascii" | "unicode"
-  //   hasEmoji: contains an emoji/pictographic code point
-  //   isEmpty : empty or whitespace-only
-  //   isRtl   : contains a right-to-left script char
+  //   len          : Unicode code-point count (so "José🎉" -> 5)
+  //   bytes        : UTF-8 byte length
+  //   charset      : "numeric" (all ASCII digits) | "ascii" | "unicode"
+  //   scripts      : sorted Unicode script buckets present (mixed-script bidi)
+  //   hasEmoji     : contains an emoji/pictographic code point
+  //   isEmpty      : empty or whitespace-only
+  //   isRtl        : contains a right-to-left script char
+  //   hasCombiningMarks / hasZeroWidth / hasNewline / leadingTrailingWhitespace
   function fingerprintValue(str) {
     var s = str == null ? "" : String(str);
     // Code-point length (Array.from splits on code points, not UTF-16 units).
@@ -603,18 +678,32 @@
     var isEmpty = trimmed.length === 0;
     var hasUnicode = false;
     var allDigits = !isEmpty;
+    var hasNewline = false;
     for (var i = 0; i < s.length; i++) {
       var c = s.charCodeAt(i);
       if (c > 0x7f) hasUnicode = true;
       if (c < 0x30 || c > 0x39) allDigits = false;
+      if (c === 0x0a || c === 0x0d) hasNewline = true;
     }
     var charset = hasUnicode ? "unicode" : allDigits ? "numeric" : "ascii";
+    // Edge whitespace: a fixed whitespace set (parity-safe, not locale trim).
+    function isWs(cc) {
+      return cc === 0x09 || cc === 0x0a || cc === 0x0b || cc === 0x0c ||
+             cc === 0x0d || cc === 0x20 || cc === 0xa0;
+    }
+    var edgeWs = s.length > 0 && (isWs(s.charCodeAt(0)) || isWs(s.charCodeAt(s.length - 1)));
     return {
       len: len,
+      bytes: reproitByteLen(s),
       charset: charset,
+      scripts: reproitScripts(s),
       hasEmoji: reproitHasEmoji(s),
       isEmpty: isEmpty,
       isRtl: reproitIsRtl(s),
+      hasCombiningMarks: reproitHasCombining(s),
+      hasZeroWidth: reproitHasZeroWidth(s),
+      hasNewline: hasNewline,
+      leadingTrailingWhitespace: edgeWs,
     };
   }
 
@@ -815,7 +904,7 @@
     _errorContext: function () {
       try {
         var fp = collectFieldFingerprints();
-        if (fp.length) return { fingerprint: fp };
+        if (fp.length) return { fingerprint: fp, fpVersion: FP_VERSION };
       } catch (e) {}
       return undefined;
     },
@@ -855,6 +944,7 @@
   // Expose the pure fingerprint helpers (load-bearing, host-testable).
   ReproIt.fingerprintValue = fingerprintValue;
   ReproIt.collectFieldFingerprints = collectFieldFingerprints;
+  ReproIt.FP_VERSION = FP_VERSION;
 
   // Expose the CANONICAL signature core (load-bearing, parity-tested against
   // signature_vectors.json + the Rust oracle). signatureOf/descriptorOf take a

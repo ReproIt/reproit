@@ -212,5 +212,43 @@ namespace ReproIt.ParityTests
             Assert.Equal(true, fields[2]["isEmpty"]);
             Assert.DoesNotContain("a@b.co", Json.Encode(fields));
         }
+
+        [Fact]
+        public void FingerprintV2Features()
+        {
+            // bytes: UTF-8 length, distinct from code-point len. "Jos\u00E9" + U+1F389.
+            var jose = Fingerprint.FingerprintValue("Jos\u00E9\U0001F389");
+            Assert.Equal(5, (int)jose["len"]);
+            Assert.Equal(9, (int)jose["bytes"]);
+            Assert.Equal(5, (int)Fingerprint.FingerprintValue("hello")["bytes"]);
+
+            // scripts: sorted unique buckets present.
+            Assert.Equal(new List<string> { "Latin" }, (List<string>)Fingerprint.FingerprintValue("hello")["scripts"]);
+            Assert.Equal(new List<string> { "Arabic" }, (List<string>)Fingerprint.FingerprintValue("\u0645\u0631\u062D\u0628\u0627")["scripts"]);
+            Assert.Equal(new List<string> { "Arabic", "Latin" }, (List<string>)Fingerprint.FingerprintValue("hi \u0645\u0631\u062D\u0628\u0627")["scripts"]);
+            Assert.Equal(new List<string> { "CJK" }, (List<string>)Fingerprint.FingerprintValue("\u65E5\u672C\u8A9E")["scripts"]);
+            Assert.Empty((List<string>)Fingerprint.FingerprintValue("12345")["scripts"]);
+
+            // hasNewline
+            Assert.True((bool)Fingerprint.FingerprintValue("line1\nline2")["hasNewline"]);
+            Assert.False((bool)Fingerprint.FingerprintValue("oneline")["hasNewline"]);
+
+            // hasZeroWidth (U+200B ZWSP)
+            Assert.True((bool)Fingerprint.FingerprintValue("a\u200Bb")["hasZeroWidth"]);
+            Assert.False((bool)Fingerprint.FingerprintValue("ab")["hasZeroWidth"]);
+
+            // hasCombiningMarks: "e" + U+0301 (decomposed) true; precomposed U+00E9 false.
+            Assert.True((bool)Fingerprint.FingerprintValue("e\u0301")["hasCombiningMarks"]);
+            Assert.False((bool)Fingerprint.FingerprintValue("\u00E9")["hasCombiningMarks"]);
+            Assert.False((bool)Fingerprint.FingerprintValue("e")["hasCombiningMarks"]);
+
+            // leadingTrailingWhitespace
+            Assert.True((bool)Fingerprint.FingerprintValue(" hello")["leadingTrailingWhitespace"]);
+            Assert.True((bool)Fingerprint.FingerprintValue("hello ")["leadingTrailingWhitespace"]);
+            Assert.False((bool)Fingerprint.FingerprintValue("hello")["leadingTrailingWhitespace"]);
+            Assert.False((bool)Fingerprint.FingerprintValue("a\tb")["leadingTrailingWhitespace"]);
+
+            Assert.Equal(2, Fingerprint.FpVersion);
+        }
     }
 }

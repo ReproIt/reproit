@@ -16,10 +16,19 @@ package com.reproit.android
 object Fingerprint {
 
     /**
+     * Fingerprint schema version, stamped into the on-error context alongside the
+     * fingerprint array. Bump when the FEATURE set changes. Identical across SDKs.
+     */
+    const val FP_VERSION = 2
+
+    /**
      * Derived, PII-safe features of a single text value:
      *   len: Unicode code-point count (so "José🎉" -> 5)
+     *   bytes: UTF-8 byte length
      *   charset: "numeric" (all ASCII digits) | "ascii" | "unicode"
+     *   scripts: sorted unique Unicode script buckets present (mixed-script bidi)
      *   hasEmoji / isEmpty / isRtl: Boolean flags
+     *   hasCombiningMarks / hasZeroWidth / hasNewline / leadingTrailingWhitespace
      */
     fun fingerprintValue(value: String): Map<String, Any> {
         val codePoints = value.codePoints().toArray()
@@ -32,13 +41,90 @@ object Fingerprint {
             if (c < 0x30 || c > 0x39) allDigits = false
         }
         val charset = if (hasUnicode) "unicode" else if (allDigits) "numeric" else "ascii"
+        // Edge whitespace: a fixed whitespace set (parity-safe, not locale trim).
+        val edgeWs = value.isNotEmpty() &&
+            (isWs(value[0].code) || isWs(value[value.length - 1].code))
         val out = LinkedHashMap<String, Any>()
         out["len"] = len
+        out["bytes"] = value.toByteArray(Charsets.UTF_8).size
         out["charset"] = charset
+        out["scripts"] = scripts(value)
         out["hasEmoji"] = hasEmoji(codePoints)
         out["isEmpty"] = isEmpty
         out["isRtl"] = isRtl(codePoints)
+        out["hasCombiningMarks"] = hasCombining(value)
+        out["hasZeroWidth"] = hasZeroWidth(value)
+        out["hasNewline"] = hasNewline(value)
+        out["leadingTrailingWhitespace"] = edgeWs
         return out
+    }
+
+    /** Fixed whitespace set (parity-safe across SDKs, not locale-dependent). */
+    private fun isWs(cc: Int): Boolean =
+        cc == 0x09 || cc == 0x0a || cc == 0x0b || cc == 0x0c ||
+            cc == 0x0d || cc == 0x20 || cc == 0xa0
+
+    /** Contains LF (0x0A) or CR (0x0D). */
+    private fun hasNewline(str: String): Boolean {
+        for (ch in str) {
+            val c = ch.code
+            if (c == 0x0a || c == 0x0d) return true
+        }
+        return false
+    }
+
+    /** Zero-width / invisible code points (injection + normalization breakers). */
+    private fun hasZeroWidth(str: String): Boolean {
+        for (ch in str) {
+            val c = ch.code
+            if (c == 0x200b || c == 0x200c || c == 0x200d || c == 0x2060 || c == 0xfeff) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Combining marks (a base char + combining accent renders differently than a
+     * precomposed one; a classic normalization/layout breaker).
+     */
+    private fun hasCombining(str: String): Boolean {
+        for (ch in str) {
+            val c = ch.code
+            if ((c in 0x0300..0x036f) ||
+                (c in 0x1ab0..0x1aff) ||
+                (c in 0x1dc0..0x1dff) ||
+                (c in 0x20d0..0x20ff) ||
+                (c in 0xfe20..0xfe2f)
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * The Unicode SCRIPTS present, as a sorted unique list of coarse bucket names.
+     * Mixed-script (e.g. ["Arabic","Latin"]) is what bidi bugs need, which `isRtl`
+     * alone can't express. Ranges are fixed and shared verbatim across all SDKs.
+     */
+    private fun scripts(str: String): List<String> {
+        val found = LinkedHashSet<String>()
+        for (ch in str) {
+            val c = ch.code
+            if ((c in 0x41..0x5a) || (c in 0x61..0x7a) ||
+                (c in 0xc0..0x24f) || (c in 0x1e00..0x1eff)) found.add("Latin")
+            else if (c in 0x370..0x3ff) found.add("Greek")
+            else if (c in 0x400..0x4ff) found.add("Cyrillic")
+            else if (c in 0x590..0x5ff) found.add("Hebrew")
+            else if ((c in 0x600..0x6ff) || (c in 0x750..0x77f) ||
+                (c in 0x8a0..0x8ff)) found.add("Arabic")
+            else if (c in 0x900..0x97f) found.add("Devanagari")
+            else if (c in 0xe00..0xe7f) found.add("Thai")
+            else if ((c in 0x3040..0x30ff) || (c in 0x3400..0x9fff) ||
+                (c in 0xac00..0xd7a3) || (c in 0xf900..0xfaff)) found.add("CJK")
+        }
+        return found.sorted()
     }
 
     /** Any code point in a strong RTL Unicode block (Arabic / Hebrew / ...). */

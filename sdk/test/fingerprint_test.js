@@ -91,4 +91,50 @@ check("fingerprint never echoes the raw value", function () {
   assert.ok(!JSON.stringify(r).includes(raw), "no raw value in fingerprint");
 });
 
+// ---- v2 features (bytes / scripts / combining / zero-width / newline / ws) ----
+
+check("bytes is UTF-8 length, distinct from code-point len", function () {
+  var r = fp("José\u{1f389}"); // J o s é(2B) 🎉(4B) -> 9 bytes, 5 code points
+  assert.strictEqual(r.len, 5);
+  assert.strictEqual(r.bytes, 9);
+  assert.strictEqual(fp("hello").bytes, 5); // ascii: bytes == len
+});
+
+check("scripts lists buckets present, sorted, mixed-script", function () {
+  assert.deepStrictEqual(fp("hello").scripts, ["Latin"]);
+  assert.deepStrictEqual(fp("مرحبا").scripts, ["Arabic"]);
+  assert.deepStrictEqual(fp("hi مرحبا").scripts, ["Arabic", "Latin"]);
+  assert.deepStrictEqual(fp("日本語").scripts, ["CJK"]);
+  assert.deepStrictEqual(fp("12345").scripts, []); // digits are no script
+});
+
+check("hasNewline detects LF and CR", function () {
+  assert.strictEqual(fp("line1\nline2").hasNewline, true);
+  assert.strictEqual(fp("a\rb").hasNewline, true);
+  assert.strictEqual(fp("oneline").hasNewline, false);
+});
+
+check("hasZeroWidth detects invisible code points", function () {
+  assert.strictEqual(fp("a​b").hasZeroWidth, true); // ZWSP
+  assert.strictEqual(fp("a‍b").hasZeroWidth, true); // ZWJ
+  assert.strictEqual(fp("ab").hasZeroWidth, false);
+});
+
+check("hasCombiningMarks detects decomposed accents", function () {
+  assert.strictEqual(fp("é").hasCombiningMarks, true); // e + combining acute
+  assert.strictEqual(fp("e").hasCombiningMarks, false);
+  assert.strictEqual(fp("é").hasCombiningMarks, false); // precomposed é
+});
+
+check("leadingTrailingWhitespace flags edge whitespace", function () {
+  assert.strictEqual(fp(" hello").leadingTrailingWhitespace, true);
+  assert.strictEqual(fp("hello ").leadingTrailingWhitespace, true);
+  assert.strictEqual(fp("hello").leadingTrailingWhitespace, false);
+  assert.strictEqual(fp("a\tb").leadingTrailingWhitespace, false); // interior only
+});
+
+check("FP_VERSION is exported and is 2", function () {
+  assert.strictEqual(ReproIt.FP_VERSION, 2);
+});
+
 console.log("\n" + tests + " tests passed");

@@ -742,7 +742,11 @@ object ReproIt {
                 val top = throwable.stackTrace.firstOrNull()
                 // Tier-3 on-error context: PII-safe input fingerprints.
                 val fp = try { collectFieldFingerprints() } catch (_: Throwable) { emptyList() }
-                val context = if (fp.isNotEmpty()) mapOf("fingerprint" to fp) else null
+                val context = if (fp.isNotEmpty()) {
+                    mapOf("fingerprint" to fp, "fpVersion" to Fingerprint.FP_VERSION)
+                } else {
+                    null
+                }
                 engine?.recordError(
                     message = throwable.toString(),
                     stack = stack,

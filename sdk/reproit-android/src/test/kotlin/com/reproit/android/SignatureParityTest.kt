@@ -590,4 +590,69 @@ class SignatureParityTest {
         val ev2 = engine.recordError("boom2", listOf("f0"))
         assertFalse(ev2.containsKey("context"))
     }
+
+    // ---- v2 fingerprint features (bytes / scripts / combining / zw / nl / ws) -
+
+    @Test
+    fun fingerprintBytesIsUtf8LengthDistinctFromCodePointLen() {
+        // J o s é(2B) 🎉(4B) -> 9 bytes, 5 code points.
+        val r = Fingerprint.fingerprintValue("José🎉")
+        assertEquals(5, r["len"])
+        assertEquals(9, r["bytes"])
+        assertEquals(5, Fingerprint.fingerprintValue("hello")["bytes"]) // ascii: bytes == len
+    }
+
+    @Test
+    fun fingerprintScriptsListsBucketsSortedMixedScript() {
+        assertEquals(listOf("Latin"), Fingerprint.fingerprintValue("hello")["scripts"])
+        val ar = Fingerprint.fingerprintValue("مرحبا") // مرحبا
+        assertEquals(listOf("Arabic"), ar["scripts"])
+        assertEquals(true, ar["isRtl"])
+        assertEquals(
+            listOf("Arabic", "Latin"),
+            Fingerprint.fingerprintValue("hi مرحبا")["scripts"], // hi مرحبا
+        )
+        assertEquals(
+            listOf("CJK"),
+            Fingerprint.fingerprintValue("日本語")["scripts"], // 日本語
+        )
+        assertEquals(emptyList<String>(), Fingerprint.fingerprintValue("12345")["scripts"])
+    }
+
+    @Test
+    fun fingerprintHasNewlineDetectsLfAndCr() {
+        assertEquals(true, Fingerprint.fingerprintValue("line1\nline2")["hasNewline"])
+        assertEquals(true, Fingerprint.fingerprintValue("a\rb")["hasNewline"])
+        assertEquals(false, Fingerprint.fingerprintValue("oneline")["hasNewline"])
+    }
+
+    @Test
+    fun fingerprintHasZeroWidthDetectsInvisibleCodePoints() {
+        assertEquals(true, Fingerprint.fingerprintValue("a​b")["hasZeroWidth"]) // ZWSP
+        assertEquals(true, Fingerprint.fingerprintValue("a‍b")["hasZeroWidth"]) // ZWJ
+        assertEquals(false, Fingerprint.fingerprintValue("ab")["hasZeroWidth"])
+    }
+
+    @Test
+    fun fingerprintHasCombiningMarksDetectsDecomposedAccents() {
+        // e + combining acute (U+0301).
+        assertEquals(true, Fingerprint.fingerprintValue("é")["hasCombiningMarks"])
+        assertEquals(false, Fingerprint.fingerprintValue("e")["hasCombiningMarks"])
+        // precomposed é (U+00E9).
+        assertEquals(false, Fingerprint.fingerprintValue("é")["hasCombiningMarks"])
+    }
+
+    @Test
+    fun fingerprintLeadingTrailingWhitespaceFlagsEdgeWhitespace() {
+        assertEquals(true, Fingerprint.fingerprintValue(" hello")["leadingTrailingWhitespace"])
+        assertEquals(true, Fingerprint.fingerprintValue("hello ")["leadingTrailingWhitespace"])
+        assertEquals(false, Fingerprint.fingerprintValue("hello")["leadingTrailingWhitespace"])
+        // interior tab only -> not edge whitespace.
+        assertEquals(false, Fingerprint.fingerprintValue("a\tb")["leadingTrailingWhitespace"])
+    }
+
+    @Test
+    fun fingerprintFpVersionIsTwo() {
+        assertEquals(2, Fingerprint.FP_VERSION)
+    }
 }

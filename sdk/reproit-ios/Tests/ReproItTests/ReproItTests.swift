@@ -643,6 +643,53 @@ final class ReproItTests: XCTestCase {
         XCTAssertFalse(json.contains("a@b.co"))
     }
 
+    // ---- v2 features (bytes / scripts / combining / zero-width / newline / ws) ----
+
+    func testFingerprintBytesIsUtf8Length() {
+        let r = ReproItFingerprint.fingerprintValue("José\u{1F389}")
+        XCTAssertEqual(r["len"] as? Int, 5)
+        XCTAssertEqual(r["bytes"] as? Int, 9)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("hello")["bytes"] as? Int, 5)
+    }
+
+    func testFingerprintScriptsBuckets() {
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("hello")["scripts"] as? [String], ["Latin"])
+        let ar = ReproItFingerprint.fingerprintValue("\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}")
+        XCTAssertEqual(ar["scripts"] as? [String], ["Arabic"])
+        XCTAssertEqual(ar["isRtl"] as? Bool, true)
+        let mixed = ReproItFingerprint.fingerprintValue("hi \u{0645}\u{0631}\u{062D}\u{0628}\u{0627}")
+        XCTAssertEqual(mixed["scripts"] as? [String], ["Arabic", "Latin"])
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("\u{65E5}\u{672C}\u{8A9E}")["scripts"] as? [String], ["CJK"])
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("12345")["scripts"] as? [String], [])
+    }
+
+    func testFingerprintHasNewline() {
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("line1\nline2")["hasNewline"] as? Bool, true)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("oneline")["hasNewline"] as? Bool, false)
+    }
+
+    func testFingerprintHasZeroWidth() {
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("a\u{200B}b")["hasZeroWidth"] as? Bool, true)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("ab")["hasZeroWidth"] as? Bool, false)
+    }
+
+    func testFingerprintHasCombiningMarks() {
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("e\u{0301}")["hasCombiningMarks"] as? Bool, true)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("\u{00E9}")["hasCombiningMarks"] as? Bool, false)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("e")["hasCombiningMarks"] as? Bool, false)
+    }
+
+    func testFingerprintLeadingTrailingWhitespace() {
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue(" hello")["leadingTrailingWhitespace"] as? Bool, true)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("hello ")["leadingTrailingWhitespace"] as? Bool, true)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("hello")["leadingTrailingWhitespace"] as? Bool, false)
+        XCTAssertEqual(ReproItFingerprint.fingerprintValue("a\tb")["leadingTrailingWhitespace"] as? Bool, false)
+    }
+
+    func testFingerprintVersionIsTwo() {
+        XCTAssertEqual(ReproItFingerprint.fpVersion, 2)
+    }
+
     func testErrorEventCarriesContextFingerprintAndOmitsWhenNil() {
         let ev = ReproItEvent.error(
             sig: "cae5a9d5", path: [], message: "boom", stack: [],

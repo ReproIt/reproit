@@ -594,7 +594,7 @@ enum ReproItCapture {
         guard let window = keyWindow() else { return nil }
         let build: () -> [String: Any]? = {
             let fp = collectFieldFingerprints(in: window)
-            return fp.isEmpty ? nil : ["fingerprint": fp]
+            return fp.isEmpty ? nil : ["fingerprint": fp, "fpVersion": ReproItFingerprint.fpVersion]
         }
         if Thread.isMainThread { return build() }
         return DispatchQueue.main.sync(execute: build)

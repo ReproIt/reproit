@@ -119,10 +119,20 @@ public struct ReproItConfig {
 /// host-testable, identical shape and rules across all five SDKs. It returns
 /// FEATURES only and NEVER includes the raw string.
 public enum ReproItFingerprint {
+    /// Fingerprint schema version. Bumped to 2 when the v2 feature keys (bytes /
+    /// scripts / hasCombiningMarks / hasZeroWidth / hasNewline /
+    /// leadingTrailingWhitespace) were added. Stamped into the on-error context as
+    /// `fpVersion` alongside the fingerprint array. Matches `FP_VERSION` in the
+    /// web/Flutter SDKs.
+    public static let fpVersion = 2
+
     /// Derived, PII-safe features of a single text value:
     ///   len: Unicode scalar count (so "José🎉" -> 5)
+    ///   bytes: UTF-8 byte length
     ///   charset: "numeric" (all ASCII digits) | "ascii" | "unicode"
+    ///   scripts: sorted unique Unicode script buckets present (mixed-script bidi)
     ///   hasEmoji / isEmpty / isRtl: Bool flags
+    ///   hasCombiningMarks / hasZeroWidth / hasNewline / leadingTrailingWhitespace
     public static func fingerprintValue(_ value: String) -> [String: Any] {
         let scalars = Array(value.unicodeScalars)
         let len = scalars.count
@@ -135,13 +145,83 @@ public enum ReproItFingerprint {
             if v < 0x30 || v > 0x39 { allDigits = false }
         }
         let charset = hasUnicode ? "unicode" : (allDigits ? "numeric" : "ascii")
+        // v2 range checks iterate UTF-16 code units to match the web reference
+        // (which iterates JS string charCodeAt units) byte-for-byte.
+        let units = Array(value.utf16)
+        var hasNewline = false
+        for u in units where u == 0x0a || u == 0x0d { hasNewline = true }
+        func isWs(_ u: UInt16) -> Bool {
+            return u == 0x09 || u == 0x0a || u == 0x0b || u == 0x0c ||
+                   u == 0x0d || u == 0x20 || u == 0xa0
+        }
+        let edgeWs = !units.isEmpty && (isWs(units[0]) || isWs(units[units.count - 1]))
         return [
             "len": len,
+            "bytes": value.utf8.count,
             "charset": charset,
+            "scripts": scripts(units),
             "hasEmoji": hasEmoji(scalars),
             "isEmpty": isEmpty,
             "isRtl": isRtl(scalars),
+            "hasCombiningMarks": hasCombining(units),
+            "hasZeroWidth": hasZeroWidth(units),
+            "hasNewline": hasNewline,
+            "leadingTrailingWhitespace": edgeWs,
         ]
+    }
+
+    /// Zero-width / invisible code points (injection + normalization breakers).
+    static func hasZeroWidth(_ units: [UInt16]) -> Bool {
+        for u in units {
+            if u == 0x200b || u == 0x200c || u == 0x200d || u == 0x2060 || u == 0xfeff {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Combining marks (a base char + combining accent renders differently than a
+    /// precomposed one; a classic normalization/layout breaker).
+    static func hasCombining(_ units: [UInt16]) -> Bool {
+        for u in units {
+            if (u >= 0x0300 && u <= 0x036f) ||
+               (u >= 0x1ab0 && u <= 0x1aff) ||
+               (u >= 0x1dc0 && u <= 0x1dff) ||
+               (u >= 0x20d0 && u <= 0x20ff) ||
+               (u >= 0xfe20 && u <= 0xfe2f) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The Unicode SCRIPTS present, as a sorted unique list of coarse bucket
+    /// names. Ranges are fixed and shared verbatim across all SDKs.
+    static func scripts(_ units: [UInt16]) -> [String] {
+        var found = Set<String>()
+        for u in units {
+            if (u >= 0x41 && u <= 0x5a) || (u >= 0x61 && u <= 0x7a) ||
+               (u >= 0xc0 && u <= 0x24f) || (u >= 0x1e00 && u <= 0x1eff) {
+                found.insert("Latin")
+            } else if u >= 0x370 && u <= 0x3ff {
+                found.insert("Greek")
+            } else if u >= 0x400 && u <= 0x4ff {
+                found.insert("Cyrillic")
+            } else if u >= 0x590 && u <= 0x5ff {
+                found.insert("Hebrew")
+            } else if (u >= 0x600 && u <= 0x6ff) || (u >= 0x750 && u <= 0x77f) ||
+                      (u >= 0x8a0 && u <= 0x8ff) {
+                found.insert("Arabic")
+            } else if u >= 0x900 && u <= 0x97f {
+                found.insert("Devanagari")
+            } else if u >= 0xe00 && u <= 0xe7f {
+                found.insert("Thai")
+            } else if (u >= 0x3040 && u <= 0x30ff) || (u >= 0x3400 && u <= 0x9fff) ||
+                      (u >= 0xac00 && u <= 0xd7a3) || (u >= 0xf900 && u <= 0xfaff) {
+                found.insert("CJK")
+            }
+        }
+        return found.sorted()
     }
 
     /// Any scalar in a strong RTL Unicode block (Arabic / Hebrew / ...).

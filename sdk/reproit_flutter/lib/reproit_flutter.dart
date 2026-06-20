@@ -125,25 +125,119 @@ class _Snapshot {
 /// rules across all five SDKs and host-unit-tested in each. It returns FEATURES
 /// only and NEVER includes the raw string.
 class ReproItFingerprint {
-  /// Code-point count (so "José🎉" -> 5), charset, emoji/RTL/empty flags.
+  /// Fingerprint schema version. Bumped to 2 for the byte/script/combining/
+  /// zero-width/newline/edge-whitespace features below; the cloud reads it to
+  /// stay backward-compatible with v1 fingerprints (len/charset/emoji/rtl/empty).
+  static const int fpVersion = 2;
+
+  /// Code-point count (so "José🎉" -> 5), charset, emoji/RTL/empty flags, plus
+  /// the v2 features: bytes, scripts, combining/zero-width/newline/edge-ws.
   static Map<String, Object> fingerprintValue(String value) {
     final runes = value.runes.toList();
     final len = runes.length;
     final isEmpty = value.trim().isEmpty;
+    final units = value.codeUnits;
     var hasUnicode = false;
     var allDigits = !isEmpty;
+    var hasNewline = false;
     for (final cp in runes) {
       if (cp > 0x7f) hasUnicode = true;
       if (cp < 0x30 || cp > 0x39) allDigits = false;
     }
+    for (final c in units) {
+      if (c == 0x0a || c == 0x0d) hasNewline = true;
+    }
     final charset = hasUnicode ? 'unicode' : (allDigits ? 'numeric' : 'ascii');
+    // Edge whitespace: a fixed whitespace set (parity-safe, not locale trim).
+    bool isWs(int cc) =>
+        cc == 0x09 ||
+        cc == 0x0a ||
+        cc == 0x0b ||
+        cc == 0x0c ||
+        cc == 0x0d ||
+        cc == 0x20 ||
+        cc == 0xa0;
+    final edgeWs =
+        units.isNotEmpty && (isWs(units.first) || isWs(units.last));
     return <String, Object>{
       'len': len,
+      'bytes': utf8.encode(value).length,
       'charset': charset,
+      'scripts': _scripts(units),
       'hasEmoji': _hasEmoji(runes),
       'isEmpty': isEmpty,
       'isRtl': _isRtl(runes),
+      'hasCombiningMarks': _hasCombining(units),
+      'hasZeroWidth': _hasZeroWidth(units),
+      'hasNewline': hasNewline,
+      'leadingTrailingWhitespace': edgeWs,
     };
+  }
+
+  /// Zero-width / invisible code points (injection + normalization breakers).
+  static bool _hasZeroWidth(List<int> units) {
+    for (final c in units) {
+      if (c == 0x200b ||
+          c == 0x200c ||
+          c == 0x200d ||
+          c == 0x2060 ||
+          c == 0xfeff) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Combining marks (a base char + combining accent renders differently than a
+  /// precomposed one; a classic normalization/layout breaker).
+  static bool _hasCombining(List<int> units) {
+    for (final c in units) {
+      if ((c >= 0x0300 && c <= 0x036f) ||
+          (c >= 0x1ab0 && c <= 0x1aff) ||
+          (c >= 0x1dc0 && c <= 0x1dff) ||
+          (c >= 0x20d0 && c <= 0x20ff) ||
+          (c >= 0xfe20 && c <= 0xfe2f)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// The Unicode SCRIPTS present, as a sorted unique list of coarse bucket
+  /// names. Mixed-script (e.g. ["Arabic","Latin"]) is what bidi bugs need, which
+  /// `isRtl` alone can't express. Ranges are fixed and shared verbatim with the
+  /// other SDKs.
+  static List<String> _scripts(List<int> units) {
+    final found = <String>{};
+    for (final c in units) {
+      if ((c >= 0x41 && c <= 0x5a) ||
+          (c >= 0x61 && c <= 0x7a) ||
+          (c >= 0xc0 && c <= 0x24f) ||
+          (c >= 0x1e00 && c <= 0x1eff)) {
+        found.add('Latin');
+      } else if (c >= 0x370 && c <= 0x3ff) {
+        found.add('Greek');
+      } else if (c >= 0x400 && c <= 0x4ff) {
+        found.add('Cyrillic');
+      } else if (c >= 0x590 && c <= 0x5ff) {
+        found.add('Hebrew');
+      } else if ((c >= 0x600 && c <= 0x6ff) ||
+          (c >= 0x750 && c <= 0x77f) ||
+          (c >= 0x8a0 && c <= 0x8ff)) {
+        found.add('Arabic');
+      } else if (c >= 0x900 && c <= 0x97f) {
+        found.add('Devanagari');
+      } else if (c >= 0xe00 && c <= 0xe7f) {
+        found.add('Thai');
+      } else if ((c >= 0x3040 && c <= 0x30ff) ||
+          (c >= 0x3400 && c <= 0x9fff) ||
+          (c >= 0xac00 && c <= 0xd7a3) ||
+          (c >= 0xf900 && c <= 0xfaff)) {
+        found.add('CJK');
+      }
+    }
+    final list = found.toList()..sort();
+    return list;
   }
 
   /// Any code point in a strong RTL Unicode block (Arabic / Hebrew / ...).
@@ -649,7 +743,12 @@ class ReproIt {
     // under `context.fingerprint`. Best-effort: never break error reporting.
     try {
       final fp = _collectFields();
-      if (fp.isNotEmpty) ev['context'] = {'fingerprint': fp};
+      if (fp.isNotEmpty) {
+        ev['context'] = {
+          'fingerprint': fp,
+          'fpVersion': ReproItFingerprint.fpVersion,
+        };
+      }
     } catch (_) {}
     _enqueue(ev);
     // Errors are worth shipping promptly.

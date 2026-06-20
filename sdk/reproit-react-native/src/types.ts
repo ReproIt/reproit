@@ -30,11 +30,19 @@ export interface ErrorContext {
   fingerprint?: Array<{
     field: string;
     len: number;
+    bytes: number;
     charset: 'ascii' | 'numeric' | 'unicode';
+    scripts: string[];
     hasEmoji: boolean;
     isEmpty: boolean;
     isRtl: boolean;
+    hasCombiningMarks: boolean;
+    hasZeroWidth: boolean;
+    hasNewline: boolean;
+    leadingTrailingWhitespace: boolean;
   }>;
+  /** Fingerprint schema version stamped alongside the array (see FP_VERSION). */
+  fpVersion?: number;
 }
 
 /** An uncaught-error event carrying the graph path that produced it. */
