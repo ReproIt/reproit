@@ -25,6 +25,18 @@
  *   <script>ReproIt.init({ appId: "myapp", endpoint: "https://ingest.reproit.com/v1/events" })</script>
  *
  * Or as a module:  import "./reproit-web.js"; ReproIt.init({...})
+ *
+ * Electron / Tauri:
+ *   This IS the production SDK for Electron and Tauri apps too. Both render
+ *   their UI in a webview (Electron = Chromium, Tauri = the system WebView),
+ *   so the same DOM walk applies and the signature is byte-identical to what
+ *   the reproit electron/tauri runners compute (parity-gated in
+ *   runners/signature_test.mjs). Load it in the renderer/frontend exactly as
+ *   above; no Electron/Tauri-specific build is needed.
+ *     - Electron: include it in your renderer HTML, or import it from the
+ *       renderer entry. Do NOT load it in the main process (no DOM there).
+ *     - Tauri: import it from your frontend bundle like any web dependency.
+ *   See sdk/reproit-web.README.md for the full embedding guide.
  */
 (function (global) {
   "use strict";

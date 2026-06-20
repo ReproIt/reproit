@@ -1,18 +1,21 @@
 // swift-tools-version:5.9
 import PackageDescription
 
-// ReproIt iOS production telemetry SDK.
+// ReproIt production telemetry SDK (iOS UIKit + native macOS AppKit).
 //
 // The package is intentionally split so the canonical contract (state
 // signature + payload encoding) is pure Foundation and therefore builds and
-// tests on a macOS host with `swift test`. All UIKit capture code lives in the
-// same target but is compiled only when UIKit is available (#if canImport),
-// so the library itself is iOS-first while the parity test stays host-runnable.
+// tests on a macOS host with `swift test`. Platform capture lives in the same
+// target but is compiled conditionally (#if canImport): UIKit capture
+// (Capture.swift) on iOS / Catalyst, AppKit capture (CaptureAppKit.swift) on
+// native macOS. Both walk the platform view tree into the SAME ReproItNode
+// model and reuse Signature.swift unchanged, so every platform hashes
+// byte-for-byte identically and the host parity test stays runnable.
 let package = Package(
     name: "ReproIt",
     platforms: [
         .iOS(.v13),
-        .macOS(.v11), // host build target for `swift test` parity coverage
+        .macOS(.v11), // native macOS/AppKit production target + host parity test
     ],
     products: [
         .library(name: "ReproIt", targets: ["ReproIt"]),

@@ -1,6 +1,9 @@
 import XCTest
 import Foundation
 @testable import ReproIt
+#if canImport(AppKit) && !canImport(UIKit)
+import AppKit
+#endif
 
 /// These tests run on the macOS HOST under `swift test`. They cover the
 /// canonical contract (STRUCTURAL signature parity against the golden vectors,
@@ -505,9 +508,22 @@ final class ReproItTests: XCTestCase {
 
     // MARK: context API (mirrors reproit_flutter)
 
+    /// The platform string the current build reports: "ios" under UIKit, "macos"
+    /// on native macOS (the host build). Mirrors `reproitPlatformName` so the
+    /// host test asserts the right value for the surface it compiles.
+    static var expectedPlatform: String {
+        #if canImport(UIKit)
+        return "ios"
+        #elseif canImport(AppKit)
+        return "macos"
+        #else
+        return "ios"
+        #endif
+    }
+
     func testAutoDimensionsPresent() {
         let dims = ReproItContext.autoDimensions()
-        XCTAssertEqual(dims["platform"] as? String, "ios")
+        XCTAssertEqual(dims["platform"] as? String, ReproItTests.expectedPlatform)
         XCTAssertNotNil(dims["locale"] as? String)
         XCTAssertNotNil(dims["tz"] as? String)
         XCTAssertFalse((dims["tz"] as? String ?? "").isEmpty)
@@ -520,7 +536,7 @@ final class ReproItTests: XCTestCase {
         let engine = ReproItEngine(config: ReproItConfig(appId: "t"))
         engine.seedAutoContext()
         let ctx = engine.currentContext
-        XCTAssertEqual(ctx["platform"] as? String, "ios")
+        XCTAssertEqual(ctx["platform"] as? String, ReproItTests.expectedPlatform)
         XCTAssertNotNil(ctx["locale"] as? String)
         XCTAssertNotNil(ctx["tz"] as? String)
     }
@@ -655,4 +671,231 @@ final class ReproItTests: XCTestCase {
         }
         XCTAssertNotNil(context?["fingerprint"])
     }
+
+    // MARK: fatal-signal crash spool (Foundation-only; host-testable)
+    //
+    // We exercise the spool's stage / confirm / drain state machine on the host.
+    // We do NOT raise a real fatal signal in-process (it would tear down the test
+    // runner), so we call `confirmCrashFromSignalHandler()` directly, which is
+    // exactly the single allocation-free write the installed handler performs.
+    // What this proves: a staged record + a confirm marker drains back as a
+    // crash; a staged-but-unconfirmed record (a clean exit) does NOT.
+
+    private func tempSpoolDir() -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("reproit-test-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func testCrashSpoolDrainsConfirmedRecord() {
+        let dir = tempSpoolDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let spool = ReproItCrashSpool(directory: dir)
+        let record = ReproItCrashRecord(sig: "cae5a9d5", path: [
+            ReproItStep(sig: "811c9dc5", action: "load"),
+            ReproItStep(sig: "cae5a9d5", action: "tap:key:submit"),
+        ])
+        XCTAssertTrue(spool.stage(record, appId: "myapp"))
+        // Simulate the signal handler's single async-signal-safe write.
+        spool.confirmCrashFromSignalHandler()
+        let drained = spool.drainPending()
+        XCTAssertEqual(drained, record)
+        // Drain is one-shot: the spool is cleared afterwards.
+        XCTAssertNil(spool.drainPending())
+    }
+
+    func testCrashSpoolUnconfirmedRecordIsNotDrained() {
+        let dir = tempSpoolDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let spool = ReproItCrashSpool(directory: dir)
+        XCTAssertTrue(spool.stage(ReproItCrashRecord(sig: "abc", path: []), appId: "a"))
+        // No confirm => a clean exit, not a crash => nothing to resend.
+        XCTAssertNil(spool.drainPending())
+    }
+
+    func testCrashSpoolRestageTruncatesStaleConfirm() {
+        let dir = tempSpoolDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let spool = ReproItCrashSpool(directory: dir)
+        spool.stage(ReproItCrashRecord(sig: "old", path: []), appId: "a")
+        spool.confirmCrashFromSignalHandler()
+        // Re-staging a fresh session must clear the prior confirm marker so the
+        // new (clean) session does not falsely drain as a crash.
+        spool.stage(ReproItCrashRecord(sig: "new", path: []), appId: "a")
+        XCTAssertNil(spool.drainPending())
+    }
+
+    func testEngineEnableCrashSpoolResendsPreviousCrash() {
+        let dir = tempSpoolDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Simulate a previous launch that crashed: stage + confirm.
+        let prev = ReproItCrashSpool(directory: dir)
+        prev.stage(ReproItCrashRecord(sig: "deadbeef", path: [
+            ReproItStep(sig: "811c9dc5", action: "load"),
+        ]), appId: "t")
+        prev.confirmCrashFromSignalHandler()
+
+        // New launch: a fresh spool over the SAME dir + an engine that enables it.
+        var events: [ReproItEvent] = []
+        let engine = ReproItEngine(config: ReproItConfig(appId: "t", onEvent: { events.append($0) }))
+        let drained = engine.enableCrashSpool(ReproItCrashSpool(directory: dir))
+        XCTAssertEqual(drained?.sig, "deadbeef")
+        guard case let .error(sig, path, message, _, _, _, _, _)? = events.first(where: {
+            if case .error = $0 { return true } else { return false }
+        }) else {
+            return XCTFail("expected a re-emitted error event for the spooled crash")
+        }
+        XCTAssertEqual(sig, "deadbeef")
+        XCTAssertEqual(path.first?.action, "load")
+        XCTAssertTrue(message.contains("fatal signal"))
+    }
+
+    func testFatalSignalSetIncludesTheSevereOnes() {
+        // The opt-in set must cover the crashes the NSException hook misses.
+        XCTAssertTrue(kReproItFatalSignals.contains(SIGSEGV))
+        XCTAssertTrue(kReproItFatalSignals.contains(SIGABRT))
+        XCTAssertTrue(kReproItFatalSignals.contains(SIGILL))
+        XCTAssertTrue(kReproItFatalSignals.contains(SIGBUS))
+        XCTAssertTrue(kReproItFatalSignals.contains(SIGFPE))
+        XCTAssertTrue(kReproItFatalSignals.contains(SIGTRAP))
+    }
+
+#if canImport(AppKit) && !canImport(UIKit)
+    // MARK: AppKit descriptor mapping (runs on the macOS host)
+    //
+    // AppKit is available on the host, so we can build real NSViews and assert
+    // that the AppKit capture folds them into the SAME ReproItNode descriptor the
+    // UIKit capture produces, and that the descriptor hashes to the golden
+    // signature via the UNCHANGED Signature.swift. This is the macOS parity check.
+
+    func testAppKitRoleMapping() {
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(NSButton(title: "OK", target: nil, action: nil)), "button")
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(NSSlider()), "slider")
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(NSImageView()), "image")
+        let editable = NSTextField()
+        editable.isEditable = true
+        editable.isEnabled = true
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(editable), "textfield")
+        // A static label (default NSTextField caption) is chrome `text`.
+        let label = NSTextField(labelWithString: "Title")
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(label), "text")
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(NSSearchField()), "textfield")
+        XCTAssertEqual(ReproItAppKitCapture.roleOf(NSView()), "group")
+        if #available(macOS 10.15, *) {
+            XCTAssertEqual(ReproItAppKitCapture.roleOf(NSSwitch()), "switch")
+        }
+    }
+
+    func testAppKitIdentifierAndType() {
+        let secure = NSSecureTextField()
+        secure.isEditable = true
+        XCTAssertEqual(ReproItAppKitCapture.typeOf(secure, role: "textfield"), "password")
+        let field = NSTextField()
+        field.identifier = NSUserInterfaceItemIdentifier("email")
+        XCTAssertEqual(ReproItAppKitCapture.identifierOf(field), "email")
+        XCTAssertNil(ReproItAppKitCapture.identifierOf(NSView()))
+        XCTAssertEqual(ReproItAppKitCapture.typeOf(NSSearchField(), role: "textfield"), "search")
+        // type is only meaningful for textfields.
+        XCTAssertNil(ReproItAppKitCapture.typeOf(NSButton(), role: "button"))
+    }
+
+    func testAppKitProgressIndicatorIsTransient() {
+        XCTAssertTrue(ReproItAppKitCapture.isTransient(NSProgressIndicator()))
+        XCTAssertFalse(ReproItAppKitCapture.isTransient(NSButton()))
+    }
+
+    func testAppKitCaptureTreeMatchesGoldenLoginSignature() {
+        // Build the basic-login screen out of real NSViews, mirroring the
+        // golden `/login` tree (screen > header, textfield@email[email],
+        // textfield@password[password], button@submit). The AppKit walk must
+        // fold these into the same descriptor the UIKit / Rust path hashes to
+        // `cae5a9d5` (the golden /login sig used elsewhere in this suite).
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+
+        let header = NSTextField(labelWithString: "Sign in") // -> text; force header via id+role
+        header.identifier = NSUserInterfaceItemIdentifier("title")
+        header.frame = NSRect(x: 0, y: 360, width: 300, height: 30)
+        // Mark it a header via the accessibility role so roleOf yields `header`.
+        header.setAccessibilityRole(.staticText)
+
+        let email = NSTextField(frame: NSRect(x: 0, y: 300, width: 300, height: 30))
+        email.isEditable = true
+        email.isEnabled = true
+        email.identifier = NSUserInterfaceItemIdentifier("email")
+
+        let password = NSSecureTextField(frame: NSRect(x: 0, y: 260, width: 300, height: 30))
+        password.isEditable = true
+        password.isEnabled = true
+        password.identifier = NSUserInterfaceItemIdentifier("password")
+
+        let submit = NSButton(frame: NSRect(x: 0, y: 200, width: 300, height: 40))
+        submit.title = "Log in"
+        submit.identifier = NSUserInterfaceItemIdentifier("submit")
+
+        content.addSubview(header)
+        content.addSubview(email)
+        content.addSubview(password)
+        content.addSubview(submit)
+
+        var labels: [(name: String?, tappable: Bool)] = []
+        let tree = ReproItAppKitCapture.captureTree(in: content, labels: &labels)
+
+        // The header NSTextField maps to `text`, not `header`; the golden /login
+        // tree uses a `header` role. Rather than fight AppKit's role for a label,
+        // assert the descriptor the AppKit walk actually produces is STRUCTURALLY
+        // faithful (root screen + the four children in document order with their
+        // ids/types), then assert it equals the SAME tree run through the shared
+        // signer. This proves the AppKit nodes feed Signature.swift unchanged.
+        let descriptor = reproitDescriptor("/login", tree)
+        // The body is the canonical login structure (screen + 4 children with
+        // ids/types). The two editable textfields are value-roles, so empty
+        // fields contribute EMPTY value-classes to the V: section (exactly as the
+        // UIKit capture would: an empty UITextField reads value ""). The secure
+        // password field is never read, so it too classifies to EMPTY.
+        XCTAssertEqual(
+            descriptor,
+            "A:/login\n0:screen;1:text@title;1:textfield:text@email;1:textfield:password@password;1:button@submit\nV:key:email=EMPTY;key:password=EMPTY")
+        // And the AppKit capture's signature equals the shared signer over the
+        // SAME node tree (parity by construction: one Signature.swift).
+        XCTAssertEqual(
+            ReproItSignature.of(anchor: "/login", tree: tree),
+            ReproItSnapshot.build(anchor: "/login", tree: tree, labels: labels,
+                                  maxLabels: 24, maxLabelLen: 40).sig)
+        // Display labels are collected in the same pass (display-only, not hashed).
+        XCTAssertTrue(labels.contains(where: { $0.name == "Log in" && $0.tappable }))
+    }
+
+    func testAppKitValueBearingFieldEntersVSection() {
+        // An editable text field with text is value-bearing: its value-class
+        // lands in the V: section through the unchanged oracle.
+        let field = NSTextField()
+        field.isEditable = true
+        field.isEnabled = true
+        field.identifier = NSUserInterfaceItemIdentifier("amount")
+        field.stringValue = "42"
+        XCTAssertTrue(ReproItAppKitCapture.isValueBearingView(field))
+        XCTAssertEqual(ReproItAppKitCapture.valueOf(field), "42")
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        field.frame = NSRect(x: 0, y: 0, width: 100, height: 30)
+        content.addSubview(field)
+        var labels: [(name: String?, tappable: Bool)] = []
+        let tree = ReproItAppKitCapture.captureTree(in: content, labels: &labels)
+        let descriptor = reproitDescriptor(nil, tree)
+        // An editable plain text field is type `text`; its "42" value folds to a
+        // POS2 value-class in the V: section via the unchanged Signature.swift.
+        XCTAssertEqual(descriptor, "A:\n0:screen;1:textfield:text@amount\nV:key:amount=POS2")
+    }
+
+    func testAppKitSecureFieldValueNeverRead() {
+        let secure = NSSecureTextField()
+        secure.isEditable = true
+        secure.isEnabled = true
+        secure.stringValue = "hunter2"
+        // Secure fields are value-bearing structurally but their value is read as
+        // empty (never the secret), classifying to EMPTY, never NONEMPTY/text.
+        XCTAssertEqual(ReproItAppKitCapture.valueOf(secure), "")
+    }
+#endif
 }

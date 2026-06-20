@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The reproit signature core + engine. Plain, dependency-free C# that targets
+    BOTH netstandard2.0 (so it embeds in WPF / .NET Framework apps and any older
+    consumer) AND net8.0 (so the cross-platform parity test runs on the .NET 8
+    SDK on macOS / Linux / Windows). There is intentionally NO Windows (WPF /
+    WinUI) reference here: the canonical signature must be reproducible on any
+    host, exactly like the Kotlin / Swift signature cores run without the
+    platform SDK.
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>ReproIt.Core</AssemblyName>
+    <RootNamespace>ReproIt.Core</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Description>ReproIt canonical structural-signature core and reporting engine (cross-platform, no Windows dependency).</Description>
+  </PropertyGroup>
+
+</Project>

@@ -31,8 +31,21 @@ public enum ReproIt {
         // Tier-1 auto context (platform/os/locale/tz), PII-safe, Foundation-only.
         e.seedAutoContext()
         e.startFlushTimer()
+        // Fatal-signal capture (opt-in). Foundation/POSIX only, so it is wired
+        // here (not in the UIKit/AppKit capture): drain any spooled crash from a
+        // previous launch, restage the current state, then install the handlers.
+        // This catches the SIGSEGV/SIGABRT class the NSException hook cannot see.
+        if config.catchSignals {
+            e.enableCrashSpool(ReproItCrashSpool.shared)
+            reproitInstallSignalHandlers()
+        }
+        // Live capture: UIKit on iOS, AppKit on native macOS. Both walk the
+        // platform a11y/view tree into the SAME ReproItNode model and feed the
+        // engine; both install the NSException hook. Exactly one is compiled.
         #if canImport(UIKit)
         ReproItCapture.attach(to: e)
+        #elseif canImport(AppKit)
+        ReproItAppKitCapture.attach(to: e)
         #endif
         return e
     }
@@ -75,6 +88,8 @@ public enum ReproIt {
     public static func screen(_ name: String?) {
         #if canImport(UIKit)
         ReproItCapture.setScreenAnchor(name)
+        #elseif canImport(AppKit)
+        ReproItAppKitCapture.setScreenAnchor(name)
         #endif
     }
 
@@ -88,6 +103,8 @@ public enum ReproIt {
     public static func valueNodes(_ selectors: [String]) {
         #if canImport(UIKit)
         ReproItCapture.setValueNodeSelectors(selectors)
+        #elseif canImport(AppKit)
+        ReproItAppKitCapture.setValueNodeSelectors(selectors)
         #endif
     }
 
@@ -98,8 +115,11 @@ public enum ReproIt {
         engine = nil
         lock.unlock()
         e?.stop()
+        reproitUninstallSignalHandlers()
         #if canImport(UIKit)
         ReproItCapture.detach()
+        #elseif canImport(AppKit)
+        ReproItAppKitCapture.detach()
         #endif
     }
 }

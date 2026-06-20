@@ -25,6 +25,10 @@ public final class ReproItEngine {
     private var pendingAction: String?   // set at tap/nav time, consumed by the next edge
     private var flushTimer: Timer?
     private var stopped = false
+    // Crash spool: when enabled (cfg.catchSignals), the engine restages the
+    // latest signature + repro path here on every state change so a fatal-signal
+    // handler has a ready, pre-serialized record to confirm (see ReproItCrashSpool).
+    private var spool: ReproItCrashSpool?
 
     public init(config: ReproItConfig, session: URLSession = .shared) {
         self.cfg = config
@@ -35,6 +39,47 @@ public final class ReproItEngine {
     public var config: ReproItConfig { cfg }
 
     // MARK: lifecycle
+
+    /// Enable fatal-signal crash spooling (cfg.catchSignals). The engine will
+    /// restage the latest signature + repro path into `spool` on every state
+    /// change so a signal handler can confirm it with one allocation-free write.
+    /// First it drains any record left by a previous launch's fatal signal and
+    /// re-emits it as an `error` event (best-effort delivery across launches).
+    /// Returns the drained record, if any (for tests / introspection).
+    @discardableResult
+    public func enableCrashSpool(_ spool: ReproItCrashSpool) -> ReproItCrashRecord? {
+        lock.lock()
+        self.spool = spool
+        lock.unlock()
+        let pending = spool.drainPending()
+        if let pending = pending {
+            // Re-emit a crash from a previous launch. It carries the spooled
+            // signature and the full repro path that led to the fatal signal.
+            let ev = ReproItEvent.error(
+                sig: pending.sig, path: pending.path,
+                message: "fatal signal (spooled from previous launch)",
+                stack: [], source: nil, line: nil, context: nil, t: reproitNowMs())
+            emit(ev)
+            flush()
+        }
+        // Stage the initial (empty-path) record so even a crash before the first
+        // state change leaves something to confirm.
+        restageSpool()
+        return pending
+    }
+
+    /// Restage the current signature + repro path into the crash spool (no-op if
+    /// spooling is disabled). Called off the signal path on every state change so
+    /// the spooled record always reflects the latest known state; the signal
+    /// handler itself never serializes anything.
+    private func restageSpool() {
+        lock.lock()
+        guard let spool = spool else { lock.unlock(); return }
+        let record = ReproItCrashRecord(sig: currentSig ?? "", path: path)
+        let appId = cfg.appId
+        lock.unlock()
+        spool.stage(record, appId: appId)
+    }
 
     /// Populate the tier-1 auto context dimensions (platform/os/locale/tz). Called
     /// once at start; existing keys are preserved (an earlier identify wins).
@@ -89,8 +134,12 @@ public final class ReproItEngine {
         stopped = true
         flushTimer?.invalidate()
         flushTimer = nil
+        let spool = self.spool
+        self.spool = nil
         lock.unlock()
         flush()
+        // A clean stop is not a crash: clear the spool so no record lingers.
+        spool?.clear()
     }
 
     // MARK: capture inputs (called by the UIKit layer or tests)
@@ -117,6 +166,7 @@ public final class ReproItEngine {
                 labels: cfg.redactLabels ? nil : snap.labels, t: reproitNowMs())
             lock.unlock()
             emit(ev)
+            restageSpool()
             return true
         }
         if snap.sig == currentSig { lock.unlock(); return false }
@@ -130,6 +180,7 @@ public final class ReproItEngine {
             labels: cfg.redactLabels ? nil : snap.labels, t: reproitNowMs())
         lock.unlock()
         emit(ev)
+        restageSpool()
         return true
     }
 

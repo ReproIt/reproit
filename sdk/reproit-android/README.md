@@ -19,7 +19,12 @@ byte-for-byte against `signature_vectors.json` (see `src/test/`).
   `Application.ActivityLifecycleCallbacks` to track the foreground Activity.
 - Snapshots the **live view tree** of the current Activity's `window.decorView`,
   recursing `ViewGroup`s over visible views (`visibility == VISIBLE`,
-  width/height > 0). The **state signature** is the canonical STRUCTURAL
+  width/height > 0). When it reaches a **Jetpack Compose** host (an
+  `AndroidComposeView`), it walks the Compose **semantics tree** (the same tree
+  TalkBack and the Appium/UiAutomator2 runner read) instead of the opaque View
+  leaf, so a Compose UI surfaces its real structure (roles, testTags, editable /
+  value state) and produces the same signature the runner sees. The **state
+  signature** is the canonical STRUCTURAL
   descriptor of the captured node tree (roles + ids + input types + icons + tree
   shape, prefixed by the screen anchor), hashed with FNV-1a 32-bit. Localized
   text never enters the hash, so an EN and a DE render of the same screen hash
@@ -183,9 +188,10 @@ Turkish dotless "i", an empty or RTL field) WITHOUT storing PII. The pure-Kotlin
 Field values are read from `EditText` views on the foreground decor view, then
 fingerprinted and discarded; raw text never leaves the device. Honest
 limitation: password fields (an `inputType` with a PASSWORD variation) are
-**skipped entirely** and never read. Jetpack Compose `TextField`s live inside a
-single `ComposeView` and are **not** visible to the `View`-tree walk (same
-Compose limitation as the state-graph capture below). Empty fields report
+**skipped entirely** and never read. Compose `TextField`s are folded into the
+**state-graph** signature via the Compose semantics walk (below), but the tier-3
+on-error input fingerprint still reads only classic `EditText` views in v0;
+fingerprinting Compose text fields is a follow-up. Empty fields report
 `isEmpty: true`. The field label is `contentDescription` or `hint`, or a
 positional index, never derived from the value.
 
@@ -204,10 +210,21 @@ imports, so it is host-testable without the Android SDK:
 - `Json.kt`, minimal JSON encoder for the event payloads + a minimal JSON
   decoder used by the parity gate to read `signature_vectors.json` on the host.
 - `Fingerprint.kt`, the PII-safe input `fingerprintValue` (features, not values).
+- `Compose.kt`, the pure Jetpack Compose semantics-to-descriptor mapping: a
+  framework-free `ComposeSemantics` holder + `roleOf` / `typeOf` / `valueOf` /
+  `toNode`, mapping each Compose semantics node into the SAME `Signature.Node`
+  model the View walk produces (NO `androidx.*` import, host-unit-tested in
+  `ComposeMappingTest`).
 - `Config.kt`, config data class.
 
 `ReproIt.kt` is the thin Android binding (lifecycle, view-tree walk, taps,
-errors, `HttpURLConnection`).
+errors, `HttpURLConnection`). `ComposeCapture.kt` is the Android-side bridge that
+reads the Compose `SemanticsOwner` via the public `androidx.compose.ui.semantics`
+APIs and builds `Compose.ComposeSemantics` holders for `Compose.toNode`; like
+`ReproIt.kt` it imports `androidx.*` and is excluded from the host parity test.
+The Compose dependency is `compileOnly`, so apps that do not use Compose pull in
+nothing extra (a runtime class probe in `ReproIt` makes the Compose walk a no-op
+when Compose is absent).
 
 ## Build & test
 
@@ -239,11 +256,22 @@ sh ./run_host_test.sh
   `AccessibilityNodeInfo` (never from text), with ids from the resource-entry
   name (or a `ReproIt.tagId` marker), input types from `EditText.inputType`, and
   optional icons from a `ReproIt.tagIcon` marker. For ordinary apps this yields
-  the same canonical structure the runner sees; it differs from the runner for:
-  - **Jetpack Compose**: a `ComposeView` is one native `View`, so its internal
-    semantics are not visible to a `View`-tree walk. Compose support needs the
-    Compose semantics API (`SemanticsOwner`) and is **not** implemented here.
-    Plain Android Views (XML layouts, AppCompat) are fully covered.
+  the same canonical structure the runner sees.
+  - **Jetpack Compose** is now **supported**: a `ComposeView` is one native
+    `View`, so its internal composables are invisible to a plain `View`-tree
+    walk, but the SDK detects the hosted `AndroidComposeView` and walks its
+    Compose **semantics** tree (`SemanticsOwner`, the same tree TalkBack and the
+    Appium/UiAutomator2 runner read), mapping each semantics node's role / text /
+    contentDescription / testTag / editable-value into the SAME canonical
+    `Node` model the View walk uses (`Compose.kt`). So a Compose screen produces
+    the same structural signature the runner sees, byte-for-byte. The Compose
+    dependency is `compileOnly` (no extra weight for non-Compose apps), and
+    `testTagsAsResourceId` is not required for the SDK (it reads `testTag`
+    directly from semantics). Plain Android Views (XML layouts, AppCompat) remain
+    fully covered. Honest limits: only `password` is distinguished as a Compose
+    field TYPE (email/number refinement is not reliably in semantics), icons are
+    not read from Compose, and the merge boundary follows the UNMERGED semantics
+    tree (a `mergeDescendants` Button surfaces its inner text node as a child).
   - **WebView** content (its DOM is opaque to the View tree).
   - Custom-drawn canvases with no child Views and no `contentDescription`.
 - **Tap hit-testing** uses `getLocationOnScreen` + bounds and picks the deepest

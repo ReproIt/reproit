@@ -38,8 +38,20 @@
 // Config via REPROIT_FUZZ_CONFIG (json path): {"seed":N,"budget":N}. Output is
 // the marker protocol on stdout, parsed by reproit exactly like every backend.
 //
-// Status: authored, NOT yet validated against a built ImGui app. The signature
-// core is parity-tested against signature_vectors.json (runners/test_signature.c).
+// PRODUCTION TELEMETRY (optional, OFF by default): define REPROIT_TELEMETRY and
+// the SAME reproit:: wrappers double as a production SDK. Every frame the tree
+// they build is signed with the existing canonical core and reported as a live
+// usage graph (states + edges) plus crash signatures, in the same
+// {appId,sentAt,ctx?,events} contract the other SDKs POST. You supply a transport
+// callback (wire it to libcurl/your HTTP), or the built-in transport spools
+// newline-delimited JSON to a file/FD. A crash hook flushes the last signature +
+// edge path on SIGSEGV/SIGABRT (async-signal-safe). With telemetry on the fuzz
+// driver does not run: the app reports its real sessions, it is not driven. See
+// the "PRODUCTION TELEMETRY CORE" block below and reproit::TelemetryInit().
+//
+// The signature core is parity-tested against signature_vectors.json
+// (runners/test_signature.c). The telemetry layer never modifies that core; it
+// only CALLS ReproIt_Signature, so parity is preserved.
 
 // ===========================================================================
 // CANONICAL STRUCTURAL SIGNATURE CORE (docs/signature.md)
@@ -411,6 +423,398 @@ static void ReproIt_Signature(const char* anchor, const ReproItSig_Node* root, c
 #endif  // REPROIT_SIGNATURE_CORE_H
 
 // ===========================================================================
+// PRODUCTION TELEMETRY CORE (optional; OFF by default)
+//
+// IDENTICAL to the telemetry core block in runners/reproit_clay.h (shared guard,
+// so if both headers land in one TU the telemetry core appears once). This block
+// is COMPLETELY SEPARATE from the signature core above and from the fuzz drivers
+// below: it is compiled only when REPROIT_TELEMETRY is defined, and it never
+// touches the parity-critical signature core (it only CALLS the public
+// ReproIt_Signature). So fuzz behavior is byte-for-byte unchanged when telemetry
+// is off, and the signature core stays parity-tested.
+//
+// What it does: a shipped immediate-mode app, built with -DREPROIT_TELEMETRY=1,
+// reports REAL production sessions as the same usage graph the fuzzer produces.
+// Each frame (or sampled) it computes the canonical signature via the existing
+// core, tracks the current edge/action path, and buffers events. A user-supplied
+// transport callback (or the built-in newline-delimited-JSON spool transport)
+// ships batches to the cloud in the SAME contract the other SDKs POST:
+//   { "appId": <str>, "sentAt": <ms>, "ctx": <raw-json-or-omitted>, "events": [...] }
+// Event shapes mirror sdk/reproit-web.js:
+//   edge:  {"kind":"edge","from":<sig|null>,"action":<str>,"to":<sig>,"t":<ms>}
+//   state: {"kind":"state","sig":<sig>,"t":<ms>}
+//   error: {"kind":"error","sig":<sig|null>,"path":[{"sig","action"}...],
+//           "message":<str>,"t":<ms>}
+//
+// A crash hook (REPROIT_TELEMETRY_CRASH, on by default in telemetry mode)
+// installs SIGSEGV/SIGABRT/SIGBUS/SIGFPE/SIGILL handlers that flush the LAST
+// signature + edge path before exit. The handler is async-signal-safe: the crash
+// payload is PRE-SERIALIZED into a fixed static buffer on every frame, so the
+// handler does no malloc, no printf, no buffered-stdio: it only does a single
+// async-signal-safe write(2) to a fixed FD (the spool), then re-raises.
+// ===========================================================================
+#if defined(REPROIT_TELEMETRY) && !defined(REPROIT_TELEMETRY_CORE_H)
+#define REPROIT_TELEMETRY_CORE_H
+#include <signal.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#ifndef REPROIT_TELE_MAX_EVENTS
+#define REPROIT_TELE_MAX_EVENTS 64        // events buffered before an auto-flush
+#endif
+#ifndef REPROIT_TELE_EVENT_CAP
+#define REPROIT_TELE_EVENT_CAP 512        // bytes per serialized event line
+#endif
+#ifndef REPROIT_TELE_PATH_CAP
+#define REPROIT_TELE_PATH_CAP 60          // graph-trail entries kept for a repro
+#endif
+#ifndef REPROIT_TELE_CRASH_CAP
+#define REPROIT_TELE_CRASH_CAP 4096       // pre-serialized crash payload buffer
+#endif
+
+// The transport callback contract. The telemetry layer hands you ONE fully
+// serialized JSON batch (already in the {appId,sentAt,ctx?,events} envelope, a
+// NUL-terminated UTF-8 string of `len` bytes) plus the `user` pointer you set at
+// init. You ship it however you like (libcurl POST, a queue, a file). Return is
+// ignored. The callback is invoked from reproit telemetry flush points (frame
+// flush / explicit flush), NEVER from the crash signal handler (the crash path
+// uses only the async-signal-safe spool write, see below), so your transport may
+// allocate/use stdio freely. It must NOT call back into the reproit telemetry API.
+typedef void (*ReproIt_TransportFn)(const char* json, size_t len, void* user);
+
+// Telemetry init options. Zero-initialize then set fields; appId/endpoint are
+// borrowed (kept by pointer, so use string literals or stable storage).
+typedef struct {
+    const char* appId;             // required; defaults to "app" if NULL
+    ReproIt_TransportFn transport; // optional; NULL => built-in spool transport
+    void* transportUser;           // opaque, passed to transport
+    const char* ctxJson;           // optional raw JSON object/string for "ctx" (no validation); NULL => omit
+    const char* spoolPath;         // built-in transport target; NULL => env REPROIT_TELEMETRY_SPOOL, else stderr fd
+    bool installCrashHook;         // install SIGSEGV/SIGABRT/... handlers (default true via init helper)
+    bool sampleEnabled;            // host decides sampling; false => telemetry no-ops
+} ReproIt_TeleOptions;
+
+// One graph-trail entry kept for crash repros: (signature, action that led here).
+typedef struct {
+    char sig[9];
+    char action[64];
+} ReproIt_TelePathEntry;
+
+typedef struct {
+    bool active;                                   // init() called and sampling on
+    char appId[128];
+    ReproIt_TransportFn transport;
+    void* transportUser;
+    char ctxJson[512];
+    bool hasCtx;
+
+    // serialized event lines, flushed as one batch
+    char events[REPROIT_TELE_MAX_EVENTS][REPROIT_TELE_EVENT_CAP];
+    int nEvents;
+
+    // current state + graph trail (for edges and the crash repro path)
+    char curSig[9];
+    bool hasCur;
+    ReproIt_TelePathEntry path[REPROIT_TELE_PATH_CAP];
+    int nPath;
+
+    // built-in spool transport target (also the crash-hook write target)
+    int spoolFd;
+    bool spoolOwned;                               // we opened it, so close on flush-exit
+
+    // PRE-SERIALIZED crash payload, rebuilt on every state change so the signal
+    // handler can write it without touching the heap or stdio.
+    char crashBuf[REPROIT_TELE_CRASH_CAP];
+    size_t crashLen;
+    bool crashHookInstalled;
+} ReproIt_TeleState;
+
+// Single telemetry instance. `static` so each TU that compiles the telemetry core
+// gets its own; the shared guard means only one TU compiles it when both headers
+// are present.
+static ReproIt_TeleState reproit_tele;
+
+// ---- small async-signal-safe-friendly serializers -------------------------
+// (Used both on the hot path and, for the crash buffer, pre-serialized off the
+// signal handler. The handler itself only calls write(2).)
+
+// Append src to dst[cap] at *len with NUL term, truncating safely. Returns false
+// if truncated. No allocation.
+static bool reproit_tele_append(char* dst, size_t cap, size_t* len, const char* src) {
+    if (!src) return true;
+    size_t i = 0;
+    while (src[i] && *len + 1 < cap) { dst[(*len)++] = src[i++]; }
+    dst[*len < cap ? *len : cap - 1] = 0;
+    return src[i] == 0;
+}
+
+// Append a JSON string literal value WITH surrounding quotes, escaping the JSON
+// control set (" \\ and the C0 controls). Deterministic, no locale, no alloc.
+static void reproit_tele_append_jstr(char* dst, size_t cap, size_t* len, const char* s) {
+    if (*len + 1 < cap) dst[(*len)++] = '"';
+    for (const char* p = s ? s : ""; *p && *len + 2 < cap; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c == '"' || c == '\\') { dst[(*len)++] = '\\'; dst[(*len)++] = (char)c; }
+        else if (c == '\n') { dst[(*len)++] = '\\'; dst[(*len)++] = 'n'; }
+        else if (c == '\r') { dst[(*len)++] = '\\'; dst[(*len)++] = 'r'; }
+        else if (c == '\t') { dst[(*len)++] = '\\'; dst[(*len)++] = 't'; }
+        else if (c < 0x20) { /* drop other control bytes */ }
+        else dst[(*len)++] = (char)c;
+    }
+    if (*len + 1 < cap) dst[(*len)++] = '"';
+    dst[*len < cap ? *len : cap - 1] = 0;
+}
+
+// Append an unsigned 64-bit integer in decimal. No alloc.
+static void reproit_tele_append_u64(char* dst, size_t cap, size_t* len, uint64_t v) {
+    char tmp[24];
+    int i = 0;
+    if (v == 0) tmp[i++] = '0';
+    while (v && i < (int)sizeof tmp) { tmp[i++] = (char)('0' + (int)(v % 10)); v /= 10; }
+    while (i-- && *len + 1 < cap) dst[(*len)++] = tmp[i];
+    dst[*len < cap ? *len : cap - 1] = 0;
+}
+
+// Wall-clock milliseconds for the "t"/"sentAt" fields. time() is async-signal-
+// safe per POSIX; we only use second precision *1000 to stay portable.
+static uint64_t reproit_tele_now_ms(void) {
+    return (uint64_t)time(NULL) * 1000ull;
+}
+
+// Rebuild the PRE-SERIALIZED crash payload from the current state + path, so the
+// signal handler can emit it with a single write(2). Called on the hot path only
+// (never from the handler). The crash event is a complete batch envelope so the
+// spooled line is a self-contained record even though the process is dying.
+static void reproit_tele_build_crash(const char* signame) {
+    char* b = reproit_tele.crashBuf;
+    size_t cap = sizeof reproit_tele.crashBuf;
+    size_t n = 0;
+    reproit_tele_append(b, cap, &n, "{\"appId\":");
+    reproit_tele_append_jstr(b, cap, &n, reproit_tele.appId);
+    reproit_tele_append(b, cap, &n, ",\"sentAt\":");
+    reproit_tele_append_u64(b, cap, &n, reproit_tele_now_ms());
+    if (reproit_tele.hasCtx) {
+        reproit_tele_append(b, cap, &n, ",\"ctx\":");
+        reproit_tele_append(b, cap, &n, reproit_tele.ctxJson);
+    }
+    reproit_tele_append(b, cap, &n, ",\"events\":[{\"kind\":\"error\",\"sig\":");
+    if (reproit_tele.hasCur) reproit_tele_append_jstr(b, cap, &n, reproit_tele.curSig);
+    else reproit_tele_append(b, cap, &n, "null");
+    reproit_tele_append(b, cap, &n, ",\"message\":");
+    reproit_tele_append_jstr(b, cap, &n, signame ? signame : "crash");
+    reproit_tele_append(b, cap, &n, ",\"path\":[");
+    for (int i = 0; i < reproit_tele.nPath; i++) {
+        if (i) reproit_tele_append(b, cap, &n, ",");
+        reproit_tele_append(b, cap, &n, "{\"sig\":");
+        reproit_tele_append_jstr(b, cap, &n, reproit_tele.path[i].sig);
+        reproit_tele_append(b, cap, &n, ",\"action\":");
+        reproit_tele_append_jstr(b, cap, &n, reproit_tele.path[i].action);
+        reproit_tele_append(b, cap, &n, "}");
+    }
+    reproit_tele_append(b, cap, &n, "]}]}\n");
+    reproit_tele.crashLen = n;
+}
+
+// Flush the buffered events as ONE batch through the transport (or the built-in
+// spool transport when none was set). Safe to call any time on the hot path; a
+// no-op when there is nothing buffered. Not called from the signal handler.
+static void reproit_tele_flush(void) {
+    if (reproit_tele.nEvents == 0) return;
+    // Build the {appId,sentAt,ctx?,events:[...]} envelope into a heap batch buffer.
+    size_t cap = (size_t)reproit_tele.nEvents * REPROIT_TELE_EVENT_CAP + 1024;
+    char* batch = (char*)malloc(cap);
+    if (!batch) { reproit_tele.nEvents = 0; return; }
+    size_t n = 0;
+    reproit_tele_append(batch, cap, &n, "{\"appId\":");
+    reproit_tele_append_jstr(batch, cap, &n, reproit_tele.appId);
+    reproit_tele_append(batch, cap, &n, ",\"sentAt\":");
+    reproit_tele_append_u64(batch, cap, &n, reproit_tele_now_ms());
+    if (reproit_tele.hasCtx) {
+        reproit_tele_append(batch, cap, &n, ",\"ctx\":");
+        reproit_tele_append(batch, cap, &n, reproit_tele.ctxJson);
+    }
+    reproit_tele_append(batch, cap, &n, ",\"events\":[");
+    for (int i = 0; i < reproit_tele.nEvents; i++) {
+        if (i) reproit_tele_append(batch, cap, &n, ",");
+        reproit_tele_append(batch, cap, &n, reproit_tele.events[i]);
+    }
+    reproit_tele_append(batch, cap, &n, "]}");
+
+    if (reproit_tele.transport) {
+        reproit_tele.transport(batch, n, reproit_tele.transportUser);
+    } else if (reproit_tele.spoolFd >= 0) {
+        // Built-in transport: newline-delimited JSON to the spool fd.
+        size_t off = 0;
+        while (off < n) {
+            long w = (long)write(reproit_tele.spoolFd, batch + off, n - off);
+            if (w <= 0) break;
+            off += (size_t)w;
+        }
+        if (write(reproit_tele.spoolFd, "\n", 1) < 0) { /* best-effort */ }
+    }
+    free(batch);
+    reproit_tele.nEvents = 0;
+}
+
+// Push one already-serialized event line into the buffer, auto-flushing when full.
+static void reproit_tele_push(const char* line) {
+    if (reproit_tele.nEvents >= REPROIT_TELE_MAX_EVENTS) reproit_tele_flush();
+    snprintf(reproit_tele.events[reproit_tele.nEvents], REPROIT_TELE_EVENT_CAP, "%s", line);
+    reproit_tele.nEvents++;
+}
+
+// The crash signal handler. Async-signal-safe: it does NOT allocate, format, or
+// touch buffered stdio. It writes the PRE-SERIALIZED crashBuf (rebuilt each frame)
+// with a single write(2) to the spool fd, then restores the default disposition
+// and re-raises so the OS still produces a core dump / the parent sees the signal.
+static void reproit_tele_crash_handler(int sig) {
+    if (reproit_tele.crashLen > 0 && reproit_tele.spoolFd >= 0) {
+        size_t off = 0;
+        while (off < reproit_tele.crashLen) {
+            long w = (long)write(reproit_tele.spoolFd, reproit_tele.crashBuf + off,
+                                 reproit_tele.crashLen - off);
+            if (w <= 0) break;
+            off += (size_t)w;
+        }
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void reproit_tele_install_crash_hook(void) {
+    if (reproit_tele.crashHookInstalled) return;
+    reproit_tele.crashHookInstalled = true;
+    signal(SIGSEGV, reproit_tele_crash_handler);
+    signal(SIGABRT, reproit_tele_crash_handler);
+    signal(SIGFPE,  reproit_tele_crash_handler);
+    signal(SIGILL,  reproit_tele_crash_handler);
+#ifdef SIGBUS
+    signal(SIGBUS,  reproit_tele_crash_handler);
+#endif
+}
+
+// Initialize telemetry. After this, the per-frame hooks below feed states/edges.
+// Returns true if telemetry is active (sampling on), false if it no-ops.
+static bool ReproIt_Telemetry_Init(const ReproIt_TeleOptions* opt) {
+    memset(&reproit_tele, 0, sizeof reproit_tele);
+    reproit_tele.spoolFd = -1;
+    if (!opt || !opt->sampleEnabled) return false;
+    reproit_tele.active = true;
+    snprintf(reproit_tele.appId, sizeof reproit_tele.appId, "%s",
+             opt->appId ? opt->appId : "app");
+    reproit_tele.transport = opt->transport;
+    reproit_tele.transportUser = opt->transportUser;
+    if (opt->ctxJson && opt->ctxJson[0]) {
+        snprintf(reproit_tele.ctxJson, sizeof reproit_tele.ctxJson, "%s", opt->ctxJson);
+        reproit_tele.hasCtx = true;
+    }
+    // Built-in spool transport: only opened when no custom transport is supplied.
+    if (!reproit_tele.transport) {
+        const char* path = opt->spoolPath;
+        if (!path || !path[0]) path = getenv("REPROIT_TELEMETRY_SPOOL");
+        if (path && path[0]) {
+            FILE* f = fopen(path, "ab");
+            if (f) { reproit_tele.spoolFd = fileno(f); reproit_tele.spoolOwned = true; }
+        }
+        if (reproit_tele.spoolFd < 0) reproit_tele.spoolFd = 2;  // fall back to stderr
+    }
+    if (opt->installCrashHook) reproit_tele_install_crash_hook();
+    return true;
+}
+
+// Record the current frame's signature. Computes the canonical signature with the
+// EXISTING core (ReproIt_Signature) over the caller-built tree, emits a state
+// event the first time a signature is seen-as-current, and an edge event when the
+// signature changes (carrying the action that caused the transition). The crash
+// payload is rebuilt here so the signal handler always has the latest path. Pass
+// the action that led to this frame (e.g. "tap:play"), or NULL for "auto".
+static void ReproIt_Telemetry_Observe(const char* anchor, const ReproItSig_Node* root,
+                                      const char* action) {
+    if (!reproit_tele.active) return;
+    char sig[9];
+    ReproIt_Signature(anchor, root, sig);
+    if (reproit_tele.hasCur && strcmp(sig, reproit_tele.curSig) == 0) return;  // no change
+
+    char from[9];
+    bool hadFrom = reproit_tele.hasCur;
+    if (hadFrom) memcpy(from, reproit_tele.curSig, sizeof from);
+    memcpy(reproit_tele.curSig, sig, sizeof reproit_tele.curSig);
+    reproit_tele.hasCur = true;
+
+    // Append to the graph trail (capped, oldest-dropped) for the crash repro path.
+    if (reproit_tele.nPath >= REPROIT_TELE_PATH_CAP) {
+        memmove(&reproit_tele.path[0], &reproit_tele.path[1],
+                sizeof reproit_tele.path[0] * (REPROIT_TELE_PATH_CAP - 1));
+        reproit_tele.nPath--;
+    }
+    snprintf(reproit_tele.path[reproit_tele.nPath].sig, 9, "%s", sig);
+    snprintf(reproit_tele.path[reproit_tele.nPath].action, 64, "%s", action ? action : "auto");
+    reproit_tele.nPath++;
+
+    // state event
+    {
+        char line[REPROIT_TELE_EVENT_CAP];
+        size_t n = 0;
+        reproit_tele_append(line, sizeof line, &n, "{\"kind\":\"state\",\"sig\":");
+        reproit_tele_append_jstr(line, sizeof line, &n, sig);
+        reproit_tele_append(line, sizeof line, &n, ",\"t\":");
+        reproit_tele_append_u64(line, sizeof line, &n, reproit_tele_now_ms());
+        reproit_tele_append(line, sizeof line, &n, "}");
+        reproit_tele_push(line);
+    }
+    // edge event (only after we have a prior state)
+    if (hadFrom) {
+        char line[REPROIT_TELE_EVENT_CAP];
+        size_t n = 0;
+        reproit_tele_append(line, sizeof line, &n, "{\"kind\":\"edge\",\"from\":");
+        reproit_tele_append_jstr(line, sizeof line, &n, from);
+        reproit_tele_append(line, sizeof line, &n, ",\"action\":");
+        reproit_tele_append_jstr(line, sizeof line, &n, action ? action : "auto");
+        reproit_tele_append(line, sizeof line, &n, ",\"to\":");
+        reproit_tele_append_jstr(line, sizeof line, &n, sig);
+        reproit_tele_append(line, sizeof line, &n, ",\"t\":");
+        reproit_tele_append_u64(line, sizeof line, &n, reproit_tele_now_ms());
+        reproit_tele_append(line, sizeof line, &n, "}");
+        reproit_tele_push(line);
+    }
+    reproit_tele_build_crash("crash");
+}
+
+// Explicitly report an error/crash with the current state + path (for caught
+// exceptions or an app-level error oracle). Buffers an error event and flushes.
+static void ReproIt_Telemetry_Error(const char* message) {
+    if (!reproit_tele.active) return;
+    char line[REPROIT_TELE_EVENT_CAP];
+    size_t n = 0;
+    reproit_tele_append(line, sizeof line, &n, "{\"kind\":\"error\",\"sig\":");
+    if (reproit_tele.hasCur) reproit_tele_append_jstr(line, sizeof line, &n, reproit_tele.curSig);
+    else reproit_tele_append(line, sizeof line, &n, "null");
+    reproit_tele_append(line, sizeof line, &n, ",\"message\":");
+    reproit_tele_append_jstr(line, sizeof line, &n, message ? message : "error");
+    reproit_tele_append(line, sizeof line, &n, ",\"t\":");
+    reproit_tele_append_u64(line, sizeof line, &n, reproit_tele_now_ms());
+    reproit_tele_append(line, sizeof line, &n, "}");
+    reproit_tele_push(line);
+    reproit_tele_flush();
+}
+
+// Flush + tear down (close an owned spool fd). Call at clean shutdown.
+static void ReproIt_Telemetry_Shutdown(void) {
+    if (!reproit_tele.active) return;
+    reproit_tele_flush();
+    if (reproit_tele.spoolOwned && reproit_tele.spoolFd >= 0) close(reproit_tele.spoolFd);
+    reproit_tele.active = false;
+}
+
+#endif  // REPROIT_TELEMETRY && !REPROIT_TELEMETRY_CORE_H
+
+// ===========================================================================
 // ImGui-specific hook
 // ===========================================================================
 #ifndef REPROIT_IMGUI_H
@@ -452,6 +856,31 @@ void Header(const char* label);               // a header/section title node
 // immediate-mode equivalent of a `value_nodes:` selector (Layer 3); the node's
 // role is "output" (a value-role) so it is value-bearing by role.
 void Value(const char* label, const char* value);
+
+#ifdef REPROIT_TELEMETRY
+// --- Production telemetry (optional; OFF unless REPROIT_TELEMETRY is defined) --
+// In a SHIPPED build, the same reproit:: wrappers build the canonical tree every
+// frame; telemetry then signs it with the EXISTING core and reports the real
+// usage graph (states + edges) and crash signatures to the cloud, in the same
+// {appId,sentAt,ctx?,events} contract the other SDKs POST (see the telemetry core
+// above for the transport-callback contract and event shapes). This is fully
+// separate from the fuzz driver: with telemetry on, the fuzzer does NOT pick or
+// fire actions; the app runs normally and reproit observes.
+//
+// Usage (shipped app):
+//   #define REPROIT_TELEMETRY 1
+//   #define REPROIT_IMGUI_IMPLEMENTATION
+//   #include "reproit_imgui.h"
+//   ReproIt_TeleOptions o = {};
+//   o.appId = "myapp"; o.sampleEnabled = true; o.installCrashHook = true;
+//   o.transport = my_curl_post;   // or leave NULL for the spool-file transport
+//   reproit::TelemetryInit(&o);
+//   ... each frame: ImGui::NewFrame(); reproit::Frame(); ...wrappers...; reproit::FrameEnd();
+//   ... at shutdown: reproit::TelemetryShutdown();
+inline bool TelemetryInit(const ReproIt_TeleOptions* o) { return ReproIt_Telemetry_Init(o); }
+inline void TelemetryError(const char* message)         { ReproIt_Telemetry_Error(message); }
+inline void TelemetryShutdown(void)                      { ReproIt_Telemetry_Shutdown(); }
+#endif
 }  // namespace reproit
 
 #endif  // REPROIT_IMGUI_H
@@ -723,6 +1152,21 @@ void Value(const char* label, const char* value) {
 }
 
 void FrameEnd() {
+#ifdef REPROIT_TELEMETRY
+    // Production telemetry path: when telemetry is active, observe the real
+    // session (sign the current tree with the existing core, report state/edge)
+    // and return WITHOUT running the fuzz driver. This keeps the two paths fully
+    // separate: a shipped app reports, it is not driven by the seeded walk. The
+    // action is the last fuzzer/app tap when present, else "auto".
+    if (reproit_tele.active) {
+        const char* anchor = g.anchor.empty() ? nullptr : g.anchor.c_str();
+        const ReproItSig_Node* root = g.nNodes ? &g.nodes[0] : nullptr;
+        const char* action = g.fireId.empty() ? nullptr : g.fireId.c_str();
+        ReproIt_Telemetry_Observe(anchor, root, action);
+        g.fireId.clear();
+        return;
+    }
+#endif
     if (g.done) return;
     // Wait for the UI to settle after a fire; emit nothing mid-transition, so
     // each state/edge is reported exactly once.

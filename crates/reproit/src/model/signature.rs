@@ -505,8 +505,8 @@ mod tests {
     fn golden_vectors_match() {
         let vectors = load_vectors();
         assert!(
-            vectors.len() >= 12,
-            "need >= 12 vectors, got {}",
+            vectors.len() >= 24,
+            "need >= 24 vectors, got {}",
             vectors.len()
         );
         for v in &vectors {

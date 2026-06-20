@@ -55,6 +55,19 @@ public struct ReproItConfig {
     /// Settle window: snapshot once the UI has been quiet this long.
     public var debounce: TimeInterval
 
+    /// Opt-in fatal-signal capture. When true the SDK installs a handler for the
+    /// fatal signals (`SIGSEGV`, `SIGABRT`, `SIGILL`, `SIGBUS`, `SIGFPE`,
+    /// `SIGTRAP`) that the `NSException` hook can never see (a `fatalError`, a
+    /// precondition failure, a memory fault). On a fatal signal the handler does
+    /// an async-signal-safe `write(2)` of a pre-serialized crash record to an
+    /// on-disk spool, then re-raises the default handler so the process still
+    /// dies (and any paired crash reporter still runs). The spooled record is
+    /// resent on the next launch. Off by default because a signal handler runs
+    /// on a torn-down process: only a narrow, allocation-free write is safe
+    /// there, so this trades a small amount of in-handler work for catching the
+    /// most severe crashes (see ``ReproItCrashSpool`` for the safety rationale).
+    public var catchSignals: Bool
+
     public init(
         appId: String,
         endpoint: String? = nil,
@@ -66,7 +79,8 @@ public struct ReproItConfig {
         pathCap: Int = 60,
         flushInterval: TimeInterval = 5.0,
         redactLabels: Bool = false,
-        debounce: TimeInterval = 0.350
+        debounce: TimeInterval = 0.350,
+        catchSignals: Bool = false
     ) {
         self.appId = appId
         self.endpoint = endpoint
@@ -79,6 +93,7 @@ public struct ReproItConfig {
         self.flushInterval = flushInterval
         self.redactLabels = redactLabels
         self.debounce = debounce
+        self.catchSignals = catchSignals
     }
 }
 
@@ -337,7 +352,9 @@ public enum ReproItContext {
     /// "works for me but not for them" bugs. Mirrors the Flutter SDK's `_start`
     /// auto-context (platform / locale / tz), restricted to what Foundation can
     /// read on any host (no UIKit) so this is exercised by the host test.
-    ///   • platform, always "ios" (matches the Dart `defaultTargetPlatform.name`)
+    ///   • platform, "ios" on iOS / Catalyst, "macos" on native macOS (matches the
+    ///     Dart `defaultTargetPlatform.name`); selected at compile time so each
+    ///     build reports the surface it actually captures
     ///   • os      , clean "major.minor" OS version
     ///   • locale  , `Locale.current.identifier` (e.g. "en_US")
     ///   • tz      , `TimeZone.current.identifier` (e.g. "America/New_York")
@@ -349,7 +366,7 @@ public enum ReproItContext {
         let v = processInfo.operatingSystemVersion
         let os = "\(v.majorVersion).\(v.minorVersion)"
         return [
-            "platform": "ios",
+            "platform": reproitPlatformName,
             "os": os,
             "locale": locale.identifier,
             "tz": timeZone.identifier,
@@ -370,6 +387,21 @@ public enum ReproItContext {
 func reproitNowMs() -> Int64 {
     Int64(Date().timeIntervalSince1970 * 1000.0)
 }
+
+/// The platform name reported in the `ctx` map, chosen at compile time to match
+/// the capture surface this build actually walks: UIKit -> "ios" (iOS / iPadOS /
+/// Mac Catalyst), AppKit native macOS -> "macos". The plain-Foundation host build
+/// (no UIKit, AppKit present) reports "macos", which is correct for the native
+/// macOS SDK the host build represents.
+let reproitPlatformName: String = {
+    #if canImport(UIKit)
+    return "ios"
+    #elseif canImport(AppKit)
+    return "macos"
+    #else
+    return "ios"
+    #endif
+}()
 
 #if canImport(CryptoKit)
 import CryptoKit

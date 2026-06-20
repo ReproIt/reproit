@@ -333,7 +333,18 @@ object ReproIt {
 
         val role = roleOf(view)
         val children = ArrayList<Signature.Node>()
-        if (view is ViewGroup) {
+        // Jetpack Compose: a `ComposeView` renders into an `AndroidComposeView`
+        // whose internal composables are invisible to the View-tree walk (the
+        // whole Compose UI would collapse to one opaque leaf, diverging from what
+        // the runner sees). When this view IS that Compose root, walk its
+        // SEMANTICS tree instead and splice the resulting canonical nodes in place
+        // of its (opaque) View children, so the structural signature matches the
+        // runner. `composeChildren` returns null for ordinary (non-Compose) views,
+        // so the normal View recursion below still runs everywhere else.
+        val composeChildren = composeChildrenOf(view)
+        if (composeChildren != null) {
+            children.addAll(composeChildren)
+        } else if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 buildNode(view.getChildAt(i))?.let { children.add(it) }
             }
@@ -474,6 +485,43 @@ object ReproIt {
             is android.widget.TextView -> if (isHeader(view)) "header" else "text"
             is ViewGroup -> if (isRecyclerView(view)) "list" else "group"
             else -> "node"
+        }
+    }
+
+    /**
+     * Whether Jetpack Compose is on the runtime classpath. The Compose dependency
+     * is `compileOnly`, so an app that does not ship Compose has no
+     * `androidx.compose.ui.node.RootForTest` class; touching [ComposeCapture]
+     * (which imports `androidx.compose.ui.*`) would then throw
+     * `NoClassDefFoundError`. We probe once and skip Compose capture entirely when
+     * it is absent, so the SDK adds zero requirements for non-Compose apps.
+     */
+    private val composePresent: Boolean by lazy {
+        try {
+            Class.forName(
+                "androidx.compose.ui.node.RootForTest",
+                false,
+                ReproIt::class.java.classLoader,
+            )
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * The canonical Compose-semantics children of [view] when it is a hosted
+     * Compose root, else null (so the caller keeps walking the ordinary View
+     * tree). Guarded by [composePresent] so it is a no-op when Compose is not on
+     * the classpath; any failure degrades to null so a Compose-version mismatch
+     * never crashes the host app.
+     */
+    private fun composeChildrenOf(view: View): List<Signature.Node>? {
+        if (!composePresent) return null
+        return try {
+            ComposeCapture.composeChildren(view)
+        } catch (_: Throwable) {
+            null
         }
     }
 

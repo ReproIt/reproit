@@ -28,5 +28,13 @@ android {
 }
 
 dependencies {
+    // Jetpack Compose UI, for reading the Compose semantics tree (the same tree
+    // the Appium/UiAutomator2 runner reads) so a Compose UI produces the same
+    // structural signature as plain Views. `compileOnly`: apps that use Compose
+    // already ship it, and apps that do NOT use Compose add no Compose dependency.
+    // `ComposeCapture` probes for the runtime class and no-ops when it is absent
+    // (see `ReproIt.composePresent`), so the SDK never forces Compose on a host.
+    compileOnly("androidx.compose.ui:ui:1.6.8")
+
     testImplementation("junit:junit:4.13.2")
 }

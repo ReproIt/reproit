@@ -1,11 +1,18 @@
-# ReproIt iOS
+# ReproIt iOS + macOS
 
-Production telemetry for native iOS apps (UIKit and SwiftUI), shipped as a Swift
-Package. It emits the **same** state-graph and error events from real users that
-the reproit test runners emit, so the production usage graph aligns 1:1 with
-test-time graphs. When a user hits an error, the event carries the graph path
-that produced it, which the reproit cloud turns into a deterministic replay: a
-prod "cannot reproduce" becomes a reproducible test.
+Production telemetry for native Apple apps, shipped as one Swift Package:
+**iOS / iPadOS (UIKit and SwiftUI)** and **native macOS (AppKit/Cocoa)**. It
+emits the **same** state-graph and error events from real users that the reproit
+test runners emit, so the production usage graph aligns 1:1 with test-time
+graphs. When a user hits an error, the event carries the graph path that produced
+it, which the reproit cloud turns into a deterministic replay: a prod "cannot
+reproduce" becomes a reproducible test.
+
+The platform capture is selected at compile time: UIKit capture on iOS / Mac
+Catalyst, AppKit capture on native macOS. Both walk the platform view +
+accessibility tree into the **same** canonical node model and reuse the same
+`Signature.swift`, so every platform hashes byte-for-byte identically to the Rust
+oracle and the web / Flutter SDKs.
 
 It mirrors the web SDK (`sdk/reproit-web.js`) and `reproit_flutter`: same FNV-1a
 state signature, same event shapes, same `{appId, sentAt, events}` batch POST to
@@ -60,6 +67,25 @@ struct MyApp: App {
 }
 ```
 
+macOS / AppKit (`NSApplicationDelegate`):
+
+```swift
+import ReproIt
+
+func applicationDidFinishLaunching(_ notification: Notification) {
+    ReproIt.start(ReproItConfig(
+        appId: "example",
+        endpoint: "https://ingest.reproit.example",
+        apiKey: "sk_...",
+        catchSignals: true)) // opt-in fatal-signal capture (see below)
+}
+```
+
+On native macOS the SDK walks the `NSWindow` content view's `NSView` /
+`NSAccessibility` tree the same way the iOS build walks the UIKit hierarchy; no
+other API differences. SwiftUI on macOS bridges to AppKit accessibility, so
+SwiftUI macOS apps are covered too.
+
 If `endpoint` is nil, events go to the `onEvent` callback (or, if that is also
 nil, a `print` debug line) instead of the network, which is handy for local
 inspection:
@@ -98,13 +124,27 @@ ReproIt.start(ReproItConfig(appId: "example", onEvent: { print($0) }))
   current signature and the full repro path before the process dies, then chains
   to any previously installed handler (e.g. Crashlytics). The crash-path flush is
   synchronous (best-effort, bounded to ~2 s).
+- **Fatal signals (opt-in, `catchSignals: true`).** The NSException handler above
+  cannot see a `fatalError`, a failed precondition, or a wild-pointer fault: those
+  are delivered as fatal SIGNALS (`SIGSEGV`, `SIGABRT`, `SIGILL`, `SIGBUS`,
+  `SIGFPE`, `SIGTRAP`), exactly the "production crash reproduced locally" cases.
+  When enabled, the SDK keeps a pre-serialized crash record (latest signature +
+  repro path) on disk (the "spool") and re-serializes it off the signal path on
+  every state change. On a fatal signal the installed handler does ONE
+  async-signal-safe `write(2)` of a confirm byte to a pre-opened fd, then chains
+  to any prior handler and re-raises the default disposition so the process still
+  dies (and any paired crash reporter still runs). On the next launch the spooled
+  record is resent as an `error` event, so signal crashes survive the process
+  death. See "Crash delivery" under Honest limitations for the safety rationale
+  and what is NOT guaranteed.
 - **Context (the "which users" answer).** Each batch carries a PII-safe `ctx`
   map of cohort dimensions. The cloud uses it to compute a *discriminator*: when
   an error cohort over-represents some dimension vs the baseline (e.g.
   `locale=tr`), it surfaces that as the thing that distinguishes "happens to some
   users" from "happens to all". At `start` the SDK seeds **tier-1 auto
-  dimensions** (zero-PII, Foundation-only, host-testable): `platform` (always
-  `"ios"`), `os` (clean `major.minor`), `locale` (`Locale.current.identifier`),
+  dimensions** (zero-PII, Foundation-only, host-testable): `platform` (`"ios"` on
+  iOS / Catalyst, `"macos"` on native macOS, chosen at compile time), `os` (clean
+  `major.minor`), `locale` (`Locale.current.identifier`),
   and `tz` (`TimeZone.current.identifier`). The map is included in the batch only
   when non-empty, matching the web/Flutter SDKs.
 
@@ -178,6 +218,7 @@ Field names and defaults mirror the web and Flutter SDKs:
 | `flushInterval` | `5.0` s | Batch flush interval |
 | `redactLabels` | `false` | true => send signatures/actions only, no label text |
 | `debounce` | `0.350` s | Settle window before snapshotting |
+| `catchSignals` | `false` | true => also catch fatal signals (SIGSEGV/SIGABRT/SIGILL/SIGBUS/SIGFPE/SIGTRAP) via an on-disk crash spool, resent on next launch (see Crash delivery below) |
 
 ## Privacy
 
@@ -209,21 +250,30 @@ derived from the value.
   live UIKit objects and therefore run on the main thread; the engine itself
   (buffering, signature, network) is thread-safe and queue-agnostic. Debounced
   snapshots are scheduled on the main run loop.
-- **Crash-path delivery is best-effort, not guaranteed.** The uncaught-exception
-  handler catches Obj-C/Swift `NSException`s and does a bounded synchronous
-  flush. It does **not** catch fatal signals (`SIGSEGV`, `SIGABRT` from
-  `fatalError`/`precondition`, watchdog kills, OOM). A signal handler is
-  intentionally **not** installed by default: running non-async-signal-safe code
-  (URLSession, JSON serialization) inside a signal handler is undefined
-  behaviour, and the right way to capture signal crashes is to pair this SDK with
-  a dedicated crash reporter and replay the last buffered path on next launch.
-  For guaranteed delivery, persist the buffer and resend on relaunch (not yet
-  implemented).
+- **Crash delivery is best-effort, not guaranteed.** The uncaught-exception
+  handler catches Obj-C/Swift `NSException`s and does a bounded synchronous flush.
+  Fatal signals (`SIGSEGV`, `SIGABRT` from `fatalError`/`precondition`, etc.) are
+  caught only when `catchSignals: true` is set, and even then the guarantee is
+  narrow on purpose. Running non-async-signal-safe code (URLSession, JSON
+  serialization, Obj-C/Swift allocation, locking) inside a signal handler is
+  undefined behaviour, so the signal handler does NOT serialize or send anything:
+  all of that (serialize the crash record, open the spool files) happens OFF the
+  signal path, on every state change, while the process is healthy. The handler
+  itself does only a single `write(2)` of one byte to a pre-opened fd plus an
+  `fsync` (both async-signal-safe), then re-raises. The spooled record is resent
+  on the next launch. What is therefore NOT guaranteed: a crash between the
+  `write` and `fsync`, a spool the OS never flushed to disk, a kill that prevents
+  any handler from running (watchdog `SIGKILL`, jetsam OOM, which are not catchable
+  by a signal handler at all), or a record that is one state-change stale relative
+  to the exact crash instant. For belt-and-braces delivery, still pair this SDK
+  with a dedicated crash reporter; the spool's role is to attach the reproit repro
+  PATH to a crash, not to be a complete crash reporter.
 - **Accessibility surface only.** Like a screen reader and like the runner, the
-  SDK sees what the accessibility tree exposes. SwiftUI bridges to UIKit
-  accessibility, so SwiftUI views are covered, but custom-drawn content with no
-  `accessibilityLabel` is invisible by design. Set proper a11y labels to improve
-  both screen-reader support and graph fidelity.
+  SDK sees what the accessibility tree exposes. On iOS SwiftUI bridges to UIKit
+  accessibility and on macOS to AppKit accessibility, so SwiftUI views are covered
+  on both, but custom-drawn content with no `accessibilityLabel` is invisible by
+  design. Set proper a11y labels to improve both screen-reader support and graph
+  fidelity.
 - **No navigation-name labeling yet.** Route changes are captured structurally
   (the signature changes), but there is no `UINavigationController` delegate hook
   to label edges `nav:<title>` the way the Flutter SDK's `navigatorObserver`
@@ -238,12 +288,15 @@ derived from the value.
 ## Build & test
 
 The package is split so the canonical contract (signature + payload encoding +
-engine) is **pure Foundation** and the UIKit capture lives in `Capture.swift`
-behind `#if canImport(UIKit)`. That lets the parity test run on a macOS host:
+engine + crash spool) is **pure Foundation** and the UIKit capture lives in
+`Capture.swift` behind `#if canImport(UIKit)`. On a macOS host UIKit is absent so
+`Capture.swift` compiles to nothing and the AppKit capture in `CaptureAppKit.swift`
+compiles instead, which means the AppKit descriptor mapping is exercised by host
+tests alongside the parity gate:
 
 ```sh
-swift build   # builds on macOS host (Capture.swift compiles to nothing there)
-swift test    # runs the parity + engine tests on the host
+swift build   # builds on macOS host (UIKit capture compiles to nothing; AppKit compiles)
+swift test    # runs the parity + engine + crash-spool + AppKit tests on the host
 ```
 
 The tests assert the canonical signatures
@@ -258,11 +311,19 @@ iOS target/simulator.
 ```
 Package.swift
 Sources/ReproIt/
-  Core.swift      # Foundation-only: config, FNV-1a signature, name rule,
-                  # snapshot model, event/batch encoding
-  Engine.swift    # Foundation-only: state machine, buffer, flush, URLSession
-  ReproIt.swift   # public facade: start/flush/reset + sampling
-  Capture.swift   # UIKit-only (#if canImport(UIKit)): hierarchy walk, taps,
-                  # error hook
-Tests/ReproItTests/ReproItTests.swift  # host-runnable parity + engine tests
+  Core.swift         # Foundation-only: config, name rule, snapshot model,
+                     # event/batch encoding, fingerprinting, context
+  Signature.swift    # Foundation-only: canonical structural signature
+                     # (shared UNCHANGED by every platform; the parity oracle port)
+  Engine.swift       # Foundation-only: state machine, buffer, flush, URLSession,
+                     # crash-spool restaging
+  CrashSpool.swift   # Foundation-only: on-disk crash spool + async-signal-safe
+                     # fatal-signal handler (opt-in, catchSignals)
+  ReproIt.swift      # public facade: start/flush/reset + sampling + signal install
+  Capture.swift      # UIKit-only (#if canImport(UIKit)): hierarchy walk, taps,
+                     # error hook
+  CaptureAppKit.swift # AppKit-only (#if canImport(AppKit) && !canImport(UIKit)):
+                     # NSView/NSAccessibility walk, clicks, error hook
+Tests/ReproItTests/ReproItTests.swift  # host-runnable parity + engine + crash-spool
+                                        # + AppKit descriptor-mapping tests
 ```

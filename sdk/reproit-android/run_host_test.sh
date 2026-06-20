@@ -26,12 +26,14 @@ HAMCREST_JAR=${HAMCREST_JAR:-/tmp/hamcrest-core-1.3.jar}
 SRC="$HERE/src/main/kotlin/com/reproit/android"
 TST="$HERE/src/test/kotlin/com/reproit/android"
 
-# NOTE: ReproIt.kt is intentionally excluded, it imports android.* and needs the
-# Android SDK. All testable logic is in the pure-Kotlin core below.
+# NOTE: ReproIt.kt and ComposeCapture.kt are intentionally excluded: they import
+# android.* / androidx.compose.* and need the Android SDK + Compose runtime. All
+# testable logic is in the pure-Kotlin core below (Compose.kt is the pure Compose
+# semantics-to-descriptor mapping, with no androidx import).
 "$KOTLINC" -cp "$JUNIT_JAR:$HAMCREST_JAR" \
   "$SRC/Signature.kt" "$SRC/Json.kt" "$SRC/Config.kt" "$SRC/Engine.kt" \
-  "$SRC/Fingerprint.kt" \
-  "$TST/SignatureParityTest.kt" \
+  "$SRC/Fingerprint.kt" "$SRC/Compose.kt" \
+  "$TST/SignatureParityTest.kt" "$TST/ComposeMappingTest.kt" \
   -d "$OUT/classes.jar"
 
 # Locate kotlin-stdlib next to the compiler. Resolve symlinks (Homebrew points
@@ -60,4 +62,6 @@ if [ -z "$STDLIB" ]; then
 fi
 
 java -cp "$OUT/classes.jar:$JUNIT_JAR:$HAMCREST_JAR:$STDLIB" \
-  org.junit.runner.JUnitCore com.reproit.android.SignatureParityTest
+  org.junit.runner.JUnitCore \
+  com.reproit.android.SignatureParityTest \
+  com.reproit.android.ComposeMappingTest
