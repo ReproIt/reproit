@@ -81,6 +81,7 @@ reproit map [--show]                  # build/refresh the graph; --show renders 
 reproit fuzz [target]                 # find bugs (a screen/flow, or the whole app)
 reproit check [repro]                 # verify: pass(0) / fail(1) / flaky(2) / stale(3)
 reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices
+reproit import maestro <flow.yaml>    # convert a Maestro flow into a reproit journey
 reproit keep [id] [--as name]         # save a repro into the suite
 reproit repros                        # list saved repros + last status
 reproit watch <id>                    # open a repro's recorded video

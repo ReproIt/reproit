@@ -59,6 +59,10 @@ const FILES: &[(&str, &str)] = &[
         "reproit-journeys/templates/journey.yaml",
         include_str!("../../../skills/reproit-journeys/templates/journey.yaml"),
     ),
+    (
+        "reproit-screenshots/SKILL.md",
+        include_str!("../../../skills/reproit-screenshots/SKILL.md"),
+    ),
 ];
 
 fn home() -> Result<PathBuf> {
@@ -94,12 +98,13 @@ fn install_skill(global: bool, dir: Option<PathBuf>) -> Result<()> {
         std::fs::write(&dst, contents).with_context(|| format!("writing {}", dst.display()))?;
     }
     println!(
-        "Installed 2 skills ({} files) to {}",
+        "Installed 3 skills ({} files) to {}",
         FILES.len(),
         base.display()
     );
-    println!("  reproit           find -> reproduce -> fix -> check loop");
-    println!("  reproit-journeys  author single/multi-user scripted journeys");
+    println!("  reproit             find -> reproduce -> fix -> check loop");
+    println!("  reproit-journeys    author single/multi-user scripted journeys");
+    println!("  reproit-screenshots author store/marketing screenshot tours");
     Ok(())
 }
 

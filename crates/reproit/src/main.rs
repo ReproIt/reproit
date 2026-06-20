@@ -50,6 +50,8 @@ mod flicker;
 mod fuzz;
 #[path = "modes/graph.rs"]
 mod graph;
+#[path = "modes/import.rs"]
+mod import;
 #[path = "modes/journey.rs"]
 mod journey;
 #[path = "modes/mapplan.rs"]
@@ -498,6 +500,20 @@ enum Cmd {
         /// {journey} {platform} {locale} {device}. Example: "{locale}/{device}".
         #[arg(long)]
         path_template: Option<String>,
+    },
+    /// Import a flow from another tool into a reproit journey (switching cost ~0).
+    /// Currently supports Maestro: `reproit import maestro flow.yaml`.
+    Import {
+        /// Source tool. Currently: maestro.
+        tool: String,
+        /// Path to the source flow file.
+        path: PathBuf,
+        /// Journey name (default: the source file stem).
+        #[arg(long)]
+        name: Option<String>,
+        /// Write the journey here (default: stdout).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
     },
     /// Cloud loop: a fleet + production telemetry. Submit jobs, browse findings,
     /// see blast radius, and reproduce real user sessions deterministically.
@@ -1545,6 +1561,15 @@ async fn main() -> Result<ExitCode> {
             } else {
                 exit_with(Exit::Regression)
             })
+        }
+        Cmd::Import {
+            tool,
+            path,
+            name,
+            out,
+        } => {
+            import::run(&ctx, &tool, &path, name, out.as_deref())?;
+            Ok(ExitCode::SUCCESS)
         }
         Cmd::Cloud { action } => {
             // Cloud commands talk to a remote; an unreachable/erroring cloud is

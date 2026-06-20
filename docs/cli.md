@@ -92,6 +92,7 @@ reproit fuzz [target]         find repros using the map (pure; emits a fuzz arti
 reproit keep [id] [--as name] save a repro into your suite (interactive if no id)
 reproit check [repro|journey] run repros/journeys: pass / fail / flaky / stale  (--record)
 reproit screenshots [tour]    store/marketing shots: a journey tour in capture mode
+reproit import maestro <f>    convert a Maestro flow into a reproit journey (stdout or -o)
 reproit journey list          list authored journeys (declarative YAML paths)
 reproit simplify <id> --to .. adopt a shorter, verified-equivalent action sequence
 reproit repros                list your saved repros + last status
@@ -248,6 +249,8 @@ screenshots:
   # pathTemplate: "{locale}/{device}"   # optional: full control of the layout
 ```
 
+A runnable example tour lives at `examples/journeys/marketing.yaml`.
+
 Capture works on every supported platform: iOS / Android (simctl / `adb
 screencap`), web / Electron / Tauri (Playwright `page.screenshot` / CDP / W3C
 WebDriver), macOS / Windows / Linux desktop (window grab via `screencapture` /
@@ -258,6 +261,18 @@ uniform across all of them: a tour authors `do: shoot:<name>`.
 The v1 verify gate cross-checks that every locale of a given platform/device
 produced the same set of shots, so a screen that drifted or was skipped in one
 locale fails loudly instead of shipping a gap.
+
+### `import`
+
+Convert a flow from another tool into a reproit journey, so switching costs ~0.
+Currently supports **Maestro**: `reproit import maestro flow.yaml` reads the
+Maestro YAML and prints a journey (or writes it with `-o`). The common commands
+map onto the reproit grammar: `tapOn` -> `tap:label:` / `tap:key:`, `inputText`
+-> `type:`, `assertVisible` -> `assert:textPresent:` / `assert:count:`,
+`takeScreenshot` -> `do:shoot:`, `back` -> `do:back`. `launchApp` is handled by
+reproit and noted; anything without a clean equivalent (scroll, swipe, runFlow)
+is emitted as a `# TODO(maestro)` comment so a command is never silently dropped,
+and a summary of mapped/TODO/handled counts is printed.
 
 ### `keep`
 
