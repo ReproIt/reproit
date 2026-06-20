@@ -55,3 +55,130 @@ jobs:
           node --check jank-oracle.mjs
       - name: Unit-test the jank detector
         run: node --test
+
+  # The byte-for-byte signature promise: every SDK and runner must reproduce the
+  # 24 golden vectors in signature_vectors.json exactly, same as the Rust oracle
+  # (crates/reproit/src/model/signature.rs::tests::golden_vectors_match). These
+  # jobs are what KEEP that promise true; without them, an SDK could drift
+  # silently. Each step mirrors a parity test that already lives in the repo.
+  signature-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Web SDK parity (reproit-web.js; also the Electron/Tauri SDK)
+        working-directory: sdk
+        run: node test/signature_test.js
+      - name: Electron + Tauri runner parity
+        run: node runners/signature_test.mjs
+      - name: Windows + Linux desktop runner parity
+        run: python3 runners/test_signature.py
+      - name: ImGui + Clay C signature-core parity
+        run: |
+          clang -std=c11 -Wall -Wextra -o /tmp/test_signature runners/test_signature.c
+          /tmp/test_signature
+      - name: Linux native SDK parity (pure-stdlib core, no GTK needed)
+        run: |
+          python3 sdk/reproit-linux/tests/test_parity.py
+          python3 sdk/reproit-linux/tests/test_capture.py
+
+  react-native-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit-react-native
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        run: npm ci || npm install
+      - name: Parity + unit tests (jest)
+        run: npm test
+
+  flutter-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit_flutter
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - name: Signature parity (flutter test)
+        run: flutter test
+
+  android-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Kotlin compiler
+        run: |
+          curl -sSLO https://github.com/JetBrains/kotlin/releases/download/v2.0.20/kotlin-compiler-2.0.20.zip
+          unzip -q kotlin-compiler-2.0.20.zip -d "$HOME/kotlin"
+          echo "$HOME/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      - name: Android SDK signature parity (host JVM, no Android SDK)
+        run: sh sdk/reproit-android/run_host_test.sh
+
+  apple-sdk:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: iOS + macOS SDK signature parity (swift test)
+        run: swift test --package-path sdk/reproit-ios
+
+  # TUI SDKs. The signature is a separate namespace pinned to the repo-root
+  # tui_signature_vectors.json (not signature_vectors.json). The Rust TUI SDK is
+  # a workspace member, so the `rust` job above already builds/tests it; the Go,
+  # TS, and Python ports each get a job here.
+  tui-go-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit-tui-go
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sdk/reproit-tui-go/go.mod
+      - name: Go TUI SDK signature parity (matches crates/.../backends/tui.rs)
+        run: go test ./...
+
+  tui-ts-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit-tui-ts
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: TS TUI SDK signature parity (node type-strips TS natively; no install)
+        run: node --test test/parity.test.ts
+
+  tui-py-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Python TUI SDK signature parity (pure stdlib)
+        run: python3 sdk/reproit-tui-py/tests/test_parity.py
+
+  windows-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Windows SDK signature parity (.NET core lib; no WPF/WinUI needed)
+        run: dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj
