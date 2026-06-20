@@ -475,7 +475,7 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     };
     let raw =
         std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-    let raw = interpolate_env(&raw);
+    let raw = interpolate_env(&raw)?;
     let config: Config =
         serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", file.display()))?;
     if crate::platform::resolve(&config.app.platform).is_none() {
@@ -509,11 +509,93 @@ fn find_config(from: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Interpolate ${VAR} from the environment; missing vars become "".
-fn interpolate_env(raw: &str) -> String {
-    let re = Regex::new(r"\$\{(\w+)\}").unwrap();
-    re.replace_all(raw, |caps: &regex::Captures| {
-        std::env::var(&caps[1]).unwrap_or_default()
-    })
-    .into_owned()
+/// Interpolate environment variables across the whole config (every field, not
+/// just `app.defines`), using the familiar shell parameter-expansion subset:
+///   - `${VAR}`              substitute VAR; empty if unset (back-compat default)
+///   - `${VAR:-default}`     substitute VAR, or `default` if unset/empty
+///   - `${VAR:?message}`     substitute VAR, or fail the load with `message`
+/// `${VAR:?}` forms that resolve to nothing are collected and reported together
+/// so one run surfaces every missing required var, not just the first.
+fn interpolate_env(raw: &str) -> Result<String> {
+    let re = Regex::new(r"\$\{(\w+)(?::(-|\?)([^}]*))?\}").unwrap();
+    let mut missing: Vec<String> = Vec::new();
+    let out = re
+        .replace_all(raw, |caps: &regex::Captures| {
+            let name = &caps[1];
+            let val = std::env::var(name).ok().filter(|v| !v.is_empty());
+            match caps.get(2).map(|m| m.as_str()) {
+                // ${VAR:-default}
+                Some("-") => val.unwrap_or_else(|| caps[3].to_string()),
+                // ${VAR:?message} -> required; record and fail after the pass.
+                Some("?") => val.unwrap_or_else(|| {
+                    let msg = caps[3].trim();
+                    let msg = if msg.is_empty() {
+                        format!("required config variable {name} is not set")
+                    } else {
+                        format!("{name}: {msg}")
+                    };
+                    missing.push(msg);
+                    String::new()
+                }),
+                // ${VAR} (back-compat: empty when unset)
+                _ => val.unwrap_or_default(),
+            }
+        })
+        .into_owned();
+    if !missing.is_empty() {
+        bail!("unresolved config variables:\n  {}", missing.join("\n  "));
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::interpolate_env;
+
+    // Each test uses a unique var name so parallel tests don't race on env state.
+    #[test]
+    fn bare_var_substitutes_or_empties() {
+        std::env::set_var("RIT_TEST_BARE", "/runner");
+        assert_eq!(
+            interpolate_env("dir: ${RIT_TEST_BARE}").unwrap(),
+            "dir: /runner"
+        );
+        std::env::remove_var("RIT_TEST_BARE_UNSET");
+        assert_eq!(
+            interpolate_env("dir: ${RIT_TEST_BARE_UNSET}").unwrap(),
+            "dir: "
+        );
+    }
+
+    #[test]
+    fn default_form_falls_back_when_unset() {
+        std::env::remove_var("RIT_TEST_DEF");
+        assert_eq!(
+            interpolate_env("dir: ${RIT_TEST_DEF:-./web-runner}").unwrap(),
+            "dir: ./web-runner"
+        );
+        std::env::set_var("RIT_TEST_DEF", "/explicit");
+        assert_eq!(
+            interpolate_env("dir: ${RIT_TEST_DEF:-./web-runner}").unwrap(),
+            "dir: /explicit"
+        );
+    }
+
+    #[test]
+    fn required_form_errors_when_unset() {
+        std::env::remove_var("RIT_TEST_REQ");
+        let err = interpolate_env("dir: ${RIT_TEST_REQ:?must be set}").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("RIT_TEST_REQ"), "got: {msg}");
+        assert!(msg.contains("must be set"), "got: {msg}");
+    }
+
+    #[test]
+    fn required_form_passes_when_set() {
+        std::env::set_var("RIT_TEST_REQ_OK", "x");
+        assert_eq!(
+            interpolate_env("v: ${RIT_TEST_REQ_OK:?nope}").unwrap(),
+            "v: x"
+        );
+    }
 }

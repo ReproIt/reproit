@@ -265,6 +265,13 @@ redacts them from the captured log, so no runner handles a secret and the value
 never lands in evidence. A `userId` also lets reset steps clear an account by
 reference (`${account.<name>.userId}`).
 
+### Environment interpolation
+
+Every field in `reproit.yaml` (not just `app.defines`) supports shell-style env
+interpolation: `${VAR}` (empty if unset), `${VAR:-default}` (fallback), and
+`${VAR:?message}` (required, fails to load if unset). Example:
+`webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}`.
+
 ## Flags
 
 ```
