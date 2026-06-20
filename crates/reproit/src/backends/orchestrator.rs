@@ -225,6 +225,10 @@ pub async fn run_journey(
     } else {
         journey.to_string()
     };
+    // SHOOT only takes pictures when the caller asked for screenshots, i.e. it
+    // passed an explicit shots dir (the `screenshots` command, --record/--visual,
+    // or --shots-dir). A plain check/fuzz passes None, so shoot steps stay inert.
+    let capture_shots = shots_dir.is_some();
     let shots_dir = match shots_dir {
         Some(p) if p.is_absolute() => p.to_path_buf(),
         Some(p) => root.join(p),
@@ -243,6 +247,7 @@ pub async fn run_journey(
             .map(|h| (h.marker.clone(), h.run.clone()))
             .collect(),
         shots_dir,
+        capture_shots,
         defines,
         secrets,
         ready_marker: cfg.journeys.ready_marker.clone(),

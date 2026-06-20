@@ -24,6 +24,12 @@ pub struct RunCtx {
     /// Where SHOOT captures land (default: <run_dir>/screenshots; the
     /// screenshot tour overrides this to the visual differ's shotsDir).
     pub shots_dir: PathBuf,
+    /// Whether SHOOT markers actually take pictures. True only when the caller
+    /// asked for screenshots (the `screenshots` command, `--record`/`--visual`,
+    /// or an explicit `--shots-dir`). A plain `check`/`fuzz` leaves it false, so a
+    /// journey's `shoot:` steps are inert there (navigate-only, no pictures, no
+    /// capture overhead); the same journey under `screenshots` takes the shots.
+    pub capture_shots: bool,
     /// Drive in profile mode (AOT). Perf evidence is only representative
     /// here; debug (JIT) numbers overstate jank.
     pub profile: bool,
@@ -150,6 +156,58 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
 /// Every backend spawns a runner that prints the SAME marker protocol; only
 /// the launch differs. Non-flutter backends receive `defines` as env, so
 /// REPROIT_FUZZ_CONFIG and injected secrets arrive identically everywhere.
+/// How a SHOOT marker becomes a PNG for this platform. iOS/Android are captured
+/// orchestrator-side from the host (the device pixels are not on a path we read);
+/// every other runner renders its own pixels and writes the PNG itself.
+enum CaptureKind {
+    Simctl,
+    Adb,
+    RunnerSide,
+}
+
+fn capture_kind(ctx: &RunCtx) -> CaptureKind {
+    use crate::platform::Backend;
+    match crate::platform::backend(&ctx.platform) {
+        // Flutter runs on the iOS simulator today.
+        Some(Backend::FlutterDrive) => CaptureKind::Simctl,
+        // Appium drives either an iOS sim or an Android device; the caps say which.
+        Some(Backend::Appium) => {
+            let android = ctx
+                .appium_caps
+                .get("platformName")
+                .map(|p| p.eq_ignore_ascii_case("android"))
+                .unwrap_or(false);
+            if android {
+                CaptureKind::Adb
+            } else {
+                CaptureKind::Simctl
+            }
+        }
+        // Web, Electron/Tauri, desktop AX/UIA/AT-SPI, immediate-mode, and TUI all
+        // render their own pixels and write the PNG runner-side to REPROIT_SHOTS_DIR.
+        _ => CaptureKind::RunnerSide,
+    }
+}
+
+/// Capture an Android device/emulator screen via `adb exec-out screencap -p`.
+/// `device` is the adb serial (REPROIT_DEVICE); empty = adb's default device.
+async fn adb_screencap(device: &str, out_path: &std::path::Path) -> bool {
+    if let Some(parent) = out_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut cmd = Command::new("adb");
+    if !device.is_empty() {
+        cmd.arg("-s").arg(device);
+    }
+    cmd.args(["exec-out", "screencap", "-p"]);
+    match cmd.output().await {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+            std::fs::write(out_path, &out.stdout).is_ok()
+        }
+        _ => false,
+    }
+}
+
 fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Result<Command> {
     use crate::platform::Backend;
     let backend = crate::platform::backend(&ctx.platform)
@@ -162,6 +220,17 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
         // The runner's own device label, so a multi-actor scenario runner knows
         // which actor it is (the conductor maps `a`/`b`/... to actor order).
         c.env("REPROIT_DEVICE", label);
+        // Where runner-side capture writes its PNGs. iOS/Android capture is done
+        // orchestrator-side (simctl/adb) from the SHOOT marker; every other runner
+        // (web, desktop, tui, instrumented) writes <REPROIT_SHOTS_DIR>/<name>.png
+        // itself, then prints `SHOOT:<name>` so the orchestrator confirms + logs it.
+        // Only set in capture mode (the screenshots command / --record / --visual /
+        // --shots-dir); otherwise the runner sees no dir and a `shoot:` step is a
+        // no-op (it still prints the marker, but writes nothing), so a plain check
+        // never produces screenshots.
+        if ctx.capture_shots {
+            c.env("REPROIT_SHOTS_DIR", &ctx.shots_dir);
+        }
     };
 
     let cmd = match backend {
@@ -378,10 +447,21 @@ async fn handle_line(
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '/' | '-'))
             .collect();
-        if !name.is_empty() {
+        if !name.is_empty() && ctx.capture_shots {
             let path = ctx.shots_dir.join(format!("{name}.png"));
-            if simctl::screenshot(udid, &path).await {
+            let ok = match capture_kind(ctx) {
+                // iOS simulator: grab it from the host via simctl.
+                CaptureKind::Simctl => simctl::screenshot(udid, &path).await,
+                // Android device/emulator: grab it via adb screencap.
+                CaptureKind::Adb => adb_screencap(udid, &path).await,
+                // Web/desktop/tui/instrumented: the runner already wrote the PNG
+                // to REPROIT_SHOTS_DIR before printing the marker; just confirm it.
+                CaptureKind::RunnerSide => path.exists(),
+            };
+            if ok {
                 println!("  shot  {label}: {name}.png");
+            } else {
+                println!("  shot  {label}: {name}.png (capture failed)");
             }
         }
     }

@@ -18,9 +18,9 @@
 // playwright is imported dynamically inside main() so this module stays
 // import-safe (the parity test imports the host-pure signature functions
 // below without needing the heavy runtime dependency installed).
-import { readFileSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve as resolvePath } from 'node:path';
+import { resolve as resolvePath, join as joinPath } from 'node:path';
 
 const APP = process.env.REPROIT_APP_DIR || process.env.REPROIT_APP;
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
@@ -33,6 +33,28 @@ const MAX_LABEL_LEN = 40;
 const VALUE_CLASS_CAP = 8;
 
 function log(line) { process.stdout.write(line + '\n'); }
+
+// Screenshot-capture contract (drive.rs): on a named "shoot" point, capture the
+// current renderer window to $REPROIT_SHOTS_DIR/<name>.png, then print
+// `SHOOT:<name>` so the orchestrator confirms the file and logs it. `name` is
+// restricted to [A-Za-z0-9_/-] (the orchestrator filters to those anyway).
+// Capture is via CDP `Page.captureScreenshot`: we open a CDP session on the
+// renderer page (Electron's renderer is Chromium) and write the returned base64
+// PNG to the path. If REPROIT_SHOTS_DIR is unset we skip the capture but STILL
+// print the marker, so non-screenshot runs are unaffected.
+async function shoot(page, name) {
+  const dir = process.env.REPROIT_SHOTS_DIR;
+  if (dir) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      const cdp = await page.context().newCDPSession(page);
+      const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(joinPath(dir, name + '.png'), Buffer.from(data, 'base64'));
+      await cdp.detach().catch(() => {});
+    } catch (e) { /* capture is best-effort; still emit the marker below */ }
+  }
+  log('SHOOT:' + name);
+}
 
 // Layer-3 opt-in (docs/signature.md "Value-state"): read `value_nodes:`
 // selectors from reproit.yaml. We avoid adding a YAML dependency: the block is
@@ -845,6 +867,13 @@ async function main() {
       act = act || 'back';
     }
     log('FUZZ:ACT ' + act);
+    if (act.startsWith('shoot:')) {
+      // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
+      // the renderer window to REPROIT_SHOTS_DIR and emit the SHOOT marker. It
+      // does not move the known state, so no observe/stuck change.
+      await shoot(page, act.slice('shoot:'.length));
+      continue;
+    }
     if (act === 'back') {
       const before = current.sig;
       const beforeContent = current.content;

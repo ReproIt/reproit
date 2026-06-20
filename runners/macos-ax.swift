@@ -801,6 +801,78 @@ func crashBlock(_ title: String, _ detail: String) {
     emit("════════")
 }
 
+// ---- screenshot capture (SHOOT contract, see crates/.../backends/drive.rs) --
+// The orchestrator passes REPROIT_SHOTS_DIR (absolute) and, on a named shoot
+// point, expects <dir>/<name>.png to exist before it sees `SHOOT:<name>` on
+// stdout. <name> is [A-Za-z0-9_/-]. If REPROIT_SHOTS_DIR is unset we still print
+// the marker (capture is best-effort, the orchestrator just logs a miss).
+
+// The CGWindowID of the target app's frontmost on-screen window, matched by pid
+// via the CGWindowList. `screencapture -l <id>` then captures exactly that
+// window (chrome + shadow) rather than the whole desktop, which is what we want
+// even when the window was moved off-screen.
+func targetWindowID(_ pid: pid_t) -> CGWindowID? {
+    let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let infos = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+    for info in infos {
+        guard let owner = info[kCGWindowOwnerPID as String] as? pid_t, owner == pid,
+              let num = info[kCGWindowNumber as String] as? CGWindowID else { continue }
+        // Skip zero-area helper layers; take the first real window for this pid.
+        if let bounds = info[kCGWindowBounds as String] as? [String: Any],
+           let w = bounds["Width"] as? CGFloat, let h = bounds["Height"] as? CGFloat,
+           w < 1 || h < 1 { continue }
+        return num
+    }
+    return nil
+}
+
+// The focused window's AX frame (screen coordinates), as a fallback when no
+// CGWindowID is on-screen (e.g. the window was pushed fully off the display).
+func targetWindowFrame(_ app: AXUIElement) -> CGRect? {
+    guard let windows = axCopy(app, kAXWindowsAttribute as String) as? [AXUIElement],
+          let w = windows.first else { return nil }
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    if let posV = axCopy(w, kAXPositionAttribute as String) {
+        AXValueGetValue(posV as! AXValue, .cgPoint, &origin)
+    }
+    if let sizeV = axCopy(w, kAXSizeAttribute as String) {
+        AXValueGetValue(sizeV as! AXValue, .cgSize, &size)
+    }
+    if size.width < 1 || size.height < 1 { return nil }
+    return CGRect(origin: origin, size: size)
+}
+
+// Capture the target window to <shotsDir>/<name>.png, then print SHOOT:<name>.
+// Targets the window (by CGWindowID, else its AX frame rect), never the whole
+// desktop. With REPROIT_SHOTS_DIR unset, skips capture but still emits the marker.
+func shoot(_ name: String, _ pid: pid_t, _ app: AXUIElement) {
+    let shotsDir = ProcessInfo.processInfo.environment["REPROIT_SHOTS_DIR"] ?? ""
+    if !shotsDir.isEmpty {
+        let outURL = URL(fileURLWithPath: shotsDir).appendingPathComponent("\(name).png")
+        try? FileManager.default.createDirectory(
+            at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let out = outURL.path
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        if let wid = targetWindowID(pid) {
+            // -x: no capture sound. -l <id>: capture just that window.
+            proc.arguments = ["-x", "-l", "\(wid)", out]
+        } else if let f = targetWindowFrame(app) {
+            // -R<x,y,w,h>: capture the window's screen rect (off-screen windows
+            // still capture from the framebuffer region they occupy).
+            proc.arguments = ["-x", "-R\(Int(f.origin.x)),\(Int(f.origin.y)),\(Int(f.size.width)),\(Int(f.size.height))", out]
+        } else {
+            proc.arguments = ["-x", out] // last resort: whole desktop
+        }
+        try? proc.run()
+        proc.waitUntilExit()
+    }
+    emit("SHOOT:\(name)")
+}
+
 // Robust "did the target die?" check. A synchronous in-press crash makes
 // AXUIElementPerformAction return a non-success status (the app went away
 // mid-action), but the process / running-applications state is the ground
@@ -991,6 +1063,18 @@ while i < budget && stuck < 3 {
     }
     guard let a = act else { break }
     emit("FUZZ:ACT \(a)")
+    // Named screenshot point (from a replay/prefix script): capture the target
+    // window to REPROIT_SHOTS_DIR and print SHOOT:<name>. Sanitize <name> to the
+    // contract's [A-Za-z0-9_/-]; not a UI action, so it does not affect stuck.
+    if a.hasPrefix("shoot:") {
+        let raw = String(a.dropFirst("shoot:".count))
+        let name = String(raw.unicodeScalars.filter {
+            CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/-").contains($0)
+        })
+        if !name.isEmpty { shoot(name, nsApp.processIdentifier, appEl) }
+        i += 1
+        continue
+    }
     if a == "back" {
         // Non-hijacking "back": press an in-app Back/Close via AXPress (no
         // global input, no cursor move), so the runner does not take over the

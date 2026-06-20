@@ -21,8 +21,8 @@
 // stdout is the marker stream; the orchestrator captures it like a drive log.
 
 import { chromium, firefox, webkit } from 'playwright';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 
 const APP_URL = process.env.REPROIT_URL || "http://localhost:8080";
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
@@ -165,6 +165,23 @@ function adversarialFor(n) {
 }
 
 function log(line) { process.stdout.write(line + '\n'); }
+
+// Screenshot-capture contract (drive.rs): on a named "shoot" point, capture the
+// current screen to $REPROIT_SHOTS_DIR/<name>.png, then print `SHOOT:<name>` so
+// the orchestrator confirms the file and logs it. `name` is restricted to
+// [A-Za-z0-9_/-] (the orchestrator filters to those anyway). If REPROIT_SHOTS_DIR
+// is unset we skip the capture but STILL print the marker, so non-screenshot runs
+// are unaffected. Playwright's page.screenshot writes the PNG directly.
+async function shoot(page, name) {
+  const dir = process.env.REPROIT_SHOTS_DIR;
+  if (dir) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      await page.screenshot({ path: join(dir, name + '.png'), fullPage: false });
+    } catch (e) { /* capture is best-effort; still emit the marker below */ }
+  }
+  log('SHOOT:' + name);
+}
 
 function loadFuzz() {
   const p = process.env.REPROIT_FUZZ_CONFIG;
@@ -968,6 +985,12 @@ async function typeInto(page, sel, value) {
 // log attribution. Shared by the multi-actor pull-loop below.
 async function execScenarioAction(page, act, who) {
   log('FUZZ:ACT ' + who + ' ' + act);
+  if (act.startsWith('shoot:')) {
+    // Screenshot point: capture the current screen and emit the SHOOT marker.
+    // No state move, so no observe/stuck change (parity with assert:).
+    await shoot(page, act.slice('shoot:'.length));
+    return;
+  }
   if (act.startsWith('assert:')) {
     const body = act.slice('assert:'.length);
     if (body.startsWith('text=')) {
@@ -1248,6 +1271,13 @@ async function main() {
     }
 
     log('FUZZ:ACT ' + act);
+    if (act.startsWith('shoot:')) {
+      // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
+      // the current screen to REPROIT_SHOTS_DIR and emit the SHOOT marker. Like
+      // an assertion, it does not move the known state (no observe/stuck change).
+      await shoot(page, act.slice('shoot:'.length));
+      continue;
+    }
     if (act.startsWith('auth:')) {
       // Session bypass: restore a pre-authenticated session for the account so a
       // journey can exercise a feature without re-driving the login UI each run.

@@ -17,8 +17,8 @@
 // webdriverio is imported dynamically inside main() so this module stays
 // import-safe (the parity test imports the host-pure signature functions
 // below without needing the heavy runtime dependency installed).
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve as resolvePath, join as joinPath } from 'node:path';
 
 const APP = process.env.REPROIT_APP;
 const WD_URL = process.env.REPROIT_WEBDRIVER_URL || 'http://127.0.0.1:4444';
@@ -32,6 +32,26 @@ const VALUE_CLASS_CAP = 8;
 
 function log(line) { process.stdout.write(line + '\n'); }
 function loadFuzz() { const p = process.env.REPROIT_FUZZ_CONFIG; if (!p) return {}; try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; } }
+
+// Screenshot-capture contract (drive.rs): on a named "shoot" point, capture the
+// current webview to $REPROIT_SHOTS_DIR/<name>.png, then print `SHOOT:<name>` so
+// the orchestrator confirms the file and logs it. `name` is restricted to
+// [A-Za-z0-9_/-] (the orchestrator filters to those anyway). Capture is the W3C
+// WebDriver "Take Screenshot" command (browser.takeScreenshot in webdriverio),
+// which returns the PNG as base64; we write those bytes to the path. If
+// REPROIT_SHOTS_DIR is unset we skip the capture but STILL print the marker, so
+// non-screenshot runs are unaffected.
+async function shoot(browser, name) {
+  const dir = process.env.REPROIT_SHOTS_DIR;
+  if (dir) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      const b64 = await browser.takeScreenshot();
+      writeFileSync(joinPath(dir, name + '.png'), Buffer.from(b64, 'base64'));
+    } catch (e) { /* capture is best-effort; still emit the marker below */ }
+  }
+  log('SHOOT:' + name);
+}
 
 // Layer-3 opt-in (docs/signature.md "Value-state"): read `value_nodes:`
 // selectors from reproit.yaml. We avoid adding a YAML dependency: the block is
@@ -853,6 +873,13 @@ async function main() {
       act = act || 'back';
     }
     log('FUZZ:ACT ' + act);
+    if (act.startsWith('shoot:')) {
+      // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
+      // the webview to REPROIT_SHOTS_DIR and emit the SHOOT marker. It does not
+      // move the known state, so no observe/stuck change.
+      await shoot(browser, act.slice('shoot:'.length));
+      continue;
+    }
     if (act === 'back') {
       const before = current.sig;
       const beforeContent = current.content;

@@ -815,6 +815,256 @@ static void ReproIt_Telemetry_Shutdown(void) {
 #endif  // REPROIT_TELEMETRY && !REPROIT_TELEMETRY_CORE_H
 
 // ===========================================================================
+// SCREENSHOT-CAPTURE CORE (always available; capture itself is opt-in)
+//
+// IDENTICAL to the capture core block in runners/reproit_clay.h (shared guard,
+// so if both headers land in one TU the capture core appears once). Self-
+// contained plain C: it depends on nothing but libc, and like the signature
+// core it never touches the parity-critical descriptor/hash logic, so the
+// parity test (runners/test_signature.c) is unaffected.
+//
+// THE CONTRACT (orchestrator side, crates/reproit/src/backends/drive.rs): the
+// orchestrator exports env REPROIT_SHOTS_DIR (an absolute directory). On a named
+// shoot the in-app hook writes "$REPROIT_SHOTS_DIR/<name>.png" then prints
+// "SHOOT:<name>\n" to stdout; the orchestrator confirms the file exists and logs
+// it. <name> is restricted to [A-Za-z0-9_/-] (the orchestrator filters anything
+// else out of the marker, so we sanitize to the same charset here to keep the
+// emitted name and the written path in agreement).
+//
+// THE CAPTURE SEAM: this header cannot know the app's graphics backend
+// (OpenGL/D3D/Metal/Vulkan/software), so the app supplies a callback that grabs
+// the current framebuffer and writes a PNG to the given path:
+//   typedef bool (*ReproIt_CaptureFn)(const char* png_path, void* user);
+// Set it once with ReproIt_SetCaptureFn(fn, user). A DEFAULT OpenGL
+// implementation is provided behind -DREPROIT_CAPTURE_GL (glReadPixels of the
+// current viewport, written via the self-contained PNG encoder below); when that
+// flag is set and no callback was registered, the GL default is used.
+//
+// THE PNG ENCODER: a minimal, dependency-free, self-contained writer using zlib
+// "stored" (uncompressed) blocks, so it needs no libz. It emits a valid 8-bit
+// RGBA PNG (with correct CRC32 + Adler32), which any PNG reader accepts. It is
+// drop-in: no app encoder required. (If you prefer your own encoder, register a
+// callback and ignore this one.)
+// ===========================================================================
+#ifndef REPROIT_CAPTURE_CORE_H
+#define REPROIT_CAPTURE_CORE_H
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// App-supplied capture callback: grab the current framebuffer and write a PNG to
+// `png_path`. Return true on success. `user` is the opaque pointer registered
+// alongside the callback. Invoked synchronously from ReproIt_Shoot().
+typedef bool (*ReproIt_CaptureFn)(const char* png_path, void* user);
+
+// Single registered capture hook (static per TU; the shared guard means only one
+// TU compiles this block when both headers are present).
+typedef struct {
+    ReproIt_CaptureFn fn;
+    void* user;
+} ReproIt_CaptureState;
+static ReproIt_CaptureState reproit_capture = {0, 0};
+
+static void ReproIt_SetCaptureFn(ReproIt_CaptureFn fn, void* user) {
+    reproit_capture.fn = fn;
+    reproit_capture.user = user;
+}
+
+// ---- minimal self-contained PNG (zlib "stored" / uncompressed) -------------
+// No external dependency: deflate is emitted as raw stored blocks, which any
+// conformant zlib/PNG decoder reads. CRC32 + Adler32 are computed inline.
+
+static uint32_t reproit_png_crc_table[256];
+static bool reproit_png_crc_ready = false;
+static void reproit_png_crc_init(void) {
+    if (reproit_png_crc_ready) return;
+    for (uint32_t n = 0; n < 256; n++) {
+        uint32_t c = n;
+        for (int k = 0; k < 8; k++) c = (c & 1) ? 0xedb88320u ^ (c >> 1) : (c >> 1);
+        reproit_png_crc_table[n] = c;
+    }
+    reproit_png_crc_ready = true;
+}
+static uint32_t reproit_png_crc(uint32_t crc, const unsigned char* buf, size_t len) {
+    reproit_png_crc_init();
+    crc ^= 0xffffffffu;
+    for (size_t i = 0; i < len; i++) crc = reproit_png_crc_table[(crc ^ buf[i]) & 0xff] ^ (crc >> 8);
+    return crc ^ 0xffffffffu;
+}
+
+static void reproit_png_be32(unsigned char* p, uint32_t v) {
+    p[0] = (unsigned char)(v >> 24); p[1] = (unsigned char)(v >> 16);
+    p[2] = (unsigned char)(v >> 8);  p[3] = (unsigned char)v;
+}
+
+// Write one PNG chunk (length + type + data + CRC) to `f`.
+static bool reproit_png_chunk(FILE* f, const char* type, const unsigned char* data, size_t len) {
+    unsigned char hdr[8];
+    reproit_png_be32(hdr, (uint32_t)len);
+    memcpy(hdr + 4, type, 4);
+    if (fwrite(hdr, 1, 8, f) != 8) return false;
+    if (len && fwrite(data, 1, len, f) != len) return false;
+    uint32_t crc = reproit_png_crc(0, (const unsigned char*)type, 4);
+    if (len) crc = reproit_png_crc(crc, data, len);
+    unsigned char crcb[4];
+    reproit_png_be32(crcb, crc);
+    return fwrite(crcb, 1, 4, f) == 4;
+}
+
+// Write an 8-bit RGBA PNG. `pixels` is `w*h*4` bytes, top row first (the caller
+// orders rows; the GL default below flips bottom-up reads). Returns true on
+// success. Uses an uncompressed zlib stream so no compressor is needed.
+static bool ReproIt_WritePNG_RGBA(const char* path, const unsigned char* pixels,
+                                  unsigned w, unsigned h) {
+    if (!path || !pixels || w == 0 || h == 0) return false;
+    FILE* f = fopen(path, "wb");
+    if (!f) return false;
+
+    static const unsigned char SIG[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+    bool ok = fwrite(SIG, 1, 8, f) == 8;
+
+    // IHDR: width, height, bit depth 8, color type 6 (RGBA), no compression/
+    // filter/interlace method bytes (all 0).
+    unsigned char ihdr[13];
+    reproit_png_be32(ihdr, w);
+    reproit_png_be32(ihdr + 4, h);
+    ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+    ok = ok && reproit_png_chunk(f, "IHDR", ihdr, sizeof ihdr);
+
+    // Build the raw (pre-zlib) image data: each scanline prefixed with filter
+    // byte 0 (none). Then wrap in a zlib stream of stored deflate blocks.
+    size_t row = (size_t)w * 4;
+    size_t raw_len = (row + 1) * h;                 // +1 filter byte per row
+    unsigned char* raw = (unsigned char*)malloc(raw_len);
+    if (!raw) { fclose(f); return false; }
+    for (unsigned y = 0; y < h; y++) {
+        raw[(row + 1) * y] = 0;                      // filter: none
+        memcpy(raw + (row + 1) * y + 1, pixels + row * y, row);
+    }
+
+    // zlib stream: 2-byte header (0x78 0x01) + stored deflate blocks + Adler32.
+    // Each stored block carries up to 65535 bytes: 1 BFINAL/BTYPE byte, LEN,
+    // ~LEN (little-endian), then the literal bytes.
+    size_t max_blocks = raw_len / 65535 + 1;
+    size_t zcap = 2 + raw_len + max_blocks * 5 + 4;
+    unsigned char* z = (unsigned char*)malloc(zcap);
+    if (!z) { free(raw); fclose(f); return false; }
+    size_t zn = 0;
+    z[zn++] = 0x78; z[zn++] = 0x01;                  // CMF, FLG
+    size_t off = 0;
+    while (off < raw_len) {
+        size_t block = raw_len - off;
+        if (block > 65535) block = 65535;
+        int final = (off + block >= raw_len) ? 1 : 0;
+        z[zn++] = (unsigned char)final;              // BFINAL bit, BTYPE=00 (stored)
+        z[zn++] = (unsigned char)(block & 0xff);
+        z[zn++] = (unsigned char)((block >> 8) & 0xff);
+        z[zn++] = (unsigned char)(~block & 0xff);
+        z[zn++] = (unsigned char)((~block >> 8) & 0xff);
+        memcpy(z + zn, raw + off, block);
+        zn += block;
+        off += block;
+    }
+    // Adler32 over the raw (uncompressed) data.
+    uint32_t a = 1, b = 0;
+    for (size_t i = 0; i < raw_len; i++) {
+        a = (a + raw[i]) % 65521u;
+        b = (b + a) % 65521u;
+    }
+    uint32_t adler = (b << 16) | a;
+    reproit_png_be32(z + zn, adler);
+    zn += 4;
+    free(raw);
+
+    ok = ok && reproit_png_chunk(f, "IDAT", z, zn);
+    free(z);
+    ok = ok && reproit_png_chunk(f, "IEND", NULL, 0);
+    fclose(f);
+    if (!ok) remove(path);
+    return ok;
+}
+
+#ifdef REPROIT_CAPTURE_GL
+// Default OpenGL capture: glReadPixels of the current viewport, written as PNG.
+// The app must include its GL headers BEFORE this header (or define the GL
+// prototypes); we only call glGetIntegerv/glReadPixels/GL_RGBA/GL_UNSIGNED_BYTE,
+// which are core in every desktop/ES profile. GL reads bottom-up, so we flip
+// rows into top-down order for the PNG.
+static bool reproit_capture_gl(const char* png_path, void* user) {
+    (void)user;
+    GLint vp[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_VIEWPORT, vp);
+    unsigned w = (unsigned)(vp[2] > 0 ? vp[2] : 0);
+    unsigned h = (unsigned)(vp[3] > 0 ? vp[3] : 0);
+    if (w == 0 || h == 0) return false;
+    size_t row = (size_t)w * 4;
+    unsigned char* buf = (unsigned char*)malloc(row * h);
+    if (!buf) return false;
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(vp[0], vp[1], (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, buf);
+    // Flip vertically: GL row 0 is the bottom; PNG row 0 is the top.
+    unsigned char* flip = (unsigned char*)malloc(row * h);
+    if (!flip) { free(buf); return false; }
+    for (unsigned y = 0; y < h; y++) memcpy(flip + row * y, buf + row * (h - 1 - y), row);
+    free(buf);
+    bool ok = ReproIt_WritePNG_RGBA(png_path, flip, w, h);
+    free(flip);
+    return ok;
+}
+#endif  // REPROIT_CAPTURE_GL
+
+// Sanitize a shoot name to the orchestrator's charset [A-Za-z0-9_/-], in place,
+// into `out` (capacity `cap`). Anything else is dropped, so the emitted marker
+// name and the written file path agree with drive.rs's filter.
+static void reproit_shoot_sanitize(const char* name, char* out, size_t cap) {
+    size_t j = 0;
+    for (const char* p = name ? name : ""; *p && j + 1 < cap; p++) {
+        char c = *p;
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '/' || c == '-') {
+            out[j++] = c;
+        }
+    }
+    out[j] = 0;
+}
+
+// Perform a named shoot: build "$REPROIT_SHOTS_DIR/<name>.png", invoke the
+// registered capture callback (or the GL default when -DREPROIT_CAPTURE_GL and no
+// callback is set), then print "SHOOT:<name>" so the orchestrator confirms + logs
+// it. No-op (returns false) when REPROIT_SHOTS_DIR is unset, the name sanitizes
+// empty, or no capture mechanism is available. The marker is printed ONLY when
+// the PNG was actually written, so the orchestrator's path.exists() check holds.
+static bool ReproIt_Shoot(const char* name) {
+    const char* dir = getenv("REPROIT_SHOTS_DIR");
+    if (!dir || !dir[0]) return false;
+    char safe[256];
+    reproit_shoot_sanitize(name, safe, sizeof safe);
+    if (!safe[0]) return false;
+
+    char path[1024];
+    int np = snprintf(path, sizeof path, "%s/%s.png", dir, safe);
+    if (np <= 0 || (size_t)np >= sizeof path) return false;
+
+    bool ok = false;
+    if (reproit_capture.fn) {
+        ok = reproit_capture.fn(path, reproit_capture.user);
+    }
+#ifdef REPROIT_CAPTURE_GL
+    else {
+        ok = reproit_capture_gl(path, NULL);
+    }
+#endif
+    if (!ok) return false;
+    printf("SHOOT:%s\n", safe);
+    fflush(stdout);
+    return true;
+}
+
+#endif  // REPROIT_CAPTURE_CORE_H
+
+// ===========================================================================
 // ImGui-specific hook
 // ===========================================================================
 #ifndef REPROIT_IMGUI_H
@@ -856,6 +1106,16 @@ void Header(const char* label);               // a header/section title node
 // immediate-mode equivalent of a `value_nodes:` selector (Layer 3); the node's
 // role is "output" (a value-role) so it is value-bearing by role.
 void Value(const char* label, const char* value);
+
+// --- Screenshot capture (the shoot contract; see the capture core above) ----
+// Register the framebuffer-capture callback the app wires to its renderer (the
+// header cannot know the graphics backend). With -DREPROIT_CAPTURE_GL and no
+// callback set, the default glReadPixels path is used. Shoot("name") writes
+// "$REPROIT_SHOTS_DIR/name.png" via the callback/GL default and prints
+// "SHOOT:name"; it is a guarded no-op when REPROIT_SHOTS_DIR is unset, so
+// capture-off builds (and runs without the env var) are unaffected.
+inline void SetCaptureFn(ReproIt_CaptureFn fn, void* user) { ReproIt_SetCaptureFn(fn, user); }
+inline bool Shoot(const char* name) { return ReproIt_Shoot(name); }
 
 #ifdef REPROIT_TELEMETRY
 // --- Production telemetry (optional; OFF unless REPROIT_TELEMETRY is defined) --
@@ -1183,6 +1443,11 @@ void FrameEnd() {
     if (g.seen.insert(sig).second) {
         std::printf("EXPLORE:STATE {\"sig\":\"%s\"}\n", sig.c_str());
         std::fflush(stdout);
+        // Capture a screenshot of each newly discovered state (the shoot
+        // contract). Guarded inside ReproIt_Shoot on REPROIT_SHOTS_DIR + a
+        // registered capture mechanism, so this is a no-op otherwise. The name
+        // is the state signature, which is in [A-Za-z0-9].
+        ReproIt_Shoot(sig.c_str());
     }
     if (!g.prevSig.empty() && sig != g.prevSig && !g.fireId.empty()) {
         std::printf("EXPLORE:EDGE {\"from\":\"%s\",\"action\":\"tap:%s\",\"to\":\"%s\"}\n",

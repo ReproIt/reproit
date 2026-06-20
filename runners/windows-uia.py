@@ -910,6 +910,154 @@ def crash(title, detail):
     emit("═" * 8)
 
 
+# ---- screenshot capture (SHOOT contract, see crates/.../backends/drive.rs) ---
+# The orchestrator passes REPROIT_SHOTS_DIR (absolute) and, on a named shoot
+# point, expects <dir>/<name>.png to exist before it reads `SHOOT:<name>` from
+# stdout. <name> is [A-Za-z0-9_/-]. With REPROIT_SHOTS_DIR unset we still print
+# the marker (capture is best-effort, the orchestrator just logs a miss).
+
+_SHOOT_NAME_OK = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/-")
+
+
+def _window_rect(window):
+    """The target window's screen bounding rectangle (left, top, right, bottom),
+    from the UIA element's BoundingRectangle. Returns None if unavailable."""
+    try:
+        r = window.BoundingRectangle
+    except Exception:
+        return None
+    try:
+        left, top, right, bottom = r.left, r.top, r.right, r.bottom
+    except Exception:
+        try:
+            left, top, right, bottom = r[0], r[1], r[2], r[3]
+        except Exception:
+            return None
+    if right - left < 1 or bottom - top < 1:
+        return None
+    return (int(left), int(top), int(right), int(bottom))
+
+
+def _capture_window(window, out_path):
+    """Capture the TARGET WINDOW to out_path (PNG). Targets the window rect, not
+    the desktop. Tries, in order: PrintWindow on the native handle (captures even
+    an occluded window), then a grab of the window's BoundingRectangle via mss,
+    then PIL ImageGrab. Returns True on success. Heavy deps are optional: any
+    missing backend is skipped, the next is tried."""
+    rect = _window_rect(window)
+    # 1) PrintWindow via the native handle: pulls the window's own pixels even if
+    #    it is behind another window. Uses ctypes + the GDI handle; no new deps.
+    try:
+        hwnd = int(window.NativeWindowHandle)
+    except Exception:
+        hwnd = 0
+    if hwnd and rect is not None and _printwindow_capture(hwnd, rect, out_path):
+        return True
+    # 2) mss: fast screen grab of the window rect (left, top, width, height).
+    if rect is not None:
+        try:
+            import mss  # type: ignore
+
+            left, top, right, bottom = rect
+            with mss.mss() as sct:
+                img = sct.grab({"left": left, "top": top,
+                                "width": right - left, "height": bottom - top})
+                import mss.tools  # type: ignore
+
+                mss.tools.to_png(img.rgb, img.size, output=out_path)
+            return True
+        except Exception:
+            pass
+    # 3) PIL ImageGrab of the bbox (left, top, right, bottom).
+    if rect is not None:
+        try:
+            from PIL import ImageGrab  # type: ignore
+
+            ImageGrab.grab(bbox=rect).save(out_path)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def _printwindow_capture(hwnd, rect, out_path):
+    """ctypes PrintWindow: render the window into a memory DC, then save it as a
+    BMP we hand to PIL for PNG encoding (PIL is the only optional dep here, and we
+    fall back to other backends if it is absent). Best-effort: any failure returns
+    False so the caller tries the next backend."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        left, top, right, bottom = rect
+        w, h = right - left, bottom - top
+        user32 = ctypes.windll.user32
+        gdi32 = ctypes.windll.gdi32
+        hwnd_dc = user32.GetWindowDC(hwnd)
+        if not hwnd_dc:
+            return False
+        mem_dc = gdi32.CreateCompatibleDC(hwnd_dc)
+        bmp = gdi32.CreateCompatibleBitmap(hwnd_dc, w, h)
+        gdi32.SelectObject(mem_dc, bmp)
+        # PW_RENDERFULLCONTENT (0x2) so DWM-composited content is included.
+        ok = user32.PrintWindow(hwnd, mem_dc, 2)
+        if not ok:
+            ok = user32.PrintWindow(hwnd, mem_dc, 0)
+        try:
+            from PIL import Image  # type: ignore
+
+            class BITMAPINFOHEADER(ctypes.Structure):
+                _fields_ = [
+                    ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
+                    ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
+                    ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+                    ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG),
+                    ("biYPelsPerMeter", wintypes.LONG), ("biClrUsed", wintypes.DWORD),
+                    ("biClrImportant", wintypes.DWORD),
+                ]
+
+            bmi = BITMAPINFOHEADER()
+            bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+            bmi.biWidth, bmi.biHeight = w, -h  # top-down
+            bmi.biPlanes, bmi.biBitCount = 1, 32
+            bmi.biCompression = 0  # BI_RGB
+            buf = ctypes.create_string_buffer(w * h * 4)
+            gdi32.GetDIBits(mem_dc, bmp, 0, h, buf, ctypes.byref(bmi), 0)
+            img = Image.frombuffer("RGB", (w, h), buf, "raw", "BGRX", 0, 1)
+            img.save(out_path)
+            result = True
+        except Exception:
+            result = False
+        gdi32.DeleteObject(bmp)
+        gdi32.DeleteDC(mem_dc)
+        user32.ReleaseDC(hwnd, hwnd_dc)
+        return bool(ok) and result
+    except Exception:
+        return False
+
+
+def shoot(window, name):
+    """Capture the target window to <REPROIT_SHOTS_DIR>/<name>.png, then print
+    SHOOT:<name>. <name> is sanitized to the contract's [A-Za-z0-9_/-]. With
+    REPROIT_SHOTS_DIR unset, skip capture but still emit the marker."""
+    name = "".join(c for c in name if c in _SHOOT_NAME_OK)
+    if not name:
+        return
+    shots_dir = os.environ.get("REPROIT_SHOTS_DIR", "")
+    if shots_dir:
+        out_path = os.path.join(shots_dir, name + ".png")
+        try:
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        except Exception:
+            pass
+        try:
+            _capture_window(window, out_path)
+        except Exception:
+            pass
+    emit("SHOOT:" + name)
+
+
 def main():
     try:
         import uiautomation as auto
@@ -992,6 +1140,13 @@ def main():
         if act is None:
             break
         emit("FUZZ:ACT " + act)
+        # Named screenshot point (from a replay/prefix script): capture the target
+        # window to REPROIT_SHOTS_DIR and print SHOOT:<name>. Not a UI action, so
+        # it does not advance `stuck` or count an edge.
+        if act.startswith("shoot:"):
+            shoot(window, act[len("shoot:"):])
+            i += 1
+            continue
         if act == "back":
             auto.SendKeys("{Esc}")
             time.sleep(0.6)

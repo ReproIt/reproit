@@ -950,6 +950,142 @@ def crash(title, detail):
     emit("═" * 8)
 
 
+# ---- screenshot capture (SHOOT contract, see crates/.../backends/drive.rs) ---
+# The orchestrator passes REPROIT_SHOTS_DIR (absolute) and, on a named shoot
+# point, expects <dir>/<name>.png to exist before it reads `SHOOT:<name>` from
+# stdout. <name> is [A-Za-z0-9_/-]. With REPROIT_SHOTS_DIR unset we still print
+# the marker (capture is best-effort, the orchestrator just logs a miss).
+
+_SHOOT_NAME_OK = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/-")
+
+
+def _atspi_window(app):
+    """The app's first FRAME/WINDOW accessible (the top-level window), so the
+    capture targets it rather than the whole desktop. Falls back to the app
+    accessible itself when no window child is exposed."""
+    try:
+        for i in range(app.get_child_count()):
+            w = app.get_child_at_index(i)
+            rn = _atspi_role_name(w)
+            if rn in ("FRAME", "WINDOW", "DIALOG"):
+                return w
+    except Exception:
+        pass
+    return app
+
+
+def _atspi_window_extents(window):
+    """The window's screen extents (x, y, width, height) from the AT-SPI Component
+    interface. Returns None if unavailable or zero-sized."""
+    try:
+        comp = window.get_component_iface()
+        if comp is None:
+            return None
+        # Coordinates relative to the screen (ATSPI_COORD_TYPE_SCREEN == 0).
+        ext = comp.get_extents(0)
+        x, y, w, h = ext.x, ext.y, ext.width, ext.height
+    except Exception:
+        return None
+    if w < 1 or h < 1:
+        return None
+    return (int(x), int(y), int(w), int(h))
+
+
+def _capture_window(window, out_path):
+    """Capture the TARGET WINDOW to out_path (PNG), best-effort fallback chain.
+    1) gnome-screenshot -w (active/focused window).
+    2) ImageMagick `import` of the window's extents region (-window root + crop).
+    3) `import -window root` crop, or scrot/grim cropped to the extents.
+    Targets the window region rather than the full desktop wherever the geometry
+    is known. Returns True on the first backend that writes the file."""
+    extents = _atspi_window_extents(window)
+
+    def _ran_ok():
+        return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+
+    # 1) gnome-screenshot grabs the active window directly (GNOME sessions).
+    if _which("gnome-screenshot"):
+        try:
+            subprocess.run(["gnome-screenshot", "-w", "-f", out_path],
+                           timeout=10, check=False)
+            if _ran_ok():
+                return True
+        except Exception:
+            pass
+
+    # 2) ImageMagick `import`: crop the root window to the AT-SPI extents.
+    if extents is not None and _which("import"):
+        x, y, w, h = extents
+        try:
+            subprocess.run(
+                ["import", "-window", "root", "-crop", f"{w}x{h}+{x}+{y}", out_path],
+                timeout=10, check=False)
+            if _ran_ok():
+                return True
+        except Exception:
+            pass
+
+    # 3) grim (Wayland) or scrot (X11) cropped to the extents geometry.
+    if extents is not None:
+        x, y, w, h = extents
+        if _which("grim"):
+            try:
+                subprocess.run(["grim", "-g", f"{x},{y} {w}x{h}", out_path],
+                               timeout=10, check=False)
+                if _ran_ok():
+                    return True
+            except Exception:
+                pass
+        if _which("scrot"):
+            try:
+                subprocess.run(
+                    ["scrot", "-a", f"{x},{y},{w},{h}", out_path],
+                    timeout=10, check=False)
+                if _ran_ok():
+                    return True
+            except Exception:
+                pass
+
+    # 4) Last resort: whole screen via ImageMagick `import -window root`.
+    if _which("import"):
+        try:
+            subprocess.run(["import", "-window", "root", out_path],
+                           timeout=10, check=False)
+            if _ran_ok():
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _which(prog):
+    """True if `prog` is on PATH (shutil.which, stdlib, importable anywhere)."""
+    import shutil
+    return shutil.which(prog) is not None
+
+
+def shoot(app, name):
+    """Capture the target window to <REPROIT_SHOTS_DIR>/<name>.png, then print
+    SHOOT:<name>. <name> is sanitized to the contract's [A-Za-z0-9_/-]. With
+    REPROIT_SHOTS_DIR unset, skip capture but still emit the marker."""
+    name = "".join(c for c in name if c in _SHOOT_NAME_OK)
+    if not name:
+        return
+    shots_dir = os.environ.get("REPROIT_SHOTS_DIR", "")
+    if shots_dir:
+        out_path = os.path.join(shots_dir, name + ".png")
+        try:
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        except Exception:
+            pass
+        try:
+            _capture_window(_atspi_window(app), out_path)
+        except Exception:
+            pass
+    emit("SHOOT:" + name)
+
+
 def main():
     try:
         import gi
@@ -1054,6 +1190,13 @@ def main():
             if act is None:
                 break
             emit("FUZZ:ACT " + act)
+            # Named screenshot point (from a replay/prefix script): capture the
+            # target window to REPROIT_SHOTS_DIR and print SHOOT:<name>. Not a UI
+            # action, so it does not advance `stuck` or count an edge.
+            if act.startswith("shoot:"):
+                shoot(app, act[len("shoot:"):])
+                i += 1
+                continue
             if act == "back":
                 Atspi.generate_keyboard_event(9, "", Atspi.KeySynthType.PRESSRELEASE)  # Escape keycode 9 (X11)
                 time.sleep(0.6)

@@ -21,6 +21,10 @@ use std::time::Duration;
 
 use reproit_tui_sig::{content_fingerprint, labels_of, structural_sig};
 
+// Screenshot capture: render the vt100 cell grid to a PNG store/doc image.
+#[path = "tui_shot.rs"]
+mod shot;
+
 const ROWS: u16 = 40;
 const COLS: u16 = 120;
 const ACTION_BUDGET: u32 = 36;
@@ -284,6 +288,42 @@ fn ucb_pick(
 fn emit(s: &str) {
     println!("{s}");
     let _ = std::io::stdout().flush();
+}
+
+/// Sanitize a shoot name to the contract's `[A-Za-z0-9_/-]` alphabet, matching
+/// the orchestrator-side filter in drive.rs so the runner writes the same path
+/// the orchestrator looks for.
+fn sanitize_shot_name(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '/' | '-'))
+        .collect()
+}
+
+/// Screenshot-capture contract (see backends/drive.rs): render the CURRENT
+/// vt100 screen to `$REPROIT_SHOTS_DIR/<name>.png`, then print `SHOOT:<name>`.
+/// If REPROIT_SHOTS_DIR is unset we skip the PNG but still print the marker, so
+/// the journey timeline still records the shoot point. A leading dir in `<name>`
+/// (the `/` in the alphabet) is created under the shots dir.
+fn shoot(parser: &Arc<Mutex<vt100::Parser>>, raw_name: &str) {
+    let name = sanitize_shot_name(raw_name);
+    if name.is_empty() {
+        return;
+    }
+    if let Ok(dir) = std::env::var("REPROIT_SHOTS_DIR") {
+        if !dir.is_empty() {
+            let path = std::path::Path::new(&dir).join(format!("{name}.png"));
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let img = shot::render_screen(parser);
+            if let Err(e) = img.save(&path) {
+                emit(&format!("JOURNEY[a] step: shoot {name} render failed: {e}"));
+            }
+        }
+    }
+    // Print the marker regardless: the orchestrator confirms the PNG (RunnerSide
+    // capture) and logs the shoot point either way.
+    emit(&format!("SHOOT:{name}"));
 }
 
 struct Fuzz {
@@ -708,6 +748,23 @@ pub fn run() -> Result<()> {
                 systematic(&cur_sig)
             };
             let Some(act) = act else { break 'fuzz };
+            // A "shoot:<name>" action is a screenshot point, not a keystroke:
+            // render the CURRENT screen to a PNG and print the SHOOT marker, then
+            // move on without sending any bytes or running the crash/effect
+            // oracle (a capture changes nothing on screen). These only arrive via
+            // an author-supplied replay/prefix/seed path; the UCB/systematic
+            // pickers emit only "key:" actions. We still advance the step counter
+            // so a replay/seed cursor progresses past the shoot.
+            if let Some(name) = act.strip_prefix("shoot:") {
+                emit(&format!("FUZZ:ACT {act}"));
+                shoot(&parser, name);
+                i += 1;
+                if frames_path.is_some() {
+                    let scr = parser.lock().unwrap().screen().contents();
+                    frames.push(serde_json::json!({ "action": act, "screen": scr }));
+                }
+                continue;
+            }
             emit(&format!("FUZZ:ACT {act}"));
             tried.insert(format!("{cur_sig}|{act}"));
             *live_visits.entry(format!("{cur_sig}|{act}")).or_insert(0) += 1;
