@@ -125,7 +125,11 @@ pub async fn run_journey(
     let run_dir = root
         .join(&cfg.evidence.out_dir)
         .join(format!("{}-{journey}", started_at.format("%Y%m%d-%H%M%S")));
-    std::fs::create_dir_all(run_dir.join("screenshots"))?;
+    // Create the run dir itself (actions.jsonl / exceptions.jsonl below need it).
+    // The SHOOT landing dir is NOT created here: it is resolved later (default
+    // <run_dir>/screenshots, or the visual/--shots-dir override) and created at
+    // its real location, so an override run no longer leaves an empty screenshots/.
+    std::fs::create_dir_all(&run_dir)?;
 
     // 1. Simulators: only <prefix>-X sims are touched; a sim you use for
     //    other work is never grabbed or rebooted.
