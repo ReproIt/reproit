@@ -104,6 +104,15 @@ pub fn run(
              runScript logic into a reset: step or an invariant.",
         );
     }
+    // The handoff: a converted flow isn't just a replayable script, it's a
+    // launchpad. `fuzz --from` replays it to its end state, then hunts the bugs
+    // it never covered. (Only meaningful once the journey lives on disk.)
+    if out.is_some() {
+        ctx.say(format!(
+            "\nNext: `reproit check {journey_name}` to replay it, or \
+             `reproit fuzz --from {journey_name}` to find the bugs it never covered."
+        ));
+    }
     Ok(())
 }
 

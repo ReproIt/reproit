@@ -180,6 +180,13 @@ merged into the committed graph.
   same bug reached by different paths collapses to one bucket with a canonical
   (shortest) repro. This is the deduped "fuzz and fix" work-list; `reproit mcp`
   passes `--all` so an agent gets every real bug, once, in a single call.
+- **`--from <journey>`** fuzzes *from* a journey: it replays that journey (a name
+  like any journey target, or a path to a `.yaml`, e.g. one just written by
+  `reproit import`) to its end state, then branches the seeded walk outward from
+  there. Reaching a valid deep state is the costly part of fuzzing, so a recorded
+  or imported flow becomes a launchpad for the bugs it never covered. The journey
+  is resolved host-side (secrets bound, `goto`s expanded) before any drive, and it
+  takes precedence over `--frontier` (the journey IS the chosen path in).
 
 ### `check`
 
@@ -269,10 +276,18 @@ Currently supports **Maestro**: `reproit import maestro flow.yaml` reads the
 Maestro YAML and prints a journey (or writes it with `-o`). The common commands
 map onto the reproit grammar: `tapOn` -> `tap:label:` / `tap:key:`, `inputText`
 -> `type:`, `assertVisible` -> `assert:textPresent:` / `assert:count:`,
-`takeScreenshot` -> `do:shoot:`, `back` -> `do:back`. `launchApp` is handled by
-reproit and noted; anything without a clean equivalent (scroll, swipe, runFlow)
-is emitted as a `# TODO(maestro)` comment so a command is never silently dropped,
-and a summary of mapped/TODO/handled counts is printed.
+`takeScreenshot` -> `do:shoot:`, `back` -> `do:back`. Real suites are modular, so
+the converter also follows structure: **`runFlow`** sub-flows are inlined in place
+(by file, or inline `commands:`, honoring the `when:` modifier), **`repeat`** with
+a literal `times:` is unrolled, and `extendedWaitUntil`/`waitUntilVisible` become
+`assert:` (reproit settles before asserting). `launchApp` is handled by reproit and
+noted; only commands with no faithful equivalent (`scroll`, `swipe`, `runScript`,
+`assertNotVisible`) are emitted as `# TODO(maestro)` comments, so a command is
+never silently dropped. A **compatibility report** prints the percentage mapped
+plus per-command unsupported counts and concrete fixes.
+
+After importing, the journey is a launchpad, not just a script: `reproit fuzz
+--from <journey>` replays it, then hunts the bugs it never covered (see `fuzz`).
 
 ### `keep`
 

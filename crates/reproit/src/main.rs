@@ -355,6 +355,13 @@ enum Cmd {
         /// then the seeded walk explores from that frontier
         #[arg(long)]
         frontier: bool,
+        /// Fuzz FROM a journey: replay this journey (a name like any journey
+        /// target, or a path to a .yaml, e.g. one just written by
+        /// `reproit import`) to its end state, then branch the seeded walk
+        /// outward from there. Turns a recorded/imported flow into a launchpad
+        /// for the bugs it never covered. Takes precedence over --frontier.
+        #[arg(long)]
+        from: Option<String>,
         /// A/B control: uniform-random pick + fixed budget (disables the
         /// inverse-visit-count scoring and power schedule)
         #[arg(long)]
@@ -1347,6 +1354,7 @@ async fn main() -> Result<ExitCode> {
             shrink,
             all,
             frontier,
+            from,
             uniform,
             seeds,
             batch,
@@ -1414,6 +1422,14 @@ async fn main() -> Result<ExitCode> {
                 .map(crosscut::parse_locales)
                 .unwrap_or_default();
 
+            // `--from <journey>`: resolve the journey to its replay actions
+            // host-side now, so a bad/multi-actor journey fails before any drive
+            // (and the secret/map resolution happens once, not per seed).
+            let from_prefix = match &from {
+                Some(name) => Some(journey::prefix_actions(&loaded, name)?),
+                None => None,
+            };
+
             let args = fuzz::FuzzArgs {
                 journey,
                 seed,
@@ -1435,6 +1451,7 @@ async fn main() -> Result<ExitCode> {
                 json: ctx.json,
                 locales,
                 oracle_filter,
+                from_prefix,
             };
 
             // UNIFIED --target dispatch: ONE path for web ENGINES
@@ -2136,6 +2153,7 @@ async fn cloud_cmd(config_path: Option<&std::path::Path>, action: CloudAction) -
                 json: false,
                 locales: Vec::new(),
                 oracle_filter: crosscut::OracleFilter::all(),
+                from_prefix: None,
             };
             fuzz::fuzz(&loaded.config, &loaded.root, &args).await
         }

@@ -493,6 +493,49 @@ fn build_plan(root: &Path, map: Option<&AppMap>, j: &Journey) -> Result<Plan> {
     Ok(Plan { actions })
 }
 
+/// Load a journey by NAME (`journeys/<name>.yaml`, like any journey target) or
+/// by a direct PATH (`./flows/login.yaml`). A value with a slash or a
+/// `.yaml`/`.yml` extension that exists on disk is read directly; otherwise it
+/// resolves as a journey name. This lets `fuzz --from` point at a freshly
+/// `import`ed flow wherever it was written.
+fn load_target(root: &Path, name_or_path: &str) -> Result<Journey> {
+    let p = Path::new(name_or_path);
+    let looks_like_path = name_or_path.contains('/')
+        || matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"));
+    if looks_like_path && p.is_file() {
+        let raw = std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?;
+        return serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", p.display()));
+    }
+    load(root, name_or_path)
+}
+
+/// Resolve a single-actor journey into its replay action sequence, with secrets
+/// bound, for use as a `fuzz --from` prefix. The fuzzer replays these actions to
+/// land the app in the journey's end state, then branches the seeded walk
+/// outward from there: an imported/recorded flow becomes the launchpad for the
+/// bugs it never covered. Multi-actor journeys are rejected (no single linear
+/// path to branch a walk from).
+pub fn prefix_actions(loaded: &config::Loaded, name_or_path: &str) -> Result<Vec<String>> {
+    let j = load_target(&loaded.root, name_or_path)?;
+    if !j.actors.is_empty() || j.steps.iter().any(|s| s.actor.is_some()) {
+        bail!(
+            "`fuzz --from` needs a single-actor journey; `{name_or_path}` is multi-actor \
+             (there is no single path to branch a walk from)"
+        );
+    }
+    let map = load_map(&loaded.root);
+    let plan = build_plan(&loaded.root, map.as_ref(), &j)?;
+    if plan.actions.is_empty() {
+        bail!("journey `{name_or_path}` has no actions to replay");
+    }
+    let secrets = crate::auth::secret_env(&loaded.config.auth, &loaded.root).unwrap_or_default();
+    Ok(plan
+        .actions
+        .iter()
+        .map(|a| crate::auth::resolve_placeholders(a, &secrets))
+        .collect())
+}
+
 /// Classify one journey replay. A crash on the way is a real failure (Broke); a
 /// step that could not be performed (`FUZZ:MISS`) or an assertion that no longer
 /// holds (`FUZZ:ASSERT fail`) means the app diverged from what the journey
@@ -1558,5 +1601,63 @@ mod tests {
     fn classify_crash_is_broke() {
         let log = "FUZZ:ACT tap:x\nflutter: ══╡ EXCEPTION CAUGHT BY WIDGETS LIBRARY ╞══\nboom\n";
         assert_eq!(classify_run(log, true), repro::RunVerdict::Broke);
+    }
+
+    /// A `config::Loaded` rooted at `dir`, with a minimal valid config (no
+    /// secrets), for exercising `prefix_actions` without a real project.
+    fn loaded_at(dir: &Path) -> config::Loaded {
+        let cfg: config::Config = serde_yaml::from_str(
+            "app:\n  platform: web-playwright\ndevices:\n  namePrefix: t\njourneys:\n  driver: x\n  doneMarkers: [DONE]\n",
+        )
+        .unwrap();
+        config::Loaded {
+            config: cfg,
+            root: dir.to_path_buf(),
+        }
+    }
+
+    #[test]
+    fn from_journey_resolves_to_a_replay_prefix() {
+        let dir = std::env::temp_dir().join(format!("reproit-jfrom-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("journeys")).unwrap();
+        // do + fill + expect:text need no map; they become the prefix the fuzzer
+        // replays before branching outward.
+        std::fs::write(
+            dir.join("journeys").join("checkout.yaml"),
+            "steps:\n  - do: tap:label:Buy\n  - fill:\n      key:qty: \"2\"\n  - expect:\n      text: Thanks\n",
+        )
+        .unwrap();
+        // Resolves by NAME, like any journey target.
+        let by_name = prefix_actions(&loaded_at(&dir), "checkout").unwrap();
+        assert_eq!(
+            by_name,
+            vec!["tap:label:Buy", "type:key:qty=2", "assert:text=Thanks"]
+        );
+        // And by direct PATH (e.g. wherever `reproit import` wrote it).
+        let by_path = prefix_actions(
+            &loaded_at(&dir),
+            dir.join("journeys").join("checkout.yaml").to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(by_path, by_name);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn from_journey_rejects_multi_actor() {
+        let dir = std::env::temp_dir().join(format!("reproit-jfrom-ma-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("journeys")).unwrap();
+        std::fs::write(
+            dir.join("journeys").join("chat.yaml"),
+            "actors: [alice, bob]\nsteps:\n  - actor: alice\n    do: tap:label:Send\n",
+        )
+        .unwrap();
+        let err = prefix_actions(&loaded_at(&dir), "chat")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("multi-actor"), "got: {err}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

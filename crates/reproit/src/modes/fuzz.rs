@@ -84,6 +84,12 @@ pub struct FuzzArgs {
     /// Oracle include/exclude filter from `--only`/`--no`. Default is all-on.
     /// Kept findings are tagged with their `oracle` category.
     pub oracle_filter: crate::crosscut::OracleFilter,
+    /// `fuzz --from <journey>`: a journey's resolved action sequence, replayed as
+    /// the prefix for every seed so the seeded walk branches outward from the
+    /// journey's end state. Resolved host-side in main.rs (secrets bound, map
+    /// `goto`s expanded) so a bad journey fails before any drive. Takes
+    /// precedence over `--frontier` (the journey IS the chosen path in).
+    pub from_prefix: Option<Vec<String>>,
 }
 
 /// Cost model (placeholder rates; make them real when the dashboard wires up
@@ -654,7 +660,22 @@ fn plan_seed(
     // more budget; a saturated one earns less.
     let mut budget = args.budget;
     let mut prefix: Option<Vec<String>> = None;
-    if args.frontier {
+    if let Some(p) = &args.from_prefix {
+        // `--from <journey>`: replay the journey to its end state, then explore
+        // outward. The journey IS the path in, so it takes precedence over
+        // frontier pathfinding; the seeded walk gets its full budget AFTER the
+        // prefix (the runner adds prefix length to the action budget).
+        say(
+            args.json,
+            format!(
+                "fuzz seed {seed} (run {}/{}): from journey ({} action(s)) then explore, budget {budget}",
+                i + 1,
+                args.runs,
+                p.len()
+            ),
+        );
+        prefix = Some(p.clone());
+    } else if args.frontier {
         match crate::map::frontier_path(map, visits) {
             Some((target, path)) if !path.is_empty() => {
                 if !args.uniform {

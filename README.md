@@ -97,10 +97,15 @@ Cross-cutting flags on `fuzz`/`check`:
 --target ios,android | chromium,firefox,webkit   # run each + diff for divergence
 --device "<name>"     # else an interactive picker
 --locale de,ar,ja     # fuzz across locales (RTL / overflow / i18n)
+--from <journey>      # (fuzz) replay a journey, then branch outward from its end state
 --record              # annotated repro video
 --only / --no crash,jank,leak,…
 --json --quiet --yes  # CI
 ```
+
+`import` + `fuzz --from` is the switch path: convert a Maestro flow to a journey,
+then fuzz *from* it. Reaching a valid deep state is the costly part, so an
+imported flow becomes a launchpad for the bugs it never covered.
 
 ## How it finds more
 
