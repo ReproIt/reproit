@@ -54,6 +54,8 @@ mod graph;
 mod journey;
 #[path = "modes/mapplan.rs"]
 mod mapplan;
+#[path = "modes/screenshots.rs"]
+mod screenshots;
 #[path = "modes/soak.rs"]
 mod soak;
 #[path = "modes/triage.rs"]
@@ -130,7 +132,7 @@ fn exit_with(e: Exit) -> ExitCode {
 /// structured commands (fuzz, check, keep, repros, map); `--yes` suppresses
 /// prompts.
 #[derive(Clone, Copy, Default)]
-struct Ctx {
+pub(crate) struct Ctx {
     json: bool,
     quiet: bool,
     #[allow(dead_code)] // reserved for interactive prompts (keep picker)
@@ -140,7 +142,7 @@ struct Ctx {
 impl Ctx {
     /// Print a human line unless `--quiet` or `--json` is set (JSON output is
     /// the machine surface; human chatter would corrupt it).
-    fn say(&self, line: impl std::fmt::Display) {
+    pub(crate) fn say(&self, line: impl std::fmt::Display) {
         if !self.quiet && !self.json {
             println!("{line}");
         }
@@ -469,6 +471,28 @@ enum Cmd {
     Journey {
         #[command(subcommand)]
         action: JourneyAction,
+    },
+    /// Capture store/marketing screenshots: drive a tour (a journey) across
+    /// locales and devices into a fastlane-compatible layout. Reuses the SHOOT
+    /// capture machinery; one locale-invariant tour covers every locale.
+    Screenshots {
+        /// Tour to drive (a journey file stem). Defaults to screenshots.tour.
+        tour: Option<String>,
+        /// Output root (default: screenshots.out, else fastlane/screenshots).
+        #[arg(long)]
+        out: Option<String>,
+        /// Comma-separated locales (e.g. de,ar,ja). Overrides config when set.
+        #[arg(long)]
+        locale: Option<String>,
+        /// Comma-separated platforms/engines to fan out (e.g. ios,android).
+        #[arg(long)]
+        target: Option<String>,
+        /// Comma-separated device names/ids. Overrides config when set.
+        #[arg(long)]
+        device: Option<String>,
+        /// Skip the cross-screen verification gate (it is on by default).
+        #[arg(long)]
+        no_verify: bool,
     },
     /// Cloud loop: a fleet + production telemetry. Submit jobs, browse findings,
     /// see blast radius, and reproduce real user sessions deterministically.
@@ -1471,6 +1495,50 @@ async fn main() -> Result<ExitCode> {
             journey_cmd(cli.config.as_deref(), action, &ctx)?;
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Screenshots {
+            tour,
+            out,
+            locale,
+            target,
+            device,
+            no_verify,
+        } => {
+            let loaded = config::load(cli.config.as_deref())?;
+            let locales = locale
+                .as_deref()
+                .map(crosscut::parse_locales)
+                .unwrap_or_default();
+            let (targets, unknown) = match target.as_deref() {
+                Some(t) => crosscut::parse_run_targets(t),
+                None => (Vec::new(), Vec::new()),
+            };
+            for u in unknown {
+                ctx.say(format!("  warn: unknown target `{u}` (ignored)"));
+            }
+            let devices: Vec<String> = device
+                .as_deref()
+                .map(|s| {
+                    s.split(',')
+                        .map(|x| x.trim().to_string())
+                        .filter(|x| !x.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let args = screenshots::Args {
+                tour,
+                out,
+                locales,
+                targets,
+                devices,
+                verify: if no_verify { Some(false) } else { None },
+            };
+            let passed = screenshots::run(&ctx, &loaded, args).await?;
+            Ok(if passed {
+                ExitCode::SUCCESS
+            } else {
+                exit_with(Exit::Regression)
+            })
+        }
         Cmd::Cloud { action } => {
             // Cloud commands talk to a remote; an unreachable/erroring cloud is
             // a clean, non-panicking failure with a one-line message (the full
@@ -1913,12 +1981,12 @@ fn report_divergence(ctx: &Ctx, per_target: &[(String, std::collections::BTreeSe
 /// RAII guard that sets a batch of env vars and restores each to its prior value
 /// (or removes it when it was previously unset) on Drop, so a per-target run's
 /// REPROIT_* never leaks into the next target even on early return or panic.
-struct ScopedEnv {
+pub(crate) struct ScopedEnv {
     prior: Vec<(String, Option<String>)>,
 }
 
 impl ScopedEnv {
-    fn set(vars: Vec<(String, String)>) -> Self {
+    pub(crate) fn set(vars: Vec<(String, String)>) -> Self {
         let mut prior = Vec::with_capacity(vars.len());
         for (k, v) in vars {
             prior.push((k.clone(), std::env::var(&k).ok()));

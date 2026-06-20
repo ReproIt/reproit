@@ -16,6 +16,10 @@ pub struct Config {
     #[serde(default)]
     pub evidence: Evidence,
     pub visual: Option<Visual>,
+    /// Store/marketing screenshot tours (see modes/screenshots.rs). Optional;
+    /// only needed when running `reproit screenshots`.
+    #[serde(default)]
+    pub screenshots: Option<Screenshots>,
     #[serde(default)]
     pub gate: Gate,
     #[serde(default)]
@@ -405,6 +409,33 @@ pub struct Visual {
     pub advisory: Vec<String>,
 }
 
+/// A store/marketing screenshot tour: a journey whose named SHOOT markers are
+/// driven across locales and devices, verified against the expected screen, and
+/// landed in a fastlane-compatible layout. Modeled on `Visual`; the SHOOT landing
+/// path is the same machinery, organized per locale/device here.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Screenshots {
+    /// The journey ("tour") to drive. Its SHOOT markers name the shots.
+    pub tour: String,
+    /// Durable output root. Per-platform/locale/device subdirs land under it.
+    /// Default "fastlane/screenshots" so `fastlane deliver`/`supply` ingest it.
+    #[serde(default = "default_shots_out")]
+    pub out: String,
+    /// Locales to fan out across (e.g. de, ar, ja). Empty = app default only.
+    /// Overridden by --locale on the command line.
+    #[serde(default)]
+    pub locales: Vec<String>,
+    /// Device names/classes to fan out across. Empty = the configured device.
+    /// Overridden by --device on the command line.
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// Verify each shot landed on its expected screen via the state signature,
+    /// failing loudly on navigation drift (the correctness gate). Default on.
+    #[serde(default = "default_verify_signature")]
+    pub verify_signature: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Gate {
@@ -446,6 +477,12 @@ fn default_out_dir() -> String {
 }
 fn default_shoot_marker() -> String {
     "SHOOT:".into()
+}
+fn default_shots_out() -> String {
+    "fastlane/screenshots".into()
+}
+fn default_verify_signature() -> bool {
+    true
 }
 fn default_pixel_tol() -> u8 {
     16
