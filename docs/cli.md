@@ -91,6 +91,7 @@ reproit fuzz [target]         find repros using the map (pure; emits a fuzz arti
                               --all: collect every bug, deduped into unique bugs
 reproit keep [id] [--as name] save a repro into your suite (interactive if no id)
 reproit check [repro|journey] run repros/journeys: pass / fail / flaky / stale  (--record)
+reproit screenshots [tour]    store/marketing shots: a journey tour in capture mode
 reproit journey list          list authored journeys (declarative YAML paths)
 reproit simplify <id> --to .. adopt a shorter, verified-equivalent action sequence
 reproit repros                list your saved repros + last status
@@ -195,6 +196,54 @@ it is kept), or omitted to run the whole saved suite. Four outcomes:
 Stale/fixed/regression are classified against the current `map`, repros are
 stored semantically (by key), so a moved button is "stale", not a false "fail".
 `--record` produces an annotated video (taps, seed, crash moment).
+
+### `screenshots`
+
+Generate store/marketing screenshots by running a journey **tour** in *capture
+mode*, fanned across locales and devices and organized for fastlane.
+
+A tour is just a journey: it declares WHERE to shoot with `do: shoot:<name>`
+steps. The command decides WHETHER pictures are taken, so one journey serves two
+purposes:
+
+- `reproit check <journey>` runs the steps to verify behavior; `shoot:` steps are
+  inert (navigate-only, no pictures, no capture overhead).
+- `reproit screenshots <journey>` runs the same steps in capture mode: each
+  `shoot:<name>` writes `<name>.png`, organized as
+  `<out>/<platform>/<locale>/<device>/<name>.png`, which `fastlane deliver` /
+  `supply` ingest directly. Because the state signature is locale-invariant, one
+  tour covers every locale with no per-locale selectors.
+
+```sh
+reproit screenshots [tour]
+  --locale de,ar,ja      # fan across locales (RTL / i18n); overrides config
+  --target ios,android   # fan across platforms/engines
+  --device "a,b"         # fan across devices
+  --out fastlane/screenshots
+  --no-verify            # skip the cross-screen verify gate (on by default)
+```
+
+Config (`reproit.yaml`):
+
+```yaml
+screenshots:
+  tour: marketing            # journey whose shoot: steps name the shots
+  out: fastlane/screenshots  # per-platform/locale/device subdirs land here
+  locales: [en, de, ar, ja]
+  devices: ["iPhone 16 Pro Max", "iPad Pro 13"]
+  verifySignature: true
+```
+
+Capture works on every supported platform: iOS / Android (simctl / `adb
+screencap`), web / Electron / Tauri (Playwright `page.screenshot` / CDP / W3C
+WebDriver), macOS / Windows / Linux desktop (window grab via `screencapture` /
+`PrintWindow` / ImageMagick), terminal UIs (the vt100 cell grid rendered to PNG),
+and Dear ImGui / Clay (an in-app framebuffer-capture hook). The shoot trigger is
+uniform across all of them: a tour authors `do: shoot:<name>`.
+
+The v1 verify gate cross-checks that every locale of a given platform/device
+produced the same set of shots, so a screen that drifted or was skipped in one
+locale fails loudly instead of shipping a gap.
 
 ### `keep`
 

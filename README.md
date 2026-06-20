@@ -80,6 +80,7 @@ guard; fix the bug and `check` flips it to PASS and promotes it to required.
 reproit map [--show]                  # build/refresh the graph; --show renders it
 reproit fuzz [target]                 # find bugs (a screen/flow, or the whole app)
 reproit check [repro]                 # verify: pass(0) / fail(1) / flaky(2) / stale(3)
+reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices
 reproit keep [id] [--as name]         # save a repro into the suite
 reproit repros                        # list saved repros + last status
 reproit watch <id>                    # open a repro's recorded video
