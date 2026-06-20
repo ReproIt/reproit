@@ -29,6 +29,8 @@ sha2 = "0.10"
 # tui backend: drive terminal apps in a PTY, parse the screen with a VT emulator
 portable-pty = "0.8"
 vt100 = "0.15"
+# canonical TUI screen signature, shared byte-for-byte with the production TUI SDKs
+reproit-tui-sig = { path = "../tui-sig" }
 
 [dev-dependencies]
 # Property testing (Antithesis Hegel).

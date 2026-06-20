@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/llm", "crates/reproit"]
+members = ["crates/llm", "crates/reproit", "crates/tui-sig", "sdk/reproit-tui-rs"]
 
 [workspace.dependencies]
 anyhow = "1"

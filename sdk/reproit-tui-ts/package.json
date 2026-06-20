@@ -1,0 +1,40 @@
+{
+  "name": "reproit-tui",
+  "version": "0.1.0",
+  "description": "Production telemetry SDK for JS/TS terminal-UI apps (Ink, blessed, and other TUI frameworks): computes the canonical reproit TUI screen signature, tracks coverage edges, and reports sessions and crash signatures to the reproit cloud.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "signature.ts",
+    "screen.ts",
+    "reporter.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/parity.test.ts",
+    "test:all": "node --test 'test/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "reproit",
+    "tui",
+    "ink",
+    "terminal",
+    "telemetry",
+    "signature",
+    "coverage",
+    "crash-reporting"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

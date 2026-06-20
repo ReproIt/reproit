@@ -1,0 +1,19 @@
+[package]
+name = "reproit-tui-sdk"
+version = "0.1.0"
+edition = "2021"
+license = "Elastic-2.0"
+description = "Production telemetry SDK for Rust terminal-UI apps (ratatui / crossterm). Reports the same canonical TUI signature the reproit __tui runner computes, so a production crash replays locally."
+
+[lib]
+name = "reproit_tui"
+path = "src/lib.rs"
+
+# Intentionally light: the signature comes from the shared reproit-tui-sig crate
+# (so the runner and this SDK are parity-correct by construction, not by a port),
+# and the only other dependency is serde_json for the wire batch. HTTP transport
+# and a ratatui Buffer adapter are pluggable (see README) so the default build
+# stays tiny enough to embed.
+[dependencies]
+reproit-tui-sig = { path = "../../crates/tui-sig" }
+serde_json = { workspace = true }

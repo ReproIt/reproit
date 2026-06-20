@@ -1,0 +1,33 @@
+{
+  "_about": "Golden TUI screen-signature vectors for the reproit-tui Go SDK parity gate. TUI signatures live in a SEPARATE namespace from the a11y golden vectors in <repo>/signature_vectors.json: the descriptor source is the rendered terminal screen (the VT cell grid), not a Node role tree (see docs/signature.md, the 'Terminal and instrumented surfaces' sub-contract, around lines 332-341). These vectors therefore bind the SDK to crates/reproit/src/backends/tui.rs, NOT to signature_vectors.json.",
+  "_derivation": "Every expected_sig / expected_fp below was produced by the REAL tui.rs code, not by a hand-port. A temporary, #[ignore]'d test `gen_tui_golden` was added to the `tests` module in crates/reproit/src/backends/tui.rs, calling the crate's own structural_sig(contents, cursor) and content_fingerprint(contents, cursor) on each `contents` string below, and printing the results. It was run with `cargo test -p reproit gen_tui_golden -- --nocapture --ignored`, the output transcribed here, and the temporary test then removed (tui.rs is unchanged from HEAD). To regenerate, re-add that test and re-run. The `contents` field is the exact vt100 screen().contents() string for the screen; the SDK reproduces that text model in ScreenContents.Text(), then hashes it with the same FNV-1a primitive.",
+  "_fields": {
+    "name": "human label for the case",
+    "contents": "the vt100 screen().contents() string (rows joined by \\n, per-row + trailing-blank-row whitespace trimmed)",
+    "cursor": "[row, col], 0-based, matching screen().cursor_position()",
+    "expected_sig": "tui.rs structural_sig(contents, cursor): the canonical TUI state signature",
+    "expected_fp": "tui.rs content_fingerprint(contents, cursor): the ephemeral Layer-1 effect token"
+  },
+  "_relationships": "Cross-vector facts the spec promises, asserted by the parity test: login_en == login_de (locale-invariant layout); count1 == count3 == count7 (all POS1 collapse) but count0 (ZERO), count1 (POS1), count12 (POS2) are three distinct sigs; hits100 == hits101 sig (same POS3 bucket + same skeleton) while their fingerprints DIFFER (value-only effect); login_en sig != login_en_cur3 sig (cursor cell is structural).",
+  "vectors": [
+    { "name": "empty", "contents": "", "cursor": [0, 0], "expected_sig": "ec6d322a", "expected_fp": "38232090" },
+    { "name": "plain_a", "contents": "a", "cursor": [0, 0], "expected_sig": "7faf3343", "expected_fp": "8ce61365" },
+    { "name": "count0", "contents": "Count: 0\n", "cursor": [0, 8], "expected_sig": "d80c050b", "expected_fp": "64d18ad1" },
+    { "name": "count1", "contents": "Count: 1\n", "cursor": [0, 8], "expected_sig": "63430c00", "expected_fp": "3e4b8558" },
+    { "name": "count12", "contents": "Count: 12\n", "cursor": [0, 8], "expected_sig": "28073547", "expected_fp": "3ccc3438" },
+    { "name": "count3", "contents": "Count: 3\n", "cursor": [0, 8], "expected_sig": "63430c00", "expected_fp": "06e6be66" },
+    { "name": "count7", "contents": "Count: 7\n", "cursor": [0, 8], "expected_sig": "63430c00", "expected_fp": "8a5a5df2" },
+    { "name": "hits100", "contents": "Hits: 100\n", "cursor": [0, 9], "expected_sig": "99ec7f9d", "expected_fp": "f57300e0" },
+    { "name": "hits101", "contents": "Hits: 101\n", "cursor": [0, 9], "expected_sig": "99ec7f9d", "expected_fp": "b78b51f5" },
+    { "name": "login_en", "contents": "┌─────────┐\n│ Login    │\n│ User:    │\n│ Pass:    │\n│ [o] Okay │\n└─────────┘\n", "cursor": [2, 8], "expected_sig": "2d66ce98", "expected_fp": "4df7ad5c" },
+    { "name": "login_de", "contents": "┌─────────┐\n│ Anmel    │\n│ Nutz:    │\n│ Pass:    │\n│ [o] Okay │\n└─────────┘\n", "cursor": [2, 8], "expected_sig": "2d66ce98", "expected_fp": "007ff2be" },
+    { "name": "login_en_cur3", "contents": "┌─────────┐\n│ Login    │\n│ User:    │\n│ Pass:    │\n│ [o] Okay │\n└─────────┘\n", "cursor": [3, 8], "expected_sig": "b11e61b1", "expected_fp": "3cdde2b7" },
+    { "name": "plain_screen", "contents": "Some plain text screen\nwith no borders at all\nand a totally different shape here\n", "cursor": [0, 0], "expected_sig": "5c350c4a", "expected_fp": "faa9792c" },
+    { "name": "numbers", "contents": "a 7 b 0 c 50\n", "cursor": [1, 2], "expected_sig": "36c8012a", "expected_fp": "27acda1b" },
+    { "name": "neg_dec", "contents": "balance -3.50 over 1,234 items\n", "cursor": [0, 0], "expected_sig": "317e97e7", "expected_fp": "d2f8adef" },
+    { "name": "grouped", "contents": "Total: 1,234 and 12:34 now\n", "cursor": [0, 0], "expected_sig": "7da065ef", "expected_fp": "bc44f9f1" },
+    { "name": "cjk_word", "contents": "欢迎 9 items\n", "cursor": [0, 0], "expected_sig": "a5bbb987", "expected_fp": "72ec7b52" },
+    { "name": "dense_numbers", "contents": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19\n", "cursor": [0, 0], "expected_sig": "acc7bd5a", "expected_fp": "6c9e40f4" },
+    { "name": "status_bar", "contents": "j:down  k:up  /:search  [c] commit  <Tab> switch  q:quit\n", "cursor": [39, 0], "expected_sig": "7e46c6c7", "expected_fp": "ce9f0a2e" }
+  ]
+}
