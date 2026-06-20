@@ -30,8 +30,8 @@ Note: AT-SPI also needs the system GObject-Introspection typelib for Atspi
 alone (the pip dep) is not sufficient. Env: REPROIT_TARGET (app name / launch
 path), REPROIT_FUZZ_CONFIG.
 
-Status: authored, NOT yet validated live (Linux-only; needs a real AT-SPI
-session). The signature function + parity test run anywhere.
+Linux-only: drives the live AT-SPI accessibility bus. The signature function +
+parity test run anywhere.
 """
 
 import json

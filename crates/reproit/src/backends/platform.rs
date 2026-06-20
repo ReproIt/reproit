@@ -88,8 +88,6 @@ impl Backend {
 pub enum Status {
     /// Built and validated end to end.
     Live,
-    /// Wired but not yet validated against a real target app.
-    Beta,
     /// Registered and routed to a backend; runner not built yet. Kept for new
     /// backends added ahead of their runner.
     #[allow(dead_code)]
@@ -100,14 +98,13 @@ impl Status {
     pub fn label(self) -> &'static str {
         match self {
             Status::Live => "live",
-            Status::Beta => "beta",
             Status::Planned => "planned",
         }
     }
     /// Whether `reproit run` will attempt execution. Planned platforms error
     /// early with guidance instead.
     pub fn executable(self) -> bool {
-        matches!(self, Status::Live | Status::Beta)
+        matches!(self, Status::Live)
     }
 }
 
@@ -250,7 +247,7 @@ pub fn resolve(id: &str) -> Option<Platform> {
             return Some(Platform {
                 id: pid,
                 backend: desktop_backend(),
-                status: Status::Beta,
+                status: Status::Live,
                 note,
             });
         }
@@ -291,7 +288,7 @@ pub fn all() -> Vec<Platform> {
         out.push(Platform {
             id,
             backend: desktop_backend(),
-            status: Status::Beta,
+            status: Status::Live,
             note,
         });
     }

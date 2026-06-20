@@ -28,8 +28,8 @@ Env (set by drive.rs):
     REPROIT_TARGET        window title substring, or path to launch
     REPROIT_FUZZ_CONFIG   fuzz config json (seed/budget/replay/prefix/edgeWeights)
 
-Status: authored, NOT yet validated live (Windows-only; needs a real UIA
-target). The signature function + parity test run anywhere.
+Windows-only: drives the live UI Automation API. The signature function +
+parity test run anywhere.
 """
 
 import json
