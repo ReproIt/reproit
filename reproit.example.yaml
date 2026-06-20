@@ -6,7 +6,9 @@
 #   ${VAR}              substitute VAR (empty if unset)
 #   ${VAR:-default}     substitute VAR, or `default` if unset/empty
 #   ${VAR:?message}     substitute VAR, or fail to load with `message` (required)
-# e.g.  webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}
+# e.g. the web-playwright runner dir, under app:
+#   app:
+#     webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}
 
 app:
   # Only flutter-ios-sim is implemented today. Android and web adapters later.

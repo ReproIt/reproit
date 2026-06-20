@@ -269,8 +269,9 @@ reference (`${account.<name>.userId}`).
 
 Every field in `reproit.yaml` (not just `app.defines`) supports shell-style env
 interpolation: `${VAR}` (empty if unset), `${VAR:-default}` (fallback), and
-`${VAR:?message}` (required, fails to load if unset). Example:
-`webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}`.
+`${VAR:?message}` (required, fails to load if unset). Example (note
+`webRunnerDir` lives under `app:`):
+`app.webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}`.
 
 ## Flags
 

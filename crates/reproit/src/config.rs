@@ -598,4 +598,36 @@ mod tests {
             "v: x"
         );
     }
+
+    // End-to-end: app.webRunnerDir (the field from issue #1) resolves through the
+    // real loader, both the :-default fallback and an explicit override.
+    #[test]
+    fn loader_resolves_app_web_runner_dir() {
+        let dir = std::env::temp_dir().join("rit_cfg_e2e_wrd");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("reproit.yaml");
+        std::fs::write(
+            &path,
+            "app:\n  platform: web-playwright\n  webRunnerDir: ${RIT_E2E_WRD:-./web-runner}\n\
+             devices:\n  namePrefix: x\njourneys:\n  driver: noop\n  doneMarkers: [done]\n",
+        )
+        .unwrap();
+
+        std::env::remove_var("RIT_E2E_WRD");
+        let loaded = super::load(Some(&path)).unwrap();
+        assert_eq!(
+            loaded.config.app.web_runner_dir.as_deref(),
+            Some("./web-runner")
+        );
+
+        std::env::set_var("RIT_E2E_WRD", "/custom/runner");
+        let loaded = super::load(Some(&path)).unwrap();
+        assert_eq!(
+            loaded.config.app.web_runner_dir.as_deref(),
+            Some("/custom/runner")
+        );
+
+        std::env::remove_var("RIT_E2E_WRD");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
