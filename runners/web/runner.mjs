@@ -366,6 +366,57 @@ function adversarialFor(n) {
   return ADVERSARIAL[i];
 }
 
+// Property-matched replay (fixture inputs). The fuzz config may carry an
+// `inputs` array, each `{ field | sel, value }`, written by the CLI's
+// crate::fixture::synthesize from the cloud's fixtureSpec: a CONCRETE,
+// property-matched value (a 312-char unicode name, an emoji, an empty / RTL
+// field) reconstructed from production telemetry. When a `type:` action targets
+// a field with a provided input value, we type THAT value instead of only the
+// fixed adversarial-class token, so the data-dependent bug actually reproduces.
+// The provided value is itself deterministic (synthesis uses no RNG), so this
+// path is as reproducible as the adversarial-class path.
+//
+// Normalize the config's `inputs` into a flat [{field, value}] list. `field`
+// is the field identifier; `sel` is accepted as an alias (some specs name the
+// selector directly). Entries with no usable field key are dropped. Tolerant of
+// a missing/garbage array (returns []), so a config without `inputs` is
+// unaffected.
+function loadInputs(fuzz) {
+  const arr = fuzz && Array.isArray(fuzz.inputs) ? fuzz.inputs : [];
+  const out = [];
+  for (const it of arr) {
+    if (!it || typeof it !== 'object') continue;
+    const field = typeof it.field === 'string' && it.field
+      ? it.field
+      : (typeof it.sel === 'string' ? it.sel : '');
+    if (!field) continue;
+    const value = it.value != null ? String(it.value) : '';
+    out.push({ field, value });
+  }
+  return out;
+}
+
+// Resolve a `type:` selector to a provided input value, or null when no input
+// matches. The fixture `field` is a semantic identifier (e.g. "name"); the
+// runner's selectors are structural (`key:<kind>:<v>` or `role:<role>#<idx>`).
+// A field matches when it equals the full selector OR the key VALUE of a
+// `key:<kind>:<v>` selector (so `field:"name"` matches `key:id:name`,
+// `key:name:name`, or `key:testid:name`). First matching entry wins (config
+// order). Empty `inputs` -> null (the adversarial-class path is untouched).
+function inputValueFor(sel, inputs) {
+  if (!inputs || !inputs.length || !sel) return null;
+  let keyVal = null;
+  if (sel.startsWith('key:')) {
+    const body = sel.slice(4);
+    const ci = body.indexOf(':');
+    keyVal = ci >= 0 ? body.slice(ci + 1) : body;
+  }
+  for (const inp of inputs) {
+    if (inp.field === sel || (keyVal != null && inp.field === keyVal)) return inp.value;
+  }
+  return null;
+}
+
 function log(line) { process.stdout.write(line + '\n'); }
 
 // Screenshot-capture contract (drive.rs): on a named "shoot" point, capture the
@@ -576,7 +627,7 @@ function descriptorOf(anchor, root) {
 }
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
-export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL };
+export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor };
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -1897,7 +1948,7 @@ async function typeInto(page, sel, value) {
 // Execute ONE scenario action on a page, emitting the same FUZZ:ACT/MISS/ASSERT
 // markers as the single-actor path. `who` is this runner's device label, for
 // log attribution. Shared by the multi-actor pull-loop below.
-async function execScenarioAction(page, act, who) {
+async function execScenarioAction(page, act, who, inputs) {
   log('FUZZ:ACT ' + who + ' ' + act);
   if (act.startsWith('shoot:')) {
     // Screenshot point: capture the current screen and emit the SHOOT marker.
@@ -1930,7 +1981,13 @@ async function execScenarioAction(page, act, who) {
     const eq = b.lastIndexOf('=');
     const sel = eq >= 0 ? b.slice(0, eq) : b;
     const valId = eq >= 0 ? b.slice(eq + 1) : 'normal';
-    const value = ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId);
+    // PRECEDENCE: a property-matched fixture input for this field wins over the
+    // adversarial-class token (same rule as the fuzz-replay path); else the
+    // class token / env-expanded literal, unchanged.
+    const fixtureVal = inputValueFor(sel, inputs);
+    const value = fixtureVal != null
+      ? fixtureVal
+      : (ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId));
     const ok = await typeInto(page, sel, value);
     if (!ok) log('FUZZ:MISS ' + who + ' ' + act);
     await page.waitForTimeout(900);
@@ -1949,6 +2006,9 @@ async function execScenarioAction(page, act, who) {
 // protocol; only execScenarioAction is web-specific.
 async function runScenarioActor(browser) {
   const base = process.env.REPROIT_SCENARIO_BARRIER;
+  // Property-matched fixture inputs from the fuzz config (empty unless present);
+  // a matching `type:` action types the provided value (see inputValueFor).
+  const inputs = loadInputs(loadFuzz());
   // Role identity: an explicit label wins (each process gets its own env), else
   // claim a distinct role from the conductor. Claiming is the universal path and
   // the only safe one for shared-build runners, where every device boots the
@@ -1978,7 +2038,7 @@ async function runScenarioActor(browser) {
     if (body === 'DONE') break;
     if (body === 'WAIT') { await sleep(40); continue; }
     const act = body.startsWith('ACT\t') ? body.slice(4) : body;
-    await execScenarioAction(page, act, who);
+    await execScenarioAction(page, act, who, inputs);
     try { await fetch(base + '/done?device=' + who, { method: 'POST' }); } catch (_) {}
   }
   await page.waitForTimeout(500); // flush a trailing pageerror before teardown
@@ -2112,6 +2172,10 @@ async function main() {
     const triedEdges = new Set();
     const pick = rng(fuzz.seed || 0);
     const replay = fuzz.replay || null;
+    // Property-matched fixture inputs for this seed (field -> concrete value).
+    // Empty unless the config carries `inputs`; when present, a matching `type:`
+    // action types the provided value instead of the adversarial-class token.
+    const inputs = loadInputs(fuzz);
     if (fuzz.seed) log(`JOURNEY[a] step: fuzz seed=${fuzz.seed}`);
 
     async function observe() {
@@ -2290,12 +2354,19 @@ async function main() {
       continue;
     }
     if (act.startsWith('type:')) {
-      // type:<sel>=<valueId> -> focus the field and type the adversarial value.
+      // type:<sel>=<valueId> -> focus the field and type the value.
       const body = act.slice('type:'.length);
       const eq = body.lastIndexOf('=');
       const sel = eq >= 0 ? body.slice(0, eq) : body;
       const valId = eq >= 0 ? body.slice(eq + 1) : 'normal';
-      const value = ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId);
+      // PRECEDENCE: an explicit property-matched fixture input for this field
+      // wins over the adversarial-class token. The class token still picks the
+      // value when no input matches (the existing path, unchanged). Both are
+      // deterministic, so the replay reproduces the same text either way.
+      const fixtureVal = inputValueFor(sel, inputs);
+      const value = fixtureVal != null
+        ? fixtureVal
+        : (ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId));
       triedEdges.add(current.sig + '|' + act);
       const before = current.sig;
       const beforeContent = current.content;
