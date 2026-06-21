@@ -287,6 +287,14 @@ impl Trigger {
     fn is_graph(&self) -> bool {
         self.oracle.as_deref() == Some("graph")
     }
+
+    /// Whether this finding is a re-render FLICKER finding. Like a graph
+    /// invariant it does not announce itself with an exception, so it is
+    /// re-confirmed by re-evaluating the EXPLORE:RERENDER records over the
+    /// replay graph rather than by scanning for a crash.
+    fn is_flicker(&self) -> bool {
+        self.oracle.as_deref() == Some("flicker")
+    }
 }
 
 /// Classify a single replay's drive log into a per-run verdict, WITHOUT a
@@ -335,6 +343,14 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     // graph rather than looking for exceptions.
     if trigger.is_graph() {
         return graph_verdict(log, trigger);
+    }
+
+    // FLICKER findings, like graph invariants, do not throw: the replay re-drives
+    // the same transition and the runner re-emits EXPLORE:RERENDER iff the wasteful
+    // re-render still happens. Re-confirm by re-evaluating those records over the
+    // replay graph rather than scanning for an exception.
+    if trigger.is_flicker() {
+        return flicker_verdict(log, trigger);
     }
 
     // Count actions performed before the first miss, and whether any miss
@@ -428,6 +444,36 @@ fn graph_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
         return RunVerdict::CouldNotReplay;
     }
     if crate::invariants::any_dead_end(&obs) {
+        RunVerdict::Broke
+    } else {
+        RunVerdict::Green
+    }
+}
+
+/// Re-confirm a `rerender-flicker` finding over a replay log. Parses the
+/// replay's EXPLORE markers and re-evaluates the SAME churn predicate (via
+/// `invariants::recheck_rerender_flicker`) against the recorded violating state
+/// sig (`trigger.sig`, the transition's FROM state):
+///   - the same transition still churns persistent chrome -> Broke (flicker back)
+///   - the sig is reached but no transition from it churns -> Green (fix held)
+///   - the sig is never observed in the replay -> CouldNotReplay (re-record).
+///
+/// With no recorded sig (older flicker repro), fall back to whether ANY churn
+/// remains in the replay graph: any -> Broke, none -> Green, empty graph (no
+/// states observed) -> CouldNotReplay.
+fn flicker_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::map::parse_run(log);
+    if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
+        return match crate::invariants::recheck_rerender_flicker(&obs, sig) {
+            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        };
+    }
+    if obs.states.is_empty() {
+        return RunVerdict::CouldNotReplay;
+    }
+    if crate::invariants::any_rerender_flicker(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green

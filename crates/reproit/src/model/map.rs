@@ -31,6 +31,18 @@ pub(crate) struct RunObs {
     /// sig -> operability/accessibility gaps, from `EXPLORE:GROUNDTRUTH` records
     /// (the graph-1-minus-graph-2 diff). Empty for runners that don't emit it.
     pub gaps: BTreeMap<String, OperabilityGaps>,
+    /// (from sig, action) -> the persistent anchors that were torn down and
+    /// rebuilt during that transition, from `EXPLORE:RERENDER` records (the
+    /// re-render flicker oracle). A transition that rebuilds chrome which did
+    /// not change flickers; empty for runners/transitions that don't emit it.
+    /// Last write wins, so a deterministic walk yields a stable per-transition
+    /// key the `rerender-flicker` invariant and `check` re-confirm against.
+    pub rerenders: BTreeMap<(String, String), Vec<String>>,
+    /// (from sig, action) -> peak transient-divergence magnitude, from the gated
+    /// `EXPLORE:FLICKER` records (Tier-2 pixel oracle, REPROIT_FLICKER_PIXELS).
+    /// A frame that diverged from both endpoints mid-transition then settled.
+    /// Empty unless the pixel oracle is enabled.
+    pub paint_flickers: BTreeMap<(String, String), f64>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -90,6 +102,8 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         edges: Vec::new(),
         start: None,
         gaps: BTreeMap::new(),
+        rerenders: BTreeMap::new(),
+        paint_flickers: BTreeMap::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -137,6 +151,36 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
             if let Some(sig) = json.get("sig").and_then(Value::as_str) {
                 obs.gaps
                     .insert(sig.to_string(), gaps_from_groundtruth(&json));
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:RERENDER ") {
+            // A transition that rebuilt persistent chrome which did not change:
+            // the re-render flicker oracle. Key by (from, action); the churned
+            // anchor selectors are the grounded detail.
+            if let (Some(from), Some(action), Some(churned)) = (
+                json.get("from").and_then(Value::as_str),
+                json.get("action").and_then(Value::as_str),
+                json.get("churned").and_then(Value::as_array),
+            ) {
+                let keys: Vec<String> = churned
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect();
+                if !keys.is_empty() {
+                    obs.rerenders
+                        .insert((from.to_string(), action.to_string()), keys);
+                }
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:FLICKER ") {
+            // Gated Tier-2 pixel oracle: a transient divergence during a
+            // transition. Keyed by (from, action); the peak magnitude is detail.
+            if let (Some(from), Some(action), Some(peak)) = (
+                json.get("from").and_then(Value::as_str),
+                json.get("action").and_then(Value::as_str),
+                json.get("peak").and_then(Value::as_f64),
+            ) {
+                obs.paint_flickers
+                    .insert((from.to_string(), action.to_string()), peak);
             }
         }
     }
@@ -861,6 +905,54 @@ mod tests {
         let state = map.states.values().next().expect("a merged state");
         assert_eq!(state.operability_gaps.pointer_only, 1);
         assert_eq!(state.operability_gaps.keyboard_unreachable, 1);
+    }
+
+    #[test]
+    fn rerender_marker_yields_keyed_churn() {
+        // A transition that rebuilt persistent chrome which did not change: the
+        // runner emits EXPLORE:RERENDER with the from sig, the action, and the
+        // churned anchor selectors. parse_run keys it by (from, action). A marker
+        // with an empty churned list (no flicker) is dropped, not recorded.
+        let log = concat!(
+            r#"EXPLORE:STATE {"sig":"s1","labels":[],"unlabeled":0}"#,
+            "\n",
+            r#"EXPLORE:RERENDER {"from":"s1","action":"tap:key:id:bad","churned":["id:hdr","id:nav"]}"#,
+            "\n",
+            r#"EXPLORE:RERENDER {"from":"s1","action":"tap:key:id:good","churned":[]}"#,
+        );
+        let obs = parse_run(log);
+        assert_eq!(
+            obs.rerenders.len(),
+            1,
+            "only the non-empty churn is recorded"
+        );
+        let churned = obs
+            .rerenders
+            .get(&("s1".to_string(), "tap:key:id:bad".to_string()))
+            .expect("churn for the bad transition");
+        assert_eq!(churned, &vec!["id:hdr".to_string(), "id:nav".to_string()]);
+        assert!(
+            !obs.rerenders
+                .contains_key(&("s1".to_string(), "tap:key:id:good".to_string())),
+            "the reconciled (empty-churn) transition is not a flicker"
+        );
+    }
+
+    #[test]
+    fn flicker_marker_records_peak_divergence() {
+        // The gated Tier-2 pixel oracle: EXPLORE:FLICKER carries the peak
+        // transient-divergence magnitude, keyed by (from, action).
+        let log = concat!(
+            r#"EXPLORE:STATE {"sig":"s1","labels":[],"unlabeled":0}"#,
+            "\n",
+            r#"EXPLORE:FLICKER {"from":"s1","action":"tap:key:id:bad","peak":0.82,"frames":7}"#,
+        );
+        let obs = parse_run(log);
+        let peak = obs
+            .paint_flickers
+            .get(&("s1".to_string(), "tap:key:id:bad".to_string()))
+            .expect("paint flicker for the bad transition");
+        assert!((peak - 0.82).abs() < 1e-9);
     }
 
     #[test]

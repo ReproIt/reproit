@@ -27,6 +27,7 @@ import { PNG } from 'pngjs';
 import {
   gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth, DEFAULT_GRID,
 } from './probe.mjs';
+import { transientDivergence } from './flicker-oracle.mjs';
 
 const APP_URL = process.env.REPROIT_URL || "http://localhost:8080";
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
@@ -86,6 +87,102 @@ function countMatching(finder) {
   let n = 0;
   for (const el of els) if (visible(el)) n++;
   return n;
+}
+
+// Tier-1 flicker oracle (persistent-anchor churn). A re-render flicker is a
+// transition that tears down and rebuilds chrome that did NOT need to change:
+// for a frame the header/nav/list vanish, then settle back to the same thing.
+// The settled-frame visual oracle cannot see it (both endpoints are correct).
+// We catch it deterministically from the DOM instead of from pixels: tag the
+// persistent "anchors" before a transition, then after it settles check whether
+// any anchor that is VISUALLY UNCHANGED (same key, text, box) was nonetheless
+// REPLACED (its DOM node identity changed). A framework that reconciles
+// (React/Vue/Svelte) preserves node identity for unchanged nodes, so it does
+// not trip; only an innerHTML-wipe-and-rebuild does, which is the flicker bug.
+// Anchors are keyed by a stable id/testid or a unique landmark/tag so the same
+// logical element re-resolves across the transition; ambiguous (duplicated)
+// keys are skipped to avoid false positives. Navigation resets window, so the
+// stash is gone and we report nothing (a page load is not flicker). Pure DOM,
+// no frame timing, so it reproduces across `check` repeats.
+const ANCHOR_SEL =
+  'header,nav,main,footer,aside,' +
+  '[role=banner],[role=navigation],[role=main],[role=contentinfo],' +
+  '[role=complementary],[role=region],[role=search],[role=listbox],' +
+  '[role=list],[role=tablist],[role=toolbar],[role=dialog],[id]';
+
+// shared by markAnchors/churnedAnchors; inlined into each (page.evaluate
+// serializes a single function, so they cannot close over module scope).
+function markAnchors(sel) {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const anchors = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    anchors.push({
+      key: keyOf(el), node: el,
+      text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256),
+      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+    });
+  }
+  window.__reproitAnchors = anchors;
+  window.__reproitAnchorDoc = document;
+  return anchors.length;
+}
+
+function churnedAnchors(sel) {
+  const old = window.__reproitAnchors;
+  // No mark, or the document was replaced (navigation): not a flicker candidate.
+  if (!old || window.__reproitAnchorDoc !== document) { window.__reproitAnchors = null; return null; }
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const cur = new Map();
+  const dup = new Set();
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const k = keyOf(el);
+    if (cur.has(k)) { dup.add(k); continue; }
+    cur.set(k, el);
+  }
+  const churned = [];
+  for (const a of old) {
+    if (dup.has(a.key)) continue;        // ambiguous key -> skip
+    const now = cur.get(a.key);
+    if (!now) continue;                  // gone in the new state -> a real removal, not flicker
+    if (now === a.node) continue;        // same node survived -> reconciled, no churn (good)
+    const r = now.getBoundingClientRect();
+    const sameBox =
+      Math.round(r.x) === a.x && Math.round(r.y) === a.y &&
+      Math.round(r.width) === a.w && Math.round(r.height) === a.h;
+    const sameText = (now.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256) === a.text;
+    if (sameBox && sameText) churned.push(a.key); // unchanged yet rebuilt = flicker
+  }
+  window.__reproitAnchors = null;
+  return churned;
 }
 const ACTION_BUDGET = 36;
 const MAX_LABEL_LEN = 40;
@@ -1105,6 +1202,72 @@ function pngToRgba(buf) {
   return { data: png.data, width: png.width, height: png.height };
 }
 
+// Tier-2 flicker oracle (gated, chromium/CDP only). Records the frames the
+// compositor PRESENTS during a transition via CDP screencast, so the detector
+// (flicker-oracle.mjs transientDivergence) can spot a transient flash that the
+// settled-frame visual oracle never sees. Pixel + frame timing, so it is OFF by
+// default and only emits when REPROIT_FLICKER_PIXELS=1; the engine treats it as
+// a flicker finding that must reproduce across `check` repeats.
+const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';
+
+// Start a screencast on a CDP session, buffering presented frames (small PNGs).
+// Returns a handle with stop() -> Buffer[], or null when unavailable.
+async function startScreencastCapture(cdp) {
+  if (!FLICKER_PIXELS || !cdp) return null;
+  const frames = [];
+  const onFrame = (ev) => {
+    frames.push(Buffer.from(ev.data, 'base64'));
+    cdp.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
+  };
+  try {
+    await cdp.send('Page.enable');
+    cdp.on('Page.screencastFrame', onFrame);
+    await cdp.send('Page.startScreencast', {
+      format: 'png',
+      everyNthFrame: 1,
+      maxWidth: 320,
+      maxHeight: 240,
+    });
+  } catch (_) {
+    try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+    return null;
+  }
+  return {
+    async stop() {
+      try { await cdp.send('Page.stopScreencast'); } catch (_) {}
+      try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+      return frames;
+    },
+  };
+}
+
+// Stop a capture, score the frame sequence for a transient divergence, and emit
+// EXPLORE:FLICKER when one is found. Best-effort: any decode/diff failure is
+// swallowed (the gated oracle never breaks a run).
+async function finishScreencastCapture(cap, from, action) {
+  if (!cap) return;
+  let frames;
+  try { frames = await cap.stop(); } catch (_) { return; }
+  if (!frames || frames.length < 3) return;
+  let rgbas;
+  try { rgbas = frames.map(pngToRgba); } catch (_) { return; }
+  const final = rgbas[rgbas.length - 1];
+  // Per-frame distance to the FINAL settled frame. Skip any frame whose
+  // dimensions differ from the final (a resize, not a flash) rather than score
+  // it as fully-different.
+  const diffs = [];
+  for (const f of rgbas) {
+    if (f.width !== final.width || f.height !== final.height || f.data.length !== final.data.length) {
+      continue;
+    }
+    diffs.push(changedFraction(f.data, final.data));
+  }
+  const fl = transientDivergence(diffs);
+  if (fl) {
+    log('EXPLORE:FLICKER ' + JSON.stringify({ from, action, peak: fl.peak, frames: fl.frames }));
+  }
+}
+
 // PIECE 2: the universal framebuffer-probe floor. For a bounded grid of viewport
 // points, screenshot -> click the point -> screenshot -> diff. A point whose
 // click changed pixels (operable) but which is covered by NO a11y/DOM
@@ -1979,8 +2142,10 @@ async function main() {
       triedEdges.add(current.sig + '|' + act);
       const before = current.sig;
       const beforeContent = current.content;
+      await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
+      const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
       const ok = await typeInto(page, sel, value);
-      if (!ok) { log('FUZZ:MISS ' + act); stuck++; continue; }
+      if (!ok) { if (typePix) await typePix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
       // Replays settle longer than the fuzz walk: under recording/CI load the
       // app's handler (and any uncaught throw it triggers) needs more wall-clock
       // to run and for `pageerror` to fire, so a deterministic crash isn't
@@ -1988,7 +2153,12 @@ async function main() {
       await page.waitForTimeout(replay ? 1100 : 700);
       // Typing + Enter can navigate (e.g. a search form submitting to another
       // origin). Stay on the app-under-test: drop off-origin destinations.
-      if (await recoverIfOffOrigin()) { stuck++; current = await observe(); continue; }
+      if (await recoverIfOffOrigin()) { if (typePix) await typePix.stop(); stuck++; current = await observe(); continue; }
+      await finishScreencastCapture(typePix, before, 'type:' + sel + '=' + valId);
+      const typeChurn = await page.evaluate(churnedAnchors, ANCHOR_SEL).catch(() => null);
+      if (typeChurn && typeChurn.length) {
+        log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, churned: typeChurn }));
+      }
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, to: next.sig }));
@@ -2003,8 +2173,10 @@ async function main() {
     triedEdges.add(current.sig + '|' + sel);
     const before = current.sig;
     const beforeContent = current.content;
+    await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
+    const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
     const ok = await tap(page, sel);
-    if (!ok) { log('FUZZ:MISS ' + act); stuck++; continue; }
+    if (!ok) { if (tapPix) await tapPix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
     // Replays settle longer than the fuzz walk (see the type branch): a
     // deterministic crash must have time to throw + flush `pageerror` under load.
     await page.waitForTimeout(replay ? 1100 : 700);
@@ -2012,7 +2184,16 @@ async function main() {
     // social link) navigates off the app-under-test's origin. That page is NOT
     // a state of the app; recording it would make the whole map about the
     // foreign site. Recover (go back / re-goto) and do NOT record the state.
-    if (await recoverIfOffOrigin()) { stuck++; current = await observe(); continue; }
+    if (await recoverIfOffOrigin()) { if (tapPix) await tapPix.stop(); stuck++; current = await observe(); continue; }
+    await finishScreencastCapture(tapPix, before, 'tap:' + sel);
+    // Tier-1 flicker oracle: did this transition rebuild persistent chrome that
+    // did not change? (DOM node-identity churn; settled either way, so invisible
+    // to the visual oracle.) Reported per transition, independent of whether the
+    // structural sig moved.
+    const tapChurn = await page.evaluate(churnedAnchors, ANCHOR_SEL).catch(() => null);
+    if (tapChurn && tapChurn.length) {
+      log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'tap:' + sel, churned: tapChurn }));
+    }
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));

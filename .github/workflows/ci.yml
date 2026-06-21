@@ -53,7 +53,8 @@ jobs:
           node --check differential.mjs
           node --check jank.mjs
           node --check jank-oracle.mjs
-      - name: Unit-test the jank detector
+          node --check flicker-oracle.mjs
+      - name: Unit-test the jank + flicker detectors
         run: node --test
 
   # The byte-for-byte signature promise: every SDK and runner must reproduce the

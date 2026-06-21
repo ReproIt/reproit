@@ -89,6 +89,42 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // rerender-flicker: a transition that tore down and rebuilt persistent chrome
+    // which did NOT change (the runner detects the DOM node-identity churn and
+    // emits EXPLORE:RERENDER). A full re-render is the mechanism behind transition
+    // flicker the settled-frame visual oracle cannot see, so we surface it per
+    // transition. Deterministic: pure DOM, no frame timing, so it re-confirms on
+    // replay.
+    if cfg.rerender_flicker {
+        for ((from, action), churned) in &obs.obs.rerenders {
+            out.push(finding(
+                "rerender-flicker",
+                "FLICKER",
+                format!(
+                    "transition {from} --{action}--> rebuilt {} unchanged persistent element(s) ({}); a full re-render that flickers (the chrome is torn down and recreated, not reconciled)",
+                    churned.len(),
+                    churned.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                ),
+                Some(from),
+            ));
+        }
+        // paint-flicker: the gated Tier-2 pixel signal (EXPLORE:FLICKER). A frame
+        // that diverged from both endpoints mid-transition then settled. Same
+        // flicker oracle/toggle; timing-sensitive, so it is only emitted when the
+        // runner ran with REPROIT_FLICKER_PIXELS and re-confirmed across repeats.
+        for ((from, action), peak) in &obs.obs.paint_flickers {
+            out.push(finding(
+                "paint-flicker",
+                "FLICKER",
+                format!(
+                    "transition {from} --{action}--> showed a transient frame {:.0}% different from both the start and the settled result (a flash the settled-frame oracle misses)",
+                    peak * 100.0
+                ),
+                Some(from),
+            ));
+        }
+    }
+
     // ---- State invariants ------------------------------------------------
     // all-labeled: every observed state must have zero unlabeled tappables.
     if cfg.all_labeled {
@@ -238,6 +274,34 @@ pub fn recheck_dead_end(obs: &RunObs, sig: &str) -> GraphRecheck {
 /// graph repro that recorded no specific violating sig).
 pub fn any_dead_end(obs: &RunObs) -> bool {
     !dead_ends(obs).is_empty()
+}
+
+/// Re-confirm a `rerender-flicker` finding over a replay log, mirroring
+/// `recheck_dead_end`: the recorded violating state sig (`trigger.sig`, the
+/// transition's FROM state) is re-evaluated against the replay's
+/// `EXPLORE:RERENDER` records.
+///   - the replay shows a re-render churn FROM that sig -> StillViolating (fail)
+///   - the sig is reached but no transition from it churned -> Fixed (held)
+///   - the sig never appears in the replay graph -> NotReached (re-record)
+pub fn recheck_rerender_flicker(obs: &RunObs, sig: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    // Either flicker signal from this sig (DOM churn or the gated pixel flash)
+    // re-confirms the finding.
+    let flickers = obs.rerenders.keys().any(|(from, _)| from == sig)
+        || obs.paint_flickers.keys().any(|(from, _)| from == sig);
+    if flickers {
+        GraphRecheck::StillViolating
+    } else {
+        GraphRecheck::Fixed
+    }
+}
+
+/// Whether the replay graph has ANY flicker signal (used by `check` for a
+/// flicker repro that recorded no specific violating sig).
+pub fn any_rerender_flicker(obs: &RunObs) -> bool {
+    !obs.rerenders.is_empty() || !obs.paint_flickers.is_empty()
 }
 
 fn label_set(obs: &RunObs, sig: &str) -> Vec<String> {
@@ -402,6 +466,8 @@ mod tests {
                     .collect(),
                 start: start.map(String::from),
                 gaps: Default::default(),
+                rerenders: Default::default(),
+                paint_flickers: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),
@@ -440,6 +506,60 @@ mod tests {
         assert!(!f
             .iter()
             .any(|x| x["invariant"] == "all-labeled" && x["sig"] == "home"));
+    }
+
+    #[test]
+    fn rerender_flicker_flags_a_churning_transition() {
+        // A transition that rebuilt unchanged persistent chrome is a flicker; a
+        // reconciled transition (no churn recorded) is not.
+        let mut o = obs_with(&[("s1", &["My App"], 0)], &[], Some("s1"));
+        o.obs.rerenders.insert(
+            ("s1".to_string(), "tap:key:id:bad".to_string()),
+            vec!["id:hdr".to_string(), "id:nav".to_string()],
+        );
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(
+            kinds(&f).contains(&"rerender-flicker".to_string()),
+            "got {:?}",
+            kinds(&f)
+        );
+        let v = f
+            .iter()
+            .find(|x| x["invariant"] == "rerender-flicker")
+            .unwrap();
+        assert_eq!(v["sig"], "s1");
+        assert_eq!(v["kind"], "FLICKER");
+        // Disabling the invariant suppresses it.
+        let cfg = InvariantsCfg {
+            rerender_flicker: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"rerender-flicker".to_string()));
+    }
+
+    #[test]
+    fn recheck_rerender_flicker_distinguishes_back_held_unreached() {
+        // StillViolating: the sig is observed and a transition from it churns.
+        let mut o = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
+        o.obs.rerenders.insert(
+            ("s1".to_string(), "tap:key:id:bad".to_string()),
+            vec!["id:hdr".to_string()],
+        );
+        assert_eq!(
+            recheck_rerender_flicker(&o.obs, "s1"),
+            GraphRecheck::StillViolating
+        );
+        // Fixed: the sig is observed but nothing churns from it (the fix held).
+        let held = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
+        assert_eq!(
+            recheck_rerender_flicker(&held.obs, "s1"),
+            GraphRecheck::Fixed
+        );
+        // NotReached: the sig never appeared in the replay graph.
+        assert_eq!(
+            recheck_rerender_flicker(&held.obs, "other"),
+            GraphRecheck::NotReached
+        );
     }
 
     #[test]

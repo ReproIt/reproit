@@ -170,6 +170,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-jank" => return Oracle::Jank,
         "no-leak" => return Oracle::Leak,
         "all-labeled" => return Oracle::A11y,
+        "rerender-flicker" | "paint-flicker" => return Oracle::Flicker,
         "no-dead-end" => return Oracle::Graph,
         _ => {}
     }
