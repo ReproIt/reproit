@@ -39,6 +39,7 @@ other runners.
 | AppKit (macOS) | `appkit-agent/main.swift` | Swift 6.2.3 present | YES | YES | YES |
 | Qt (C++) | `qt-agent/qt_agent.cpp` | absent on host; built in Docker (Debian, Qt 6.8.2) | YES | YES | YES |
 | GTK (C) | `gtk-agent/gtk_agent.c` | absent on host; built in Docker (Debian, GTK 4.18.6) | YES | YES | YES |
+| WPF (.NET) | `wpf-agent/Program.cs` | dotnet 8.0.422 on the QEMU Windows 11 VM | YES | YES | YES |
 
 ### AppKit — built + run + verified
 

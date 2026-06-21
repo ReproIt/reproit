@@ -992,11 +992,11 @@ mod tests {
         // reflection) and graph 2 (UIElementAutomationPeer) are joined by object
         // identity. The engine must score exactly one gap row (the fake button),
         // failing all three a11y dimensions; the real Button is clean.
-        let log = r#"EXPLORE:GROUNDTRUTH {"sig":"7f0cd305","focusTrap":false,"elements":[{"id":"SaveButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"DeleteFakeButton","operable":true,"gestureKind":"delegated","a11y":{"rolePresent":false,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}}]}"#;
+        let log = r#"EXPLORE:GROUNDTRUTH {"sig":"7ceb451e","focusTrap":false,"elements":[{"id":"SaveButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"DeleteFakeButton","operable":true,"gestureKind":"delegated","a11y":{"rolePresent":false,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}}]}"#;
         let obs = parse_run(log);
         let g = obs
             .gaps
-            .get("7f0cd305")
+            .get("7ceb451e")
             .expect("gaps for the wpf agent state");
         assert_eq!(g.no_role, 1, "fake button has no Button role");
         assert_eq!(
