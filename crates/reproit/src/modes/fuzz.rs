@@ -429,12 +429,25 @@ async fn fuzz_one_locale(
                 outcome.run_dir.clone()
             };
             write_report(&report_dir, *seed, &findings, &trace, &shrunk)?;
-            say(
-                json,
-                format!(
-                    "  id {repro_id}   confirm: reproit check {repro_id}   save: reproit keep {repro_id} --as <name>"
-                ),
-            );
+            // In --all the per-seed id is intermediate: the SAME bug reached by
+            // different seeds yields different ids, so teaching check/keep here
+            // hands the agent several competing ids for one bug. The deduped
+            // summary at the end is authoritative and teaches the commands on the
+            // one canonical id; here we just note the finding. Without --all this
+            // IS the single finding, so teach its commands directly.
+            if args.all {
+                say(
+                    json,
+                    format!("  found ({} action(s)) -> id {repro_id}", shrunk.len()),
+                );
+            } else {
+                say(
+                    json,
+                    format!(
+                        "  id {repro_id}   confirm: reproit check {repro_id}   save: reproit keep {repro_id} --as <name>"
+                    ),
+                );
+            }
             say(
                 json,
                 format!("  report: {}", report_dir.join("fuzz.md").display()),
@@ -564,7 +577,10 @@ async fn fuzz_one_locale(
                 String::new()
             };
             say(json, format!("  {id}  {label}  [{n} action(s)]{also}"));
-            say(json, format!("    keep: reproit keep {id} --as <name>"));
+            say(
+                json,
+                format!("    confirm: reproit check {id}   keep: reproit keep {id} --as <name>"),
+            );
         }
         let _ = std::fs::write(&cfg_path, "{}");
         return Ok(found_sigs);
