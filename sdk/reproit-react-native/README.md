@@ -33,8 +33,18 @@ ReproIt.init({
   apiKey: 'sk_...',                           // optional Bearer token
   sampleRate: 1.0,                            // fraction of sessions to record
   redactLabels: false,                        // true => signatures only, no text
+  build: { version: '1.4.2', commit: 'abc123' }, // your build, so reproit can tell
+                                              // which build a bug regressed/resolved in
 });
 ```
+
+Pass your **build** (app version from `package.json`/`Info.plist`/gradle + the
+git commit from CI) and reproit segments every error by it, so the cloud can
+tell you which build a bug regressed in and stops alerting once a later build
+stops hitting it. RN can't auto-detect these without a native module, so you
+provide them from your build pipeline. It rides every event's context as
+`context.build = { version, commit }` (only the fields you set). Omit `build`
+entirely and behavior is unchanged.
 
 That alone captures **state snapshots** (from the live React fiber tree) and
 **errors** (with their graph path). To also label edges with `tap:<label>` and
@@ -220,6 +230,7 @@ All fields mirror the web/Flutter SDKs:
 | `endpoint`     | `null`  | `POST <endpoint>/v1/events`; null => onEvent/debug |
 | `apiKey`       | `null`  | `Authorization: Bearer <apiKey>` when set          |
 | `onEvent`      | `null`  | callback for every event (dev hook / transport)    |
+| `build`        | `null`  | `{ version?, commit? }`; stamped as `context.build` |
 | `sampleRate`   | `1.0`   | fraction of sessions that report                   |
 | `maxLabels`    | `24`    | labels per state signature                         |
 | `maxLabelLen`  | `40`    | labels longer than this are ignored                |

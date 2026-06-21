@@ -53,7 +53,19 @@
     redactLabels: false, // true => send only signatures, never control text
     debounceMs: 350, // settle window after an interaction before snapshotting
     valueNodes: [], // Layer-3 opt-in selectors marking EXTRA value-bearing nodes
+    build: null, // developer-provided { version, commit }; stamped as context.build
   };
+
+  // Keep only the provided string fields of a developer-supplied build identity
+  // ({version, commit}). Returns null when neither is a non-empty string, so the
+  // back-compat path (no build provided) stamps nothing into the batch context.
+  function normalizeBuild(build) {
+    if (!build || typeof build !== "object") return null;
+    var out = {};
+    if (typeof build.version === "string" && build.version.length) out.version = build.version;
+    if (typeof build.commit === "string" && build.commit.length) out.commit = build.commit;
+    return out.version || out.commit ? out : null;
+  }
 
   // Layer-3 opt-in (docs/signature.md "Value-state"): a list of selectors that
   // mark EXTRA DOM nodes as value-bearing even when their role is not a value-
@@ -796,6 +808,7 @@
     _pending: null, // last interaction's action label, awaiting a snapshot
     _timer: null,
     _on: false,
+    _build: null, // developer-provided { version, commit } or null
 
     init: function (opts) {
       if (this._on) return this;
@@ -804,6 +817,10 @@
       if (Math.random() >= cfg.sampleRate) return this;
       this._cfg = cfg;
       this._on = true;
+      // Developer-provided build identity, stamped under context.build so the
+      // cloud can segment bugs by build (regressed in / resolved since). Only the
+      // provided fields ride; null (omitted) when no build was supplied.
+      this._build = normalizeBuild(cfg.build);
       // Layer-3 opt-in value-node selectors (docs/signature.md "Value-state").
       setValueNodeSelectors(cfg.valueNodes);
 
@@ -921,6 +938,9 @@
     _flush: function (useBeacon) {
       if (!this._buf.length) return;
       var batch = { appId: this._cfg.appId, sentAt: Date.now(), events: this._buf };
+      // Stamp the developer-provided build identity as context.build (only the
+      // provided fields); omitted entirely when no build was supplied.
+      if (this._build) batch.ctx = { build: this._build };
       this._buf = [];
       var cfg = this._cfg;
       if (!cfg.endpoint) {
@@ -957,6 +977,9 @@
   // bearing, parity-tested against the oracle's value_class / V: section).
   ReproIt.valueClass = valueClass;
   ReproIt.setValueNodeSelectors = setValueNodeSelectors;
+  // Developer-provided build identity normalizer (load-bearing, host-testable):
+  // keeps only the provided {version, commit} string fields, else null.
+  ReproIt.normalizeBuild = normalizeBuild;
 
   global.ReproIt = ReproIt;
   if (typeof module !== "undefined" && module.exports) module.exports = ReproIt;

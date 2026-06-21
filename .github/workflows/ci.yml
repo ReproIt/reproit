@@ -72,6 +72,9 @@ jobs:
       - name: Web SDK parity (reproit-web.js; also the Electron/Tauri SDK)
         working-directory: sdk
         run: node test/signature_test.js
+      - name: Web SDK build identity (context.build stamping)
+        working-directory: sdk
+        run: node test/build_test.js
       - name: Electron + Tauri runner parity
         run: node runners/signature_test.mjs
       - name: Windows + Linux desktop runner parity

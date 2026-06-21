@@ -68,8 +68,14 @@ export type ReproItEvent = EdgeEvent | ErrorEvent;
 export interface Batch {
   appId: string;
   sentAt: number;
-  /** PII-safe context dimensions for the batch (omitted when empty). */
-  ctx?: Record<string, string | number | boolean | null>;
+  /**
+   * PII-safe context dimensions for the batch (omitted when empty). Scalar
+   * dimensions plus an optional developer-provided `build` identity (the cloud
+   * reads `context.build.version`/`.commit` to segment bugs by build).
+   */
+  ctx?: Record<string, string | number | boolean | null> & {
+    build?: { version?: string; commit?: string };
+  };
   events: ReproItEvent[];
 }
 
@@ -81,6 +87,16 @@ export interface Batch {
 export interface ReproItConfig {
   /** Identifies the app in the cloud (the `appId` in every batch). Required. */
   appId: string;
+  /**
+   * Developer-provided build identity, stamped into every event's context as
+   * `context.build = { version, commit }` (only the provided fields). RN can't
+   * auto-detect these without a native module, so the developer supplies them
+   * from their build pipeline (app version from package.json/Info.plist/gradle,
+   * git commit from CI). The cloud reads `context.build.version`/`.commit` to
+   * segment bugs by build ("regressed in 1.4.2 / no hits since 1.4.5").
+   * Omitted entirely when not set (back-compat: today's behavior exactly).
+   */
+  build?: { version?: string; commit?: string };
   /** `POST <endpoint>/v1/events`. If null/undefined, events go only to
    *  onEvent / the debug console. */
   endpoint?: string | null;
@@ -112,17 +128,20 @@ export interface ReproItConfig {
 
 /** Fully-resolved config (defaults applied). */
 export type ResolvedConfig = Required<
-  Omit<ReproItConfig, 'endpoint' | 'apiKey' | 'onEvent'>
+  Omit<ReproItConfig, 'endpoint' | 'apiKey' | 'onEvent' | 'build'>
 > & {
   endpoint: string | null;
   apiKey: string | null;
   onEvent: ((event: ReproItEvent) => void) | null;
+  /** Developer-provided build identity, or null when not supplied. */
+  build: { version?: string; commit?: string } | null;
 };
 
 export const DEFAULTS: Omit<ResolvedConfig, 'appId'> = {
   endpoint: null,
   apiKey: null,
   onEvent: null,
+  build: null,
   sampleRate: 1.0,
   maxLabels: 24,
   maxLabelLen: 40,

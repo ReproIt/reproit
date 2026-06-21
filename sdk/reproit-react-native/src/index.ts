@@ -70,7 +70,27 @@ function resolveConfig(opts: ReproItConfig): ResolvedConfig {
     endpoint: opts.endpoint ?? null,
     apiKey: opts.apiKey ?? null,
     onEvent: opts.onEvent ?? null,
+    build: normalizeBuild(opts.build),
   };
+}
+
+/**
+ * Keep only the provided string fields of a developer-supplied build identity.
+ * Returns null when neither `version` nor `commit` is a non-empty string, so the
+ * back-compat path (no `build` provided) stamps nothing into the context.
+ */
+function normalizeBuild(
+  build: ReproItConfig['build']
+): { version?: string; commit?: string } | null {
+  if (!build) return null;
+  const out: { version?: string; commit?: string } = {};
+  if (typeof build.version === 'string' && build.version.length) {
+    out.version = build.version;
+  }
+  if (typeof build.commit === 'string' && build.commit.length) {
+    out.commit = build.commit;
+  }
+  return out.version || out.commit ? out : null;
 }
 
 /** The telemetry singleton. */
@@ -80,7 +100,10 @@ class ReproItImpl {
   private buf: ReproItEvent[] = [];
   private path: PathStep[] = [];
   // PII-safe context dimensions sent with each batch (the "which users" answer).
-  private ctx: Context = {};
+  // The scalar dimensions are `Context`; the developer-provided build identity
+  // rides as a nested `{ version?, commit? }` object under `build` (the exact
+  // shape the cloud reads at `context.build.version`/`.commit`).
+  private ctx: Context & { build?: { version?: string; commit?: string } } = {};
   private cur: string | null = null;
   private pendingAction: string | null = null;
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -106,6 +129,12 @@ class ReproItImpl {
     // Tier-1 auto dimensions: zero-PII, high-signal for "works for me but not
     // for them" bugs (platform, OS version, locale, timezone, release flag).
     this.ctx = autoContext();
+
+    // Developer-provided build identity, stamped under `context.build` so the
+    // cloud can segment bugs by build (regressed in / resolved since). Only the
+    // provided fields ride; omitted entirely when no build was supplied
+    // (back-compat: no `build` key, today's behavior exactly).
+    if (cfg.build) this.ctx.build = cfg.build;
 
     this.installErrorHook();
 
@@ -175,7 +204,7 @@ class ReproItImpl {
   }
 
   /** The current context dimensions sent with each batch (read-only copy). */
-  context(): Context {
+  context(): Context & { build?: { version?: string; commit?: string } } {
     return { ...this.ctx };
   }
 
