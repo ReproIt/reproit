@@ -872,9 +872,56 @@ async function gtCollect(page) {
     // do NOT treat a bare data-* attribute as a marker: data-* is used widely for
     // non-interactive bookkeeping, so it floods the graph with false delegated
     // targets; role/tabindex are the precise "this is interactive" signals.
+    // Roles that name a region or a piece of document structure, NOT an operable
+    // widget. A landmark (search/navigation/banner/...) or a structural/live role
+    // is something a pointer user reads, not something they "operate", so it must
+    // not count as a delegation marker. Without this, any element bearing such a
+    // role gets promoted to operable by the page-wide document click listener
+    // (docDelegates) and surfaces as a phantom pointer-only/keyboard gap.
+    const NON_INTERACTIVE_ROLES = new Set([
+      // landmarks
+      'banner', 'complementary', 'contentinfo', 'form', 'main', 'navigation',
+      'region', 'search',
+      // document structure
+      'article', 'definition', 'directory', 'document', 'feed', 'figure', 'group',
+      'heading', 'img', 'list', 'listitem', 'math', 'none', 'note', 'presentation',
+      'separator', 'table', 'term', 'toolbar', 'tooltip', 'caption', 'rowgroup',
+      'row', 'cell', 'columnheader', 'rowheader',
+      // containers + live regions / status
+      'dialog', 'alertdialog', 'alert', 'log', 'marquee', 'status', 'timer',
+      'application',
+    ]);
     const hasDelegationMarker = (el) => {
-      if ((el.getAttribute('role') || '').trim()) return true;
+      const role = (el.getAttribute('role') || '').trim().toLowerCase();
+      if (role && !NON_INTERACTIVE_ROLES.has(role)) return true;
       if (el.hasAttribute('tabindex')) return true;
+      return false;
+    };
+    // aria-activedescendant: an item operated via a focusable composite widget (a
+    // listbox/menu/tree/grid/combobox whose CONTAINER holds focus and moves a
+    // roving "active" item with arrow keys). Such items are keyboard-reachable
+    // AND activatable even with tabindex=-1, because the container handles the
+    // keys. This is the standard roving/activedescendant ARIA pattern; a naive
+    // per-element tabindex check misreads its options as keyboard-unreachable.
+    const adManaged = (el) => {
+      const isFocusable = (c) => {
+        const ti = c.getAttribute('tabindex');
+        return (ti !== null && parseInt(ti, 10) >= 0) || nativeInteractive(c);
+      };
+      // The composite widget itself: a focusable element that OWNS
+      // aria-activedescendant (listbox/combobox/grid/tree/menu) processes
+      // arrow/Enter keys per the ARIA contract, so it is keyboard-operable even
+      // when the key handler lives on an ancestor or document rather than on the
+      // element's own node. A precise spec signal, not a guess at delegation.
+      if (el.hasAttribute('aria-activedescendant') && isFocusable(el)) return true;
+      const c = el.closest('[aria-activedescendant]');
+      if (c && c !== el && isFocusable(c)) return true;
+      const id = el.getAttribute('id');
+      if (id) {
+        const q = window.CSS && CSS.escape ? CSS.escape(id) : id;
+        const ref = document.querySelector('[aria-activedescendant="' + q + '"]');
+        if (ref && isFocusable(ref)) return true;
+      }
       return false;
     };
     // rolePresent: a non-generic role. A native interactive tag (a/button/input/
@@ -967,6 +1014,7 @@ async function gtCollect(page) {
             reachable: reachable(el),
             rolePresent: rolePresent(el),
             namePresent: namePresent(el),
+            adManaged: adManaged(el),
             gestureKind: gestureKindOf(el, role, native, deleg),
           });
         }
@@ -1171,14 +1219,26 @@ async function emitGroundtruth(page, cdp, sig) {
   const records = [];
   for (let i = 0; i < els.length; i++) {
     const e = els[i];
-    const operable = e.native || e.cursor || ownListener[i] || (docDelegates && e.deleg);
+    // operable is graph 1: what a pointer user can ACTUALLY operate in this
+    // rendered state. An element a pointer cannot reach (off-screen, off-viewport,
+    // occluded, or display:none) is not pointer-operable, so it cannot be a
+    // pointer-only/keyboard gap either. The keyboard graph (the Tab walk) already
+    // requires reachability, so without this guard an unreachable pointer control
+    // (e.g. an off-screen skip-link, or a button below the fold) could never be in
+    // graph 2 and was reported as a phantom gap. Gating here aligns the two graphs.
+    const operable =
+      e.reachable !== false &&
+      (e.native || e.cursor || ownListener[i] || (docDelegates && e.deleg));
     const a11y = {};
     // rolePresent / namePresent are always determined (pure DOM).
     a11y.rolePresent = e.rolePresent;
     a11y.namePresent = e.namePresent;
     // inTabOrder: the Tab walk is authoritative for whether it can be reached.
-    a11y.inTabOrder = inTab.has(i);
-    a11y.focusable = inTab.has(i) || e.native;
+    // An aria-activedescendant-managed item is reachable via its focusable
+    // container (the container is in the Tab walk; arrows move the active item),
+    // so it counts even though its own tabindex is -1.
+    a11y.inTabOrder = inTab.has(i) || e.adManaged;
+    a11y.focusable = inTab.has(i) || e.native || e.adManaged;
     // keyboardActivatable, derived WITHOUT firing the control. Pressing Enter/
     // Space to probe activation would fire the app's real handler (a navigation
     // or a destructive/crashing action) as a side effect, polluting the crash
@@ -1196,7 +1256,12 @@ async function emitGroundtruth(page, cdp, sig) {
     // fall back to focusable && reachable rather than flag a gap we can't prove.
     if (operable) {
       const focusableOnscreen = a11y.focusable && e.reachable !== false;
-      a11y.keyboardActivatable = cdpListeners
+      // adManaged items are activated through the composite widget's container
+      // (it owns the Enter/Space handler and moves the active descendant), so
+      // their own per-element key listener is irrelevant.
+      a11y.keyboardActivatable = e.adManaged
+        ? focusableOnscreen
+        : cdpListeners
         ? focusableOnscreen && (e.native || keyListener[i])
         : focusableOnscreen;
     }
