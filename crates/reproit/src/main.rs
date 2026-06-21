@@ -844,17 +844,21 @@ async fn main() -> Result<ExitCode> {
                     kind,
                     map_path,
                 } => {
-                    let m = match map_path {
+                    // `root` is the project to attribute selectors into (file:
+                    // line). With an explicit --map-path we have no project tree
+                    // to scan, so attribution is skipped (None).
+                    let (m, root) = match map_path {
                         Some(p) => {
                             let txt = std::fs::read_to_string(&p)?;
-                            serde_json::from_str::<appmap::AppMap>(&txt)?
+                            (serde_json::from_str::<appmap::AppMap>(&txt)?, None)
                         }
                         None => {
                             let loaded = config::load(cli.config.as_deref())?;
-                            map::load_map(&loaded.root, &loaded.config)
+                            let m = map::load_map(&loaded.root, &loaded.config);
+                            (m, Some(loaded.root))
                         }
                     };
-                    accessibility::report(&m, state.as_deref(), kind.as_deref(), &ctx);
+                    accessibility::report(&m, root.as_deref(), state.as_deref(), kind.as_deref(), &ctx);
                     Ok(ExitCode::SUCCESS)
                 }
                 MapAction::Verify => {

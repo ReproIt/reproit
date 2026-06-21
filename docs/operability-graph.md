@@ -62,11 +62,17 @@ backends compute it from the widget/semantics tree, never by activating.
 ## Consumption (how the diff is surfaced)
 
 The stored gaps are served two ways, both pure views (no analysis, fully
-deterministic — every entry carries its selector):
+deterministic). Each gap is GROUNDED for a fixer: it carries the failing
+selector, the dimension(s) it fails, and a static source location (file:line +
+snippet, via `attribute`); each screen carries its route and a best-effort
+action path (BFS over the map's transitions) to reach it. That closes the loop:
+find -> locate (file:line) -> fix -> `reproit_check` confirms it.
 - `reproit map accessibility` — the human/CLI view; `--state` and `--kind` filter.
 - `reproit_accessibility(state?, kind?)` — the MCP tool, returns the same diff as
-  JSON so an agent can read it, fix the named control, and call `reproit_check`
-  to deterministically confirm the gap closed (you propose, reproit disposes).
+  JSON so an agent can read it, open the file:line, fix the control, and call
+  `reproit_check` to deterministically confirm the gap closed (you propose,
+  reproit disposes). Source attribution is best-effort (static); a sparse map may
+  yield no action path, in which case the route alone locates the screen.
 
 ## How each backend sources graph 1
 
