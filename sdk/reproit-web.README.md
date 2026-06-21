@@ -59,6 +59,22 @@ import "./reproit-web.js";
 ReproIt.init({ appId: "myapp-tauri", endpoint: "https://ingest.reproit.com/v1/events" });
 ```
 
+## Build tagging
+
+Pass your **build** so reproit can tell you which build a bug regressed in (and
+stop alerting once a later build no longer hits it):
+
+```js
+ReproIt.init({
+  appId: "myapp",
+  endpoint: "https://ingest.reproit.com/v1/events",
+  build: { version: "1.4.2", commit: "abc123" }, // app version + git commit from CI
+});
+```
+
+It rides every event's context as `context.build = { version, commit }` (only
+the fields you set). Omit `build` and behavior is unchanged.
+
 ## Privacy
 
 Signatures are structural (a hash of which controls exist), not user data. With
