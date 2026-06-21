@@ -72,7 +72,7 @@ pub struct FuzzArgs {
     /// markdown as a dry-run). Posting still needs GITHUB_TOKEN + repo + PR.
     pub post_comment: bool,
     /// Global `--json`: stdout must be a single clean JSON object (the caller
-    /// emits it after `fuzz` returns). All human progress/cost lines are routed
+    /// emits it after `fuzz` returns). All human progress lines are routed
     /// to stderr so they never corrupt the machine surface, matching how
     /// `repros --json` / `map --json` behave.
     pub json: bool,
@@ -92,17 +92,6 @@ pub struct FuzzArgs {
     pub from_prefix: Option<Vec<String>>,
 }
 
-/// Cost model (placeholder rates; make them real when the dashboard wires up
-/// per-run billing). The whole point of the headless tier: it runs on a cheap
-/// Linux CI vCPU, while the simulator tier needs a metered macOS runner.
-///   - headless: a commodity Linux vCPU-second.
-///   - sim: a macOS runner second (~10x the price of a Linux vCPU on every
-///     major CI; macOS minutes are billed at a multiple of Linux minutes).
-///
-/// One-line $/run estimate so the speed AND price moat are both visible.
-const COST_PER_SEC_HEADLESS_USD: f64 = 0.0001; // ~Linux vCPU-second
-const COST_PER_SEC_SIM_USD: f64 = 0.0010; // ~macOS runner-second (10x)
-
 /// Human progress line. Under `--json`, stdout must stay a single clean JSON
 /// object, so every human line is routed to stderr instead (matching how
 /// `repros --json` / `map --json` keep stdout machine-clean).
@@ -112,18 +101,6 @@ fn say(json: bool, line: impl std::fmt::Display) {
     } else {
         println!("{line}");
     }
-}
-
-fn cost_line(tier: &str, wall_s: f64) -> String {
-    let rate = if tier == "sim" {
-        COST_PER_SEC_SIM_USD
-    } else {
-        COST_PER_SEC_HEADLESS_USD
-    };
-    format!(
-        "cost: tier={tier} wall={wall_s:.1}s est=${:.5} (@ ${rate:.4}/s)",
-        wall_s * rate
-    )
 }
 
 /// One seed's resolved walk config within a batch: the exact inputs the
@@ -297,7 +274,6 @@ async fn fuzz_one_locale(
             &defines,
             args.profile_timing,
             args.sim,
-            json,
         )
         .await?;
         warm = true;
@@ -492,7 +468,6 @@ async fn fuzz_one_locale(
                     &defines,
                     args.profile_timing,
                     true,
-                    json,
                 )
                 .await
                 {
@@ -883,9 +858,7 @@ async fn run_explorer(
     defines: &[(String, String)],
     profile_timing: bool,
     sim: bool,
-    json: bool,
 ) -> Result<RunOutcome> {
-    let t0 = std::time::Instant::now();
     let opts = orchestrator::RunOpts {
         devices: 1,
         warm,
@@ -897,20 +870,7 @@ async fn run_explorer(
     // non-Flutter backend has no headless tier and routes through the real tier.
     // --sim forces the simulator tier (flutter drive), needed for jank/runtime
     // oracles + video. `run_journey_tier` is the shared selector `check` mirrors.
-    let outcome = orchestrator::run_journey_tier(cfg, root, journey, &opts, sim).await?;
-    let on_headless = !sim && orchestrator::headless_tier_available(cfg);
-    // Always-on terse cost line: makes the $/run moat real in the output.
-    say(
-        json,
-        format!(
-            "  {}",
-            cost_line(
-                if on_headless { "headless" } else { "sim" },
-                t0.elapsed().as_secs_f64()
-            )
-        ),
-    );
-    Ok(outcome)
+    orchestrator::run_journey_tier(cfg, root, journey, &opts, sim).await
 }
 
 /// Exception records not produced by the test framework itself.
@@ -1219,7 +1179,7 @@ async fn shrink(
                 // category as the original. Without this, a short/empty replay
                 // trivially fires graph invariants (no-dead-end, all-labeled)
                 // and shrink would minimize toward a non-reproducing trace.
-                match run_explorer(cfg, root, journey, true, defines, false, sim, json).await {
+                match run_explorer(cfg, root, journey, true, defines, false, sim).await {
                     Ok(o) => reproduces_original(&findings_for_tier(cfg, &o.run_dir, sim), want),
                     Err(_) => false,
                 }
@@ -1260,7 +1220,7 @@ async fn shrink(
     // crash; the truncated trace still reproduces (the crash fires at its end).
     if want.iter().any(|c| is_crash_category(c)) && current.len() >= 2 {
         std::fs::write(cfg_path, json!({ "replay": current }).to_string())?;
-        if let Ok(o) = run_explorer(cfg, root, journey, true, defines, false, sim, json).await {
+        if let Ok(o) = run_explorer(cfg, root, journey, true, defines, false, sim).await {
             let log = std::fs::read_to_string(o.run_dir.join("drive-a.log")).unwrap_or_default();
             if let Some(n0) = crash_trigger_index(&log) {
                 // Back the cut off any TRAILING fragile actions to the last KEYED
@@ -1279,9 +1239,7 @@ async fn shrink(
                     let candidate: Vec<String> = current[..n].to_vec();
                     std::fs::write(cfg_path, json!({ "replay": candidate }).to_string())?;
                     let still =
-                        match run_explorer(cfg, root, journey, true, defines, false, sim, json)
-                            .await
-                        {
+                        match run_explorer(cfg, root, journey, true, defines, false, sim).await {
                             Ok(o2) => {
                                 reproduces_original(&findings_for_tier(cfg, &o2.run_dir, sim), want)
                             }

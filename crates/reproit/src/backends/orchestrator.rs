@@ -556,7 +556,7 @@ pub async fn run_journey_tier(
     }
 }
 
-/// HEADLESS execution tier (the cost moat): run the seeded explorer under
+/// HEADLESS execution tier: run the seeded explorer under
 /// `flutter test` (WidgetTester drives the REAL app in-process) instead of
 /// `flutter drive` on a simulator. NO simctl, NO recording, NO VM service, NO
 /// Xcode: the walk runs in well under a second on any machine, Linux included.
