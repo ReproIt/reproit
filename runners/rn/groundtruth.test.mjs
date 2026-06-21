@@ -7,7 +7,7 @@
 // invisible to AT -> a no_role gap. A button with a proper role + label is not.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { groundtruthFromFiber } from './runner.mjs';
+import { groundtruthFromFiber, groundtruthFromNative } from './runner.mjs';
 
 test('a press handler with no a11y role is a no-role gap', () => {
   const records = [
@@ -85,4 +85,86 @@ test('an empty native-id set does not suppress roles (fiber-only mode)', () => {
   ];
   const els = groundtruthFromFiber(records, []);
   assert.strictEqual(els[0].a11y.rolePresent, true);
+});
+
+// ---- NATIVE FALLBACK (groundtruthFromNative) -------------------------------
+// On a real Android device the uiautomator2 driver has NO JS transport into the
+// RN runtime, so the fiber probe yields nothing. We then derive groundtruth from
+// the native a11y tree the runner already walks: a pointer-operable element that
+// renders as a bare android.view.ViewGroup (canonical role `group`, no AT role)
+// is the WCAG 4.1.2 no_role gap; one that renders as android.widget.Button
+// (role `button`) is clean. This mirrors the LIVE com.rnoperability fixture:
+//   cleanBtn -> android.widget.Button (rolePresent=true)  -> NOT a gap
+//   fakeBtn  -> android.view.ViewGroup (rolePresent=false) -> no_role + pointer_only
+
+test('native fallback: a role-less operable element is a no_role + pointer_only gap', () => {
+  // fakeBtn: clickable android.view.ViewGroup, accessibilityRole absent ->
+  // exposesAtRole=false. The runner sets rolePresent=false; it still has a
+  // content-desc so namePresent=true (matching the live fixture's "Buy (fake)").
+  const candidates = [
+    { id: 'fakeBtn', rolePresent: false, namePresent: true },
+  ];
+  const els = groundtruthFromNative(candidates);
+  assert.strictEqual(els.length, 1);
+  const el = els[0];
+  assert.strictEqual(el.id, 'key:fakeBtn', 'addressed by its resource-id join key');
+  assert.strictEqual(el.operable, true);
+  assert.strictEqual(el.a11y.rolePresent, false, 'ViewGroup with no AT role -> engine counts no_role');
+  // Pointer-only: no exposed semantics for a keyboard/switch user to activate.
+  assert.strictEqual(el.a11y.keyboardActivatable, false, 'engine counts pointer_only');
+  assert.strictEqual(el.a11y.inTabOrder, false);
+  assert.strictEqual(el.a11y.focusable, false);
+});
+
+test('native fallback: a real Button role is operable but NOT a gap', () => {
+  // cleanBtn: android.widget.Button -> canonical role `button` -> exposesAtRole.
+  const candidates = [
+    { id: 'cleanBtn', rolePresent: true, namePresent: true },
+  ];
+  const els = groundtruthFromNative(candidates);
+  assert.strictEqual(els.length, 1);
+  assert.strictEqual(els[0].a11y.rolePresent, true);
+  assert.strictEqual(els[0].a11y.namePresent, true);
+  assert.strictEqual(els[0].a11y.keyboardActivatable, true, 'real role -> keyboard-activatable, no gap');
+  assert.strictEqual(els[0].a11y.inTabOrder, true);
+});
+
+test('native fallback: the live fixture state (cleanBtn clean, fakeBtn gap)', () => {
+  // The exact two-candidate set the runner collects on the com.rnoperability
+  // home screen, in document order; the reducer sorts by selector.
+  const candidates = [
+    { id: 'cleanBtn', rolePresent: true, namePresent: true },
+    { id: 'fakeBtn', rolePresent: false, namePresent: true },
+  ];
+  const els = groundtruthFromNative(candidates);
+  assert.deepStrictEqual(els.map((e) => e.id), ['key:cleanBtn', 'key:fakeBtn']);
+  const clean = els.find((e) => e.id === 'key:cleanBtn');
+  const fake = els.find((e) => e.id === 'key:fakeBtn');
+  assert.strictEqual(clean.a11y.rolePresent, true);
+  assert.strictEqual(fake.a11y.rolePresent, false);
+  assert.strictEqual(fake.a11y.keyboardActivatable, false);
+  // Exactly one no_role + pointer_only gap, like the WPF/Flutter validations.
+  const gaps = els.filter((e) => e.a11y.rolePresent === false);
+  assert.strictEqual(gaps.length, 1, 'fakeBtn alone is the gap');
+});
+
+test('native fallback: candidates without an id are skipped', () => {
+  // Dev-build chrome (the "Open debugger" warning bubble) is clickable but
+  // id-less; the collector never adds it, but guard the reducer too.
+  const els = groundtruthFromNative([
+    { id: null, rolePresent: false, namePresent: false },
+    { rolePresent: false, namePresent: true },
+  ]);
+  assert.deepStrictEqual(els, []);
+});
+
+test('native fallback: output is deterministic and sorted by selector', () => {
+  const candidates = [
+    { id: 'zeta', rolePresent: true, namePresent: true },
+    { id: 'alpha', rolePresent: false, namePresent: false },
+  ];
+  const a = groundtruthFromNative(candidates);
+  const b = groundtruthFromNative(candidates);
+  assert.deepStrictEqual(a, b);
+  assert.deepStrictEqual(a.map((e) => e.id), ['key:alpha', 'key:zeta']);
 });

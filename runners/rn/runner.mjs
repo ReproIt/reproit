@@ -497,6 +497,28 @@ function isTappableEl(get, role) {
   return false;
 }
 
+// The canonical roles that, when present on an element, expose a real semantic
+// role to assistive tech (a screen reader announces "button", "link", ...). A
+// clickable element whose canonical role is NOT one of these (it normalized to
+// the generic `group`/`node`, i.e. an Android android.view.ViewGroup with no
+// accessibilityRole) is operable by finger but role-less to AT: the WCAG 4.1.2
+// no_role gap. This is the host-readable native equivalent of the fiber probe's
+// `accessibilityRole == null` test, used by the native-fallback groundtruth.
+const AT_ROLES = {
+  button: 1, link: 1, menuitem: 1, tab: 1, checkbox: 1, switch: 1,
+  radio: 1, slider: 1, menu: 1, textfield: 1, listitem: 1,
+};
+function exposesAtRole(role) { return !!AT_ROLES[role]; }
+
+// Does the element actually carry a press affordance natively? On Android RN an
+// operable Pressable surfaces clickable="true"; a real <Button> widget is also
+// clickable. We require the native clickable flag (not merely a tappable ROLE)
+// so a decorative element that merely normalized to `button` by class never
+// counts, and only genuinely pointer-operable nodes become gap candidates.
+function isPointerOperable(get) {
+  return get('clickable') === 'true' || get('long-clickable') === 'true';
+}
+
 // Clip an accessible name to the display label cap (display only; never hashed).
 function clipLabel(name) {
   if (name.length <= MAX_LABEL_LEN) return name;
@@ -643,6 +665,27 @@ function appendNode(xmlEl, out, into) {
     if (!display) out.unlabeled++;
   }
 
+  // NATIVE-FALLBACK GROUNDTRUTH candidate (graph-1 from graph 2). The fiber probe
+  // (graph 1) is the primary operability oracle, but the uiautomator2 driver has
+  // NO JS transport into the RN runtime on a real device, so on Android it yields
+  // nothing. The native a11y tree the runner already reads ALREADY encodes the
+  // gap: a finger-operable Pressable that exposed an accessibilityRole renders as
+  // an android.widget.Button (role `button`); one that did NOT (or set
+  // accessible={false}) renders as a bare android.view.ViewGroup (role `group`).
+  // So we collect every pointer-operable element that carries a STABLE id (the
+  // join key the developer can address + fix) and record whether it exposes a
+  // real AT role / name. The id requirement also filters dev-build chrome (the
+  // RN "Open debugger" warning bubble is clickable but id-less). When the fiber
+  // probe is empty, groundtruthFromNative() turns these into the same elements
+  // list the engine parses: role-less operable -> no_role (+ pointer_only).
+  if (id != null && isPointerOperable(get)) {
+    out.nativeCandidates.push({
+      id,
+      rolePresent: exposesAtRole(role),
+      namePresent: !!name,
+    });
+  }
+
   node.children = buildNodes(xmlEl, out);
   into.push(node);
 }
@@ -677,6 +720,10 @@ async function snapshot(driver, valueNodeSelectors) {
     // fingerprint. Carries localized text; NEVER folded into the canonical key.
     textNodes: [],
     valueNodeSelectors: valueNodeSelectors || [],
+    // nativeCandidates: pointer-operable, id-bearing elements from the native
+    // a11y tree, with whether each exposes a real AT role/name. Feeds the
+    // native-fallback groundtruth when the JS fiber probe is unavailable.
+    nativeCandidates: [],
   };
   // The canonical root is a single `screen` node; the parsed app subtree hangs
   // under it (parallels the SDKs forcing the root role to "screen").
@@ -704,6 +751,7 @@ async function snapshot(driver, valueNodeSelectors) {
     labels: [...new Set(out.labels)],
     elements: out.elements,
     unlabeled: out.unlabeled,
+    nativeCandidates: out.nativeCandidates,
   };
 }
 
@@ -959,7 +1007,7 @@ function groundtruthFromFiber(records, nativeIds) {
 // so the engine records "no gaps observed" rather than nothing). `nativeIds` is
 // the set of stable ids the page-source snapshot saw, for the graph-1<->graph-2
 // join. Never throws.
-async function emitGroundtruth(driver, sig, nativeIds) {
+async function emitGroundtruth(driver, sig, nativeIds, nativeCandidates) {
   let result = null;
   // Appium exposes the RN JS runtime over `mobile: executeScript` on Hermes /
   // debug builds. webdriverio surfaces it as executeScript(script, args) or the
@@ -978,20 +1026,81 @@ async function emitGroundtruth(driver, sig, nativeIds) {
   if (!result && typeof driver.execute === 'function') {
     result = await tryRun(() => driver.execute(FIBER_PROBE_SRC));
   }
-  if (!result || !result.ok) {
-    // No fiber access (release build / native-only session): emit an empty
-    // ground-truth so the engine sees the state was probed (no false gaps), and
-    // log why once so the operator knows a dev/Hermes build is needed.
-    const reason = result && result.reason ? result.reason : 'no-js-channel';
-    log('JOURNEY[a] step: groundtruth probe skipped (' + reason + '; needs dev/Hermes build)');
-    log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: [] }));
+  // PRIMARY: a successful fiber probe (Hermes/dev build with the DevTools hook)
+  // with at least one operable record wins. It is the true graph-1 oracle: it
+  // sees a press handler even on a node the native a11y tree never exposed.
+  if (result && result.ok) {
+    const elements = groundtruthFromFiber(result.records, nativeIds);
+    if (elements.length > 0) {
+      log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements }));
+      return;
+    }
+  }
+
+  // FALLBACK: the fiber probe was unavailable (no JS channel: uiautomator2 on a
+  // real device) or yielded no operable record. Derive groundtruth from the
+  // native a11y tree instead: a pointer-operable, id-bearing element that exposes
+  // a generic/non-button role (android.view.ViewGroup, role `group`, no AT role)
+  // is the WCAG 4.1.2 no_role (+ pointer_only) gap; one that exposes a real role
+  // is clean. This keeps RN operability working live where the fiber path can't.
+  const nativeEls = groundtruthFromNative(nativeCandidates);
+  if (nativeEls.length > 0) {
+    const reason = result && result.ok ? 'fiber-empty' : (result && result.reason ? result.reason : 'no-js-channel');
+    log('JOURNEY[a] step: groundtruth from native a11y tree (' + reason + '; ' + nativeEls.length + ' operable)');
+    log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: nativeEls }));
     return;
   }
-  const elements = groundtruthFromFiber(result.records, nativeIds);
-  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements }));
+
+  // Neither path produced anything: emit an empty ground-truth so the engine sees
+  // the state was probed (no false gaps), and log why so the operator knows.
+  const reason = result && result.reason ? result.reason : 'no-js-channel';
+  log('JOURNEY[a] step: groundtruth probe skipped (' + reason + '; no fiber + no native operable)');
+  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: [] }));
 }
 
 export { groundtruthFromFiber };
+
+// HOST-SIDE pure reducer for the NATIVE FALLBACK: turn the pointer-operable,
+// id-bearing native-tree candidates (snapshot.nativeCandidates) into the same
+// EXPLORE:GROUNDTRUTH `elements` list groundtruthFromFiber produces, for the case
+// where the JS fiber probe could not run (uiautomator2 has no JS channel into the
+// RN runtime on a real device). Each candidate is operable by pointer; we report
+// `rolePresent` from whether the native node exposed a real AT role (it rendered
+// as an android.widget.Button vs a bare android.view.ViewGroup) and `namePresent`
+// from its accessible name. A role-less operable element is the WCAG 4.1.2 case:
+// the engine counts it as a no_role gap, and because it is operable ONLY by
+// pointer with no exposed semantics we also assert keyboardActivatable=false so
+// the engine additionally counts it pointer_only. A candidate that DOES expose a
+// real role is reported clean (all dims true) and is not a gap. Pure +
+// deterministic (sorted by selector), so it is unit-testable without a device.
+function groundtruthFromNative(candidates) {
+  const els = [];
+  for (const c of candidates || []) {
+    if (!c || c.id == null) continue;
+    const rolePresent = !!c.rolePresent;
+    const namePresent = !!c.namePresent;
+    els.push({
+      id: 'key:' + c.id,
+      operable: true,
+      gestureKind: 'tap',
+      a11y: {
+        rolePresent,
+        namePresent,
+        // A role-less, pointer-operable native node is reachable ONLY by finger:
+        // it carries no exposed semantics for a keyboard/switch user to activate,
+        // so it is pointer_only. A node that exposes a real AT role is keyboard-
+        // activatable like any focusable control; report it clean.
+        keyboardActivatable: rolePresent,
+        inTabOrder: rolePresent,
+        focusable: rolePresent,
+      },
+    });
+  }
+  els.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return els;
+}
+
+export { groundtruthFromNative };
 
 async function main() {
   const fuzz = loadFuzz();
@@ -1067,7 +1176,7 @@ async function main() {
       // so the engine can diff the operable set against the a11y tree. Joined to
       // the native page source by the stable ids it just saw. Best-effort.
       const nativeIds = new Set(snap.elements.map((e) => e.key).filter((k) => k != null));
-      await emitGroundtruth(driver, snap.sig, nativeIds);
+      await emitGroundtruth(driver, snap.sig, nativeIds, snap.nativeCandidates);
     }
     return snap;
   }
