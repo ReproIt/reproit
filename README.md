@@ -20,7 +20,7 @@ reproit fuzz    # find bugs (each saved as a replayable repro)
 reproit check   # verify repros: pass / fail / flaky / stale
 ```
 
-## Every platform
+## Supported platforms
 
 reproit reads whatever surface a framework exposes (accessibility tree, DOM,
 semantics tree, a PTY) and computes the **same structural, locale-invariant
@@ -119,9 +119,14 @@ Oracles: crashes, jank, leaks, cross-engine divergence, a11y, i18n.
 
 ## Works on AI-built apps
 
-Point reproit at a deployed Lovable / v0 / Bolt / Replit app and it finds and
-reproduces the bugs the generator shipped. Your coding agent fixes them; `check`
-proves the fix. AI builds it, reproit proves it works.
+Point reproit at a deployed Lovable / v0 / Bolt / Replit app, no config, just the URL:
+
+```sh
+reproit fuzz https://your-app.example.com
+```
+
+It builds the map, then finds and reproduces the bugs the generator shipped. Your
+coding agent fixes them; `check` proves the fix. AI builds it, reproit proves it works.
 
 ## Cloud
 
@@ -153,19 +158,10 @@ claude mcp add reproit -- /path/to/reproit mcp
 codex mcp add reproit -- /path/to/reproit mcp
 ```
 
-or add it by hand to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.reproit]
-command = "/path/to/reproit"
-args = ["mcp"]
-```
-
 ## License
 
 The runner is source-available under the **Elastic License v2** (use and
-self-host freely; not as a hosted service to third parties). The cloud is
-proprietary.
+self-host freely; not as a hosted service to third parties).
 
 ---
 
