@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web-runner
+        working-directory: runners/web
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4

@@ -55,7 +55,7 @@ function loadFuzz() {
 // a simple flat list of strings, so a tiny line parser is enough and keeps the
 // runner dependency-free. Path precedence: REPROIT_CONFIG env, else
 // ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list
-// (value-less behavior, fully backward-compatible). Mirrors web-runner.
+// (value-less behavior, fully backward-compatible). Mirrors runners/web.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
   if (!p) { const def = resolve(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }

@@ -1,5 +1,5 @@
 //! reproit: reproducible AI QA. Deterministic multi-device test orchestration
-//! with evidence capture. See SPEC.md.
+//! with evidence capture. See docs/cli.md.
 
 // These two doc-format lints (new in clippy 1.93) fire on intentionally aligned
 // hanging-indent doc tables (e.g. model/repro.rs) whose alignment aids reading.
@@ -3211,7 +3211,7 @@ async fn doctor(config_path: Option<&std::path::Path>) -> Result<()> {
         ok &= found;
     }
     if web {
-        // Playwright + chromium present in the configured web-runner dir.
+        // Playwright + chromium present in the configured web runner dir.
         if let Some(l) = &loaded {
             if let Some(dir) = &l.config.app.web_runner_dir {
                 let runner = l.root.join(dir).join("node_modules/playwright");

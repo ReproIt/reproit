@@ -2,8 +2,8 @@
  * Canonical structural screen signature for React Native.
  *
  * Byte-identical to the Rust oracle (`crates/reproit/src/model/signature.rs`),
- * the web SDK (`sdk/reproit-web.js`), and the runners (`rn-runner/runner.mjs`,
- * `web-runner/runner.mjs`). Spec: `docs/signature.md`. Proven against the golden
+ * the web SDK (`sdk/reproit-web.js`), and the runners (`runners/rn/runner.mjs`,
+ * `runners/web/runner.mjs`). Spec: `docs/signature.md`. Proven against the golden
  * vectors in `signature_vectors.json` by `test/signature.test.ts`.
  *
  * A signature hashes STRUCTURE (roles + ids + types + icons + tree shape), never

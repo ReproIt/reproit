@@ -468,7 +468,7 @@ def load_batch():
     """The list of per-seed fuzz configs to run in this session.
 
     Mirrors the other runners' batch contract (templates/explorer_headless.dart
-    FuzzCfg.loadBatch, rn-runner / web-runner): reproit's multi-seed fuzz writes
+    FuzzCfg.loadBatch, runners/rn / runners/web): reproit's multi-seed fuzz writes
     {"batch":[ <cfg>, ... ]} where each <cfg> is the single-seed shape
     ({seed, budget, edgeWeights, prefix, replay, ...}). A single-seed (legacy)
     run writes the bare {"seed":..} object with no "batch" key. Returns a list

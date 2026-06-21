@@ -4,7 +4,7 @@
 //! a reviewer-ready pull-request comment:
 //!
 //!   1. `record_repro_clip` annotates the minimized-repro video (sim tier only)
-//!      into an MP4 + GIF via the web-runner annotate.mjs tool (caption bars are
+//!      into an MP4 + GIF via the web runner's annotate.mjs tool (caption bars are
 //!      rendered with headless Chrome since this ffmpeg has no drawtext).
 //!   2. `publish` uploads those artifacts to the cloud evidence endpoint
 //!      (POST /v1/errors/:app/:idx/evidence) and returns the served URLs.
@@ -74,7 +74,7 @@ pub async fn publish(
         .web_runner_dir
         .as_ref()
         .map(|d| root.join(d))
-        .unwrap_or_else(|| root.join("web-runner"));
+        .unwrap_or_else(|| root.join("runners/web"));
 
     println!("publish: run {}", run_dir.display());
     let clip = record_repro_clip(&run_dir, &web_runner_dir, &bug_label, &action_label).await?;
@@ -536,7 +536,7 @@ fn find_repro_video(run_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Annotate the run's repro video into an MP4 + GIF under <run>/evidence/, via
-/// the web-runner annotate.mjs tool. Sim-tier only: headless runs have no video,
+/// the web runner's annotate.mjs tool. Sim-tier only: headless runs have no video,
 /// so this returns None for them. `web_runner_dir` is where annotate.mjs lives.
 pub async fn record_repro_clip(
     run_dir: &Path,

@@ -53,7 +53,7 @@ Or build from source with Cargo:
 cargo install --git https://github.com/ReproIt/reproit reproit
 ```
 
-Web also needs Playwright once: `cd web-runner && npm install && npx playwright install`.
+Web also needs Playwright once: `cd runners/web && npm install && npx playwright install`.
 
 > Published under the [`ReproIt`](https://github.com/ReproIt) GitHub org.
 
@@ -169,4 +169,4 @@ proprietary.
 
 ---
 
-Internals: `docs/cli.md`, `docs/signature.md`, `SPEC.md`.
+Internals: `docs/cli.md`, `docs/signature.md`, `docs/operability-graph.md`.

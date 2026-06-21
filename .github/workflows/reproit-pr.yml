@@ -75,9 +75,9 @@ jobs:
       - name: Build reproit
         run: cargo build --release --locked -p reproit
 
-      - name: "Install web-runner deps (caption/annotation: headless Chrome + ffmpeg)"
+      - name: "Install web runner deps (caption/annotation: headless Chrome + ffmpeg)"
         run: |
-          cd web-runner
+          cd runners/web
           npm ci || npm install
           npx playwright install --with-deps chromium
 

@@ -76,7 +76,7 @@ library can read. Here is exactly what this SDK does and what it cannot do.
 **State snapshots, React fiber walk.** On a debounced settle, the SDK walks
 the mounted React fiber tree (via the React DevTools global hook that the RN
 renderer always registers) and collects the same three signals the runner reads
-out of Appium's accessibility XML at test time (`rn-runner/runner.mjs`):
+out of Appium's accessibility XML at test time (`runners/rn/runner.mjs`):
 
 - **labels**: visible accessible names, `accessibilityLabel || text content`,
   trimmed, first line only, skipped if empty or longer than `maxLabelLen` (40),

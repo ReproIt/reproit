@@ -110,7 +110,7 @@
   // ====================================================================
   //  CANONICAL STRUCTURAL SIGNATURE
   //  Byte-identical to the Rust oracle (crates/reproit/src/model/signature.rs)
-  //  and to web-runner/runner.mjs. Spec: docs/signature.md. Proven against
+  //  and to runners/web/runner.mjs. Spec: docs/signature.md. Proven against
   //  signature_vectors.json by sdk/test/signature_test.js.
   //
   //  A signature hashes STRUCTURE (roles + ids + types + icons + tree shape),

@@ -123,7 +123,7 @@ function fnv1a(s) {
 // ====================================================================
 //  CANONICAL STRUCTURAL SIGNATURE (pure, Node-tree -> 8 hex)
 //  Byte-identical to the Rust oracle (crates/reproit/src/model/signature.rs),
-//  web-runner/runner.mjs, and the golden vectors (signature_vectors.json).
+//  runners/web/runner.mjs, and the golden vectors (signature_vectors.json).
 //  Spec: docs/signature.md. This block is host-pure (no DOM) so the parity
 //  test imports it directly; the browser-side snapshot() builds a Node tree in
 //  page context and feeds it here in Node.
@@ -317,7 +317,7 @@ function resolveElectronLaunch(app) {
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Electron's renderer is
-// Chromium, so this is identical to web-runner/runner.mjs: the signature is a
+// Chromium, so this is identical to runners/web/runner.mjs: the signature is a
 // hash of the canonical role tree + stable developer identifiers (data-testid,
 // id, name, aria role, input type) + structural position, with ALL user-facing
 // text excluded. Visible text is kept only as a display label for `map --show`,
@@ -649,7 +649,7 @@ async function snapshot(page, valueNodeSelectors) {
   return snap;
 }
 
-// PARITY: keep in sync with web-runner/runner.mjs (operability + flicker oracle)
+// PARITY: keep in sync with runners/web/runner.mjs (operability + flicker oracle)
 //
 // Tier-1 flicker oracle (persistent-anchor churn). A re-render flicker is a
 // transition that tears down and rebuilds chrome that did NOT need to change:
@@ -1162,7 +1162,7 @@ async function emitGroundtruth(page, cdp, sig) {
 }
 
 // STRUCTURAL tap: resolve a locale-invariant selector and click it. Returns
-// true on success. Mirrors web-runner/runner.mjs's tap(). No visible text is
+// true on success. Mirrors runners/web/runner.mjs's tap(). No visible text is
 // ever used to locate the element.
 //   key:testid:<v> -> [data-testid="v"] (or data-test-id)
 //   key:id:<v>     -> #<v>

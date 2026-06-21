@@ -121,7 +121,7 @@ function fnv1a(s) {
 // ====================================================================
 //  CANONICAL STRUCTURAL SIGNATURE (pure, Node-tree -> 8 hex)
 //  Byte-identical to the Rust oracle (crates/reproit/src/model/signature.rs),
-//  web-runner/runner.mjs, and the golden vectors (signature_vectors.json).
+//  runners/web/runner.mjs, and the golden vectors (signature_vectors.json).
 //  Spec: docs/signature.md. This block is host-pure (no DOM) so the parity
 //  test imports it directly; the webview-side snapshot() builds a Node tree in
 //  page context and feeds it here in Node.
@@ -265,7 +265,7 @@ function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 export { signatureOf, descriptorOf, valueClass };
 
 // The DOM walk runs INSIDE the webview via execute(); identical canonical
-// DOM->Node logic to web-runner/runner.mjs. It returns a canonical Node tree
+// DOM->Node logic to runners/web/runner.mjs. It returns a canonical Node tree
 // (role + id + type + icon + children) plus display-only labels and the
 // structural selectors for each tappable. ALL user-facing text is excluded from
 // the tree; visible text is kept only as a display label for `map --show`.
@@ -574,10 +574,10 @@ async function snapshot(browser, valueNodeSelectors) {
   return snap;
 }
 
-// PARITY: keep in sync with web-runner/runner.mjs (operability + flicker oracle)
+// PARITY: keep in sync with runners/web/runner.mjs (operability + flicker oracle)
 // ====================================================================
 //  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
-//  Mirrors web-runner/runner.mjs, but Tauri's webview has NO CDP, so GRAPH 1
+//  Mirrors runners/web/runner.mjs, but Tauri's webview has NO CDP, so GRAPH 1
 //  (operableByPointer) uses native + cursor:pointer + delegation-marker signals
 //  only (plus an inline onclick / a document.onclick handler we can read from
 //  JS), never a captured event-listener list. GRAPH 2 (a11y dims) runs entirely
@@ -823,7 +823,7 @@ async function emitGroundtruth(browser, sig) {
   log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: !!res.focusTrap, elements: res.elements || [] }));
 }
 
-// Tier-1 flicker oracle (persistent-anchor churn), mirroring web-runner. Tag the
+// Tier-1 flicker oracle (persistent-anchor churn), mirroring runners/web. Tag the
 // persistent chrome before a transition; after it settles, flag any anchor that
 // is VISUALLY UNCHANGED (same key, text, box) yet was REPLACED (DOM node identity
 // changed) -> an innerHTML-wipe-and-rebuild that flickers, which the settled-frame
@@ -983,7 +983,7 @@ async function drainErrors(browser) {
 }
 
 // STRUCTURAL tap: resolve a locale-invariant selector and click it inside the
-// webview. Returns true on success. Mirrors web-runner/runner.mjs's tap(). No
+// webview. Returns true on success. Mirrors runners/web/runner.mjs's tap(). No
 // visible text is ever used to locate the element.
 //   key:testid:<v> -> [data-testid="v"] (or data-test-id)
 //   key:id:<v>     -> #<v>

@@ -1,7 +1,7 @@
 # React Native over an Appium session; the a11y tree is the state.
 app:
   platform: rn-appium
-  rnRunnerDir: ${REPROIT_RN_RUNNER_DIR:-./rn-runner}
+  rnRunnerDir: ${REPROIT_RN_RUNNER_DIR:-./runners/rn}
   appiumUrl: ${APPIUM_URL:-http://127.0.0.1:4723}
   appiumCaps:
     platformName: Android

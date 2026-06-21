@@ -12,11 +12,12 @@ dist/
 
 /target
 
-# web runner deps (playwright + browsers, ~90MB)
-web-runner/node_modules/
-web-runner/package-lock.json
-rn-runner/node_modules/
-rn-runner/package-lock.json
+# web/rn runner deps (playwright + browsers ~90MB; appium client + home)
+runners/web/node_modules/
+runners/web/package-lock.json
+runners/rn/node_modules/
+runners/rn/package-lock.json
+.appium-home/
 examples/imgui-headless/demo
 .hegel/
 

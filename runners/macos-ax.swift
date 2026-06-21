@@ -3,7 +3,7 @@
 // Drives ANY native macOS app (AppKit, SwiftUI, and Qt / GTK / wxWidgets /
 // Avalonia builds, which all publish to the same accessibility API) through
 // the system AX tree, and prints the framework-agnostic marker protocol that
-// `reproit` parses. Same contract as web-runner/runner.mjs and explorer.dart:
+// `reproit` parses. Same contract as runners/web/runner.mjs and explorer.dart:
 //
 //   JOURNEY claimed role=a            ready
 //   EXPLORE:STATE {"sig","labels"}    new state

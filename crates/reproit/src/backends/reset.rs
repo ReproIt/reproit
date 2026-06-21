@@ -1,5 +1,5 @@
 //! State reset: the ordered steps run before every journey/gate run. This is
-//! the customer-facing integration contract (see SPEC.md). Steps are
+//! the customer-facing integration contract (see docs/cli.md). Steps are
 //! best-effort unless marked required.
 //!
 //! Steps may reference account fields by name with `${account.<name>.<field>}`

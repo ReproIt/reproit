@@ -550,9 +550,9 @@ pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     Ok(Loaded { config, root })
 }
 
-/// Locate a `web-runner` directory (a checkout with Playwright installed) for a
-/// zero-config `--url` run: `$REPROIT_WEB_RUNNER_DIR`, else `./web-runner`, else
-/// `<binary-dir>/web-runner`. The first one carrying `node_modules` wins.
+/// Locate the web runner directory (a checkout with Playwright installed) for a
+/// zero-config `--url` run: `$REPROIT_WEB_RUNNER_DIR`, else `./runners/web`, else
+/// `<binary-dir>/runners/web`. The first one carrying `node_modules` wins.
 pub fn resolve_web_runner_dir() -> Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(d) = std::env::var("REPROIT_WEB_RUNNER_DIR") {
@@ -561,11 +561,11 @@ pub fn resolve_web_runner_dir() -> Result<PathBuf> {
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("web-runner"));
+        candidates.push(cwd.join("runners/web"));
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(p) = exe.parent() {
-            candidates.push(p.join("web-runner"));
+            candidates.push(p.join("runners/web"));
         }
     }
     for c in &candidates {
@@ -575,7 +575,7 @@ pub fn resolve_web_runner_dir() -> Result<PathBuf> {
     }
     bail!(
         "could not find a web runner with Playwright installed. Set REPROIT_WEB_RUNNER_DIR \
-         to a `web-runner` checkout where you ran `npm install && npx playwright install`."
+         to a `runners/web` checkout where you ran `npm install && npx playwright install`."
     );
 }
 
@@ -690,12 +690,12 @@ mod tests {
     fn default_form_falls_back_when_unset() {
         std::env::remove_var("RIT_TEST_DEF");
         assert_eq!(
-            interpolate_env("dir: ${RIT_TEST_DEF:-./web-runner}").unwrap(),
-            "dir: ./web-runner"
+            interpolate_env("dir: ${RIT_TEST_DEF:-./runners/web}").unwrap(),
+            "dir: ./runners/web"
         );
         std::env::set_var("RIT_TEST_DEF", "/explicit");
         assert_eq!(
-            interpolate_env("dir: ${RIT_TEST_DEF:-./web-runner}").unwrap(),
+            interpolate_env("dir: ${RIT_TEST_DEF:-./runners/web}").unwrap(),
             "dir: /explicit"
         );
     }
@@ -727,7 +727,7 @@ mod tests {
         let path = dir.join("reproit.yaml");
         std::fs::write(
             &path,
-            "app:\n  platform: web-playwright\n  webRunnerDir: ${RIT_E2E_WRD:-./web-runner}\n\
+            "app:\n  platform: web-playwright\n  webRunnerDir: ${RIT_E2E_WRD:-./runners/web}\n\
              devices:\n  namePrefix: x\njourneys:\n  driver: noop\n  doneMarkers: [done]\n",
         )
         .unwrap();
@@ -736,7 +736,7 @@ mod tests {
         let loaded = super::load(Some(&path)).unwrap();
         assert_eq!(
             loaded.config.app.web_runner_dir.as_deref(),
-            Some("./web-runner")
+            Some("./runners/web")
         );
 
         std::env::set_var("RIT_E2E_WRD", "/custom/runner");

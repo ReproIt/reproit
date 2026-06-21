@@ -63,7 +63,7 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         Platform::Web => {
             println!("  1. edit reproit.yaml: set app.url to your dev/staging URL");
             println!(
-                "  2. (cd <reproit>/web-runner && npm install && npx playwright install chromium)"
+                "  2. (cd <reproit>/runners/web && npm install && npx playwright install chromium)"
             );
             println!("  3. reproit doctor   then   reproit map");
         }
@@ -71,7 +71,7 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
             println!(
                 "  1. edit reproit.yaml: set app.appiumCaps (app path, deviceName, platformName)"
             );
-            println!("  2. (cd <reproit>/rn-runner && npm install); start an Appium server");
+            println!("  2. (cd <reproit>/runners/rn && npm install); start an Appium server");
             println!("  3. reproit map");
         }
         Platform::Android => {
@@ -79,7 +79,7 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
                 "  1. edit reproit.yaml: set app.appiumCaps (apk path, appPackage, appActivity)"
             );
             println!(
-                "  2. (cd <reproit>/rn-runner && npm install); appium driver install uiautomator2"
+                "  2. (cd <reproit>/runners/rn && npm install); appium driver install uiautomator2"
             );
             println!("  3. boot an AVD (emulator -avd <name>); start an Appium server");
             println!("  4. reproit map");
@@ -286,8 +286,8 @@ const WEB_CONFIG: &str = r#"# reproit config (web-playwright). Drives a browser 
 # whole map/fuzz/soak/a11y/evidence pipeline is shared with the mobile path.
 app:
   platform: web-playwright
-  # Path to reproit's web-runner directory (run npm install there once).
-  webRunnerDir: ../reproit/web-runner
+  # Path to reproit's web runner directory (run npm install there once).
+  webRunnerDir: ../reproit/runners/web
   url: http://localhost:3000      # your dev/staging URL
   defines: {}
 
@@ -325,7 +325,7 @@ const RN_CONFIG: &str = r#"# reproit config (rn-appium). Drives a React Native a
 # session; the whole map/fuzz/soak/a11y/evidence pipeline is shared.
 app:
   platform: rn-appium
-  rnRunnerDir: ../reproit/rn-runner   # run npm install there once
+  rnRunnerDir: ../reproit/runners/rn   # run npm install there once
   appiumUrl: http://127.0.0.1:4723
   appiumCaps:
     platformName: iOS                # or Android
@@ -375,7 +375,7 @@ const ANDROID_CONFIG: &str = r#"# reproit config (android). Drives a native Andr
 # icon-only buttons both improves accessibility and gives reproit better labels.
 app:
   platform: android
-  rnRunnerDir: ../reproit/rn-runner   # run npm install there once
+  rnRunnerDir: ../reproit/runners/rn   # run npm install there once
   appiumUrl: http://127.0.0.1:4723
   appiumCaps:
     platformName: Android

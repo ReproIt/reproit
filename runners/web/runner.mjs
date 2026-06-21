@@ -297,7 +297,7 @@ function loadFuzz() {
 
 // The list of per-seed fuzz configs to run in this session. Mirrors the other
 // runners' batch contract (templates/explorer_headless.dart FuzzCfg.loadBatch,
-// rn-runner, runners/linux-atspi.py load_batch): reproit's multi-seed fuzz
+// runners/rn, runners/linux-atspi.py load_batch): reproit's multi-seed fuzz
 // writes {"batch":[ <cfg>, ... ]} where each <cfg> is the single-seed shape
 // ({seed, budget, edgeWeights, prefix, replay, ...}). A single-seed (legacy)
 // run writes the bare {"seed":..} object with no "batch" key. Returns
@@ -1959,7 +1959,7 @@ async function main() {
   // Explore/replay ONE seed, emitting the same EXPLORE:STATE / EXPLORE:EDGE /
   // FUZZ:ACT / FUZZ:MISS markers as a single-seed run. Seen states + tried edges
   // are LOCAL to the seed so per-seed coverage is independent, matching the other
-  // runners' per-seed contract (rn-runner, runners/linux-atspi.py run_seed).
+  // runners' per-seed contract (runners/rn, runners/linux-atspi.py run_seed).
   async function runSeed(fuzz) {
     const seenStates = new Set();
     const triedEdges = new Set();

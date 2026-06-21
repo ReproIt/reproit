@@ -1,7 +1,7 @@
 # Any web app driven by Playwright (Chromium); the DOM a11y tree is the state.
 app:
   platform: web-playwright
-  webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./web-runner}   # holds runner.mjs
+  webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./runners/web}   # holds runner.mjs
   url: ${APP_URL:-http://localhost:3000}
   defines:                      # passed as env to the runner
     FEATURE_FLAG: ${FEATURE_FLAG:-}

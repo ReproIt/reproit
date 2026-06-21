@@ -10,7 +10,7 @@
  * runners. Localized text NEVER enters the hash (rule 1); it is kept only as a
  * display-only `labels` field for `map --show`.
  *
- * This mirrors `rn-runner/runner.mjs`, which builds the same canonical Node tree
+ * This mirrors `runners/rn/runner.mjs`, which builds the same canonical Node tree
  * out of Appium's accessibility XML at TEST time, so prod nodes == test nodes and
  * the signatures align 1:1.
  *

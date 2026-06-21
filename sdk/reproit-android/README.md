@@ -250,7 +250,7 @@ sh ./run_host_test.sh
 
 - **View tree, not the accessibility tree.** Android's true a11y tree
   (`AccessibilityNodeInfo`) is only readable from an `AccessibilityService` or
-  from a UIAutomator/Appium harness (which is what `rn-runner` drives over
+  from a UIAutomator/Appium harness (which is what `runners/rn` drives over
   Appium). An in-process SDK cannot read it, so this SDK walks the **`View`
   tree**, mapping each view to a canonical role from its widget class /
   `AccessibilityNodeInfo` (never from text), with ids from the resource-entry
