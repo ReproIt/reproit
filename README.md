@@ -107,16 +107,6 @@ Cross-cutting flags on `fuzz`/`check`:
 then fuzz *from* it. Reaching a valid deep state is the costly part, so an
 imported flow becomes a launchpad for the bugs it never covered.
 
-## How it finds more
-
-Seeded `xorshift` walks over the state graph, fully replayable; `--frontier`
-heads for the least-visited state; failures are minimized (ddmin). Screens are
-keyed **structurally** (roles + developer keys, text excluded), so the graph is
-locale-invariant and doesn't explode on dynamic content. Value-state apps
-(calculators, counters) work too: effect detection keeps the walk moving when
-only a value changes, and bounded value-classes give them distinct states.
-Oracles: crashes, jank, leaks, cross-engine divergence, a11y, i18n.
-
 ## Works on AI-built apps
 
 Point reproit at a deployed Lovable / v0 / Bolt / Replit app, no config, just the URL:
@@ -156,6 +146,16 @@ claude mcp add reproit -- /path/to/reproit mcp
 
 ```sh
 codex mcp add reproit -- /path/to/reproit mcp
+```
+
+**OpenCode:** add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "reproit": { "type": "local", "command": ["/path/to/reproit", "mcp"], "enabled": true }
+  }
+}
 ```
 
 ## License
