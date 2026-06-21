@@ -259,6 +259,10 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
             // across the seed budget and group them into unique bugs (same bug
             // reached by different paths counts once).
             argv.push("--all".into());
+            // Minimize each repro (ddmin) so the agent gets the SHORTEST
+            // reproducing action sequence, not the raw exploration walk (a
+            // 19-action path shrinks to the 2-action one that actually matters).
+            argv.push("--shrink".into());
             if let Some(t) = s("target") {
                 argv.extend(["--journey".into(), t]);
             }
@@ -373,12 +377,6 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
     };
     match Command::new(exe).args(&argv).output() {
         Ok(out) => {
-            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            let err = String::from_utf8_lossy(&out.stderr);
-            if !err.trim().is_empty() {
-                text.push_str("\n--- stderr ---\n");
-                text.push_str(err.trim());
-            }
             // `check` is a VERDICT command: fail(1)/flaky(2)/stale(3) are the CI
             // exit contract, not tool failures. A check that produced a verdict
             // is a SUCCESSFUL tool call, the agent must SEE the verdict (e.g.
@@ -390,6 +388,21 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
             } else {
                 !out.status.success()
             };
+            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            let err = String::from_utf8_lossy(&out.stderr);
+            // Surface the human progress log (stderr) to the agent ONLY when it
+            // adds signal: the call errored, or stdout carried no structured
+            // output (e.g. `fuzz`, whose findings print to stderr). On a
+            // successful --json call the progress chatter is just noise and can
+            // mislead: a `check` whose verdict is `fail` still prints per-run
+            // "PASS" drive lines to stderr, which read as a contradiction.
+            if (is_error || text.trim().is_empty()) && !err.trim().is_empty() {
+                if !text.trim().is_empty() {
+                    text.push('\n');
+                }
+                text.push_str("--- stderr ---\n");
+                text.push_str(err.trim());
+            }
             (text, is_error)
         }
         Err(e) => (format!("failed to spawn reproit: {e}"), true),
