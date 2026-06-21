@@ -1,151 +1,138 @@
-# Operability graph: the ground-truth-vs-accessibility diff
+# The accessibility audit
 
-Status: design + phased plan. Web premise validated live (see §Validation).
+reproit can tell you which controls in your app a **mouse user can operate but a
+keyboard or screen-reader user cannot**. Those gaps are real accessibility bugs
+(they map to specific WCAG rules), and they're the kind a static linter can't
+find, because they only show up when you actually drive the app.
 
-## The idea
+You run it with one command:
 
-reproit already maps an app by walking its **accessibility/structural tree**. That
-makes the engine blind to controls that aren't exposed accessibly — which is
-exactly the apps that most need an audit (the paradox: worst-a11y apps are least
-drivable). The fix is reproit's existing "map it twice and diff" pattern (the
-cross-engine divergence oracle) applied to a new axis:
+```sh
+reproit map accessibility
+```
 
-- **Graph 1 — ground truth**: everything a sighted pointer user can actually
-  operate (real interactive controls / handlers / hit-testable affordances),
-  discovered WITHOUT relying on accessibility semantics.
-- **Graph 2 — accessibility**: the subset reachable & operable via the a11y tree
-  + keyboard (correct role/name/value, focusable, keyboard-activatable, no traps).
+This reads the app graph you already built with `reproit map`, so build the map
+first. (Your AI agent can get the same data over MCP with the
+`reproit_accessibility` tool.)
 
-The **diff (operable in 1, not in 2)** is the deliverable: deterministic WCAG
-**2.1.1** (operable by mouse, not keyboard) and **4.1.2** (operable, no role/name)
-+ focus-trap findings — the operability failures static linters (axe/Lighthouse)
-structurally cannot find because they lint a snapshot instead of comparing
-operability. It also un-cripples the engine (graph 1 doesn't need a11y) and
-doubles as the "AI built a fake control" detector.
+## What it tells you
 
-CONSTRAINT: the core diff stays DETERMINISTIC — no LLM, no ML/vision understanding
-of pixels. (Deterministic framebuffer *diffing* is allowed; it's the visual-oracle
-machinery.) Per-framework code is fine.
+For each screen, it lists every operable control the keyboard / accessibility
+layer is missing, what's wrong with it, and where to fix it:
 
-## Framework-agnostic contract (the architectural invariant)
+```
+accessibility diff for shop (1 screen with gaps)
 
-Every backend emits one new marker per node, keyed by reproit's EXISTING
-`sel`/`key` selector grammar, so the engine stays platform-blind:
+  Refund review [s_e23a98b3]
+    route: /refund
+    reach: tap:key:testid:open-refund
+    key:testid:finding-row  ->  pointer_only, no_role
+        at src/RefundList.tsx:42
+```
+
+Each gap is one of four kinds:
+
+| Kind | What it means | WCAG |
+|---|---|---|
+| `pointer_only` | You can click it with a mouse, but Enter/Space don't activate it | 2.1.1 |
+| `keyboard_unreachable` | You can't even Tab to it | 2.1.1 |
+| `no_role` | It works, but exposes no role/name to assistive tech | 4.1.2 |
+| `focus_trap` | Keyboard focus gets stuck on this screen | 2.1.2 |
+
+Every finding is **grounded**: it carries the control's selector, the
+dimension(s) it fails, a source `file:line` to fix it, and (where the map knows
+it) the route and the action path to reach that screen. So the workflow is:
+
+1. `reproit map accessibility` finds the gap and points at the file.
+2. You (or your agent) fix the control.
+3. `reproit check` confirms the gap is gone.
+
+Filter when you want to focus:
+
+```sh
+reproit map accessibility --state Refund        # one screen
+reproit map accessibility --kind pointer_only   # one dimension
+reproit map accessibility --json                # machine-readable
+```
+
+## How it works
+
+The trick is to build **two pictures of your app and compare them**:
+
+- **Graph 1, ground truth:** everything a sighted pointer user can actually
+  operate, found without trusting accessibility labels at all (real click
+  handlers, hit-testable widgets, native controls).
+- **Graph 2, accessibility:** the subset that's also reachable and operable by
+  keyboard and assistive tech (correct role and name, focusable, in the Tab
+  order, activatable by Enter/Space, no traps).
+
+Whatever is in graph 1 but missing from graph 2 is an accessibility gap. That's
+the whole idea, and it's why this finds problems a linter can't: a linter checks
+a static snapshot, while reproit *compares what's operable two different ways*.
+
+This also has a useful side effect. Because graph 1 doesn't depend on
+accessibility labels, the audit works even on apps with terrible accessibility,
+which are exactly the apps that most need it. And it doubles as a detector for
+"an AI built a control that looks clickable but isn't wired up."
+
+## Where it works
+
+The same comparison runs on every platform; only the way graph 1 is gathered
+differs per framework.
+
+| Platform | How graph 1 is found |
+|---|---|
+| Web / Electron | Real event listeners (via CDP), native elements, `cursor:pointer`, and a real Tab traversal |
+| Tauri | In-page native + cursor + handler inspection (no CDP), structural keyboard check |
+| Flutter | The element / render tree (gesture detectors, hit-testable) vs the semantics tree |
+| Native (Qt, WPF, AppKit, GTK) | An in-process agent walks the real widget tree and joins it to its accessibility peer by object identity |
+| React Native | The JS handler tree vs the exported accessibility props |
+| Terminal UIs | Unlabeled-region detection from the screen grid; optional keyboard-vs-mouse walk |
+| Dear ImGui / Clay | The per-frame widget list (accessibility is empty here by construction, so the whole surface is the gap) |
+
+## Design notes
+
+This section is for contributors; you don't need it to use the audit.
+
+**The contract.** Every backend emits one extra marker per element keyed by
+reproit's normal selector grammar:
 
 ```
 EXPLORE:GROUNDTRUTH { sig, elements: [{
-  id,                       // existing selector grammar (the join key)
-  operable: true,           // graph 1: real pointer/gesture affordance
-  gestureKind,              // tap|button|field|delegated|raw|...
+  id, operable, gestureKind,
   a11y: { rolePresent, namePresent, focusable, inTabOrder, keyboardActivatable }
 }], focusTrap }
 ```
 
-The Rust engine (`map.rs`) re-derives the diff (never trusts the runner) into the
-existing `a11y` oracle category: `pointer_only`, `unlabeled`/`no_role`,
-`keyboard_unreachable`, `focus_trap`. This generalizes today's scalar
-`unlabeled_tappables: u32` into a structured, per-widget gap list
-(`OperabilityGaps`): the counts PLUS `items: [{selector, kinds}]` — the per-
-element detail (which selector failed which dimension), so the diff is grounded
-and addressable, not just a tally.
+The Rust engine (`map.rs`) re-derives the diff itself (it never trusts the
+runner) into the stored `OperabilityGaps`: per-screen counts plus
+`items: [{selector, kinds}]`, the per-element detail that makes the report
+actionable. The CLI view and the MCP tool are pure read-outs of that stored data.
 
-CONSTRAINT (capture is non-destructive): determining the a11y dims must NEVER
-activate a control. Probing `keyboardActivatable` by actually pressing Enter/
-Space (or dispatching a synthetic key) fires the app's real handler as a side
-effect — a navigation, or a destructive/crashing action — which pollutes the
-crash oracle and corrupts exploration. So `keyboardActivatable` is derived
-structurally: a native-activating control, or one carrying a real key listener
-(read via CDP `getEventListeners` on web/electron), counts; a focusable
-click-only control with no key handler is keyboard-dead (a 2.1.1 gap). The other
-backends compute it from the widget/semantics tree, never by activating.
+**Capture must be non-destructive.** Measuring whether a control is
+keyboard-activatable must never *activate* it. Pressing Enter/Space (or
+dispatching a synthetic key) would fire the app's real handler as a side effect,
+maybe a navigation or a destructive action, which would pollute the crash oracle
+and corrupt exploration. So `keyboardActivatable` is derived from structure: a
+native-activating control, or one that carries a real key handler (read via the
+browser's `getEventListeners` on web/electron), counts; a focusable click-only
+element with no key handler is keyboard-dead, which is exactly the
+`pointer_only` gap. Other backends read it from the widget tree the same way,
+never by activating anything.
 
-## Consumption (how the diff is surfaced)
+**Why not just analyze the source code?** What's actually on screen is undecidable
+from source (conditional rendering, runtime state, dynamic handlers); a static
+graph would describe screens that never exist. Static analysis is used only for
+the helpful bits *after* a gap is found at runtime: attributing it to a source
+`file:line`, and optionally seeding routes to guide exploration. It is never the
+graph builder.
 
-The stored gaps are served two ways, both pure views (no analysis, fully
-deterministic). Each gap is GROUNDED for a fixer: it carries the failing
-selector, the dimension(s) it fails, and a static source location (file:line +
-snippet, via `attribute`); each screen carries its route and a best-effort
-action path (BFS over the map's transitions) to reach it. That closes the loop:
-find -> locate (file:line) -> fix -> `reproit_check` confirms it.
-- `reproit map accessibility` — the human/CLI view; `--state` and `--kind` filter.
-- `reproit_accessibility(state?, kind?)` — the MCP tool, returns the same diff as
-  JSON so an agent can read it, open the file:line, fix the control, and call
-  `reproit_check` to deterministically confirm the gap closed (you propose,
-  reproit disposes). Source attribution is best-effort (static); a sparse map may
-  yield no action path, in which case the route alone locates the screen.
+## Status
 
-## How each backend sources graph 1
-
-The engine is identical; only a thin per-surface adapter differs. Sourcing
-priority (best signal first): in-process tree -> framebuffer probe -> a11y-only.
-
-| Backend | Graph-1 source | Join to graph 2 | Verdict |
-|---|---|---|---|
-| **Flutter** | element/render tree (gesture detectors, `hitTestable`) | render-ancestry + rect | flagship; runs on headless `flutter test`, no device; public API survives AOT |
-| **Web / Electron** | CDP `DOMDebugger.getEventListeners` (incl. delegated) + native + `cursor:pointer`; real Tab traversal; `keyboardActivatable` from listener *types* (native or a key handler) | same `sel` | clean |
-| **Tauri** | in-page native/cursor/attr (no CDP); `keyboardActivatable` structural (native + inline key handlers) | same `sel` | partial (no listener enumeration) |
-| **React Native** | JS fiber/press-handler tree vs exported a11y props | `nativeID`/`testID` | partial; needs dev build |
-| **Native (Qt/WPF/AppKit/GTK)** | in-process agent walks the real widget/visual/NSView tree + handlers | **object identity** (a11y peer is created from the widget) | best once in-process; needs per-toolkit agent |
-| **TUI** | (A) unlabeled-region from grid diff; (B) opt-in keys+SGR-mouse walk vs keys-only | n/a | reframed; (B) is the one true instance |
-| **ImGui / Clay** | header already enumerates widgets; a11y is empty by construction | n/a | the whole surface is the gap; header can also *generate* an AccessKit tree |
-| **universal floor** | deterministic click -> framebuffer-diff probe | spatial | works on any rendered surface; coarse, opt-in, side-effecting |
-
-## In-process native agent (how `reproit map` works on Qt/WPF/AppKit/GTK)
-
-The "runner" becomes an in-process agent speaking the same marker protocol
-(exactly like the Dart explorer / ImGui header).
-
-- **Get in**: white-box (one line + rebuild: `ReproIt::attach()` / a NuGet / a
-  shim — primary, like the Flutter SDK), or black-box injection
-  (`LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` / CLR profiler — fallback; hardened
-  runtime can block it).
-- **Per-state cycle** (on the UI thread): settle -> walk ground-truth tree ->
-  walk a11y tree -> compute the shared FNV-1a signature -> join by object
-  identity -> emit `EXPLORE:STATE` + `EXPLORE:GROUNDTRUTH` -> receive action ->
-  invoke in-process (`QAbstractButton::click()`, WPF `InvokePattern`/`RaiseEvent`,
-  AppKit `performClick:`) -> emit `EXPLORE:EDGE` -> repeat.
-- The a11y peer is created *from* the widget on these toolkits, so the
-  graph-1<->graph-2 join is by **object identity** — cleaner than Flutter's
-  geometric join. Once in-process, native is among the strongest tiers, not the
-  weakest.
-
-## Why not static code analysis (for the graph)
-
-"What's actually on screen" is undecidable from source (conditional/data-driven
-rendering, runtime state, dynamic handlers); a static graph over-approximates and
-maps to no real screen. The slice it can do (missing-label lint) is a crowded,
-solved space (eslint-jsx-a11y, axe-linter) and contradicts reproit's runtime
-"reproduce forever" identity. Keep static analysis only for: (a) **source
-attribution** of a runtime-found gap (for the fix/PR), (b) optional **route
-seeding** to guide exploration. Never as the graph builder.
-
-## Validation
-
-**Web — validated live** against the running cloud dashboard (a real app with a
-`<div role=option tabindex=-1>` finding item, clickable only via a document-level
-delegated handler). A standalone Playwright+CDP two-graph probe found: 5 finding
-items operable by pointer (cursor + delegated, behavioral-click confirmed),
-**0** of them reachable by a real 60-press Tab traversal (12 other controls were)
--> 5 WCAG 2.1.1 gaps. CONFIRMED, deterministic.
-
-Per-platform validation environments:
-- Web / Electron / AppKit / Flutter (headless) / TUI / Linux Qt+GTK: local macOS + Linux.
-- **WPF / WinUI / Windows UIA: the QEMU Windows VM** (ssh reproit@localhost:2222, dotnet 8).
-- React Native: Android emulator / iOS sim (Appium).
-
-## Phased plan
-
-0. **Engine contract** — `EXPLORE:GROUNDTRUTH` marker + diff in `map.rs` + a11y
-   gap categories. Framework-agnostic core.
-1. **Web reference** — web-runner: CDP listeners + cursor/native + Tab/Enter pass.
-   Dogfood target: the cloud dashboard (the validated case).
-2. **Flutter** — element/render-vs-semantics in the headless explorer (cheapest;
-   `unlabeled_tappables` already exists to generalize).
-3. **Native in-process agents** — WPF/UIA first (validate on the Windows VM),
-   then AppKit (mac), Qt + GTK (linux). White-box agent + inject fallback.
-4. **RN** (fiber-vs-a11y), **Electron/Tauri** (reuse web), **TUI** (mouse + unlabeled),
-   **ImGui/Clay** (`exposed` flag + AccessKit generation).
-5. **Universal floor** — framebuffer-diff click probe; **source attribution** for fixes.
-
-Each phase ships behind the existing `a11y`/`--only a11y` oracle filter and is
-validated on a real app on that platform before the next.
+Validated live on web against a real app (a `<div role=option tabindex=-1>`
+operable only through a delegated click handler): the probe found 5 pointer-only
+controls that a 60-press Tab traversal never reached, all confirmed
+deterministically. The engine contract and the web, Electron, Tauri, Flutter,
+native (Qt/WPF/AppKit/GTK), React Native, TUI, and ImGui/Clay emitters are in
+place, each validated on a real app for that platform or covered by engine
+contract tests.
