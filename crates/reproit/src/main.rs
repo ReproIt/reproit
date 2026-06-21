@@ -65,8 +65,12 @@ mod triage;
 #[path = "modes/visual.rs"]
 mod visual;
 // model/, the app model + analysis.
+#[path = "model/accessibility.rs"]
+mod accessibility;
 #[path = "model/appmap.rs"]
 mod appmap;
+#[path = "model/attribute.rs"]
+mod attribute;
 #[path = "model/candidate.rs"]
 mod candidate;
 #[path = "model/fault.rs"]
@@ -151,7 +155,7 @@ impl Ctx {
     }
 
     /// Emit a JSON object to stdout (pretty), when `--json` is set.
-    fn emit(&self, value: &serde_json::Value) {
+    pub(crate) fn emit(&self, value: &serde_json::Value) {
         if self.json {
             println!(
                 "{}",
@@ -592,6 +596,19 @@ enum MapAction {
         #[arg(long, name = "map-path")]
         map_path: Option<PathBuf>,
     },
+    /// The accessibility diff: ground-truth-operable elements that the
+    /// accessibility/keyboard graph is missing (WCAG 2.1.1 / 4.1.2 + focus
+    /// traps), per screen, read from the map's operability gaps.
+    Accessibility {
+        /// Only report this screen (signature or alias). Omit for all screens.
+        #[arg(long)]
+        state: Option<String>,
+        /// Only report this gap kind: pointer_only | keyboard_unreachable | no_role | focus_trap.
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, name = "map-path")]
+        map_path: Option<PathBuf>,
+    },
     /// Re-walk the committed map and report drift (exit 3 on drift).
     Verify,
 }
@@ -820,6 +837,24 @@ async fn main() -> Result<ExitCode> {
                         }
                     };
                     graph::render(&path, &format, out.as_deref())?;
+                    Ok(ExitCode::SUCCESS)
+                }
+                MapAction::Accessibility {
+                    state,
+                    kind,
+                    map_path,
+                } => {
+                    let m = match map_path {
+                        Some(p) => {
+                            let txt = std::fs::read_to_string(&p)?;
+                            serde_json::from_str::<appmap::AppMap>(&txt)?
+                        }
+                        None => {
+                            let loaded = config::load(cli.config.as_deref())?;
+                            map::load_map(&loaded.root, &loaded.config)
+                        }
+                    };
+                    accessibility::report(&m, state.as_deref(), kind.as_deref(), &ctx);
                     Ok(ExitCode::SUCCESS)
                 }
                 MapAction::Verify => {

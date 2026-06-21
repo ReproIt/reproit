@@ -401,6 +401,7 @@ mod tests {
                     .map(|(f, a, t)| (f.to_string(), a.to_string(), t.to_string()))
                     .collect(),
                 start: start.map(String::from),
+                gaps: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),

@@ -109,6 +109,14 @@ fn tool_defs() -> Value {
             } }
         },
         {
+            "name": "reproit_accessibility",
+            "description": "The accessibility audit. Returns reproit's UI-graph-vs-accessibility-graph diff per screen: the ground-truth-operable controls (what a pointer user can actually operate) that the accessibility/keyboard graph is MISSING. Each gap is GROUNDED and deterministic, not a lint guess: it carries the failing element's stable selector plus which WCAG dimension(s) it fails -- pointer_only (2.1.1: operable by mouse, not keyboard), no_role (4.1.2: operable, no programmatic role/name), keyboard_unreachable (not in the Tab order), or a screen-level focus_trap. Read from the map's operability gaps, so run reproit_map first. Use the selector to fix the control, then reproit_check to deterministically confirm the gap closed. `state` scopes to one screen (signature or name); `kind` filters to one dimension.",
+            "inputSchema": { "type": "object", "properties": {
+                "state": { "type": "string", "description": "Scope to one screen, by signature id or human name. Omit for all screens." },
+                "kind": { "type": "string", "description": "Filter to one dimension: pointer_only | keyboard_unreachable | no_role | focus_trap." }
+            } }
+        },
+        {
             "name": "reproit_coverage",
             "description": "Derive the CANDIDATE (hypothesized) map of every screen the app SHOULD have by reading its source with the LLM (no simulator), reconcile it against the verified map, and return the coverage ledger plus the pending WORKLIST: which screens aren't reached yet and why (needs_data | needs_peer | needs_login | frontier). Use it to know exactly which journeys to author next to close coverage, and which need seeding or a dual-user scenario. The candidate map is a worklist, never ground truth: only a driven run (reproit_check on a journey) promotes a screen to verified. Slow: an LLM pass over source.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -229,6 +237,17 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
             // `map show` renders the existing graph; bare build is `map structural`.
             argv.push("map".into());
             argv.push(if b("show") { "show" } else { "structural" }.into());
+        }
+        "reproit_accessibility" => {
+            // The UI-vs-a11y diff, read from the map's operability gaps.
+            argv.push("map".into());
+            argv.push("accessibility".into());
+            if let Some(st) = s("state") {
+                argv.extend(["--state".into(), st]);
+            }
+            if let Some(k) = s("kind") {
+                argv.extend(["--kind".into(), k]);
+            }
         }
         "reproit_coverage" => {
             argv.push("map".into());

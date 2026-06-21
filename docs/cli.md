@@ -85,6 +85,8 @@ reproit map semantic          LLM read the code -> candidate map
 reproit map coverage          diff: screens declared (code) vs verified (crawl)
 reproit map converge          validate semantic vs structural, prune
 reproit map show              render the map (mermaid | dot | html)
+reproit map accessibility     the UI-graph-vs-a11y-graph diff per screen (WCAG
+                              2.1.1/4.1.2 + focus traps); --state/--kind filter
 reproit map verify            re-walk, report drift (exit 3)
 reproit fuzz [target]         find repros using the map (pure; emits a fuzz artifact)
                               target = an alias/node; all oracles on by default
@@ -125,6 +127,13 @@ Two ways to get the app's map, plus views over them. Bare `map` = `map structura
   promote what's verified, prune source-less guesses, repeat until stable.
 - `map show` — render the map (mermaid | dot | html). `map verify` — re-walk and
   report drift (exit 3).
+- `map accessibility` — the accessibility audit: reproit's UI-graph-vs-a11y-graph
+  diff per screen. Reports the ground-truth-operable controls the accessibility/
+  keyboard graph is missing, grounded by selector and tagged with the WCAG
+  dimension(s) they fail: `pointer_only` (2.1.1), `no_role` (4.1.2),
+  `keyboard_unreachable`, and screen-level `focus_trap`. Read from the map's
+  operability gaps (build the map first). `--state` scopes to one screen,
+  `--kind` to one dimension. See docs/operability-graph.md.
 
 `map structural` drives the app; `map semantic` reads the code.
 
@@ -444,6 +453,7 @@ runs the whole loop. Tools:
 ```
 reproit_context(target?)        scoped graph + screens + elements/selectors (from map show)
 reproit_map(show?)              build/refresh the graph (show = render existing)
+reproit_accessibility(state?, kind?)  UI-graph-vs-a11y-graph diff per screen, grounded by selector (WCAG 2.1.1/4.1.2 + focus traps)
 reproit_coverage()              LLM candidate map from source + coverage ledger + pending worklist
 reproit_fuzz(target?, platform?)  bug-finding; returns the DEDUPED unique-bugs work-list (--all)
 reproit_check(repro?, record?, actions?)  run a saved repro / journey / pending finding / inline candidate

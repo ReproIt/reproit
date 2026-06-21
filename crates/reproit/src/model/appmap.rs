@@ -38,6 +38,48 @@ pub struct State {
     /// the a11y fix class's findings.
     #[serde(default)]
     pub unlabeled_tappables: u32,
+    /// Operability/accessibility gaps on this screen: the diff between the
+    /// ground-truth operable set (graph 1, what a pointer user can do) and the
+    /// accessibility/keyboard-operable set (graph 2). Populated from a runner's
+    /// `EXPLORE:GROUNDTRUTH` records; see docs/operability-graph.md.
+    #[serde(default)]
+    pub operability_gaps: OperabilityGaps,
+}
+
+/// Per-screen operability/accessibility gap counts (graph 1 minus graph 2).
+/// Every field is the count of ground-truth-operable elements that fail a
+/// specific accessibility dimension, so an all-zero value is the healthy case.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperabilityGaps {
+    /// Operable by pointer but not reachable/operable by keyboard (WCAG 2.1.1).
+    #[serde(default)]
+    pub pointer_only: u32,
+    /// Operable by pointer but not reachable by the tab/focus order.
+    #[serde(default)]
+    pub keyboard_unreachable: u32,
+    /// Operable but exposes no programmatic role/name to AT (WCAG 4.1.2).
+    #[serde(default)]
+    pub no_role: u32,
+    /// A focus trap was observed on this screen.
+    #[serde(default)]
+    pub focus_trap: bool,
+    /// Per-element gap detail: which ground-truth-operable element (by reproit
+    /// selector) failed which accessibility dimension(s). This is what makes the
+    /// diff GROUNDED and actionable (a coordinate the agent can act on) rather
+    /// than a bare count. Empty on older maps that only recorded counts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<OperabilityGap>,
+}
+
+/// One ground-truth-operable element that is missing from the accessibility
+/// graph in one or more ways. `selector` is reproit's existing selector grammar
+/// (the same join key the runner emits), so the agent can address it directly.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperabilityGap {
+    pub selector: String,
+    /// The failed dimensions: any of `pointer_only`, `keyboard_unreachable`,
+    /// `no_role` (a single element can fail more than one).
+    pub kinds: Vec<String>,
 }
 
 /// An interrupt is NOT a state: it can appear on top of any state. The

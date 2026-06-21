@@ -4,7 +4,10 @@
 //! state). Frontier fuzzing and author v2 path over this; `reproit map` is
 //! the explicit build/label entry point.
 
-use crate::appmap::{Action, AppMap, Reversibility, State, StateSignature, Transition};
+use crate::appmap::{
+    Action, AppMap, OperabilityGap, OperabilityGaps, Reversibility, State, StateSignature,
+    Transition,
+};
 use crate::config::Config;
 use crate::orchestrator;
 use anyhow::{Context, Result};
@@ -25,6 +28,59 @@ pub(crate) struct RunObs {
     pub edges: Vec<(String, String, String)>,
     /// First state observed: the app's start state.
     pub start: Option<String>,
+    /// sig -> operability/accessibility gaps, from `EXPLORE:GROUNDTRUTH` records
+    /// (the graph-1-minus-graph-2 diff). Empty for runners that don't emit it.
+    pub gaps: BTreeMap<String, OperabilityGaps>,
+}
+
+/// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
+/// list. Each element carries `operable` (graph 1) and an `a11y` object with
+/// `inTabOrder`/`keyboardActivatable`/`rolePresent`; a gap is a ground-truth-
+/// operable element that fails an accessibility dimension. Pure + deterministic.
+fn gaps_from_groundtruth(json: &Value) -> OperabilityGaps {
+    let mut g = OperabilityGaps {
+        focus_trap: json
+            .get("focusTrap")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        ..Default::default()
+    };
+    let Some(els) = json.get("elements").and_then(Value::as_array) else {
+        return g;
+    };
+    for el in els {
+        if !el.get("operable").and_then(Value::as_bool).unwrap_or(false) {
+            continue; // not ground-truth operable -> not a gap candidate
+        }
+        let a = el.get("a11y");
+        let get = |k: &str| a.and_then(|a| a.get(k)).and_then(Value::as_bool);
+        // Default the a11y dims to "true" when unreported, so a missing field is
+        // never counted as a gap (conservative: only count confirmed failures).
+        let mut kinds: Vec<String> = Vec::new();
+        if !get("keyboardActivatable").unwrap_or(true) {
+            g.pointer_only += 1;
+            kinds.push("pointer_only".into());
+        }
+        if !get("inTabOrder").unwrap_or(true) {
+            g.keyboard_unreachable += 1;
+            kinds.push("keyboard_unreachable".into());
+        }
+        if !get("rolePresent").unwrap_or(true) {
+            g.no_role += 1;
+            kinds.push("no_role".into());
+        }
+        // Keep the grounded per-element detail: which selector failed which
+        // dimension(s), so the diff is actionable, not just a tally.
+        if !kinds.is_empty() {
+            let selector = el
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            g.items.push(OperabilityGap { selector, kinds });
+        }
+    }
+    g
 }
 
 pub(crate) fn parse_run(log: &str) -> RunObs {
@@ -33,6 +89,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         routes: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
+        gaps: BTreeMap::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -72,6 +129,14 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
             ) {
                 obs.edges
                     .push((f.to_string(), a.to_string(), t.to_string()));
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:GROUNDTRUTH ") {
+            // The operability/accessibility graph for a state: ground-truth
+            // operable elements vs their a11y/keyboard dimensions. We store the
+            // computed gap counts keyed by signature (last write wins).
+            if let Some(sig) = json.get("sig").and_then(Value::as_str) {
+                obs.gaps
+                    .insert(sig.to_string(), gaps_from_groundtruth(&json));
             }
         }
     }
@@ -129,6 +194,9 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                 // the route if a later run reported one we didn't have.
                 if let Some(state) = map.states.get_mut(id) {
                     state.unlabeled_tappables = *unlabeled;
+                    if let Some(g) = obs.gaps.get(sig) {
+                        state.operability_gaps = g.clone();
+                    }
                     if state.signature.route.is_none() {
                         if let Some(r) = obs.routes.get(sig) {
                             state.signature.route = Some(r.clone());
@@ -154,6 +222,7 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                         },
                         parameters: vec![],
                         unlabeled_tappables: *unlabeled,
+                        operability_gaps: obs.gaps.get(sig).cloned().unwrap_or_default(),
                     },
                 );
                 index.insert(sig.clone(), id);
@@ -632,6 +701,7 @@ mod tests {
             },
             parameters: vec![],
             unlabeled_tappables: 0,
+            operability_gaps: Default::default(),
         }
     }
     fn tap(from: &str, label: &str, to: &str) -> Transition {
@@ -745,6 +815,170 @@ mod tests {
         merge(&mut map, &obs);
         let state = map.states.values().next().expect("a merged state");
         assert_eq!(state.signature.route.as_deref(), Some("/home"));
+    }
+
+    #[test]
+    fn groundtruth_marker_yields_operability_gaps() {
+        // The motivating case: a control operable by pointer but not keyboard-
+        // reachable and exposing no role (the finding-div in the dashboard).
+        let log = concat!(
+            r#"EXPLORE:STATE {"sig":"abc","labels":[],"unlabeled":0}"#,
+            "\n",
+            r#"EXPLORE:GROUNDTRUTH {"sig":"abc","focusTrap":false,"elements":[{"id":"role:option#0","operable":true,"a11y":{"inTabOrder":false,"keyboardActivatable":false,"rolePresent":false}},{"id":"key:id:nav","operable":true,"a11y":{"inTabOrder":true,"keyboardActivatable":true,"rolePresent":true}},{"id":"decoration","operable":false,"a11y":{"inTabOrder":false}}]}"#,
+        );
+        let obs = parse_run(log);
+        let g = obs.gaps.get("abc").expect("gaps for abc");
+        assert_eq!(
+            g.pointer_only, 1,
+            "one operable element not keyboard-activatable"
+        );
+        assert_eq!(
+            g.keyboard_unreachable, 1,
+            "one operable element not in tab order"
+        );
+        assert_eq!(g.no_role, 1, "one operable element with no role");
+        assert!(!g.focus_trap);
+        // The grounded per-element detail: exactly the one failing element, by
+        // selector, tagged with every dimension it fails. This is what the
+        // accessibility view/MCP tool serves, so it must be present, not a count.
+        assert_eq!(g.items.len(), 1, "only the one failing element is recorded");
+        assert_eq!(g.items[0].selector, "role:option#0");
+        assert_eq!(
+            g.items[0].kinds,
+            vec!["pointer_only", "keyboard_unreachable", "no_role"],
+            "the failing element is tagged with all three dimensions it fails"
+        );
+        // The non-operable decoration is never a gap; the healthy nav is not either.
+        let mut map = AppMap {
+            app: "t".into(),
+            version: 1,
+            states: BTreeMap::new(),
+            transitions: vec![],
+            invariants: vec![],
+            interrupts: vec![],
+        };
+        merge(&mut map, &obs);
+        let state = map.states.values().next().expect("a merged state");
+        assert_eq!(state.operability_gaps.pointer_only, 1);
+        assert_eq!(state.operability_gaps.keyboard_unreachable, 1);
+    }
+
+    #[test]
+    fn appkit_in_process_agent_groundtruth_detects_fake_button_gap() {
+        // End-to-end contract proof for the in-process AppKit operability agent
+        // (runners/native/appkit-agent/main.swift). This is the VERBATIM
+        // EXPLORE:GROUNDTRUTH line that the built+run Swift agent emits for a
+        // window holding a real NSButton, a "fake button" (custom NSView with a
+        // click gesture + handler and no a11y role), and a correctly-built
+        // accessible custom control. The engine must score exactly one gap row
+        // (the fake button), failing all three a11y dimensions.
+        let log = concat!(
+            r#"EXPLORE:STATE {"sig":"3854aea0","labels":["Real Button","Accessible Custom Button"]}"#,
+            "\n",
+            r#"EXPLORE:GROUNDTRUTH {"focusTrap":false,"sig":"3854aea0","elements":[{"a11y":{"keyboardActivatable":true,"namePresent":true,"focusable":true,"rolePresent":true,"inTabOrder":true},"operable":true,"gestureKind":"button","id":"key:realButton"},{"operable":true,"a11y":{"focusable":false,"inTabOrder":false,"keyboardActivatable":false,"rolePresent":false,"namePresent":false},"id":"key:fakeButton","gestureKind":"button"},{"id":"key:goodCustom","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"keyboardActivatable":true,"focusable":true,"inTabOrder":true}}]}"#,
+        );
+        let obs = parse_run(log);
+        let g = obs.gaps.get("3854aea0").expect("gaps for the agent state");
+        // The fake button alone is an operable-but-inaccessible element.
+        assert_eq!(g.no_role, 1, "fake button has no a11y role");
+        assert_eq!(
+            g.keyboard_unreachable, 1,
+            "fake button is not in the key-view loop"
+        );
+        assert_eq!(g.pointer_only, 1, "fake button is pointer-only (gesture)");
+        assert!(!g.focus_trap);
+    }
+
+    #[test]
+    fn wpf_in_process_agent_groundtruth_detects_fake_button_gap() {
+        // End-to-end contract proof for the in-process WPF operability agent
+        // (runners/native/wpf-agent/Program.cs). This is the VERBATIM
+        // EXPLORE:GROUNDTRUTH line that the built+run agent emits on the Windows
+        // VM for a window holding a real <Button> and a "fake button" (a
+        // clickable <Border>/<TextBlock> with a MouseLeftButtonUp handler and no
+        // Button role / no AutomationProperties). Graph 1 (visual tree + handler
+        // reflection) and graph 2 (UIElementAutomationPeer) are joined by object
+        // identity. The engine must score exactly one gap row (the fake button),
+        // failing all three a11y dimensions; the real Button is clean.
+        let log = r#"EXPLORE:GROUNDTRUTH {"sig":"7f0cd305","focusTrap":false,"elements":[{"id":"SaveButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"DeleteFakeButton","operable":true,"gestureKind":"delegated","a11y":{"rolePresent":false,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}}]}"#;
+        let obs = parse_run(log);
+        let g = obs
+            .gaps
+            .get("7f0cd305")
+            .expect("gaps for the wpf agent state");
+        assert_eq!(g.no_role, 1, "fake button has no Button role");
+        assert_eq!(
+            g.keyboard_unreachable, 1,
+            "fake button is not in the tab order"
+        );
+        assert_eq!(
+            g.pointer_only, 1,
+            "fake button is pointer-only (mouse handler)"
+        );
+        assert!(!g.focus_trap);
+    }
+
+    #[test]
+    fn qt_in_process_agent_groundtruth_detects_fake_button_gap() {
+        // End-to-end contract proof for the in-process Qt operability agent
+        // (runners/native/qt-agent/qt_agent.cpp). This is the VERBATIM
+        // EXPLORE:GROUNDTRUTH line the built+run agent emits in a Linux
+        // container (Debian, Qt 6.8.2, `QT_QPA_PLATFORM=offscreen`) for a window
+        // holding a real QPushButton, a "fake button" (custom QWidget with a
+        // mousePressEvent handler and no QAccessible role), and a correctly-built
+        // accessible control. Graph 1 (QObject tree + wired signals / custom
+        // subclass) joins graph 2 (QAccessibleInterface) by object identity. The
+        // engine must score exactly one gap row (the fake button), failing all
+        // three a11y dimensions; the real button is clean. The signature matches
+        // the AppKit agent's (3854aea0): same three-control structural descriptor.
+        let log = r#"EXPLORE:GROUNDTRUTH {"elements":[{"a11y":{"focusable":true,"inTabOrder":true,"keyboardActivatable":true,"namePresent":true,"rolePresent":true},"gestureKind":"button","id":"key:realButton","operable":true},{"a11y":{"focusable":false,"inTabOrder":false,"keyboardActivatable":false,"namePresent":false,"rolePresent":false},"gestureKind":"button","id":"key:fakeButton","operable":true},{"a11y":{"focusable":true,"inTabOrder":true,"keyboardActivatable":true,"namePresent":true,"rolePresent":true},"gestureKind":"button","id":"key:goodCustom","operable":true}],"focusTrap":false,"sig":"3854aea0"}"#;
+        let obs = parse_run(log);
+        let g = obs
+            .gaps
+            .get("3854aea0")
+            .expect("gaps for the qt agent state");
+        assert_eq!(g.no_role, 1, "fake button has no QAccessible role");
+        assert_eq!(
+            g.keyboard_unreachable, 1,
+            "fake button is not in the tab order"
+        );
+        assert_eq!(
+            g.pointer_only, 1,
+            "fake button is pointer-only (mousePressEvent)"
+        );
+        assert!(!g.focus_trap);
+    }
+
+    #[test]
+    fn gtk_in_process_agent_groundtruth_detects_fake_button_gap() {
+        // End-to-end contract proof for the in-process GTK operability agent
+        // (runners/native/gtk-agent/gtk_agent.c). This is the VERBATIM
+        // EXPLORE:GROUNDTRUTH line the built+run agent emits in a Linux container
+        // (Debian, GTK 4.18.6, under `xvfb-run`) for a window holding a real
+        // GtkButton, a "fake button" (a GtkBox carrying a GtkGestureClick +
+        // handler with no button role / not focusable), and a correctly-built
+        // accessible GtkButton. Graph 1 (GtkWidget tree + wired signals / click
+        // gestures) joins graph 2 (GtkAccessible role/state) by object identity.
+        // The fake button is the motivating finding: operable yet rolePresent
+        // false and keyboard-unreachable. GTK4 also surfaces the window's
+        // built-in click gesture (role:group#0, a focusless operable element) and
+        // the buttons' inner GtkLabel children (operable:false, never gaps); the
+        // engine counts every operable-but-inaccessible element, so no_role==1
+        // (the fake button alone has no role) while the two focusless operable
+        // elements (window + fake button) drive keyboard_unreachable/pointer_only.
+        let log = r#"EXPLORE:GROUNDTRUTH {"sig":"44602d5a","focusTrap":false,"elements":[{"id":"role:group#0","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}},{"id":"key:realButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"role:text#1","operable":false,"gestureKind":"","a11y":{"rolePresent":true,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}},{"id":"key:fakeButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":false,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}},{"id":"key:goodCustom","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"role:text#2","operable":false,"gestureKind":"","a11y":{"rolePresent":true,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}}]}"#;
+        let obs = parse_run(log);
+        let g = obs
+            .gaps
+            .get("44602d5a")
+            .expect("gaps for the gtk agent state");
+        // The fake button is the only operable element with no accessible role.
+        assert_eq!(g.no_role, 1, "fake button alone has no GtkAccessible role");
+        // Two operable elements lack focus/keyboard reachability: the fake button
+        // and GTK4's window-level click gesture; the real + good buttons are clean.
+        assert_eq!(g.keyboard_unreachable, 2);
+        assert_eq!(g.pointer_only, 2);
+        assert!(!g.focus_trap);
     }
 
     #[test]
