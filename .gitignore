@@ -31,6 +31,9 @@ build/
 .gradle/
 Pods/
 *.iml
+# Flutter example-fixture generated files (from `flutter pub get`)
+.flutter-plugins-dependencies
+sdk/reproit_flutter/example/pubspec.lock
 
 # Claude Code local state
 .claude/
