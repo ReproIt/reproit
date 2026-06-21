@@ -348,6 +348,19 @@ pub async fn reproduce(
         .lines()
         .find(|l| l.contains("EXCEPTION CAUGHT"))
         .unwrap_or("");
+    // A real `check` run always emits its JSON verdict (even on pass) or an
+    // EXCEPTION marker. NEITHER present means the replay never started -- e.g.
+    // `check` could not resolve the repro/journey and exited 1 during setup.
+    // Without this guard, classify_repro's exit-code fallback reads that setup
+    // exit-1 as `Reproduced` and prints a FALSE "REPRODUCED" though nothing ran.
+    if outcome.is_none() && marker.is_empty() {
+        println!(
+            "COULD NOT RUN the replay: `check {journey}` produced no verdict (exit {:?}); \
+             this is a setup error (the repro/journey did not resolve), not a reproduction.",
+            out.status.code()
+        );
+        return Ok(());
+    }
     match classify_repro(outcome.as_deref(), out.status.code()) {
         ReproVerdict::Reproduced => {
             println!("REPRODUCED: the replay re-triggered the failure in this build. {marker}");
