@@ -783,6 +783,42 @@ fn split_seed_segments(log: &str, plans: &[SeedPlan]) -> Vec<(u64, String)> {
     out
 }
 
+/// Split a batched drive log into one segment per `SEED:BEGIN`/`SEED:END` pair,
+/// in order, WITHOUT needing the seed plans (the caller knows how many entries
+/// it wrote). Used by `check` to batch a repro's N repeat-replays into a single
+/// drive (one browser launch) and still read a per-replay verdict. An unmarked
+/// log (legacy single run) returns the whole log as one segment, so the
+/// non-batched path is unchanged.
+pub(crate) fn split_log_segments(log: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current: Option<Vec<&str>> = None;
+    for line in log.lines() {
+        if marker_seed(line, "SEED:BEGIN ").is_some() {
+            if let Some(buf) = current.take() {
+                out.push(buf.join("\n"));
+            }
+            current = Some(Vec::new());
+            continue;
+        }
+        if marker_seed(line, "SEED:END ").is_some() {
+            if let Some(buf) = current.take() {
+                out.push(buf.join("\n"));
+            }
+            continue;
+        }
+        if let Some(buf) = current.as_mut() {
+            buf.push(line);
+        }
+    }
+    if let Some(buf) = current.take() {
+        out.push(buf.join("\n"));
+    }
+    if out.is_empty() {
+        return vec![log.to_string()];
+    }
+    out
+}
+
 /// Parse `<prefix><number>` -> the seed, if the line carries the marker.
 fn marker_seed(line: &str, prefix: &str) -> Option<u64> {
     let i = line.find(prefix)?;
@@ -1643,6 +1679,33 @@ JOURNEY DONE
         assert_eq!(trace_in_log(&segs[0].1), vec!["tap:A"]);
         assert_eq!(segs[1].0, 2);
         assert_eq!(trace_in_log(&segs[1].1), vec!["tap:B", "back"]);
+    }
+
+    #[test]
+    fn split_log_segments_one_per_marker_pair() {
+        // check batches N identical replays (all the same seed); split by markers
+        // without plans yields one segment per SEED:BEGIN/END pair.
+        let log = "\
+SEED:BEGIN 7
+FUZZ:ACT tap:A
+SEED:END 7
+SEED:BEGIN 7
+FUZZ:ACT tap:A
+SEED:END 7
+";
+        let segs = split_log_segments(log);
+        assert_eq!(segs.len(), 2);
+        assert_eq!(trace_in_log(&segs[0]), vec!["tap:A"]);
+        assert_eq!(trace_in_log(&segs[1]), vec!["tap:A"]);
+    }
+
+    #[test]
+    fn split_log_segments_unmarked_is_whole_log() {
+        // The single-replay (times == 1) path has no markers: one segment = all.
+        let log = "FUZZ:ACT tap:A\nJOURNEY DONE\n";
+        let segs = split_log_segments(log);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(trace_in_log(&segs[0]), vec!["tap:A"]);
     }
 
     #[test]

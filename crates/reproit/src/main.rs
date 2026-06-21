@@ -2863,41 +2863,54 @@ async fn check_repro(
         defines.push((crosscut::LOCALE_ENV.to_string(), loc.to_string()));
     }
 
-    let mut verdicts = Vec::new();
-    let mut last_dir = dir.clone();
     let _ = devices; // a repro replays on one device; kept for parity.
-    for i in 1..=times {
-        std::fs::write(&cfg_path, replay.to_string())?;
-        // Select the execution tier the same way `fuzz` does: Flutter replays
-        // on the headless tier; every other backend (web-cdp, appium, desktop)
-        // routes through the real tier. Without this, web repros could never be
-        // replayed/classified (the headless tier is Flutter-only).
-        let outcome = orchestrator::run_journey_tier(
-            &loaded.config,
-            &loaded.root,
-            "explore",
-            &orchestrator::RunOpts {
-                kind,
-                devices: 1,
-                warm: i > 1,
-                extra_defines: &defines,
-                ..Default::default()
-            },
-            false,
-        )
-        .await?;
-        let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
-        let verdict = repro::verdict_from_log_with_trigger(&log, outcome.passed, &trigger);
-        // Surface the run's REPRO verdict (did the original finding reproduce?),
-        // not just the drive's PASS/FAIL completion. For graph-invariant repros
-        // a drive can run to completion (drive PASS) while the finding does NOT
-        // reproduce (clean), so the raw PASS/FAIL is misleading on its own.
+                     // The N repeat-replays (flakiness detection) run in a SINGLE drive session:
+                     // we hand the runner a batch of N identical replays, so the browser/app
+                     // launches ONCE instead of N cold starts (the agent inner loop's main
+                     // latency). The runner brackets each replay with SEED:BEGIN/SEED:END, so we
+                     // split the one drive log back into N per-replay segments and classify each
+                     // exactly as before. A single replay (times == 1) keeps the legacy bare-config
+                     // shape, byte-for-byte. This is a pure latency change: same N replays, same
+                     // per-replay verdict, same determinism.
+    let config = if times <= 1 {
+        replay.clone()
+    } else {
+        serde_json::json!({ "batch": (0..times).map(|_| replay.clone()).collect::<Vec<_>>() })
+    };
+    std::fs::write(&cfg_path, config.to_string())?;
+    // Select the execution tier the same way `fuzz` does: Flutter replays on the
+    // headless tier; every other backend (web-cdp, appium, desktop) routes
+    // through the real tier. Without this, web repros could never be replayed.
+    let outcome = orchestrator::run_journey_tier(
+        &loaded.config,
+        &loaded.root,
+        "explore",
+        &orchestrator::RunOpts {
+            kind,
+            devices: 1,
+            warm: false,
+            extra_defines: &defines,
+            ..Default::default()
+        },
+        false,
+    )
+    .await?;
+    let full_log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+    // One segment per replay (the whole log for the single-run path).
+    let segments = fuzz::split_log_segments(&full_log);
+    let mut verdicts = Vec::new();
+    for (i, seg) in segments.iter().enumerate() {
+        // Surface each replay's REPRO verdict (did the original finding
+        // reproduce?), not just the drive's PASS/FAIL completion. For
+        // graph-invariant repros a drive can complete (PASS) while the finding
+        // does NOT reproduce (clean), so raw PASS/FAIL is misleading alone.
+        let verdict = repro::verdict_from_log_with_trigger(seg, outcome.passed, &trigger);
         if !quiet {
-            println!("  run {i}/{times}: {}", verdict.as_str());
+            println!("  run {}/{}: {}", i + 1, segments.len(), verdict.as_str());
         }
         verdicts.push(verdict);
-        last_dir = outcome.run_dir;
     }
+    let last_dir = outcome.run_dir;
     // Neutralize: a later warm run must not replay this case.
     let _ = std::fs::write(&cfg_path, "{}");
     Ok((repro::CheckResult::from_verdicts(&verdicts), last_dir))
