@@ -645,6 +645,10 @@ enum MapAction {
         /// Only report this gap kind: pointer_only | keyboard_unreachable | no_role | focus_trap.
         #[arg(long)]
         kind: Option<String>,
+        /// Output format: text (default) | md (an exportable WCAG-cited report;
+        /// redirect to a file). --json also works for the structured form.
+        #[arg(long, default_value = "text")]
+        format: String,
         #[arg(long, name = "map-path")]
         map_path: Option<PathBuf>,
     },
@@ -881,6 +885,7 @@ async fn main() -> Result<ExitCode> {
                 MapAction::Accessibility {
                     state,
                     kind,
+                    format,
                     map_path,
                 } => {
                     // `root` is the project to attribute selectors into (file:
@@ -902,6 +907,7 @@ async fn main() -> Result<ExitCode> {
                         root.as_deref(),
                         state.as_deref(),
                         kind.as_deref(),
+                        format == "md",
                         &ctx,
                     );
                     Ok(ExitCode::SUCCESS)

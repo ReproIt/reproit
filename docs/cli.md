@@ -306,7 +306,9 @@ audit the graph:
 - `map verify`: re-walks the committed map and reports drift (exit 3).
 - `map accessibility`: the accessibility audit: which controls a mouse user can
   operate but a keyboard / screen-reader user cannot, per screen, each located by
-  selector and source file:line. See [docs/operability-graph.md](operability-graph.md).
+  selector and source file:line. `--format md` prints an exportable, WCAG-cited
+  report (redirect to a file); `--json` gives the structured form. See
+  [docs/operability-graph.md](operability-graph.md).
 
 ## Flags (on fuzz / check)
 

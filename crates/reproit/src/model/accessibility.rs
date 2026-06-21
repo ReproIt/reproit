@@ -29,6 +29,7 @@ pub(crate) fn report(
     root: Option<&Path>,
     state: Option<&str>,
     kind: Option<&str>,
+    markdown: bool,
     ctx: &Ctx,
 ) {
     let want_kind = |k: &str| kind.is_none_or(|f| f == k);
@@ -87,6 +88,16 @@ pub(crate) fn report(
             "no_role": g.no_role,
             "items": items,
         }));
+    }
+
+    // Markdown: an exportable, WCAG-cited report (redirect to a file to hand to
+    // a reviewer). Printed unconditionally; it IS the requested output.
+    if markdown {
+        println!(
+            "{}",
+            markdown_report(&map.app, &screens, t_po, t_ku, t_nr, t_ft)
+        );
+        return;
     }
 
     if ctx.json {
@@ -156,6 +167,99 @@ pub(crate) fn report(
     ));
 }
 
+/// The WCAG success criterion a gap dimension maps to (for the report).
+fn wcag_label(kind: &str) -> &'static str {
+    match kind {
+        "pointer_only" | "keyboard_unreachable" => "2.1.1 Keyboard",
+        "no_role" => "4.1.2 Name, Role, Value",
+        "focus_trap" => "2.1.2 No Keyboard Trap",
+        _ => "",
+    }
+}
+
+/// Render the diff as an exportable, WCAG-cited Markdown report. `screens` is the
+/// per-screen JSON built in `report`.
+fn markdown_report(
+    app: &str,
+    screens: &[serde_json::Value],
+    t_po: u32,
+    t_ku: u32,
+    t_nr: u32,
+    t_ft: u32,
+) -> String {
+    let app = if app.is_empty() { "this app" } else { app };
+    let mut out = String::new();
+    out.push_str(&format!("# Accessibility report: {app}\n\n"));
+    out.push_str(
+        "Controls a pointer user can operate but the keyboard or assistive tech cannot, \
+         found by driving the app and comparing the two (deterministic; see \
+         docs/operability-graph.md).\n\n",
+    );
+    out.push_str("## Summary\n\n");
+    out.push_str("| Issue | WCAG | Count |\n| --- | --- | --- |\n");
+    out.push_str(&format!(
+        "| Operable by mouse, not keyboard | {} | {t_po} |\n",
+        wcag_label("pointer_only")
+    ));
+    out.push_str(&format!(
+        "| Not reachable in the tab order | {} | {t_ku} |\n",
+        wcag_label("keyboard_unreachable")
+    ));
+    out.push_str(&format!(
+        "| No role/name exposed to assistive tech | {} | {t_nr} |\n",
+        wcag_label("no_role")
+    ));
+    out.push_str(&format!(
+        "| Keyboard focus trap | {} | {t_ft} |\n\n",
+        wcag_label("focus_trap")
+    ));
+    out.push_str(&format!("Screens with gaps: {}\n", screens.len()));
+
+    for s in screens {
+        let name = s["name"].as_str().unwrap_or("");
+        let sig = s["state"].as_str().unwrap_or("");
+        let head = if name.is_empty() { sig } else { name };
+        out.push_str(&format!("\n## {head}  `{sig}`\n\n"));
+        if let Some(route) = s["route"].as_str() {
+            out.push_str(&format!("Route: `{route}`\n\n"));
+        }
+        if s["focus_trap"].as_bool().unwrap_or(false) {
+            out.push_str("A keyboard focus trap was observed on this screen (WCAG 2.1.2).\n\n");
+        }
+        if let Some(arr) = s["items"].as_array() {
+            if !arr.is_empty() {
+                out.push_str("| Control | Fails | WCAG | Source |\n| --- | --- | --- | --- |\n");
+                for it in arr {
+                    let sel = it["selector"].as_str().unwrap_or("");
+                    let kinds: Vec<&str> = it["kinds"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|k| k.as_str()).collect())
+                        .unwrap_or_default();
+                    let wcag = kinds.first().map(|k| wcag_label(k)).unwrap_or("");
+                    let src = it["source"]
+                        .as_array()
+                        .and_then(|a| a.first())
+                        .map(|loc| {
+                            let f = loc["file"].as_str().unwrap_or("");
+                            let l = loc["line"].as_u64().unwrap_or(0);
+                            if f.is_empty() {
+                                String::new()
+                            } else {
+                                format!("`{f}:{l}`")
+                            }
+                        })
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "| `{sel}` | {} | {wcag} | {src} |\n",
+                        kinds.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Attribute one selector to source, returned as ranked JSON locations (best
 /// first, capped). Best-effort: an empty list means we could not place it.
 fn attribute_json(root: &Path, selector: &str) -> Vec<serde_json::Value> {
@@ -217,5 +321,38 @@ fn action_desc(a: &Action) -> String {
         Action::Scroll { finder, dy } => format!("scroll:{finder}:{dy}"),
         Action::Back => "back".into(),
         Action::System { event } => event.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wcag_labels_map_each_dimension() {
+        assert_eq!(wcag_label("pointer_only"), "2.1.1 Keyboard");
+        assert_eq!(wcag_label("keyboard_unreachable"), "2.1.1 Keyboard");
+        assert_eq!(wcag_label("no_role"), "4.1.2 Name, Role, Value");
+        assert_eq!(wcag_label("focus_trap"), "2.1.2 No Keyboard Trap");
+    }
+
+    #[test]
+    fn markdown_report_has_summary_and_grounded_rows() {
+        let screens = vec![json!({
+            "state": "s1",
+            "name": "Refund queue",
+            "route": "/refund",
+            "focus_trap": true,
+            "items": [
+                { "selector": "key:testid:row", "kinds": ["pointer_only"],
+                  "source": [{ "file": "index.html", "line": 8 }] }
+            ]
+        })];
+        let md = markdown_report("shop", &screens, 1, 0, 0, 1);
+        assert!(md.contains("# Accessibility report: shop"));
+        assert!(md.contains("2.1.1 Keyboard"));
+        assert!(md.contains("`key:testid:row`"));
+        assert!(md.contains("`index.html:8`"));
+        assert!(md.to_lowercase().contains("focus trap"));
     }
 }
