@@ -574,6 +574,7 @@ async function snapshot(browser, valueNodeSelectors) {
   return snap;
 }
 
+// PARITY: keep in sync with web-runner/runner.mjs (operability + flicker oracle)
 // ====================================================================
 //  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
 //  Mirrors web-runner/runner.mjs, but Tauri's webview has NO CDP, so GRAPH 1
@@ -656,10 +657,61 @@ const GROUNDTRUTH_JS = `
     if (el.isContentEditable) return true;
     return false;
   };
+  // Roles that name a region or a piece of document structure, NOT an operable
+  // widget. A landmark (search/navigation/banner/...) or a structural/live role
+  // is something a pointer user reads, not something they "operate", so it must
+  // not count as a delegation marker, else it is promoted to operable by a
+  // page-wide document click handler and surfaces as a phantom gap.
+  const NON_INTERACTIVE_ROLES = new Set([
+    'banner', 'complementary', 'contentinfo', 'form', 'main', 'navigation',
+    'region', 'search',
+    'article', 'definition', 'directory', 'document', 'feed', 'figure', 'group',
+    'heading', 'img', 'list', 'listitem', 'math', 'none', 'note', 'presentation',
+    'separator', 'table', 'term', 'toolbar', 'tooltip', 'caption', 'rowgroup',
+    'row', 'cell', 'columnheader', 'rowheader',
+    'dialog', 'alertdialog', 'alert', 'log', 'marquee', 'status', 'timer',
+    'application',
+  ]);
   const hasDelegationMarker = (el) => {
-    if ((el.getAttribute('role') || '').trim()) return true;
+    const role = (el.getAttribute('role') || '').trim().toLowerCase();
+    if (role && !NON_INTERACTIVE_ROLES.has(role)) return true;
     if (el.hasAttribute('tabindex')) return true;
     return false;
+  };
+  // aria-activedescendant: an item operated via a focusable composite widget (a
+  // listbox/menu/tree/grid/combobox whose CONTAINER holds focus and moves a
+  // roving "active" item). Such items are keyboard-reachable AND activatable even
+  // with tabindex=-1, because the container handles the keys.
+  const adManaged = (el) => {
+    const isFocusable = (c) => {
+      const ti = c.getAttribute('tabindex');
+      return (ti !== null && parseInt(ti, 10) >= 0) || nativeInteractive(c);
+    };
+    if (el.hasAttribute('aria-activedescendant') && isFocusable(el)) return true;
+    const c = el.closest('[aria-activedescendant]');
+    if (c && c !== el && isFocusable(c)) return true;
+    const id = el.getAttribute('id');
+    if (id) {
+      const q = window.CSS && CSS.escape ? CSS.escape(id) : id;
+      const ref = document.querySelector('[aria-activedescendant="' + q + '"]');
+      if (ref && isFocusable(ref)) return true;
+    }
+    return false;
+  };
+  // reachable: on-screen AND hit-testable, so a real pointer user can operate it.
+  // The operable gate below uses this so an off-screen/occluded control is not a
+  // phantom pointer-only/keyboard gap.
+  const reachable = (el) => {
+    if (!visible(el)) return false;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+    const hit = document.elementFromPoint(cx, cy);
+    if (!hit) return false;
+    return hit === el || el.contains(hit);
   };
   const rolePresent = (el) => {
     const tag = el.tagName.toLowerCase();
@@ -712,13 +764,19 @@ const GROUNDTRUTH_JS = `
         const key = keyOf(el); sel = key ? 'key:' + key : 'role:' + role + '#gt' + out.length;
       }
       if (candidate) {
-        const operable = native || cursor || ownInline || (docDelegates && deleg);
+        // operable is graph 1: an element a pointer can ACTUALLY operate now. An
+        // off-screen/occluded control is not pointer-operable, so it cannot be a
+        // pointer-only/keyboard gap either; gate on reachability to align the two
+        // graphs (matches the web runner).
+        const operable = reachable(el) && (native || cursor || ownInline || (docDelegates && deleg));
         // inTabOrder: sequential-focus reachability. An element is in the Tab
         // sequence iff it is focusable AND its tabIndex is >= 0. A tabindex=-1
         // element is script/pointer focusable but NOT reachable by Tab (the
-        // motivating <div role=option tabindex=-1> case).
-        const focusable = native || el.tabIndex >= 0 || (el.hasAttribute('tabindex') && el.tabIndex >= 0);
-        const inTabOrder = el.tabIndex >= 0 && focusable;
+        // motivating <div role=option tabindex=-1> case). An aria-activedescendant
+        // item is reachable + activatable via its focusable composite container.
+        const adm = adManaged(el);
+        const focusable = native || el.tabIndex >= 0 || (el.hasAttribute('tabindex') && el.tabIndex >= 0) || adm;
+        const inTabOrder = (el.tabIndex >= 0 && focusable) || adm;
         const a11y = {
           rolePresent: rolePresent(el),
           namePresent: namePresent(el),
@@ -764,6 +822,92 @@ async function emitGroundtruth(browser, sig) {
   if (!res) return;
   log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: !!res.focusTrap, elements: res.elements || [] }));
 }
+
+// Tier-1 flicker oracle (persistent-anchor churn), mirroring web-runner. Tag the
+// persistent chrome before a transition; after it settles, flag any anchor that
+// is VISUALLY UNCHANGED (same key, text, box) yet was REPLACED (DOM node identity
+// changed) -> an innerHTML-wipe-and-rebuild that flickers, which the settled-frame
+// oracle cannot see. Run as execute() source strings (the webview has no CDP);
+// window persists between execute() calls in the same document, so the marks
+// survive from before-action to after-settle. Pure DOM, no frame timing.
+const ANCHOR_SEL_JS = JSON.stringify(
+  'header,nav,main,footer,aside,' +
+  '[role=banner],[role=navigation],[role=main],[role=contentinfo],' +
+  '[role=complementary],[role=region],[role=search],[role=listbox],' +
+  '[role=list],[role=tablist],[role=toolbar],[role=dialog],[id]'
+);
+const MARK_ANCHORS_JS = `
+  const sel = ${ANCHOR_SEL_JS};
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const anchors = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    anchors.push({
+      key: keyOf(el), node: el,
+      text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 256),
+      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+    });
+  }
+  window.__reproitAnchors = anchors;
+  window.__reproitAnchorDoc = document;
+  return anchors.length;
+`;
+const CHURNED_ANCHORS_JS = `
+  const sel = ${ANCHOR_SEL_JS};
+  const old = window.__reproitAnchors;
+  if (!old || window.__reproitAnchorDoc !== document) { window.__reproitAnchors = null; return null; }
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const cur = new Map();
+  const dup = new Set();
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const k = keyOf(el);
+    if (cur.has(k)) { dup.add(k); continue; }
+    cur.set(k, el);
+  }
+  const churned = [];
+  for (const a of old) {
+    if (dup.has(a.key)) continue;
+    const now = cur.get(a.key);
+    if (!now) continue;
+    if (now === a.node) continue;
+    const r = now.getBoundingClientRect();
+    const sameBox =
+      Math.round(r.x) === a.x && Math.round(r.y) === a.y &&
+      Math.round(r.width) === a.w && Math.round(r.height) === a.h;
+    const sameText = (now.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 256) === a.text;
+    if (sameBox && sameText) churned.push(a.key);
+  }
+  window.__reproitAnchors = null;
+  return churned;
+`;
 
 // Exception oracle for the webview. tap() clicks an element via execute(); a
 // throw inside that element's event LISTENER does not propagate back through
@@ -1097,8 +1241,17 @@ async function main() {
     tried.add(current.sig + '|' + sel);
     const before = current.sig;
     const beforeContent = current.content;
+    try { await browser.execute(MARK_ANCHORS_JS); } catch (e) {} // flicker oracle: tag persistent chrome
     if (!(await tap(browser, sel))) { log('FUZZ:MISS ' + act); stuck++; continue; }
     await browser.pause(700);
+    // Tier-1 flicker oracle: did this transition rebuild persistent chrome that
+    // did not change? (DOM node-identity churn; settled either way, so invisible
+    // to the visual oracle.) Reported per transition, independent of the sig move.
+    let tapChurn = null;
+    try { tapChurn = await browser.execute(CHURNED_ANCHORS_JS); } catch (e) {}
+    if (tapChurn && tapChurn.length) {
+      log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'tap:' + sel, churned: tapChurn }));
+    }
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));

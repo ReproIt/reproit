@@ -126,6 +126,23 @@ namespace ReproIt.WpfAgent
             fakeButton.MouseLeftButtonUp += (s, e) => { /* fake click handler */ };
             panel.Children.Add(fakeButton);
 
+            // (c) a COLLAPSED fake button: operable by pointer (mouse handler) but
+            // Visibility=Collapsed, so it is reachable by neither pointer nor
+            // keyboard. The reachability gate must prune it (and its subtree) so it
+            // is NOT reported as a gap (it has no role either, so it should not
+            // appear in the marker at all).
+            var hiddenText = new TextBlock { Text = "Hidden Delete" };
+            var hiddenFake = new Border
+            {
+                Name = "HiddenFakeButton",
+                Background = Brushes.Transparent,
+                Child = hiddenText,
+                Focusable = false,
+                Visibility = Visibility.Collapsed,
+            };
+            hiddenFake.MouseLeftButtonUp += (s, e) => { /* unreachable */ };
+            panel.Children.Add(hiddenFake);
+
             // Make the tree LIVE so AutomationPeers resolve. A real, shown Window
             // is the faithful path (needs a desktop session); when none is
             // available we fall back to an off-screen measured/arranged window,
@@ -199,6 +216,17 @@ namespace ReproIt.WpfAgent
         // the marker focused, exactly like a real backend's node filter).
         private static void WalkAndJoin(DependencyObject node, ref int visualIndex, List<object> outList)
         {
+            // Reachability: prune hidden / collapsed subtrees. An element a user
+            // can reach with neither pointer nor keyboard is operable by nobody,
+            // so it must not be scored as a gap (mirrors the web runner's
+            // reachability gate on `operable`). We test Visibility, which is
+            // layout-free and works in the headless Measure/Arrange path, rather
+            // than IsVisible, which needs a rendered PresentationSource the
+            // in-process agent may not have.
+            if (node is UIElement vis && vis.Visibility != Visibility.Visible)
+            {
+                return; // skip this element AND its descendants
+            }
             if (node is UIElement el)
             {
                 var g1 = GroundTruth(el);

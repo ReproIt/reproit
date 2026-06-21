@@ -649,6 +649,97 @@ async function snapshot(page, valueNodeSelectors) {
   return snap;
 }
 
+// PARITY: keep in sync with web-runner/runner.mjs (operability + flicker oracle)
+//
+// Tier-1 flicker oracle (persistent-anchor churn). A re-render flicker is a
+// transition that tears down and rebuilds chrome that did NOT need to change:
+// for a frame the header/nav/list vanish, then settle back to the same thing.
+// The settled-frame visual oracle cannot see it (both endpoints are correct).
+// We catch it deterministically from the DOM instead of from pixels: tag the
+// persistent "anchors" before a transition, then after it settles check whether
+// any anchor that is VISUALLY UNCHANGED (same key, text, box) was nonetheless
+// REPLACED (its DOM node identity changed). A framework that reconciles
+// (React/Vue/Svelte) preserves node identity for unchanged nodes, so it does
+// not trip; only an innerHTML-wipe-and-rebuild does, which is the flicker bug.
+const ANCHOR_SEL =
+  'header,nav,main,footer,aside,' +
+  '[role=banner],[role=navigation],[role=main],[role=contentinfo],' +
+  '[role=complementary],[role=region],[role=search],[role=listbox],' +
+  '[role=list],[role=tablist],[role=toolbar],[role=dialog],[id]';
+
+function markAnchors(sel) {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const anchors = [];
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    anchors.push({
+      key: keyOf(el), node: el,
+      text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256),
+      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+    });
+  }
+  window.__reproitAnchors = anchors;
+  window.__reproitAnchorDoc = document;
+  return anchors.length;
+}
+
+function churnedAnchors(sel) {
+  const old = window.__reproitAnchors;
+  // No mark, or the document was replaced (navigation): not a flicker candidate.
+  if (!old || window.__reproitAnchorDoc !== document) { window.__reproitAnchors = null; return null; }
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const cur = new Map();
+  const dup = new Set();
+  for (const el of document.querySelectorAll(sel)) {
+    if (!visible(el)) continue;
+    const k = keyOf(el);
+    if (cur.has(k)) { dup.add(k); continue; }
+    cur.set(k, el);
+  }
+  const churned = [];
+  for (const a of old) {
+    if (dup.has(a.key)) continue;        // ambiguous key -> skip
+    const now = cur.get(a.key);
+    if (!now) continue;                  // gone in the new state -> a real removal, not flicker
+    if (now === a.node) continue;        // same node survived -> reconciled, no churn (good)
+    const r = now.getBoundingClientRect();
+    const sameBox =
+      Math.round(r.x) === a.x && Math.round(r.y) === a.y &&
+      Math.round(r.width) === a.w && Math.round(r.height) === a.h;
+    const sameText = (now.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256) === a.text;
+    if (sameBox && sameText) churned.push(a.key); // unchanged yet rebuilt = flicker
+  }
+  window.__reproitAnchors = null;
+  return churned;
+}
+
 // ====================================================================
 //  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
 //  Two graphs over the SAME tappable walk snapshot() produced:
@@ -760,9 +851,56 @@ async function gtCollect(page) {
     // do NOT treat a bare data-* attribute as a marker: data-* is used widely for
     // non-interactive bookkeeping, so it floods the graph with false delegated
     // targets; role/tabindex are the precise "this is interactive" signals.
+    // Roles that name a region or a piece of document structure, NOT an operable
+    // widget. A landmark (search/navigation/banner/...) or a structural/live role
+    // is something a pointer user reads, not something they "operate", so it must
+    // not count as a delegation marker. Without this, any element bearing such a
+    // role gets promoted to operable by the page-wide document click listener
+    // (docDelegates) and surfaces as a phantom pointer-only/keyboard gap.
+    const NON_INTERACTIVE_ROLES = new Set([
+      // landmarks
+      'banner', 'complementary', 'contentinfo', 'form', 'main', 'navigation',
+      'region', 'search',
+      // document structure
+      'article', 'definition', 'directory', 'document', 'feed', 'figure', 'group',
+      'heading', 'img', 'list', 'listitem', 'math', 'none', 'note', 'presentation',
+      'separator', 'table', 'term', 'toolbar', 'tooltip', 'caption', 'rowgroup',
+      'row', 'cell', 'columnheader', 'rowheader',
+      // containers + live regions / status
+      'dialog', 'alertdialog', 'alert', 'log', 'marquee', 'status', 'timer',
+      'application',
+    ]);
     const hasDelegationMarker = (el) => {
-      if ((el.getAttribute('role') || '').trim()) return true;
+      const role = (el.getAttribute('role') || '').trim().toLowerCase();
+      if (role && !NON_INTERACTIVE_ROLES.has(role)) return true;
       if (el.hasAttribute('tabindex')) return true;
+      return false;
+    };
+    // aria-activedescendant: an item operated via a focusable composite widget (a
+    // listbox/menu/tree/grid/combobox whose CONTAINER holds focus and moves a
+    // roving "active" item with arrow keys). Such items are keyboard-reachable
+    // AND activatable even with tabindex=-1, because the container handles the
+    // keys. This is the standard roving/activedescendant ARIA pattern; a naive
+    // per-element tabindex check misreads its options as keyboard-unreachable.
+    const adManaged = (el) => {
+      const isFocusable = (c) => {
+        const ti = c.getAttribute('tabindex');
+        return (ti !== null && parseInt(ti, 10) >= 0) || nativeInteractive(c);
+      };
+      // The composite widget itself: a focusable element that OWNS
+      // aria-activedescendant (listbox/combobox/grid/tree/menu) processes
+      // arrow/Enter keys per the ARIA contract, so it is keyboard-operable even
+      // when the key handler lives on an ancestor or document rather than on the
+      // element's own node. A precise spec signal, not a guess at delegation.
+      if (el.hasAttribute('aria-activedescendant') && isFocusable(el)) return true;
+      const c = el.closest('[aria-activedescendant]');
+      if (c && c !== el && isFocusable(c)) return true;
+      const id = el.getAttribute('id');
+      if (id) {
+        const q = window.CSS && CSS.escape ? CSS.escape(id) : id;
+        const ref = document.querySelector('[aria-activedescendant="' + q + '"]');
+        if (ref && isFocusable(ref)) return true;
+      }
       return false;
     };
     // rolePresent: a non-generic role. A native interactive tag (a/button/input/
@@ -796,6 +934,21 @@ async function gtCollect(page) {
       if (native) return 'button';
       if (deleg) return 'delegated';
       return 'tap';
+    };
+    // reachable: on-screen AND hit-testable, so a real pointer user can operate
+    // it. The operable gate below uses this so an off-screen/occluded control is
+    // not a phantom pointer-only/keyboard gap.
+    const reachable = (el) => {
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+      const hit = document.elementFromPoint(cx, cy);
+      if (!hit) return false;
+      return hit === el || el.contains(hit);
     };
 
     // Clear any stale tags from a prior state, then re-tag in document order.
@@ -846,8 +999,10 @@ async function gtCollect(page) {
           el.setAttribute('data-reproit-gt', String(i));
           out.push({
             sel, role, native, cursor, deleg,
+            reachable: reachable(el),
             rolePresent: rolePresent(el),
             namePresent: namePresent(el),
+            adManaged: adManaged(el),
             gestureKind: gestureKindOf(el, role, native, deleg),
           });
         }
@@ -961,14 +1116,26 @@ async function emitGroundtruth(page, cdp, sig) {
   const records = [];
   for (let i = 0; i < els.length; i++) {
     const e = els[i];
-    const operable = e.native || e.cursor || ownListener[i] || (docDelegates && e.deleg);
+    // operable is graph 1: what a pointer user can ACTUALLY operate in this
+    // rendered state. An element a pointer cannot reach (off-screen, off-viewport,
+    // occluded, or display:none) is not pointer-operable, so it cannot be a
+    // pointer-only/keyboard gap either. The keyboard graph (the Tab walk) already
+    // requires reachability, so without this guard an unreachable pointer control
+    // (e.g. an off-screen skip-link, or a button below the fold) could never be in
+    // graph 2 and was reported as a phantom gap. Gating here aligns the two graphs.
+    const operable =
+      e.reachable !== false &&
+      (e.native || e.cursor || ownListener[i] || (docDelegates && e.deleg));
     const a11y = {};
     // rolePresent / namePresent are always determined (pure DOM).
     a11y.rolePresent = e.rolePresent;
     a11y.namePresent = e.namePresent;
     // inTabOrder: the Tab walk is authoritative for whether it can be reached.
-    a11y.inTabOrder = inTab.has(i);
-    a11y.focusable = inTab.has(i) || e.native;
+    // An aria-activedescendant-managed item is reachable via its focusable
+    // container (the container is in the Tab walk; arrows move the active item),
+    // so it counts even though its own tabindex is -1.
+    a11y.inTabOrder = inTab.has(i) || e.adManaged;
+    a11y.focusable = inTab.has(i) || e.native || e.adManaged;
     // keyboardActivatable, derived WITHOUT firing the control (pressing Enter/
     // Space would trigger the app's real handler as a side effect). A native
     // control or one with a real key listener is keyboard-activatable; a
@@ -977,7 +1144,12 @@ async function emitGroundtruth(page, cdp, sig) {
     // can't see key handlers, so fall back to focusable && reachable.
     if (operable) {
       const focusableOnscreen = a11y.focusable && e.reachable !== false;
-      a11y.keyboardActivatable = cdpListeners
+      // adManaged items are activated through the composite widget's container
+      // (it owns the Enter/Space handler and moves the active descendant), so
+      // their own per-element key listener is irrelevant.
+      a11y.keyboardActivatable = e.adManaged
+        ? focusableOnscreen
+        : cdpListeners
         ? focusableOnscreen && (e.native || keyListener[i])
         : focusableOnscreen;
     }
@@ -1244,8 +1416,16 @@ async function main() {
     tried.add(current.sig + '|' + sel);
     const before = current.sig;
     const beforeContent = current.content;
+    await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
     if (!(await tap(page, sel))) { log('FUZZ:MISS ' + act); stuck++; continue; }
     await page.waitForTimeout(700);
+    // Tier-1 flicker oracle: did this transition rebuild persistent chrome that
+    // did not change? (DOM node-identity churn; settled either way, so invisible
+    // to the visual oracle.) Reported per transition, independent of the sig move.
+    const tapChurn = await page.evaluate(churnedAnchors, ANCHOR_SEL).catch(() => null);
+    if (tapChurn && tapChurn.length) {
+      log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'tap:' + sel, churned: tapChurn }));
+    }
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));

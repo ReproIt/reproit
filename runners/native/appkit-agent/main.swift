@@ -251,6 +251,20 @@ struct GTElement {
     let a11y: A11y
 }
 
+// Reachability: an element a pointer or keyboard user can ACTUALLY reach in the
+// current layout. A hidden / zero-alpha / fully-clipped (off-screen) view is
+// operable by nobody, so it must not be scored as a pointer-only or keyboard-
+// unreachable gap. Mirrors the web runner's reachability gate on `operable`:
+// without it, an off-screen operable view is a phantom gap (graph 1 has it, the
+// key-view loop never can, so the diff always "finds" it).
+func isReachable(_ v: NSView) -> Bool {
+    if v.isHiddenOrHasHiddenAncestor { return false }
+    if v.window == nil { return false }
+    if v.alphaValue <= 0.01 { return false }
+    if v.visibleRect.isEmpty { return false }
+    return true
+}
+
 func walkAndJoin(_ window: NSWindow) -> (sig: String, focusTrap: Bool, elements: [GTElement]) {
     let loop = keyViewLoop(window)
     var elements: [GTElement] = []
@@ -258,7 +272,10 @@ func walkAndJoin(_ window: NSWindow) -> (sig: String, focusTrap: Bool, elements:
     var roleIndex: [String: Int] = [:]
 
     func visit(_ v: NSView, depth: Int) {
-        let (op, kind) = graph1Operable(v)
+        let (opRaw, kind) = graph1Operable(v)
+        // Gate graph-1 operability on reachability (see isReachable): an
+        // off-screen / hidden operable view is operable by no one, not a gap.
+        let op = opRaw && isReachable(v)
         let inLoop = loop.contains(ObjectIdentifier(v))
         let a = graph2A11y(v, inKeyViewLoop: inLoop)
         // Only emit elements that are operable in graph 1 OR carry an operable
@@ -356,6 +373,17 @@ good.setAccessibilityIdentifier("goodCustom")
 good.onClick = {}
 good.wireUp()
 content.addSubview(good)
+
+// (4) A HIDDEN fake button: operable (click gesture) but isHidden, so a user can
+//     reach it with NEITHER pointer NOR keyboard. The reachability gate must drop
+//     it from graph 1 so it is NOT reported as a gap (it has no role either, so it
+//     should not appear in the marker at all).
+let hiddenFake = FakeButton(frame: NSRect(x: 20, y: 20, width: 140, height: 32))
+hiddenFake.setAccessibilityIdentifier("hiddenFake")
+hiddenFake.onClick = {}
+hiddenFake.wireClickHandler()
+hiddenFake.isHidden = true
+content.addSubview(hiddenFake)
 
 // Wire a key-view loop that includes the real button + good custom control but
 // (correctly, since the dev forgot) NOT the fake button.
