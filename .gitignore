@@ -3,8 +3,6 @@ dist/
 .reproit/
 *.log
 .DS_Store
-
-# Local denylist for the private-identifier guard (terms stay out of the repo).
 .forbidden-terms
 
 

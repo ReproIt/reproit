@@ -1,4 +1,4 @@
-//! Config schema and loader. See reproit.example.yaml for the shape.
+//! Config schema and loader. See examples/reproit.example.yaml for the shape.
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
@@ -518,7 +518,7 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     let file = match explicit {
         Some(p) => p.to_path_buf(),
         None => find_config(&std::env::current_dir()?).context(
-            "no reproit.yaml found in cwd or ancestors; pass --config or copy reproit.example.yaml",
+            "no reproit.yaml found in cwd or ancestors; pass --config or copy examples/reproit.example.yaml",
         )?,
     };
     let raw =
