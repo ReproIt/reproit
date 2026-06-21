@@ -167,6 +167,74 @@ pub(crate) fn report(
     ));
 }
 
+/// The set of gaps in a map as `(state, selector, kind)` tuples, for diffing two
+/// builds. A screen-level focus trap is keyed with an empty selector.
+fn gap_set(map: &AppMap) -> BTreeSet<(String, String, String)> {
+    let mut s = BTreeSet::new();
+    for (sig, st) in &map.states {
+        for it in &st.operability_gaps.items {
+            for k in &it.kinds {
+                s.insert((sig.clone(), it.selector.clone(), k.clone()));
+            }
+        }
+        if st.operability_gaps.focus_trap {
+            s.insert((sig.clone(), String::new(), "focus_trap".to_string()));
+        }
+    }
+    s
+}
+
+/// Compare a `baseline` map against the `current` one and report the gaps that
+/// are NEW (a regression) and the ones resolved. Returns true if any new gap was
+/// introduced, so a caller can fail CI. This is the build-vs-build gate: same
+/// engine, two maps.
+pub(crate) fn regression(baseline: &AppMap, current: &AppMap, ctx: &Ctx) -> bool {
+    let base = gap_set(baseline);
+    let cur = gap_set(current);
+    let new: Vec<&(String, String, String)> = cur.difference(&base).collect();
+    let resolved: Vec<&(String, String, String)> = base.difference(&cur).collect();
+    let regressed = !new.is_empty();
+
+    if ctx.json {
+        let to_json = |v: &[&(String, String, String)]| {
+            v.iter()
+                .map(|(s, sel, k)| json!({ "state": s, "selector": sel, "kind": k }))
+                .collect::<Vec<_>>()
+        };
+        ctx.emit(&json!({
+            "command": "map accessibility (baseline diff)",
+            "regressed": regressed,
+            "new_gaps": to_json(&new),
+            "resolved_gaps": to_json(&resolved),
+        }));
+        return regressed;
+    }
+
+    if !regressed {
+        ctx.say(format!(
+            "accessibility: no new gaps vs baseline ({} resolved).",
+            resolved.len()
+        ));
+    } else {
+        ctx.say(format!(
+            "accessibility REGRESSION: {} new gap(s) vs baseline:",
+            new.len()
+        ));
+        for (s, sel, k) in &new {
+            let target = if sel.is_empty() {
+                s.as_str()
+            } else {
+                sel.as_str()
+            };
+            ctx.say(format!("  + {k}  {target}  [{s}]"));
+        }
+        if !resolved.is_empty() {
+            ctx.say(format!("  ({} gap(s) resolved)", resolved.len()));
+        }
+    }
+    regressed
+}
+
 /// The WCAG success criterion a gap dimension maps to (for the report).
 fn wcag_label(kind: &str) -> &'static str {
     match kind {
@@ -334,6 +402,37 @@ mod tests {
         assert_eq!(wcag_label("keyboard_unreachable"), "2.1.1 Keyboard");
         assert_eq!(wcag_label("no_role"), "4.1.2 Name, Role, Value");
         assert_eq!(wcag_label("focus_trap"), "2.1.2 No Keyboard Trap");
+    }
+
+    #[test]
+    fn gap_set_diff_finds_new_and_resolved() {
+        // Two builds: baseline has a gap on row-a; current fixed row-a and grew a
+        // new gap on row-b. The diff should flag exactly the new one.
+        let mk = |sel: &str| -> AppMap {
+            serde_json::from_value(json!({
+                "app": "x", "version": 1,
+                "states": { "s1": {
+                    "description": "d",
+                    "signature": { "screenshot_phash": null, "semantics_hash": "h", "route": null },
+                    "operability_gaps": {
+                        "pointer_only": 1, "keyboard_unreachable": 0, "no_role": 0, "focus_trap": false,
+                        "items": [{ "selector": sel, "kinds": ["pointer_only"] }]
+                    }
+                }},
+                "transitions": [], "invariants": []
+            }))
+            .unwrap()
+        };
+        let base = gap_set(&mk("row-a"));
+        let cur = gap_set(&mk("row-b"));
+        let new: Vec<_> = cur.difference(&base).collect();
+        let resolved: Vec<_> = base.difference(&cur).collect();
+        assert_eq!(new.len(), 1);
+        assert_eq!(new[0].1, "row-b");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].1, "row-a");
+        // No diff against itself.
+        assert!(gap_set(&mk("row-a")).difference(&base).next().is_none());
     }
 
     #[test]

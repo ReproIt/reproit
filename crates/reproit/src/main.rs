@@ -649,6 +649,10 @@ enum MapAction {
         /// redirect to a file). --json also works for the structured form.
         #[arg(long, default_value = "text")]
         format: String,
+        /// Compare against a baseline appmap.json and report only the NEW gaps
+        /// (regression gate; exits 1 if any new gap was introduced).
+        #[arg(long)]
+        baseline: Option<PathBuf>,
         #[arg(long, name = "map-path")]
         map_path: Option<PathBuf>,
     },
@@ -886,6 +890,7 @@ async fn main() -> Result<ExitCode> {
                     state,
                     kind,
                     format,
+                    baseline,
                     map_path,
                 } => {
                     // `root` is the project to attribute selectors into (file:
@@ -902,6 +907,18 @@ async fn main() -> Result<ExitCode> {
                             (m, Some(loaded.root))
                         }
                     };
+                    // --baseline: regression gate. Diff the current map's gaps
+                    // against the baseline's and exit 1 if any new gap appeared.
+                    if let Some(bpath) = baseline {
+                        let btxt = std::fs::read_to_string(&bpath)?;
+                        let bmap = serde_json::from_str::<appmap::AppMap>(&btxt)?;
+                        let regressed = accessibility::regression(&bmap, &m, &ctx);
+                        return Ok(if regressed {
+                            ExitCode::from(1)
+                        } else {
+                            ExitCode::SUCCESS
+                        });
+                    }
                     accessibility::report(
                         &m,
                         root.as_deref(),

@@ -307,7 +307,9 @@ audit the graph:
 - `map accessibility`: the accessibility audit: which controls a mouse user can
   operate but a keyboard / screen-reader user cannot, per screen, each located by
   selector and source file:line. `--format md` prints an exportable, WCAG-cited
-  report (redirect to a file); `--json` gives the structured form. See
+  report (redirect to a file); `--json` gives the structured form;
+  `--baseline <appmap.json>` reports only the gaps NEW vs that baseline and exits
+  1 if any appeared (a CI regression gate). See
   [docs/operability-graph.md](operability-graph.md).
 
 ## Flags (on fuzz / check)
