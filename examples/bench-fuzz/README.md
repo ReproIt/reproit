@@ -124,11 +124,16 @@ inside each, so all five oracles fire on the views they live in.
 - **States count is the union of distinct `EXPLORE:STATE` signatures** across the 3
   seed walks, not a single seed's count (a single seed may explore 5 or 6 of the 6
   depending on its random walk; the union is the honest coverage).
-- **There is no dedicated DOM overflow/clip oracle** in the web runner today, so the
-  "i18n" bug is modeled as a **locale-specific crash** surfaced by the cross-locale
-  diff (`--locale en,de`), not a layout-overflow detection. That is the i18n signal
-  reproit actually computes (a finding present in some locales but not all), so the
-  bug is caught by a real oracle rather than a fabricated one.
+- **DOM overflow/clip is now a dedicated oracle** (`overflow`). The web runner
+  measures it structurally in-page (`scrollWidth > clientWidth`, a child's border
+  box escaping its parent's content box, `offsetWidth < scrollWidth` for clipped
+  text) and emits `EXPLORE:OVERFLOW` per state; the engine surfaces it as the
+  `no-overflow` invariant, filterable with `--only overflow` / `--no overflow`. It
+  is deterministic (a fixed `OVERFLOW_TOL` pixel tolerance, no pixel diff), so a
+  long-string / RTL label overflowing a fixed-width button is caught directly, not
+  only as a locale-specific crash from the cross-locale diff (`--locale en,de`).
+  The cross-locale diff remains the complementary i18n signal (a finding present in
+  some locales but not all).
 - **Fuzzing is seed-driven**, so the per-seed subset of dead-ends/findings varies
   run to run; recall is measured over the union of all seeds' artifacts, which is
   stable at 5/5 WITH the fix in repeated runs here.

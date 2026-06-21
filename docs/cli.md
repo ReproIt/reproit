@@ -357,6 +357,7 @@ Precedence: flag > config > default.
 - **divergence** disagreement between targets (run with multiple `--target`)
 - **a11y** accessibility violations
 - **i18n** overflow / clip / untranslated / RTL breaks (with `--locale`)
+- **overflow** DOM/layout overflow: content clipped or overflowing its container/viewport (web; deterministic structural measurement)
 
 ## MCP tools
 

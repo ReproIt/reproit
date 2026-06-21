@@ -295,6 +295,14 @@ impl Trigger {
     fn is_flicker(&self) -> bool {
         self.oracle.as_deref() == Some("flicker")
     }
+
+    /// Whether this finding is a DOM/layout OVERFLOW finding. Like a graph or
+    /// flicker invariant it does not throw, so it is re-confirmed by re-evaluating
+    /// the EXPLORE:OVERFLOW records over the replay graph rather than by scanning
+    /// for an exception.
+    fn is_overflow(&self) -> bool {
+        self.oracle.as_deref() == Some("overflow")
+    }
 }
 
 /// Classify a single replay's drive log into a per-run verdict, WITHOUT a
@@ -351,6 +359,14 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     // replay graph rather than scanning for an exception.
     if trigger.is_flicker() {
         return flicker_verdict(log, trigger);
+    }
+
+    // OVERFLOW findings, like graph/flicker invariants, do not throw: the replay
+    // re-drives to the same state and the runner re-emits EXPLORE:OVERFLOW iff the
+    // layout still clips/overflows. Re-confirm by re-evaluating those records over
+    // the replay graph rather than scanning for an exception.
+    if trigger.is_overflow() {
+        return overflow_verdict(log, trigger);
     }
 
     // Count actions performed before the first miss, and whether any miss
@@ -474,6 +490,35 @@ fn flicker_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
         return RunVerdict::CouldNotReplay;
     }
     if crate::invariants::any_rerender_flicker(&obs) {
+        RunVerdict::Broke
+    } else {
+        RunVerdict::Green
+    }
+}
+
+/// Re-confirm a `no-overflow` finding over a replay log. Parses the replay's
+/// EXPLORE markers and re-evaluates the SAME overflow predicate (via
+/// `invariants::recheck_overflow`) against the recorded violating state sig:
+///   - the recorded state still overflows -> Broke (the clip/overflow is back)
+///   - the sig is reached but nothing overflows there -> Green (the fix held)
+///   - the sig is never observed in the replay -> CouldNotReplay (re-record).
+///
+/// With no recorded sig (older overflow repro), fall back to whether ANY overflow
+/// remains in the replay graph: any -> Broke, none -> Green, empty graph (no
+/// states observed) -> CouldNotReplay.
+fn overflow_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::map::parse_run(log);
+    if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
+        return match crate::invariants::recheck_overflow(&obs, sig) {
+            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        };
+    }
+    if obs.states.is_empty() {
+        return RunVerdict::CouldNotReplay;
+    }
+    if crate::invariants::any_overflow(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green

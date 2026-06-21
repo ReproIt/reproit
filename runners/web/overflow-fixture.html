@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Overflow oracle fixture</title>
+  <style>
+    /* Deterministic layout: fixed sizes, a metric web-safe font, no images, no
+       animation. The overflow oracle measures structure (scrollWidth/clientWidth,
+       child-vs-parent content box, offsetWidth<scrollWidth), so the same DOM
+       yields the same finding on every engine and on replay. */
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px monospace; }
+
+    /* CLIP: a fixed-width button whose single-line label is wider than the box
+       and is truncated by `text-overflow: ellipsis`. This is the i18n case: a
+       short English label fits, a long German/RTL one would overflow. The label
+       here is intentionally long so it clips at this fixed width. */
+    .clip-btn {
+      width: 80px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border: 1px solid #333;
+      padding: 4px;
+    }
+
+    /* SPILL: a fixed-width container holding a wider, non-wrapping child whose
+       border box escapes the parent's content box. The parent does NOT scroll,
+       so the child overlaps/overflows rather than being contained. */
+    .fixed-box {
+      width: 120px;
+      padding: 8px;
+      border: 2px solid #333;
+      overflow: visible;
+    }
+    .wide-child {
+      display: inline-block;
+      width: 400px;
+      white-space: nowrap;
+      background: #eee;
+    }
+
+    /* CONTROL: a clean element that fits its container exactly. Same kind of
+       fixed-width box + label, but the label is short and the box is wide enough,
+       so NOTHING clips, spills, or scrolls. The oracle must stay silent here. */
+    .clean-btn {
+      width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border: 1px solid #333;
+      padding: 4px;
+    }
+  </style>
+</head>
+<body>
+  <!-- OVERFLOWING: clipped label (German-length string in a fixed-width button). -->
+  <button id="clip-btn" class="clip-btn">Einstellungen speichern und fortfahren</button>
+
+  <!-- OVERFLOWING: a child wider than its non-scrolling fixed-width parent. -->
+  <div id="fixed-box" class="fixed-box">
+    <span id="wide-child" class="wide-child">this content is far wider than its container</span>
+  </div>
+
+  <!-- CLEAN CONTROL: short label, wide enough box -> fits, no overflow. -->
+  <button id="clean-btn" class="clean-btn">Save</button>
+</body>
+</html>

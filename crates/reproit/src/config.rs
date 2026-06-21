@@ -142,6 +142,11 @@ pub struct InvariantsCfg {
     /// rebuilds persistent chrome which did not change (web runner only).
     #[serde(default = "default_true")]
     pub rerender_flicker: bool,
+    /// DOM/layout overflow: content clipped or overflowing its container/viewport
+    /// (the i18n/long-string/RTL failure class). Deterministic structural
+    /// measurement from the web runner (`EXPLORE:OVERFLOW`).
+    #[serde(default = "default_true")]
+    pub no_overflow: bool,
     /// State sigs OR label-substrings that mark intended end screens, exempt
     /// from no-dead-end. A bare entry matches a state sig exactly OR (case-
     /// insensitively) any of that state's labels, so you can list either the
@@ -162,6 +167,7 @@ impl Default for InvariantsCfg {
             no_dead_end: true,
             no_leak: true,
             rerender_flicker: true,
+            no_overflow: true,
             terminal_states: vec![],
             custom: vec![],
         }

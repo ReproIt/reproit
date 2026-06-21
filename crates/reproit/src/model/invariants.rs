@@ -143,6 +143,37 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // no-overflow: every observed state must have NO clipped/overflowing node.
+    // The web runner measures this structurally (scrollWidth>clientWidth, a child
+    // escaping its parent's content box, offsetWidth<scrollWidth for clipped text)
+    // and emits EXPLORE:OVERFLOW per state. This is the i18n / long-string / RTL
+    // failure class (a German or RTL label overflowing a fixed-width button).
+    // Deterministic: pure layout measurement, no frame timing or pixels, so it
+    // re-confirms on replay. Empty for runners that don't emit it (e.g. Flutter),
+    // so this reports nothing there.
+    if cfg.no_overflow {
+        for (sig, items) in &obs.obs.overflows {
+            if items.is_empty() {
+                continue;
+            }
+            let detail = items
+                .iter()
+                .take(3)
+                .map(|(key, kind, by)| format!("{key} ({kind} by {by}px)"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push(finding(
+                "no-overflow",
+                "OVERFLOW",
+                format!(
+                    "state {sig} has {} overflowing/clipped element(s): {detail} (content does not fit its container/viewport; the i18n/long-string/RTL failure class)",
+                    items.len()
+                ),
+                Some(sig),
+            ));
+        }
+    }
+
     // no-jank: SIM ONLY. Per-state jank over budget is a finding. Headless has
     // a fake clock (no real frame timing), so jank_by_sig is empty there and
     // this reports nothing (the caller notes it sim-only).
@@ -302,6 +333,33 @@ pub fn recheck_rerender_flicker(obs: &RunObs, sig: &str) -> GraphRecheck {
 /// flicker repro that recorded no specific violating sig).
 pub fn any_rerender_flicker(obs: &RunObs) -> bool {
     !obs.rerenders.is_empty() || !obs.paint_flickers.is_empty()
+}
+
+/// Re-confirm a `no-overflow` finding over a replay log, mirroring
+/// `recheck_rerender_flicker`: the recorded violating state sig is re-evaluated
+/// against the replay's `EXPLORE:OVERFLOW` records.
+///   - the replay still overflows at that sig -> StillViolating (fail)
+///   - the sig is reached but nothing overflows there -> Fixed (held)
+///   - the sig never appears in the replay graph -> NotReached (re-record)
+pub fn recheck_overflow(obs: &RunObs, sig: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    if obs
+        .overflows
+        .get(sig)
+        .is_some_and(|items| !items.is_empty())
+    {
+        GraphRecheck::StillViolating
+    } else {
+        GraphRecheck::Fixed
+    }
+}
+
+/// Whether the replay graph has ANY overflow signal (used by `check` for an
+/// overflow repro that recorded no specific violating sig).
+pub fn any_overflow(obs: &RunObs) -> bool {
+    obs.overflows.values().any(|items| !items.is_empty())
 }
 
 fn label_set(obs: &RunObs, sig: &str) -> Vec<String> {
@@ -468,6 +526,7 @@ mod tests {
                 gaps: Default::default(),
                 rerenders: Default::default(),
                 paint_flickers: Default::default(),
+                overflows: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),
@@ -558,6 +617,58 @@ mod tests {
         // NotReached: the sig never appeared in the replay graph.
         assert_eq!(
             recheck_rerender_flicker(&held.obs, "other"),
+            GraphRecheck::NotReached
+        );
+    }
+
+    #[test]
+    fn no_overflow_flags_a_state_with_a_clipped_node() {
+        // A state with an overflowing node fires; a state with none stays silent.
+        let mut o = obs_with(
+            &[("home", &["Go"], 0), ("settings", &["Settings"], 0)],
+            &[("home", "tap:Go", "settings")],
+            Some("home"),
+        );
+        o.obs.overflows.insert(
+            "settings".to_string(),
+            vec![("id:save".to_string(), "clip".to_string(), 84)],
+        );
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(
+            kinds(&f).contains(&"no-overflow".to_string()),
+            "got {:?}",
+            kinds(&f)
+        );
+        let v = f.iter().find(|x| x["invariant"] == "no-overflow").unwrap();
+        assert_eq!(v["sig"], "settings");
+        assert_eq!(v["kind"], "OVERFLOW");
+        // The clean `home` state must NOT be flagged.
+        assert!(!f
+            .iter()
+            .any(|x| x["invariant"] == "no-overflow" && x["sig"] == "home"));
+        // Disabling the invariant suppresses it.
+        let cfg = InvariantsCfg {
+            no_overflow: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-overflow".to_string()));
+    }
+
+    #[test]
+    fn recheck_overflow_distinguishes_held_unreached() {
+        // StillViolating: the sig is observed and still overflows.
+        let mut o = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
+        o.obs.overflows.insert(
+            "s1".to_string(),
+            vec![("id:btn".to_string(), "spill".to_string(), 40)],
+        );
+        assert_eq!(recheck_overflow(&o.obs, "s1"), GraphRecheck::StillViolating);
+        // Fixed: the sig is observed but nothing overflows there (the fix held).
+        let held = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
+        assert_eq!(recheck_overflow(&held.obs, "s1"), GraphRecheck::Fixed);
+        // NotReached: the sig never appeared in the replay graph.
+        assert_eq!(
+            recheck_overflow(&held.obs, "other"),
             GraphRecheck::NotReached
         );
     }

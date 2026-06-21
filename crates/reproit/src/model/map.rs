@@ -43,6 +43,12 @@ pub(crate) struct RunObs {
     /// A frame that diverged from both endpoints mid-transition then settled.
     /// Empty unless the pixel oracle is enabled.
     pub paint_flickers: BTreeMap<(String, String), f64>,
+    /// sig -> the overflowing/clipped nodes in that state, from `EXPLORE:OVERFLOW`
+    /// records (the DOM/layout overflow oracle). Each entry is `(key, kind, by)`:
+    /// the offending node's stable key, the signal (`scroll`/`clip`/`spill`), and
+    /// how many CSS pixels it overflowed by. Deterministic structural measurement,
+    /// so it re-confirms on replay; empty for runners/states that don't emit it.
+    pub overflows: BTreeMap<String, Vec<(String, String, i64)>>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -104,6 +110,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         gaps: BTreeMap::new(),
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),
+        overflows: BTreeMap::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -181,6 +188,27 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
             ) {
                 obs.paint_flickers
                     .insert((from.to_string(), action.to_string()), peak);
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:OVERFLOW ") {
+            // DOM/layout overflow for a state: nodes whose content is clipped or
+            // overflows their container/viewport. Keyed by signature (last write
+            // wins); each item is (key, kind, by-pixels), the grounded detail.
+            if let (Some(sig), Some(items)) = (
+                json.get("sig").and_then(Value::as_str),
+                json.get("items").and_then(Value::as_array),
+            ) {
+                let parsed: Vec<(String, String, i64)> = items
+                    .iter()
+                    .filter_map(|it| {
+                        let key = it.get("key").and_then(Value::as_str)?.to_string();
+                        let kind = it.get("kind").and_then(Value::as_str)?.to_string();
+                        let by = it.get("by").and_then(Value::as_i64).unwrap_or(0);
+                        Some((key, kind, by))
+                    })
+                    .collect();
+                if !parsed.is_empty() {
+                    obs.overflows.insert(sig.to_string(), parsed);
+                }
             }
         }
     }
@@ -953,6 +981,33 @@ mod tests {
             .get(&("s1".to_string(), "tap:key:id:bad".to_string()))
             .expect("paint flicker for the bad transition");
         assert!((peak - 0.82).abs() < 1e-9);
+    }
+
+    #[test]
+    fn overflow_marker_keys_clipped_nodes_by_sig() {
+        // The DOM/layout overflow oracle: EXPLORE:OVERFLOW carries the offending
+        // nodes (key, kind, by-pixels), keyed by state signature. A marker with an
+        // empty items list is dropped (no overflow -> nothing recorded).
+        let log = concat!(
+            r#"EXPLORE:STATE {"sig":"s1","labels":[],"unlabeled":0}"#,
+            "\n",
+            r#"EXPLORE:OVERFLOW {"sig":"s1","items":[{"key":"id:save","kind":"clip","by":84},{"key":"tag:html","kind":"scroll","by":120}]}"#,
+            "\n",
+            r#"EXPLORE:OVERFLOW {"sig":"s2","items":[]}"#,
+        );
+        let obs = parse_run(log);
+        let items = obs.overflows.get("s1").expect("overflow for s1");
+        assert_eq!(
+            items,
+            &vec![
+                ("id:save".to_string(), "clip".to_string(), 84),
+                ("tag:html".to_string(), "scroll".to_string(), 120),
+            ]
+        );
+        assert!(
+            !obs.overflows.contains_key("s2"),
+            "an empty overflow list is not recorded"
+        );
     }
 
     #[test]

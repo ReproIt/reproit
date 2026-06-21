@@ -101,6 +101,11 @@ pub enum Oracle {
     Divergence,
     A11y,
     I18n,
+    /// DOM/layout overflow: content clipped or overflowing its container/viewport
+    /// (text truncated by `text-overflow`, a child wider than its parent, or a
+    /// horizontal scroll appearing). The i18n/long-string/RTL failure class,
+    /// detected by the web runner from deterministic structural measurements.
+    Overflow,
     /// Graph/structural findings (dead-end). Not a docs-listed oracle but a real
     /// finding class, so it gets a stable tag rather than being silently dropped.
     Graph,
@@ -121,6 +126,7 @@ impl Oracle {
         Oracle::Divergence,
         Oracle::A11y,
         Oracle::I18n,
+        Oracle::Overflow,
         Oracle::Graph,
     ];
 
@@ -134,6 +140,7 @@ impl Oracle {
             Oracle::Divergence => "divergence",
             Oracle::A11y => "a11y",
             Oracle::I18n => "i18n",
+            Oracle::Overflow => "overflow",
             Oracle::Graph => "graph",
         }
     }
@@ -150,6 +157,7 @@ impl Oracle {
             "divergence" | "diverge" | "diff" => Some(Oracle::Divergence),
             "a11y" | "accessibility" => Some(Oracle::A11y),
             "i18n" | "intl" | "locale" => Some(Oracle::I18n),
+            "overflow" | "clip" | "clipped" => Some(Oracle::Overflow),
             "graph" | "dead-end" | "deadend" => Some(Oracle::Graph),
             _ => None,
         }
@@ -171,6 +179,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-leak" => return Oracle::Leak,
         "all-labeled" => return Oracle::A11y,
         "rerender-flicker" | "paint-flicker" => return Oracle::Flicker,
+        "no-overflow" => return Oracle::Overflow,
         "no-dead-end" => return Oracle::Graph,
         _ => {}
     }
@@ -184,6 +193,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "FLICKER" => Oracle::Flicker,
         "DIVERGENCE" => Oracle::Divergence,
         "I18N" => Oracle::I18n,
+        "OVERFLOW" => Oracle::Overflow,
         // An uncaught exception block ("EXCEPTION CAUGHT BY ...") and anything
         // unrecognized fall back to crash, the broadest class.
         _ => Oracle::Crash,
@@ -699,6 +709,11 @@ mod tests {
             classify(&json!({ "invariant": "no-dead-end" })),
             Oracle::Graph
         );
+        assert_eq!(
+            classify(&json!({ "invariant": "no-overflow" })),
+            Oracle::Overflow
+        );
+        assert_eq!(classify(&json!({ "kind": "OVERFLOW" })), Oracle::Overflow);
         assert_eq!(classify(&json!({ "kind": "PERF" })), Oracle::Jank);
         // Raw exception block: falls back to crash.
         assert_eq!(
@@ -723,6 +738,18 @@ mod tests {
         assert!(f.allows(Oracle::Jank));
         assert!(!f.allows(Oracle::Leak));
         assert!(!f.allows(Oracle::A11y));
+    }
+
+    #[test]
+    fn oracle_filter_only_and_no_overflow() {
+        // `--only overflow` restricts to overflow; `--no overflow` removes it.
+        let (only, unknown) = OracleFilter::build(Some("overflow"), None);
+        assert!(unknown.is_empty());
+        assert!(only.allows(Oracle::Overflow));
+        assert!(!only.allows(Oracle::Crash));
+        let (no, _) = OracleFilter::build(None, Some("overflow"));
+        assert!(!no.allows(Oracle::Overflow));
+        assert!(no.allows(Oracle::Crash));
     }
 
     #[test]

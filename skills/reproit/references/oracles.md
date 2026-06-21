@@ -18,6 +18,7 @@ reproit fuzz --no visual,i18n         # everything except these
 | `divergence` | Same flow behaving differently across engines/targets | Cross-engine bug (e.g. Chromium-fine, WebKit-broken). |
 | `a11y` | Missing labels, contrast, focus-order problems | An accessibility defect on the reached screen. |
 | `i18n` | Overflow, clipping, RTL breakage under other locales | Run with `--locale de,ar,ja` to surface these. |
+| `overflow` | DOM/layout overflow: content clipped or overflowing its container/viewport (web) | A child wider than its parent, text truncated by `text-overflow`, or a horizontal scroll appearing. Deterministic structural measurement (not a pixel diff). |
 
 ## Visual oracle specifics
 

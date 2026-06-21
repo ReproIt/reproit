@@ -185,6 +185,101 @@ function churnedAnchors(sel) {
   window.__reproitAnchors = null;
   return churned;
 }
+
+// DOM/layout OVERFLOW oracle (deterministic, structural). The i18n / long-string
+// / RTL failure class: a German or RTL label overflowing a fixed-width button, a
+// child wider than its parent's content box, or text clipped by `text-overflow`.
+// We catch it from STRUCTURAL MEASUREMENTS, never a pixel diff, so the same DOM
+// yields the same finding byte-for-byte on every run and on replay. Three
+// independent signals, each a measured fact about the current layout:
+//   - SCROLL: an element's scrollWidth exceeds its clientWidth past a tolerance,
+//     so its own content does not fit inside it (a horizontal scrollbar appears
+//     or content is hidden). Applied to the document scroller too, which is the
+//     "the page itself scrolls sideways" symptom.
+//   - CLIP: a single-line, clipped element (overflow:hidden / text-overflow with
+//     no wrap) whose scrollWidth exceeds its offsetWidth: its text is visually
+//     truncated. This is the `text-overflow: ellipsis` button label case.
+//   - SPILL: a visible child whose border box sticks out past its parent's
+//     CONTENT box (right or left edge) by more than the tolerance: it overlaps /
+//     escapes its container rather than being contained.
+// TOLERANCE (OVERFLOW_TOL px): sub-pixel layout rounding and scrollbar gutters
+// make exact equality noisy across engines, so a difference must EXCEED this many
+// CSS pixels to count. It is a fixed integer (not a ratio), so the predicate is a
+// pure comparison of rounded measurements and stays reproducible. A wider value
+// only suppresses hairline noise; the fixture overflows by hundreds of px.
+const OVERFLOW_TOL = 2;
+function detectOverflow(tol) {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  // A stable, locale-invariant key for the offending node (same grammar as the
+  // flicker anchors): id/testid, else tag[+role]. Never the visible text, so a
+  // translated string does not change the finding's identity.
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const out = [];
+  const seen = new Set();
+  const add = (el, kind, by) => {
+    const k = keyOf(el) + '|' + kind;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ key: keyOf(el), kind, by: Math.round(by) });
+  };
+  const doc = document.documentElement;
+  // Page-level horizontal scroll: the document content is wider than its viewport.
+  if (doc && doc.scrollWidth - doc.clientWidth > tol) {
+    out.push({ key: 'tag:html', kind: 'scroll', by: Math.round(doc.scrollWidth - doc.clientWidth) });
+  }
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!visible(el)) continue;
+    const st = getComputedStyle(el);
+    // SCROLL: own content does not fit horizontally (a scrollbar or hidden tail).
+    if (el.scrollWidth - el.clientWidth > tol) add(el, 'scroll', el.scrollWidth - el.clientWidth);
+    // CLIP: a single-line element that hides its overflow (ellipsis / clip) whose
+    // rendered text is wider than the box -> visually truncated.
+    const clips = st.overflow === 'hidden' || st.overflowX === 'hidden' || st.textOverflow === 'ellipsis';
+    const oneLine = st.whiteSpace === 'nowrap' || st.textOverflow === 'ellipsis';
+    if (clips && oneLine && el.scrollWidth - el.offsetWidth > tol) {
+      add(el, 'clip', el.scrollWidth - el.offsetWidth);
+    }
+    // SPILL: a child whose border box escapes the parent's CONTENT box. We
+    // compare against the parent content edges (padding-box minus padding) so a
+    // padded container is measured correctly, and only flag when the parent is
+    // NOT itself a scroll container for this axis (a scroller is meant to hold
+    // wider content, and the SCROLL signal already covers that case).
+    const p = el.parentElement;
+    if (p && p !== document.body && p !== doc) {
+      const ps = getComputedStyle(p);
+      const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
+      if (!scrollsX) {
+        const pr = p.getBoundingClientRect();
+        const cr = el.getBoundingClientRect();
+        const padL = parseFloat(ps.paddingLeft) || 0;
+        const padR = parseFloat(ps.paddingRight) || 0;
+        const bL = parseFloat(ps.borderLeftWidth) || 0;
+        const bR = parseFloat(ps.borderRightWidth) || 0;
+        const contentLeft = pr.left + bL + padL;
+        const contentRight = pr.right - bR - padR;
+        const over = Math.max(cr.right - contentRight, contentLeft - cr.left);
+        if (over > tol) add(el, 'spill', over);
+      }
+    }
+  }
+  // Stable order: by key then kind, so the marker is byte-identical run to run.
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0)));
+  return out;
+}
+
 const ACTION_BUDGET = 36;
 const MAX_LABEL_LEN = 40;
 // Layer-1 value-class cap (docs/signature.md "Value-state"): once a structural
@@ -481,7 +576,7 @@ function descriptorOf(anchor, root) {
 }
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
-export { signatureOf, descriptorOf, valueClass, snapshot };
+export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL };
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -2053,6 +2148,16 @@ async function main() {
         // the DOM, so it runs AFTER the snapshot was captured and the state was
         // recorded; the next action then drives the live (possibly mutated) DOM.
         await emitGroundtruth(page, gtCdp, snap.sig);
+        // DOM/layout overflow for this newly-seen state, keyed by the SAME sig so
+        // the oracle attributes the finding to this node. Pure structural
+        // measurement (scrollWidth/clientWidth, child-vs-parent content box,
+        // offsetWidth<scrollWidth), no pixels, so it reproduces on replay. Only
+        // emitted when something actually overflows, so a clean layout stays
+        // silent (no marker, no finding).
+        const ovf = await page.evaluate(detectOverflow, OVERFLOW_TOL).catch(() => null);
+        if (ovf && ovf.length) {
+          log('EXPLORE:OVERFLOW ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: ovf }));
+        }
       }
       return snap;
     }
