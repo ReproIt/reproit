@@ -574,6 +574,197 @@ async function snapshot(browser, valueNodeSelectors) {
   return snap;
 }
 
+// ====================================================================
+//  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
+//  Mirrors web-runner/runner.mjs, but Tauri's webview has NO CDP, so GRAPH 1
+//  (operableByPointer) uses native + cursor:pointer + delegation-marker signals
+//  only (plus an inline onclick / a document.onclick handler we can read from
+//  JS), never a captured event-listener list. GRAPH 2 (a11y dims) runs entirely
+//  in-page: inTabOrder is the standard sequential-focus rule (focusable AND
+//  tabIndex >= 0 -> a negative tabindex is reachable by script/pointer but NOT
+//  by Tab), and keyboardActivatable is derived structurally (native semantics +
+//  inline key handlers), never by synthesizing a keypress, which would fire the
+//  app's handlers as a side effect. A missing dimension defaults to true (= no gap) in the
+//  engine, so we only report what we measured. The whole probe is one execute().
+//  Keyed by the SAME selector the EXPLORE:STATE elements use.
+// ====================================================================
+const GROUNDTRUTH_JS = `
+  const ROLES = {
+    screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
+    icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
+    slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+  };
+  const roleOf = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+    if (ariaRole) {
+      if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+      if (ariaRole === 'heading') return 'header';
+      if (ariaRole === 'img') return 'image';
+      if (ariaRole === 'switch') return 'switch';
+      if (ariaRole === 'link') return 'link';
+      if (ariaRole === 'button') return 'button';
+      if (ROLES[ariaRole]) return ariaRole;
+    }
+    if (tag === 'input') {
+      const t = (el.getAttribute('type') || 'text').toLowerCase();
+      if (t === 'checkbox') return 'checkbox';
+      if (t === 'radio') return 'radio';
+      if (t === 'range') return 'slider';
+      if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+      return 'textfield';
+    }
+    if (tag === 'textarea' || tag === 'select') return 'textfield';
+    if (tag === 'a') return 'link';
+    if (tag === 'button') return 'button';
+    if (tag === 'img' || tag === 'svg') return 'image';
+    if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+    if (tag === 'ul' || tag === 'ol') return 'list';
+    if (tag === 'li') return 'listitem';
+    if (tag === 'dialog') return 'dialog';
+    if (tag === 'nav' || tag === 'menu') return 'menu';
+    return 'node';
+  };
+  const interactive = (el, role) => {
+    const tag = el.tagName.toLowerCase();
+    if (['a', 'button', 'select'].includes(tag)) return true;
+    if (tag === 'input' || tag === 'textarea') return true;
+    if (role === 'textfield') return true;
+    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+    if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+    return false;
+  };
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+    if (testid && testid.trim()) return 'testid:' + testid.trim();
+    const id = el.getAttribute('id');
+    if (id && id.trim()) return 'id:' + id.trim();
+    const name = el.getAttribute('name');
+    if (name && name.trim()) return 'name:' + name.trim();
+    return null;
+  };
+  const nativeInteractive = (el) => {
+    const tag = el.tagName.toLowerCase();
+    if (['a', 'button', 'select', 'textarea', 'summary'].includes(tag)) return true;
+    if (tag === 'input') { const t = (el.getAttribute('type') || 'text').toLowerCase(); return t !== 'hidden'; }
+    if (el.isContentEditable) return true;
+    return false;
+  };
+  const hasDelegationMarker = (el) => {
+    if ((el.getAttribute('role') || '').trim()) return true;
+    if (el.hasAttribute('tabindex')) return true;
+    return false;
+  };
+  const rolePresent = (el) => {
+    const tag = el.tagName.toLowerCase();
+    if (['a', 'button', 'select', 'textarea', 'input', 'summary'].includes(tag)) return true;
+    if (/^h[1-6]$/.test(tag)) return true;
+    const ar = (el.getAttribute('role') || '').trim().toLowerCase();
+    if (!ar) return false;
+    return !['none', 'presentation', 'generic'].includes(ar);
+  };
+  const namePresent = (el) => {
+    const aria = el.getAttribute('aria-label'); if (aria && aria.trim()) return true;
+    const lb = el.getAttribute('aria-labelledby'); if (lb && lb.trim()) return true;
+    const title = el.getAttribute('title'); if (title && title.trim()) return true;
+    const alt = el.getAttribute('alt'); if (alt && alt.trim()) return true;
+    const ph = el.getAttribute('placeholder'); if (ph && ph.trim()) return true;
+    const text = (el.innerText || el.textContent || '').trim();
+    return text.length > 0;
+  };
+  const gestureKindOf = (el, role, native, deleg) => {
+    if (role === 'textfield') return 'field';
+    if (native) return 'button';
+    if (deleg) return 'delegated';
+    return 'tap';
+  };
+  // No CDP: approximate the document-level delegated-click pattern by reading
+  // an inline document.onclick / body.onclick handler (the only listener kind
+  // visible to script). Real addEventListener handlers are invisible here, so
+  // Tauri's delegated detection is best-effort and conservative.
+  const docDelegates = !!(document.onclick || (document.body && document.body.onclick));
+
+  const out = [];
+  const perRole = {};
+  const root = document.body || document.documentElement;
+  const walk = (el, isRoot) => {
+    if (!isRoot && !visible(el)) { for (const c of el.children) walk(c, false); return; }
+    if (!isRoot) {
+      const role = roleOf(el);
+      const inWalk = interactive(el, role);
+      const native = nativeInteractive(el);
+      const parentCursor = el.parentElement ? getComputedStyle(el.parentElement).cursor : '';
+      const cursor = getComputedStyle(el).cursor === 'pointer' && parentCursor !== 'pointer';
+      const deleg = hasDelegationMarker(el);
+      const ownInline = !!el.onclick || el.hasAttribute('onclick');
+      const candidate = inWalk || native || cursor || deleg || ownInline;
+      let sel;
+      if (inWalk) {
+        const idx = perRole[role] || 0; perRole[role] = idx + 1;
+        const key = keyOf(el); sel = key ? 'key:' + key : 'role:' + role + '#' + idx;
+      } else if (candidate) {
+        const key = keyOf(el); sel = key ? 'key:' + key : 'role:' + role + '#gt' + out.length;
+      }
+      if (candidate) {
+        const operable = native || cursor || ownInline || (docDelegates && deleg);
+        // inTabOrder: sequential-focus reachability. An element is in the Tab
+        // sequence iff it is focusable AND its tabIndex is >= 0. A tabindex=-1
+        // element is script/pointer focusable but NOT reachable by Tab (the
+        // motivating <div role=option tabindex=-1> case).
+        const focusable = native || el.tabIndex >= 0 || (el.hasAttribute('tabindex') && el.tabIndex >= 0);
+        const inTabOrder = el.tabIndex >= 0 && focusable;
+        const a11y = {
+          rolePresent: rolePresent(el),
+          namePresent: namePresent(el),
+          inTabOrder: inTabOrder,
+          focusable: focusable,
+        };
+        if (operable) {
+          if (!inTabOrder && !native) {
+            a11y.keyboardActivatable = false;
+          } else {
+            // keyboardActivatable, derived WITHOUT firing the control. We must
+            // NOT synthesize Enter/Space (even via dispatchEvent): a bubbling
+            // keydown fires the app's real handler (a navigation, or a crash) as
+            // a side effect, polluting the crash oracle. A Tauri webview has no
+            // CDP, so we cannot enumerate addEventListener key handlers; the most
+            // we can read cheaply is the native semantics and inline on* handlers.
+            // A native control, or one with an inline key handler, is keyboard-
+            // activatable. Otherwise, since the element is focusable and in the
+            // Tab order, we assume activatable rather than flag a gap we cannot
+            // prove (matches the web runner's no-CDP fallback; it means Tauri
+            // under-reports the click-only-div case the CDP path catches).
+            const inlineKey = !!(el.onkeydown || el.onkeypress || el.onkeyup);
+            a11y.keyboardActivatable = native || inlineKey || focusable;
+          }
+        }
+        out.push({ id: sel, operable: operable, gestureKind: gestureKindOf(el, role, native, deleg), a11y });
+      }
+    }
+    for (const c of el.children) walk(c, false);
+  };
+  if (root) walk(root, true);
+  // Focus trap detection needs a real Tab traversal, which the webview can't do
+  // from script; report false (a missing/false focusTrap is the safe default).
+  return { elements: out, focusTrap: false };
+`;
+
+// Emit the EXPLORE:GROUNDTRUTH record for the current state (Tauri). `sig` is the
+// SAME signature the EXPLORE:STATE for this state carried. Best-effort: a failed
+// probe simply emits nothing.
+async function emitGroundtruth(browser, sig) {
+  let res;
+  try { res = await browser.execute(GROUNDTRUTH_JS); } catch (e) { return; }
+  if (!res) return;
+  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: !!res.focusTrap, elements: res.elements || [] }));
+}
+
 // Exception oracle for the webview. tap() clicks an element via execute(); a
 // throw inside that element's event LISTENER does not propagate back through
 // click()'s return value, it surfaces as an uncaught error on the webview
@@ -843,6 +1034,11 @@ async function main() {
         }),
         unlabeled: snap.unlabeled,
       }));
+      // Operability/accessibility ground truth for this newly-seen state, keyed
+      // by the SAME sig. Tauri has no CDP, so it uses native+cursor+attr signals
+      // and an in-page focusability rule (see GROUNDTRUTH_JS). The synthetic
+      // keydown probe can mutate the DOM, so it runs AFTER the state is recorded.
+      await emitGroundtruth(browser, snap.sig);
     }
     return snap;
   };

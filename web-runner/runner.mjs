@@ -23,6 +23,10 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { PNG } from 'pngjs';
+import {
+  gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth, DEFAULT_GRID,
+} from './probe.mjs';
 
 const APP_URL = process.env.REPROIT_URL || "http://localhost:8080";
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
@@ -42,6 +46,11 @@ const LOCALE = (process.env.REPROIT_LOCALE || '').trim();
 const ENGINE = (process.env.REPROIT_ENGINE || 'chromium').toLowerCase();
 const ENGINES = { chromium, firefox, webkit };
 const BROWSER = ENGINES[ENGINE] || chromium;
+// Universal framebuffer-probe floor (PIECE 2, docs/operability-graph.md). OPT-IN
+// because it is SIDE-EFFECTING + coarse: it synthesizes clicks at a small grid
+// and diffs screenshots to find operable regions with no a11y control (e.g. a
+// canvas/WebGL hit area). Off unless REPROIT_PROBE=1. See probe.mjs.
+const PROBE = process.env.REPROIT_PROBE === '1';
 
 // Substitute ${VAR} from the environment. Journeys encode `secret:` fills as
 // ${REPROIT_SECRET_<ACCT>_<FIELD>} placeholders so plaintext credentials never
@@ -588,6 +597,27 @@ async function snapshot(page, valueNodeSelectors) {
       const st = getComputedStyle(el);
       return st.visibility !== 'hidden' && st.display !== 'none';
     };
+    // REACHABLE: a real user can hit this element. Style-visible is NOT enough,
+    // an offstage control (positioned outside the viewport) or one fully occluded
+    // by another element is style-visible but un-tappable. The floor test is the
+    // SAME hit-test used by the framebuffer probe (runFramebufferProbe ~L1052):
+    // the element's center must lie inside the viewport AND a hit-test there must
+    // resolve to the element or a descendant (so a button whose deepest painted
+    // node is an inner <span> still counts). Used to gate tap candidacy AND the
+    // role+index assignment so an unreachable control is neither offered as an
+    // action nor given an index a replay could resolve to.
+    const reachable = (el) => {
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+      const hit = document.elementFromPoint(cx, cy);
+      if (!hit) return false;
+      return hit === el || el.contains(hit);
+    };
     const fnvLbl = (name) => {
       let h = 0x811c9dc5;
       for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -647,7 +677,13 @@ async function snapshot(page, valueNodeSelectors) {
       if (!isRoot) {
         const name = nameOf(el);
         if (name) labels.push(clipLabel(name));
-        if (interactive(el, role)) {
+        // Tap candidacy requires REACHABILITY, not just interactivity: an
+        // offstage / occluded control is interactive in the DOM but a user can't
+        // reach it, so the explorer must not offer it as an action and ddmin must
+        // not be able to minimize a repro through it. Gating here means such a
+        // control also never consumes a role+index slot (the index is assigned
+        // from rawTaps below), so no replay selector can resolve to it.
+        if (interactive(el, role) && reachable(el)) {
           rawTaps.push({
             role, key: keyOf(el),
             label: name ? clipLabel(name) : '',
@@ -710,6 +746,471 @@ async function snapshot(page, valueNodeSelectors) {
   return snap;
 }
 
+// ====================================================================
+//  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
+//  Two graphs over the SAME tappable walk snapshot() produced:
+//    GRAPH 1 (operableByPointer): is this element actually operable by a
+//      pointer? native interactive OR cursor:pointer OR a real click/pointer
+//      event listener (CDP) OR a DELEGATED target (document/body has a click/
+//      pointerdown listener AND the element carries a role/[data-*]/tabindex
+//      marker -> e.g. <div role=option tabindex=-1> driven by a doc listener).
+//    GRAPH 2 (a11y/keyboard dims): real Tab traversal records which elements
+//      land in document.activeElement (inTabOrder); operable elements are
+//      probed for keyboardActivatable (focus + Enter/Space changes content);
+//      rolePresent = a non-generic ARIA/native role; namePresent = an
+//      accessible name. A focus trap is when Tab cycles within a subset that
+//      never returns to body.
+//  The diff (operable yet not keyboard-reachable / pointer-only / no-role) is
+//  what the Rust oracle flags as a gap. We emit only dimensions we actually
+//  determined; a MISSING a11y field defaults to true (= no gap) in the engine,
+//  so we never assert a healthy dimension we didn't measure.
+//  Keyed by the SAME selector (`sel`) the EXPLORE:STATE elements use, so the
+//  oracle joins ground truth to the state's elements with no translation.
+// ====================================================================
+
+// Walk the live DOM with the exact roleOf/interactive/visible logic snapshot()
+// uses, in the SAME document order, and tag every tappable with a stable index
+// attribute (data-reproit-gt="<i>"). Returns per-element static facts: its
+// selector (identical to snapshot()'s), whether it is natively interactive,
+// whether it has cursor:pointer, whether it carries a delegation marker (role /
+// data-* / tabindex), and the rolePresent / namePresent a11y dims. The
+// listener-based operability (own click listener, delegated via document) is
+// filled in host-side from CDP, keyed by the tag index.
+async function gtCollect(page) {
+  return page.evaluate(() => {
+    const ROLES = {
+      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
+      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
+      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+    };
+    const roleOf = (el) => {
+      const tag = el.tagName.toLowerCase();
+      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+      if (ariaRole) {
+        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+        if (ariaRole === 'heading') return 'header';
+        if (ariaRole === 'img') return 'image';
+        if (ariaRole === 'switch') return 'switch';
+        if (ariaRole === 'link') return 'link';
+        if (ariaRole === 'button') return 'button';
+        if (ROLES[ariaRole]) return ariaRole;
+      }
+      if (tag === 'input') {
+        const t = (el.getAttribute('type') || 'text').toLowerCase();
+        if (t === 'checkbox') return 'checkbox';
+        if (t === 'radio') return 'radio';
+        if (t === 'range') return 'slider';
+        if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+        return 'textfield';
+      }
+      if (tag === 'textarea' || tag === 'select') return 'textfield';
+      if (tag === 'a') return 'link';
+      if (tag === 'button') return 'button';
+      if (tag === 'img' || tag === 'svg') return 'image';
+      if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+      if (tag === 'ul' || tag === 'ol') return 'list';
+      if (tag === 'li') return 'listitem';
+      if (tag === 'dialog') return 'dialog';
+      if (tag === 'nav' || tag === 'menu') return 'menu';
+      return 'node';
+    };
+    const interactive = (el, role) => {
+      const tag = el.tagName.toLowerCase();
+      if (['a', 'button', 'select'].includes(tag)) return true;
+      if (tag === 'input' || tag === 'textarea') return true;
+      if (role === 'textfield') return true;
+      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+      if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+      return false;
+    };
+    const visible = (el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return false;
+      const st = getComputedStyle(el);
+      return st.visibility !== 'hidden' && st.display !== 'none';
+    };
+    // Same reachability floor as snapshot()/tap(): the tappable-walk index advance
+    // below must stay byte-for-byte with snapshot()'s role+index, which now gates
+    // on reachability, so the ground-truth role:<role>#<idx> selectors still join.
+    const reachable = (el) => {
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+      const hit = document.elementFromPoint(cx, cy);
+      if (!hit) return false;
+      return hit === el || el.contains(hit);
+    };
+    const keyOf = (el) => {
+      const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+      if (testid && testid.trim()) return 'testid:' + testid.trim();
+      const id = el.getAttribute('id');
+      if (id && id.trim()) return 'id:' + id.trim();
+      const name = el.getAttribute('name');
+      if (name && name.trim()) return 'name:' + name.trim();
+      return null;
+    };
+    // Native interactive: an element a pointer can drive WITHOUT a listener or
+    // cursor hint, by the platform's own semantics.
+    const nativeInteractive = (el) => {
+      const tag = el.tagName.toLowerCase();
+      if (['a', 'button', 'select', 'textarea', 'summary'].includes(tag)) return true;
+      if (tag === 'input') {
+        const t = (el.getAttribute('type') || 'text').toLowerCase();
+        return t !== 'hidden';
+      }
+      if (el.isContentEditable) return true;
+      return false;
+    };
+    // Delegation marker: an element that is not natively interactive but carries
+    // an authoring signal it is MEANT to be operated, namely an ARIA role or a
+    // tabindex. Combined host-side with a document/body click listener, this is
+    // the <div role=option tabindex=-1> delegated-click pattern. We deliberately
+    // do NOT treat a bare data-* attribute as a marker: data-* is used widely for
+    // non-interactive bookkeeping, so it floods the graph with false delegated
+    // targets; role/tabindex are the precise "this is interactive" signals.
+    const hasDelegationMarker = (el) => {
+      if ((el.getAttribute('role') || '').trim()) return true;
+      if (el.hasAttribute('tabindex')) return true;
+      return false;
+    };
+    // rolePresent: a non-generic role. A native interactive tag (a/button/input/
+    // select/textarea) inherently has a role; otherwise an explicit ARIA role
+    // that is not the generic "none"/"presentation"/"generic".
+    const rolePresent = (el) => {
+      const tag = el.tagName.toLowerCase();
+      if (['a', 'button', 'select', 'textarea', 'input', 'summary'].includes(tag)) return true;
+      if (/^h[1-6]$/.test(tag)) return true;
+      const ar = (el.getAttribute('role') || '').trim().toLowerCase();
+      if (!ar) return false;
+      return !['none', 'presentation', 'generic'].includes(ar);
+    };
+    const namePresent = (el) => {
+      const aria = el.getAttribute('aria-label');
+      if (aria && aria.trim()) return true;
+      const labelledby = el.getAttribute('aria-labelledby');
+      if (labelledby && labelledby.trim()) return true;
+      const title = el.getAttribute('title');
+      if (title && title.trim()) return true;
+      const alt = el.getAttribute('alt');
+      if (alt && alt.trim()) return true;
+      const ph = el.getAttribute('placeholder');
+      if (ph && ph.trim()) return true;
+      const text = (el.innerText || el.textContent || '').trim();
+      return text.length > 0;
+    };
+    const gestureKindOf = (el, role, native, deleg) => {
+      const tag = el.tagName.toLowerCase();
+      if (role === 'textfield') return 'field';
+      if (native) return 'button';
+      if (deleg) return 'delegated';
+      return 'tap';
+    };
+
+    // Clear any stale tags from a prior state, then re-tag in document order.
+    for (const e of document.querySelectorAll('[data-reproit-gt]')) e.removeAttribute('data-reproit-gt');
+    const out = [];
+    // perRole counts ONLY tappable-walk elements, so role:<role>#<idx> selectors
+    // match snapshot()/EXPLORE:STATE byte-for-byte. The ground truth also covers
+    // a BROADER set: elements that are operable by pointer yet the tappable
+    // grammar drops them (the <div role=option tabindex=-1> delegated case is
+    // the motivating one). Such broader-only elements are keyed by their stable
+    // id when they have one (key:id:...), so they still join to a real element.
+    const perRole = {};
+    const root = document.body || document.documentElement;
+    const walk = (el, isRoot) => {
+      if (!isRoot && !visible(el)) { for (const c of el.children) walk(c, false); return; }
+      if (!isRoot) {
+        const role = roleOf(el);
+        // The tappable walk takes only REACHABLE interactives, lockstep with
+        // snapshot(), so role:<role>#<idx> indices match EXPLORE:STATE.
+        const inTappableWalk = interactive(el, role) && reachable(el);
+        const native = nativeInteractive(el);
+        // cursor:pointer is INHERITED, so a clickable parent paints every
+        // descendant with it. Only count it as an OWN operability signal when
+        // this element introduces it (its parent is not already pointer), which
+        // avoids flagging the dozens of nested wrappers under one clickable card.
+        const parentCursor = el.parentElement ? getComputedStyle(el.parentElement).cursor : '';
+        const cursor = getComputedStyle(el).cursor === 'pointer' && parentCursor !== 'pointer';
+        const deleg = hasDelegationMarker(el);
+        // A ground-truth candidate is anything the tappable walk takes OR any
+        // element that is plausibly operable by pointer (native / cursor hint /
+        // a delegation marker), so pointer-only controls outside the keyboard-
+        // reachable grammar are still measured.
+        const candidate = inTappableWalk || native || cursor || deleg;
+        // Keep the per-role index in lockstep with snapshot() by only advancing
+        // it for tappable-walk elements.
+        let sel;
+        if (inTappableWalk) {
+          const idx = perRole[role] || 0;
+          perRole[role] = idx + 1;
+          const key = keyOf(el);
+          sel = key ? 'key:' + key : 'role:' + role + '#' + idx;
+        } else if (candidate) {
+          const key = keyOf(el);
+          // No tappable-walk index to borrow; prefer a stable key. Lacking one,
+          // fall back to a role+document-position key that is at least unique.
+          sel = key ? 'key:' + key : 'role:' + role + '#gt' + out.length;
+        }
+        if (candidate) {
+          const i = out.length;
+          el.setAttribute('data-reproit-gt', String(i));
+          out.push({
+            sel, role, native, cursor, deleg,
+            // reachable: a real user can hit this (on-screen + hit-testable). The
+            // keyboard-activation probe must NOT focus+Enter an UNreachable control
+            // (offstage / occluded), doing so fires its handler and lets reproit
+            // reach a control a user can't, e.g. an offstage submit that throws.
+            reachable: reachable(el),
+            rolePresent: rolePresent(el),
+            namePresent: namePresent(el),
+            gestureKind: gestureKindOf(el, role, native, deleg),
+          });
+        }
+      }
+      for (const c of el.children) walk(c, false);
+    };
+    if (root) walk(root, true);
+    return out;
+  });
+}
+
+// Are there click/pointerdown listeners on the document or body? Those make any
+// element with a delegation marker operable by pointer (the delegated pattern).
+// CDP-only (web + Electron). Returns true if such a listener exists.
+async function gtDocDelegates(cdp) {
+  const targets = ['document', 'document.body'];
+  for (const expr of targets) {
+    try {
+      const { result } = await cdp.send('Runtime.evaluate', { expression: expr });
+      if (!result || !result.objectId) continue;
+      const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
+      if ((listeners || []).some((l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown')) return true;
+    } catch (e) { /* CDP best-effort */ }
+  }
+  return false;
+}
+
+// What kinds of input listener does this tagged element carry? CDP-only.
+// `pointer` = a real click/pointer handler (graph-1 operability); `key` = a real
+// keydown/keypress/keyup handler. The key signal lets us catch "focusable but
+// keyboard-dead" controls (a click-only div) WITHOUT pressing a key: if a
+// non-native focusable control has a pointer handler but no key handler, Enter/
+// Space genuinely do nothing -> a WCAG 2.1.1 gap. Cheaper and more precise than
+// the old focus+Enter probe, and side-effect-free.
+async function gtElementListeners(cdp, i) {
+  try {
+    const { result } = await cdp.send('Runtime.evaluate', {
+      expression: 'document.querySelector(\'[data-reproit-gt="' + i + '"]\')',
+    });
+    if (!result || !result.objectId) return { pointer: false, key: false };
+    const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
+    const ls = listeners || [];
+    return {
+      pointer: ls.some((l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown'),
+      key: ls.some((l) => l.type === 'keydown' || l.type === 'keypress' || l.type === 'keyup'),
+    };
+  } catch (e) { return { pointer: false, key: false }; }
+}
+
+// GRAPH 2 part A: a real Tab traversal from document.body. Press Tab up to
+// `steps` times, recording the tagged index of document.activeElement each time
+// (untagged focus stops record -1). An element's inTabOrder = its index appeared.
+// Focus trap: Tab cycled through a set of elements that never returned focus to
+// body (the active element kept changing among a bounded subset and body was
+// never reached again after leaving it). Returns { inTab:Set<int>, focusTrap }.
+async function gtTabOrder(page, count, steps) {
+  // Start from a clean baseline: blur whatever is focused onto body.
+  await page.evaluate(() => { try { if (document.activeElement) document.activeElement.blur(); document.body.focus(); } catch (e) {} });
+  const inTab = new Set();
+  const visited = [];
+  for (let k = 0; k < steps; k++) {
+    await page.keyboard.press('Tab');
+    const idx = await page.evaluate(() => {
+      const ae = document.activeElement;
+      if (!ae || ae === document.body || ae === document.documentElement) return -2; // body/none
+      const t = ae.getAttribute && ae.getAttribute('data-reproit-gt');
+      return t == null ? -1 : parseInt(t, 10);
+    });
+    visited.push(idx);
+    if (idx >= 0) inTab.add(idx);
+  }
+  // Focus trap: after focus first left body it never came back (no -2 after the
+  // first real focus), yet focus kept moving. A page that lets you Tab back out
+  // to the body/address bar is not trapped.
+  let firstReal = visited.findIndex((v) => v >= 0 || v === -1);
+  let returnedToBody = false;
+  if (firstReal >= 0) {
+    for (let k = firstReal + 1; k < visited.length; k++) if (visited[k] === -2) { returnedToBody = true; break; }
+  }
+  const focusTrap = firstReal >= 0 && !returnedToBody && inTab.size > 0 && inTab.size < count;
+  return { inTab, focusTrap };
+}
+
+// Decode a Playwright PNG screenshot Buffer into a flat RGBA pixel array. Pure
+// wrapper over pngjs so the diff (probe.mjs changedFraction) stays host-pure.
+function pngToRgba(buf) {
+  const png = PNG.sync.read(buf);
+  return { data: png.data, width: png.width, height: png.height };
+}
+
+// PIECE 2: the universal framebuffer-probe floor. For a bounded grid of viewport
+// points, screenshot -> click the point -> screenshot -> diff. A point whose
+// click changed pixels (operable) but which is covered by NO a11y/DOM
+// interactive node is an operable region with no accessible control. DETERMINISTIC
+// pixel-diff only (no ML); the same fraction-of-changed-pixels rule as the
+// flicker oracle. Side-effecting (it clicks the page), so it runs only under
+// REPROIT_PROBE=1 and stays bounded. Returns the operable-but-a11y-absent
+// elements (probeRegionsToGroundtruth shape). Best-effort: any failure -> [].
+// The page is reloaded to the start URL afterwards so the clicks don't corrupt
+// the state the explorer is mapping.
+async function runFramebufferProbe(page) {
+  let vp;
+  try { vp = page.viewportSize() || { width: 1280, height: 800 }; } catch (_) { vp = { width: 1280, height: 800 }; }
+  const pts = gridPoints(vp.width, vp.height, DEFAULT_GRID);
+  const probed = [];
+  for (const pt of pts) {
+    // a11y coverage: is there a DOM interactive / a11y-roled node under this
+    // point? If so the point is already in graph 2; only UNCOVERED operable
+    // points are findings. This is the deterministic "covered by an a11y node"
+    // test the floor needs (elementFromPoint + a role/interactive check).
+    let a11yCovered = true;
+    let beforeBuf, afterBuf;
+    try {
+      a11yCovered = await page.evaluate(({ x, y }) => {
+        const el = document.elementFromPoint(x, y);
+        if (!el) return false;
+        // Walk up: an ancestor may carry the role/handler for this hit area.
+        for (let n = el; n; n = n.parentElement) {
+          const tag = n.tagName ? n.tagName.toLowerCase() : '';
+          if (['a', 'button', 'input', 'select', 'textarea'].includes(tag)) return true;
+          const role = (n.getAttribute && n.getAttribute('role')) || '';
+          if (role) return true;
+          if (n.hasAttribute && (n.hasAttribute('onclick') || n.tabIndex >= 0)) return true;
+        }
+        return false;
+      }, pt);
+    } catch (_) { a11yCovered = true; /* unknown -> don't flag */ }
+
+    try {
+      beforeBuf = await page.screenshot({ clip: clipAround(pt, vp), animations: 'disabled' });
+      await page.mouse.click(pt.x, pt.y, { delay: 10 });
+      await page.waitForTimeout(120);
+      afterBuf = await page.screenshot({ clip: clipAround(pt, vp), animations: 'disabled' });
+    } catch (_) { continue; }
+
+    let changed = 0;
+    try {
+      const a = pngToRgba(beforeBuf);
+      const b = pngToRgba(afterBuf);
+      changed = changedFraction(a.data, b.data);
+    } catch (_) { changed = 0; }
+    probed.push({ x: pt.x, y: pt.y, changed, a11yCovered });
+  }
+  // The clicks may have navigated/mutated the page; restore the start screen so
+  // the explorer's next snapshot reflects the real state, not a probe artifact.
+  try { await page.goto(APP_URL, { waitUntil: 'networkidle' }); await page.waitForTimeout(300); } catch (_) {}
+  const gaps = probeRegionsToGroundtruth(probed);
+  if (gaps.length) log(`JOURNEY[a] step: framebuffer-probe found ${gaps.length} operable region(s) with no a11y control`);
+  return gaps;
+}
+
+// A small clip box around a probe point (so each diff is local + cheap, and a
+// click's local repaint isn't drowned out by a full-page diff). Clamped to the
+// viewport. The box is the SAME before/after, so the diff is well-defined.
+function clipAround(pt, vp) {
+  const half = 40;
+  const x = Math.max(0, Math.min(pt.x - half, vp.width - 1));
+  const y = Math.max(0, Math.min(pt.y - half, vp.height - 1));
+  const width = Math.max(1, Math.min(2 * half, vp.width - x));
+  const height = Math.max(1, Math.min(2 * half, vp.height - y));
+  return { x, y, width, height };
+}
+
+// Build and emit the EXPLORE:GROUNDTRUTH record for the current state. `sig` is
+// the SAME signature the EXPLORE:STATE for this state carried. `cdp` may be null
+// (no listener-based operability then). Best-effort throughout: any probe that
+// fails is simply omitted, so we never emit a dimension we did not measure.
+async function emitGroundtruth(page, cdp, sig) {
+  let els;
+  try { els = await gtCollect(page); } catch (e) { return; }
+  // PIECE 2 floor: when opted in, the framebuffer probe contributes operable
+  // regions that have NO a11y/DOM node (so gtCollect, which is DOM-based, can't
+  // see them). Run it first; its results are appended to the records below.
+  let probeEls = [];
+  if (PROBE) {
+    try { probeEls = await runFramebufferProbe(page); } catch (_) { probeEls = []; }
+  }
+  if (!els || !els.length) {
+    // No DOM-discoverable elements, but the framebuffer probe may still have
+    // found operable canvas/custom regions with no control.
+    log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: probeEls }));
+    return;
+  }
+  // GRAPH 1: listener-based operability via CDP (web + Electron).
+  let docDelegates = false;
+  const ownListener = new Array(els.length).fill(false);
+  const keyListener = new Array(els.length).fill(false);
+  let cdpListeners = false;
+  if (cdp) {
+    cdpListeners = true;
+    docDelegates = await gtDocDelegates(cdp);
+    for (let i = 0; i < els.length; i++) {
+      const { pointer, key } = await gtElementListeners(cdp, i);
+      ownListener[i] = pointer;
+      keyListener[i] = key;
+    }
+  }
+  // GRAPH 2 part A: Tab traversal.
+  let inTab = new Set(), focusTrap = false;
+  try { ({ inTab, focusTrap } = await gtTabOrder(page, els.length, 60)); } catch (e) {}
+
+  const records = [];
+  for (let i = 0; i < els.length; i++) {
+    const e = els[i];
+    const operable = e.native || e.cursor || ownListener[i] || (docDelegates && e.deleg);
+    const a11y = {};
+    // rolePresent / namePresent are always determined (pure DOM).
+    a11y.rolePresent = e.rolePresent;
+    a11y.namePresent = e.namePresent;
+    // inTabOrder: the Tab walk is authoritative for whether it can be reached.
+    a11y.inTabOrder = inTab.has(i);
+    a11y.focusable = inTab.has(i) || e.native;
+    // keyboardActivatable, derived WITHOUT firing the control. Pressing Enter/
+    // Space to probe activation would fire the app's real handler (a navigation
+    // or a destructive/crashing action) as a side effect, polluting the crash
+    // oracle and corrupting fuzz exploration. Instead we reason from structure:
+    //  - must be focusable and on-screen at all; else not activatable.
+    //  - a native control (button/a[href]/input/summary) is activated by the
+    //    platform on Enter/Space, so it counts.
+    //  - any element with a real key listener (keydown/keypress/keyup) counts.
+    //  - a focusable, operable element that is NEITHER native NOR has a key
+    //    listener (the classic click-only `<div role=button tabindex=0>`) is
+    //    keyboard-DEAD: Enter does nothing -> keyboardActivatable=false, a real
+    //    WCAG 2.1.1 gap. This is the case the old focus+Enter probe was meant to
+    //    catch; we now catch it precisely and without side effects.
+    // Without CDP (no listener enumeration) we can't see key handlers, so we
+    // fall back to focusable && reachable rather than flag a gap we can't prove.
+    if (operable) {
+      const focusableOnscreen = a11y.focusable && e.reachable !== false;
+      a11y.keyboardActivatable = cdpListeners
+        ? focusableOnscreen && (e.native || keyListener[i])
+        : focusableOnscreen;
+    }
+    records.push({ id: e.sel, operable, gestureKind: e.gestureKind, a11y });
+  }
+  // Clean up the tagging so it never leaks into a later snapshot/signature.
+  try { await page.evaluate(() => { for (const el of document.querySelectorAll('[data-reproit-gt]')) el.removeAttribute('data-reproit-gt'); }); } catch (e) {}
+
+  // Append the framebuffer-probe floor's findings (operable regions with no DOM/
+  // a11y node). These are addressed by spatial selector, so they never collide
+  // with the DOM `sel` ids above.
+  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap, elements: records.concat(probeEls) }));
+}
+
 // STRUCTURAL tap: resolve a locale-invariant selector and click it. Returns
 // true on success. Mirrors explorer.dart's tapSelector. No visible text is ever
 // used to locate the element.
@@ -724,6 +1225,22 @@ async function tap(page, sel) {
       if (r.width === 0 || r.height === 0) return false;
       const st = getComputedStyle(el);
       return st.visibility !== 'hidden' && st.display !== 'none';
+    };
+    // Same reachability floor as snapshot(): center on-screen AND hit-test there
+    // resolves to the element or a descendant. Kept in lockstep so role+index
+    // resolution counts exactly the candidates snapshot() offered, an offstage
+    // control consumes no index and can't be reached by any selector.
+    const reachable = (el) => {
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+      const hit = document.elementFromPoint(cx, cy);
+      if (!hit) return false;
+      return hit === el || el.contains(hit);
     };
     const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
 
@@ -743,10 +1260,12 @@ async function tap(page, sel) {
         el = document.querySelector('[name="' + cssEscape(val) + '"]');
       }
       if (!el) return false;
-      // A control that exists in the DOM but isn't visible (e.g. behind an auth
-      // gate) is not actionable: report it as a miss so a journey that assumed
-      // it could reach this control is classified stale, not a silent pass.
-      if (!visible(el)) return false;
+      // A control that exists in the DOM but isn't REACHABLE (behind an auth
+      // gate, offstage, or occluded) is not actionable: report it as a miss so a
+      // journey that assumed it could reach this control is classified stale, not
+      // a silent pass. Reachability (not just style-visibility) is the floor so a
+      // keyed selector to an offstage control fails exactly like a user would.
+      if (!reachable(el)) return false;
       el.click();
       return true;
     }
@@ -811,7 +1330,10 @@ async function tap(page, sel) {
         if (target) return;
         if (!visible(el)) { for (const c of el.children) walk(c); return; }
         const r = roleOf(el);
-        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
+        // Count only REACHABLE candidates so the per-role index matches the one
+        // snapshot() assigned (which also gates on reachable). An offstage control
+        // is walked into for its children but never consumes an index here.
+        if (interactive(el, r) && r === role && reachable(el)) { seen++; if (seen === idx) { target = el; return; } }
         for (const c of el.children) walk(c);
       };
       const root = document.body || document.documentElement;
@@ -856,6 +1378,21 @@ async function typeInto(page, sel, value) {
       if (r.width === 0 || r.height === 0) return false;
       const st = getComputedStyle(el);
       return st.visibility !== 'hidden' && st.display !== 'none';
+    };
+    // Same reachability floor as snapshot()/tap(): center on-screen AND hit-test
+    // resolves to the element or a descendant. Kept in lockstep so role+index
+    // resolution counts exactly the fields snapshot() offered.
+    const reachable = (el) => {
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+      const hit = document.elementFromPoint(cx, cy);
+      if (!hit) return false;
+      return hit === el || el.contains(hit);
     };
     const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
 
@@ -930,7 +1467,8 @@ async function typeInto(page, sel, value) {
         if (target) return;
         if (!visible(el)) { for (const c of el.children) walk(c); return; }
         const r = roleOf(el);
-        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
+        // Count only REACHABLE candidates, lockstep with snapshot()'s index.
+        if (interactive(el, r) && r === role && reachable(el)) { seen++; if (seen === idx) { target = el; return; } }
         for (const c of el.children) walk(c);
       };
       const root = document.body || document.documentElement;
@@ -938,9 +1476,10 @@ async function typeInto(page, sel, value) {
       el = target;
     }
     if (!el) return false;
-    // A field that isn't visible (behind an auth gate, a collapsed panel) is not
-    // fillable: a miss, so the journey is stale rather than a silent pass.
-    if (!visible(el)) return false;
+    // A field that isn't REACHABLE (behind an auth gate, a collapsed panel, or
+    // offstage) is not fillable: a miss, so the journey is stale rather than a
+    // silent pass.
+    if (!reachable(el)) return false;
     // Only type into things that hold text; a non-text target is a miss so the
     // caller treats it like a failed action rather than silently no-op'ing.
     const tag = el.tagName.toLowerCase();
@@ -1097,6 +1636,14 @@ async function main() {
   }
   const context = await browser.newContext(contextOpts);
   const page = await context.newPage();
+  // CDP session for ground-truth operability (DOMDebugger.getEventListeners):
+  // detects real click/pointer listeners on elements and the document/body
+  // delegation pattern. Chromium-only; firefox/webkit have no CDP, so the
+  // ground-truth falls back to native + cursor + delegation-marker signals.
+  let gtCdp = null;
+  if (ENGINE === 'chromium') {
+    try { gtCdp = await context.newCDPSession(page); } catch (e) { gtCdp = null; }
+  }
 
   // Exception oracle: uncaught page errors (a throw in an onclick, an
   // unhandled rejection) become the same EXCEPTION block the Flutter
@@ -1220,6 +1767,12 @@ async function main() {
           }),
           unlabeled: snap.unlabeled,
         }));
+        // Operability/accessibility ground truth for this newly-seen state,
+        // keyed by the SAME sig. Emitted once per state (alongside the
+        // EXPLORE:STATE line). The keyboard-activation probe inside can mutate
+        // the DOM, so it runs AFTER the snapshot was captured and the state was
+        // recorded; the next action then drives the live (possibly mutated) DOM.
+        await emitGroundtruth(page, gtCdp, snap.sig);
       }
       return snap;
     }
