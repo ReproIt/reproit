@@ -1,0 +1,1 @@
+{"sig":"abc","focusTrap":false,"elements":[{"id":"role:option#0","operable":true,"a11y":{"inTabOrder":false,"keyboardActivatable":false,"rolePresent":false}},{"id":"key:id:nav","operable":true,"a11y":{"inTabOrder":true,"keyboardActivatable":true,"rolePresent":true}},{"id":"decoration","operable":false,"a11y":{"inTabOrder":false}}]}

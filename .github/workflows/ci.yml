@@ -114,6 +114,42 @@ jobs:
       - name: Signature parity (flutter test)
         run: flutter test
 
+  # Marker-drift guard: each platform's "verbatim" EXPLORE:GROUNDTRUTH golden
+  # (crates/reproit/tests/golden/operability/<platform>.json) is the SINGLE source
+  # of truth the engine contract tests read (crates/reproit/src/model/map.rs,
+  # gaps_from_golden). This job re-runs the REAL agent, canonicalizes the live
+  # marker (JSON-parse, sort keys, DROP the volatile `sig`), and DIFFs it against
+  # the golden, failing + naming the platform/field on any drift -- so a stale
+  # golden / drifted agent can never go green (the bug we hit: a WPF contract test
+  # stayed green while the real marker drifted). See the goldens' README for the
+  # honest live-in-CI vs documented-for-later matrix and the canonicalize+diff tool
+  # (crates/reproit/tests/golden/operability/canonicalize-diff.mjs).
+  #
+  #   LIVE IN CI:  flutter (this job re-captures via `flutter test` and diffs).
+  #   DOCUMENTED:  web (engine motivating-case marker; the web-runner job has no
+  #                Chromium installed), appkit (needs macOS+a11y), wpf (needs the
+  #                Windows VM), qt (Qt/offscreen container, not wired yet), gtk
+  #                (GTK4/xvfb container, not wired yet). Re-capture steps for these
+  #                live in crates/reproit/tests/golden/operability/README.md and
+  #                are run on the toolchain machine when the agent changes.
+  operability-marker-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Flutter operability marker -- live capture vs golden (sig dropped)
+        run: bash crates/reproit/tests/golden/operability/capture-flutter.sh
+      - name: Other platforms (web/appkit/wpf/qt/gtk) -- documented manual re-capture
+        run: |
+          echo "appkit/wpf/qt/gtk need a toolchain not in CI; web has no Chromium in the web-runner job."
+          echo "Re-capture + diff steps: crates/reproit/tests/golden/operability/README.md"
+          echo "Diff a captured marker with: node crates/reproit/tests/golden/operability/canonicalize-diff.mjs <platform> <file>"
+
   android-sdk:
     runs-on: ubuntu-latest
     steps:

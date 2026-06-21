@@ -763,6 +763,47 @@ commentary, no code fences.\n\n{listing}"
 mod tests {
     use super::*;
 
+    /// The VERBATIM `EXPLORE:GROUNDTRUTH` JSON each in-process operability agent
+    /// emits, kept in ONE shared place: `tests/golden/operability/<platform>.json`
+    /// (byte-for-byte the marker the real agent prints). The engine contract tests
+    /// below read these goldens instead of inlining the literal, and a per-platform
+    /// capture-diff CI job (.github/workflows/ci.yml) re-runs the real agent, drops
+    /// the volatile `sig`, and DIFFs the live marker against the same golden. So the
+    /// golden is the single source of truth: if the real marker drifts, the test
+    /// keeps asserting the old contract here while the CI diff catches the drift
+    /// against production, instead of an inline literal silently going stale.
+    fn golden_groundtruth(platform: &str) -> &'static str {
+        match platform {
+            "web" => include_str!("../../tests/golden/operability/web.json"),
+            "appkit" => include_str!("../../tests/golden/operability/appkit.json"),
+            "wpf" => include_str!("../../tests/golden/operability/wpf.json"),
+            "qt" => include_str!("../../tests/golden/operability/qt.json"),
+            "gtk" => include_str!("../../tests/golden/operability/gtk.json"),
+            "flutter" => include_str!("../../tests/golden/operability/flutter.json"),
+            other => panic!("no operability golden for platform {other:?}"),
+        }
+        .trim()
+    }
+
+    /// Parse a platform's golden marker through the real engine, returning the
+    /// state's operability gaps. The golden carries the marker's own `sig`, so we
+    /// read it back out of the JSON rather than hard-coding it at each call site.
+    fn gaps_from_golden(platform: &str) -> OperabilityGaps {
+        let payload = golden_groundtruth(platform);
+        let sig = serde_json::from_str::<Value>(payload)
+            .expect("golden is valid JSON")
+            .get("sig")
+            .and_then(Value::as_str)
+            .expect("golden carries a sig")
+            .to_string();
+        let log = format!("EXPLORE:GROUNDTRUTH {payload}");
+        parse_run(&log)
+            .gaps
+            .get(&sig)
+            .unwrap_or_else(|| panic!("gaps for the {platform} agent state ({sig})"))
+            .clone()
+    }
+
     fn st(desc: &str) -> State {
         State {
             description: desc.to_string(),
@@ -892,13 +933,15 @@ mod tests {
     #[test]
     fn groundtruth_marker_yields_operability_gaps() {
         // The motivating case: a control operable by pointer but not keyboard-
-        // reachable and exposing no role (the finding-div in the dashboard).
-        let log = concat!(
+        // reachable and exposing no role (the finding-div in the dashboard). This
+        // is the web in-process agent's marker, kept in
+        // tests/golden/operability/web.json (sig "abc"); CI re-captures + diffs it.
+        let log = format!(
+            "{}\nEXPLORE:GROUNDTRUTH {}",
             r#"EXPLORE:STATE {"sig":"abc","labels":[],"unlabeled":0}"#,
-            "\n",
-            r#"EXPLORE:GROUNDTRUTH {"sig":"abc","focusTrap":false,"elements":[{"id":"role:option#0","operable":true,"a11y":{"inTabOrder":false,"keyboardActivatable":false,"rolePresent":false}},{"id":"key:id:nav","operable":true,"a11y":{"inTabOrder":true,"keyboardActivatable":true,"rolePresent":true}},{"id":"decoration","operable":false,"a11y":{"inTabOrder":false}}]}"#,
+            golden_groundtruth("web"),
         );
-        let obs = parse_run(log);
+        let obs = parse_run(&log);
         let g = obs.gaps.get("abc").expect("gaps for abc");
         assert_eq!(
             g.pointer_only, 1,
@@ -1018,14 +1061,9 @@ mod tests {
         // window holding a real NSButton, a "fake button" (custom NSView with a
         // click gesture + handler and no a11y role), and a correctly-built
         // accessible custom control. The engine must score exactly one gap row
-        // (the fake button), failing all three a11y dimensions.
-        let log = concat!(
-            r#"EXPLORE:STATE {"sig":"3854aea0","labels":["Real Button","Accessible Custom Button"]}"#,
-            "\n",
-            r#"EXPLORE:GROUNDTRUTH {"focusTrap":false,"sig":"3854aea0","elements":[{"a11y":{"keyboardActivatable":true,"namePresent":true,"focusable":true,"rolePresent":true,"inTabOrder":true},"operable":true,"gestureKind":"button","id":"key:realButton"},{"operable":true,"a11y":{"focusable":false,"inTabOrder":false,"keyboardActivatable":false,"rolePresent":false,"namePresent":false},"id":"key:fakeButton","gestureKind":"button"},{"id":"key:goodCustom","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"keyboardActivatable":true,"focusable":true,"inTabOrder":true}}]}"#,
-        );
-        let obs = parse_run(log);
-        let g = obs.gaps.get("3854aea0").expect("gaps for the agent state");
+        // (the fake button), failing all three a11y dimensions. The marker lives
+        // in tests/golden/operability/appkit.json; CI re-captures + diffs it.
+        let g = gaps_from_golden("appkit");
         // The fake button alone is an operable-but-inaccessible element.
         assert_eq!(g.no_role, 1, "fake button has no a11y role");
         assert_eq!(
@@ -1046,13 +1084,9 @@ mod tests {
         // Button role / no AutomationProperties). Graph 1 (visual tree + handler
         // reflection) and graph 2 (UIElementAutomationPeer) are joined by object
         // identity. The engine must score exactly one gap row (the fake button),
-        // failing all three a11y dimensions; the real Button is clean.
-        let log = r#"EXPLORE:GROUNDTRUTH {"sig":"7ceb451e","focusTrap":false,"elements":[{"id":"SaveButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"DeleteFakeButton","operable":true,"gestureKind":"delegated","a11y":{"rolePresent":false,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}}]}"#;
-        let obs = parse_run(log);
-        let g = obs
-            .gaps
-            .get("7ceb451e")
-            .expect("gaps for the wpf agent state");
+        // failing all three a11y dimensions; the real Button is clean. The marker
+        // lives in tests/golden/operability/wpf.json; CI re-captures + diffs it.
+        let g = gaps_from_golden("wpf");
         assert_eq!(g.no_role, 1, "fake button has no Button role");
         assert_eq!(
             g.keyboard_unreachable, 1,
@@ -1078,12 +1112,8 @@ mod tests {
         // engine must score exactly one gap row (the fake button), failing all
         // three a11y dimensions; the real button is clean. The signature matches
         // the AppKit agent's (3854aea0): same three-control structural descriptor.
-        let log = r#"EXPLORE:GROUNDTRUTH {"elements":[{"a11y":{"focusable":true,"inTabOrder":true,"keyboardActivatable":true,"namePresent":true,"rolePresent":true},"gestureKind":"button","id":"key:realButton","operable":true},{"a11y":{"focusable":false,"inTabOrder":false,"keyboardActivatable":false,"namePresent":false,"rolePresent":false},"gestureKind":"button","id":"key:fakeButton","operable":true},{"a11y":{"focusable":true,"inTabOrder":true,"keyboardActivatable":true,"namePresent":true,"rolePresent":true},"gestureKind":"button","id":"key:goodCustom","operable":true}],"focusTrap":false,"sig":"3854aea0"}"#;
-        let obs = parse_run(log);
-        let g = obs
-            .gaps
-            .get("3854aea0")
-            .expect("gaps for the qt agent state");
+        // The marker lives in tests/golden/operability/qt.json; CI re-captures it.
+        let g = gaps_from_golden("qt");
         assert_eq!(g.no_role, 1, "fake button has no QAccessible role");
         assert_eq!(
             g.keyboard_unreachable, 1,
@@ -1113,18 +1143,41 @@ mod tests {
         // engine counts every operable-but-inaccessible element, so no_role==1
         // (the fake button alone has no role) while the two focusless operable
         // elements (window + fake button) drive keyboard_unreachable/pointer_only.
-        let log = r#"EXPLORE:GROUNDTRUTH {"sig":"44602d5a","focusTrap":false,"elements":[{"id":"role:group#0","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}},{"id":"key:realButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"role:text#1","operable":false,"gestureKind":"","a11y":{"rolePresent":true,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}},{"id":"key:fakeButton","operable":true,"gestureKind":"button","a11y":{"rolePresent":false,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}},{"id":"key:goodCustom","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}},{"id":"role:text#2","operable":false,"gestureKind":"","a11y":{"rolePresent":true,"namePresent":false,"focusable":false,"inTabOrder":false,"keyboardActivatable":false}}]}"#;
-        let obs = parse_run(log);
-        let g = obs
-            .gaps
-            .get("44602d5a")
-            .expect("gaps for the gtk agent state");
+        // The marker lives in tests/golden/operability/gtk.json; CI re-captures it.
+        let g = gaps_from_golden("gtk");
         // The fake button is the only operable element with no accessible role.
         assert_eq!(g.no_role, 1, "fake button alone has no GtkAccessible role");
         // Two operable elements lack focus/keyboard reachability: the fake button
         // and GTK4's window-level click gesture; the real + good buttons are clean.
         assert_eq!(g.keyboard_unreachable, 2);
         assert_eq!(g.pointer_only, 2);
+        assert!(!g.focus_trap);
+    }
+
+    #[test]
+    fn flutter_in_process_agent_groundtruth_detects_fake_button_gap() {
+        // End-to-end contract proof for the in-process Flutter operability agent
+        // (sdk/reproit_flutter/.../operability_fixture_test.dart's groundTruth()).
+        // This is the VERBATIM EXPLORE:GROUNDTRUTH line `flutter test` emits for
+        // the operability fixture: a real ElevatedButton (clean) and a "fake
+        // button" (a bare GestureDetector(onTap:) wrapping Text). Flutter's
+        // semantics DO give the gesture a synthetic button role (rolePresent:true,
+        // gestureKind "tap"), so the gap is NOT no_role; the fake button is the
+        // motivating finding because it is operable by pointer yet has no Focus, so
+        // it is keyboard-unreachable AND not keyboard-activatable. The marker lives
+        // in tests/golden/operability/flutter.json and is RE-CAPTURED by the CI
+        // capture-diff job (`flutter test`); see .github/workflows/ci.yml.
+        let g = gaps_from_golden("flutter");
+        // Flutter exposes the gesture's button role, so there is no no_role gap.
+        assert_eq!(g.no_role, 0, "flutter gives the gesture a button role");
+        assert_eq!(
+            g.keyboard_unreachable, 1,
+            "fake button has no Focus -> not in the tab order"
+        );
+        assert_eq!(
+            g.pointer_only, 1,
+            "fake button is pointer-only (onTap, not keyboard-activatable)"
+        );
         assert!(!g.focus_trap);
     }
 
