@@ -56,7 +56,9 @@ pub(crate) fn report(
                 if kinds.is_empty() {
                     return None;
                 }
-                let source = root.map(|r| attribute_json(r, &it.selector)).unwrap_or_default();
+                let source = root
+                    .map(|r| attribute_json(r, &it.selector))
+                    .unwrap_or_default();
                 Some(json!({ "selector": it.selector, "kinds": kinds, "source": source }))
             })
             .collect();

@@ -858,7 +858,13 @@ async fn main() -> Result<ExitCode> {
                             (m, Some(loaded.root))
                         }
                     };
-                    accessibility::report(&m, root.as_deref(), state.as_deref(), kind.as_deref(), &ctx);
+                    accessibility::report(
+                        &m,
+                        root.as_deref(),
+                        state.as_deref(),
+                        kind.as_deref(),
+                        &ctx,
+                    );
                     Ok(ExitCode::SUCCESS)
                 }
                 MapAction::Verify => {
