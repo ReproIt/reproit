@@ -15,6 +15,8 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
+use crate::repro;
+
 struct Cloud {
     base: String,
     key: Option<String>,
@@ -392,6 +394,143 @@ pub async fn reproduce(
     Ok(())
 }
 
+/// What a pulled cloud package materializes into LOCALLY: the same two on-disk
+/// artifacts `keep` writes (`meta.json` + `replay.json`'s `{seed, replay}`), so a
+/// pulled repro is byte-identical in SHAPE to a kept one and `check` reads it
+/// unchanged. This is the PURE core of `cloud pull`: a replay-package JSON in, a
+/// `Meta` + action sequence out, with no network and no filesystem. The boundary
+/// is one explicit verb; once materialized, the repro is local-first-class.
+pub struct PulledRepro {
+    pub meta: repro::Meta,
+    pub actions: Vec<String>,
+}
+
+/// Materialize a cloud replay package (the bucket endpoint's JSON, or the legacy
+/// `/repro` shape) into a local saved repro, EXACTLY as `keep` would write one.
+///
+/// Field mapping (faithful to `keep_repro` in main.rs):
+///   - `replay`      -> the action sequence (PII-safe `tap:`/`key:`/`type:<sel>=<class>`).
+///   - `seed`        -> the package's `seed` if present, else 0 (cloud sessions
+///                      are deterministic replays, not seeded fuzz runs).
+///   - `id`          -> the content hash over (seed + normalized actions), the
+///                      SAME `repro_id` `keep` uses (self-deduping across machines).
+///   - `alias`       -> the explicit `--as <name>`.
+///   - `trigger_index` -> the replay length (the finding fired after performing
+///                      all of them), mirroring `keep`.
+///   - `trigger_sig` -> the package's `crashSig` (or `startSig` fallback) when
+///                      present, so `check` can re-confirm the same finding.
+///   - `oracle`      -> "crash" (cloud error events are crash-class).
+///   - `status`      -> quarantined (a fresh save, like a fresh keep).
+pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<PulledRepro> {
+    let actions: Vec<String> = pkg["replay"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    if actions.is_empty() {
+        anyhow::bail!(
+            "the cloud package has no executable replay actions (its `replay` is empty); \
+             there is nothing to reproduce locally"
+        );
+    }
+    let seed = pkg["seed"].as_u64().unwrap_or(0);
+    let id = repro::repro_id(seed, &actions);
+    // The crash signature re-confirms the SAME finding on replay; fall back to the
+    // session's start sig, then None (the trigger_index does the work alone).
+    let trigger_sig = pkg["crashSig"]
+        .as_str()
+        .or_else(|| pkg["startSig"].as_str())
+        .map(String::from)
+        .filter(|s| !s.is_empty());
+    let meta = repro::Meta {
+        id,
+        alias: Some(as_name.to_string()),
+        status: repro::Status::Quarantined,
+        seed,
+        created: created.to_string(),
+        last_checked: None,
+        last_result: None,
+        trigger_index: Some(repro::normalize_actions(&actions).len()),
+        trigger_sig,
+        oracle: Some("crash".to_string()),
+    };
+    Ok(PulledRepro { meta, actions })
+}
+
+/// `cloud pull`: EXPLICITLY download a cloud bucket as a first-class LOCAL repro.
+///
+/// This is the ONE cloud boundary in the check loop: it fetches the bucket's
+/// replay package (the content-addressed `GET /v1/apps/:app/buckets/:bucket`, or
+/// the legacy `GET /v1/errors/:app/:idx/repro` with `--idx`), materializes it the
+/// way `keep` does, and writes `.reproit/repros/<id>/{meta,replay}.json`. After
+/// this, `reproit check <name>` runs the STANDARD local, network-free
+/// verification and `reproit repros` lists it -- indistinguishable from a locally
+/// found repro.
+pub async fn pull(
+    root: &std::path::Path,
+    app: &str,
+    bucket: Option<&str>,
+    idx: Option<usize>,
+    as_name: &str,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<()> {
+    let c = Cloud::new(cloud, key);
+    // Prefer the content-addressed bucket endpoint (matches the content-hash
+    // model); accept the legacy errors/idx endpoint when --idx is given instead.
+    let (pkg, source) = match (bucket, idx) {
+        (Some(b), _) => (
+            c.get(&format!("/v1/apps/{app}/buckets/{b}")).await?,
+            format!("bucket {b}"),
+        ),
+        (None, Some(i)) => (
+            c.get(&format!("/v1/errors/{app}/{i}/repro")).await?,
+            format!("error #{i}"),
+        ),
+        (None, None) => anyhow::bail!("pull needs either --bucket <id> or --idx <n>"),
+    };
+
+    let pulled = materialize_pull(&pkg, as_name, &chrono::Local::now().to_rfc3339())?;
+    let meta = &pulled.meta;
+
+    // Write the SAME two artifacts `keep` writes, so `check` reads it unchanged:
+    // replay.json ({seed, replay}) for the action sequence, meta.json for the
+    // identity + trigger context + alias.
+    let dir = repro::repro_dir(root, &meta.id);
+    std::fs::create_dir_all(&dir)?;
+    let replay = serde_json::json!({ "seed": meta.seed, "replay": pulled.actions });
+    std::fs::write(
+        dir.join("replay.json"),
+        serde_json::to_string_pretty(&replay)?,
+    )
+    .with_context(|| format!("writing {}", dir.join("replay.json").display()))?;
+    repro::save_meta(root, meta)?;
+
+    let expected = pkg["expectedError"]
+        .as_str()
+        .or_else(|| pkg["message"].as_str())
+        .map(first_line)
+        .unwrap_or("(unknown)");
+    println!("Pulled {source} from '{app}' as a local repro.");
+    println!("  expected:  {expected}");
+    if let Some(sig) = &meta.trigger_sig {
+        println!("  signature: {sig}");
+    }
+    println!("  replay:    {}", pulled.actions.join(" -> "));
+    println!(
+        "  saved:     {} ({}, alias {})",
+        meta.id,
+        meta.status.as_str(),
+        as_name
+    );
+    println!("  files:     {}", dir.join("meta.json").display());
+    println!("\nnow run: reproit check {as_name}   (standard local verification, no network)");
+    Ok(())
+}
+
 pub async fn diagnose(
     app: &str,
     report: &str,
@@ -482,6 +621,66 @@ mod tests {
             classify_repro(Some("stale"), Some(3)),
             ReproVerdict::Reproduced
         );
+    }
+
+    #[test]
+    fn materialize_pull_writes_a_checkable_repro_shape() {
+        // A bucket replay package (the content-addressed endpoint's shape) ->
+        // Meta + actions identical in SHAPE to what `keep` writes, so `check`
+        // reads it unchanged. This is the PURE core of `cloud pull` (no network,
+        // no fs): given the package JSON, materialize the local repro.
+        let pkg = json!({
+            "bucketId": "b00b",
+            "expectedError": "Uncaught TypeError: state.reset is not a function",
+            "crashSig": "crash:TypeError:state.reset",
+            "startSig": "home",
+            "replay": ["tap:key:id:reset", "key:Enter"],
+            "fixtureSpec": {},
+        });
+        let pulled = materialize_pull(&pkg, "login-crash", "2026-06-21T00:00:00+00:00").unwrap();
+
+        // The action sequence is the package's PII-safe replay, in order.
+        assert_eq!(pulled.actions, vec!["tap:key:id:reset", "key:Enter"]);
+
+        let m = &pulled.meta;
+        // Identity: the SAME content hash `keep`/`check` use (seed 0, normalized
+        // actions). 12 hex chars, deterministic.
+        assert_eq!(m.id, repro::repro_id(0, &pulled.actions));
+        assert_eq!(m.id.len(), 12);
+        // Alias = --as; status quarantined (a fresh save); seed defaulted to 0.
+        assert_eq!(m.alias.as_deref(), Some("login-crash"));
+        assert_eq!(m.status, repro::Status::Quarantined);
+        assert_eq!(m.seed, 0);
+        // Trigger context: index = replay length, sig = crashSig, oracle = crash.
+        assert_eq!(m.trigger_index, Some(2));
+        assert_eq!(
+            m.trigger_sig.as_deref(),
+            Some("crash:TypeError:state.reset")
+        );
+        assert_eq!(m.oracle.as_deref(), Some("crash"));
+        assert_eq!(m.created, "2026-06-21T00:00:00+00:00");
+    }
+
+    #[test]
+    fn materialize_pull_honors_seed_and_startsig_fallback() {
+        // A package carrying an explicit seed and NO crashSig: seed flows into the
+        // id, and the trigger sig falls back to startSig.
+        let pkg = json!({
+            "seed": 7,
+            "startSig": "checkout",
+            "replay": ["tap:key:id:pay"],
+        });
+        let pulled = materialize_pull(&pkg, "pay", "t").unwrap();
+        assert_eq!(pulled.meta.seed, 7);
+        assert_eq!(pulled.meta.id, repro::repro_id(7, &["tap:key:id:pay"]));
+        assert_eq!(pulled.meta.trigger_sig.as_deref(), Some("checkout"));
+    }
+
+    #[test]
+    fn materialize_pull_rejects_empty_replay() {
+        // A package with no executable actions cannot become a check-able repro.
+        let pkg = json!({ "replay": [], "crashSig": "x" });
+        assert!(materialize_pull(&pkg, "x", "t").is_err());
     }
 
     #[test]

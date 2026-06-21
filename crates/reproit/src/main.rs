@@ -744,6 +744,31 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
+    /// EXPLICITLY download a cloud bug as a first-class LOCAL repro. The ONE
+    /// cloud boundary in the check loop: fetches the bucket's replay package and
+    /// writes it as a saved repro under `.reproit/repros/` named `--as <name>`,
+    /// the SAME on-disk shape `keep` produces. Afterwards `reproit check <name>`
+    /// runs the standard local, network-free verification and `reproit repros`
+    /// lists it -- indistinguishable from a locally found repro.
+    /// Prefers the content-addressed `GET /v1/apps/:app/buckets/:bucket`; pass
+    /// `--idx` to use the legacy `GET /v1/errors/:app/:idx/repro` instead.
+    Pull {
+        #[arg(long)]
+        app: String,
+        /// Content-addressed bucket id to pull (preferred). Provide this OR --idx.
+        #[arg(long)]
+        bucket: Option<String>,
+        /// Legacy error index to pull instead of a bucket. Provide this OR --bucket.
+        #[arg(long)]
+        idx: Option<usize>,
+        /// Local name (alias) for the saved repro, used in `check <name>`.
+        #[arg(long = "as", name = "name")]
+        as_name: String,
+        #[arg(long)]
+        cloud: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
     /// Match a free-text bug report to a bucket, then explain (+ optional repro).
     /// Was `triage diagnose`; powers the MCP diagnose entry point.
     Diagnose {
@@ -2340,6 +2365,32 @@ async fn cloud_cmd(config_path: Option<&std::path::Path>, action: CloudAction) -
             } else {
                 triage::reproduce(&app, idx, &journey, run, cloud, key).await
             }
+        }
+        CloudAction::Pull {
+            app,
+            bucket,
+            idx,
+            as_name,
+            cloud,
+            key,
+        } => {
+            if bucket.is_none() && idx.is_none() {
+                anyhow::bail!("cloud pull needs either --bucket <id> or --idx <n>");
+            }
+            // Resolve the local repro store root so the pulled repro lands as a
+            // first-class saved repro under .reproit/repros/, just like `keep`.
+            let loaded = config::load(config_path)?;
+            let (cloud, key) = cloud_creds(cloud, key);
+            triage::pull(
+                &loaded.root,
+                &app,
+                bucket.as_deref(),
+                idx,
+                &as_name,
+                cloud,
+                key,
+            )
+            .await
         }
         CloudAction::Diagnose {
             app,
