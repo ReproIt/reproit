@@ -228,6 +228,39 @@ pub async fn explain(
     Ok(())
 }
 
+/// How a cloud-pulled session replayed. The key distinction `reproduce` must
+/// make: "replayed clean" (the bug did NOT fire, so it is likely data-dependent)
+/// is NOT the same as "could not replay" (the app drifted since the session, so
+/// this run is no verdict on the bug at all). The old code collapsed both into
+/// "clean" and also counted any process failure as reproduced.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReproVerdict {
+    Reproduced,
+    Clean,
+    Stale,
+    Flaky,
+    Unknown,
+}
+
+/// Classify a reproduce run from `reproit check`'s deterministic verdict (its
+/// `--json` `outcome`), falling back to its exit code (1 fail / 2 flaky / 3
+/// stale / 0 pass) if the JSON is unreadable.
+pub(crate) fn classify_repro(outcome: Option<&str>, exit_code: Option<i32>) -> ReproVerdict {
+    match outcome {
+        Some("fail") => ReproVerdict::Reproduced,
+        Some("pass") => ReproVerdict::Clean,
+        Some("stale") => ReproVerdict::Stale,
+        Some("flaky") => ReproVerdict::Flaky,
+        _ => match exit_code {
+            Some(1) => ReproVerdict::Reproduced,
+            Some(2) => ReproVerdict::Flaky,
+            Some(3) => ReproVerdict::Stale,
+            Some(0) => ReproVerdict::Clean,
+            _ => ReproVerdict::Unknown,
+        },
+    }
+}
+
 pub async fn reproduce(
     app: &str,
     idx: usize,
@@ -299,20 +332,49 @@ pub async fn reproduce(
     println!("\nRunning the replay ({journey})...");
     let exe = std::env::current_exe()?;
     let out = std::process::Command::new(exe)
-        .args(["check", journey, "--record", "--warm"])
+        .args(["check", journey, "--record", "--warm", "--json"])
         .output()
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);
-    let reproduced = log.contains("EXCEPTION CAUGHT") || !out.status.success();
+    // Use `check`'s deterministic verdict (its --json `outcome`) rather than
+    // grepping, so "replayed clean" and "could not replay" are distinct.
+    let outcome = log
+        .find('{')
+        .zip(log.rfind('}'))
+        .filter(|(i, j)| j > i)
+        .and_then(|(i, j)| serde_json::from_str::<serde_json::Value>(&log[i..=j]).ok())
+        .and_then(|v| v["outcome"].as_str().map(String::from));
     let marker = log
         .lines()
         .find(|l| l.contains("EXCEPTION CAUGHT"))
         .unwrap_or("");
-    if reproduced {
-        println!("REPRODUCED: the replay re-triggered the failure. {marker}");
-    } else {
-        println!("NOT reproduced this run: the path replayed clean. Likely data-dependent");
-        println!("  -> synthesize from context: {}", repro["context"]);
+    match classify_repro(outcome.as_deref(), out.status.code()) {
+        ReproVerdict::Reproduced => {
+            println!("REPRODUCED: the replay re-triggered the failure in this build. {marker}");
+        }
+        ReproVerdict::Clean => {
+            println!(
+                "NOT reproduced: the path replayed CLEAN (the bug did not fire). Likely \
+                 data-dependent (the production session carried data this replay does not)."
+            );
+            println!("  -> synthesize from context: {}", repro["context"]);
+        }
+        ReproVerdict::Stale => {
+            println!(
+                "COULD NOT REPLAY (stale): the app changed since this session, so a targeted \
+                 control is gone. This is NOT a verdict on the bug. Rebuild the map (`reproit \
+                 map`) and retry; the bug may also be fixed by the UI change."
+            );
+        }
+        ReproVerdict::Flaky => {
+            println!(
+                "FLAKY: the failure reproduced inconsistently across replays (an app race), \
+                 not a clean reproduction."
+            );
+        }
+        ReproVerdict::Unknown => {
+            println!("Could not classify the replay (no verdict from `reproit check`).");
+        }
     }
     Ok(())
 }
@@ -384,6 +446,30 @@ fn first_line(s: &str) -> &str {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn classify_repro_distinguishes_clean_from_stale() {
+        // The JSON verdict wins.
+        assert_eq!(
+            classify_repro(Some("fail"), Some(0)),
+            ReproVerdict::Reproduced
+        );
+        assert_eq!(classify_repro(Some("pass"), Some(0)), ReproVerdict::Clean);
+        assert_eq!(classify_repro(Some("stale"), Some(0)), ReproVerdict::Stale);
+        assert_eq!(classify_repro(Some("flaky"), Some(0)), ReproVerdict::Flaky);
+        // No JSON: fall back to the exit-code contract (1/2/3/0).
+        assert_eq!(classify_repro(None, Some(1)), ReproVerdict::Reproduced);
+        assert_eq!(classify_repro(None, Some(2)), ReproVerdict::Flaky);
+        assert_eq!(classify_repro(None, Some(3)), ReproVerdict::Stale);
+        assert_eq!(classify_repro(None, Some(0)), ReproVerdict::Clean);
+        assert_eq!(classify_repro(None, None), ReproVerdict::Unknown);
+        // The old bug: a stale run (exit 3 / outcome stale) must NOT read as
+        // reproduced just because the process did not exit 0.
+        assert_ne!(
+            classify_repro(Some("stale"), Some(3)),
+            ReproVerdict::Reproduced
+        );
+    }
 
     #[test]
     fn filter_errors_keeps_matching_messages() {
