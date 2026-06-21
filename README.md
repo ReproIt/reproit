@@ -131,6 +131,10 @@ The headline use case is a **production crash reproduced on your machine**: the
 SDK reports the real session and `reproit cloud reproduce <bucket>` replays it
 locally. Self-hosted or managed.
 
+The SDK captures the *structure* of a session, not user data: input values and
+personal data never leave your app (an error attaches only PII-safe derived
+features). Details: [docs/data-handling.md](docs/data-handling.md).
+
 ## MCP
 
 reproit ships **no bundled LLM**: the core (`map`/`fuzz`/`check`) runs key-free
