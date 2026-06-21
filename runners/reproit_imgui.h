@@ -1107,6 +1107,21 @@ void Header(const char* label);               // a header/section title node
 // role is "output" (a value-role) so it is value-bearing by role.
 void Value(const char* label, const char* value);
 
+// ReproIt accessibility declaration (operability/accessibility graph). Immediate-
+// mode GUIs emit NOTHING to any OS accessibility channel, so graph 2 is EMPTY by
+// construction: every interactive widget the header tracks is reported each frame
+// in an EXPLORE:GROUNDTRUTH marker as operable:true with a11y all-false, i.e. the
+// whole interactive surface is honestly a gap (no role, no name, not in tab order,
+// not keyboard-activatable). To SHRINK that gap, the app declares a widget's
+// accessibility BEFORE FrameEnd: A11y("Play##play", "button", "Play", true) marks
+// it as exposing a role + name to AT, so rolePresent/namePresent become true for
+// that widget and the engine no longer counts it as a no_role/unlabeled gap.
+// `idLabel` matches the widget's label (same "##" stable-id rule); `role`/`name`
+// may be NULL; `exposed` defaults false (declared but not actually exposed). The
+// gap is thus MEASURABLE and shrinkable, never silently hidden.
+void A11y(const char* idLabel, const char* role = nullptr,
+          const char* name = nullptr, bool exposed = false);
+
 // --- Screenshot capture (the shoot contract; see the capture core above) ----
 // Register the framebuffer-capture callback the app wires to its renderer (the
 // header cannot know the graphics backend). With -DREPROIT_CAPTURE_GL and no
@@ -1181,6 +1196,18 @@ struct State {
     // tappable elements this frame (stable ids) for action selection.
     std::vector<std::string> frameTappables;
     std::set<std::string> seen;
+
+    // Operability/accessibility graph (EXPLORE:GROUNDTRUTH). Every interactive
+    // widget collected this frame, in document order, with its gesture kind. This
+    // is graph 1 (the ground-truth operable set). Graph 2 (OS accessibility) is
+    // empty by construction for an immediate-mode GUI, so each entry defaults to
+    // a11y all-false unless the app declares it exposed via reproit::A11y().
+    struct Tappable { std::string id; std::string gesture; };
+    std::vector<Tappable> frameWidgets;
+    // App-declared accessibility for this frame, keyed by stable id: whether the
+    // widget exposes a programmatic role / name to AT. Absent => all false.
+    struct A11yDecl { bool role; bool name; };
+    std::map<std::string, A11yDecl> a11y;
 
     // Value-class cap (Layer 2): per structural-node signature (V: stripped), the
     // distinct FULL signatures observed. Once a structural node accumulates more
@@ -1269,12 +1296,23 @@ int alloc(const char* role, const std::string& id, const char* type, const char*
 // Record a leaf widget node and track it as tappable if interactive. `value`
 // (optional) is the node's displayed value for Layer 2 value-state; a value-role
 // node (textfield) or a value_node-flagged node folds it into the V: section.
+// Map a widget role to the GROUNDTRUTH gesture kind (the affordance a pointer
+// user exercises). Text-entry widgets are "field"; everything interactive else
+// is "button" (a discrete activation). Mirrors the docs' gestureKind vocabulary.
+const char* gestureFor(const char* role) {
+    if (role && std::strcmp(role, "textfield") == 0) return "field";
+    return "button";
+}
+
 void emit(const char* role, const char* label, bool interactive,
           const char* type = nullptr, const char* icon = nullptr,
           const char* value = nullptr, bool valueNode = false) {
     std::string id = stableId(label);
     alloc(role, id, type, icon, value, valueNode);
-    if (interactive && !id.empty()) g.frameTappables.push_back(id);
+    if (interactive && !id.empty()) {
+        g.frameTappables.push_back(id);
+        g.frameWidgets.push_back({id, gestureFor(role)});
+    }
 }
 
 // True for exactly the stable id the fuzzer chose this step.
@@ -1329,6 +1367,36 @@ std::string structuralSig() {
     return structural;
 }
 
+// Emit one EXPLORE:GROUNDTRUTH line for the current frame's interactive surface
+// (single-line JSON). Every widget collected this frame is operable:true; its
+// a11y dimensions are all-false BY DEFAULT (immediate-mode GUIs expose nothing to
+// AT), upgraded to rolePresent/namePresent true only where the app declared the
+// widget exposed via reproit::A11y(). inTabOrder + keyboardActivatable stay false:
+// ImGui's interactive widgets are pointer-driven and not part of any reported
+// keyboard/tab order, so this is the honest ground truth. Duplicate ids (a widget
+// emitted twice in a frame) are reported once, keyed by stable id.
+void emitGroundtruth(const std::string& sig) {
+    std::printf("EXPLORE:GROUNDTRUTH {\"sig\":\"%s\",\"focusTrap\":false,\"elements\":[",
+                sig.c_str());
+    std::set<std::string> emitted;
+    bool firstEl = true;
+    for (const auto& w : g.frameWidgets) {
+        if (!emitted.insert(w.id).second) continue;  // dedupe by stable id
+        auto it = g.a11y.find(w.id);
+        bool rolePresent = it != g.a11y.end() && it->second.role;
+        bool namePresent = it != g.a11y.end() && it->second.name;
+        std::printf(
+            "%s{\"id\":\"%s\",\"operable\":true,\"gestureKind\":\"%s\","
+            "\"a11y\":{\"rolePresent\":%s,\"namePresent\":%s,"
+            "\"inTabOrder\":false,\"keyboardActivatable\":false}}",
+            firstEl ? "" : ",", w.id.c_str(), w.gesture.c_str(),
+            rolePresent ? "true" : "false", namePresent ? "true" : "false");
+        firstEl = false;
+    }
+    std::printf("]}\n");
+    std::fflush(stdout);
+}
+
 }  // namespace
 
 void Frame() {
@@ -1336,6 +1404,8 @@ void Frame() {
     g.nNodes = 0;
     g.scope.clear();
     g.frameTappables.clear();
+    g.frameWidgets.clear();
+    g.a11y.clear();
     g.anchor.clear();
     // Synthetic screen root (index 0); window contents nest under it.
     int root = alloc("screen", std::string(), nullptr, nullptr);
@@ -1411,6 +1481,17 @@ void Value(const char* label, const char* value) {
     if (value) ImGui::TextUnformatted(value);
 }
 
+void A11y(const char* idLabel, const char* role, const char* name, bool exposed) {
+    std::string id = stableId(idLabel);
+    if (id.empty()) return;
+    // A widget is role-present / name-present only when the app declares it
+    // exposed AND supplies the corresponding string. `exposed` with no role/name
+    // is a no-op upgrade (still a gap), keeping the result honest.
+    bool rolePresent = exposed && role && *role;
+    bool namePresent = exposed && name && *name;
+    g.a11y[id] = State::A11yDecl{rolePresent, namePresent};
+}
+
 void FrameEnd() {
 #ifdef REPROIT_TELEMETRY
     // Production telemetry path: when telemetry is active, observe the real
@@ -1441,13 +1522,20 @@ void FrameEnd() {
     // as a new edge/state with no extra protocol.
     std::string sig = structuralSig();
     if (g.seen.insert(sig).second) {
-        std::printf("EXPLORE:STATE {\"sig\":\"%s\"}\n", sig.c_str());
+        // labels:[] is required by the engine's STATE parser (map.rs) for the
+        // state to register; immediate-mode GUIs exclude localized text from the
+        // descriptor by construction, so there are no labels to report.
+        std::printf("EXPLORE:STATE {\"sig\":\"%s\",\"labels\":[]}\n", sig.c_str());
         std::fflush(stdout);
-        // Capture a screenshot of each newly discovered state (the shoot
-        // contract). Guarded inside ReproIt_Shoot on REPROIT_SHOTS_DIR + a
-        // registered capture mechanism, so this is a no-op otherwise. The name
-        // is the state signature, which is in [A-Za-z0-9].
-        ReproIt_Shoot(sig.c_str());
+        // The operability/accessibility ground truth for this state. Graph 1 is
+        // every interactive widget the header tracked this frame (operable:true).
+        // Graph 2 (OS accessibility) is EMPTY by construction for immediate-mode
+        // GUIs, so each widget's a11y defaults to all-false -> the engine reports
+        // the whole interactive surface as a gap (no role/name/tab-order/keyboard
+        // activation). reproit::A11y() upgrades rolePresent/namePresent per widget
+        // to shrink that gap. focusTrap is false: ImGui has no modal focus capture
+        // we can observe. Emitted once per newly seen state (same key as STATE).
+        emitGroundtruth(sig);
     }
     if (!g.prevSig.empty() && sig != g.prevSig && !g.fireId.empty()) {
         std::printf("EXPLORE:EDGE {\"from\":\"%s\",\"action\":\"tap:%s\",\"to\":\"%s\"}\n",

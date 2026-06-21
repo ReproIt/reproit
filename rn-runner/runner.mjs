@@ -784,6 +784,215 @@ async function appCrashed(driver) {
   return false;
 }
 
+// ====================================================================
+//  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
+//
+//  Appium's page source (above) is GRAPH 2: the accessibility tree, the subset
+//  of the UI a screen-reader / keyboard user reaches. It is structurally blind
+//  to a control that has an onPress but exposes NO a11y role/label, which is
+//  exactly the WCAG operability gap reproit hunts (docs/operability-graph.md).
+//
+//  GRAPH 1 (ground truth) for React Native comes from the JS side: React's
+//  FIBER TREE knows every node that has a press/gesture handler
+//  (onPress/onPressIn/onLongPress, Pressable, Touchable*, PanResponder,
+//  Gesture.Tap) AND the a11y props the developer exported (accessible,
+//  accessibilityRole, accessibilityLabel, nativeID/testID). A
+//  `<TouchableOpacity onPress>` with accessible={false} / no role is operable by
+//  finger but invisible to AT: a gap.
+//
+//  The engine rule (crates/reproit/src/model/map.rs gaps_from_groundtruth):
+//    operable && (rolePresent==false) -> no_role (WCAG 4.1.2)
+//  We set operable = has-press-handler, rolePresent = accessibilityRole present,
+//  namePresent = accessibilityLabel present. We do NOT assert keyboardActivatable
+//  / inTabOrder on RN (no hardware-keyboard tab model on a touch surface), so
+//  those default true in the engine and never spuriously flag.
+//
+//  HOW WE READ THE FIBER (and its constraints):
+//    - Needs a DEV / Hermes build that exposes the React DevTools global hook
+//      `__REACT_DEVTOOLS_GLOBAL_HOOK__` (present in dev; stripped in release),
+//      or an app that registered `global.__REPROIT_FIBER__`. A release build has
+//      neither, so the probe is a NO-OP there (a11y-only mapping, unchanged).
+//    - The JS bridge runs IN the RN JS runtime. Appium can reach it on Hermes
+//      via the `mobile: executeScript` / inspector channel; the exact transport
+//      is environment-specific, so emitGroundtruth tries the documented hooks
+//      and degrades gracefully (logs why it could not run, never throws).
+//    - The JOIN to graph 2 is by nativeID / testID: the fiber record carries the
+//      node's nativeID/testID and that is the same stable id idOfEl() pulls from
+//      the page source, so the runtime `key:<id>` selector lines up.
+// ====================================================================
+
+// The bridge SOURCE that runs inside the RN JS runtime. It is a self-contained
+// IIFE-returning function body (no closure over runner state) so it can be
+// stringified and injected over whatever JS channel the build exposes. It walks
+// every mounted fiber root and returns a flat array of records:
+//   { id, hasPress, role, label, accessible }
+// id = nativeID || testID (the join key; null if neither). hasPress = any press/
+// gesture handler prop present. role/label = accessibilityRole/accessibilityLabel
+// (null when absent). Pure read; it mutates nothing in the app.
+const FIBER_PROBE_SRC = `(function reproitFiberProbe() {
+  var records = [];
+  var PRESS_PROPS = ['onPress','onPressIn','onPressOut','onLongPress','onClick'];
+  function hasPressProp(props) {
+    if (!props) return false;
+    for (var i = 0; i < PRESS_PROPS.length; i++) {
+      if (typeof props[PRESS_PROPS[i]] === 'function') return true;
+    }
+    // PanResponder spreads its handlers onto props (onStartShouldSetResponder /
+    // onResponderRelease); a Gesture.Tap detector exposes an onGestureEvent.
+    if (typeof props.onResponderRelease === 'function') return true;
+    if (typeof props.onStartShouldSetResponder === 'function') return true;
+    if (typeof props.onStartShouldSetResponderCapture === 'function') return true;
+    if (typeof props.onGestureEvent === 'function') return true;
+    return false;
+  }
+  // A composite type whose NAME implies a press affordance (Pressable,
+  // TouchableOpacity, TouchableHighlight, TouchableWithoutFeedback, Button).
+  function pressByType(type) {
+    if (!type) return false;
+    var name = typeof type === 'string' ? type
+      : (type.displayName || type.name || '');
+    return /Pressable|Touchable|^Button$|^TouchableOpacity$/.test(name);
+  }
+  function recordFiber(fiber) {
+    if (!fiber) return;
+    var props = fiber.memoizedProps || (fiber.pendingProps) || null;
+    if (props) {
+      var id = props.nativeID != null ? props.nativeID
+        : (props.testID != null ? props.testID : null);
+      var hasPress = hasPressProp(props) || pressByType(fiber.type);
+      // Only emit a record for a node that is either operable OR carries a
+      // join id, so the host side has something to reason about. A bare layout
+      // View with neither is noise.
+      if (hasPress || id != null) {
+        records.push({
+          id: id != null ? String(id) : null,
+          hasPress: !!hasPress,
+          role: props.accessibilityRole != null ? String(props.accessibilityRole) : null,
+          label: props.accessibilityLabel != null ? String(props.accessibilityLabel) : null,
+          accessible: props.accessible === undefined ? null : !!props.accessible,
+        });
+      }
+    }
+    // Depth-first over the fiber child/sibling links.
+    var child = fiber.child;
+    while (child) { recordFiber(child); child = child.sibling; }
+  }
+  try {
+    var hook = (typeof global !== 'undefined' && global.__REACT_DEVTOOLS_GLOBAL_HOOK__) ||
+      (typeof window !== 'undefined' && window.__REACT_DEVTOOLS_GLOBAL_HOOK__) || null;
+    // App-registered explicit hook wins (a build can export its fiber roots).
+    var explicit = (typeof global !== 'undefined' && global.__REPROIT_FIBER__) || null;
+    if (explicit && typeof explicit.getRoots === 'function') {
+      var roots = explicit.getRoots() || [];
+      for (var r = 0; r < roots.length; r++) recordFiber(roots[r]);
+    } else if (hook && hook.renderers) {
+      // DevTools hook: getFiberRoots(rendererId) -> Set of FiberRoot, each with
+      // a .current pointer to the root fiber.
+      var ids = [];
+      try { hook.renderers.forEach(function (_v, k) { ids.push(k); }); } catch (e) {}
+      for (var j = 0; j < ids.length; j++) {
+        var set = hook.getFiberRoots ? hook.getFiberRoots(ids[j]) : null;
+        if (!set) continue;
+        set.forEach(function (root) { if (root && root.current) recordFiber(root.current); });
+      }
+    } else {
+      return { ok: false, reason: 'no-fiber-hook', records: [] };
+    }
+  } catch (e) {
+    return { ok: false, reason: String(e && e.message ? e.message : e), records: [] };
+  }
+  return { ok: true, records: records };
+})()`;
+
+// HOST-SIDE pure reducer: turn the raw fiber records the bridge returned into
+// the EXPLORE:GROUNDTRUTH `elements` list. Pure + deterministic (sorted by id),
+// so it is unit-testable in Node WITHOUT a device. The engine rule only consults
+// `operable` + `a11y.{rolePresent,namePresent,...}`:
+//   operable      = the fiber node has a press/gesture handler.
+//   rolePresent   = accessibilityRole was set (else AT sees a generic node).
+//   namePresent   = accessibilityLabel was set.
+// We DON'T claim keyboardActivatable / inTabOrder (no keyboard tab model on a
+// touch surface), so the engine defaults them true and never false-flags those.
+// `nativeIds` is the set of stable ids present in the native page source; when an
+// operable fiber node's id is NOT among them, the native a11y tree never exposed
+// it at all -> rolePresent=false (the strongest no-role signal: invisible to AT).
+function groundtruthFromFiber(records, nativeIds) {
+  const native = nativeIds instanceof Set ? nativeIds : new Set(nativeIds || []);
+  const els = [];
+  let idx = 0;
+  for (const rec of records || []) {
+    if (!rec || !rec.hasPress) continue; // only operable nodes are gap candidates
+    // Join key: the fiber node's nativeID/testID, addressed in reproit's `key:`
+    // grammar so it lines up with the runtime selector (idOfEl pulls the same id).
+    // A node with no id can't be joined or fixed precisely; address it by a
+    // synthetic structural index so the count is still reported.
+    const sel = rec.id != null ? 'key:' + rec.id : 'fiber:press#' + idx;
+    // accessible={false} hides the node from AT entirely: treat as no role AND no
+    // name regardless of what role/label strings were set (they're inert then).
+    const hidden = rec.accessible === false;
+    // An operable node whose id never appeared in the native a11y tree was not
+    // exposed to AT at all -> no role.
+    const inNative = rec.id != null && native.has(rec.id);
+    const rolePresent = !hidden && rec.role != null && (rec.id == null || inNative || native.size === 0);
+    const namePresent = !hidden && rec.label != null;
+    els.push({
+      id: sel,
+      operable: true,
+      gestureKind: 'tap',
+      a11y: {
+        rolePresent,
+        namePresent,
+        // focusable / inTabOrder / keyboardActivatable: not asserted on a touch
+        // surface; omitted so the engine defaults them true (no spurious flag).
+      },
+    });
+    idx++;
+  }
+  // Deterministic order: by selector.
+  els.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return els;
+}
+
+// Run the fiber probe over the RN JS runtime and emit EXPLORE:GROUNDTRUTH for
+// the current state. Best-effort: a release build (no DevTools hook) or a
+// transport that can't reach JS yields an empty-elements marker (still emitted,
+// so the engine records "no gaps observed" rather than nothing). `nativeIds` is
+// the set of stable ids the page-source snapshot saw, for the graph-1<->graph-2
+// join. Never throws.
+async function emitGroundtruth(driver, sig, nativeIds) {
+  let result = null;
+  // Appium exposes the RN JS runtime over `mobile: executeScript` on Hermes /
+  // debug builds. webdriverio surfaces it as executeScript(script, args) or the
+  // legacy execute(script). We try the documented entry points in order and
+  // accept the first that returns our { ok, records } shape.
+  const tryRun = async (fn) => {
+    try {
+      const r = await fn();
+      if (r && typeof r === 'object' && Array.isArray(r.records)) return r;
+    } catch (e) { /* transport unavailable: fall through */ }
+    return null;
+  };
+  if (typeof driver.executeScript === 'function') {
+    result = await tryRun(() => driver.executeScript(FIBER_PROBE_SRC, []));
+  }
+  if (!result && typeof driver.execute === 'function') {
+    result = await tryRun(() => driver.execute(FIBER_PROBE_SRC));
+  }
+  if (!result || !result.ok) {
+    // No fiber access (release build / native-only session): emit an empty
+    // ground-truth so the engine sees the state was probed (no false gaps), and
+    // log why once so the operator knows a dev/Hermes build is needed.
+    const reason = result && result.reason ? result.reason : 'no-js-channel';
+    log('JOURNEY[a] step: groundtruth probe skipped (' + reason + '; needs dev/Hermes build)');
+    log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: [] }));
+    return;
+  }
+  const elements = groundtruthFromFiber(result.records, nativeIds);
+  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements }));
+}
+
+export { groundtruthFromFiber };
+
 async function main() {
   const fuzz = loadFuzz();
   const url = new URL(APPIUM);
@@ -853,6 +1062,12 @@ async function main() {
         }),
         unlabeled: snap.unlabeled,
       }));
+      // GRAPH 1 vs GRAPH 2: once per newly-seen state, probe the React fiber
+      // tree for press handlers + exported a11y props and emit EXPLORE:GROUNDTRUTH
+      // so the engine can diff the operable set against the a11y tree. Joined to
+      // the native page source by the stable ids it just saw. Best-effort.
+      const nativeIds = new Set(snap.elements.map((e) => e.key).filter((k) => k != null));
+      await emitGroundtruth(driver, snap.sig, nativeIds);
     }
     return snap;
   }

@@ -461,6 +461,382 @@ fn snapshot(parser: &Arc<Mutex<vt100::Parser>>) -> (String, String, Vec<String>)
     (sig, fp, labels)
 }
 
+// ── Operability / accessibility signals (EXPLORE:GROUNDTRUTH) ──────────────
+//
+// A TUI has ONE input channel: keystrokes. So the operability "graph 1" (what a
+// user can actually do) and the keyboard/a11y "graph 2" coincide for the normal
+// case, and a gap only shows up at the two edges this section instruments:
+//
+//   SIGNAL A (unlabeled operability): a keystroke that is EFFECTIVE (changed the
+//   structural sig or the content fingerprint) but whose CHANGED grid region
+//   carries NO natural-language word run nearby is an UNLABELED control: it does
+//   something, yet nothing on screen names it. That is the TUI analogue of an
+//   "operable element with no accessible name". We emit it as operable:true with
+//   a11y.namePresent:false (and rolePresent:false, the dimension the engine
+//   actually counts -> `no_role`).
+//
+//   SIGNAL B (mouse-only, gated by REPROIT_TUI_MOUSE=1): we also drive SGR mouse
+//   clicks at deterministic hotspots (bracketed `[ Save ]`, reverse-video runs,
+//   footer hint tokens). A state reached by a click but by NO keystroke is
+//   mouse-only / not keyboard-operable: operable:true, a11y.inTabOrder:false +
+//   keyboardActivatable:false (the engine counts these -> keyboard_unreachable +
+//   pointer_only).
+
+/// A snapshot of the visible cell grid as a row-major char matrix (one char per
+/// cell; wide-char continuations and empty cells render as a space). Used to
+/// locate the DIFF RECTANGLE between two frames and to scan a sub-region for
+/// word runs, both of which need cell coordinates that `contents()` (a single
+/// newline-joined string with trailing blanks trimmed) does not preserve.
+fn grid_of(parser: &Arc<Mutex<vt100::Parser>>) -> Vec<Vec<char>> {
+    let p = parser.lock().unwrap();
+    let screen = p.screen();
+    let (rows, cols) = screen.size();
+    let mut grid = vec![vec![' '; cols as usize]; rows as usize];
+    for r in 0..rows {
+        for c in 0..cols {
+            if let Some(cell) = screen.cell(r, c) {
+                let s = cell.contents();
+                grid[r as usize][c as usize] = s.chars().next().unwrap_or(' ');
+            }
+        }
+    }
+    grid
+}
+
+/// The bounding rectangle (r0..=r1, c0..=c1) of the cells that differ between two
+/// grids, or None if they are identical. The rectangle is the smallest box that
+/// contains every changed cell, the TUI analogue of "which region did this action
+/// repaint". Grids of mismatched dimensions compare on the overlap.
+fn diff_rect(a: &[Vec<char>], b: &[Vec<char>]) -> Option<(usize, usize, usize, usize)> {
+    let rows = a.len().min(b.len());
+    let (mut r0, mut c0, mut r1, mut c1) = (usize::MAX, usize::MAX, 0usize, 0usize);
+    let mut any = false;
+    for r in 0..rows {
+        let cols = a[r].len().min(b[r].len());
+        for c in 0..cols {
+            if a[r][c] != b[r][c] {
+                any = true;
+                r0 = r0.min(r);
+                c0 = c0.min(c);
+                r1 = r1.max(r);
+                c1 = c1.max(c);
+            }
+        }
+    }
+    if any {
+        Some((r0, c0, r1, c1))
+    } else {
+        None
+    }
+}
+
+/// Margin (in cells) grown around the diff rectangle before scanning for a word.
+/// A label often sits just outside the cells that actually repaint (a menu row
+/// whose `> ` marker moves while its text is static, a checkbox `[x]` whose label
+/// is to the right), so we look a little wider than the literal diff.
+const WORD_MARGIN: usize = 6;
+
+/// Does the region (diff rectangle grown by `WORD_MARGIN`) of `grid` contain a
+/// natural-language WORD RUN? A "word" is a run of >= 2 alphabetic chars after
+/// blanking box/block glyphs, the same notion of "a human-readable label" as
+/// `labels_of`, but scoped to a rectangle instead of the whole screen. We require
+/// length >= 2 so a lone marker letter (`x` in `[x]`, a `>` cursor) is not
+/// mistaken for a label. Returns true if any such run exists in the region.
+fn region_has_word(grid: &[Vec<char>], rect: (usize, usize, usize, usize)) -> bool {
+    let (r0, c0, r1, c1) = rect;
+    let rows = grid.len();
+    let r_lo = r0.saturating_sub(WORD_MARGIN);
+    let r_hi = (r1 + WORD_MARGIN).min(rows.saturating_sub(1));
+    for row in grid.iter().take(r_hi + 1).skip(r_lo) {
+        let cols = row.len();
+        if cols == 0 {
+            continue;
+        }
+        let c_lo = c0.saturating_sub(WORD_MARGIN);
+        let c_hi = (c1 + WORD_MARGIN).min(cols - 1);
+        let mut run = 0usize;
+        for &ch in row.iter().take(c_hi + 1).skip(c_lo) {
+            // box/block glyphs are not text (mirror labels_of's blanking).
+            let is_box = ('\u{2500}'..='\u{259f}').contains(&ch);
+            if ch.is_alphabetic() && !is_box {
+                run += 1;
+                if run >= 2 {
+                    return true;
+                }
+            } else {
+                run = 0;
+            }
+        }
+    }
+    false
+}
+
+/// One ground-truth element accumulated for a state. Serialized into the
+/// `elements` array of an `EXPLORE:GROUNDTRUTH` line. The a11y dims default to
+/// "present/true" at the engine and are only emitted when KNOWN-false, so we keep
+/// the struct minimal and let serde omit the rest.
+#[derive(Clone)]
+struct GtElement {
+    id: String,
+    gesture_kind: &'static str,
+    /// false => emit a11y.namePresent:false + rolePresent:false (Signal A).
+    name_present: bool,
+    /// false => emit a11y.inTabOrder:false + keyboardActivatable:false (Signal B).
+    keyboard_operable: bool,
+}
+
+/// Accumulates `EXPLORE:GROUNDTRUTH` elements per state signature, and emits one
+/// consolidated marker line per state whenever its element set changes. Keyed by
+/// element id so a control rediscovered on a later visit does not double-count.
+struct Groundtruth {
+    /// sig -> (id -> element)
+    by_state: BTreeMap<String, BTreeMap<String, GtElement>>,
+    /// sigs that have a focus trap observed (none, for now: TUIs have no Tab-
+    /// ring we can prove trapped, so this stays false and is here for parity).
+    focus_trap: BTreeSet<String>,
+}
+
+impl Groundtruth {
+    fn new() -> Self {
+        Groundtruth {
+            by_state: BTreeMap::new(),
+            focus_trap: BTreeSet::new(),
+        }
+    }
+
+    /// Record an element for `sig` and (re)emit the state's groundtruth line if
+    /// the element was new or changed. Returns true if a line was emitted.
+    fn record(&mut self, sig: &str, el: GtElement) -> bool {
+        let map = self.by_state.entry(sig.to_string()).or_default();
+        let changed = match map.get(&el.id) {
+            Some(prev) => {
+                prev.gesture_kind != el.gesture_kind
+                    || prev.name_present != el.name_present
+                    || prev.keyboard_operable != el.keyboard_operable
+            }
+            None => true,
+        };
+        if changed {
+            map.insert(el.id.clone(), el);
+            self.emit(sig);
+        }
+        changed
+    }
+
+    /// Emit `EXPLORE:GROUNDTRUTH` for one state. The `sig` is byte-identical to
+    /// the `EXPLORE:STATE` sig so the engine keys the gaps to the same node. Each
+    /// element carries `operable:true` plus the a11y dims that are KNOWN-false;
+    /// dims left out default to true at the engine, so we only ever ASSERT a
+    /// failure we actually observed.
+    fn emit(&self, sig: &str) {
+        let Some(map) = self.by_state.get(sig) else {
+            return;
+        };
+        let elements: Vec<serde_json::Value> = map
+            .values()
+            .map(|el| {
+                let mut a11y = serde_json::Map::new();
+                if !el.name_present {
+                    // unlabeled control: no accessible name, and (the dimension
+                    // the engine counts) no exposed role.
+                    a11y.insert("namePresent".into(), serde_json::Value::Bool(false));
+                    a11y.insert("rolePresent".into(), serde_json::Value::Bool(false));
+                }
+                if !el.keyboard_operable {
+                    // mouse-only control: not in the (nonexistent) keyboard tab
+                    // order, and not keyboard-activatable.
+                    a11y.insert("inTabOrder".into(), serde_json::Value::Bool(false));
+                    a11y.insert("keyboardActivatable".into(), serde_json::Value::Bool(false));
+                }
+                serde_json::json!({
+                    "id": el.id,
+                    "operable": true,
+                    "gestureKind": el.gesture_kind,
+                    "a11y": serde_json::Value::Object(a11y),
+                })
+            })
+            .collect();
+        let payload = serde_json::json!({
+            "sig": sig,
+            "focusTrap": self.focus_trap.contains(sig),
+            "elements": elements,
+        });
+        emit(&format!("EXPLORE:GROUNDTRUTH {payload}"));
+    }
+}
+
+/// A deterministic mouse hotspot: a (row, col) cell to click, plus a stable id
+/// describing where it came from. Signal B clicks these.
+struct Hotspot {
+    row: u16,
+    col: u16,
+    id: String,
+}
+
+/// Scan the grid for deterministic mouse hotspots, in a stable scan order:
+///   - bracketed labels: `[ Save ]`, `[Yes]`, `<OK>` -> click the bracket center.
+///   - reverse-video (highlighted/selected) cell runs -> click the run center.
+///   - footer hint tokens advertised as keys -> already keyboard-reachable, so
+///     they are NOT added (a mouse click there would never be "mouse-only").
+/// Returns at most `cap` hotspots so a dense screen cannot explode the budget.
+fn mouse_hotspots(parser: &Arc<Mutex<vt100::Parser>>, cap: usize) -> Vec<Hotspot> {
+    let p = parser.lock().unwrap();
+    let screen = p.screen();
+    let (rows, cols) = screen.size();
+    let mut spots: Vec<Hotspot> = Vec::new();
+    // Bracketed-label hotspots: an open bracket/angle, some text, a close.
+    for r in 0..rows {
+        let mut open: Option<u16> = None;
+        for c in 0..cols {
+            let ch = screen
+                .cell(r, c)
+                .and_then(|cell| cell.contents().chars().next())
+                .unwrap_or(' ');
+            match ch {
+                '[' | '<' => open = Some(c),
+                ']' | '>' => {
+                    if let Some(o) = open.take() {
+                        if c > o {
+                            let mid = o + (c - o) / 2;
+                            spots.push(Hotspot {
+                                row: r,
+                                col: mid,
+                                id: format!("bracket:{r},{o}"),
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // Reverse-video run hotspots: a maximal run of inverse cells is a highlighted
+    // / selected widget; click its center.
+    for r in 0..rows {
+        let mut run_start: Option<u16> = None;
+        for c in 0..=cols {
+            let inv = c < cols
+                && screen
+                    .cell(r, c)
+                    .map(|cell| cell.inverse())
+                    .unwrap_or(false);
+            match (inv, run_start) {
+                (true, None) => run_start = Some(c),
+                (false, Some(s)) => {
+                    let end = c - 1;
+                    let mid = s + (end - s) / 2;
+                    spots.push(Hotspot {
+                        row: r,
+                        col: mid,
+                        id: format!("reverse:{r},{s}"),
+                    });
+                    run_start = None;
+                }
+                _ => {}
+            }
+        }
+    }
+    spots.truncate(cap);
+    spots
+}
+
+/// Enable SGR mouse reporting on the slave PTY, the way a terminal would for an
+/// app that requested it: 1000 (button events) + 1006 (SGR extended encoding).
+/// Apps that called mousemask()/enabled mouse will now receive clicks; apps that
+/// did not simply ignore the report bytes (harmless).
+fn enable_mouse_reporting(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
+    if let Ok(mut w) = writer.lock() {
+        let _ = w.write_all(b"\x1b[?1000h\x1b[?1006h");
+        let _ = w.flush();
+    }
+}
+
+/// Send one SGR mouse click (press + release) at a 0-based (row, col) cell. SGR
+/// mouse coordinates are 1-based, so we add 1. `\x1b[<0;C;Rm` is button-0 press,
+/// `m` (vs `M`) is release in the SGR encoding; we send press then release so an
+/// app that only reacts on release still fires.
+fn send_mouse_click(writer: &Arc<Mutex<Box<dyn Write + Send>>>, row: u16, col: u16) {
+    let (c, r) = (col + 1, row + 1);
+    let press = format!("\x1b[<0;{c};{r}M");
+    let release = format!("\x1b[<0;{c};{r}m");
+    if let Ok(mut w) = writer.lock() {
+        let _ = w.write_all(press.as_bytes());
+        let _ = w.write_all(release.as_bytes());
+        let _ = w.flush();
+    }
+}
+
+/// Signal B driver: relaunch the app, enable mouse reporting, and click each
+/// deterministic hotspot from the start screen, recording any state a click
+/// reaches that NO keystroke did (a mouse-only / not-keyboard-operable control).
+/// Deterministic: hotspots are scanned in a fixed order and clicked once each,
+/// from a freshly relaunched start state per click so clicks don't compound.
+fn mouse_probe(
+    cmdline: &str,
+    seen: &mut BTreeSet<String>,
+    keyboard_reached: &BTreeSet<String>,
+    gt: &mut Groundtruth,
+) {
+    // Cap on hotspots clicked, so a button-dense screen can't blow the budget.
+    const MOUSE_BUDGET: usize = 12;
+    emit("JOURNEY[a] step: mouse probe (Signal B) enabled");
+    // Find the start-screen hotspots once (from a throwaway session), then click
+    // each from its own fresh relaunch so the click is the ONLY input.
+    let Ok((master0, mut child0, parser0, _w0)) = spawn_session(cmdline) else {
+        return;
+    };
+    std::thread::sleep(Duration::from_millis(900));
+    let start_sig = snapshot(&parser0).0;
+    let hotspots = mouse_hotspots(&parser0, MOUSE_BUDGET);
+    let _ = child0.kill();
+    drop(master0);
+    if hotspots.is_empty() {
+        return;
+    }
+    for hs in &hotspots {
+        let Ok((master, mut child, parser, writer)) = spawn_session(cmdline) else {
+            continue;
+        };
+        std::thread::sleep(Duration::from_millis(900));
+        enable_mouse_reporting(&writer);
+        std::thread::sleep(Duration::from_millis(60));
+        send_mouse_click(&writer, hs.row, hs.col);
+        std::thread::sleep(Duration::from_millis(300));
+        if looks_crashed(&parser) {
+            // A click that crashes the app is a finding, but Signal B is about
+            // operability gaps, not the crash oracle; leave crash reporting to
+            // the keyboard pass and just move on.
+            let _ = child.kill();
+            drop(master);
+            continue;
+        }
+        let (sig, _fp, _labels) = snapshot(&parser);
+        // Register a never-before-seen state so the engine knows the node, then
+        // decide: a state the click reached that NO keystroke reached, and that
+        // differs from the start screen, is mouse-only.
+        if seen.insert(sig.clone()) {
+            let labels = snapshot(&parser).2;
+            let payload = serde_json::json!({ "sig": sig, "labels": labels });
+            emit(&format!("EXPLORE:STATE {payload}"));
+        }
+        if sig != start_sig && !keyboard_reached.contains(&sig) {
+            // The control on the START screen at this hotspot is mouse-only: it
+            // led somewhere the keyboard never did. Emit it on the start sig.
+            gt.record(
+                &start_sig,
+                GtElement {
+                    id: hs.id.clone(),
+                    gesture_kind: "mouse",
+                    name_present: true, // labeling is orthogonal here
+                    keyboard_operable: false,
+                },
+            );
+        }
+        let _ = child.kill();
+        drop(master);
+    }
+}
+
 fn looks_crashed(parser: &Arc<Mutex<vt100::Parser>>) -> bool {
     let contents = parser.lock().unwrap().screen().contents();
     contents.contains("panicked at")
@@ -617,6 +993,20 @@ pub fn run() -> Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.5);
+    // Operability/accessibility ground truth (EXPLORE:GROUNDTRUTH). Signal A
+    // (unlabeled effective controls) is always on; Signal B (SGR mouse clicks ->
+    // mouse-only controls) is gated behind REPROIT_TUI_MOUSE=1 because it sends
+    // mouse-reporting escapes and extra input the default keyboard-only run does
+    // not, and not every app honors it.
+    let mut gt = Groundtruth::new();
+    let mouse = std::env::var("REPROIT_TUI_MOUSE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    // States reached by a keystroke this run: a state in here that a mouse click
+    // ALSO reaches is keyboard-operable; a state ONLY a click reaches is the
+    // mouse-only gap Signal B emits. The launch/start states seed it (reachable
+    // with no input at all, so never mouse-only).
+    let mut keyboard_reached: BTreeSet<String> = BTreeSet::new();
     let mut failed = false;
     let mut i = 0usize;
     let mut sessions = 0u32;
@@ -660,6 +1050,9 @@ pub fn run() -> Result<()> {
         };
         std::thread::sleep(Duration::from_millis(if sessions == 1 { 900 } else { 450 }));
         let (mut cur_sig, mut cur_fp, _) = emit_state(&parser, &mut seen);
+        // The start/launch state is reachable with NO input, so it can never be
+        // a mouse-only state (Signal B).
+        keyboard_reached.insert(cur_sig.clone());
         if frames_path.is_some() && frames.is_empty() {
             let scr = parser.lock().unwrap().screen().contents();
             frames.push(serde_json::json!({ "action": "(launch)", "screen": scr }));
@@ -793,6 +1186,9 @@ pub fn run() -> Result<()> {
                     .map(|s| s.as_bytes().to_vec())
                     .unwrap_or_default(),
             };
+            // Capture the grid BEFORE the keypress so Signal A can locate the
+            // rectangle this action repaints (the diff between before and after).
+            let pre_grid = grid_of(&parser);
             if !bytes.is_empty() {
                 if let Ok(mut w) = writer.lock() {
                     let _ = w.write_all(&bytes);
@@ -866,6 +1262,35 @@ pub fn run() -> Result<()> {
                 let payload = serde_json::json!({ "from": cur_sig, "action": act, "to": next_sig });
                 emit(&format!("EXPLORE:EDGE {payload}"));
             }
+            // A keystroke reaching `next_sig` proves that state is keyboard-
+            // operable (feeds Signal B's mouse-only test).
+            keyboard_reached.insert(next_sig.clone());
+            // SIGNAL A (unlabeled operability): this keystroke was EFFECTIVE, so a
+            // control on the CURRENT screen does something. Find the rectangle it
+            // repainted and check whether any natural-language word sits in (or
+            // near) that rectangle. No word -> an UNLABELED control: operable, but
+            // nothing on screen names it. Emit it on `cur_sig` (the screen the
+            // control lives on) with namePresent:false (+rolePresent:false, the
+            // dimension the engine counts as a gap).
+            if effective {
+                let post_grid = grid_of(&parser);
+                if let Some(rect) = diff_rect(&pre_grid, &post_grid) {
+                    if !region_has_word(&post_grid, rect) && !region_has_word(&pre_grid, rect) {
+                        let (r0, c0, _, _) = rect;
+                        gt.record(
+                            &cur_sig,
+                            GtElement {
+                                // id: where the effect appeared, stable across runs
+                                // for the same control (region anchor, not the key).
+                                id: format!("region:{r0},{c0}"),
+                                gesture_kind: "key",
+                                name_present: false,
+                                keyboard_operable: true,
+                            },
+                        );
+                    }
+                }
+            }
             // `stuck` is the no-progress counter that ends a session. An action
             // with ANY effect (a new node, or just a value tick) resets it, so a
             // value-state app does not get abandoned as stalled.
@@ -879,6 +1304,17 @@ pub fn run() -> Result<()> {
         }
         let _ = child.kill();
         drop(master);
+    }
+
+    // SIGNAL B (mouse-only operability), gated behind REPROIT_TUI_MOUSE=1. Drive
+    // deterministic SGR mouse clicks at hotspots (bracketed labels, reverse-video
+    // runs) and watch for states that a click reaches but NO keystroke did. Such
+    // a state is reachable only by pointer -> the control that leads there is
+    // mouse-only / not keyboard-operable. Runs in its own fresh session(s) so it
+    // never perturbs the keyboard exploration above; failures (an app that ignores
+    // mouse reporting) are silent, the keyboard signal still stands.
+    if mouse && !failed {
+        mouse_probe(&cmdline, &mut seen, &keyboard_reached, &mut gt);
     }
 
     emit(&format!(
@@ -992,6 +1428,104 @@ mod tests {
         assert!(
             !bound2.contains("key:j"),
             "no keymap, blank screen -> j not bound"
+        );
+    }
+
+    // ── Operability signals (EXPLORE:GROUNDTRUTH) ─────────────────────────
+
+    fn grid(rows: &[&str]) -> Vec<Vec<char>> {
+        rows.iter().map(|r| r.chars().collect()).collect()
+    }
+
+    #[test]
+    fn diff_rect_finds_the_smallest_changed_box() {
+        let a = grid(&["....", "....", "...."]);
+        let mut b = a.clone();
+        b[1][1] = 'X';
+        b[1][2] = 'Y';
+        assert_eq!(diff_rect(&a, &b), Some((1, 1, 1, 2)));
+        assert_eq!(diff_rect(&a, &a), None, "identical grids => no diff");
+    }
+
+    #[test]
+    fn region_has_word_distinguishes_labels_from_bare_markers() {
+        // A region containing the word "Save" -> labeled (has a word run).
+        let labeled = grid(&["[ Save ]"]);
+        assert!(region_has_word(&labeled, (0, 0, 0, 7)));
+        // A region with only single-char markers / digits / symbols -> unlabeled
+        // (a toggled `*`, a moved `>` cursor, a `[x]` checkbox glyph).
+        let unlabeled = grid(&["[*]  > 1"]);
+        assert!(
+            !region_has_word(&unlabeled, (0, 0, 0, 7)),
+            "bare markers are not a word run"
+        );
+    }
+
+    #[test]
+    fn groundtruth_emits_only_known_false_a11y_dims() {
+        let mut gt = Groundtruth::new();
+        // Signal A element: unlabeled (namePresent:false) but keyboard-operable.
+        let emitted = gt.record(
+            "sigA",
+            GtElement {
+                id: "region:3,5".into(),
+                gesture_kind: "key",
+                name_present: false,
+                keyboard_operable: true,
+            },
+        );
+        assert!(emitted, "a new element triggers an emit");
+        // Re-recording the same element is a no-op (no double count).
+        assert!(
+            !gt.record(
+                "sigA",
+                GtElement {
+                    id: "region:3,5".into(),
+                    gesture_kind: "key",
+                    name_present: false,
+                    keyboard_operable: true,
+                },
+            ),
+            "an unchanged element does not re-emit"
+        );
+
+        // Reconstruct the engine's gap rule over what we'd serialize, to prove a
+        // Signal-A element counts as a no_role gap (rolePresent:false) and a
+        // Signal-B element counts as pointer_only + keyboard_unreachable.
+        let count_gaps = |gt: &Groundtruth, sig: &str| -> (u32, u32, u32) {
+            let map = gt.by_state.get(sig).unwrap();
+            let (mut pointer_only, mut kb_unreach, mut no_role) = (0u32, 0u32, 0u32);
+            for el in map.values() {
+                if !el.name_present {
+                    no_role += 1; // rolePresent:false emitted -> engine's no_role
+                }
+                if !el.keyboard_operable {
+                    pointer_only += 1; // keyboardActivatable:false -> pointer_only
+                    kb_unreach += 1; // inTabOrder:false -> keyboard_unreachable
+                }
+            }
+            (pointer_only, kb_unreach, no_role)
+        };
+        assert_eq!(
+            count_gaps(&gt, "sigA"),
+            (0, 0, 1),
+            "unlabeled => one no_role"
+        );
+
+        // Signal B element: mouse-only (keyboard_operable:false), labeled.
+        gt.record(
+            "sigB",
+            GtElement {
+                id: "bracket:2,4".into(),
+                gesture_kind: "mouse",
+                name_present: true,
+                keyboard_operable: false,
+            },
+        );
+        assert_eq!(
+            count_gaps(&gt, "sigB"),
+            (1, 1, 0),
+            "mouse-only => pointer_only + keyboard_unreachable"
         );
     }
 }

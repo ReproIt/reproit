@@ -1084,6 +1084,20 @@ void ReproIt_Clay_Screen(const char* name);    // optional screen/route anchor
 // the canonical signature's V: section; a value change then yields a new state.
 void ReproIt_Clay_Value(const char* stringId, const char* value);
 
+// Declare an element's accessibility (operability/accessibility graph). Clay, like
+// Dear ImGui, emits NOTHING to any OS accessibility channel, so graph 2 is EMPTY
+// by construction: every clickable element the header tracks is reported each
+// frame in an EXPLORE:GROUNDTRUTH marker as operable:true with a11y all-false, so
+// the whole interactive surface is honestly a gap (no role, no name, not in tab
+// order, not keyboard-activatable). To SHRINK that gap, the app declares an
+// element exposed BEFORE FrameEnd: ReproIt_Clay_A11y("Button_Play", "button",
+// "Play", true) marks it as exposing a role + name to AT, so rolePresent/
+// namePresent become true for that element and the engine no longer counts it as
+// a no_role/unlabeled gap. `stringId` matches the element's CLAY_ID string;
+// `role`/`name` may be NULL; `exposed` defaults false (declared but not exposed).
+void ReproIt_Clay_A11y(const char* stringId, const char* role,
+                       const char* name, bool exposed);
+
 // --- Screenshot capture (the shoot contract; see the capture core above) ----
 // Register the framebuffer-capture callback the app wires to its renderer (the
 // header cannot know the graphics backend); with -DREPROIT_CAPTURE_GL and no
@@ -1160,10 +1174,20 @@ typedef struct {
     char capFull[REPROIT_CLAY_MAX][9];   // (struct, full) pairs, flat
     int nCap;
 
-    // tappable elements this frame (for action selection)
+    // tappable elements this frame (for action selection). tapGesture[i] is the
+    // GROUNDTRUTH gesture kind for tapIds[i]/tapNames[i] (graph 1).
     uint32_t tapIds[REPROIT_CLAY_MAX];
     char tapNames[REPROIT_CLAY_MAX][REPROIT_CLAY_STR];
+    char tapGesture[REPROIT_CLAY_MAX][REPROIT_CLAY_STR];
     int nTaps;
+
+    // App-declared accessibility marks for this frame (operability/accessibility
+    // graph). For each declared element: its stringId and whether it exposes a
+    // programmatic role / name to AT. Absent => all false (the honest default).
+    char a11yId[REPROIT_CLAY_MAX][REPROIT_CLAY_STR];
+    bool a11yRole[REPROIT_CLAY_MAX];
+    bool a11yName[REPROIT_CLAY_MAX];
+    int nA11y;
 
     // seen-state ring (signatures)
     char seen[REPROIT_CLAY_MAX][9];
@@ -1326,6 +1350,7 @@ void ReproIt_Clay_Frame(Clay_RenderCommandArray commands) {
     rc.nNodes = 0;
     rc.nTaps = 0;
     rc.nMarks = 0;
+    rc.nA11y = 0;
     ReproItSig_Node* root = reproit_clay_alloc("screen", NULL);  // index 0
     (void)root;
 
@@ -1376,22 +1401,80 @@ static void reproit_clay_apply_marks(void) {
     }
 }
 
+// Map a clickable element's role to the GROUNDTRUTH gesture kind: text-entry
+// roles are "field"; everything else interactive is a discrete "button".
+static const char* reproit_clay_gesture_for(const char* role) {
+    if (role && strcmp(role, "textfield") == 0) return "field";
+    return "button";
+}
+
 // Record an element as tappable and report a click when real OR fuzzer-chosen.
 bool ReproIt_Clay_Clicked(Clay_ElementId id) {
     if (rc.nTaps < REPROIT_CLAY_MAX) {
         rc.tapIds[rc.nTaps] = id.id;
         snprintf(rc.tapNames[rc.nTaps], REPROIT_CLAY_STR, "%.*s",
                  (int)id.stringId.length, id.stringId.chars);
+        snprintf(rc.tapGesture[rc.nTaps], REPROIT_CLAY_STR, "%s",
+                 reproit_clay_gesture_for(reproit_clay_role_for(rc.tapNames[rc.nTaps])));
         rc.nTaps++;
     }
     bool real = Clay_PointerOver(id);  // app's normal hover/click path
     return real || (rc.fireId && rc.fireId == id.id);
 }
 
+// Declare an element's accessibility for this frame (operability/accessibility
+// graph). Recorded now and folded into the EXPLORE:GROUNDTRUTH marker in
+// ReproIt_Clay_FrameEnd; call after ReproIt_Clay_Frame, like ReproIt_Clay_Value.
+void ReproIt_Clay_A11y(const char* stringId, const char* role,
+                       const char* name, bool exposed) {
+    if (!stringId || rc.nA11y >= REPROIT_CLAY_MAX) return;
+    snprintf(rc.a11yId[rc.nA11y], REPROIT_CLAY_STR, "%s", stringId);
+    // Exposed-with-a-string is the only thing that flips a dimension true; an
+    // exposed declaration with no role/name is a no-op (still a gap, honestly).
+    rc.a11yRole[rc.nA11y] = exposed && role && role[0];
+    rc.a11yName[rc.nA11y] = exposed && name && name[0];
+    rc.nA11y++;
+}
+
 static bool reproit_seen(const char* sig) {
     for (int i = 0; i < rc.nSeen; i++) if (strcmp(rc.seen[i], sig) == 0) return true;
     if (rc.nSeen < REPROIT_CLAY_MAX) { snprintf(rc.seen[rc.nSeen++], 9, "%s", sig); }
     return false;
+}
+
+// Emit one EXPLORE:GROUNDTRUTH line for the current frame's interactive surface
+// (single-line JSON). Every clickable element collected this frame is
+// operable:true; its a11y dimensions are all-false BY DEFAULT (Clay exposes
+// nothing to AT), upgraded to rolePresent/namePresent true only where the app
+// declared the element exposed via ReproIt_Clay_A11y(). inTabOrder +
+// keyboardActivatable stay false: Clay's elements are pointer-driven and not part
+// of any reported keyboard/tab order, so this is the honest ground truth.
+// Duplicate ids in a frame are reported once.
+static void reproit_clay_emit_groundtruth(const char* sig) {
+    printf("EXPLORE:GROUNDTRUTH {\"sig\":\"%s\",\"focusTrap\":false,\"elements\":[", sig);
+    int emitted = 0;
+    for (int i = 0; i < rc.nTaps; i++) {
+        // Dedupe by stable id (an element click-checked twice in one frame).
+        int dup = 0;
+        for (int j = 0; j < i; j++) if (rc.tapIds[j] == rc.tapIds[i]) { dup = 1; break; }
+        if (dup) continue;
+        int rolePresent = 0, namePresent = 0;
+        for (int a = 0; a < rc.nA11y; a++) {
+            if (strcmp(rc.a11yId[a], rc.tapNames[i]) == 0) {
+                rolePresent = rc.a11yRole[a];
+                namePresent = rc.a11yName[a];
+                break;
+            }
+        }
+        printf("%s{\"id\":\"%s\",\"operable\":true,\"gestureKind\":\"%s\","
+               "\"a11y\":{\"rolePresent\":%s,\"namePresent\":%s,"
+               "\"inTabOrder\":false,\"keyboardActivatable\":false}}",
+               emitted ? "," : "", rc.tapNames[i], rc.tapGesture[i],
+               rolePresent ? "true" : "false", namePresent ? "true" : "false");
+        emitted++;
+    }
+    printf("]}\n");
+    fflush(stdout);
 }
 
 void ReproIt_Clay_FrameEnd(void) {
@@ -1426,8 +1509,17 @@ void ReproIt_Clay_FrameEnd(void) {
     reproit_clay_sig(sig);
 
     if (!reproit_seen(sig)) {
-        printf("EXPLORE:STATE {\"sig\":\"%s\"}\n", sig);
+        // labels:[] is required by the engine's STATE parser (map.rs) for the
+        // state to register; immediate-mode GUIs exclude localized text from the
+        // descriptor by construction, so there are no labels to report.
+        printf("EXPLORE:STATE {\"sig\":\"%s\",\"labels\":[]}\n", sig);
         fflush(stdout);
+        // The operability/accessibility ground truth for this state: graph 1 is
+        // every clickable element this frame (operable:true); graph 2 (OS a11y) is
+        // empty by construction, so a11y defaults all-false and the whole surface
+        // is a gap unless the app declared elements exposed via ReproIt_Clay_A11y.
+        // Emitted once per newly seen state (same key as STATE).
+        reproit_clay_emit_groundtruth(sig);
         // Capture a screenshot of each newly discovered state (the shoot
         // contract). Guarded inside ReproIt_Shoot on REPROIT_SHOTS_DIR + a
         // registered capture mechanism, so this is a no-op otherwise. The name is
