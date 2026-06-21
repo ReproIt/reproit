@@ -198,6 +198,40 @@ impl Cli {
     }
 }
 
+/// Classify the positional fuzz target: a URL (point at a deployed app) vs an
+/// alias/node to scope the hunt to. Returns the full URL (scheme prepended if
+/// missing) when it looks like one, else None (an alias like "login").
+///
+/// We don't sniff http-vs-https: a bare host defaults to https (http redirects
+/// to it anyway), and localhost/loopback defaults to http (dev servers). A token
+/// is a URL if it has a scheme, a dotted host, is loopback, or has a host:port.
+fn target_as_url(t: &str) -> Option<String> {
+    let t = t.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if t.starts_with("http://") || t.starts_with("https://") {
+        return Some(t.to_string());
+    }
+    // The authority is everything before the first '/'; the host is before any ':'.
+    let authority = t.split('/').next().unwrap_or(t);
+    let host = authority.split(':').next().unwrap_or(authority);
+    let is_loopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0";
+    let has_port = authority
+        .rsplit_once(':')
+        .map(|(_, p)| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false);
+    if host.contains('.') || is_loopback || has_port {
+        let scheme = if is_loopback { "http" } else { "https" };
+        return Some(format!("{scheme}://{t}"));
+    }
+    None
+}
+
+// A clap subcommand enum: variants carry their flags by value and are
+// instantiated once at startup, so the size spread between variants is
+// irrelevant (and unavoidable for a rich CLI).
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Cmd {
     /// The app map. `map structural` crawls the running app; `map semantic` reads
@@ -335,6 +369,11 @@ enum Cmd {
     /// Find repros using the map (pure; emits a fuzz artifact). All oracles on
     /// by default. `--soak` runs the leak cycle; `--target` selects engines.
     Fuzz {
+        /// What to fuzz (optional). A URL (https://app.com) is auto-detected and
+        /// runs zero-config against that deployed app, no reproit.yaml needed.
+        /// Any other value scopes the hunt to that alias/node.
+        #[arg(value_name = "TARGET")]
+        target_arg: Option<String>,
         /// Explorer journey to drive (resolves like any journey target)
         #[arg(long, default_value = "explore")]
         journey: String,
@@ -1423,8 +1462,31 @@ async fn main() -> Result<ExitCode> {
             only,
             no_oracles,
             device,
+            target_arg,
         } => {
-            let loaded = config::load(cli.config.as_deref())?;
+            // The positional TARGET is auto-classified. A URL (https://app.com,
+            // or a bare google.com / localhost:3000) points reproit at a deployed
+            // app with no reproit.yaml: synthesize a web config rooted at the cwd
+            // (so `.reproit/` lands here) and auto-build the map so fuzz has a
+            // graph. Anything else (e.g. "login") scopes the hunt to that alias.
+            let target_url = target_arg.as_deref().and_then(target_as_url);
+            let loaded = if let Some(u) = &target_url {
+                let wrd = config::resolve_web_runner_dir()?;
+                ctx.say(format!("zero-config web run against {u}"));
+                let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
+                if !l.root.join(".reproit/appmap.json").exists() {
+                    ctx.say("  building the app map (first run; re-run is faster)...");
+                    map::build_map(&l.config, &l.root, &journey, false, None).await?;
+                }
+                l
+            } else {
+                config::load(cli.config.as_deref())?
+            };
+            // A non-URL positional scopes the hunt to that alias/node.
+            let journey = match &target_arg {
+                Some(t) if target_url.is_none() => t.clone(),
+                _ => journey,
+            };
             // `--soak`: the leak oracle (was `soak`).
             if soak {
                 let cycle = cycle
@@ -3198,6 +3260,46 @@ fn collect_cov_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_as_url_classifies_urls_vs_aliases() {
+        // Explicit scheme: kept as-is.
+        assert_eq!(
+            target_as_url("https://app.com").as_deref(),
+            Some("https://app.com")
+        );
+        assert_eq!(
+            target_as_url("http://x.io/a").as_deref(),
+            Some("http://x.io/a")
+        );
+        // Bare host (no scheme): a dotted domain defaults to https.
+        assert_eq!(
+            target_as_url("google.com").as_deref(),
+            Some("https://google.com")
+        );
+        assert_eq!(
+            target_as_url("app.vercel.app/dash").as_deref(),
+            Some("https://app.vercel.app/dash")
+        );
+        // Loopback / dev servers default to http.
+        assert_eq!(
+            target_as_url("localhost:3000").as_deref(),
+            Some("http://localhost:3000")
+        );
+        assert_eq!(
+            target_as_url("127.0.0.1:8117/").as_deref(),
+            Some("http://127.0.0.1:8117/")
+        );
+        // host:port with no dot is still a URL.
+        assert_eq!(
+            target_as_url("myhost:3000").as_deref(),
+            Some("https://myhost:3000")
+        );
+        // Bare words are aliases, not URLs.
+        assert_eq!(target_as_url("login"), None);
+        assert_eq!(target_as_url("checkout"), None);
+        assert_eq!(target_as_url(""), None);
+    }
 
     #[test]
     fn parse_fuzz_report_extracts_seed_and_repro_actions() {

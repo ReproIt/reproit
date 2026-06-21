@@ -85,10 +85,17 @@ accessibility, and i18n. Each bug it finds becomes a candidate repro with a
 content-hash id.
 
 ```sh
-reproit fuzz                  # hunt the whole app
+reproit fuzz                  # hunt the whole app (uses ./reproit.yaml)
 reproit fuzz login            # concentrate on one screen or flow
+reproit fuzz https://app.com  # zero-config: point at a deployed app, no setup
+reproit fuzz google.com       # a bare host works too (scheme is auto-added)
 reproit fuzz --all            # don't stop at the first bug; return every unique bug
 ```
+
+The positional target is auto-detected: a URL (with or without a scheme, e.g.
+`google.com` or `localhost:3000`) runs zero-config against that deployed app (it
+synthesizes a web setup, builds the map, and fuzzes, no `reproit.yaml` needed);
+anything else is treated as an alias to scope the hunt to.
 
 By default it stops at the first finding so you can fix it before hunting more.
 `--all` keeps going and groups duplicates (the same crash reached by different

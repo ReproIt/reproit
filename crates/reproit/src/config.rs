@@ -518,9 +518,20 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     };
     let raw =
         std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-    let raw = interpolate_env(&raw)?;
-    let config: Config =
-        serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", file.display()))?;
+    let root = file
+        .canonicalize()?
+        .parent()
+        .context("config file has no parent directory")?
+        .to_path_buf();
+    parse_str(&raw, root).with_context(|| format!("parsing {}", file.display()))
+}
+
+/// Parse a config YAML string (env interpolation + validation), rooted at
+/// `root` (where relative paths and `.reproit/` output resolve). Shared by
+/// `load` (from a file) and the zero-config `--url` synthesizer.
+pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
+    let raw = interpolate_env(raw)?;
+    let config: Config = serde_yaml::from_str(&raw)?;
     if crate::platform::resolve(&config.app.platform).is_none() {
         bail!(
             "unsupported platform {:?}; known: {}",
@@ -531,12 +542,52 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     if config.journeys.done_markers.is_empty() {
         bail!("journeys.doneMarkers must not be empty");
     }
-    let root = file
-        .canonicalize()?
-        .parent()
-        .context("config file has no parent directory")?
-        .to_path_buf();
     Ok(Loaded { config, root })
+}
+
+/// Locate a `web-runner` directory (a checkout with Playwright installed) for a
+/// zero-config `--url` run: `$REPROIT_WEB_RUNNER_DIR`, else `./web-runner`, else
+/// `<binary-dir>/web-runner`. The first one carrying `node_modules` wins.
+pub fn resolve_web_runner_dir() -> Result<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(d) = std::env::var("REPROIT_WEB_RUNNER_DIR") {
+        if !d.trim().is_empty() {
+            candidates.push(PathBuf::from(d));
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("web-runner"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(p) = exe.parent() {
+            candidates.push(p.join("web-runner"));
+        }
+    }
+    for c in &candidates {
+        if c.join("node_modules").is_dir() {
+            return Ok(c.clone());
+        }
+    }
+    bail!(
+        "could not find a web runner with Playwright installed. Set REPROIT_WEB_RUNNER_DIR \
+         to a `web-runner` checkout where you ran `npm install && npx playwright install`."
+    );
+}
+
+/// Build an in-memory web `Loaded` for `reproit fuzz --url <url>`, with
+/// `.reproit/` output under `root` (the cwd). No reproit.yaml is written.
+pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result<Loaded> {
+    let yaml = format!(
+        "app:\n  platform: web-playwright\n  webRunnerDir: \"{wrd}\"\n  url: \"{url}\"\n  \
+         defines: {{}}\ndevices:\n  namePrefix: web\nreset:\n  steps: []\njourneys:\n  \
+         dir: integration_test\n  driver: web\n  readyMarker: \"claimed role\"\n  \
+         doneMarkers:\n    - All tests passed\n    - Some tests failed\n  \
+         deviceDoneMarker: \"JOURNEY DONE\"\n  actionPrefix: \"JOURNEY\"\n  timeoutSec: 120\n\
+         evidence:\n  outDir: .reproit/runs\n  video: false\n",
+        wrd = web_runner_dir.display(),
+        url = url,
+    );
+    parse_str(&yaml, root)
 }
 
 fn find_config(from: &Path) -> Option<PathBuf> {
@@ -593,7 +644,27 @@ fn interpolate_env(raw: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::interpolate_env;
+    use super::{interpolate_env, synthesize_web};
+    use std::path::PathBuf;
+
+    #[test]
+    fn synthesize_web_parses_to_a_valid_web_config() {
+        let l = synthesize_web(
+            "https://app.example.com/x:y",
+            &PathBuf::from("/tmp/wr"),
+            PathBuf::from("/tmp/proj"),
+        )
+        .expect("synthesized web config parses + validates");
+        assert_eq!(l.config.app.platform, "web-playwright");
+        assert_eq!(
+            l.config.app.url.as_deref(),
+            Some("https://app.example.com/x:y")
+        );
+        assert_eq!(l.config.app.web_runner_dir.as_deref(), Some("/tmp/wr"));
+        assert_eq!(l.root, PathBuf::from("/tmp/proj"));
+        // The journeys.doneMarkers validation (load's hard gate) must pass.
+        assert!(!l.config.journeys.done_markers.is_empty());
+    }
 
     // Each test uses a unique var name so parallel tests don't race on env state.
     #[test]
