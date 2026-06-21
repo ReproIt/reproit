@@ -23,6 +23,7 @@
 import { chromium, firefox, webkit } from 'playwright';
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PNG } from 'pngjs';
 import {
   gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth, DEFAULT_GRID,
@@ -480,7 +481,7 @@ function descriptorOf(anchor, root) {
 }
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
-export { signatureOf, descriptorOf, valueClass };
+export { signatureOf, descriptorOf, valueClass, snapshot };
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -495,6 +496,7 @@ async function snapshot(page, valueNodeSelectors) {
   const snap = await page.evaluate(({ maxLen, valueNodeSelectors }) => {
     const labels = [];          // DISPLAY-ONLY visible text
     const rawTaps = [];         // tappable nodes in document order
+    const extraTaps = [];       // keyed pointer-operable nodes interactive() drops
     const textNodes = [];       // (stable-key, trimmed text) for the Layer-1 fingerprint
 
     // Fixed canonical role vocabulary (docs/signature.md "Roles").
@@ -715,6 +717,31 @@ async function snapshot(page, valueNodeSelectors) {
       if (!hit) return false;
       return hit === el || el.contains(hit);
     };
+    // Pointer-operable but OUTSIDE interactive()'s tappable grammar: a control a
+    // pointer user can drive (cursor:pointer, or an ARIA-interactive role /
+    // focusable tabindex delegation marker) that interactive() does not take.
+    // The operability ground truth (EXPLORE:GROUNDTRUTH) already counts these as
+    // operable; mirroring that predicate here lets the explorer actually TAP
+    // them, so an SPA built from delegated-click <div role=option> elements no
+    // longer maps to a single state. Kept deliberately conservative (and the
+    // caller adds ONLY keyed elements) so it expands coverage without flooding
+    // the candidate set with decorative cursor:pointer chrome.
+    const ARIA_OPERABLE = {
+      button: 1, link: 1, checkbox: 1, radio: 1, switch: 1, tab: 1,
+      menuitem: 1, menuitemcheckbox: 1, menuitemradio: 1, option: 1, slider: 1,
+    };
+    const pointerOperable = (el) => {
+      // cursor:pointer is INHERITED, so only count an element that INTRODUCES it
+      // (its parent is not already pointer), matching the ground-truth guard so a
+      // clickable parent does not paint every descendant as a candidate.
+      const parentCursor = el.parentElement ? getComputedStyle(el.parentElement).cursor : '';
+      if (getComputedStyle(el).cursor === 'pointer' && parentCursor !== 'pointer') return true;
+      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+      if (ARIA_OPERABLE[ariaRole]) return true;
+      const ti = el.getAttribute('tabindex');
+      if (ti !== null && parseInt(ti, 10) >= 0) return true;
+      return false;
+    };
     const fnvLbl = (name) => {
       let h = 0x811c9dc5;
       for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -786,6 +813,20 @@ async function snapshot(page, valueNodeSelectors) {
             label: name ? clipLabel(name) : '',
             unlabeled: !accessibleName(el),
           });
+        } else if (reachable(el) && pointerOperable(el)) {
+          // Only KEYED extras: a stable `key:<id>` selector is reproducible and
+          // does NOT consume a role+index slot, so existing role:<role>#<idx>
+          // selectors and the canonical signature are untouched. A pointer-
+          // operable element with no stable id is exactly one a repro could not
+          // address anyway, so dropping it here loses nothing replayable.
+          const k = keyOf(el);
+          if (k) {
+            extraTaps.push({
+              role, key: k,
+              label: name ? clipLabel(name) : '',
+              unlabeled: !accessibleName(el),
+            });
+          }
         }
       }
 
@@ -813,6 +854,17 @@ async function snapshot(page, valueNodeSelectors) {
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
       return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label };
     });
+    // Append the keyed pointer-operable extras (keyed selector only; no role
+    // index, so nothing above shifts). Dedup against selectors already present
+    // so an element can never appear twice in the candidate set.
+    const present = new Set(tappables.map((t) => t.sel));
+    for (const tn of extraTaps) {
+      const sel = 'key:' + tn.key;
+      if (present.has(sel)) continue;
+      present.add(sel);
+      if (tn.unlabeled) unlabeled++;
+      tappables.push({ sel, role: tn.role, index: -1, key: tn.key, label: tn.label });
+    }
 
     // Anchor: route/path of the current screen.
     let anchor = null;
@@ -2238,9 +2290,15 @@ async function main() {
   await browser.close();
 }
 
-main().catch((e) => {
-  log('EXCEPTION CAUGHT BY WEB RUNNER');
-  log(String(e && e.stack ? e.stack : e));
-  log('Some tests failed');
-  process.exit(0); // evidence already emitted; orchestrator judges by markers
-});
+// Standard ESM main guard: drive the browser only when executed directly
+// (`node runner.mjs`, how the orchestrator launches it), NOT when this module is
+// imported. Keeps snapshot()/signatureOf importable from tests without launching
+// a browser on import.
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  main().catch((e) => {
+    log('EXCEPTION CAUGHT BY WEB RUNNER');
+    log(String(e && e.stack ? e.stack : e));
+    log('Some tests failed');
+    process.exit(0); // evidence already emitted; orchestrator judges by markers
+  });
+}
