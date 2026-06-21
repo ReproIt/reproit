@@ -1,0 +1,22 @@
+# reproit config for the autonomous-fuzz RECALL benchmark.
+#
+# Same shape as examples/agent-loop/reproit.yaml. The web (Playwright/Chromium)
+# backend drives the static delegated-click SPA in app/. An explicit config (vs
+# zero-config `fuzz <url>`) keeps map/fuzz/check sharing one app URL so a finding
+# id stays resolvable.
+app:
+  platform: web-playwright
+  # Holds runner.mjs. Defaults to the repo's runners/web; override with the env var.
+  webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-../../runners/web}
+  # The locally served fixture. The harness starts `python3 -m http.server` here.
+  url: ${APP_URL:-http://localhost:8741}
+
+devices:
+  namePrefix: BenchFuzz
+
+journeys:
+  driver: ""                       # unused by the web backend; required by schema
+  doneMarkers: ["All tests passed"]
+
+gate:
+  runs: 1
