@@ -389,6 +389,16 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
                 !out.status.success()
             };
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            // For a check that produced a verdict, prepend a one-line actionable
+            // gloss so the agent reads the outcome unambiguously without parsing
+            // the enum: PASS / FAIL (reproduced) / FLAKY (race) / STALE (could not
+            // run, re-record). Without this the four outcomes are just bare
+            // strings in the JSON and a STALE can read like a soft pass.
+            if name == "reproit_check" && !is_error {
+                if let Some(g) = check_gloss(&out.stdout) {
+                    text = format!("{g}\n{text}");
+                }
+            }
             let err = String::from_utf8_lossy(&out.stderr);
             // Surface the human progress log (stderr) to the agent ONLY when it
             // adds signal: the call errored, or stdout carried no structured
@@ -407,6 +417,24 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         }
         Err(e) => (format!("failed to spawn reproit: {e}"), true),
     }
+}
+
+/// A one-line, actionable gloss for a `check` verdict, derived from its --json
+/// `outcome`. Keeps the four outcomes legible and DISTINCT for the agent: a STALE
+/// is "could not run, re-record", never a soft pass; a FAIL is a confirmed
+/// reproduction. Returns None when the output carries no outcome (a real error
+/// the caller already surfaces) or an unknown outcome string.
+fn check_gloss(stdout: &[u8]) -> Option<String> {
+    let v = serde_json::from_slice::<serde_json::Value>(stdout).ok()?;
+    let outcome = v.get("outcome").and_then(Value::as_str)?;
+    let msg = match outcome {
+        "pass" => "PASS: replayed clean and reached the trigger context -- the bug is fixed (deterministic, so this is a real green).",
+        "fail" => "FAIL: the finding REPRODUCED (a confirmed regression). If you were confirming a fuzz finding, this is the expected signal to keep it; if you were verifying a fix, the fix did not hold.",
+        "flaky" => "FLAKY: the finding reproduced on SOME replays but not all (a non-deterministic app race) -- not a clean reproduction and not a clean fix.",
+        "stale" => "STALE: could not run the case to its trigger -- the UI path to the bug moved or the runner could not replay it. This is NOT a pass or a verdict on the bug: rebuild the map (reproit_map) and re-record/retry; the change may also have fixed it.",
+        _ => return None,
+    };
+    Some(msg.to_string())
 }
 
 /// True if the command's stdout is a JSON object carrying `field` (used to tell
@@ -445,5 +473,50 @@ mod tests {
         assert!(!json_has_field(br#"{"command":"check"}"#, "outcome"));
         assert!(!json_has_field(b"Error: no repro `x`", "outcome"));
         assert!(!json_has_field(b"", "outcome"));
+    }
+
+    #[test]
+    fn check_gloss_distinguishes_all_four_outcomes() {
+        // Each of the four verdicts gets a distinct, actionable leading line so an
+        // agent reads the outcome without parsing the enum.
+        let pass = check_gloss(br#"{"command":"check","outcome":"pass"}"#).unwrap();
+        let fail = check_gloss(br#"{"outcome":"fail"}"#).unwrap();
+        let flaky = check_gloss(br#"{"outcome":"flaky"}"#).unwrap();
+        let stale = check_gloss(br#"{"outcome":"stale"}"#).unwrap();
+        assert!(pass.starts_with("PASS"));
+        assert!(fail.starts_with("FAIL"));
+        assert!(flaky.starts_with("FLAKY"));
+        assert!(stale.starts_with("STALE"));
+        // All four are different text (no two outcomes collapse to one signal).
+        let all = [&pass, &fail, &flaky, &stale];
+        for i in 0..all.len() {
+            for j in (i + 1)..all.len() {
+                assert_ne!(all[i], all[j]);
+            }
+        }
+    }
+
+    #[test]
+    fn check_gloss_stale_is_actionable_and_not_a_pass() {
+        // The stale gloss must read as "could not run, re-record", never a soft
+        // pass: it tells the agent to rebuild the map and that it is NOT a verdict.
+        let stale = check_gloss(br#"{"outcome":"stale"}"#).unwrap();
+        assert!(stale.contains("NOT a pass"));
+        assert!(stale.contains("reproit_map"));
+        // It must not contain "PASS"/"FAIL" as a leading verdict that could be
+        // misread as a clean/confirmed result.
+        assert!(!stale.starts_with("PASS"));
+        assert!(!stale.starts_with("FAIL"));
+    }
+
+    #[test]
+    fn check_gloss_absent_for_non_verdict_output() {
+        // No outcome (a real error: bad config / unresolvable repro) -> no gloss,
+        // so the error path (stderr surfaced as a tool error) is untouched.
+        assert!(check_gloss(br#"{"command":"check"}"#).is_none());
+        assert!(check_gloss(b"Error: no repro `x`").is_none());
+        assert!(check_gloss(b"").is_none());
+        // An unknown outcome string also yields no gloss (we never invent a label).
+        assert!(check_gloss(br#"{"outcome":"weird"}"#).is_none());
     }
 }

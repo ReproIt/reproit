@@ -337,6 +337,19 @@ pub fn verdict_from_log(log: &str, passed: bool) -> RunVerdict {
 /// any action at all). This keeps a fixed-bug repro green by default and only
 /// calls stale when the replay could not even get off the ground.
 pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger) -> RunVerdict {
+    // No-verdict guard (mirrors the triage `reproduce` guard in modes/triage.rs):
+    // a drive that FAILED but produced NO app exception AND NO replay signal at
+    // all never actually ran the case -- the runner crashed/timed out or hit a
+    // setup error before replaying a single action. Reading that bare exit as a
+    // reproduced finding (Broke -> FAIL) is a FALSE regression: the agent would be
+    // told the bug is back when nothing ran. Classify it as CouldNotReplay so the
+    // check surfaces STALE ("could not run, re-run/re-record"), never an implied
+    // verdict. A genuine reproduced crash always carries the exception block (or
+    // at least replay progress markers), so it still takes the Broke path below.
+    if !passed && !has_app_exception(log) && !has_replay_signal(log) {
+        return RunVerdict::CouldNotReplay;
+    }
+
     // A reproduced finding wins outright: a live regression is never reclassified
     // as stale because a downstream action later missed. This holds for EVERY
     // oracle: a crash during a graph repro's replay is still a regression.
@@ -422,6 +435,22 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     } else {
         RunVerdict::Green
     }
+}
+
+/// Whether the replay produced ANY evidence that it actually ran the case: a
+/// performed/missed action, a state/edge explore marker, or a drive-completion
+/// line. Used by the no-verdict guard to tell a crashed/setup-errored run (a
+/// bare non-zero exit with a signal-less log) from a real replay. The markers
+/// come from the runner's log protocol (templates/explorer*.dart), the same ones
+/// the per-run classifiers below already key on.
+fn has_replay_signal(log: &str) -> bool {
+    log.lines().any(|line| {
+        line.contains("FUZZ:ACT ")
+            || line.contains("FUZZ:MISS ")
+            || line.contains("EXPLORE:")
+            || line.contains("JOURNEY DONE")
+            || line.contains("SEED:BEGIN ")
+    })
 }
 
 /// Whether the log carries an APP exception block (not the test framework's
@@ -660,6 +689,59 @@ JOURNEY DONE
     fn verdict_failed_verdict_is_broke() {
         assert_eq!(verdict_from_log("JOURNEY DONE\n", false), RunVerdict::Broke);
         assert_eq!(verdict_from_log("JOURNEY DONE\n", true), RunVerdict::Green);
+    }
+
+    // ----- no-verdict guard (the crashed/timed-out runner case) -----
+    //
+    // A drive that FAILED but produced neither an app exception NOR any replay
+    // signal never ran the case (the runner crashed/timed out or hit a setup
+    // error). It must NOT read as a reproduced finding: that would be a FALSE
+    // FAIL. The guard classifies it CouldNotReplay -> STALE.
+
+    #[test]
+    fn empty_failed_log_is_could_not_replay_not_false_fail() {
+        // The bare case: drive failed, log empty. Old behavior: `!passed` ->
+        // Broke -> a FALSE FAIL. Now: no signal, no exception -> CouldNotReplay.
+        assert_eq!(verdict_from_log("", false), RunVerdict::CouldNotReplay);
+        assert_eq!(verdict_from_log("\n\n", false), RunVerdict::CouldNotReplay);
+    }
+
+    #[test]
+    fn setup_error_chatter_without_replay_signal_is_could_not_replay() {
+        // A drive that failed during setup prints diagnostics but no FUZZ/EXPLORE
+        // markers and no JOURNEY DONE: it never replayed the case -> not a verdict.
+        let log = "\
+flutter: Could not connect to the device.
+Error: build failed.
+";
+        assert_eq!(verdict_from_log(log, false), RunVerdict::CouldNotReplay);
+        assert_eq!(classify(&[RunVerdict::CouldNotReplay; 3]), Outcome::Stale);
+        assert_eq!(Outcome::Stale.exit_code(), 3);
+    }
+
+    #[test]
+    fn failed_drive_with_replay_signal_is_still_broke() {
+        // The guard must NOT swallow a real reproduction: a failed drive that DID
+        // replay (it carries action markers / JOURNEY DONE) is still Broke. This
+        // is the line between "the runner died" and "the run failed the case".
+        assert_eq!(
+            verdict_from_log("FUZZ:ACT tap:A\nJOURNEY DONE\n", false),
+            RunVerdict::Broke
+        );
+        assert_eq!(verdict_from_log("JOURNEY DONE\n", false), RunVerdict::Broke);
+    }
+
+    #[test]
+    fn failed_drive_with_exception_is_still_broke() {
+        // A failed drive carrying an app exception is a reproduction even with no
+        // FUZZ markers (the crash fired before/at the first action): the exception
+        // is itself the verdict signal, so the guard does not fire.
+        let log = "\
+flutter: ══╡ EXCEPTION CAUGHT BY WIDGETS LIBRARY ╞══════
+flutter: boom
+flutter: ════════════════════════
+";
+        assert_eq!(verdict_from_log(log, false), RunVerdict::Broke);
     }
 
     #[test]
