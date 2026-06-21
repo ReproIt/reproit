@@ -523,11 +523,21 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     };
     let raw =
         std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-    let root = file
-        .canonicalize()?
+    let canon = file.canonicalize()?;
+    let parent = canon
         .parent()
-        .context("config file has no parent directory")?
-        .to_path_buf();
+        .context("config file has no parent directory")?;
+    // A persisted zero-config run lives at `<cwd>/.reproit/reproit.yaml`; root it
+    // at the cwd (the `.reproit` parent) so `.reproit/runs` and other relative
+    // paths resolve from the project dir, not from inside `.reproit/`.
+    let root = if parent.file_name().map(|n| n == ".reproit").unwrap_or(false) {
+        parent
+            .parent()
+            .context("`.reproit` config has no parent directory")?
+            .to_path_buf()
+    } else {
+        parent.to_path_buf()
+    };
     parse_str(&raw, root).with_context(|| format!("parsing {}", file.display()))
 }
 
@@ -579,8 +589,10 @@ pub fn resolve_web_runner_dir() -> Result<PathBuf> {
     );
 }
 
-/// Build an in-memory web `Loaded` for `reproit fuzz --url <url>`, with
-/// `.reproit/` output under `root` (the cwd). No reproit.yaml is written.
+/// Build a web `Loaded` for the zero-config `reproit fuzz <url>` run, with
+/// `.reproit/` output under `root` (the cwd). The synthesized config is also
+/// persisted to `<root>/.reproit/reproit.yaml` so a follow-up `check <id>` /
+/// `keep` / `repros` can replay the run without a hand-written reproit.yaml.
 pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result<Loaded> {
     let yaml = format!(
         "app:\n  platform: web-playwright\n  webRunnerDir: \"{wrd}\"\n  url: \"{url}\"\n  \
@@ -592,7 +604,16 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
         wrd = web_runner_dir.display(),
         url = url,
     );
-    parse_str(&yaml, root)
+    let loaded = parse_str(&yaml, root)?;
+    // Persist so the zero-config flow is replayable: `find_config` picks this up
+    // as a fallback and `load` roots it back at the cwd (the `.reproit` parent).
+    // Best-effort: a write failure leaves the run working but non-replayable,
+    // exactly as before this was persisted.
+    let dir = loaded.root.join(".reproit");
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::write(dir.join("reproit.yaml"), &yaml);
+    }
+    Ok(loaded)
 }
 
 fn find_config(from: &Path) -> Option<PathBuf> {
@@ -601,6 +622,13 @@ fn find_config(from: &Path) -> Option<PathBuf> {
         let candidate = dir.join("reproit.yaml");
         if candidate.exists() {
             return Some(candidate);
+        }
+        // Fallback: a persisted zero-config `fuzz <url>` run writes its
+        // synthesized config here, so a later check/keep/repros finds it.
+        // `load` re-roots this at `dir` (not `.reproit/`) so relative paths hold.
+        let synth = dir.join(".reproit").join("reproit.yaml");
+        if synth.exists() {
+            return Some(synth);
         }
         if !dir.pop() {
             return None;
@@ -649,15 +677,18 @@ fn interpolate_env(raw: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{interpolate_env, synthesize_web};
+    use super::{interpolate_env, load, synthesize_web};
     use std::path::PathBuf;
 
     #[test]
     fn synthesize_web_parses_to_a_valid_web_config() {
+        let proj = std::env::temp_dir().join(format!("reproit_synth_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proj);
+        std::fs::create_dir_all(&proj).unwrap();
         let l = synthesize_web(
             "https://app.example.com/x:y",
             &PathBuf::from("/tmp/wr"),
-            PathBuf::from("/tmp/proj"),
+            proj.clone(),
         )
         .expect("synthesized web config parses + validates");
         assert_eq!(l.config.app.platform, "web-playwright");
@@ -666,9 +697,42 @@ mod tests {
             Some("https://app.example.com/x:y")
         );
         assert_eq!(l.config.app.web_runner_dir.as_deref(), Some("/tmp/wr"));
-        assert_eq!(l.root, PathBuf::from("/tmp/proj"));
+        assert_eq!(l.root, proj);
         // The journeys.doneMarkers validation (load's hard gate) must pass.
         assert!(!l.config.journeys.done_markers.is_empty());
+        // The synthesized config is persisted so a later check/keep can replay.
+        assert!(proj.join(".reproit").join("reproit.yaml").exists());
+        let _ = std::fs::remove_dir_all(&proj);
+    }
+
+    #[test]
+    fn zero_config_persists_and_reloads_rooted_at_cwd() {
+        // The zero-config `fuzz <url>` papercut fix: synthesize_web persists its
+        // config, and loading that persisted `.reproit/reproit.yaml` re-roots at
+        // the PROJECT dir (not `.reproit/`), so a follow-up `check <id>` resolves
+        // `.reproit/runs` and friends from the cwd and replays correctly.
+        let proj = std::env::temp_dir().join(format!("reproit_reload_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proj);
+        std::fs::create_dir_all(&proj).unwrap();
+        synthesize_web(
+            "https://app.example.com",
+            &PathBuf::from("/tmp/wr"),
+            proj.clone(),
+        )
+        .expect("synthesize");
+        let synth = proj.join(".reproit").join("reproit.yaml");
+        assert!(synth.exists(), "config persisted under .reproit/");
+        let reloaded = load(Some(&synth)).expect("reload persisted config");
+        assert_eq!(
+            reloaded.root,
+            proj.canonicalize().unwrap(),
+            "root is the project dir, not .reproit/"
+        );
+        assert_eq!(
+            reloaded.config.app.url.as_deref(),
+            Some("https://app.example.com")
+        );
+        let _ = std::fs::remove_dir_all(&proj);
     }
 
     // Each test uses a unique var name so parallel tests don't race on env state.
