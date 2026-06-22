@@ -340,6 +340,32 @@ impl Target {
 /// Duplicates are removed, order preserved. (Platform-only; the unified
 /// dispatch uses `parse_run_targets`, which also handles web engines.)
 #[allow(dead_code)]
+/// The device target(s) a project platform can run on, used to filter the
+/// interactive device picker to what the project actually supports. The platform
+/// string ("flutter-ios-sim", "web-playwright", "rn-android", ...) names its
+/// target; a bare mobile framework with no target word covers both phones.
+/// Desktop/host platforms (winui, electron, ...) yield none, so the picker is
+/// not filtered (those run on the host, not a device).
+pub fn platform_targets(platform: &str) -> Vec<Target> {
+    let p = platform.to_ascii_lowercase();
+    let mut out = Vec::new();
+    if p.contains("ios") || p.contains("iphone") || p.contains("ipad") {
+        out.push(Target::Ios);
+    }
+    if p.contains("android") {
+        out.push(Target::Android);
+    }
+    if p.contains("web") || p.contains("chromium") || p.contains("playwright") {
+        out.push(Target::Web);
+    }
+    // A mobile framework named with no explicit target word runs on both phones.
+    if out.is_empty() && (p.contains("flutter") || p.contains("react") || p.starts_with("rn")) {
+        out.push(Target::Ios);
+        out.push(Target::Android);
+    }
+    out
+}
+
 pub fn parse_targets(raw: &str) -> (Vec<Target>, Vec<String>) {
     let mut out = Vec::new();
     let mut unknown = Vec::new();
@@ -557,10 +583,19 @@ pub fn parse_simctl_devices(text: &str) -> Vec<Device> {
     )
     .unwrap();
     let mut out = Vec::new();
+    // simctl groups devices under runtime headers ("-- iOS 18.0 --", "-- tvOS
+    // ... --", "-- watchOS ... --", "-- visionOS ... --"). Only iOS-runtime
+    // devices (iPhone/iPad) are valid app-fuzzing targets; skip the TV / Watch /
+    // Vision form factors so the picker is not a wall of irrelevant sims.
+    let mut in_ios = false;
     for line in text.lines() {
         let trimmed = line.trim();
-        // Skip section headers ("-- iOS 17.0 --") and the Devices banner.
-        if trimmed.is_empty() || trimmed.starts_with("==") || trimmed.starts_with("--") {
+        if trimmed.starts_with("--") {
+            in_ios = trimmed.starts_with("-- iOS");
+            continue;
+        }
+        // Skip the "== Devices ==" banner, blanks, and any non-iOS runtime.
+        if trimmed.is_empty() || trimmed.starts_with("==") || !in_ios {
             continue;
         }
         if trimmed.contains("(unavailable") {
@@ -953,6 +988,44 @@ mod tests {
         assert_eq!(devs[1].name, "iPhone SE");
         assert!(!devs[1].booted);
         assert!(devs.iter().all(|d| d.target == Target::Ios));
+    }
+
+    #[test]
+    fn parse_simctl_devices_skips_tv_watch_vision_runtimes() {
+        let text = "\
+== Devices ==
+-- iOS 18.0 --
+    iPhone 16 Pro (11111111-2222-3333-4444-555555555555) (Booted)
+    iPad Air 11-inch (22222222-3333-4444-5555-666666666666) (Shutdown)
+-- tvOS 18.0 --
+    Apple TV 4K (33333333-4444-5555-6666-777777777777) (Shutdown)
+-- watchOS 11.0 --
+    Apple Watch Series 10 (44444444-5555-6666-7777-888888888888) (Shutdown)
+-- visionOS 2.0 --
+    Apple Vision Pro (55555555-6666-7777-8888-999999999999) (Shutdown)
+";
+        let devs = parse_simctl_devices(text);
+        // Only the iOS-runtime iPhone + iPad survive; TV / Watch / Vision are out.
+        assert_eq!(devs.len(), 2);
+        assert!(devs.iter().any(|d| d.name == "iPhone 16 Pro"));
+        assert!(devs.iter().any(|d| d.name == "iPad Air 11-inch"));
+        assert!(devs.iter().all(|d| !d.name.contains("Apple")));
+    }
+
+    #[test]
+    fn platform_targets_cover_every_framework() {
+        assert_eq!(platform_targets("flutter-ios-sim"), vec![Target::Ios]);
+        assert_eq!(platform_targets("web-playwright"), vec![Target::Web]);
+        assert_eq!(platform_targets("swift-ios"), vec![Target::Ios]);
+        assert_eq!(platform_targets("android"), vec![Target::Android]);
+        assert_eq!(
+            platform_targets("rn-appium"),
+            vec![Target::Ios, Target::Android]
+        );
+        // Desktop / host frameworks have no device target (they run on the host).
+        for p in ["winui", "electron", "tauri", "swift-macos"] {
+            assert!(platform_targets(p).is_empty(), "{p} has no device target");
+        }
     }
 
     #[test]

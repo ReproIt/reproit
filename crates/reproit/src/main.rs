@@ -1711,7 +1711,12 @@ async fn main() -> Result<ExitCode> {
                 // The headless tier (flutter `flutter test`, web CDP) uses none,
                 // so prompting there is vestigial; fall through to the headless
                 // default run instead. Offer the interactive picker.
-                if let Some(dev) = pick_device_interactive(None).await {
+                if let Some(dev) = pick_device_interactive(
+                    None,
+                    &crosscut::platform_targets(&loaded.config.app.platform),
+                )
+                .await
+                {
                     ctx.say(format!("  selected {} ({})", dev.name, dev.target.as_str()));
                     return run_targets(
                         &ctx,
@@ -1941,22 +1946,33 @@ async fn enumerate_devices() -> Vec<crosscut::Device> {
     out
 }
 
-/// Interactive device picker: enumerate the platform's devices, print a
-/// numbered list, and read a selection from stdin. When `want_name` is given,
-/// match it without prompting. Returns None if there are no devices or the
-/// selection is invalid/empty (the caller then falls back to the config
-/// default rather than hanging).
-/// Whether an interactive device picker is worth showing for this run. The
-/// headless tier (flutter `flutter test`, web CDP) uses NO device, so prompting
-/// for one there is vestigial noise; only pick a device when the run actually
-/// needs one: an explicit `--sim` flutter run, or a platform with no headless
-/// tier (native/appium). `--target`/`--device` bypass this upstream.
+/// Whether the interactive device picker should appear for this run. The picker
+/// selects a simulator that REPROIT provisions, which only the FlutterDrive
+/// backend does (it boots the sim via simctl). Every other backend brings its
+/// own target (Appium via caps, web a browser, desktop the host, TUI a PTY), so
+/// none need reproit's picker. Even FlutterDrive defaults to the headless
+/// `flutter test` tier (no device) unless --sim. `--target`/`--device` bypass
+/// this upstream.
 fn run_needs_device_pick(platform: &str, sim: bool) -> bool {
-    sim || !(platform.starts_with("flutter") || platform.starts_with("web"))
+    match platform::backend(platform) {
+        Some(b) if b.provisions_device() => sim,
+        _ => false,
+    }
 }
 
-async fn pick_device_interactive(want_name: Option<&str>) -> Option<crosscut::Device> {
-    let devices = enumerate_devices().await;
+/// Interactive device picker: enumerate devices, filter to the targets the
+/// project supports, print a numbered list, and read a selection from stdin.
+/// When `want_name` is given, match it without prompting. Returns None if there
+/// are no devices or the selection is invalid/empty (the caller then falls back
+/// to the config default rather than hanging).
+async fn pick_device_interactive(
+    want_name: Option<&str>,
+    allowed: &[crosscut::Target],
+) -> Option<crosscut::Device> {
+    let mut devices = enumerate_devices().await;
+    if !allowed.is_empty() {
+        devices.retain(|d| allowed.contains(&d.target));
+    }
     if devices.is_empty() {
         eprintln!("  no devices found (flutter/simctl/adb reported none)");
         return None;
@@ -2014,7 +2030,7 @@ async fn resolve_check_device(
         {
             return None;
         }
-        return pick_device_interactive(None).await;
+        return pick_device_interactive(None, &crosscut::platform_targets(platform)).await;
     }
     let devices = enumerate_devices().await;
     let want_target = target.and_then(crosscut::Target::parse);
@@ -3661,16 +3677,30 @@ tap:Advanced
     }
 
     #[test]
-    fn headless_tier_skips_the_device_picker() {
-        // flutter/web default to a headless tier (flutter test / web CDP) that
-        // uses no device, so the interactive picker is vestigial and not offered.
-        assert!(!run_needs_device_pick("flutter-ios-sim", false));
-        assert!(!run_needs_device_pick("web-playwright", false));
-        // --sim turns a flutter run into a real sim run, which DOES need a device.
+    fn only_flutter_sim_runs_offer_the_device_picker() {
+        // Only FlutterDrive provisions a sim reproit picks, and only with --sim
+        // (its default is the headless flutter test tier).
         assert!(run_needs_device_pick("flutter-ios-sim", true));
-        // A platform with no headless tier (native/appium) always needs a device.
-        assert!(run_needs_device_pick("native-ios", false));
-        assert!(run_needs_device_pick("appium-android", false));
+        assert!(!run_needs_device_pick("flutter-ios-sim", false));
+        // Every other backend brings its own target (Appium caps, a browser, the
+        // host, a PTY), so no reproit picker, even with --sim.
+        for p in [
+            "web-playwright",
+            "rn-appium",
+            "swift-ios",
+            "android",
+            "winui",
+            "electron",
+            "tauri",
+        ] {
+            assert!(!run_needs_device_pick(p, false), "{p} should not prompt");
+            assert!(
+                !run_needs_device_pick(p, true),
+                "{p} should not prompt even with --sim"
+            );
+        }
+        // Unknown platform: no prompt.
+        assert!(!run_needs_device_pick("cobol-tui", false));
     }
 
     #[test]
