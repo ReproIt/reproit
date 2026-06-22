@@ -366,33 +366,6 @@ pub fn platform_targets(platform: &str) -> Vec<Target> {
     out
 }
 
-pub fn parse_targets(raw: &str) -> (Vec<Target>, Vec<String>) {
-    let mut out = Vec::new();
-    let mut unknown = Vec::new();
-    let push = |t: Target, out: &mut Vec<Target>| {
-        if !out.contains(&t) {
-            out.push(t);
-        }
-    };
-    for tok in raw.split(',') {
-        let t = tok.trim();
-        if t.is_empty() {
-            continue;
-        }
-        if t.eq_ignore_ascii_case("all") {
-            push(Target::Ios, &mut out);
-            push(Target::Android, &mut out);
-            push(Target::Web, &mut out);
-            continue;
-        }
-        match Target::parse(t) {
-            Some(target) => push(target, &mut out),
-            None => unknown.push(t.to_string()),
-        }
-    }
-    (out, unknown)
-}
-
 /// Whether a `--target` token (or whole list) names web browser engines, so the
 /// dispatcher routes to the cross-engine path rather than the platform path. A
 /// list is web-engine iff EVERY non-empty token is an engine alias.
@@ -856,15 +829,6 @@ mod tests {
         assert_eq!(dropped.len(), 1);
         // Dropped findings are NOT tagged.
         assert!(dropped[0].get("oracle").is_none());
-    }
-
-    #[test]
-    fn parse_targets_expands_all_and_dedupes() {
-        let (ts, unknown) = parse_targets("ios,all,web");
-        assert_eq!(ts, vec![Target::Ios, Target::Android, Target::Web]);
-        assert!(unknown.is_empty());
-        let (_, unknown2) = parse_targets("ios,bogus");
-        assert_eq!(unknown2, vec!["bogus".to_string()]);
     }
 
     #[test]
