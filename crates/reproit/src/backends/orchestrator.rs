@@ -131,6 +131,35 @@ pub async fn run_journey(
     // its real location, so an override run no longer leaves an empty screenshots/.
     std::fs::create_dir_all(&run_dir)?;
 
+    // BEFORE provisioning a device: the FlutterDrive sim tier needs a vendored
+    // explorer (journey_<name>.dart or <name>.dart). Check it here so a missing
+    // explorer no longer boots a simulator it then throws away (only FlutterDrive
+    // provisions a device, so it is the only backend that could waste one). For
+    // reproit's own `explore` journey we SELF-HEAL by vendoring it rather than
+    // erroring on a file we know how to create; a named user journey we cannot
+    // author, so that still errors with guidance.
+    if plat.backend == crate::platform::Backend::FlutterDrive {
+        let project_dir = root.join(&cfg.app.project_dir);
+        let jd = project_dir.join(&cfg.journeys.dir);
+        // The sim tier imports package:integration_test; ensure it's a dev
+        // dependency even when the explorer already exists (a project can have
+        // one without the other). Idempotent.
+        crate::init::ensure_integration_test_dep(&project_dir)?;
+        let missing = !jd.join(format!("journey_{journey}.dart")).exists()
+            && !jd.join(format!("{journey}.dart")).exists();
+        if missing {
+            if journey == "explore" {
+                crate::init::vendor_sim_explorer(&project_dir, &jd, &cfg.journeys.driver)?;
+            } else {
+                anyhow::bail!(
+                    "no journey_{journey}.dart or {journey}.dart under {}. \
+                     Author the journey there, or run `reproit fuzz` to explore.",
+                    jd.display()
+                );
+            }
+        }
+    }
+
     // 1. Simulators: only <prefix>-X sims are touched; a sim you use for
     //    other work is never grabbed or rebooted.
     timing.mark("sim");

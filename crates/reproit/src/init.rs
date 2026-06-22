@@ -179,7 +179,81 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
         "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> main() => integrationDriver();\n",
         force,
     )?;
+    ensure_integration_test_dep(dir)?;
     write(&dir.join("reproit.yaml"), &flutter_config(dir), force)?;
+    Ok(())
+}
+
+/// Self-heal the FlutterDrive sim tier: vendor reproit's own explorer (the same
+/// journey_explore.dart + helpers + driver that `reproit init` lays down, with
+/// the app entry inferred from the project) into a project that only had the
+/// headless explorer, so `reproit check --record` / `--sim` just works instead
+/// of erroring on a file reproit knows how to create. Only writes what's missing,
+/// so a configured explorer/driver is never clobbered.
+pub fn vendor_sim_explorer(
+    project_dir: &Path,
+    journeys_dir: &Path,
+    driver_rel: &str,
+) -> Result<()> {
+    let (import, pump) = detect_app_entry(project_dir);
+    let explorer = EXPLORER
+        .replace(IMPORT_NEEDLE, &import)
+        .replace(PUMP_NEEDLE, &pump);
+    std::fs::create_dir_all(journeys_dir)?;
+    let explorer_path = journeys_dir.join("journey_explore.dart");
+    std::fs::write(&explorer_path, explorer)?;
+    eprintln!(
+        "  vendored {} (reproit's sim explorer)",
+        explorer_path.display()
+    );
+    let helpers_path = journeys_dir.join("journey_helpers.dart");
+    if !helpers_path.exists() {
+        std::fs::write(&helpers_path, HELPERS)?;
+        eprintln!("  vendored {}", helpers_path.display());
+    }
+    let driver_path = project_dir.join(driver_rel);
+    if !driver_path.exists() {
+        if let Some(p) = driver_path.parent() {
+            std::fs::create_dir_all(p)?;
+        }
+        std::fs::write(
+            &driver_path,
+            "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> main() => integrationDriver();\n",
+        )?;
+        eprintln!("  vendored {}", driver_path.display());
+    }
+    // The flutter-drive tier imports package:integration_test, so it must be a
+    // dev dependency or the sim build fails (the headless tier needs only
+    // flutter_test, which Flutter projects have by default).
+    ensure_integration_test_dep(project_dir)?;
+    Ok(())
+}
+
+/// Ensure the `integration_test` dev dependency the flutter-drive (sim) tier
+/// needs is in pubspec.yaml; add it under dev_dependencies if absent. Shared by
+/// `init` and the on-demand sim self-heal so neither leaves the sim tier
+/// un-buildable. The next `flutter` build runs pub get and resolves it.
+pub fn ensure_integration_test_dep(project_dir: &Path) -> Result<()> {
+    let pubspec = project_dir.join("pubspec.yaml");
+    let Ok(content) = std::fs::read_to_string(&pubspec) else {
+        return Ok(());
+    };
+    if content.contains("integration_test") {
+        return Ok(());
+    }
+    if let Some(idx) = content.find("\ndev_dependencies:") {
+        let at = idx + "\ndev_dependencies:".len();
+        let patched = format!(
+            "{}\n  integration_test:\n    sdk: flutter{}",
+            &content[..at],
+            &content[at..]
+        );
+        std::fs::write(&pubspec, patched)?;
+        eprintln!(
+            "  added integration_test dev dependency to {}",
+            pubspec.display()
+        );
+    }
     Ok(())
 }
 
