@@ -201,6 +201,15 @@ fn tool_defs() -> Value {
                 "bucket": { "type": "string", "description": "Bucket index (integer) to reproduce." },
                 "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
             }, "required": ["bucket"] }
+        },
+        {
+            "name": "reproit_cloud_pull",
+            "description": "Pull a production bug from the cloud as a FIRST-CLASS LOCAL repro you can then verify + fix offline. The autonomous fix loop: reproit_cloud_buckets (impact-ranked) -> reproit_cloud_pull the top bucket -> reproit_check <as> (reproduces it locally, NETWORK-FREE) -> fix the code -> reproit_check <as> again (proves the fix) -> reproit_keep. `bucket` is the content-addressed bucket id from reproit_cloud_buckets; `as` is a short local name used in reproit_check; `app` defaults to $REPROIT_CLOUD_APP.",
+            "inputSchema": { "type": "object", "properties": {
+                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
+                "as": { "type": "string", "description": "A short local name for the pulled repro (used as reproit_check <name>)." },
+                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+            }, "required": ["bucket", "as"] }
         }
     ])
 }
@@ -366,6 +375,27 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
                 "--idx".into(),
                 bucket,
                 "--run".into(),
+            ]);
+        }
+        "reproit_cloud_pull" => {
+            let Some(app) = cloud_app(args) else {
+                return (missing_app(), true);
+            };
+            let Some(bucket) = s("bucket") else {
+                return (missing("bucket"), true);
+            };
+            let Some(as_name) = s("as") else {
+                return (missing("as"), true);
+            };
+            argv.extend([
+                "cloud".into(),
+                "pull".into(),
+                "--app".into(),
+                app,
+                "--bucket".into(),
+                bucket,
+                "--as".into(),
+                as_name,
             ]);
         }
         other => return (format!("unknown tool: {other}"), true),
