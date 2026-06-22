@@ -374,12 +374,22 @@ reproit_repros()                      list saved repros + status + actions
 reproit_journeys()                    list authored journeys
 reproit_journey_save(name, journey)   author a journey (incl. multi-user actors)
 reproit_why(repro?)                   rank suspect code (Ochiai)
-reproit_cloud_buckets(app?, query?)
-reproit_cloud_blast_radius(bucket, app?)
-reproit_cloud_reproduce(bucket, app?)
+reproit_cloud_buckets(app?, query?)              impact-ranked finding buckets
+reproit_cloud_blast_radius(bucket, app?)         who's affected (cohorts, %, versions)
+reproit_cloud_reproduce(bucket, app?)            pull a real session + replay it
+reproit_cloud_pull(bucket, as, app?)             pull a bug as a first-class LOCAL repro
+reproit_cloud_triage(bucket, status?, fixed_in_build?, assignee?, app?)  read/set triage state
+reproit_cloud_resolution_events(app?)            recent prod-truth transitions (monitor regressions)
+reproit_cloud_timeline(bucket, app?)             per-bucket occurrence series + resolution
 ```
 
 Cloud tools take the app id from the `app` argument or `$REPROIT_CLOUD_APP`.
+
+The full production loop (manage + monitor, not just fix): `reproit_cloud_buckets`
+(impact-ranked) -> `reproit_cloud_pull` the top -> `reproit_check` (reproduce) ->
+fix -> `reproit_check` (verify) -> `reproit_keep` -> `reproit_cloud_triage`
+status=fixed --fixed-in-build X (record the fix intent) -> watch
+`reproit_cloud_resolution_events` for a regression (prod contradicting the claim).
 
 ## Cloud commands
 
@@ -389,6 +399,10 @@ reproit cloud fuzz [--pr N]         fan-out job -> stored artifact (auto-links t
 reproit cloud findings              grouped buckets + counts (fuzz + production)
 reproit cloud blast-radius <bucket> who's affected: cohorts, %, versions (--export)
 reproit cloud reproduce <bucket>    pull a real user session, replay locally
+reproit cloud pull --bucket <id> --as <name>   pull a bug as a first-class LOCAL repro
+reproit cloud triage --bucket <id> [--status <s> --fixed-in-build <v> --assignee <id>]  read/set triage state
+reproit cloud resolution-events     recent prod-truth transitions (monitor regressions)
+reproit cloud timeline --bucket <id>  per-bucket occurrence series + resolution
 reproit cloud query ... --export    raw data out for your own analysis
 ```
 

@@ -52,7 +52,12 @@ pub fn serve(config: Option<&std::path::Path>) -> anyhow::Result<()> {
                     then author or fix yourself (no bundled LLM here). reproit_fuzz finds repros; \
                     reproit_check classifies each pass/fail/flaky/stale (deterministic, so a green \
                     check means you really fixed it); reproit_keep saves a repro; reproit_why ranks \
-                    suspect code. The cloud tools bridge production telemetry into the same loop."
+                    suspect code. The cloud tools close the FULL production loop, so an agent can \
+                    MANAGE + MONITOR bugs, not just fix them: reproit_cloud_buckets lists \
+                    impact-ranked bugs -> reproit_cloud_pull the top one -> reproit_check (reproduce) \
+                    -> fix -> reproit_check (verify) -> reproit_keep -> reproit_cloud_triage \
+                    status=fixed --fixed-in-build <ver> to record the fix intent -> then watch \
+                    reproit_cloud_resolution_events for a regression (prod contradicting the claim)."
                     }),
                 )
             }
@@ -96,7 +101,7 @@ fn tool_defs() -> Value {
     json!([
         {
             "name": "reproit_context",
-            "description": "The authoring/fixing entry point. Returns the scoped state graph plus the screen list and the addressable elements/selectors for a target, so the agent can emit actions by stable key (locale-invariant) without re-deriving structure. Built from the app map (`map show`); if no map exists, it reports that and points at reproit_map. `target` is an alias or node id to scope to (e.g. \"login\").",
+            "description": "The authoring/fixing entry point. Returns the scoped state graph plus the screen list and the addressable elements/selectors for a target, so the agent can emit actions by stable key (locale-invariant) without re-deriving structure. Built from the app map (`map show`); if no map exists, it reports that and points at reproit_map. `target` is an alias or node id to scope to (e.g. \"login\"). FULL CLOUD LOOP (manage + monitor bugs, not just fix them): reproit_cloud_buckets (impact-ranked) -> reproit_cloud_pull the top -> reproit_check (reproduce) -> fix -> reproit_check (verify) -> reproit_keep -> reproit_cloud_triage status=fixed --fixed-in-build <ver> (record the fix intent) -> reproit_cloud_resolution_events to monitor for a regression (prod contradicting the fix claim).",
             "inputSchema": { "type": "object", "properties": {
                 "target": { "type": "string", "description": "Alias or node id to scope the graph + selectors to (e.g. \"login\"). Omit for the whole graph." }
             } }
@@ -210,11 +215,100 @@ fn tool_defs() -> Value {
                 "as": { "type": "string", "description": "A short local name for the pulled repro (used as reproit_check <name>)." },
                 "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
             }, "required": ["bucket", "as"] }
+        },
+        {
+            "name": "reproit_cloud_triage",
+            "description": "READ or SET a bucket's triage status: the MANAGEMENT state an agent owns (where in the lifecycle, who's on it), distinct from the prod-truth resolution the system computes. With only `bucket`, READS + returns the current state. With `status`, SETS it: new | triaged | assigned | fixed | wontfix. This is how an agent RECORDS its intent in the loop: after reproit_check proves a fix holds locally, call this with status=fixed and `fixed_in_build`=<the build you shipped the fix in> to anchor the claim; production then confirms (resolved) or contradicts (regressed) it, which you read back via reproit_cloud_resolution_events. `assignee` (an org member id) is only valid with status=assigned; `fixed_in_build` only with status=fixed (and defaults server-side to the newest build seen). `bucket` is the content-addressed bucket id from reproit_cloud_buckets; `app` defaults to $REPROIT_CLOUD_APP.",
+            "inputSchema": { "type": "object", "properties": {
+                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
+                "status": { "type": "string", "description": "Set the status: new | triaged | assigned | fixed | wontfix. Omit to READ the current state." },
+                "fixed_in_build": { "type": "string", "description": "The build the fix shipped in (the prod-resolution anchor). Only meaningful with status=fixed; defaults to the newest build seen for the bucket." },
+                "assignee": { "type": "integer", "description": "Org member id to assign. Required by, and only valid for, status=assigned." },
+                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+            }, "required": ["bucket"] }
+        },
+        {
+            "name": "reproit_cloud_resolution_events",
+            "description": "MONITOR the loop: list recent PROD-TRUTH transitions (resolved->regressed, resolving->resolved, ...), newest first, computed from production telemetry against each bucket's fix anchor. This is what an autonomous monitor reads to catch a REGRESSION: a bucket you marked fixed (reproit_cloud_triage status=fixed) that started firing again in production. A `regressed` event is the signal to reproit_cloud_pull it again and re-open the fix loop. `app` defaults to $REPROIT_CLOUD_APP.",
+            "inputSchema": { "type": "object", "properties": {
+                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+            } }
+        },
+        {
+            "name": "reproit_cloud_timeline",
+            "description": "The per-bucket OCCURRENCE time-series (segmented by build) plus the computed prod-truth resolution status. Shows whether occurrences dropped after a fix anchor (resolving/resolved) or returned (regressed). Use it to confirm a specific bucket's fix is actually holding in production, or to see the shape of a regression. `bucket` is the content-addressed bucket id; `app` defaults to $REPROIT_CLOUD_APP.",
+            "inputSchema": { "type": "object", "properties": {
+                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
+                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+            }, "required": ["bucket"] }
         }
     ])
 }
 
 fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (String, bool) {
+    let argv = match build_argv(config, name, args) {
+        Ok(argv) => argv,
+        Err((msg, is_error)) => return (msg, is_error),
+    };
+
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => return (format!("cannot locate reproit binary: {e}"), true),
+    };
+    match Command::new(exe).args(&argv).output() {
+        Ok(out) => {
+            // `check` is a VERDICT command: fail(1)/flaky(2)/stale(3) are the CI
+            // exit contract, not tool failures. A check that produced a verdict
+            // is a SUCCESSFUL tool call, the agent must SEE the verdict (e.g.
+            // confirm a bug reproduces = a FAIL) rather than a tool error. Detect
+            // the verdict from the --json `outcome` field; only a check that
+            // produced NO verdict (bad config, repro not found) is a real error.
+            let is_error = if name == "reproit_check" {
+                !json_has_field(&out.stdout, "outcome")
+            } else {
+                !out.status.success()
+            };
+            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+            // For a check that produced a verdict, prepend a one-line actionable
+            // gloss so the agent reads the outcome unambiguously without parsing
+            // the enum: PASS / FAIL (reproduced) / FLAKY (race) / STALE (could not
+            // run, re-record). Without this the four outcomes are just bare
+            // strings in the JSON and a STALE can read like a soft pass.
+            if name == "reproit_check" && !is_error {
+                if let Some(g) = check_gloss(&out.stdout) {
+                    text = format!("{g}\n{text}");
+                }
+            }
+            let err = String::from_utf8_lossy(&out.stderr);
+            // Surface the human progress log (stderr) to the agent ONLY when it
+            // adds signal: the call errored, or stdout carried no structured
+            // output (e.g. `fuzz`, whose findings print to stderr). On a
+            // successful --json call the progress chatter is just noise and can
+            // mislead: a `check` whose verdict is `fail` still prints per-run
+            // "PASS" drive lines to stderr, which read as a contradiction.
+            if (is_error || text.trim().is_empty()) && !err.trim().is_empty() {
+                if !text.trim().is_empty() {
+                    text.push('\n');
+                }
+                text.push_str("--- stderr ---\n");
+                text.push_str(err.trim());
+            }
+            (text, is_error)
+        }
+        Err(e) => (format!("failed to spawn reproit: {e}"), true),
+    }
+}
+
+/// Build the CLI argv for a tool call (the PURE half of `call_tool`): map the
+/// MCP tool name + arguments onto the subcommand + flags this same binary
+/// understands. No I/O, so it is unit-tested for tool-presence + dispatch. On a
+/// missing required argument (or unknown tool) it returns the `(message, true)`
+/// pair `call_tool` surfaces directly as a tool error.
+fn build_argv(
+    config: Option<&std::path::Path>,
+    name: &str,
+    args: &Value,
+) -> Result<Vec<String>, (String, bool)> {
     let s = |k: &str| args.get(k).and_then(Value::as_str).map(String::from);
     let b = |k: &str| args.get(k).and_then(Value::as_bool).unwrap_or(false);
     // Cloud app id: explicit arg wins, else $REPROIT_CLOUD_APP.
@@ -300,11 +394,11 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         "reproit_simplify" => {
             argv.push("simplify".into());
             let Some(r) = s("repro") else {
-                return (missing("repro"), true);
+                return Err((missing("repro"), true));
             };
             argv.push(r);
             let Some(actions) = args.get("actions").filter(|v| v.is_array()) else {
-                return (missing("actions (a JSON array of action strings)"), true);
+                return Err((missing("actions (a JSON array of action strings)"), true));
             };
             argv.extend(["--to".into(), actions.to_string()]);
         }
@@ -312,13 +406,13 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         "reproit_journeys" => argv.extend(["journey".into(), "list".into()]),
         "reproit_journey_save" => {
             let Some(name) = s("name") else {
-                return (missing("name"), true);
+                return Err((missing("name"), true));
             };
             let Some(spec) = args.get("journey").filter(|v| v.is_object()) else {
-                return (
+                return Err((
                     missing("journey (a JSON object with a `steps` array)"),
                     true,
-                );
+                ));
             };
             argv.extend([
                 "journey".into(),
@@ -338,7 +432,7 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         }
         "reproit_cloud_buckets" => {
             let Some(app) = cloud_app(args) else {
-                return (missing_app(), true);
+                return Err((missing_app(), true));
             };
             argv.extend(["cloud".into(), "findings".into(), "--app".into(), app]);
             if let Some(q) = s("query") {
@@ -347,10 +441,10 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         }
         "reproit_cloud_blast_radius" => {
             let Some(app) = cloud_app(args) else {
-                return (missing_app(), true);
+                return Err((missing_app(), true));
             };
             let Some(bucket) = s("bucket") else {
-                return (missing("bucket"), true);
+                return Err((missing("bucket"), true));
             };
             argv.extend(["cloud".into(), "blast-radius".into(), "--app".into(), app]);
             // A bucket is an index (integer) by default, or a signature.
@@ -362,10 +456,10 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         }
         "reproit_cloud_reproduce" => {
             let Some(app) = cloud_app(args) else {
-                return (missing_app(), true);
+                return Err((missing_app(), true));
             };
             let Some(bucket) = s("bucket") else {
-                return (missing("bucket"), true);
+                return Err((missing("bucket"), true));
             };
             argv.extend([
                 "cloud".into(),
@@ -379,13 +473,13 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
         }
         "reproit_cloud_pull" => {
             let Some(app) = cloud_app(args) else {
-                return (missing_app(), true);
+                return Err((missing_app(), true));
             };
             let Some(bucket) = s("bucket") else {
-                return (missing("bucket"), true);
+                return Err((missing("bucket"), true));
             };
             let Some(as_name) = s("as") else {
-                return (missing("as"), true);
+                return Err((missing("as"), true));
             };
             argv.extend([
                 "cloud".into(),
@@ -398,55 +492,64 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
                 as_name,
             ]);
         }
-        other => return (format!("unknown tool: {other}"), true),
-    }
-
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(e) => return (format!("cannot locate reproit binary: {e}"), true),
-    };
-    match Command::new(exe).args(&argv).output() {
-        Ok(out) => {
-            // `check` is a VERDICT command: fail(1)/flaky(2)/stale(3) are the CI
-            // exit contract, not tool failures. A check that produced a verdict
-            // is a SUCCESSFUL tool call, the agent must SEE the verdict (e.g.
-            // confirm a bug reproduces = a FAIL) rather than a tool error. Detect
-            // the verdict from the --json `outcome` field; only a check that
-            // produced NO verdict (bad config, repro not found) is a real error.
-            let is_error = if name == "reproit_check" {
-                !json_has_field(&out.stdout, "outcome")
-            } else {
-                !out.status.success()
+        "reproit_cloud_triage" => {
+            let Some(app) = cloud_app(args) else {
+                return Err((missing_app(), true));
             };
-            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            // For a check that produced a verdict, prepend a one-line actionable
-            // gloss so the agent reads the outcome unambiguously without parsing
-            // the enum: PASS / FAIL (reproduced) / FLAKY (race) / STALE (could not
-            // run, re-record). Without this the four outcomes are just bare
-            // strings in the JSON and a STALE can read like a soft pass.
-            if name == "reproit_check" && !is_error {
-                if let Some(g) = check_gloss(&out.stdout) {
-                    text = format!("{g}\n{text}");
-                }
+            let Some(bucket) = s("bucket") else {
+                return Err((missing("bucket"), true));
+            };
+            argv.extend([
+                "cloud".into(),
+                "triage".into(),
+                "--app".into(),
+                app,
+                "--bucket".into(),
+                bucket,
+            ]);
+            // No status => READ the current triage state. With a status => SET it,
+            // forwarding the optional fix anchor / assignee (the cloud enforces
+            // which status each is valid for).
+            if let Some(status) = s("status") {
+                argv.extend(["--status".into(), status]);
             }
-            let err = String::from_utf8_lossy(&out.stderr);
-            // Surface the human progress log (stderr) to the agent ONLY when it
-            // adds signal: the call errored, or stdout carried no structured
-            // output (e.g. `fuzz`, whose findings print to stderr). On a
-            // successful --json call the progress chatter is just noise and can
-            // mislead: a `check` whose verdict is `fail` still prints per-run
-            // "PASS" drive lines to stderr, which read as a contradiction.
-            if (is_error || text.trim().is_empty()) && !err.trim().is_empty() {
-                if !text.trim().is_empty() {
-                    text.push('\n');
-                }
-                text.push_str("--- stderr ---\n");
-                text.push_str(err.trim());
+            if let Some(fib) = s("fixed_in_build") {
+                argv.extend(["--fixed-in-build".into(), fib]);
             }
-            (text, is_error)
+            if let Some(a) = args.get("assignee").and_then(Value::as_i64) {
+                argv.extend(["--assignee".into(), a.to_string()]);
+            }
         }
-        Err(e) => (format!("failed to spawn reproit: {e}"), true),
+        "reproit_cloud_resolution_events" => {
+            let Some(app) = cloud_app(args) else {
+                return Err((missing_app(), true));
+            };
+            argv.extend([
+                "cloud".into(),
+                "resolution-events".into(),
+                "--app".into(),
+                app,
+            ]);
+        }
+        "reproit_cloud_timeline" => {
+            let Some(app) = cloud_app(args) else {
+                return Err((missing_app(), true));
+            };
+            let Some(bucket) = s("bucket") else {
+                return Err((missing("bucket"), true));
+            };
+            argv.extend([
+                "cloud".into(),
+                "timeline".into(),
+                "--app".into(),
+                app,
+                "--bucket".into(),
+                bucket,
+            ]);
+        }
+        other => return Err((format!("unknown tool: {other}"), true)),
     }
+    Ok(argv)
 }
 
 /// A one-line, actionable gloss for a `check` verdict, derived from its --json
@@ -488,6 +591,113 @@ fn missing_app() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The set of tool names `tool_defs()` advertises.
+    fn tool_names() -> Vec<String> {
+        tool_defs()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The argv `build_argv` produces for a tool call (panicking the test on the
+    /// error path so a dispatch test reads cleanly).
+    fn argv(name: &str, args: Value) -> Vec<String> {
+        build_argv(None, name, &args).expect("build_argv should not error for a valid call")
+    }
+
+    #[test]
+    fn the_full_cloud_loop_tools_are_present() {
+        // Every tool the manage+monitor loop needs is advertised: pull (already
+        // wired) plus the new triage (set fixed), resolution-events (monitor
+        // regressions), and timeline.
+        let names = tool_names();
+        for want in [
+            "reproit_cloud_buckets",
+            "reproit_cloud_pull",
+            "reproit_cloud_triage",
+            "reproit_cloud_resolution_events",
+            "reproit_cloud_timeline",
+        ] {
+            assert!(names.contains(&want.to_string()), "missing tool {want}");
+        }
+    }
+
+    #[test]
+    fn cloud_triage_read_dispatches_without_status() {
+        // No status => READ: the CLI gets `cloud triage --app A --bucket B` with no
+        // --status, and the bridge's --json / --yes globals are present.
+        let argv = argv(
+            "reproit_cloud_triage",
+            json!({ "app": "demo", "bucket": "b00b" }),
+        );
+        assert!(argv.contains(&"--json".to_string()));
+        assert!(argv.contains(&"--yes".to_string()));
+        assert!(argv.windows(2).any(|w| w == ["cloud", "triage"]));
+        assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
+        assert!(argv.windows(2).any(|w| w == ["--bucket", "b00b"]));
+        assert!(!argv.iter().any(|a| a == "--status"));
+    }
+
+    #[test]
+    fn cloud_triage_set_fixed_forwards_status_and_anchor() {
+        // status=fixed + fixed_in_build => SET: forwards --status and
+        // --fixed-in-build (the prod-resolution anchor) to the CLI.
+        let argv = argv(
+            "reproit_cloud_triage",
+            json!({ "app": "demo", "bucket": "b00b", "status": "fixed", "fixed_in_build": "1.4.2" }),
+        );
+        assert!(argv.windows(2).any(|w| w == ["--status", "fixed"]));
+        assert!(argv.windows(2).any(|w| w == ["--fixed-in-build", "1.4.2"]));
+    }
+
+    #[test]
+    fn cloud_triage_assigned_forwards_assignee() {
+        // An integer assignee is forwarded as a string arg (clap parses it back).
+        let argv = argv(
+            "reproit_cloud_triage",
+            json!({ "app": "demo", "bucket": "b00b", "status": "assigned", "assignee": 42 }),
+        );
+        assert!(argv.windows(2).any(|w| w == ["--status", "assigned"]));
+        assert!(argv.windows(2).any(|w| w == ["--assignee", "42"]));
+    }
+
+    #[test]
+    fn cloud_triage_requires_app_and_bucket() {
+        // Missing the bucket is a tool error (app supplied so we isolate bucket).
+        let err = build_argv(None, "reproit_cloud_triage", &json!({ "app": "demo" }))
+            .expect_err("missing bucket should error");
+        assert!(err.1);
+        assert!(err.0.contains("bucket"));
+    }
+
+    #[test]
+    fn cloud_resolution_events_dispatches() {
+        let argv = argv("reproit_cloud_resolution_events", json!({ "app": "demo" }));
+        assert!(argv.windows(2).any(|w| w == ["cloud", "resolution-events"]));
+        assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
+    }
+
+    #[test]
+    fn cloud_timeline_dispatches_with_bucket() {
+        let argv = argv(
+            "reproit_cloud_timeline",
+            json!({ "app": "demo", "bucket": "b00b" }),
+        );
+        assert!(argv.windows(2).any(|w| w == ["cloud", "timeline"]));
+        assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
+        assert!(argv.windows(2).any(|w| w == ["--bucket", "b00b"]));
+    }
+
+    #[test]
+    fn unknown_tool_is_an_error() {
+        let err = build_argv(None, "reproit_nonexistent", &json!({}))
+            .expect_err("an unknown tool should error");
+        assert!(err.1);
+        assert!(err.0.contains("unknown tool"));
+    }
 
     #[test]
     fn json_has_field_distinguishes_a_verdict_from_a_failure() {

@@ -769,6 +769,57 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
+    /// READ or SET a bucket's triage status (the management state: where in the
+    /// lifecycle, who owns it). GET/POST /v1/apps/:app/buckets/:bucket/triage.
+    /// With no --status, reads + renders the current state; with --status, sets
+    /// it. Agent use: after a fix proves out locally (`check`), record intent with
+    /// `--status fixed --fixed-in-build <ver>`; prod then confirms or regresses it.
+    Triage {
+        #[arg(long)]
+        app: String,
+        /// Content-addressed bucket id.
+        #[arg(long)]
+        bucket: String,
+        /// New status: new | triaged | assigned | fixed | wontfix. Omit to READ.
+        #[arg(long)]
+        status: Option<String>,
+        /// The build the fix shipped in (the prod-resolution anchor). Only
+        /// meaningful with `--status fixed`; defaults server-side to the newest
+        /// build seen for the bucket if omitted.
+        #[arg(long = "fixed-in-build")]
+        fixed_in_build: Option<String>,
+        /// Org member id to assign (required by, and only valid for, `assigned`).
+        #[arg(long)]
+        assignee: Option<i64>,
+        #[arg(long)]
+        cloud: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// List recent prod-truth resolution TRANSITIONS (resolved->regressed,
+    /// resolving->resolved, ...), newest first. GET /v1/apps/:app/resolution-events.
+    /// Agent use: an autonomous monitor reads this to see what REGRESSED after a
+    /// bucket was marked fixed.
+    ResolutionEvents {
+        #[arg(long)]
+        app: String,
+        #[arg(long)]
+        cloud: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// The per-bucket occurrence time-series (segmented by build) + the computed
+    /// prod-truth resolution. GET /v1/apps/:app/buckets/:bucket/timeline.
+    Timeline {
+        #[arg(long)]
+        app: String,
+        #[arg(long)]
+        bucket: String,
+        #[arg(long)]
+        cloud: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
     /// Match a free-text bug report to a bucket, then explain (+ optional repro).
     /// Was `triage diagnose`; powers the MCP diagnose entry point.
     Diagnose {
@@ -1747,7 +1798,7 @@ async fn main() -> Result<ExitCode> {
             // Cloud commands talk to a remote; an unreachable/erroring cloud is
             // a clean, non-panicking failure with a one-line message (the full
             // chain stays available under --json for scripts).
-            match cloud_cmd(cli.config.as_deref(), action).await {
+            match cloud_cmd(cli.config.as_deref(), action, ctx.json).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
                     if ctx.json {
@@ -2242,7 +2293,11 @@ fn cloud_creds(cloud: Option<String>, key: Option<String>) -> (Option<String>, O
 /// handlers. `login` persists a service token; every other command resolves the
 /// token via `cloud_creds` and uses it as a bearer. Network failures surface as
 /// a clear message (the triage layer bails rather than panicking).
-async fn cloud_cmd(config_path: Option<&std::path::Path>, action: CloudAction) -> Result<()> {
+async fn cloud_cmd(
+    config_path: Option<&std::path::Path>,
+    action: CloudAction,
+    json: bool,
+) -> Result<()> {
     match action {
         CloudAction::Login { cloud, key } => {
             let url = cloud
@@ -2391,6 +2446,41 @@ async fn cloud_cmd(config_path: Option<&std::path::Path>, action: CloudAction) -
                 key,
             )
             .await
+        }
+        CloudAction::Triage {
+            app,
+            bucket,
+            status,
+            fixed_in_build,
+            assignee,
+            cloud,
+            key,
+        } => {
+            let (cloud, key) = cloud_creds(cloud, key);
+            triage::triage(
+                &app,
+                &bucket,
+                status.as_deref(),
+                fixed_in_build.as_deref(),
+                assignee,
+                json,
+                cloud,
+                key,
+            )
+            .await
+        }
+        CloudAction::ResolutionEvents { app, cloud, key } => {
+            let (cloud, key) = cloud_creds(cloud, key);
+            triage::resolution_events(&app, json, cloud, key).await
+        }
+        CloudAction::Timeline {
+            app,
+            bucket,
+            cloud,
+            key,
+        } => {
+            let (cloud, key) = cloud_creds(cloud, key);
+            triage::timeline(&app, &bucket, json, cloud, key).await
         }
         CloudAction::Diagnose {
             app,
