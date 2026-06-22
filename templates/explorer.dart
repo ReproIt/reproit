@@ -21,6 +21,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -1389,6 +1390,349 @@ Map<String, dynamic> groundTruth(WidgetTester t, String sig) {
   return {'sig': sig, 'focusTrap': focusTrap, 'elements': elements};
 }
 
+// ===========================================================================
+// OVERFLOW oracle (EXPLORE:OVERFLOW) - deterministic, structural.
+//
+// The Flutter twin of the web runner's layout-overflow oracle. A RenderFlex
+// (Row/Column) whose children don't fit, or any box that escapes its parent's
+// content box, is the i18n / long-string / RTL failure class. We catch it from
+// STRUCTURAL FACTS about the live render tree, never a pixel diff, so the same
+// tree yields the same finding byte-for-byte on every observe and on replay.
+// Two independent signals, each a measured fact:
+//   - flex   : a RenderObject that mixes in DebugOverflowIndicatorMixin
+//              (RenderFlex, RenderListBody, OverflowBox-free chains) reported an
+//              overflow to FlutterError during layout. This is FLUTTER'S OWN
+//              "A RenderFlex overflowed by N pixels" determination, captured via
+//              a FlutterError.onError shim and attributed to the offending
+//              RenderObject's identity, so it is exactly as deterministic as the
+//              framework's own check. `by` is the overflowed pixel amount.
+//   - spill  : a visible child RenderBox whose paint box escapes its parent's
+//              size by more than OVERFLOW_TOL on the right or left, where the
+//              parent is NOT a scroll/viewport container (a viewport is MEANT to
+//              hold larger content). Mirrors the web SPILL signal. `by` is the
+//              escaped pixel amount, rounded.
+// The finding is addressed by a STABLE, locale-invariant key (the nearest
+// developer Key on the render object's creating element, else its render
+// runtime-type + structural index), never by visible text, so a translated
+// string does not change the finding's identity. Clean layouts overflow none of
+// these, so the control stays silent (no marker, no finding).
+const int overflowTol = 2;
+
+/// FlutterError-captured overflow reports, keyed by the offending RenderObject's
+/// identity. Flutter reports a flex/box overflow exactly once per object (gated
+/// by `_overflowReportNeeded`), so we LATCH it here when it fires and clear the
+/// latch only when that object leaves the tree (tracked by the observe walk).
+/// `by` is the max overflowed pixel amount parsed from the message.
+final Map<RenderObject, int> _overflowReports = <RenderObject, int>{};
+
+/// Install a FlutterError shim (once) that records "overflowed by N pixels"
+/// reports against the RenderObject that raised them, then chains to the prior
+/// handler so the framework's normal logging/test behavior is unchanged. The
+/// offending object is recovered from the FlutterErrorDetails context (a
+/// DiagnosticsProperty whose value is the RenderObject) when present.
+bool _overflowShimInstalled = false;
+void installOverflowShim() {
+  if (_overflowShimInstalled) return;
+  _overflowShimInstalled = true;
+  final prior = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    try {
+      final text = details.exceptionAsString();
+      if (text.contains('overflowed')) {
+        // Pull the largest "N pixels" amount out of the message (a flex may
+        // overflow on several edges). Deterministic: same layout, same text.
+        var by = 0;
+        for (final m in RegExp(r'([0-9]+(?:\.[0-9]+)?) pixels').allMatches(text)) {
+          final v = double.tryParse(m.group(1)!)?.round() ?? 0;
+          if (v > by) by = v;
+        }
+        // Recover the offending RenderObject. The overflow report attaches it to
+        // the FlutterErrorDetails informationCollector (a `describeForError(...)`
+        // diagnostics node whose `.value` IS the RenderObject), so walk those
+        // nodes and latch the first RenderObject we find. Public API only
+        // (FlutterErrorDetails.informationCollector, DiagnosticsNode.value).
+        final collector = details.informationCollector;
+        if (collector != null) {
+          for (final node in collector()) {
+            final v = node.value;
+            if (v is RenderObject) {
+              _overflowReports[v] = by;
+              break;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    if (prior != null) prior(details);
+  };
+}
+
+/// The stable, locale-invariant key for an overflowing RenderObject: the nearest
+/// developer Key on its creating Element (via debugCreator), as `key:<id>`, else
+/// `render:<RuntimeType>#<idx>` where idx is the structural index among same-type
+/// render objects in paint order. Never the visible text.
+String _renderKey(RenderObject ro, Map<String, int> typeIdx) {
+  final creator = ro.debugCreator;
+  if (creator is DebugCreator) {
+    final el = creator.element;
+    String? ks = keyStringOf(el.widget);
+    if (ks == null) {
+      el.visitAncestorElements((anc) {
+        final k = keyStringOf(anc.widget);
+        if (k != null) {
+          ks = k;
+          return false;
+        }
+        return true;
+      });
+    }
+    final found = ks;
+    if (found != null) return 'key:${keyValueOf(found)}';
+  }
+  final tn = ro.runtimeType.toString();
+  final idx = typeIdx[tn] ?? 0;
+  typeIdx[tn] = idx + 1;
+  return 'render:$tn#$idx';
+}
+
+/// Detect layout overflow in the live render tree as a list of (key, kind, by)
+/// items, sorted by key then kind so the marker is byte-identical run to run.
+/// `flex` items come from the FlutterError latch (Flutter's own determination);
+/// `spill` items from a geometric child-vs-parent check. Returns [] when nothing
+/// overflows, so a clean screen emits no EXPLORE:OVERFLOW marker.
+List<Map<String, dynamic>> detectOverflow(WidgetTester t) {
+  final root = WidgetsBinding.instance.rootElement?.renderObject;
+  if (root == null) return const [];
+  // Mark which latched overflow objects are still in the live tree; drop the
+  // rest so a cleared overflow stops being reported (no stale findings).
+  final live = <RenderObject>{};
+  final out = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  final typeIdx = <String, int>{};
+  void add(RenderObject ro, String kind, int by) {
+    final key = _renderKey(ro, typeIdx);
+    final dedup = '$key|$kind';
+    if (!seen.add(dedup)) return;
+    out.add({'key': key, 'kind': kind, 'by': by});
+  }
+
+  void walk(RenderObject ro) {
+    live.add(ro);
+    // FLEX signal: this object reported an overflow to FlutterError.
+    final reported = _overflowReports[ro];
+    if (reported != null) add(ro, 'flex', reported);
+    // SPILL signal: a box child escaping THIS box's size (right/left) when this
+    // box is not a viewport/scroll container. Only RenderBox geometry is read.
+    if (ro is RenderBox && ro.hasSize && !_isViewportLike(ro)) {
+      final parentSize = ro.size;
+      ro.visitChildren((child) {
+        if (child is RenderBox && child.hasSize) {
+          final pd = child.parentData;
+          if (pd is BoxParentData) {
+            final off = pd.offset;
+            final right = off.dx + child.size.width - parentSize.width;
+            final left = -off.dx;
+            final over = right > left ? right : left;
+            if (over > overflowTol) add(child, 'spill', over.round());
+          }
+        }
+      });
+    }
+    ro.visitChildren(walk);
+  }
+
+  walk(root);
+  // Evict latched reports whose RenderObject left the tree.
+  _overflowReports.removeWhere((ro, _) => !live.contains(ro));
+  out.sort((a, b) {
+    final ka = a['key'] as String, kb = b['key'] as String;
+    if (ka != kb) return ka.compareTo(kb);
+    return (a['kind'] as String).compareTo(b['kind'] as String);
+  });
+  return out;
+}
+
+/// True when [ro] is a scroll/viewport container that is MEANT to hold children
+/// larger than itself, so a child escaping its box is intentional, not a bug.
+/// Detected by render runtime-type name (locale-invariant), covering the common
+/// viewports (RenderViewport, RenderShrinkWrappingViewport, RenderListBody-free
+/// scrollers, RenderEditable). Conservative: when unsure we treat it as a
+/// viewport (suppress) rather than emit a false SPILL.
+bool _isViewportLike(RenderBox ro) {
+  final t = ro.runtimeType.toString();
+  return t.contains('Viewport') ||
+      t.contains('Scroll') ||
+      t.contains('Editable') ||
+      t.contains('Sliver') ||
+      t.contains('ListBody') ||
+      t.contains('OverflowBox') ||
+      t.contains('SingleChildScrollView');
+}
+
+// ===========================================================================
+// CONTENT-BUG oracle (EXPLORE:CONTENTBUG) - deterministic, label-based.
+//
+// The Flutter twin of the web runner's content-bug oracle. A rendered semantics
+// LABEL carrying a stringify/template artifact is broken CONTENT leaked to the
+// screen. Four classes, each a pure substring/structure test over the label,
+// never a pixel or timing read, so the same tree yields the same finding
+// byte-for-byte on every observe and on replay:
+//   - [object Object]   : an object coerced to a string label
+//   - {{ ... }} / ${ }  : an unrendered template placeholder (binding never ran)
+//   - undefined / null  : a missing value coerced into the label as a WHOLE word
+//   - NaN               : a number computation that went non-finite
+// The classifiers and their precedence are byte-identical to the web runner's
+// reasonOf so a finding's `reason` matches cross-platform. We scan the semantics
+// tree (the same tree EXPLORE:STATE signs), so each finding is addressed by a
+// stable, locale-invariant key (the node's developer key when present, else
+// `role:<role>#<idx>` in document order), never by the text itself. The `\b`-
+// style guards require the artifact token to STAND ALONE, so ordinary prose that
+// merely contains "null" ("Null Island", "Cancellation") is not flagged. Clean
+// apps render none of these, so the control stays silent.
+
+/// Classify a label string into a stable content-bug reason tag, or null. Fixed
+/// precedence, first match wins (byte-identical to runners/web/runner.mjs
+/// reasonOf), so a label carries at most one reason.
+String? contentBugReason(String text) {
+  if (text.isEmpty) return null;
+  if (text.contains('[object Object]')) return 'object-object';
+  if (RegExp(r'\{\{[^}]*\}\}').hasMatch(text) ||
+      RegExp(r'\$\{[^}]*\}').hasMatch(text)) {
+    return 'unrendered-template';
+  }
+  if (RegExp(r'(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])').hasMatch(text)) {
+    return 'undefined';
+  }
+  if (RegExp(r'(^|[\s:>(\[,])null($|[\s.,!?)\]<])').hasMatch(text)) {
+    return 'null';
+  }
+  if (RegExp(r'(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])').hasMatch(text)) {
+    return 'nan';
+  }
+  return null;
+}
+
+/// Scan the live semantics tree for content-bug artifacts as a list of
+/// (key, reason, text) items, sorted by key then reason so the marker is
+/// byte-identical run to run. The key is the node's developer key when one is
+/// paired to it (same role+document-order pairing snapshot() uses), else
+/// `role:<role>#<idx>`. Returns [] when nothing is broken (no marker emitted).
+List<Map<String, dynamic>> detectContentBugs(WidgetTester t) {
+  final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+  if (root == null) return const [];
+  // Pair developer ids to canonical-role nodes in document order, exactly like
+  // snapshot(), so a content-bug finding shares the EXPLORE:STATE selector.
+  final keyedIdsByRole = <String, List<String>>{};
+  for (final kt in collectKeyedTappables()) {
+    (keyedIdsByRole[kt.value] ??= <String>[]).add(keyValueOf(kt.key));
+  }
+  final perRoleId = <String, int>{};
+  final out = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  void walk(SemanticsNode node) {
+    final data = node.getSemanticsData();
+    if (!data.hasFlag(SemanticsFlag.isHidden)) {
+      final role = roleOf(data);
+      final idx = perRoleId[role] ?? 0;
+      perRoleId[role] = idx + 1;
+      final roleIds = keyedIdsByRole[role];
+      final id = (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
+      // Consider both the label and the displayed value: a broken binding can
+      // surface in either. First non-null reason wins; label is checked first.
+      final label = data.label.trim();
+      final value = data.value.trim();
+      String? reason = contentBugReason(label);
+      var hit = label;
+      if (reason == null) {
+        reason = contentBugReason(value);
+        hit = value;
+      }
+      if (reason != null) {
+        final key = id != null ? 'key:$id' : 'role:${normalizeRole(role)}#$idx';
+        final dedup = '$key|$reason';
+        if (seen.add(dedup)) {
+          final clipped = hit.length > 80 ? hit.substring(0, 80) : hit;
+          out.add({'key': key, 'reason': reason, 'text': clipped});
+        }
+      }
+    }
+    node.visitChildren((c) {
+      walk(c);
+      return true;
+    });
+  }
+
+  walk(root);
+  out.sort((a, b) {
+    final ka = a['key'] as String, kb = b['key'] as String;
+    if (ka != kb) return ka.compareTo(kb);
+    return (a['reason'] as String).compareTo(b['reason'] as String);
+  });
+  return out;
+}
+
+// ===========================================================================
+// HANG oracle (EXPLORE:HANG) - deterministic watchdog, SIM-ONLY.
+//
+// The distinct-from-jank freeze signal: an action whose pump/settle never
+// reaches a quiescent frame within a FIXED budget. Jank (already wired via the
+// frame manifest's jank_pct in fuzz.rs) is "slow frames"; a HANG is "no
+// progress at all" - an action that wedges the UI thread (a synchronous busy
+// loop, an await that never completes, an animation that never settles). We
+// detect it by driving a BOUNDED settle and checking whether the binding still
+// reports transient callbacks / scheduled frames pending after the budget
+// elapsed: if the app is still trying to produce frames (or a synchronous
+// handler blocked so long the budget's worth of real wall-clock passed before a
+// single pump returned), the action did not settle and we emit EXPLORE:HANG.
+//
+// DETERMINISM: keyed by (from, action) like the web HANG oracle and like jank,
+// and bucketed into a single coarse floor (HANG_FLOOR_MS) carried as `bucket`,
+// so timing jitter cannot flip the verdict's IDENTITY - the finding id is the
+// (from, action) pair, already deterministic for a fixed seed. The wall-clock
+// read only gates WHETHER to emit; the marker content is discrete.
+//
+// SIM-ONLY: the headless (flutter test) binding uses a FAKE async clock, so a
+// real wall-clock watchdog reads zero elapsed and `hasScheduledFrame` reflects
+// the fake pump, not a real freeze. So this oracle lives on the simulator
+// explorer only (parity with JANK, which is also sim-only). See the headless
+// file's ORACLE SCOPE banner.
+const int hangFloorMs = 2000;
+const int hangPumpStepMs = 100;
+
+/// Drive a bounded settle for [budgetMs] and report whether the action HUNG:
+/// true iff, after pumping the whole budget in fixed steps, the binding still
+/// has a frame scheduled (the app never reached quiescence) OR the real elapsed
+/// wall-clock exceeded the budget by the hang floor (a synchronous handler
+/// blocked the thread past the freeze floor). Returns the bucket to emit, or
+/// null when the action settled cleanly within budget.
+///
+/// This REPLACES the plain settle() for the action it guards: it pumps the same
+/// total budget, so the walk's timing is unchanged; it only ADDS the verdict.
+Future<int?> settleWatchdog(WidgetTester t, int budgetMs) async {
+  final sw = Stopwatch()..start();
+  final steps = budgetMs ~/ hangPumpStepMs;
+  for (var i = 0; i < steps; i++) {
+    try {
+      await t.pump(const Duration(milliseconds: hangPumpStepMs));
+    } catch (_) {
+      // A pump that throws (e.g. a handler error) is drained by the caller; do
+      // not treat it as a hang on its own.
+    }
+  }
+  final elapsedMs = sw.elapsedMilliseconds;
+  // Signal 1: real wall-clock blew far past the budget -> a synchronous handler
+  // froze the UI thread (the budget's worth of pumps took >> budget to return).
+  final blocked = elapsedMs - budgetMs;
+  // Signal 2: after the full settle budget the framework STILL wants to draw a
+  // frame -> the screen never reached a quiescent state (an unsettling animation
+  // / a never-completing relayout), which is a freeze for an action that should
+  // have settled.
+  final stillScheduling = t.binding.hasScheduledFrame;
+  if (blocked >= hangFloorMs || stillScheduling) {
+    return hangFloorMs;
+  }
+  return null;
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -1425,6 +1769,12 @@ void main() {
     // Frame tracking spans the whole session (one continuous frame stream);
     // the perf oracle is therefore session-wide, attributed to the run.
     trackFrames();
+
+    // Capture Flutter's own flex/box overflow reports for the OVERFLOW oracle.
+    // Installed before the first pump so a layout overflow on the launch screen
+    // is latched; chains to the prior FlutterError handler, so normal logging is
+    // unchanged.
+    installOverflowShim();
 
     // Last-resort: resolve a tappable by its (localized) visible text. Kept ONLY
     // for backward compatibility with old `tap:<label>` replay configs; the
@@ -1729,6 +2079,25 @@ void main() {
           debugPrint(
             'EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, sig))}',
           );
+          // DOM/layout OVERFLOW for this newly-seen state, keyed by the SAME sig.
+          // Pure render-tree structural measurement (FlutterError-reported flex
+          // overflow + child-vs-parent spill), no pixels, so it reproduces on
+          // replay. Silent (no marker) when nothing overflows.
+          final ovf = detectOverflow(tester);
+          if (ovf.isNotEmpty) {
+            debugPrint(
+              'EXPLORE:OVERFLOW ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": ovf})}',
+            );
+          }
+          // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
+          // semantics-label scan (no pixels, no timing), so it reproduces on
+          // replay. Silent when no broken-content artifact is rendered.
+          final cbug = detectContentBugs(tester);
+          if (cbug.isNotEmpty) {
+            debugPrint(
+              'EXPLORE:CONTENTBUG ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": cbug})}',
+            );
+          }
         }
         return snap;
       }
@@ -1859,13 +2228,24 @@ void main() {
         }
         final sel = a.substring('tap:'.length);
         triedEdges.add('${sigOf(current)}|$sel');
+        final fromSig = sigOf(current);
         final ok = await tapSelector(sel);
         if (!ok) {
           debugPrint('FUZZ:MISS $act');
           stuck++;
           continue;
         }
-        await settle(tester, 1200);
+        // HANG watchdog: drive the SAME settle budget through the watchdog, which
+        // also reports whether the action never reached quiescence within budget.
+        // Keyed by (from, action) like jank, bucketed to a coarse floor so the
+        // verdict's identity is deterministic. Distinct from jank (slow frames):
+        // a HANG is no progress at all (a wedged UI thread / unsettling screen).
+        final hangBucket = await settleWatchdog(tester, 1200);
+        if (hangBucket != null) {
+          debugPrint(
+            'EXPLORE:HANG ${jsonEncode({"from": fromSig, "action": "tap:$sel", "bucket": hangBucket})}',
+          );
+        }
         final next = observe();
         if (sigOf(next) != sigOf(current)) {
           debugPrint(

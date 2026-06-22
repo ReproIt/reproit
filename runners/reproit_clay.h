@@ -1138,6 +1138,12 @@ bool ReproIt_Clay_Shoot(const char* name);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef REPROIT_TELEMETRY
+// Fuzz-build crash handler needs POSIX signal + write(2). Telemetry builds pull
+// these in from their own block; the fuzz build includes them here.
+#include <signal.h>
+#include <unistd.h>
+#endif
 
 #define REPROIT_CLAY_MAX 256
 #define REPROIT_CLAY_STR 64
@@ -1477,6 +1483,85 @@ static void reproit_clay_emit_groundtruth(const char* sig) {
     fflush(stdout);
 }
 
+// ---- FUZZ-BUILD CRASH HANDLER (async-signal-safe) -------------------------
+//
+// In the FUZZ build (REPROIT_TELEMETRY undefined) a fatal signal in the app
+// under test would otherwise kill the process silently: the orchestrator sees
+// the runner die mid-walk with no JOURNEY DONE and no crash marker, so the
+// crash is not attributed to a node. This handler closes that gap exactly like
+// the imgui header's: on SIGSEGV/SIGABRT/SIGBUS/SIGFPE/SIGILL it writes an
+// `EXCEPTION CAUGHT BY ...` block to stdout (the marker drive.rs + the fuzz
+// oracle parse) naming the current state signature and the action that led
+// there, then re-raises so the OS still cores. The block is PRE-SERIALIZED on
+// the hot path (FrameEnd) so the handler only does async-signal-safe write(2).
+// The bucket key (kind + message) embeds signal + node + action, so the same
+// crash reached the same way buckets to one finding. Mutually exclusive with
+// the telemetry crash hook via the #ifndef guard.
+#ifndef REPROIT_TELEMETRY
+static char reproit_clay_crash_pre[256];
+static size_t reproit_clay_crash_pre_len = 0;
+static char reproit_clay_crash_post[256];
+static size_t reproit_clay_crash_post_len = 0;
+static volatile sig_atomic_t reproit_clay_crash_installed = 0;
+
+static const char* reproit_clay_signame(int sig) {
+    switch (sig) {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGABRT: return "SIGABRT";
+        case SIGBUS:  return "SIGBUS";
+        case SIGFPE:  return "SIGFPE";
+        case SIGILL:  return "SIGILL";
+        default:      return "SIGNAL";
+    }
+}
+
+static void reproit_clay_safe_write(const char* s) {
+    size_t n = 0; while (s[n]) n++;
+    size_t off = 0;
+    while (off < n) { long w = (long)write(1, s + off, n - off); if (w <= 0) break; off += (size_t)w; }
+}
+static void reproit_clay_safe_write_n(const char* s, size_t n) {
+    size_t off = 0;
+    while (off < n) { long w = (long)write(1, s + off, n - off); if (w <= 0) break; off += (size_t)w; }
+}
+
+static void reproit_clay_crash_handler(int sig) {
+    reproit_clay_safe_write_n(reproit_clay_crash_pre, reproit_clay_crash_pre_len);
+    reproit_clay_safe_write(reproit_clay_signame(sig));
+    reproit_clay_safe_write_n(reproit_clay_crash_post, reproit_clay_crash_post_len);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void reproit_clay_install_crash_hook(void) {
+    if (reproit_clay_crash_installed) return;
+    reproit_clay_crash_installed = 1;
+    const char* pre =
+        "EXCEPTION CAUGHT BY CLAY APP \xe2\x95\xa1 CLAY APP \xe2\x95\x9e\n"
+        "The following crash was raised by the app:\n"
+        "raised by signal ";
+    size_t n = 0; while (pre[n]) n++;
+    if (n >= sizeof reproit_clay_crash_pre) n = sizeof reproit_clay_crash_pre - 1;
+    memcpy(reproit_clay_crash_pre, pre, n);
+    reproit_clay_crash_pre[n] = 0;
+    reproit_clay_crash_pre_len = n;
+    int sigs[] = {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL};
+    for (unsigned i = 0; i < sizeof sigs / sizeof sigs[0]; i++) signal(sigs[i], reproit_clay_crash_handler);
+}
+
+// Rebuild the message tail + closing rule from the current state. Hot path only.
+static void reproit_clay_build_crash_tail(void) {
+    const char* sig = rc.prevSig[0] ? rc.prevSig : "?";
+    const char* act = rc.fireName[0] ? rc.fireName : "(launch)";
+    int w = snprintf(
+        reproit_clay_crash_post, sizeof reproit_clay_crash_post,
+        " at state %s after action tap:%s\n"
+        "\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\n",
+        sig, act);
+    reproit_clay_crash_post_len = (w > 0 && (size_t)w < sizeof reproit_clay_crash_post) ? (size_t)w : 0;
+}
+#endif  // !REPROIT_TELEMETRY
+
 void ReproIt_Clay_FrameEnd(void) {
 #ifdef REPROIT_TELEMETRY
     // Production telemetry path: when telemetry is active, observe the real
@@ -1495,6 +1580,11 @@ void ReproIt_Clay_FrameEnd(void) {
     }
 #endif
     if (rc.done) return;
+#ifndef REPROIT_TELEMETRY
+    // Arm the fuzz-build crash handler once, so a fatal signal in the app under
+    // test surfaces as an attributed EXCEPTION block, not a silent death.
+    reproit_clay_install_crash_hook();
+#endif
     // Settle before reading, so each state/edge is emitted exactly once.
     if (rc.settle > 0) { rc.settle--; return; }
     // Apply value-node marks so value-classes are part of the emitted signature.
@@ -1553,6 +1643,12 @@ void ReproIt_Clay_FrameEnd(void) {
     fflush(stdout);
     rc.actions++;
     rc.settle = 2;
+#ifndef REPROIT_TELEMETRY
+    // Refresh the pre-serialized crash payload to the state we are in (prevSig)
+    // and the action about to fire (fireName), so a crash in the app's handler
+    // for this action is attributed to this exact (state, action).
+    reproit_clay_build_crash_tail();
+#endif
 }
 
 bool ReproIt_Clay_Done(void) { return rc.done; }

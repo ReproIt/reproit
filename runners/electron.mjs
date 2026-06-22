@@ -740,6 +740,272 @@ function churnedAnchors(sel) {
   return churned;
 }
 
+// PARITY: keep in sync with runners/web/runner.mjs (overflow oracle).
+//
+// DOM/layout OVERFLOW oracle (deterministic, structural). The i18n / long-string
+// / RTL failure class: a German or RTL label overflowing a fixed-width button, a
+// child wider than its parent's content box, or text clipped by `text-overflow`.
+// Caught from STRUCTURAL MEASUREMENTS, never a pixel diff, so the same DOM yields
+// the same finding byte-for-byte on every run and on replay. Three independent
+// signals (SCROLL/CLIP/SPILL); see the web runner for the full rationale. The
+// tolerance (OVERFLOW_TOL px) is a fixed integer so the predicate is a pure
+// comparison of rounded measurements and stays reproducible. Electron's renderer
+// is Chromium, so this is byte-identical to runners/web/runner.mjs.
+const OVERFLOW_TOL = 2;
+function detectOverflow(tol) {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const out = [];
+  const seen = new Set();
+  const add = (el, kind, by) => {
+    const k = keyOf(el) + '|' + kind;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ key: keyOf(el), kind, by: Math.round(by) });
+  };
+  const doc = document.documentElement;
+  if (doc && doc.scrollWidth - doc.clientWidth > tol) {
+    out.push({ key: 'tag:html', kind: 'scroll', by: Math.round(doc.scrollWidth - doc.clientWidth) });
+  }
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!visible(el)) continue;
+    const st = getComputedStyle(el);
+    if (el.scrollWidth - el.clientWidth > tol) add(el, 'scroll', el.scrollWidth - el.clientWidth);
+    const clips = st.overflow === 'hidden' || st.overflowX === 'hidden' || st.textOverflow === 'ellipsis';
+    const oneLine = st.whiteSpace === 'nowrap' || st.textOverflow === 'ellipsis';
+    if (clips && oneLine && el.scrollWidth - el.offsetWidth > tol) {
+      add(el, 'clip', el.scrollWidth - el.offsetWidth);
+    }
+    const p = el.parentElement;
+    if (p && p !== document.body && p !== doc) {
+      const ps = getComputedStyle(p);
+      const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
+      if (!scrollsX) {
+        const pr = p.getBoundingClientRect();
+        const cr = el.getBoundingClientRect();
+        const padL = parseFloat(ps.paddingLeft) || 0;
+        const padR = parseFloat(ps.paddingRight) || 0;
+        const bL = parseFloat(ps.borderLeftWidth) || 0;
+        const bR = parseFloat(ps.borderRightWidth) || 0;
+        const contentLeft = pr.left + bL + padL;
+        const contentRight = pr.right - bR - padR;
+        const over = Math.max(cr.right - contentRight, contentLeft - cr.left);
+        if (over > tol) add(el, 'spill', over);
+      }
+    }
+  }
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0)));
+  return out;
+}
+
+// PARITY: keep in sync with runners/web/runner.mjs (content-bug oracle).
+//
+// CONTENT-BUG oracle (deterministic, DOM/label-based). The literal artifacts a
+// stringify/template bug leaks to the screen: [object Object], whole-word
+// undefined/null/NaN, an unrendered {{...}}/${...} placeholder. Scans only the
+// OWN text of keyed, visible elements so the finding is addressed by a stable,
+// locale-invariant key (never the text). Pure substring/structure test, no pixel
+// or timing read, so the same DOM yields the same finding on every run/replay.
+function detectContentBugs() {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const name = (el.getAttribute('name') || '').trim();
+    if (name) return 'name:' + name;
+    return null;
+  };
+  const ownText = (el) => {
+    let t = '';
+    for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
+    return t.replace(/\s+/g, ' ').trim();
+  };
+  const reasonOf = (text) => {
+    if (!text) return null;
+    if (text.includes('[object Object]')) return 'object-object';
+    if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) return 'unrendered-template';
+    if (/(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])/.test(text)) return 'undefined';
+    if (/(^|[\s:>(\[,])null($|[\s.,!?)\]<])/.test(text)) return 'null';
+    if (/(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])/.test(text)) return 'nan';
+    return null;
+  };
+  const out = [];
+  const seen = new Set();
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!visible(el)) continue;
+    const key = keyOf(el);
+    if (!key) continue;
+    const text = ownText(el);
+    const reason = reasonOf(text);
+    if (!reason) continue;
+    const dedup = key + '|' + reason;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    out.push({ key, reason, text: text.slice(0, 80) });
+  }
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  return out;
+}
+
+// PARITY: keep in sync with runners/web/runner.mjs (jank/hang watchdog).
+//
+// JANK / HANG watchdog (deterministic, recorded-trace based). We key off the
+// browser's own Long Tasks trace, never a wall-clock duration sample: a
+// `longtask` PerformanceObserver entry is emitted for any task that blocks the
+// main thread > 50ms, buffered and delivered after the blocking task finishes.
+// We classify by the MAX blocked duration into coarse, well-separated floors so
+// timing jitter can never flip the verdict. Electron's renderer is Chromium, so
+// the Long Tasks API is present and this is verbatim with the web runner.
+const JANK_FLOOR_MS = 200;
+const HANG_FLOOR_MS = 2000;
+async function installLongTaskObserver(page) {
+  await page.addInitScript(() => {
+    try {
+      window.__reproitLongTasks = [];
+      const obs = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
+      });
+      obs.observe({ entryTypes: ['longtask'] });
+    } catch (_) { /* no Long Tasks API: jank/hang silent on this engine */ }
+  }).catch(() => {});
+}
+async function drainJank(page) {
+  const tasks = await page.evaluate(() => {
+    const t = window.__reproitLongTasks || [];
+    window.__reproitLongTasks = [];
+    return t;
+  }).catch(() => []);
+  if (!tasks || !tasks.length) return null;
+  const max = Math.max(...tasks);
+  if (max >= HANG_FLOOR_MS) {
+    return { kind: 'hang', bucket: HANG_FLOOR_MS, count: tasks.length };
+  }
+  if (max >= JANK_FLOOR_MS) {
+    return { kind: 'jank', bucket: JANK_FLOOR_MS, count: tasks.length };
+  }
+  return null;
+}
+
+// PARITY: keep in sync with runners/web/runner.mjs (leak heap sampler).
+//
+// LEAK sampler (deterministic, v8 heap). The CDP `Runtime.getHeapUsage` reports
+// the REAL, unrounded v8 used-heap size (performance.memory is quantized and
+// useless for a multi-MB leak), so we use that when a CDP session is available
+// and force a GC first (`HeapProfiler.collectGarbage`) so the reading is the
+// RETAINED (live) heap. We emit a MEMORY:SAMPLE marker per cycle; the soak side
+// reconstructs the series. Electron's renderer is Chromium with full CDP, so
+// this is the precise (non-fallback) path, byte-identical to the web runner.
+async function sampleHeap(page, cdp, tMs) {
+  let used = null;
+  if (cdp) {
+    try {
+      await cdp.send('HeapProfiler.collectGarbage').catch(() => {});
+      const r = await cdp.send('Runtime.getHeapUsage');
+      if (r && typeof r.usedSize === 'number') used = Math.round(r.usedSize);
+    } catch (_) { used = null; }
+  }
+  if (used == null) {
+    try {
+      used = await page.evaluate(() => {
+        if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
+          return performance.memory.usedJSHeapSize;
+        }
+        return null;
+      });
+    } catch (_) { used = null; }
+  }
+  if (used == null) return;
+  log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
+}
+
+// PARITY: keep in sync with runners/web/runner.mjs (Tier-2 pixel-flicker oracle).
+//
+// Tier-2 flicker oracle (gated, Chromium/CDP only). Records the frames the
+// renderer presented during a transition (CDP Page.startScreencast) and scores
+// the sequence for a transient divergence: a middle frame that diverges from the
+// settled FINAL frame far more than the endpoints (flicker-oracle.mjs
+// transientDivergence). OFF by default; only emits when REPROIT_FLICKER_PIXELS=1,
+// same gate as the web runner. The pngjs decoder + the host-pure probe/flicker
+// helpers are imported lazily inside main() so this module stays import-safe for
+// the parity test; if any of them is unavailable the oracle stays silent.
+const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';
+// Filled in by main() via dynamic import when FLICKER_PIXELS is on. Null until
+// then (and on any import failure), which keeps startScreencastCapture a no-op.
+let PIXEL = null;
+function pngToRgba(buf) {
+  const png = PIXEL.PNG.sync.read(buf);
+  return { data: png.data, width: png.width, height: png.height };
+}
+async function startScreencastCapture(cdp) {
+  if (!FLICKER_PIXELS || !PIXEL || !cdp) return null;
+  const frames = [];
+  const onFrame = (ev) => {
+    frames.push(Buffer.from(ev.data, 'base64'));
+    cdp.send('Page.screencastFrameAck', { sessionId: ev.sessionId }).catch(() => {});
+  };
+  try {
+    await cdp.send('Page.enable');
+    cdp.on('Page.screencastFrame', onFrame);
+    await cdp.send('Page.startScreencast', {
+      format: 'png',
+      everyNthFrame: 1,
+      maxWidth: 320,
+      maxHeight: 240,
+    });
+  } catch (_) {
+    try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+    return null;
+  }
+  return {
+    async stop() {
+      try { await cdp.send('Page.stopScreencast'); } catch (_) {}
+      try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+      return frames;
+    },
+  };
+}
+async function finishScreencastCapture(cap, from, action) {
+  if (!cap) return;
+  let frames;
+  try { frames = await cap.stop(); } catch (_) { return; }
+  if (!frames || frames.length < 3) return;
+  let rgbas;
+  try { rgbas = frames.map(pngToRgba); } catch (_) { return; }
+  const final = rgbas[rgbas.length - 1];
+  const diffs = [];
+  for (const f of rgbas) {
+    if (f.width !== final.width || f.height !== final.height || f.data.length !== final.data.length) {
+      continue;
+    }
+    diffs.push(PIXEL.changedFraction(f.data, final.data));
+  }
+  const fl = PIXEL.transientDivergence(diffs);
+  if (fl) {
+    log('EXPLORE:FLICKER ' + JSON.stringify({ from, action, peak: fl.peak, frames: fl.frames }));
+  }
+}
+
 // ====================================================================
 //  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
 //  Two graphs over the SAME tappable walk snapshot() produced:
@@ -1294,6 +1560,26 @@ async function main() {
     log('═'.repeat(8));
   });
 
+  // Install the Long Tasks observer (jank/hang watchdog) BEFORE the renderer
+  // settles so it is live for every action. addInitScript re-runs it on every
+  // document, so it survives in-app navigations and reloads.
+  await installLongTaskObserver(page);
+
+  // Tier-2 pixel-flicker oracle (gated): lazily load the pngjs decoder + the
+  // host-pure probe/flicker helpers only when REPROIT_FLICKER_PIXELS=1, so this
+  // module stays import-safe for the parity test and never hard-depends on pngjs.
+  // Any import failure leaves PIXEL null, which keeps the oracle a silent no-op.
+  if (FLICKER_PIXELS) {
+    try {
+      const [{ PNG }, probe, flick] = await Promise.all([
+        import('pngjs'),
+        import('./web/probe.mjs'),
+        import('./web/flicker-oracle.mjs'),
+      ]);
+      PIXEL = { PNG, changedFraction: probe.changedFraction, transientDivergence: flick.transientDivergence };
+    } catch (_) { PIXEL = null; /* pixel-flicker unavailable: stays silent */ }
+  }
+
   log('JOURNEY claimed role=a');
   await page.waitForTimeout(1200);
   const seen = new Set(), tried = new Set();
@@ -1358,6 +1644,21 @@ async function main() {
       // by the SAME sig (alongside the EXPLORE:STATE line). The keyboard probe
       // can mutate the DOM, so it runs AFTER the snapshot is captured/recorded.
       await emitGroundtruth(page, gtCdp, snap.sig);
+      // DOM/layout overflow for this newly-seen state, keyed by the SAME sig.
+      // Pure structural measurement (scrollWidth/clientWidth, child-vs-parent
+      // content box, offsetWidth<scrollWidth), no pixels, so it reproduces on
+      // replay. Only emitted when something overflows; a clean layout stays silent.
+      const ovf = await page.evaluate(detectOverflow, OVERFLOW_TOL).catch(() => null);
+      if (ovf && ovf.length) {
+        log('EXPLORE:OVERFLOW ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: ovf }));
+      }
+      // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
+      // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
+      // emitted when a broken-content artifact is actually rendered.
+      const cbug = await page.evaluate(detectContentBugs).catch(() => null);
+      if (cbug && cbug.length) {
+        log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+      }
     }
     return snap;
   };
@@ -1366,7 +1667,15 @@ async function main() {
   const prefix = fuzz.prefix || null, replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
+  // sample the v8 heap at the start and after every action, so the Rust soak
+  // oracle gets a heap-vs-time series. Off outside replay. t0 anchors t_ms.
+  const t0 = Date.now();
+  if (replay) await sampleHeap(page, gtCdp, 0);
   for (let a = 0; a < budget && stuck < 3; a++) {
+    // LEAK sampler: in replay mode, sample once per action (fires BEFORE acting,
+    // so action a's sample reflects the heap after the previous action settled).
+    if (replay && a > 0) await sampleHeap(page, gtCdp, Date.now() - t0);
     let act;
     if (replay) act = replay[a];
     else if (prefix && a < prefixLen) act = prefix[a];
@@ -1417,14 +1726,25 @@ async function main() {
     const before = current.sig;
     const beforeContent = current.content;
     await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
-    if (!(await tap(page, sel))) { log('FUZZ:MISS ' + act); stuck++; continue; }
+    await page.evaluate(() => { window.__reproitLongTasks = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks
+    const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
+    if (!(await tap(page, sel))) { if (tapPix) await tapPix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
     await page.waitForTimeout(700);
+    await finishScreencastCapture(tapPix, before, 'tap:' + sel);
     // Tier-1 flicker oracle: did this transition rebuild persistent chrome that
     // did not change? (DOM node-identity churn; settled either way, so invisible
     // to the visual oracle.) Reported per transition, independent of the sig move.
     const tapChurn = await page.evaluate(churnedAnchors, ANCHOR_SEL).catch(() => null);
     if (tapChurn && tapChurn.length) {
       log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'tap:' + sel, churned: tapChurn }));
+    }
+    // JANK/HANG watchdog: did this action block the main thread past the
+    // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
+    // Rust side attributes it to this transition and `check` re-confirms it.
+    const tapJank = await drainJank(page);
+    if (tapJank) {
+      log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
+        JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
     }
     const next = await observe();
     if (next.sig !== before) {
@@ -1438,6 +1758,9 @@ async function main() {
     }
     current = next;
   }
+  // LEAK sampler: a final heap sample after the last action, so the series spans
+  // the whole soak (start ... last action). No-op outside replay.
+  if (replay) await sampleHeap(page, gtCdp, Date.now() - t0);
   log(`JOURNEY[a] step: explored ${seen.size} states`);
   log('JOURNEY DONE');
   log('All tests passed');

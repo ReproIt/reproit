@@ -14,9 +14,18 @@
 // kept only as display-only labels + an elements list with structural selectors.
 //
 // Records (one JSON per line, parsed from stdout):
-//   EXPLORE:STATE {"sig":..,"labels":[..],"elements":[{sel,role,label,nokey?}]}
-//   EXPLORE:EDGE  {"from":..,"action":"tap:<selector>"|"back","to":..}
-//                 selector = "key:<id>" or "role:<role>#<idx>", never text.
+//   EXPLORE:STATE      {"sig":..,"labels":[..],"elements":[{sel,role,label,nokey?}]}
+//   EXPLORE:EDGE       {"from":..,"action":"tap:<selector>"|"back","to":..}
+//                      selector = "key:<id>" or "role:<role>#<idx>", never text.
+//   EXPLORE:OVERFLOW   {"sig":..,"items":[{key,kind,by}]}   per-state, structural
+//   EXPLORE:CONTENTBUG {"sig":..,"items":[{key,reason,text}]} per-state, label scan
+//   EXPLORE:HANG       {"from":..,"action":..,"bucket":..} per-transition watchdog
+//   EXPLORE:JANK       {"from":..,"action":..,"bucket":..,"count":..} Android gfxinfo
+//   MEMORY:SAMPLE      {"t_ms":..,"heap_used":..}  Android PSS series under --soak
+// The OVERFLOW/CONTENTBUG/HANG/JANK/MEMORY markers share the EXACT contract the
+// web runner emits and the Rust core already parses (model/map.rs, modes/soak.rs);
+// the core is unchanged. iOS jank + leak are a documented platform gap (no frame
+// trace / heap readout over the XCUITest session); see the HANG/JANK/LEAK section.
 //
 // Env (set by the orchestrator's rn-appium runner):
 //   REPROIT_APPIUM_URL    Appium server base URL (e.g. http://127.0.0.1:4723)
@@ -490,6 +499,110 @@ function nameOfEl(get) {
   return (get('label') || get('content-desc') || get('text') || get('value') || '').trim().split('\n')[0].trim();
 }
 
+// The element's on-screen frame as {l,t,r,b} in device pixels, or null when no
+// geometry is exposed. Appium surfaces bounds in two platform shapes, both of
+// which the page source carries as plain attributes (no extra round-trip):
+//   Android (UiA2): bounds="[left,top][right,bottom]"
+//   iOS (XCUITest): x="..", y="..", width="..", height=".."
+// This is the same geometry an evidence screenshot crops to; we read it from the
+// page source so the overflow oracle is a pure structural measurement (no pixel
+// diff, no second query), reproducible byte-for-byte on replay.
+function rectOfEl(get) {
+  const b = get('bounds');
+  if (b) {
+    const m = b.match(/^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/);
+    if (m) {
+      const l = parseInt(m[1], 10), t = parseInt(m[2], 10);
+      const r = parseInt(m[3], 10), bot = parseInt(m[4], 10);
+      if ([l, t, r, bot].every(Number.isFinite)) return { l, t, r, b: bot };
+    }
+  }
+  const xs = get('x'), ys = get('y'), ws = get('width'), hs = get('height');
+  if (xs !== '' && ys !== '' && ws !== '' && hs !== '') {
+    const x = parseFloat(xs), y = parseFloat(ys), w = parseFloat(ws), h = parseFloat(hs);
+    if ([x, y, w, h].every(Number.isFinite)) return { l: x, t: y, r: x + w, b: y + h };
+  }
+  return null;
+}
+
+// CONTENT-BUG classifier (deterministic, label-based). Byte-identical rule to
+// the web runner's reasonOf (runners/web/runner.mjs): the literal artifacts a
+// stringify/template bug leaks to the screen, matched on STRUCTURE (a literal
+// token), never on natural language. Six classes, first match wins so a label
+// carries one reason:
+//   [object Object]     -> object-object       (an object coerced to a string)
+//   {{ .. }} / ${ .. }  -> unrendered-template  (the binding never evaluated)
+//   undefined           -> undefined  (whole word: \b guards ordinary prose)
+//   null                -> null
+//   NaN                 -> nan
+// We scan the displayed text the runner already gathers (the same value/text/
+// content-desc nameOfEl reads). A real label that merely mentions "null" in
+// prose is NOT flagged: the token must stand alone, so the control stays silent.
+function contentBugReason(text) {
+  if (!text) return null;
+  if (text.includes('[object Object]')) return 'object-object';
+  if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) return 'unrendered-template';
+  if (/(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])/.test(text)) return 'undefined';
+  if (/(^|[\s:>(\[,])null($|[\s.,!?)\]<])/.test(text)) return 'null';
+  if (/(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])/.test(text)) return 'nan';
+  return null;
+}
+
+// The raw displayed text of an element for the content-bug scan: label /
+// content-desc / text / value, NEVER from a password field (it would leak the
+// secret AND the masked dots are not a content bug). Full string (not clipped /
+// not first-line-only like nameOfEl) so a multi-line "[object Object]" embedded
+// past a newline is still caught.
+function displayTextOfEl(tag, get, role) {
+  if (role === 'textfield') {
+    if (tag === 'XCUIElementTypeSecureTextField') return '';
+    if (get('password') === 'true') return '';
+  }
+  for (const key of ['label', 'content-desc', 'text', 'value']) {
+    const v = get(key);
+    if (v != null && v !== '') return String(v);
+  }
+  return '';
+}
+
+// HOST-SIDE pure reducer: collected (key, kind, by) overflow tuples -> the sorted
+// EXPLORE:OVERFLOW `items` array (byte-identical shape to the web runner / the
+// Rust map.rs parser: each item is {key, kind, by}). Deduped on key|kind, sorted
+// by key then kind so the marker is identical run to run / on replay. Pure +
+// deterministic, so it is unit-testable in Node without a device.
+function overflowItems(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const it of raw || []) {
+    if (!it || !it.key || !it.kind) continue;
+    const k = it.key + '|' + it.kind;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ key: it.key, kind: it.kind, by: Math.round(it.by || 0) });
+  }
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0)));
+  return out;
+}
+
+// HOST-SIDE pure reducer: collected (key, reason, text) content-bug tuples -> the
+// sorted EXPLORE:CONTENTBUG `items` array (byte-identical shape to the web runner
+// / the Rust map.rs parser: each item is {key, reason, text}). Deduped on
+// key|reason, sorted by key then reason, text clipped to 80 chars (display
+// detail; the key+reason are the stable identity). Pure + deterministic.
+function contentBugItems(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const it of raw || []) {
+    if (!it || !it.key || !it.reason) continue;
+    const k = it.key + '|' + it.reason;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ key: it.key, reason: it.reason, text: String(it.text || '').slice(0, 80) });
+  }
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  return out;
+}
+
 // Interactive: a tappable role, or an explicit clickable/enabled-button flag.
 function isTappableEl(get, role) {
   if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
@@ -586,23 +699,67 @@ function matchesValueNode(out, id, role, myRoleIndex) {
   return false;
 }
 
+// A stable, locale-invariant key for an oracle finding (overflow / content-bug),
+// in reproit's selector grammar so it lines up with the elements list and the
+// `key:<id>` replay selectors. id-bearing nodes are addressed by their developer
+// id; others by their canonical role + document-order index (out.roleSeen[role]
+// already counts this exactly). NEVER the visible text, so a translated string
+// does not change a finding's identity (matches the web runner's keyOf intent).
+function oracleKeyOf(id, role, roleIndex) {
+  if (id != null) return 'key:' + id;
+  return 'role:' + role + '#' + roleIndex;
+}
+
+// OVERFLOW per-element measurement (deterministic, structural). Two signals over
+// the page-source geometry the runner already reads, mirroring the web runner's
+// SCROLL/SPILL (CLIP needs a content-vs-box scrollWidth the page source does not
+// expose, so it is intentionally omitted on native):
+//   - SPILL: this element's frame escapes its PARENT's frame (right/bottom/left/
+//     top) by more than OVERFLOW_TOL px: it overlaps / spills out of its
+//     container rather than being contained. The dominant native symptom of a
+//     long i18n string in a fixed-size button (the child grows past the parent).
+//   - VIEWPORT: the element's frame extends past the screen frame on the right /
+//     bottom by more than the tolerance: content is pushed off-screen.
+// TOLERANCE: a fixed integer px floor so sub-pixel rounding never false-flags; a
+// real overflow exceeds it by many px. Returns an array of {key, kind, by}.
+const OVERFLOW_TOL = 2;
+function overflowOf(key, rect, parentRect, screenRect) {
+  const out = [];
+  if (!rect) return out;
+  if (parentRect) {
+    const over = Math.max(
+      rect.r - parentRect.r, parentRect.l - rect.l,
+      rect.b - parentRect.b, parentRect.t - rect.t,
+    );
+    if (over > OVERFLOW_TOL) out.push({ key, kind: 'spill', by: over });
+  }
+  if (screenRect) {
+    const off = Math.max(rect.r - screenRect.r, rect.b - screenRect.b);
+    if (off > OVERFLOW_TOL) out.push({ key, kind: 'viewport', by: off });
+  }
+  return out;
+}
+
 // Build the canonical Node tree from a parsed XML element subtree. Invisible
 // elements (visible="false") are skipped but their visible descendants are
 // hoisted, matching the SDKs. The display labels / elements list are collected
-// along the way. Returns an array of canonical Node children.
-function buildNodes(xmlEl, out) {
+// along the way. Returns an array of canonical Node children. `parentRect` is
+// the on-screen frame of the nearest visible ancestor (for the overflow SPILL
+// test); null at the root.
+function buildNodes(xmlEl, out, parentRect) {
   const nodes = [];
   for (const child of xmlEl.children) {
-    appendNode(child, out, nodes);
+    appendNode(child, out, nodes, parentRect);
   }
   return nodes;
 }
-function appendNode(xmlEl, out, into) {
+function appendNode(xmlEl, out, into, parentRect) {
   const attrs = xmlEl.attrs;
   const get = (name) => (attrs[name] != null ? attrs[name] : '');
   if (get('visible') === 'false') {
-    // hoist visible descendants of an invisible wrapper
-    for (const child of xmlEl.children) appendNode(child, out, into);
+    // hoist visible descendants of an invisible wrapper (keep the same parent
+    // frame: an invisible wrapper has no contributing geometry of its own)
+    for (const child of xmlEl.children) appendNode(child, out, into, parentRect);
     return;
   }
   const tag = xmlEl.tag;
@@ -613,6 +770,10 @@ function appendNode(xmlEl, out, into) {
   // Layer-3 role:<role>#<idx> value-node selector. Incremented for every element.
   const myRoleIndex = out.roleSeen[role] || 0;
   out.roleSeen[role] = myRoleIndex + 1;
+  // On-screen frame (page-source geometry), for the overflow oracle + as the
+  // parent frame passed to children. Null when no geometry is exposed.
+  const rect = rectOfEl(get);
+  const okey = oracleKeyOf(id, role, myRoleIndex);
 
   // Value-state (Layer 2): a value-role element (by trait/tag, or a live region)
   // or a Layer-3 opt-in node is value-bearing. Value-bearing WINS over the
@@ -639,6 +800,23 @@ function appendNode(xmlEl, out, into) {
     out.textNodes.push([fkey, node.value]);
   }
   if (transient) { node.transient = true; into.push(node); return; }
+
+  // OVERFLOW oracle (deterministic, structural): does this NON-transient element's
+  // frame spill out of its container, or off the screen? Pure geometry from the
+  // page source (no pixels, no second query), so it reproduces byte-for-byte on
+  // replay. Transient nodes (toast/spinner, returned above) never contribute.
+  if (rect) {
+    for (const item of overflowOf(okey, rect, parentRect, out.screenRect)) out.overflows.push(item);
+  }
+
+  // CONTENT-BUG oracle (deterministic, label scan): a rendered label carrying a
+  // stringify/template artifact ([object Object], whole-word undefined/null/NaN,
+  // an unrendered {{..}}/${..}). Scans the displayed text the runner already
+  // gathers; addressed by the same stable locale-invariant key, so a clean app
+  // stays silent. Skips secure fields (never read a password).
+  const dtext = displayTextOfEl(tag, get, role);
+  const cbReason = contentBugReason(dtext);
+  if (cbReason) out.contentBugs.push({ key: okey, reason: cbReason, text: dtext });
 
   // Layer-1 content fingerprint over keyed text-bearing nodes (runner-local, NOT
   // canonical): a keyed text/static element's own value contributes (stable-key,
@@ -686,7 +864,7 @@ function appendNode(xmlEl, out, into) {
     });
   }
 
-  node.children = buildNodes(xmlEl, out);
+  node.children = buildNodes(xmlEl, out, rect || parentRect);
   into.push(node);
 }
 
@@ -724,10 +902,23 @@ async function snapshot(driver, valueNodeSelectors) {
     // a11y tree, with whether each exposes a real AT role/name. Feeds the
     // native-fallback groundtruth when the JS fiber probe is unavailable.
     nativeCandidates: [],
+    // overflows / contentBugs: oracle findings accumulated during the tree walk
+    // (raw tuples; reduced + sorted below). screenRect: the device frame the
+    // overflow VIEWPORT test clips against (the top application/window element's
+    // frame), null when no geometry is exposed.
+    overflows: [], contentBugs: [], screenRect: null,
   };
+  // The top application/window element's frame is the screen frame the overflow
+  // VIEWPORT signal clips against (an element pushed past it is off-screen).
+  out.screenRect = (() => {
+    const top = xmlRoot.children[0];
+    return top ? rectOfEl((n) => (top.attrs[n] != null ? top.attrs[n] : '')) : null;
+  })();
   // The canonical root is a single `screen` node; the parsed app subtree hangs
-  // under it (parallels the SDKs forcing the root role to "screen").
-  const screen = { role: 'screen', children: buildNodes(xmlRoot, out) };
+  // under it (parallels the SDKs forcing the root role to "screen"). parentRect
+  // starts null at the app root (the screen frame is the VIEWPORT reference, not
+  // a SPILL container, so the topmost app element never self-spills).
+  const screen = { role: 'screen', children: buildNodes(xmlRoot, out, null) };
   const anchor = anchorFrom(xmlRoot, activity);
   const sig = signatureOf(anchor, screen);
   // Structural-only signature (no V: section): the per-node key the Layer-1 cap
@@ -752,6 +943,10 @@ async function snapshot(driver, valueNodeSelectors) {
     elements: out.elements,
     unlabeled: out.unlabeled,
     nativeCandidates: out.nativeCandidates,
+    // Reduced + sorted oracle items (byte-identical shape to the web runner / the
+    // Rust map.rs parser), ready to emit as EXPLORE:OVERFLOW / EXPLORE:CONTENTBUG.
+    overflows: overflowItems(out.overflows),
+    contentBugs: contentBugItems(out.contentBugs),
   };
 }
 
@@ -831,6 +1026,158 @@ async function appCrashed(driver) {
   } catch { /* probe unavailable: stay silent */ }
   return false;
 }
+
+// ====================================================================
+//  HANG / JANK / LEAK ORACLES (mirror the web runner's marker contract)
+//
+//  The Rust core parses (crates/reproit/src/model/map.rs, modes/soak.rs), shared
+//  with the web/Flutter runners and NOT changed here:
+//    EXPLORE:HANG  {"from","action","bucket"[,"count"]}  per-transition freeze
+//    EXPLORE:JANK  {"from","action","bucket"[,"count"]}  per-transition stall
+//    MEMORY:SAMPLE {"t_ms","heap_used"}                  heap-vs-time soak series
+//  The marker carries the coarse BUCKET, not a raw ms / byte read, so the finding
+//  id is deterministic for a fixed seed/replay even though the underlying timing
+//  jitters. Floors are far from any real fixture so jitter can't flip a verdict.
+//
+//  PLATFORM COVERAGE:
+//    HANG      both. Deterministic wall-clock watchdog around tap/back; Android
+//              optionally confirms with the ANR trace ("ANR in <pkg>").
+//    JANK      ANDROID ONLY, via `dumpsys gfxinfo <pkg>` framestats. iOS is a
+//              DOCUMENTED GAP: no per-frame trace is available over the Appium /
+//              XCUITest session. The only iOS frame source is xctrace /
+//              Instruments, which runs OUT-OF-BAND (a separate process attached to
+//              the device), not through the WebDriver session, so it cannot be
+//              keyed to a (from, action) transition deterministically here. We do
+//              NOT fake an iOS jank signal: drainGfxinfoJank returns null on iOS.
+//    LEAK      ANDROID ONLY, via `dumpsys meminfo <pkg>` PSS under --soak. iOS is
+//              a DOCUMENTED GAP for the same reason: no heap / footprint readout
+//              is exposed over the XCUITest session (only Instruments allocations,
+//              out-of-band). sampleAndroidHeap is a no-op on iOS, so no
+//              MEMORY:SAMPLE is emitted and the soak oracle honestly reports it
+//              had no series rather than reading a fabricated one.
+//
+//  The Android shell path (gfxinfo / meminfo / dumpsys / logcat) goes through the
+//  Appium `mobile: shell` extension, which requires the server to run with
+//  relaxed security (`appium:relaxedSecurity` / `--relaxed-security`). When that
+//  channel is absent every shell read returns null and the oracle degrades to
+//  silence (HANG via wall-clock still works), never a false positive.
+// ====================================================================
+
+// Whether the session targets Android (a `mobile: shell` / adb path exists for
+// the gfxinfo jank + meminfo leak probes) vs iOS (no such path: documented gap).
+function isAndroid() {
+  const p = (CAPS['appium:platformName'] || CAPS.platformName || CAPS['appium:automationName'] || CAPS.automationName || '').toLowerCase();
+  if (p.includes('android') || p.includes('uiautomator')) return true;
+  if (p.includes('ios') || p.includes('xcuitest')) return false;
+  // Fall back to the presence of an Android-only cap (appPackage/appActivity).
+  return !!(CAPS['appium:appPackage'] || CAPS.appPackage || CAPS['appium:appActivity'] || CAPS.appActivity);
+}
+function androidPkg() {
+  return CAPS['appium:appPackage'] || CAPS.appPackage || targetAppId() || '';
+}
+
+// HANG watchdog (deterministic, wall-clock). Wraps a tap+observe; we time the
+// action with a monotonic clock and classify the BLOCKED wall time into the same
+// coarse floors the web runner uses, so a slow handler that froze the UI is a
+// HANG regardless of which platform it ran on. The floors are far apart so timing
+// jitter never flips the verdict. We do NOT emit a JANK bucket from wall-clock
+// (a sub-second stall is indistinguishable from normal Appium round-trip latency
+// over a real device, so it would false-positive); wall-clock yields HANG only.
+// Per-frame JANK on Android comes from gfxinfo instead (see jankFromGfxinfo).
+const HANG_FLOOR_MS = 2000;
+function hangBucket(ms) {
+  return ms >= HANG_FLOOR_MS ? HANG_FLOOR_MS : null;
+}
+
+// Optionally CONFIRM an Android hang with the system ANR trace. `dumpsys activity
+// processes` / logcat surface "ANR in <pkg>" when the watchdog killed the main
+// thread; when present it upgrades a wall-clock hang from "slow" to a real freeze.
+// Best-effort: a session without the shell path simply skips confirmation (the
+// wall-clock floor still stands). Never throws.
+async function androidAnrSeen(driver, pkg) {
+  if (!isAndroid() || !pkg) return false;
+  const out = await mobileShell(driver, 'dumpsys', ['activity', 'processes']);
+  if (out && out.includes('ANR in ' + pkg)) return true;
+  const log = await mobileShell(driver, 'logcat', ['-d', '-t', '200']);
+  return !!(log && log.includes('ANR in ' + pkg));
+}
+
+// Run an adb shell command over the Appium `mobile: shell` extension (requires
+// the server-side `--relaxed-security` / `appium:relaxedSecurity`). Returns the
+// trimmed stdout, or null when the channel is unavailable / errored. Pure read;
+// the gfxinfo/meminfo/dumpsys commands below never mutate the app. Never throws.
+async function mobileShell(driver, command, args) {
+  try {
+    if (typeof driver.execute !== 'function') return null;
+    const r = await driver.execute('mobile: shell', { command, args: args || [] });
+    if (r == null) return null;
+    if (typeof r === 'string') return r;
+    if (typeof r === 'object' && typeof r.stdout === 'string') return r.stdout;
+    return String(r);
+  } catch { return null; }
+}
+
+// JANK from Android gfxinfo framestats (deterministic, bucketed). `dumpsys
+// gfxinfo <pkg>` reports a "Janky frames:" summary line: "<n> (<pct>%)". We key
+// the verdict off the PERCENTAGE of janky frames crossing a coarse floor, not a
+// raw frame-time, so the same render workload yields the same bucket on replay.
+// A clean render stays well under the floor (0-a few %); a dropped-frame storm is
+// tens of percent. Returns { bucket, count } or null. The bucket is the floor
+// (the deterministic detail the marker carries), count is the janky-frame count.
+const JANK_PCT_FLOOR = 30;          // >= 30% janky frames over the window -> jank
+const JANK_BUCKET = JANK_PCT_FLOOR; // coarse, well-separated detail for the marker
+function jankFromGfxinfo(text) {
+  if (!text) return null;
+  // "Janky frames: 42 (35.00%)" — read the count and the percentage.
+  const m = text.match(/Janky frames:\s*(\d+)\s*\(([\d.]+)%\)/);
+  if (!m) return null;
+  const count = parseInt(m[1], 10);
+  const pct = parseFloat(m[2]);
+  if (!Number.isFinite(pct) || pct < JANK_PCT_FLOOR) return null;
+  return { bucket: JANK_BUCKET, count: Number.isFinite(count) ? count : 0 };
+}
+// Reset the gfxinfo framestats window so the NEXT read reflects only the frames
+// rendered by the action under test (otherwise jank accumulates across the run
+// and every later action inherits it -> not per-transition). Best-effort.
+async function resetGfxinfo(driver, pkg) {
+  if (!isAndroid() || !pkg) return;
+  await mobileShell(driver, 'dumpsys', ['gfxinfo', pkg, 'reset']);
+}
+// Read + classify the Android render jank for the action that just ran. Null on
+// iOS / no shell channel / clean render.
+async function drainGfxinfoJank(driver, pkg) {
+  if (!isAndroid() || !pkg) return null;
+  const text = await mobileShell(driver, 'dumpsys', ['gfxinfo', pkg]);
+  return jankFromGfxinfo(text);
+}
+
+// LEAK sample from Android meminfo (deterministic, retained PSS). `dumpsys
+// meminfo <pkg>` reports a "TOTAL" / "TOTAL PSS:" line in KB; PSS is the app's
+// proportional set size (retained memory), the Android equivalent of the web
+// runner's post-GC v8 used-heap read. We emit it as the SAME MEMORY:SAMPLE
+// marker the soak oracle reads (heap_used in BYTES, so KB*1024). A true leak
+// grows monotonically with the soak cycle count; a resource-neutral cycle stays
+// flat. Returns the bytes, or null when meminfo is unavailable.
+function pssFromMeminfo(text) {
+  if (!text) return null;
+  // Newer: "TOTAL PSS:   123456 ..."; older: a "TOTAL" row whose first number is
+  // the total PSS in KB. Prefer the explicit label, fall back to the TOTAL row.
+  let m = text.match(/TOTAL PSS:\s*(\d+)/);
+  if (!m) m = text.match(/\n\s*TOTAL\s+(\d+)/);
+  if (!m) return null;
+  const kb = parseInt(m[1], 10);
+  if (!Number.isFinite(kb)) return null;
+  return kb * 1024;
+}
+async function sampleAndroidHeap(driver, pkg, tMs) {
+  if (!isAndroid() || !pkg) return;
+  const text = await mobileShell(driver, 'dumpsys', ['meminfo', pkg]);
+  const used = pssFromMeminfo(text);
+  if (used == null) return;
+  log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
+}
+
+export { jankFromGfxinfo, pssFromMeminfo, overflowItems, contentBugItems, contentBugReason, rectOfEl, overflowOf, hangBucket };
 
 // ====================================================================
 //  OPERABILITY / ACCESSIBILITY GROUND TRUTH (the EXPLORE:GROUNDTRUTH marker)
@@ -1177,6 +1524,21 @@ async function main() {
       // the native page source by the stable ids it just saw. Best-effort.
       const nativeIds = new Set(snap.elements.map((e) => e.key).filter((k) => k != null));
       await emitGroundtruth(driver, snap.sig, nativeIds, snap.nativeCandidates);
+      // OVERFLOW for this newly-seen state, keyed by the SAME sig so the oracle
+      // attributes the finding to this state (last write wins on the Rust side).
+      // Pure structural geometry from the page source, so it reproduces on
+      // replay; only emitted when something actually overflows (clean layout =>
+      // silent, no marker, no finding).
+      if (snap.overflows.length) {
+        log('EXPLORE:OVERFLOW ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: snap.overflows }));
+      }
+      // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure label
+      // scan (no pixels, no timing), so it reproduces on replay; only emitted
+      // when a broken-content artifact is actually rendered (clean app stays
+      // silent).
+      if (snap.contentBugs.length) {
+        log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: snap.contentBugs }));
+      }
     }
     return snap;
   }
@@ -1189,7 +1551,21 @@ async function main() {
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
 
+  // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}) on
+  // Android, sample retained PSS once at the start and after every action so the
+  // Rust soak oracle gets a heap-vs-time series to read the slope from. Off
+  // outside replay (a plain fuzz walk is not a soak) and on iOS (documented gap:
+  // no heap readout over the XCUITest session). t0 anchors t_ms to walk start.
+  const pkg = androidPkg();
+  const t0 = Date.now();
+  if (replay) await sampleAndroidHeap(driver, pkg, 0);
+
   for (let actions = 0; actions < budget && stuck < 3; actions++) {
+    // LEAK sampler: in replay mode, sample PSS once per action (BEFORE acting, so
+    // action k's sample reflects the heap after the previous action settled);
+    // together with the start + final samples it forms the monotonic series the
+    // soak slope is read from. No-op outside replay / on iOS.
+    if (replay && actions > 0) await sampleAndroidHeap(driver, pkg, Date.now() - t0);
     let act;
     if (replay) act = replay[actions];
     else if (prefix && actions < prefixLen) act = prefix[actions];
@@ -1217,8 +1593,15 @@ async function main() {
     if (act === 'back') {
       const before = current.sig;
       const beforeContent = current.content;
+      const tHang0 = Date.now();
       try { await driver.back(); } catch { /* ignore */ }
       await driver.pause(700);
+      // HANG watchdog on the back transition (same floor + keying as the tap path).
+      const hb = hangBucket((Date.now() - tHang0) - 700);
+      if (hb != null) {
+        const confirmed = await androidAnrSeen(driver, pkg);
+        log('EXPLORE:HANG ' + JSON.stringify({ from: before, action: 'back', bucket: hb, ...(confirmed ? { anr: true } : {}) }));
+      }
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
@@ -1236,12 +1619,36 @@ async function main() {
     triedEdges.add(current.sig + '|' + sel);
     const before = current.sig;
     const beforeContent = current.content;
+    // JANK: reset the gfxinfo framestats window so the read after this tap counts
+    // only the frames this action rendered (per-transition, not run-cumulative).
+    await resetGfxinfo(driver, pkg);
+    // HANG: time the action's blocking wall-clock. We measure tap + settle only
+    // (NOT the subsequent observe, which is a page-source round-trip whose latency
+    // is unrelated to the app's responsiveness), so the floor reflects the app
+    // freezing, not Appium overhead.
+    const tHang0 = Date.now();
     const ok = await tap(driver, sel, current);
     if (!ok) { log('FUZZ:MISS ' + act); stuck++; continue; }
     await driver.pause(800);
+    const blockedMs = (Date.now() - tHang0) - 800; // subtract the fixed settle pause
     // Crash oracle: if the target app left the foreground after this tap, the app
     // crashed (uncaught exception -> process died -> launcher).
     if (await appCrashed(driver)) { emitCrash(act); crashed = true; break; }
+    // HANG watchdog: did the action block past the freeze floor? Keyed by (from,
+    // action) so the Rust side attributes it to this transition and `check`
+    // re-confirms it. On Android, optionally upgrade-confirm with the ANR trace.
+    const hb = hangBucket(blockedMs);
+    if (hb != null) {
+      const confirmed = await androidAnrSeen(driver, pkg);
+      log('EXPLORE:HANG ' + JSON.stringify({ from: before, action: 'tap:' + sel, bucket: hb, ...(confirmed ? { anr: true } : {}) }));
+    }
+    // JANK watchdog (Android only): did this transition render a dropped-frame
+    // storm? Read the gfxinfo framestats window we reset above. Keyed by (from,
+    // action) like HANG. iOS has no per-frame trace over XCUITest (documented gap).
+    const jk = await drainGfxinfoJank(driver, pkg);
+    if (jk) {
+      log('EXPLORE:JANK ' + JSON.stringify({ from: before, action: 'tap:' + sel, bucket: jk.bucket, count: jk.count }));
+    }
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
@@ -1255,6 +1662,9 @@ async function main() {
     current = next;
   }
 
+  // LEAK sampler: a final PSS sample after the last action, so the series spans
+  // the whole soak (start ... last action). No-op outside replay / on iOS.
+  if (replay) await sampleAndroidHeap(driver, pkg, Date.now() - t0);
   log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   log('JOURNEY DONE');
   log(crashed ? 'Some tests failed' : 'All tests passed');

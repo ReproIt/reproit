@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,6 +29,13 @@ mod shot;
 const ROWS: u16 = 40;
 const COLS: u16 = 120;
 const ACTION_BUDGET: u32 = 36;
+
+/// No-progress floor: a session ends after this many consecutive INEFFECTIVE
+/// actions (no skeleton-sig and no content-fingerprint change). Crossing it is
+/// also the TUI freeze/hang signal: the app stopped responding to input for a
+/// sustained run of keystrokes. Named so the HANG oracle and the loop guard
+/// share one floor and the emitted bucket is deterministic.
+const STUCK_FLOOR: u32 = 14;
 
 /// The action alphabet: the keys a fuzzer presses, and the bytes they send.
 /// Covers navigation + confirm + the common vim/less/q vocabulary.
@@ -571,6 +579,37 @@ fn region_has_word(grid: &[Vec<char>], rect: (usize, usize, usize, usize)) -> bo
     false
 }
 
+/// Is a row "persistent chrome": does it contain box-drawing border glyphs (the
+/// frame/panes a full-screen TUI keeps painted across states)? Used by the
+/// re-render oracle to name the anchors a wasteful full repaint tore down and
+/// rebuilt unchanged.
+fn is_chrome_row(row: &[char]) -> bool {
+    row.iter()
+        .any(|&ch| ('\u{2500}'..='\u{257f}').contains(&ch))
+}
+
+/// The persistent-chrome rows that survived a transition BYTE-IDENTICAL: rows
+/// present and unchanged in both the pre- and post-action grids that carry
+/// box-drawing chrome. When the app issued a full-screen erase on the action
+/// (so it cleared and repainted everything), these unchanged chrome rows are the
+/// ones it needlessly tore down and redrew, the VT analogue of the web runner's
+/// reconciled-but-rebuilt anchors. Returns stable `row:R` keys (R is the 0-based
+/// row), capped so a tall frame cannot flood the marker. Deterministic: a pure
+/// function of the two grids.
+fn churned_chrome_rows(pre: &[Vec<char>], post: &[Vec<char>], cap: usize) -> Vec<String> {
+    let rows = pre.len().min(post.len());
+    let mut out = Vec::new();
+    for r in 0..rows {
+        if pre[r] == post[r] && is_chrome_row(&pre[r]) {
+            out.push(format!("row:{r}"));
+            if out.len() >= cap {
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// One ground-truth element accumulated for a state. Serialized into the
 /// `elements` array of an `EXPLORE:GROUNDTRUTH` line. The a11y dims default to
 /// "present/true" at the engine and are only emitted when KNOWN-false, so we keep
@@ -782,7 +821,7 @@ fn mouse_probe(
     emit("JOURNEY[a] step: mouse probe (Signal B) enabled");
     // Find the start-screen hotspots once (from a throwaway session), then click
     // each from its own fresh relaunch so the click is the ONLY input.
-    let Ok((master0, mut child0, parser0, _w0)) = spawn_session(cmdline) else {
+    let Ok((master0, mut child0, parser0, _w0, _e0)) = spawn_session(cmdline) else {
         return;
     };
     std::thread::sleep(Duration::from_millis(900));
@@ -794,7 +833,7 @@ fn mouse_probe(
         return;
     }
     for hs in &hotspots {
-        let Ok((master, mut child, parser, writer)) = spawn_session(cmdline) else {
+        let Ok((master, mut child, parser, writer, _erases)) = spawn_session(cmdline) else {
             continue;
         };
         std::thread::sleep(Duration::from_millis(900));
@@ -892,11 +931,42 @@ fn answer_queries(
     }
 }
 
+/// Count the full-screen ERASE-DISPLAY sequences (`CSI 2 J` / `CSI 3 J`) in a
+/// raw output chunk. An app that clears the WHOLE screen and redraws it on a
+/// keystroke is doing a full re-render; a well-behaved TUI (ncurses optimized
+/// output, ratatui's diffing renderer) emits targeted cell updates and almost
+/// never a full ED. So a full ED in response to an action is the deterministic
+/// byte-stream signature of a wasteful full repaint, the VT analogue of the
+/// web runner's node-identity churn. We count both `2J` (erase all) and `3J`
+/// (erase all + scrollback); `0J`/`1J` (erase to end/start) are partial and not
+/// counted. Pure scan, so the same app output yields the same count on replay.
+fn count_full_erases(chunk: &[u8]) -> u64 {
+    let mut n = 0u64;
+    let mut i = 0usize;
+    while i + 3 < chunk.len() {
+        if chunk[i] == 0x1b
+            && chunk[i + 1] == b'['
+            && (chunk[i + 2] == b'2' || chunk[i + 2] == b'3')
+            && chunk[i + 3] == b'J'
+        {
+            n += 1;
+            i += 4;
+        } else {
+            i += 1;
+        }
+    }
+    n
+}
+
 type Session = (
     Box<dyn portable_pty::MasterPty + Send>,
     Box<dyn portable_pty::Child + Send + Sync>,
     Arc<Mutex<vt100::Parser>>,
     Arc<Mutex<Box<dyn Write + Send>>>,
+    // Running count of full-screen ERASE-DISPLAY sequences the app has emitted.
+    // Sampled before/after each keystroke so the re-render oracle can tell when
+    // an action triggered a full clear+redraw.
+    Arc<AtomicU64>,
 );
 
 /// Open a PTY, launch the target via `sh -c`, start a reader thread feeding a
@@ -920,21 +990,27 @@ fn spawn_session(cmdline: &str) -> Result<Session> {
     let writer: Arc<Mutex<Box<dyn Write + Send>>> =
         Arc::new(Mutex::new(pair.master.take_writer()?));
     let parser = Arc::new(Mutex::new(vt100::Parser::new(ROWS, COLS, 0)));
+    let erases = Arc::new(AtomicU64::new(0));
     {
         let parser = parser.clone();
         let writer = writer.clone();
+        let erases = erases.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
                 }
+                let e = count_full_erases(&buf[..n]);
+                if e > 0 {
+                    erases.fetch_add(e, Ordering::Relaxed);
+                }
                 parser.lock().unwrap().process(&buf[..n]);
                 answer_queries(&buf[..n], &parser, &writer);
             }
         });
     }
-    Ok((pair.master, child, parser, writer))
+    Ok((pair.master, child, parser, writer, erases))
 }
 
 pub fn run() -> Result<()> {
@@ -1041,7 +1117,7 @@ pub fn run() -> Result<()> {
     // stops the run.
     'fuzz: while i < budget {
         sessions += 1;
-        let (master, mut child, parser, writer) = match spawn_session(&cmdline) {
+        let (master, mut child, parser, writer, erases) = match spawn_session(&cmdline) {
             Ok(s) => s,
             Err(e) => {
                 emit(&format!("JOURNEY[a] step: launch failed: {e}"));
@@ -1067,9 +1143,17 @@ pub fn run() -> Result<()> {
             Some(&corpus[idx])
         };
         let mut sp = 0usize; // cursor into the session seed path
-        let mut stuck = 0;
+        let mut stuck = 0u32;
+        // (from_sig, action) of the action that began the current no-progress
+        // run, so when `stuck` crosses STUCK_FLOOR we attribute the HANG to the
+        // transition that started the freeze, not the last (redundant) one. Set
+        // on the first ineffective action of a run; cleared on any effect.
+        let mut hang_origin: Option<(String, String)> = None;
+        // HANG is emitted at most once per no-progress run (per session) so a
+        // long freeze is one finding, not STUCK_FLOOR copies.
+        let mut hang_emitted = false;
 
-        while i < budget && stuck < 14 {
+        while i < budget && stuck < STUCK_FLOOR {
             // Command-aware action space for THIS screen: the app's bound keys
             // (keymap + advertised footer hints) ∪ universal nav/crash keys,
             // falling back to the full alphabet only when nothing app-specific
@@ -1187,8 +1271,11 @@ pub fn run() -> Result<()> {
                     .unwrap_or_default(),
             };
             // Capture the grid BEFORE the keypress so Signal A can locate the
-            // rectangle this action repaints (the diff between before and after).
+            // rectangle this action repaints (the diff between before and after),
+            // and snapshot the full-erase count so the re-render oracle can tell
+            // whether this action triggered a full clear+redraw.
             let pre_grid = grid_of(&parser);
+            let erases_before = erases.load(Ordering::Relaxed);
             if !bytes.is_empty() {
                 if let Ok(mut w) = writer.lock() {
                     let _ = w.write_all(&bytes);
@@ -1272,8 +1359,8 @@ pub fn run() -> Result<()> {
             // nothing on screen names it. Emit it on `cur_sig` (the screen the
             // control lives on) with namePresent:false (+rolePresent:false, the
             // dimension the engine counts as a gap).
+            let post_grid = grid_of(&parser);
             if effective {
-                let post_grid = grid_of(&parser);
                 if let Some(rect) = diff_rect(&pre_grid, &post_grid) {
                     if !region_has_word(&post_grid, rect) && !region_has_word(&pre_grid, rect) {
                         let (r0, c0, _, _) = rect;
@@ -1291,13 +1378,60 @@ pub fn run() -> Result<()> {
                     }
                 }
             }
+            // RE-RENDER FLICKER (EXPLORE:RERENDER, TUI analogue of the web
+            // node-identity churn). This action made the app emit a FULL-SCREEN
+            // erase (it cleared and repainted everything), yet the persistent
+            // chrome rows (the box-drawing frame/panes) came back BYTE-IDENTICAL.
+            // The app tore down and redrew chrome that did not change: a wasteful
+            // full repaint. We require the action to be EFFECTIVE (something did
+            // change), so a steady idle redraw is not flagged; the churned anchors
+            // are the unchanged chrome rows. Deterministic: a pure function of the
+            // app's own output bytes (the erase) and the two settled grids, so it
+            // re-confirms on replay. An empty churn list (no surviving chrome) is
+            // dropped, mirroring the web runner.
+            let erased = erases.load(Ordering::Relaxed) > erases_before;
+            if effective && erased {
+                let churned = churned_chrome_rows(&pre_grid, &post_grid, 16);
+                if !churned.is_empty() {
+                    let payload = serde_json::json!({
+                        "from": cur_sig, "action": act, "churned": churned,
+                    });
+                    emit(&format!("EXPLORE:RERENDER {payload}"));
+                }
+            }
             // `stuck` is the no-progress counter that ends a session. An action
             // with ANY effect (a new node, or just a value tick) resets it, so a
-            // value-state app does not get abandoned as stalled.
+            // value-state app does not get abandoned as stalled. Crossing
+            // STUCK_FLOOR is also the FREEZE/HANG signal: the app stopped
+            // responding to input for a sustained run of keystrokes.
             if effective {
                 stuck = 0;
+                hang_origin = None;
+                hang_emitted = false;
             } else {
+                if stuck == 0 {
+                    // First ineffective action of a fresh no-progress run: this is
+                    // the transition that begins the freeze, so attribute the HANG
+                    // to it (not the later redundant presses).
+                    hang_origin = Some((cur_sig.clone(), act.clone()));
+                }
                 stuck += 1;
+                // HANG (EXPLORE:HANG): the app ignored input for STUCK_FLOOR
+                // consecutive keystrokes -> it has frozen / stopped responding,
+                // the TUI analogue of the web watchdog's main-thread freeze. Keyed
+                // by (from, action) like the web runner; the bucket is the
+                // deterministic no-progress floor (count of ignored keystrokes, not
+                // wall-clock ms, since a PTY has no frame timing). Emitted once per
+                // run so a long freeze is one finding.
+                if stuck >= STUCK_FLOOR && !hang_emitted {
+                    if let Some((from, action)) = &hang_origin {
+                        let payload = serde_json::json!({
+                            "from": from, "action": action, "bucket": STUCK_FLOOR,
+                        });
+                        emit(&format!("EXPLORE:HANG {payload}"));
+                        hang_emitted = true;
+                    }
+                }
             }
             cur_sig = next_sig;
             cur_fp = next_fp;
@@ -1435,6 +1569,45 @@ mod tests {
 
     fn grid(rows: &[&str]) -> Vec<Vec<char>> {
         rows.iter().map(|r| r.chars().collect()).collect()
+    }
+
+    #[test]
+    fn count_full_erases_counts_only_full_screen_clears() {
+        // CSI 2 J (erase all) and CSI 3 J (erase all + scrollback) are full
+        // repaints; partial erases (0J/1J) and a bare J are not.
+        assert_eq!(count_full_erases(b"\x1b[2J"), 1);
+        assert_eq!(count_full_erases(b"\x1b[3J"), 1);
+        assert_eq!(count_full_erases(b"\x1b[2J\x1b[H\x1b[2J"), 2, "two clears");
+        assert_eq!(count_full_erases(b"\x1b[0J"), 0, "erase-to-end is partial");
+        assert_eq!(count_full_erases(b"\x1b[J"), 0, "bare J is not 2J/3J");
+        assert_eq!(count_full_erases(b"hello world"), 0, "no escape");
+    }
+
+    #[test]
+    fn churned_chrome_rows_flags_unchanged_box_rows_only() {
+        // A box-drawing border row that is byte-identical across the transition
+        // is churned chrome (rebuilt unchanged after a full erase); a plain text
+        // row is not chrome, and a row that actually changed is not churn.
+        let pre = grid(&["\u{2500}\u{2500}\u{2500}", "abc", "\u{2502} x \u{2502}"]);
+        let mut post = pre.clone();
+        post[1] = "abd".chars().collect(); // text row changed -> not chrome anyway
+        let churned = churned_chrome_rows(&pre, &post, 16);
+        assert_eq!(
+            churned,
+            vec!["row:0".to_string(), "row:2".to_string()],
+            "the two unchanged box rows are churn; the text row never is"
+        );
+        // A chrome row that genuinely changed is NOT churn (real update).
+        let mut post2 = pre.clone();
+        post2[0] = "\u{250c}\u{2500}\u{2510}".chars().collect();
+        assert_eq!(
+            churned_chrome_rows(&pre, &post2, 16),
+            vec!["row:2".to_string()],
+            "a changed chrome row is a real update, not churn"
+        );
+        // Cap bounds the output.
+        let wide = grid(&["\u{2500}", "\u{2500}", "\u{2500}"]);
+        assert_eq!(churned_chrome_rows(&wide, &wide, 2).len(), 2, "capped");
     }
 
     #[test]

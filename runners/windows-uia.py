@@ -34,6 +34,7 @@ parity test run anywhere.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -41,6 +42,46 @@ import time
 ACTION_BUDGET = 36
 MAX_LABEL_LEN = 40
 MAX_LABELS_PER_STATE = 24
+# Overflow oracle tolerance (px): a child must escape its parent's content box by
+# more than this to be flagged, so sub-pixel rounding in BoundingRectangle never
+# produces a false positive. Mirrors the web runner's OVERFLOW_TOL intent.
+OVERFLOW_TOL_PX = 4
+# HANG watchdog floor (ms): a coarse, well-separated floor so host scheduling
+# jitter can never flip the verdict. Matches the web runner's HANG_FLOOR_MS.
+HANG_FLOOR_MS = 2000
+
+
+# ---- CONTENT-BUG oracle (deterministic, label-based) ------------------------
+# Mirrors runners/web/runner.mjs detectContentBugs: a rendered label carrying a
+# stringify/template artifact leaked to the screen. Each classifier is a pure
+# substring/structure test over the trimmed label, so the same a11y tree yields
+# the same finding every run and on replay. The match is on STRUCTURE (a literal
+# artifact token), never natural language, so a real label that merely mentions
+# "null" in prose is not flagged: the token must BE the artifact (whole-word
+# undefined/null/NaN, the bracketed literal). Order is fixed and first match wins.
+_CB_TEMPLATE_CURLY = re.compile(r"\{\{[^}]*\}\}")
+_CB_TEMPLATE_DOLLAR = re.compile(r"\$\{[^}]*\}")
+_CB_UNDEFINED = re.compile(r"(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])")
+_CB_NULL = re.compile(r"(^|[\s:>(\[,])null($|[\s.,!?)\]<])")
+_CB_NAN = re.compile(r"(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])")
+
+
+def content_bug_reason(text):
+    """The stable reason tag for a broken-content label, or None. First match
+    wins, so a label carries at most one reason (byte-identical run to run)."""
+    if not text:
+        return None
+    if "[object Object]" in text:
+        return "object-object"
+    if _CB_TEMPLATE_CURLY.search(text) or _CB_TEMPLATE_DOLLAR.search(text):
+        return "unrendered-template"
+    if _CB_UNDEFINED.search(text):
+        return "undefined"
+    if _CB_NULL.search(text):
+        return "null"
+    if _CB_NAN.search(text):
+        return "nan"
+    return None
 
 
 # =============================================================================
@@ -639,6 +680,49 @@ def _label_of(ctrl):
         return ""
 
 
+def _uia_key(ctrl, role):
+    """A STABLE, locale-invariant key for an offending node (matches the web
+    runner's keyOf grammar): AutomationId (the test-id analogue) when present,
+    else role-typed. NEVER the visible text, so a translated label keeps the same
+    finding id and OVERFLOW/CONTENTBUG findings reproduce byte-for-byte."""
+    aid = _uia_id(ctrl)
+    if aid:
+        return "id:" + aid
+    return "role:" + role
+
+
+def _uia_accessible_name(ctrl):
+    """The accessible NAME of a control: its UIA Name (the screen-reader
+    announcement). This is NOT the value: a text box's typed text is its
+    ValuePattern value, which does not make it 'named'. Used by the unlabeled
+    oracle (an actionable control with no name is unannounceable)."""
+    try:
+        return (ctrl.Name or "").strip()
+    except Exception:
+        return ""
+
+
+def _uia_bounds(ctrl):
+    """The control's screen rectangle (left, top, right, bottom) from
+    BoundingRectangle, the SAME attribute the screenshot path reads. Returns None
+    when unavailable or zero-sized, so a node with no geometry is simply skipped
+    (no false positive)."""
+    try:
+        r = ctrl.BoundingRectangle
+    except Exception:
+        return None
+    try:
+        left, top, right, bottom = r.left, r.top, r.right, r.bottom
+    except Exception:
+        try:
+            left, top, right, bottom = r[0], r[1], r[2], r[3]
+        except Exception:
+            return None
+    if right - left < 1 or bottom - top < 1:
+        return None
+    return (int(left), int(top), int(right), int(bottom))
+
+
 def _anchor_of(auto, window):
     """Screen anchor = window/view identity, if available. UIA has no route, so
     use a stable window identity: AutomationId, else ClassName."""
@@ -857,34 +941,90 @@ def snapshot(auto, window, tappable_types, value_selectors=None, cap=None):
     content = content_fingerprint(anchor, root)
 
     labels, tappables, node_by_label = [], [], {}
+    # Oracle accumulators, filled in the SAME tree walk (no second pass).
+    unlabeled = [0]
+    overflows, overflow_seen = [], set()
+    content_bugs, content_bug_seen = [], set()
 
-    def visit(ctrl, depth):
+    def visit(ctrl, depth, parent_box):
         if depth > 60:
             return
+        try:
+            ct_name = _control_type_name(auto, ctrl)
+            role = _uia_role_live(auto, ctrl, ct_name)
+        except Exception:
+            role = "node"
+        try:
+            is_tap = ctrl.ControlType in tappable_types
+        except Exception:
+            is_tap = False
         label = _label_of(ctrl)
         if label and len(label) <= MAX_LABEL_LEN:
             labels.append(label)
-            try:
-                is_tap = ctrl.ControlType in tappable_types
-            except Exception:
-                is_tap = False
             if is_tap:
                 tappables.append(label)
                 node_by_label.setdefault(label, ctrl)
+        # UNLABELED oracle: an actionable control (a tappable ControlType) with NO
+        # accessible Name is unannounceable to a screen reader. Count it, keyed off
+        # role/actionability (structural), never text, so the count is the same
+        # every run for the same tree. A text box's typed value is a VALUE not a
+        # name, so _uia_accessible_name (UIA Name only) is the right test.
+        if is_tap and not _uia_accessible_name(ctrl):
+            unlabeled[0] += 1
+        # CONTENT-BUG oracle: scan this control's label for a stringify/template
+        # artifact, keyed by the stable node key + reason and deduped.
+        if label:
+            reason = content_bug_reason(label)
+            if reason is not None:
+                key = _uia_key(ctrl, role)
+                dedup = key + "|" + reason
+                if dedup not in content_bug_seen:
+                    content_bug_seen.add(dedup)
+                    content_bugs.append((key, reason, label[:80]))
+        # OVERFLOW oracle: this control's bounding box escaping the parent's
+        # content box (UIA exposes no padding, so the border box IS the content
+        # box) by more than the tolerance. Pure geometry over the SAME
+        # BoundingRectangle the screenshot path reads.
+        box = _uia_bounds(ctrl)
+        if parent_box is not None and box is not None:
+            pl, pt, pr, pb = parent_box
+            cl, ct, cr, cb = box
+            over = max(cr - pr, pl - cl, cb - pb, pt - ct)
+            if over > OVERFLOW_TOL_PX:
+                key = _uia_key(ctrl, role)
+                dedup = key + "|spill"
+                if dedup not in overflow_seen:
+                    overflow_seen.add(dedup)
+                    overflows.append((key, "spill", int(round(over))))
+        # The content box passed to children: this control's box UNLESS it is a
+        # scroll container (a scroller is MEANT to hold larger content; UIA exposes
+        # this via the Scroll pattern, so suppress overflow inside one).
+        child_box = box
+        try:
+            if ctrl.GetScrollPattern() is not None:
+                child_box = None
+        except Exception:
+            pass
         try:
             for child in ctrl.GetChildren():
-                visit(child, depth + 1)
+                visit(child, depth + 1, child_box)
         except Exception:
             pass
 
-    visit(window, 0)
+    visit(window, 0, _uia_bounds(window))
     uniq = list(dict.fromkeys(labels))
+    # Stable order so the OVERFLOW/CONTENTBUG markers are byte-identical run to run.
+    overflows.sort(key=lambda t: (t[0], t[1]))
+    content_bugs.sort(key=lambda t: (t[0], t[1]))
     return {
         "sig": sig,
         "content": content,
         "labels": uniq,
         "tappables": list(dict.fromkeys(tappables)),
         "nodes": node_by_label,
+        "unlabeled": unlabeled[0],
+        "overflows": overflows,
+        "content_bugs": content_bugs,
     }
 
 
@@ -908,6 +1048,98 @@ def crash(title, detail):
     emit(f"EXCEPTION CAUGHT BY REPROIT ╡ {title} ╞")
     emit(f"The following condition was hit: {detail}")
     emit("═" * 8)
+
+
+# ---- HANG oracle (EXPLORE:HANG via user32 IsHungAppWindow) -------------------
+# Windows gives a FIRST-CLASS, deterministic frozen-window signal: user32's
+# IsHungAppWindow(hwnd) returns nonzero when the window stopped pumping its
+# message queue (the OS's own "(Not Responding)" verdict). This is far better than
+# a wall-clock guess, so on Windows we key HANG off it directly, keyed by
+# (from, action) like the web runner's HANG. A live window returns 0, so a healthy
+# app is silent (no false positive). bucket mirrors the web HANG floor.
+def _is_hung(hwnd):
+    """True iff the OS considers this top-level window hung (not pumping
+    messages). Best-effort: any failure returns False (no false positive)."""
+    if not hwnd:
+        return False
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.user32.IsHungAppWindow(hwnd))
+    except Exception:
+        return False
+
+
+def maybe_emit_hang(window, from_sig, action):
+    """Emit EXPLORE:HANG when the OS reports the target window hung after the
+    action. Reads the NativeWindowHandle already used by the capture path."""
+    try:
+        hwnd = int(window.NativeWindowHandle)
+    except Exception:
+        hwnd = 0
+    if _is_hung(hwnd):
+        emit("EXPLORE:HANG " + json.dumps(
+            {"from": from_sig, "action": action, "bucket": HANG_FLOOR_MS}))
+
+
+# ---- LEAK sampler (MEMORY:SAMPLE, --soak) -----------------------------------
+# Under the soak tier (a replay script) we sample the target process's
+# WorkingSet64 (its resident set) once per replay cycle so the Rust soak oracle
+# (modes/soak.rs) gets a memory-vs-time series and reads the slope. WorkingSet64
+# is the native analogue of the web runner's v8 heap_used; the marker shape is
+# IDENTICAL ({"t_ms","heap_used"}) so soak.rs parses it unchanged (heap_used
+# carries the working-set bytes). No measurement is taken outside replay.
+def _working_set_bytes(pid):
+    """The target process's WorkingSet64 in bytes via psapi
+    GetProcessMemoryInfo, or None on failure (best-effort, no crash)."""
+    if not pid:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        PROCESS_VM_READ = 0x0010
+        kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        # PROCESS_MEMORY_COUNTERS: WorkingSetSize is the resident set (SIZE_T).
+        class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        h = kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, int(pid))
+        if not h:
+            return None
+        try:
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            ok = psapi.GetProcessMemoryInfo(
+                h, ctypes.byref(counters), counters.cb)
+            if not ok:
+                return None
+            return int(counters.WorkingSetSize)
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return None
+
+
+def sample_rss(pid, t_ms):
+    """Emit MEMORY:SAMPLE {"t_ms","heap_used"} (heap_used = WorkingSet64 bytes)."""
+    rss = _working_set_bytes(pid)
+    if rss is not None:
+        emit("MEMORY:SAMPLE " + json.dumps({"t_ms": int(t_ms), "heap_used": rss}))
 
 
 # ---- screenshot capture (SHOOT contract, see crates/.../backends/drive.rs) ---
@@ -1104,7 +1336,25 @@ def main():
         snap = snapshot(auto, window, tappable_types, value_selectors, cap)
         if snap["sig"] not in seen:
             seen.add(snap["sig"])
-            emit("EXPLORE:STATE " + json.dumps({"sig": snap["sig"], "labels": snap["labels"][:MAX_LABELS_PER_STATE]}))
+            # STATE carries the unlabeled count alongside labels; the core a11y
+            # oracle (model/map.rs) reads json["unlabeled"] (defaults to 0 absent).
+            emit("EXPLORE:STATE " + json.dumps({
+                "sig": snap["sig"],
+                "labels": snap["labels"][:MAX_LABELS_PER_STATE],
+                "unlabeled": snap["unlabeled"],
+            }))
+            # OVERFLOW for this newly-seen state, keyed by the SAME sig. Only
+            # emitted when a child actually spilled its container.
+            if snap["overflows"]:
+                items = [{"key": k, "kind": kind, "by": by}
+                         for (k, kind, by) in snap["overflows"]]
+                emit("EXPLORE:OVERFLOW " + json.dumps({"sig": snap["sig"], "items": items}))
+            # CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Only
+            # emitted when a broken-content artifact is actually rendered.
+            if snap["content_bugs"]:
+                items = [{"key": k, "reason": reason, "text": text}
+                         for (k, reason, text) in snap["content_bugs"]]
+                emit("EXPLORE:CONTENTBUG " + json.dumps({"sig": snap["sig"], "items": items}))
         return snap
 
     current = observe()
@@ -1115,8 +1365,25 @@ def main():
     budget = len(replay) if replay else (int(fuzz.get("budget", ACTION_BUDGET)) + prefix_len)
     edge_weights = fuzz.get("edgeWeights", {})
 
+    # LEAK sampler (--soak): only in REPLAY mode (the soak tier writes
+    # {"replay":[..]}) do we sample the target's WorkingSet64, once at start and
+    # after each cycle, forming the memory-vs-time series soak.rs reads. The pid
+    # comes from the window's ProcessId. No-op outside replay.
+    is_soak = bool(replay)
+    try:
+        target_pid = int(window.ProcessId)
+    except Exception:
+        target_pid = 0
+    soak_start = time.monotonic()
+    if is_soak:
+        sample_rss(target_pid, 0)
+
     i = 0
     while i < budget and stuck < 3:
+        # In replay/soak, sample memory once per cycle (BEFORE acting, so cycle k's
+        # sample reflects the working set after the previous action settled).
+        if is_soak and i > 0:
+            sample_rss(target_pid, (time.monotonic() - soak_start) * 1000)
         if replay:
             act = replay[i] if i < len(replay) else None
         elif prefix and i < prefix_len:
@@ -1148,8 +1415,11 @@ def main():
             i += 1
             continue
         if act == "back":
+            from_sig = current["sig"]
             auto.SendKeys("{Esc}")
             time.sleep(0.6)
+            # HANG oracle: ask the OS if the window is now hung (IsHungAppWindow).
+            maybe_emit_hang(window, from_sig, "back")
             nxt = observe()
             if nxt["sig"] != current["sig"]:
                 emit("EXPLORE:EDGE " + json.dumps({"from": current["sig"], "action": "back", "to": nxt["sig"]}))
@@ -1165,6 +1435,7 @@ def main():
             i += 1
             continue
         label = act[len("tap:"):]
+        from_sig = current["sig"]
         tried.add(f"{current['sig']}|{label}")
         node = current["nodes"].get(label)
         if not node or not press(node):
@@ -1176,6 +1447,8 @@ def main():
         if not window.Exists(maxSearchSeconds=1):
             crash("target window gone", f"the window vanished during {act}")
             break
+        # HANG oracle: ask the OS if the window is now hung (IsHungAppWindow).
+        maybe_emit_hang(window, from_sig, f"tap:{label}")
         nxt = observe()
         if nxt["sig"] != current["sig"]:
             emit("EXPLORE:EDGE " + json.dumps({"from": current["sig"], "action": f"tap:{label}", "to": nxt["sig"]}))

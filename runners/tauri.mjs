@@ -909,6 +909,210 @@ const CHURNED_ANCHORS_JS = `
   return churned;
 `;
 
+// PARITY: keep in sync with runners/web/runner.mjs (overflow oracle).
+//
+// DOM/layout OVERFLOW oracle (deterministic, structural). The i18n / long-string
+// / RTL failure class: a long label overflowing a fixed-width button, a child
+// wider than its parent's content box, or text clipped by text-overflow. Caught
+// from STRUCTURAL MEASUREMENTS (scrollWidth/clientWidth, child-vs-parent content
+// box, offsetWidth<scrollWidth), never a pixel diff, so the same DOM yields the
+// same finding byte-for-byte on every run and on replay. Tauri's webview is a
+// real DOM, so the measurement is identical to the web runner; only the transport
+// (browser.execute over WebDriver) differs. Returns the sorted item list (or []).
+const OVERFLOW_TOL = 2;
+const DETECT_OVERFLOW_JS = `
+  const tol = ${OVERFLOW_TOL};
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const role = (el.getAttribute('role') || '').trim();
+    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
+  };
+  const out = [];
+  const seen = new Set();
+  const add = (el, kind, by) => {
+    const k = keyOf(el) + '|' + kind;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ key: keyOf(el), kind, by: Math.round(by) });
+  };
+  const doc = document.documentElement;
+  if (doc && doc.scrollWidth - doc.clientWidth > tol) {
+    out.push({ key: 'tag:html', kind: 'scroll', by: Math.round(doc.scrollWidth - doc.clientWidth) });
+  }
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!visible(el)) continue;
+    const st = getComputedStyle(el);
+    if (el.scrollWidth - el.clientWidth > tol) add(el, 'scroll', el.scrollWidth - el.clientWidth);
+    const clips = st.overflow === 'hidden' || st.overflowX === 'hidden' || st.textOverflow === 'ellipsis';
+    const oneLine = st.whiteSpace === 'nowrap' || st.textOverflow === 'ellipsis';
+    if (clips && oneLine && el.scrollWidth - el.offsetWidth > tol) {
+      add(el, 'clip', el.scrollWidth - el.offsetWidth);
+    }
+    const p = el.parentElement;
+    if (p && p !== document.body && p !== doc) {
+      const ps = getComputedStyle(p);
+      const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
+      if (!scrollsX) {
+        const pr = p.getBoundingClientRect();
+        const cr = el.getBoundingClientRect();
+        const padL = parseFloat(ps.paddingLeft) || 0;
+        const padR = parseFloat(ps.paddingRight) || 0;
+        const bL = parseFloat(ps.borderLeftWidth) || 0;
+        const bR = parseFloat(ps.borderRightWidth) || 0;
+        const contentLeft = pr.left + bL + padL;
+        const contentRight = pr.right - bR - padR;
+        const over = Math.max(cr.right - contentRight, contentLeft - cr.left);
+        if (over > tol) add(el, 'spill', over);
+      }
+    }
+  }
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0)));
+  return out;
+`;
+
+// PARITY: keep in sync with runners/web/runner.mjs (content-bug oracle).
+//
+// CONTENT-BUG oracle (deterministic, DOM/label-based). The literal artifacts a
+// stringify/template bug leaks to the screen: [object Object], whole-word
+// undefined/null/NaN, an unrendered {{...}}/${...} placeholder. Scans only the
+// OWN text of keyed, visible elements so the finding is addressed by a stable,
+// locale-invariant key (never the text). Pure substring/structure test, no pixel
+// or timing read, so the same DOM yields the same finding on every run/replay.
+// Identical to the web runner; runs in-webview via browser.execute.
+const DETECT_CONTENTBUG_JS = `
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const name = (el.getAttribute('name') || '').trim();
+    if (name) return 'name:' + name;
+    return null;
+  };
+  const ownText = (el) => {
+    let t = '';
+    for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
+    return t.replace(/\\s+/g, ' ').trim();
+  };
+  const reasonOf = (text) => {
+    if (!text) return null;
+    if (text.includes('[object Object]')) return 'object-object';
+    if (/\\{\\{[^}]*\\}\\}/.test(text) || /\\$\\{[^}]*\\}/.test(text)) return 'unrendered-template';
+    if (/(^|[\\s:>(\\[,])undefined($|[\\s.,!?)\\]<])/.test(text)) return 'undefined';
+    if (/(^|[\\s:>(\\[,])null($|[\\s.,!?)\\]<])/.test(text)) return 'null';
+    if (/(^|[\\s:>(\\[,])NaN($|[\\s.,!?)\\]<])/.test(text)) return 'nan';
+    return null;
+  };
+  const out = [];
+  const seen = new Set();
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!visible(el)) continue;
+    const key = keyOf(el);
+    if (!key) continue;
+    const text = ownText(el);
+    const reason = reasonOf(text);
+    if (!reason) continue;
+    const dedup = key + '|' + reason;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    out.push({ key, reason, text: text.slice(0, 80) });
+  }
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  return out;
+`;
+
+// PARITY: keep in sync with runners/web/runner.mjs (jank/hang watchdog).
+//
+// JANK / HANG watchdog (deterministic, recorded-trace based). We key off the
+// webview's own Long Tasks trace, never a wall-clock duration sample: a
+// `longtask` PerformanceObserver entry is emitted for any task that blocks the
+// main thread > 50ms, buffered and delivered after the blocking task finishes.
+// We classify by the MAX blocked duration into coarse, well-separated floors
+// (>=2000ms hang, >=200ms jank) so timing jitter can never flip the verdict.
+// The observer is installed inside the webview via execute() (idempotent), and
+// re-installed each observe() since a navigation replaces the window. A WebView
+// without the Long Tasks API (some WebKitGTK builds) records nothing, so
+// jank/hang are silent there, NEVER a false positive (same honesty as the web
+// runner's firefox/webkit fallback).
+const JANK_FLOOR_MS = 200;
+const HANG_FLOOR_MS = 2000;
+const INSTALL_LONGTASK_JS = `
+  try {
+    if (!window.__reproitLongTaskHooked) {
+      window.__reproitLongTaskHooked = true;
+      window.__reproitLongTasks = [];
+      const obs = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
+      });
+      obs.observe({ entryTypes: ['longtask'] });
+    }
+  } catch (_) { /* no Long Tasks API: jank/hang silent on this webview */ }
+  return true;
+`;
+const RESET_LONGTASK_JS = `try { window.__reproitLongTasks = []; } catch (_) {} return true;`;
+const DRAIN_LONGTASK_JS = `
+  const t = window.__reproitLongTasks || [];
+  window.__reproitLongTasks = [];
+  return t;
+`;
+async function installLongTaskObserver(browser) {
+  try { await browser.execute(INSTALL_LONGTASK_JS); } catch { /* webview not ready */ }
+}
+async function drainJank(browser) {
+  let tasks = [];
+  try { tasks = await browser.execute(DRAIN_LONGTASK_JS); } catch { return null; }
+  if (!tasks || !tasks.length) return null;
+  const max = Math.max(...tasks);
+  if (max >= HANG_FLOOR_MS) return { kind: 'hang', bucket: HANG_FLOOR_MS, count: tasks.length };
+  if (max >= JANK_FLOOR_MS) return { kind: 'jank', bucket: JANK_FLOOR_MS, count: tasks.length };
+  return null;
+}
+
+// PARITY: keep in sync with runners/web/runner.mjs (leak heap sampler).
+//
+// LEAK sampler (deterministic, web heap). `--soak` replays a reversible cycle N
+// times and reads the heap slope. The web/Electron runners read the PRECISE,
+// unrounded v8 used-heap via CDP `Runtime.getHeapUsage` + a forced GC. Tauri is
+// driven over WebDriver, which has NO CDP, so that precise path is unreachable
+// here; we fall back to `performance.memory.usedJSHeapSize` (the same fallback
+// the web runner uses on firefox/webkit). That value is QUANTIZED by Chromium
+// (WebView2) to a coarse bucket and ABSENT entirely in WebKit (WKWebView /
+// WebKitGTK), so the slope may be too coarse to see a small leak, or no sample is
+// emitted at all on WebKit. We emit MEMORY:SAMPLE when a number is available and
+// stay silent otherwise; soak reads whatever series it gets. (GAP vs web/Electron:
+// no precise CDP heap over WebDriver.)
+const PERF_MEMORY_JS = `
+  try {
+    if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
+      return performance.memory.usedJSHeapSize;
+    }
+  } catch (_) {}
+  return null;
+`;
+async function sampleHeap(browser, tMs) {
+  let used = null;
+  try { used = await browser.execute(PERF_MEMORY_JS); } catch (_) { used = null; }
+  if (used == null) return;
+  log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
+}
+
 // Exception oracle for the webview. tap() clicks an element via execute(); a
 // throw inside that element's event LISTENER does not propagate back through
 // click()'s return value, it surfaces as an uncaught error on the webview
@@ -1119,6 +1323,9 @@ async function main() {
   // Install the exception hooks before the first snapshot so even errors thrown
   // during initial render are captured.
   await installHooks(browser);
+  // Install the Long Tasks observer (jank/hang watchdog) so it is live for every
+  // action. Re-installed in observe() since a navigation replaces the window.
+  await installLongTaskObserver(browser);
   const seen = new Set(), tried = new Set();
   const pick = rng(fuzz.seed || 0);
 
@@ -1153,6 +1360,8 @@ async function main() {
     // Re-install hooks first (a navigation since the last observe would have
     // replaced the window and dropped them); installHooks is idempotent.
     await installHooks(browser);
+    // Re-install the Long Tasks observer too (a navigation drops it); idempotent.
+    await installLongTaskObserver(browser);
     // Drain any errors that the just-completed action produced. observe() runs
     // after every action (tap and back), so this covers all action sites.
     await drainErrors(browser);
@@ -1183,6 +1392,22 @@ async function main() {
       // and an in-page focusability rule (see GROUNDTRUTH_JS). The synthetic
       // keydown probe can mutate the DOM, so it runs AFTER the state is recorded.
       await emitGroundtruth(browser, snap.sig);
+      // DOM/layout overflow for this newly-seen state, keyed by the SAME sig.
+      // Pure structural measurement, no pixels, so it reproduces on replay. Only
+      // emitted when something overflows; a clean layout stays silent.
+      let ovf = null;
+      try { ovf = await browser.execute(DETECT_OVERFLOW_JS); } catch (_) {}
+      if (ovf && ovf.length) {
+        log('EXPLORE:OVERFLOW ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: ovf }));
+      }
+      // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
+      // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
+      // emitted when a broken-content artifact is actually rendered.
+      let cbug = null;
+      try { cbug = await browser.execute(DETECT_CONTENTBUG_JS); } catch (_) {}
+      if (cbug && cbug.length) {
+        log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+      }
     }
     return snap;
   };
@@ -1191,7 +1416,16 @@ async function main() {
   const prefix = fuzz.prefix || null, replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
+  // sample the heap at the start and after every action so the Rust soak oracle
+  // gets a heap-vs-time series. Off outside replay. t0 anchors t_ms. Tauri uses
+  // the performance.memory fallback (no CDP over WebDriver); see sampleHeap.
+  const t0 = Date.now();
+  if (replay) await sampleHeap(browser, 0);
   for (let a = 0; a < budget && stuck < 3; a++) {
+    // LEAK sampler: in replay mode, sample once per action (fires BEFORE acting,
+    // so action a's sample reflects the heap after the previous action settled).
+    if (replay && a > 0) await sampleHeap(browser, Date.now() - t0);
     let act;
     if (replay) act = replay[a];
     else if (prefix && a < prefixLen) act = prefix[a];
@@ -1242,6 +1476,7 @@ async function main() {
     const before = current.sig;
     const beforeContent = current.content;
     try { await browser.execute(MARK_ANCHORS_JS); } catch (e) {} // flicker oracle: tag persistent chrome
+    try { await browser.execute(RESET_LONGTASK_JS); } catch (e) {} // jank/hang: drop pre-action longtasks
     if (!(await tap(browser, sel))) { log('FUZZ:MISS ' + act); stuck++; continue; }
     await browser.pause(700);
     // Tier-1 flicker oracle: did this transition rebuild persistent chrome that
@@ -1251,6 +1486,14 @@ async function main() {
     try { tapChurn = await browser.execute(CHURNED_ANCHORS_JS); } catch (e) {}
     if (tapChurn && tapChurn.length) {
       log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'tap:' + sel, churned: tapChurn }));
+    }
+    // JANK/HANG watchdog: did this action block the main thread past the
+    // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
+    // Rust side attributes it to this transition and `check` re-confirms it.
+    const tapJank = await drainJank(browser);
+    if (tapJank) {
+      log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
+        JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
     }
     const next = await observe();
     if (next.sig !== before) {
@@ -1264,6 +1507,9 @@ async function main() {
     }
     current = next;
   }
+  // LEAK sampler: a final heap sample after the last action, so the series spans
+  // the whole soak (start ... last action). No-op outside replay.
+  if (replay) await sampleHeap(browser, Date.now() - t0);
   // Final drain: catch any error produced by the last action (or by async work
   // that settled after the last observe).
   await drainErrors(browser);

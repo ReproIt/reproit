@@ -36,6 +36,7 @@ parity test run anywhere.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -43,6 +44,46 @@ import time
 ACTION_BUDGET = 36
 MAX_LABEL_LEN = 40
 MAX_LABELS_PER_STATE = 24
+# Overflow oracle tolerance (px): a child must escape its parent's content box by
+# more than this to be flagged, so sub-pixel rounding in get_extents never
+# produces a false positive. Mirrors the web runner's OVERFLOW_TOL intent.
+OVERFLOW_TOL_PX = 4
+# HANG watchdog floor (ms): a coarse, well-separated floor so host scheduling
+# jitter can never flip the verdict. Matches the web runner's HANG_FLOOR_MS.
+HANG_FLOOR_MS = 2000
+
+
+# ---- CONTENT-BUG oracle (deterministic, label-based) ------------------------
+# Mirrors runners/web/runner.mjs detectContentBugs: a rendered label carrying a
+# stringify/template artifact leaked to the screen. Each classifier is a pure
+# substring/structure test over the trimmed label, so the same a11y tree yields
+# the same finding every run and on replay. The match is on STRUCTURE (a literal
+# artifact token), never natural language, so a real label that merely mentions
+# "null" in prose is not flagged: the token must BE the artifact (whole-word
+# undefined/null/NaN, the bracketed literal). Order is fixed and first match wins.
+_CB_TEMPLATE_CURLY = re.compile(r"\{\{[^}]*\}\}")
+_CB_TEMPLATE_DOLLAR = re.compile(r"\$\{[^}]*\}")
+_CB_UNDEFINED = re.compile(r"(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])")
+_CB_NULL = re.compile(r"(^|[\s:>(\[,])null($|[\s.,!?)\]<])")
+_CB_NAN = re.compile(r"(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])")
+
+
+def content_bug_reason(text):
+    """The stable reason tag for a broken-content label, or None. First match
+    wins, so a label carries at most one reason (byte-identical run to run)."""
+    if not text:
+        return None
+    if "[object Object]" in text:
+        return "object-object"
+    if _CB_TEMPLATE_CURLY.search(text) or _CB_TEMPLATE_DOLLAR.search(text):
+        return "unrendered-template"
+    if _CB_UNDEFINED.search(text):
+        return "undefined"
+    if _CB_NULL.search(text):
+        return "null"
+    if _CB_NAN.search(text):
+        return "nan"
+    return None
 
 
 # =============================================================================
@@ -639,6 +680,47 @@ def _label_of(node):
         return ""
 
 
+def _atspi_key(node, role):
+    """A STABLE, locale-invariant key for an offending node (matches the web
+    runner's keyOf grammar): the accessible-id (the test-id analogue) when
+    present, else role-typed. NEVER the visible text, so a translated label keeps
+    the same finding id and OVERFLOW/CONTENTBUG findings reproduce byte-for-byte."""
+    aid = _atspi_id(node)
+    if aid:
+        return "id:" + aid
+    return "role:" + role
+
+
+def _atspi_accessible_name(node):
+    """The accessible NAME of an accessible: its AT-SPI name (the screen-reader
+    announcement). This is NOT the value: an entry's typed text comes from the
+    Text/Value interface, not get_name(), so a nameless entry is unlabeled. Used
+    by the unlabeled oracle (an actionable element with no name is unannounceable)."""
+    try:
+        return (node.get_name() or "").strip()
+    except Exception:
+        return ""
+
+
+def _atspi_node_extents(node):
+    """The accessible's screen rectangle (x, y, width, height) via the Component
+    interface get_extents, the SAME call the screenshot path uses for the window.
+    Returns None when unavailable or zero-sized, so a node with no geometry is
+    skipped (no false positive)."""
+    try:
+        comp = node.get_component_iface()
+        if comp is None:
+            return None
+        # ATSPI_COORD_TYPE_SCREEN == 0 (screen-relative coordinates).
+        ext = comp.get_extents(0)
+        x, y, w, h = ext.x, ext.y, ext.width, ext.height
+    except Exception:
+        return None
+    if w < 1 or h < 1:
+        return None
+    return (int(x), int(y), int(w), int(h))
+
+
 def _anchor_of(app):
     """Screen anchor = window/view identity, if available. AT-SPI has no route,
     so use a stable window identity: the accessible-id of the top window, else
@@ -913,34 +995,89 @@ def snapshot(app, tappable_roles, value_selectors=None, cap=None):
     content = content_fingerprint(anchor, root)
 
     labels, tappables, node_by_label = [], [], {}
+    # Oracle accumulators, filled in the SAME tree walk (no second pass).
+    unlabeled = [0]
+    overflows, overflow_seen = [], set()
+    content_bugs, content_bug_seen = [], set()
 
-    def visit(node, depth):
+    def visit(node, depth, parent_box):
         if depth > 60 or node is None:
             return
+        try:
+            atspi_role_enum = node.get_role()
+        except Exception:
+            atspi_role_enum = None
+        # Raw AT-SPI role name + canonical string role (for stable keys).
+        try:
+            role_name = _atspi_role_name(node)
+        except Exception:
+            role_name = ""
+        crole = atspi_role(role_name) if role_name else "node"
+        is_tap = atspi_role_enum in tappable_roles
         label = _label_of(node)
         if label and len(label) <= MAX_LABEL_LEN:
             labels.append(label)
-            try:
-                role = node.get_role()
-            except Exception:
-                role = None
-            if role in tappable_roles:
+            if is_tap:
                 tappables.append(label)
                 node_by_label.setdefault(label, node)
+        # UNLABELED oracle: an actionable accessible (a tappable role) with NO
+        # accessible name is unannounceable to a screen reader. Count it, keyed off
+        # role/actionability (structural), never text, so the count is the same
+        # every run for the same tree. An entry's typed text is a VALUE not a name.
+        if is_tap and not _atspi_accessible_name(node):
+            unlabeled[0] += 1
+        # CONTENT-BUG oracle: scan this accessible's label for a stringify/template
+        # artifact, keyed by the stable node key + reason and deduped.
+        if label:
+            reason = content_bug_reason(label)
+            if reason is not None:
+                key = _atspi_key(node, crole)
+                dedup = key + "|" + reason
+                if dedup not in content_bug_seen:
+                    content_bug_seen.add(dedup)
+                    content_bugs.append((key, reason, label[:80]))
+        # OVERFLOW oracle: this accessible's extents escaping the parent's content
+        # box (AT-SPI exposes no padding, so the border box IS the content box) by
+        # more than the tolerance. Pure geometry over the SAME get_extents the
+        # screenshot path reads.
+        box = _atspi_node_extents(node)
+        if parent_box is not None and box is not None:
+            px, py, pw, ph = parent_box
+            cx, cy, cw, ch = box
+            over = max((cx + cw) - (px + pw), px - cx,
+                       (cy + ch) - (py + ph), py - cy)
+            if over > OVERFLOW_TOL_PX:
+                key = _atspi_key(node, crole)
+                dedup = key + "|spill"
+                if dedup not in overflow_seen:
+                    overflow_seen.add(dedup)
+                    overflows.append((key, "spill", int(round(over))))
+        # The content box passed to children: this accessible's box UNLESS it is a
+        # scroll container (a scroller is MEANT to hold larger content), so a
+        # scroll pane / viewport suppresses overflow for its subtree. Keyed off the
+        # raw AT-SPI role name (SCROLL_PANE/VIEWPORT both canonicalize to `group`,
+        # which is too broad to suppress on).
+        child_box = None if role_name in ("SCROLL_PANE", "VIEWPORT") else box
         try:
             for i in range(node.get_child_count()):
-                visit(node.get_child_at_index(i), depth + 1)
+                visit(node.get_child_at_index(i), depth + 1, child_box)
         except Exception:
             pass
 
-    visit(app, 0)
+    visit(app, 0, None)
     uniq = list(dict.fromkeys(labels))
+    # Stable order so the OVERFLOW/CONTENTBUG markers are byte-identical run to run.
+    overflows.sort(key=lambda t: (t[0], t[1]))
+    content_bugs.sort(key=lambda t: (t[0], t[1]))
     return {
         "sig": sig,
         "content": content,
         "labels": uniq,
         "tappables": list(dict.fromkeys(tappables)),
         "nodes": node_by_label,
+        "unlabeled": unlabeled[0],
+        "overflows": overflows,
+        "content_bugs": content_bugs,
     }
 
 
@@ -948,6 +1085,54 @@ def crash(title, detail):
     emit(f"EXCEPTION CAUGHT BY REPROIT ╡ {title} ╞")
     emit(f"The following condition was hit: {detail}")
     emit("═" * 8)
+
+
+# ---- LEAK sampler (MEMORY:SAMPLE, --soak) -----------------------------------
+# Under the soak tier (a replay script) we sample the target's resident set size
+# (VmRSS from /proc/<pid>/status) once per replay cycle so the Rust soak oracle
+# (modes/soak.rs) gets an RSS-vs-time series and reads the slope. VmRSS is the
+# native analogue of the web runner's v8 heap_used; the marker shape is IDENTICAL
+# ({"t_ms","heap_used"}) so soak.rs parses it unchanged (heap_used carries RSS
+# bytes). /proc reports VmRSS in kB. No measurement is taken outside replay.
+def _vmrss_bytes(pid):
+    """The target's VmRSS in bytes from /proc/<pid>/status, or None on failure."""
+    if not pid:
+        return None
+    try:
+        with open("/proc/%d/status" % int(pid), "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    # "VmRSS:  123456 kB"
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    except Exception:
+        return None
+    return None
+
+
+def sample_rss(pid, t_ms):
+    """Emit MEMORY:SAMPLE {"t_ms","heap_used"} (heap_used = VmRSS bytes)."""
+    rss = _vmrss_bytes(pid)
+    if rss is not None:
+        emit("MEMORY:SAMPLE " + json.dumps({"t_ms": int(t_ms), "heap_used": rss}))
+
+
+# ---- HANG watchdog (EXPLORE:HANG) -------------------------------------------
+# A deterministic wall-clock watchdog around each action's observe. AT-SPI has no
+# OS "(Not Responding)" signal (unlike Windows IsHungAppWindow) and no main-thread
+# Long-Tasks trace (the web runner's signal), so we time the blocking AT-SPI read
+# round trip from THIS process: AT-SPI calls are synchronous D-Bus round trips
+# that the target services on its main loop, so an app whose main thread froze
+# makes the observe wall time spike. We bucket into one coarse, well-separated
+# floor (HANG_FLOOR_MS) so timing jitter cannot flip the verdict, keyed by
+# (from, action) like the web HANG. CAVEAT (documented gap): this is host-side
+# wall time, perturbable by host/D-Bus scheduling, so it is not as deterministic
+# as a frame trace; the high floor keeps it false-positive-free.
+def maybe_emit_hang(from_sig, action, elapsed_ms):
+    if elapsed_ms >= HANG_FLOOR_MS:
+        emit("EXPLORE:HANG " + json.dumps(
+            {"from": from_sig, "action": action, "bucket": HANG_FLOOR_MS}))
 
 
 # ---- screenshot capture (SHOOT contract, see crates/.../backends/drive.rs) ---
@@ -1115,6 +1300,12 @@ def main():
         sys.exit(3)
     time.sleep(1.0)
 
+    # Target pid for the --soak RSS sampler (AT-SPI exposes it on the app node).
+    try:
+        target_pid = int(app.get_process_id())
+    except Exception:
+        target_pid = 0
+
     tappable_roles = _tappable_roles(Atspi)
 
     # Layer 3 (config) + Layer 2 runner cap. The value-node selectors and the
@@ -1154,7 +1345,25 @@ def main():
             snap = snapshot(app, tappable_roles, value_selectors, cap)
             if snap["sig"] not in seen:
                 seen.add(snap["sig"])
-                emit("EXPLORE:STATE " + json.dumps({"sig": snap["sig"], "labels": snap["labels"][:MAX_LABELS_PER_STATE]}))
+                # STATE carries the unlabeled count alongside labels; the core a11y
+                # oracle (model/map.rs) reads json["unlabeled"] (defaults to 0).
+                emit("EXPLORE:STATE " + json.dumps({
+                    "sig": snap["sig"],
+                    "labels": snap["labels"][:MAX_LABELS_PER_STATE],
+                    "unlabeled": snap["unlabeled"],
+                }))
+                # OVERFLOW for this newly-seen state, keyed by the SAME sig. Only
+                # emitted when a child actually spilled its container.
+                if snap["overflows"]:
+                    items = [{"key": k, "kind": kind, "by": by}
+                             for (k, kind, by) in snap["overflows"]]
+                    emit("EXPLORE:OVERFLOW " + json.dumps({"sig": snap["sig"], "items": items}))
+                # CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Only
+                # emitted when a broken-content artifact is actually rendered.
+                if snap["content_bugs"]:
+                    items = [{"key": k, "reason": reason, "text": text}
+                             for (k, reason, text) in snap["content_bugs"]]
+                    emit("EXPLORE:CONTENTBUG " + json.dumps({"sig": snap["sig"], "items": items}))
             return snap
 
         current = observe()
@@ -1165,8 +1374,20 @@ def main():
         budget = len(replay) if replay else (int(fuzz.get("budget", ACTION_BUDGET)) + prefix_len)
         edge_weights = fuzz.get("edgeWeights", {})
 
+        # LEAK sampler (--soak): only in REPLAY mode (the soak tier writes
+        # {"replay":[..]}) do we sample VmRSS, once at start and after each cycle,
+        # forming the RSS-vs-time series soak.rs reads. No-op outside replay.
+        is_soak = bool(replay)
+        soak_start = time.monotonic()
+        if is_soak:
+            sample_rss(target_pid, 0)
+
         i = 0
         while i < budget and stuck < 3:
+            # In replay/soak, sample RSS once per cycle (BEFORE acting, so cycle k's
+            # sample reflects RSS after the previous action settled).
+            if is_soak and i > 0:
+                sample_rss(target_pid, (time.monotonic() - soak_start) * 1000)
             if replay:
                 act = replay[i] if i < len(replay) else None
             elif prefix and i < prefix_len:
@@ -1198,9 +1419,14 @@ def main():
                 i += 1
                 continue
             if act == "back":
+                from_sig = current["sig"]
                 Atspi.generate_keyboard_event(9, "", Atspi.KeySynthType.PRESSRELEASE)  # Escape keycode 9 (X11)
                 time.sleep(0.6)
+                # HANG watchdog: time ONLY the observe() round trip, after the
+                # fixed settle, so the sleep is excluded by construction.
+                observe_start = time.monotonic()
                 nxt = observe()
+                maybe_emit_hang(from_sig, "back", (time.monotonic() - observe_start) * 1000)
                 if nxt["sig"] != current["sig"]:
                     emit("EXPLORE:EDGE " + json.dumps({"from": current["sig"], "action": "back", "to": nxt["sig"]}))
                 # Layer 1 effect detection: an action is effective iff the
@@ -1216,8 +1442,13 @@ def main():
                 i += 1
                 continue
             label = act[len("tap:"):]
+            from_sig = current["sig"]
             tried.add(f"{current['sig']}|{label}")
             node = current["nodes"].get(label)
+            # HANG watchdog: time the synchronous press + observe round trip. The
+            # fixed 0.7s settle sleep is subtracted so only blocking time crosses
+            # the floor (a frozen main thread stalls the AT-SPI round trip).
+            press_start = time.monotonic()
             if not node or not do_press(node):
                 emit("FUZZ:MISS " + act)
                 stuck += 1
@@ -1225,6 +1456,7 @@ def main():
                 continue
             time.sleep(0.7)
             nxt = observe()
+            maybe_emit_hang(from_sig, f"tap:{label}", (time.monotonic() - press_start) * 1000 - 700)
             if nxt["sig"] != current["sig"]:
                 emit("EXPLORE:EDGE " + json.dumps({"from": current["sig"], "action": f"tap:{label}", "to": nxt["sig"]}))
             # Layer 1 effect detection: reset the stall whenever the action was

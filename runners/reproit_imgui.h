@@ -1164,10 +1164,17 @@ inline void TelemetryShutdown(void)                      { ReproIt_Telemetry_Shu
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
+#ifndef REPROIT_TELEMETRY
+// Fuzz-build crash handler needs POSIX signal + write(2). Telemetry builds pull
+// these in from their own block; the fuzz build includes them here.
+#include <csignal>
+#include <unistd.h>
+#endif
 
 namespace reproit {
 namespace {
@@ -1397,6 +1404,119 @@ void emitGroundtruth(const std::string& sig) {
     std::fflush(stdout);
 }
 
+// ---- FUZZ-BUILD CRASH HANDLER (async-signal-safe) -------------------------
+//
+// In the FUZZ build (REPROIT_TELEMETRY undefined) a SIGSEGV/SIGABRT/SIGBUS/
+// SIGFPE/SIGILL in the app under test would otherwise just kill the process
+// silently: the orchestrator sees the runner die mid-walk with no JOURNEY DONE
+// and no crash marker, so the crash is NOT attributed to a node. This handler
+// closes that gap: on a fatal signal it writes an `EXCEPTION CAUGHT BY ...`
+// block to stdout (the same marker every backend uses, parsed by drive.rs and
+// the fuzz oracle), naming the current state signature and the action that led
+// there, then re-raises so the OS still produces a core dump and the parent
+// still sees the signal. The block is PRE-SERIALIZED on the hot path (FrameEnd)
+// so the handler only does async-signal-safe write(2) calls, no malloc / printf
+// / buffered stdio. The crash bucket key (kind + message) embeds the state sig +
+// action, so the same crash reached the same way buckets to one finding.
+//
+// This is the FUZZ counterpart to the telemetry crash hook below; the two are
+// mutually exclusive by the #ifndef guard, so a TU never installs both.
+#ifndef REPROIT_TELEMETRY
+
+// Pre-serialized crash payload (rebuilt each frame from the current sig+action),
+// plus its length. Only the handler reads it; FrameEnd writes it. The block is
+// split so the handler can splice the (in-handler-chosen) signal name between
+// the constant prefix (header + "The following..." line) and the buffered tail
+// (the message line carrying state+action, then the closing rule). The fuzz
+// oracle reads the message from the line AFTER "The following ...", which is the
+// "raised by signal <NAME> at state <sig> after action tap:<act>" line, so the
+// crash buckets by signal + node + action.
+char reproit_imgui_crash_pre[256];   // header + "╡ IMGUI APP ╞" + "The following ...:\n" + "raised by signal "
+size_t reproit_imgui_crash_pre_len = 0;
+char reproit_imgui_crash_post[256];  // " at state <sig> after action tap:<act>\n<rule>\n"
+size_t reproit_imgui_crash_post_len = 0;
+volatile sig_atomic_t reproit_imgui_crash_installed = 0;
+
+// Map a signal number to a stable, async-signal-safe name (a string literal).
+const char* reproit_imgui_signame(int sig) {
+    switch (sig) {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGABRT: return "SIGABRT";
+        case SIGBUS:  return "SIGBUS";
+        case SIGFPE:  return "SIGFPE";
+        case SIGILL:  return "SIGILL";
+        default:      return "SIGNAL";
+    }
+}
+
+// Async-signal-safe write of a NUL-terminated literal to fd 1.
+void reproit_imgui_safe_write(const char* s) {
+    size_t n = 0;
+    while (s[n]) n++;
+    size_t off = 0;
+    while (off < n) {
+        long w = (long)write(1, s + off, n - off);
+        if (w <= 0) break;
+        off += (size_t)w;
+    }
+}
+void reproit_imgui_safe_write_n(const char* s, size_t n) {
+    size_t off = 0;
+    while (off < n) {
+        long w = (long)write(1, s + off, n - off);
+        if (w <= 0) break;
+        off += (size_t)w;
+    }
+}
+
+void reproit_imgui_crash_handler(int sig) {
+    // Fixed prefix + the signal name + the buffered sig/action tail. All three
+    // pieces are constant or pre-serialized off the signal path, so this stays
+    // async-signal-safe (only write(2)).
+    reproit_imgui_safe_write_n(reproit_imgui_crash_pre, reproit_imgui_crash_pre_len);
+    reproit_imgui_safe_write(reproit_imgui_signame(sig));
+    reproit_imgui_safe_write_n(reproit_imgui_crash_post, reproit_imgui_crash_post_len);
+    // Restore the default handler and re-raise so the OS still cores / the parent
+    // still observes the original signal.
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void reproit_imgui_install_crash_hook() {
+    if (reproit_imgui_crash_installed) return;
+    reproit_imgui_crash_installed = 1;
+    // The constant prefix: the EXCEPTION header (the ╡ KIND ╞ markers the oracle
+    // extracts the `kind` from), the "The following ...:" line (the oracle reads
+    // the MESSAGE from the line after it), and the start of that message line up
+    // to where the signal name is spliced in. "IMGUI APP" is the kind; the
+    // message (signal + node + action) buckets distinct crash sites separately.
+    const char* pre =
+        "EXCEPTION CAUGHT BY IMGUI APP \xe2\x95\xa1 IMGUI APP \xe2\x95\x9e\n"
+        "The following crash was raised by the app:\n"
+        "raised by signal ";
+    size_t n = 0; while (pre[n]) n++;
+    if (n >= sizeof reproit_imgui_crash_pre) n = sizeof reproit_imgui_crash_pre - 1;
+    std::memcpy(reproit_imgui_crash_pre, pre, n);
+    reproit_imgui_crash_pre[n] = 0;
+    reproit_imgui_crash_pre_len = n;
+    for (int s : {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL}) signal(s, reproit_imgui_crash_handler);
+}
+
+// Rebuild the post buffer (the message tail + closing rule) from the current
+// state. Called on the hot path (FrameEnd), never from the handler.
+void reproit_imgui_build_crash_tail() {
+    const char* sig = g.prevSig.empty() ? "?" : g.prevSig.c_str();
+    const char* act = g.fireId.empty() ? "(launch)" : g.fireId.c_str();
+    int w = std::snprintf(
+        reproit_imgui_crash_post, sizeof reproit_imgui_crash_post,
+        " at state %s after action tap:%s\n"
+        "\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\xe2\x95\x90\n",
+        sig, act);
+    reproit_imgui_crash_post_len = (w > 0 && (size_t)w < sizeof reproit_imgui_crash_post)
+        ? (size_t)w : 0;
+}
+#endif  // !REPROIT_TELEMETRY
+
 }  // namespace
 
 void Frame() {
@@ -1509,6 +1629,12 @@ void FrameEnd() {
     }
 #endif
     if (g.done) return;
+#ifndef REPROIT_TELEMETRY
+    // Arm the fuzz-build crash handler once, so a SIGSEGV/SIGABRT in the app
+    // under test surfaces as an attributed EXCEPTION block instead of a silent
+    // process death (see the handler above).
+    reproit_imgui_install_crash_hook();
+#endif
     // Wait for the UI to settle after a fire; emit nothing mid-transition, so
     // each state/edge is reported exactly once.
     if (g.settleFrames > 0) { g.settleFrames--; return; }
@@ -1560,6 +1686,12 @@ void FrameEnd() {
     std::fflush(stdout);
     g.actions++;
     g.settleFrames = 2;
+#ifndef REPROIT_TELEMETRY
+    // Refresh the pre-serialized crash payload to the state we are in (prevSig)
+    // and the action about to fire (fireId), so if the app's own handler for this
+    // action crashes, the handler attributes it to this exact (state, action).
+    reproit_imgui_build_crash_tail();
+#endif
 }
 
 bool Done() { return g.done; }

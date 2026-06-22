@@ -42,6 +42,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1414,6 +1415,249 @@ Map<String, dynamic> groundTruth(WidgetTester t, String sig) {
   return {'sig': sig, 'focusTrap': focusTrap, 'elements': elements};
 }
 
+// ===========================================================================
+// OVERFLOW oracle (EXPLORE:OVERFLOW) - deterministic, structural. WORKS HEADLESS.
+//
+// Identical to the simulator explorer's overflow oracle: it reads only the live
+// RENDER TREE (no wall-clock, no real frames), so it is valid under the fake
+// test clock. Two signals:
+//   - flex   : a RenderObject reported an overflow to FlutterError during layout
+//              (Flutter's own "A RenderFlex overflowed by N pixels"), captured
+//              via a FlutterError.onError shim and attributed to the offending
+//              RenderObject. `by` is the overflowed pixel amount.
+//   - spill  : a visible child RenderBox escaping its non-viewport parent's box
+//              on the right/left by more than OVERFLOW_TOL. `by` is the escaped
+//              pixels, rounded.
+// Addressed by a stable, locale-invariant key (nearest developer Key, else
+// render runtime-type + structural index), never visible text. Silent on a
+// clean layout. See templates/explorer.dart for the full rationale.
+const int overflowTol = 2;
+
+/// FlutterError-captured overflow reports, keyed by the offending RenderObject.
+/// Latched on report (Flutter reports once per object) and evicted when the
+/// object leaves the tree (tracked by the observe walk). `by` is the max
+/// overflowed pixel amount parsed from the message.
+final Map<RenderObject, int> _overflowReports = <RenderObject, int>{};
+
+/// Install a FlutterError shim (once) that records "overflowed by N pixels"
+/// reports against the RenderObject that raised them, then chains to the prior
+/// handler. The offending object is recovered from the FlutterErrorDetails
+/// informationCollector (a describeForError node whose `.value` is the
+/// RenderObject). Public API only.
+///
+/// Note: under `flutter test`, an UNHANDLED overflow FlutterError would also be
+/// latched by the framework and surface via takeException()/drainException as an
+/// app exception. That is fine and complementary: the structural OVERFLOW marker
+/// is the typed, replayable finding; the drained exception is the raw log block.
+bool _overflowShimInstalled = false;
+void installOverflowShim() {
+  if (_overflowShimInstalled) return;
+  _overflowShimInstalled = true;
+  final prior = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    try {
+      final text = details.exceptionAsString();
+      if (text.contains('overflowed')) {
+        var by = 0;
+        for (final m in RegExp(r'([0-9]+(?:\.[0-9]+)?) pixels').allMatches(text)) {
+          final v = double.tryParse(m.group(1)!)?.round() ?? 0;
+          if (v > by) by = v;
+        }
+        final collector = details.informationCollector;
+        if (collector != null) {
+          for (final node in collector()) {
+            final v = node.value;
+            if (v is RenderObject) {
+              _overflowReports[v] = by;
+              break;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    if (prior != null) prior(details);
+  };
+}
+
+/// The stable, locale-invariant key for an overflowing RenderObject: the nearest
+/// developer Key on its creating Element (`key:<id>`), else
+/// `render:<RuntimeType>#<idx>` (structural index in paint order). Never text.
+String _renderKey(RenderObject ro, Map<String, int> typeIdx) {
+  final creator = ro.debugCreator;
+  if (creator is DebugCreator) {
+    final el = creator.element;
+    String? ks = keyStringOf(el.widget);
+    if (ks == null) {
+      el.visitAncestorElements((anc) {
+        final k = keyStringOf(anc.widget);
+        if (k != null) {
+          ks = k;
+          return false;
+        }
+        return true;
+      });
+    }
+    final found = ks;
+    if (found != null) return 'key:${keyValueOf(found)}';
+  }
+  final tn = ro.runtimeType.toString();
+  final idx = typeIdx[tn] ?? 0;
+  typeIdx[tn] = idx + 1;
+  return 'render:$tn#$idx';
+}
+
+/// Detect layout overflow in the live render tree as sorted (key, kind, by)
+/// items. Returns [] when nothing overflows (no marker emitted).
+List<Map<String, dynamic>> detectOverflow(WidgetTester t) {
+  final root = WidgetsBinding.instance.rootElement?.renderObject;
+  if (root == null) return const [];
+  final live = <RenderObject>{};
+  final out = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  final typeIdx = <String, int>{};
+  void add(RenderObject ro, String kind, int by) {
+    final key = _renderKey(ro, typeIdx);
+    final dedup = '$key|$kind';
+    if (!seen.add(dedup)) return;
+    out.add({'key': key, 'kind': kind, 'by': by});
+  }
+
+  void walk(RenderObject ro) {
+    live.add(ro);
+    final reported = _overflowReports[ro];
+    if (reported != null) add(ro, 'flex', reported);
+    if (ro is RenderBox && ro.hasSize && !_isViewportLike(ro)) {
+      final parentSize = ro.size;
+      ro.visitChildren((child) {
+        if (child is RenderBox && child.hasSize) {
+          final pd = child.parentData;
+          if (pd is BoxParentData) {
+            final off = pd.offset;
+            final right = off.dx + child.size.width - parentSize.width;
+            final left = -off.dx;
+            final over = right > left ? right : left;
+            if (over > overflowTol) add(child, 'spill', over.round());
+          }
+        }
+      });
+    }
+    ro.visitChildren(walk);
+  }
+
+  walk(root);
+  _overflowReports.removeWhere((ro, _) => !live.contains(ro));
+  out.sort((a, b) {
+    final ka = a['key'] as String, kb = b['key'] as String;
+    if (ka != kb) return ka.compareTo(kb);
+    return (a['kind'] as String).compareTo(b['kind'] as String);
+  });
+  return out;
+}
+
+/// True when [ro] is a scroll/viewport container meant to hold oversized
+/// children, so a child escaping its box is intentional (suppress the SPILL).
+bool _isViewportLike(RenderBox ro) {
+  final t = ro.runtimeType.toString();
+  return t.contains('Viewport') ||
+      t.contains('Scroll') ||
+      t.contains('Editable') ||
+      t.contains('Sliver') ||
+      t.contains('ListBody') ||
+      t.contains('OverflowBox') ||
+      t.contains('SingleChildScrollView');
+}
+
+// ===========================================================================
+// CONTENT-BUG oracle (EXPLORE:CONTENTBUG) - deterministic, label-based.
+// WORKS HEADLESS (no timing). Identical to the simulator explorer's oracle.
+//
+// Scans the semantics tree for labels carrying a stringify/template artifact
+// ([object Object], unrendered {{...}}/${...}, whole-word undefined/null/NaN).
+// The classifiers + precedence are byte-identical to runners/web/runner.mjs so
+// the `reason` matches cross-platform. Addressed by a stable key (developer key
+// when present, else role:<role>#<idx> in document order), never the text.
+// Silent on clean content. See templates/explorer.dart for the full rationale.
+
+/// Classify a label into a content-bug reason tag, or null. Fixed precedence,
+/// first match wins (byte-identical to the web runner's reasonOf).
+String? contentBugReason(String text) {
+  if (text.isEmpty) return null;
+  if (text.contains('[object Object]')) return 'object-object';
+  if (RegExp(r'\{\{[^}]*\}\}').hasMatch(text) ||
+      RegExp(r'\$\{[^}]*\}').hasMatch(text)) {
+    return 'unrendered-template';
+  }
+  if (RegExp(r'(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])').hasMatch(text)) {
+    return 'undefined';
+  }
+  if (RegExp(r'(^|[\s:>(\[,])null($|[\s.,!?)\]<])').hasMatch(text)) {
+    return 'null';
+  }
+  if (RegExp(r'(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])').hasMatch(text)) {
+    return 'nan';
+  }
+  return null;
+}
+
+/// Scan the live semantics tree for content-bug artifacts as sorted
+/// (key, reason, text) items. Returns [] when nothing is broken.
+List<Map<String, dynamic>> detectContentBugs(WidgetTester t) {
+  final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+  if (root == null) return const [];
+  final keyedIdsByRole = <String, List<String>>{};
+  for (final kt in collectKeyedTappables()) {
+    (keyedIdsByRole[kt.value] ??= <String>[]).add(keyValueOf(kt.key));
+  }
+  final perRoleId = <String, int>{};
+  final out = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  void walk(SemanticsNode node) {
+    final data = node.getSemanticsData();
+    if (!data.hasFlag(SemanticsFlag.isHidden)) {
+      final role = roleOf(data);
+      final idx = perRoleId[role] ?? 0;
+      perRoleId[role] = idx + 1;
+      final roleIds = keyedIdsByRole[role];
+      final id = (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
+      final label = data.label.trim();
+      final value = data.value.trim();
+      String? reason = contentBugReason(label);
+      var hit = label;
+      if (reason == null) {
+        reason = contentBugReason(value);
+        hit = value;
+      }
+      if (reason != null) {
+        final key = id != null ? 'key:$id' : 'role:${normalizeRole(role)}#$idx';
+        final dedup = '$key|$reason';
+        if (seen.add(dedup)) {
+          final clipped = hit.length > 80 ? hit.substring(0, 80) : hit;
+          out.add({'key': key, 'reason': reason, 'text': clipped});
+        }
+      }
+    }
+    node.visitChildren((c) {
+      walk(c);
+      return true;
+    });
+  }
+
+  walk(root);
+  out.sort((a, b) {
+    final ka = a['key'] as String, kb = b['key'] as String;
+    if (ka != kb) return ka.compareTo(kb);
+    return (a['reason'] as String).compareTo(b['reason'] as String);
+  });
+  return out;
+}
+
+// NOTE: HANG is intentionally NOT implemented headless. A hang oracle needs a
+// real wall-clock watchdog around an action's pump/settle, but the `flutter
+// test` binding uses a FAKE async clock, so elapsed time is synthetic and
+// hasScheduledFrame reflects the fake pump, not a real freeze. HANG therefore
+// lives on the simulator explorer only (parity with JANK). See the ORACLE SCOPE
+// banner at the top of this file.
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -1433,6 +1677,11 @@ void main() {
 
   testWidgets('explore (headless)', (tester) async {
     final semantics = tester.ensureSemantics();
+    // Capture Flutter's own flex/box overflow reports for the OVERFLOW oracle.
+    // Installed before the first pump so an overflow on the launch screen is
+    // latched; chains to the prior FlutterError handler so test exception
+    // latching (takeException/drainException) is unaffected.
+    installOverflowShim();
     // In scenario mode the real role is claimed from the conductor below (which
     // prints its own `claimed role=` marker), so don't assert role=a here.
     if (envBarrier.isEmpty) {
@@ -1740,6 +1989,23 @@ void main() {
           // Operability/a11y ground-truth for the SAME sig: graph1 (operable) x
           // graph2 (semantics role/name) + keyboard reachability/activation.
           emit('EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, sig))}');
+          // OVERFLOW for this newly-seen state, keyed by the SAME sig. Render-tree
+          // structural measurement only (no timing), so it is valid headless and
+          // reproduces on replay. Silent when nothing overflows.
+          final ovf = detectOverflow(tester);
+          if (ovf.isNotEmpty) {
+            emit(
+              'EXPLORE:OVERFLOW ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": ovf})}',
+            );
+          }
+          // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
+          // semantics-label scan (no timing), valid headless. Silent when clean.
+          final cbug = detectContentBugs(tester);
+          if (cbug.isNotEmpty) {
+            emit(
+              'EXPLORE:CONTENTBUG ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": cbug})}',
+            );
+          }
         }
         return snap;
       }

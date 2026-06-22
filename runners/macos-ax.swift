@@ -379,6 +379,84 @@ func labelOf(_ el: AXUIElement) -> String {
     return axStr(el, kAXValueAttribute as String)
 }
 
+// The accessible NAME of an element: AXTitle > AXDescription > AXTitleUIElement's
+// title. This is the screen-reader announcement, NOT the value: a text field's
+// typed value is its AXValue, which does NOT make it "labeled". Used by the
+// unlabeled-count oracle (an actionable element with no name is unannounceable).
+func accessibleNameOf(_ el: AXUIElement) -> String {
+    let t = axStr(el, kAXTitleAttribute as String).trimmingCharacters(in: .whitespacesAndNewlines)
+    if !t.isEmpty { return t }
+    let d = axStr(el, kAXDescriptionAttribute as String).trimmingCharacters(in: .whitespacesAndNewlines)
+    if !d.isEmpty { return d }
+    // A label-providing sibling (AXTitleUIElement) lends its title, the AX
+    // analogue of aria-labelledby; if present and non-empty, the element IS named.
+    if let labeller = axCopy(el, "AXTitleUIElement") {
+        let lt = ((labeller as! AXUIElement) as AXUIElement)
+        let s = axStr(lt, kAXTitleAttribute as String).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !s.isEmpty { return s }
+    }
+    return ""
+}
+
+// A STABLE, locale-invariant key for an offending node, mirroring the web
+// runner's keyOf grammar: AXIdentifier (the test-id analogue) when present, else
+// role-typed. NEVER the visible text, so a translated label keeps the same
+// finding id. Same node always yields the same key, so OVERFLOW/CONTENTBUG
+// findings reproduce byte-for-byte across runs and on replay.
+func axKeyOf(_ el: AXUIElement, _ role: String) -> String {
+    if let id = axIdentifierOf(el) { return "id:" + id }
+    return "role:" + role
+}
+
+// The screen-coordinate frame (AXPosition + AXSize) of an element, the SAME
+// attributes the screenshot path already reads (targetWindowFrame). Returns nil
+// when either is unavailable, so a node with no geometry is simply skipped (no
+// false positive). Pure structural measurement, no pixels.
+func axFrameOf(_ el: AXUIElement) -> CGRect? {
+    guard let posV = axCopy(el, kAXPositionAttribute as String),
+          let sizeV = axCopy(el, kAXSizeAttribute as String) else { return nil }
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    AXValueGetValue(posV as! AXValue, .cgPoint, &origin)
+    AXValueGetValue(sizeV as! AXValue, .cgSize, &size)
+    if size.width < 1 || size.height < 1 { return nil }
+    return CGRect(origin: origin, size: size)
+}
+
+// ---- CONTENT-BUG oracle (deterministic, label-based) --------------------
+// Mirrors runners/web/runner.mjs detectContentBugs: a rendered label that is
+// clearly broken CONTENT (a stringify/template artifact leaked to the screen).
+// Each classifier is a pure substring/structure test over the trimmed label, so
+// the same a11y tree yields the same finding every run and on replay. The match
+// is on STRUCTURE (a literal artifact token), never natural language, so a real
+// label that merely mentions "null" in prose is not flagged: the token must BE
+// the artifact (whole-word undefined/null/NaN, the bracketed literal). A clean
+// app renders none of these, so the control stays silent (no marker, no finding).
+// Order is fixed and first match wins, so a label carries at most one reason.
+func contentBugReason(_ text: String) -> String? {
+    if text.isEmpty { return nil }
+    if text.contains("[object Object]") { return "object-object" }
+    // An unrendered template placeholder: a `{{ expr }}` or `${ expr }` survived
+    // into the label (the binding engine never evaluated it).
+    if text.range(of: "\\{\\{[^}]*\\}\\}", options: .regularExpression) != nil
+        || text.range(of: "\\$\\{[^}]*\\}", options: .regularExpression) != nil {
+        return "unrendered-template"
+    }
+    // A bare value coerced into the label as a WHOLE word. The surrounding-char
+    // guards match the web runner so ordinary prose ("Cancellation", "Null
+    // Island") is not flagged: the token must stand alone.
+    if text.range(of: "(^|[\\s:>(\\[,])undefined($|[\\s.,!?)\\]<])", options: .regularExpression) != nil {
+        return "undefined"
+    }
+    if text.range(of: "(^|[\\s:>(\\[,])null($|[\\s.,!?)\\]<])", options: .regularExpression) != nil {
+        return "null"
+    }
+    if text.range(of: "(^|[\\s:>(\\[,])NaN($|[\\s.,!?)\\]<])", options: .regularExpression) != nil {
+        return "nan"
+    }
+    return nil
+}
+
 // ---- AXRole -> canonical role mapping ----------------------------------
 // Derived from AXRole (+ AXSubrole / AXRoleDescription), never from the visible
 // label. Covers AppKit, SwiftUI, and the Qt/GTK/wxWidgets/Avalonia bridges that
@@ -549,12 +627,31 @@ struct Snapshot {
     var labels: [String]
     var tappables: [String]
     var nodeByLabel: [String: AXUIElement]
+    // Oracle coverage gathered in the SAME tree walk (no second pass):
+    var unlabeled: Int = 0     // actionable elements with no accessible name
+    // OVERFLOW items: a child border box escaping its parent's content box.
+    var overflows: [(key: String, kind: String, by: Int)] = []
+    // CONTENT-BUG items: a label carrying a stringify/template artifact.
+    var contentBugs: [(key: String, reason: String, text: String)] = []
 }
+
+// Pixel tolerance for the overflow oracle: only a child whose border box escapes
+// its parent's content box by more than this many points is flagged, so sub-pixel
+// rounding in AXSize/AXPosition never produces a false positive. Matches the spirit
+// of the web runner's OVERFLOW_TOL (hairline noise suppressed; real overflows are
+// tens to hundreds of px).
+let overflowTolPt = 4
 
 func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
     var labels: [String] = []
     var tappables: [String] = []
     var nodeByLabel: [String: AXUIElement] = [:]
+    // Oracle accumulators, filled during the single canonical tree walk below.
+    var unlabeled = 0
+    var overflows: [(String, String, Int)] = []
+    var overflowSeen = Set<String>()
+    var contentBugs: [(String, String, String)] = []
+    var contentBugSeen = Set<String>()
     // Layer-1 content fingerprint source: (stable-key, trimmed raw text) over
     // value-bearing / keyed-text nodes. Sorted before joining so it is order-
     // independent. Carries raw localized text; NEVER folded into the canonical key.
@@ -567,18 +664,67 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
     let needRoleResolution = valueNodeSelectors.contains { $0.hasPrefix("role:") }
 
     // Build the canonical SigNode tree AND gather display labels in one pass.
-    func build(_ el: AXUIElement, _ depth: Int, isRoot: Bool, roleCounter: inout [String: Int]) -> SigNode? {
+    // `parentContent` is the parent's content box in screen coordinates (its AX
+    // frame; AX exposes no padding so the border box is the content box), used by
+    // the OVERFLOW oracle to test a child spilling out of its container.
+    func build(_ el: AXUIElement, _ depth: Int, isRoot: Bool, roleCounter: inout [String: Int],
+               parentContent: CGRect?) -> SigNode? {
         if depth > 60 { return nil }
+        let role = isRoot ? "screen" : axRoleOf(el)
+        let id = axIdentifierOf(el)
+        let actionable = axActions(el).contains(kAXPressAction as String)
         let label = labelOf(el).trimmingCharacters(in: .whitespacesAndNewlines)
         if !label.isEmpty && label.count <= maxLabelLen {
             labels.append(label)
-            if axActions(el).contains(kAXPressAction as String) {
+            if actionable {
                 tappables.append(label)
                 if nodeByLabel[label] == nil { nodeByLabel[label] = el }
             }
         }
-        let role = isRoot ? "screen" : axRoleOf(el)
-        let id = axIdentifierOf(el)
+        // UNLABELED oracle: an actionable element (responds to AXPress) that has
+        // NO accessible name is unannounceable to a screen reader. Count it, keyed
+        // off role/actionability (structural), never text, so the count is the
+        // same every run for the same tree. A text field's typed AXValue is a
+        // VALUE not a name, so accessibleNameOf (title/desc/labeller only) is the
+        // right test; an actionable control with only a value is still unlabeled.
+        if !isRoot && actionable && accessibleNameOf(el).isEmpty {
+            unlabeled += 1
+        }
+        // CONTENT-BUG oracle: scan this element's label for a stringify/template
+        // artifact. Keyed by the stable node key + reason, deduped, so the marker
+        // is byte-identical run to run and addressed by id/role, never the text.
+        if !label.isEmpty, let reason = contentBugReason(label) {
+            let key = axKeyOf(el, role)
+            let dedup = key + "|" + reason
+            if !contentBugSeen.contains(dedup) {
+                contentBugSeen.insert(dedup)
+                contentBugs.append((key, reason, String(label.prefix(80))))
+            }
+        }
+        // OVERFLOW oracle: this element's border box (its AX frame) escaping the
+        // parent's content box by more than the tolerance. Pure geometry over the
+        // SAME AXPosition/AXSize the screenshot path reads. Only the spill case is
+        // tested (AX has no scrollWidth/clientWidth, so the web SCROLL/CLIP signals
+        // have no AX analogue; documented as such). Skip scroll containers: a
+        // scroll area is MEANT to hold larger content.
+        let selfFrame = (!isRoot) ? axFrameOf(el) : nil
+        if let pc = parentContent, let cf = selfFrame {
+            let over = max(cf.maxX - pc.maxX, pc.minX - cf.minX,
+                           cf.maxY - pc.maxY, pc.minY - cf.minY)
+            if over > Double(overflowTolPt) {
+                let key = axKeyOf(el, role)
+                let dedup = key + "|spill"
+                if !overflowSeen.contains(dedup) {
+                    overflowSeen.insert(dedup)
+                    overflows.append((key, "spill", Int(over.rounded())))
+                }
+            }
+        }
+        // The content box passed to children: this element's frame UNLESS it is a
+        // scroll container (then children may legitimately exceed it, so suppress).
+        let rawRole = axStr(el, kAXRoleAttribute)
+        let isScroller = rawRole == axScrollArea
+        let childParent: CGRect? = (isRoot || isScroller) ? nil : selfFrame
 
         // Layer 2/3 value detection. A value-bearing node (an AX value role with a
         // live AXValue, or a Layer-3 opt-in selector match) carries its value + the
@@ -596,7 +742,8 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
 
         var kids: [SigNode] = []
         for c in axChildren(el) {
-            if let n = build(c, depth + 1, isRoot: false, roleCounter: &roleCounter) { kids.append(n) }
+            if let n = build(c, depth + 1, isRoot: false, roleCounter: &roleCounter,
+                             parentContent: childParent) { kids.append(n) }
         }
         return SigNode(
             role: role,
@@ -628,16 +775,22 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
     // Wrap the app's windows in a single `screen` root so the structure is
     // anchored the same way as the SDKs (one screen node at depth 0).
     let windows = (axCopy(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
-    var windowKids: [AXUIElement] = []
-    for w in windows { windowKids.append(contentsOf: axChildren(w)) }
-    if needRoleResolution { resolveRoleTargets(windowKids) }
+    var windowKids: [(AXUIElement, CGRect?)] = []
+    for w in windows {
+        // The window's own frame is the content box the OVERFLOW oracle measures
+        // its direct children against (a control spilling outside the window).
+        let wFrame = axFrameOf(w)
+        for c in axChildren(w) { windowKids.append((c, wFrame)) }
+    }
+    if needRoleResolution { resolveRoleTargets(windowKids.map { $0.0 }) }
 
     var rootKids: [SigNode] = []
     var roleCounter: [String: Int] = [:]
-    for c in windowKids {
+    for (c, pframe) in windowKids {
         // Each window's own children become the screen's children; the window
         // chrome itself is not a separate structural level.
-        if let n = build(c, 1, isRoot: false, roleCounter: &roleCounter) { rootKids.append(n) }
+        if let n = build(c, 1, isRoot: false, roleCounter: &roleCounter,
+                         parentContent: pframe) { rootKids.append(n) }
     }
     let root = SigNode(role: "screen", children: rootKids)
 
@@ -656,6 +809,11 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
     textNodes.sort { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
     let content = sig + "|" + textNodes.map { "\($0.0)=\($0.1)" }.joined(separator: ";")
 
+    // Stable order so the OVERFLOW/CONTENTBUG markers are byte-identical run to
+    // run (the finding id keys off key+kind/reason, never walk order).
+    overflows.sort { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
+    contentBugs.sort { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
+
     return Snapshot(
         sig: sig,
         structuralSig: structuralSig,
@@ -663,7 +821,10 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
         content: content,
         labels: Array(Set(labels)),
         tappables: Array(Set(tappables)),
-        nodeByLabel: nodeByLabel
+        nodeByLabel: nodeByLabel,
+        unlabeled: unlabeled,
+        overflows: overflows.map { (key: $0.0, kind: $0.1, by: $0.2) },
+        contentBugs: contentBugs.map { (key: $0.0, reason: $0.1, text: $0.2) }
     )
 }
 
@@ -799,6 +960,47 @@ func crashBlock(_ title: String, _ detail: String) {
     emit("EXCEPTION CAUGHT BY REPROIT ╡ \(title) ╞")
     emit("The following condition was hit: \(detail)")
     emit("════════")
+}
+
+// ---- LEAK sampler (MEMORY:SAMPLE, --soak) -------------------------------
+// Under the soak tier (a replay script) we sample the target's resident set size
+// (RSS) once per replay cycle so the Rust soak oracle (modes/soak.rs) gets an
+// RSS-vs-time series and reads the slope. RSS is the native analogue of the web
+// runner's v8 heap_used; the marker shape is IDENTICAL ({"t_ms","heap_used"}) so
+// soak.rs parses it unchanged (heap_used carries RSS bytes). `ps -o rss=` reports
+// KiB on macOS, so multiply to bytes. No measurement is taken outside replay (a
+// plain fuzz walk is not a soak), matching the web runner.
+func sampleRSS(_ pid: pid_t, _ tMs: Int) {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+    proc.arguments = ["-o", "rss=", "-p", "\(pid)"]
+    let pipe = Pipe()
+    proc.standardOutput = pipe
+    proc.standardError = Pipe()
+    do { try proc.run() } catch { return }
+    proc.waitUntilExit()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let out = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let kib = Int(out) else { return }
+    emitJSON("MEMORY:SAMPLE", ["t_ms": tMs, "heap_used": kib * 1024])
+}
+
+// ---- HANG watchdog (EXPLORE:HANG) ---------------------------------------
+// A deterministic wall-clock watchdog around each action+observe. macOS AX has no
+// main-thread Long-Tasks trace (the web runner's signal), so we can only time the
+// blocking AXUIElementPerformAction round trip from THIS process: AX calls are
+// synchronous and block until the target's main run loop services them, so an app
+// that froze its main thread makes the press/observe wall time spike. We bucket
+// into coarse, well-separated floors so timing jitter can never flip the verdict,
+// matching the web runner's HANG_FLOOR_MS. CAVEAT (documented gap): unlike the
+// web Long-Tasks API this is host-side wall time, so it can be perturbed by host
+// scheduling; the high floor keeps it false-positive-free but the duration is not
+// as deterministic as a frame trace. Keyed by (from, action) like the web HANG.
+let hangFloorMs = 2000
+func maybeEmitHang(_ from: String, _ action: String, _ elapsedMs: Int) {
+    if elapsedMs >= hangFloorMs {
+        emitJSON("EXPLORE:HANG", ["from": from, "action": action, "bucket": hangFloorMs])
+    }
 }
 
 // ---- screenshot capture (SHOOT contract, see crates/.../backends/drive.rs) --
@@ -1021,14 +1223,36 @@ func effectiveSig(_ snap: Snapshot) -> String {
     return snap.sig
 }
 
+// Emit a marker carrying a JSON object payload (helper for the oracle markers).
+func emitJSON(_ marker: String, _ payload: [String: Any]) {
+    if let d = try? JSONSerialization.data(withJSONObject: payload),
+       let s = String(data: d, encoding: .utf8) {
+        emit("\(marker) \(s)")
+    }
+}
+
 func observe() -> Snapshot {
     var snap = snapshot(appEl, valueNodeSelectors)
     snap.sig = effectiveSig(snap)
     if seen.insert(snap.sig).inserted {
-        let payload: [String: Any] = ["sig": snap.sig, "labels": Array(snap.labels.prefix(maxLabelsPerState))]
-        if let d = try? JSONSerialization.data(withJSONObject: payload),
-           let s = String(data: d, encoding: .utf8) {
-            emit("EXPLORE:STATE \(s)")
+        // STATE carries the unlabeled count alongside labels; the core a11y oracle
+        // (model/map.rs) reads json["unlabeled"] (defaults to 0 when absent).
+        emitJSON("EXPLORE:STATE", [
+            "sig": snap.sig,
+            "labels": Array(snap.labels.prefix(maxLabelsPerState)),
+            "unlabeled": snap.unlabeled,
+        ])
+        // OVERFLOW for this newly-seen state, keyed by the SAME sig. Only emitted
+        // when a child actually spilled its container, so a clean layout is silent.
+        if !snap.overflows.isEmpty {
+            let items = snap.overflows.map { ["key": $0.key, "kind": $0.kind, "by": $0.by] as [String: Any] }
+            emitJSON("EXPLORE:OVERFLOW", ["sig": snap.sig, "items": items])
+        }
+        // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Only
+        // emitted when a broken-content artifact is actually rendered.
+        if !snap.contentBugs.isEmpty {
+            let items = snap.contentBugs.map { ["key": $0.key, "reason": $0.reason, "text": $0.text] as [String: Any] }
+            emitJSON("EXPLORE:CONTENTBUG", ["sig": snap.sig, "items": items])
         }
     }
     return snap
@@ -1039,8 +1263,18 @@ var stuck = 0
 var failed = false
 let prefixLen = fuzz.prefix?.count ?? 0
 let budget = fuzz.replay?.count ?? (fuzz.budget + prefixLen)
+// LEAK sampler (--soak): only in REPLAY mode (the soak tier writes {"replay":[..]})
+// do we sample the target's RSS, once at start and after each cycle, forming the
+// RSS-vs-time series soak.rs reads. No-op outside replay (a plain fuzz is no soak).
+let isSoak = fuzz.replay != nil
+let soakStart = Date()
+if isSoak { sampleRSS(nsApp.processIdentifier, 0) }
 var i = 0
 while i < budget && stuck < 3 {
+    // In replay/soak, sample the heap once per cycle (BEFORE acting, so cycle k's
+    // sample reflects RSS after the previous action settled), matching the web
+    // runner's per-action sampling that the soak slope is read from.
+    if isSoak && i > 0 { sampleRSS(nsApp.processIdentifier, Int(Date().timeIntervalSince(soakStart) * 1000)) }
     var act: String?
     if let r = fuzz.replay { act = i < r.count ? r[i] : nil }
     else if i < prefixLen { act = fuzz.prefix![i] }
@@ -1091,7 +1325,14 @@ while i < budget && stuck < 3 {
         }
         if !didBack { stuck += 1; i += 1; continue }
         Thread.sleep(forTimeInterval: 0.6)
+        // HANG watchdog: time ONLY the observe() round trip, after the fixed
+        // settle sleep, so the sleep is excluded by construction. The synchronous
+        // AX reads block until the target's run loop services them, so a frozen
+        // main thread makes this spike past the floor.
+        let hangFrom = current.sig
+        let observeStart = Date()
         let next = observe()
+        maybeEmitHang(hangFrom, "back", Int(Date().timeIntervalSince(observeStart) * 1000))
         // Layer-1 effect detection (docs/signature.md "Value-state"): an action
         // is EFFECTIVE iff the (effective) signature changed OR the content
         // fingerprint changed; a value-only change (a counter ticking) still
@@ -1109,6 +1350,11 @@ while i < budget && stuck < 3 {
     }
     let label = String(a.dropFirst("tap:".count))
     tried.insert("\(current.sig)|\(label)")
+    // HANG watchdog: time the synchronous press + observe round trip. AX calls
+    // block on the target's main run loop, so a freeze spikes this. The fixed
+    // settle sleep is subtracted below so only blocking time crosses the floor.
+    let hangFrom = current.sig
+    let pressStart = Date()
     if let el = current.nodeByLabel[label] {
         let status = AXUIElementPerformAction(el, kAXPressAction as CFString)
         if status == .success {
@@ -1137,6 +1383,9 @@ while i < budget && stuck < 3 {
         break
     }
     let next = observe()
+    // Blocking time = total elapsed minus the fixed 0.7s settle sleep, so only a
+    // genuine main-thread freeze (not the deliberate settle) can cross the floor.
+    maybeEmitHang(hangFrom, "tap:\(label)", Int(Date().timeIntervalSince(pressStart) * 1000) - 700)
     // Layer-1 effect detection: an effective action (signature OR content
     // fingerprint changed) resets the stall counter; only a true no-op (a dead
     // key, a disabled control) leaves both unchanged. A value-only change emits
