@@ -1,0 +1,48 @@
+name: autotag
+
+# Auto-release on every push to main: create and push a v0.1.<commit-count> tag,
+# which triggers release.yml (build binaries + GitHub release + Homebrew bump).
+#
+# The tag MUST be pushed with a PAT (secret RELEASE_PAT, repo + workflow scope),
+# because a tag pushed by the default GITHUB_TOKEN does NOT trigger other
+# workflows. No commit is pushed back to main, so this never loops. The job is a
+# no-op until RELEASE_PAT is set, so adding this file does not start releasing on
+# its own. Switch the trigger to workflow_dispatch if every-commit gets noisy.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: autotag
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  autotag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: gate on RELEASE_PAT
+        id: gate
+        run: echo "have=${{ secrets.RELEASE_PAT != '' }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.have == 'true'
+        with:
+          fetch-depth: 0 # full history so the commit count is correct
+          token: ${{ secrets.RELEASE_PAT }} # so the pushed tag triggers release.yml
+
+      - name: tag v0.1.<commit-count>
+        if: steps.gate.outputs.have == 'true'
+        run: |
+          set -euo pipefail
+          MM=$(grep -m1 '^version = ' crates/reproit/Cargo.toml | sed -E 's/version = "([0-9]+\.[0-9]+)\..*/\1/')
+          TAG="v${MM}.$(git rev-list --count HEAD)"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "tag ${TAG} already exists; nothing to do"; exit 0
+          fi
+          git tag -a "${TAG}" -m "${TAG}"
+          git push origin "${TAG}"
+          echo "pushed ${TAG}"
