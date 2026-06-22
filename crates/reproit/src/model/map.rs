@@ -49,6 +49,23 @@ pub(crate) struct RunObs {
     /// how many CSS pixels it overflowed by. Deterministic structural measurement,
     /// so it re-confirms on replay; empty for runners/states that don't emit it.
     pub overflows: BTreeMap<String, Vec<(String, String, i64)>>,
+    /// sig -> rendered broken-content artifacts in that state, from
+    /// `EXPLORE:CONTENTBUG` records (the content-bug oracle). Each entry is
+    /// `(key, reason, text)`: the offending node's stable key, the artifact class
+    /// (`object-object`/`undefined`/`null`/`nan`/`unrendered-template`), and the
+    /// clipped visible text. Pure DOM/label scan, so it re-confirms on replay;
+    /// empty for runners/states that render no broken content.
+    pub content_bugs: BTreeMap<String, Vec<(String, String, String)>>,
+    /// (from sig, action) -> the coarse blocked-time bucket (ms) of a main-thread
+    /// JANK stall on that transition, from `EXPLORE:JANK` records (the jank
+    /// watchdog). Keyed off the browser's Long Tasks trace, bucketed so timing
+    /// jitter can't flip the verdict; empty unless an action janked.
+    pub janks: BTreeMap<(String, String), i64>,
+    /// (from sig, action) -> the coarse blocked-time bucket (ms) of a main-thread
+    /// HANG/freeze on that transition, from `EXPLORE:HANG` records (the same
+    /// watchdog at a higher floor). A freeze is a no-progress block; empty unless
+    /// an action froze the UI past the hang floor.
+    pub hangs: BTreeMap<(String, String), i64>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -111,6 +128,9 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),
         overflows: BTreeMap::new(),
+        content_bugs: BTreeMap::new(),
+        janks: BTreeMap::new(),
+        hangs: BTreeMap::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -209,6 +229,54 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 if !parsed.is_empty() {
                     obs.overflows.insert(sig.to_string(), parsed);
                 }
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:CONTENTBUG ") {
+            // Broken rendered content for a state: labels carrying a stringify/
+            // template artifact ([object Object], undefined/null/NaN, an
+            // unrendered {{...}}). Keyed by signature (last write wins); each item
+            // is (key, reason, text), the grounded detail.
+            if let (Some(sig), Some(items)) = (
+                json.get("sig").and_then(Value::as_str),
+                json.get("items").and_then(Value::as_array),
+            ) {
+                let parsed: Vec<(String, String, String)> = items
+                    .iter()
+                    .filter_map(|it| {
+                        let key = it.get("key").and_then(Value::as_str)?.to_string();
+                        let reason = it.get("reason").and_then(Value::as_str)?.to_string();
+                        let text = it
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        Some((key, reason, text))
+                    })
+                    .collect();
+                if !parsed.is_empty() {
+                    obs.content_bugs.insert(sig.to_string(), parsed);
+                }
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:JANK ") {
+            // A main-thread JANK stall on a transition (Long Tasks trace). Keyed by
+            // (from, action); the value is the coarse blocked-time bucket (ms).
+            if let (Some(from), Some(action)) = (
+                json.get("from").and_then(Value::as_str),
+                json.get("action").and_then(Value::as_str),
+            ) {
+                let bucket = json.get("bucket").and_then(Value::as_i64).unwrap_or(0);
+                obs.janks
+                    .insert((from.to_string(), action.to_string()), bucket);
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:HANG ") {
+            // A main-thread HANG/freeze on a transition (Long Tasks trace, higher
+            // floor). Keyed by (from, action); value is the blocked-time bucket.
+            if let (Some(from), Some(action)) = (
+                json.get("from").and_then(Value::as_str),
+                json.get("action").and_then(Value::as_str),
+            ) {
+                let bucket = json.get("bucket").and_then(Value::as_i64).unwrap_or(0);
+                obs.hangs
+                    .insert((from.to_string(), action.to_string()), bucket);
             }
         }
     }

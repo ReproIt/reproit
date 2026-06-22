@@ -8,9 +8,39 @@
 
 use crate::config::Config;
 use crate::orchestrator;
-use anyhow::{ensure, Context, Result};
+use anyhow::{ensure, Result};
 use serde_json::json;
 use std::path::Path;
+
+/// Read the heap-vs-time series for a soak run, from whichever source produced
+/// it. `memory-a.jsonl` (the Dart VM-service sampler) is authoritative when
+/// present; otherwise the WEB runner's `MEMORY:SAMPLE {"t_ms":..,"heap_used":..}`
+/// markers in `drive-a.log` are parsed (the web heap sampler, since the web
+/// target exposes no VM service). Each entry is `(t_ms, heap_used)`. An empty
+/// result means neither source had samples (the caller then errors honestly).
+fn read_memory_series(run_dir: &Path) -> Vec<(u64, u64)> {
+    let parse_line = |l: &str| -> Option<(u64, u64)> {
+        let v: serde_json::Value = serde_json::from_str(l).ok()?;
+        Some((v.get("t_ms")?.as_u64()?, v.get("heap_used")?.as_u64()?))
+    };
+    // 1. VM-service samples (Flutter sim/VM tier): one JSON object per line.
+    if let Ok(raw) = std::fs::read_to_string(run_dir.join("memory-a.jsonl")) {
+        let series: Vec<(u64, u64)> = raw.lines().filter_map(parse_line).collect();
+        if series.len() >= 2 {
+            return series;
+        }
+    }
+    // 2. Web heap sampler: MEMORY:SAMPLE markers embedded in the drive log.
+    let Ok(log) = std::fs::read_to_string(run_dir.join("drive-a.log")) else {
+        return Vec::new();
+    };
+    log.lines()
+        .filter_map(|line| {
+            let idx = line.find("MEMORY:SAMPLE ")?;
+            parse_line(line[idx + "MEMORY:SAMPLE ".len()..].trim())
+        })
+        .collect()
+}
 
 /// Heap growth per cycle above this is a leak verdict. Generous: GC noise
 /// and warmup allocations are real; a true leak scales linearly.
@@ -67,17 +97,18 @@ pub async fn soak(cfg: &Config, root: &Path, args: &SoakArgs) -> Result<bool> {
     .await?;
     let _ = std::fs::write(&cfg_path, "{}"); // neutralize for later --warm runs
 
-    // Heap series from the sampler.
-    let raw = std::fs::read_to_string(outcome.run_dir.join("memory-a.jsonl"))
-        .context("no memory samples (VM service URI not observed?)")?;
-    let series: Vec<(u64, u64)> = raw
-        .lines()
-        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .filter_map(|v| Some((v.get("t_ms")?.as_u64()?, v.get("heap_used")?.as_u64()?)))
-        .collect();
+    // Heap series from the sampler. Two sources, tried in order:
+    //   1. memory-a.jsonl: the Dart VM-service sampler (Flutter sim/VM tier).
+    //   2. MEMORY:SAMPLE markers in drive-a.log: the WEB runner emits these per
+    //      cycle from performance.memory.usedJSHeapSize (the web heap sampler),
+    //      since the web target has no VM service. Reconstructing the series from
+    //      the drive log lets `--soak --target web` measure heap growth.
+    // When NEITHER source yields samples, the run truly observed no heap signal,
+    // so we still error honestly with the original message.
+    let series = read_memory_series(&outcome.run_dir);
     ensure!(
         series.len() >= 2,
-        "too few memory samples ({})",
+        "no memory samples (VM service URI not observed?): too few memory samples ({})",
         series.len()
     );
 

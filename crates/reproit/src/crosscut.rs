@@ -106,6 +106,14 @@ pub enum Oracle {
     /// horizontal scroll appearing). The i18n/long-string/RTL failure class,
     /// detected by the web runner from deterministic structural measurements.
     Overflow,
+    /// Broken rendered content: a label showing a stringify/template artifact
+    /// ([object Object], a bare undefined/null/NaN, an unrendered {{...}}). A
+    /// deterministic DOM/label finding from the web runner, built-in (no custom
+    /// invariant needed).
+    ContentBug,
+    /// Main-thread freeze / no-progress hang: an action that blocked the main
+    /// thread past the hang floor. Deterministic, keyed off the Long Tasks trace.
+    Hang,
     /// Graph/structural findings (dead-end). Not a docs-listed oracle but a real
     /// finding class, so it gets a stable tag rather than being silently dropped.
     Graph,
@@ -127,6 +135,8 @@ impl Oracle {
         Oracle::A11y,
         Oracle::I18n,
         Oracle::Overflow,
+        Oracle::ContentBug,
+        Oracle::Hang,
         Oracle::Graph,
     ];
 
@@ -141,6 +151,8 @@ impl Oracle {
             Oracle::A11y => "a11y",
             Oracle::I18n => "i18n",
             Oracle::Overflow => "overflow",
+            Oracle::ContentBug => "content-bug",
+            Oracle::Hang => "hang",
             Oracle::Graph => "graph",
         }
     }
@@ -158,6 +170,8 @@ impl Oracle {
             "a11y" | "accessibility" => Some(Oracle::A11y),
             "i18n" | "intl" | "locale" => Some(Oracle::I18n),
             "overflow" | "clip" | "clipped" => Some(Oracle::Overflow),
+            "content-bug" | "content" | "contentbug" | "broken-render" => Some(Oracle::ContentBug),
+            "hang" | "freeze" | "frozen" | "no-progress" => Some(Oracle::Hang),
             "graph" | "dead-end" | "deadend" => Some(Oracle::Graph),
             _ => None,
         }
@@ -180,6 +194,8 @@ pub fn classify(finding: &Value) -> Oracle {
         "all-labeled" => return Oracle::A11y,
         "rerender-flicker" | "paint-flicker" => return Oracle::Flicker,
         "no-overflow" => return Oracle::Overflow,
+        "no-broken-render" => return Oracle::ContentBug,
+        "no-hang" => return Oracle::Hang,
         "no-dead-end" => return Oracle::Graph,
         _ => {}
     }
@@ -194,6 +210,8 @@ pub fn classify(finding: &Value) -> Oracle {
         "DIVERGENCE" => Oracle::Divergence,
         "I18N" => Oracle::I18n,
         "OVERFLOW" => Oracle::Overflow,
+        "CONTENTBUG" => Oracle::ContentBug,
+        "HANG" => Oracle::Hang,
         // An uncaught exception block ("EXCEPTION CAUGHT BY ...") and anything
         // unrecognized fall back to crash, the broadest class.
         _ => Oracle::Crash,
@@ -714,6 +732,23 @@ mod tests {
             Oracle::Overflow
         );
         assert_eq!(classify(&json!({ "kind": "OVERFLOW" })), Oracle::Overflow);
+        assert_eq!(
+            classify(&json!({ "invariant": "no-broken-render" })),
+            Oracle::ContentBug
+        );
+        assert_eq!(
+            classify(&json!({ "kind": "CONTENTBUG" })),
+            Oracle::ContentBug
+        );
+        assert_eq!(classify(&json!({ "invariant": "no-hang" })), Oracle::Hang);
+        assert_eq!(classify(&json!({ "kind": "HANG" })), Oracle::Hang);
+        // The web jank path reuses the no-jank invariant -> jank category.
+        assert_eq!(classify(&json!({ "invariant": "no-jank" })), Oracle::Jank);
+        // The new categories parse from their --only/--no names + aliases.
+        assert_eq!(Oracle::parse("content-bug"), Some(Oracle::ContentBug));
+        assert_eq!(Oracle::parse("content"), Some(Oracle::ContentBug));
+        assert_eq!(Oracle::parse("hang"), Some(Oracle::Hang));
+        assert_eq!(Oracle::parse("freeze"), Some(Oracle::Hang));
         assert_eq!(classify(&json!({ "kind": "PERF" })), Oracle::Jank);
         // Raw exception block: falls back to crash.
         assert_eq!(

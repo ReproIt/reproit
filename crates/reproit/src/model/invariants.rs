@@ -174,22 +174,88 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // no-jank: SIM ONLY. Per-state jank over budget is a finding. Headless has
-    // a fake clock (no real frame timing), so jank_by_sig is empty there and
-    // this reports nothing (the caller notes it sim-only).
-    if cfg.no_jank && obs.sim {
-        for (sig, jank) in &obs.jank_by_sig {
-            if *jank > cfg.jank_pct_max {
-                out.push(finding(
-                    "no-jank",
-                    "PERF",
-                    format!(
-                        "state {sig} jank {jank:.1}% exceeds budget {:.0}% (sim tier)",
-                        cfg.jank_pct_max
-                    ),
-                    Some(sig),
-                ));
+    // no-broken-render: every observed state must render NO broken-content
+    // artifact (a label coerced from an object/undefined/null/NaN, or an
+    // unrendered template). The web runner detects this from the DOM/labels and
+    // emits EXPLORE:CONTENTBUG per state. This is the built-in version of the
+    // user-declarable labelsAbsent custom invariant, so a render bug is caught
+    // WITHOUT the developer first declaring it. Deterministic: pure DOM scan, no
+    // pixels or timing, so it re-confirms on replay. Empty for runners/states
+    // that render no broken content, so a clean app reports nothing.
+    if cfg.no_broken_render {
+        for (sig, items) in &obs.obs.content_bugs {
+            if items.is_empty() {
+                continue;
             }
+            let detail = items
+                .iter()
+                .take(3)
+                .map(|(key, reason, text)| format!("{key} ({reason}): {text:?}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push(finding(
+                "no-broken-render",
+                "CONTENTBUG",
+                format!(
+                    "state {sig} renders {} broken-content label(s): {detail} (a stringify/template bug leaked a raw artifact like [object Object]/undefined/null/NaN/{{...}} to the screen)",
+                    items.len()
+                ),
+                Some(sig),
+            ));
+        }
+    }
+
+    // no-jank: a main-thread JANK stall on a transition. Two independent sources,
+    // both gated by this one toggle so `--only jank` / `--no jank` cover them:
+    //   - SIM tier: per-state frame-timing jank over budget (jank_by_sig). Headless
+    //     has a fake clock, so jank_by_sig is empty there.
+    //   - WEB tier: a Long Tasks stall on a transition (obs.janks). Deterministic
+    //     (keyed off the browser's longtask trace, bucketed so timing jitter can't
+    //     flip the verdict), so it re-confirms on replay. Empty unless an action
+    //     blocked the main thread past the jank floor.
+    if cfg.no_jank {
+        if obs.sim {
+            for (sig, jank) in &obs.jank_by_sig {
+                if *jank > cfg.jank_pct_max {
+                    out.push(finding(
+                        "no-jank",
+                        "PERF",
+                        format!(
+                            "state {sig} jank {jank:.1}% exceeds budget {:.0}% (sim tier)",
+                            cfg.jank_pct_max
+                        ),
+                        Some(sig),
+                    ));
+                }
+            }
+        }
+        for ((from, action), bucket) in &obs.obs.janks {
+            out.push(finding(
+                "no-jank",
+                "PERF",
+                format!(
+                    "transition {from} --{action}--> blocked the main thread >= {bucket}ms (a dropped-frame jank stall; the handler ran a long synchronous task)"
+                ),
+                Some(from),
+            ));
+        }
+    }
+
+    // no-hang: a main-thread FREEZE on a transition (the app stopped making
+    // progress). The web runner's watchdog reports an action whose synchronous
+    // handler blocked the main thread past the hang floor (a far higher bucket
+    // than jank), from the same Long Tasks trace, so it is deterministic and
+    // re-confirms on replay. Empty unless an action froze the UI.
+    if cfg.no_hang {
+        for ((from, action), bucket) in &obs.obs.hangs {
+            out.push(finding(
+                "no-hang",
+                "HANG",
+                format!(
+                    "transition {from} --{action}--> froze the main thread >= {bucket}ms with no progress (a synchronous hang: the app stopped responding for the duration)"
+                ),
+                Some(from),
+            ));
         }
     }
 
@@ -362,6 +428,75 @@ pub fn any_overflow(obs: &RunObs) -> bool {
     obs.overflows.values().any(|items| !items.is_empty())
 }
 
+/// Re-confirm a `no-broken-render` (content-bug) finding over a replay log,
+/// mirroring `recheck_overflow`: the recorded violating state sig is re-evaluated
+/// against the replay's `EXPLORE:CONTENTBUG` records.
+///   - the replay still renders broken content at that sig -> StillViolating
+///   - the sig is reached but renders no broken content -> Fixed (the fix held)
+///   - the sig never appears in the replay graph -> NotReached (re-record).
+pub fn recheck_content_bug(obs: &RunObs, sig: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    if obs
+        .content_bugs
+        .get(sig)
+        .is_some_and(|items| !items.is_empty())
+    {
+        GraphRecheck::StillViolating
+    } else {
+        GraphRecheck::Fixed
+    }
+}
+
+/// Whether the replay graph has ANY broken-content signal (used by `check` for a
+/// content-bug repro that recorded no specific violating sig).
+pub fn any_content_bug(obs: &RunObs) -> bool {
+    obs.content_bugs.values().any(|items| !items.is_empty())
+}
+
+/// Re-confirm a `no-jank` (web jank) finding over a replay log. A jank stall is
+/// keyed by (from, action), so re-evaluate whether ANY transition FROM the
+/// recorded sig still janks.
+///   - a transition from that sig still janks -> StillViolating
+///   - the sig is reached but no transition from it janks -> Fixed
+///   - the sig never appears in the replay graph -> NotReached.
+pub fn recheck_jank(obs: &RunObs, sig: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    if obs.janks.keys().any(|(from, _)| from == sig) {
+        GraphRecheck::StillViolating
+    } else {
+        GraphRecheck::Fixed
+    }
+}
+
+/// Whether the replay graph has ANY jank signal (used by `check` for a jank
+/// repro that recorded no specific violating sig).
+pub fn any_jank(obs: &RunObs) -> bool {
+    !obs.janks.is_empty()
+}
+
+/// Re-confirm a `no-hang` (freeze) finding over a replay log, mirroring
+/// `recheck_jank` against the `EXPLORE:HANG` records.
+pub fn recheck_hang(obs: &RunObs, sig: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    if obs.hangs.keys().any(|(from, _)| from == sig) {
+        GraphRecheck::StillViolating
+    } else {
+        GraphRecheck::Fixed
+    }
+}
+
+/// Whether the replay graph has ANY hang signal (used by `check` for a hang
+/// repro that recorded no specific violating sig).
+pub fn any_hang(obs: &RunObs) -> bool {
+    !obs.hangs.is_empty()
+}
+
 fn label_set(obs: &RunObs, sig: &str) -> Vec<String> {
     obs.states
         .get(sig)
@@ -527,6 +662,9 @@ mod tests {
                 rerenders: Default::default(),
                 paint_flickers: Default::default(),
                 overflows: Default::default(),
+                content_bugs: Default::default(),
+                janks: Default::default(),
+                hangs: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),
@@ -671,6 +809,109 @@ mod tests {
             recheck_overflow(&held.obs, "other"),
             GraphRecheck::NotReached
         );
+    }
+
+    #[test]
+    fn no_broken_render_flags_a_state_with_a_broken_label() {
+        // A state rendering [object Object] fires; a clean state stays silent.
+        let mut o = obs_with(
+            &[("home", &["Go"], 0), ("acct", &["Account"], 0)],
+            &[("home", "tap:Go", "acct")],
+            Some("home"),
+        );
+        o.obs.content_bugs.insert(
+            "acct".to_string(),
+            vec![(
+                "id:acct-name".to_string(),
+                "object-object".to_string(),
+                "Account: [object Object]".to_string(),
+            )],
+        );
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(
+            kinds(&f).contains(&"no-broken-render".to_string()),
+            "got {:?}",
+            kinds(&f)
+        );
+        let v = f
+            .iter()
+            .find(|x| x["invariant"] == "no-broken-render")
+            .unwrap();
+        assert_eq!(v["sig"], "acct");
+        assert_eq!(v["kind"], "CONTENTBUG");
+        assert!(v["message"].as_str().unwrap().contains("object Object"));
+        // The clean `home` state is not flagged.
+        assert!(!f
+            .iter()
+            .any(|x| x["invariant"] == "no-broken-render" && x["sig"] == "home"));
+        // Disabling the invariant suppresses it.
+        let cfg = InvariantsCfg {
+            no_broken_render: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-broken-render".to_string()));
+    }
+
+    #[test]
+    fn recheck_content_bug_distinguishes_held_unreached() {
+        let mut o = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
+        o.obs.content_bugs.insert(
+            "s1".to_string(),
+            vec![("id:x".to_string(), "null".to_string(), "null".to_string())],
+        );
+        assert_eq!(
+            recheck_content_bug(&o.obs, "s1"),
+            GraphRecheck::StillViolating
+        );
+        let held = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
+        assert_eq!(recheck_content_bug(&held.obs, "s1"), GraphRecheck::Fixed);
+        assert_eq!(
+            recheck_content_bug(&held.obs, "other"),
+            GraphRecheck::NotReached
+        );
+    }
+
+    #[test]
+    fn no_jank_fires_on_a_web_longtask_stall_without_sim() {
+        // The web jank path is NOT gated on sim: a longtask stall on a transition
+        // fires headless. A clean walk (no janks) stays silent.
+        let mut o = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
+        o.obs.janks.insert(
+            ("home".to_string(), "tap:key:testid:recompute".to_string()),
+            200,
+        );
+        let f = evaluate(&o, &InvariantsCfg::default());
+        let v = f.iter().find(|x| x["invariant"] == "no-jank").unwrap();
+        assert_eq!(v["kind"], "PERF");
+        assert_eq!(v["sig"], "home");
+        // `recheck_jank` re-confirms by FROM-sig.
+        assert_eq!(recheck_jank(&o.obs, "home"), GraphRecheck::StillViolating);
+        // Disabling no-jank suppresses it.
+        let cfg = InvariantsCfg {
+            no_jank: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-jank".to_string()));
+    }
+
+    #[test]
+    fn no_hang_fires_on_a_web_freeze() {
+        let mut o = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
+        o.obs.hangs.insert(
+            ("home".to_string(), "tap:key:testid:export".to_string()),
+            2000,
+        );
+        let f = evaluate(&o, &InvariantsCfg::default());
+        let v = f.iter().find(|x| x["invariant"] == "no-hang").unwrap();
+        assert_eq!(v["kind"], "HANG");
+        assert_eq!(v["sig"], "home");
+        assert!(v["message"].as_str().unwrap().contains("froze"));
+        assert_eq!(recheck_hang(&o.obs, "home"), GraphRecheck::StillViolating);
+        let cfg = InvariantsCfg {
+            no_hang: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-hang".to_string()));
     }
 
     #[test]

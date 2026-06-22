@@ -19,6 +19,8 @@ reproit fuzz --no visual,i18n         # everything except these
 | `a11y` | Missing labels, contrast, focus-order problems | An accessibility defect on the reached screen. |
 | `i18n` | Overflow, clipping, RTL breakage under other locales | Run with `--locale de,ar,ja` to surface these. |
 | `overflow` | DOM/layout overflow: content clipped or overflowing its container/viewport (web) | A child wider than its parent, text truncated by `text-overflow`, or a horizontal scroll appearing. Deterministic structural measurement (not a pixel diff). |
+| `content-bug` | A rendered label leaking a stringify/template artifact (web): `[object Object]`, a bare `undefined`/`null`/`NaN`, or an unrendered `{{...}}`/`${...}` | A binding/serialization bug put a raw value on screen. Built-in DOM/label scan (no custom invariant needed); deterministic, addressed by the element's stable key. |
+| `hang` | A synchronous main-thread freeze (web): an action whose handler stops the app making progress past the hang floor | The app froze for the duration (an unbounded/very long synchronous task). Deterministic, keyed off the browser's Long Tasks trace, bucketed so timing jitter can't flip the verdict. |
 
 ## Visual oracle specifics
 

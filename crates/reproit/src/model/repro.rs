@@ -303,6 +303,25 @@ impl Trigger {
     fn is_overflow(&self) -> bool {
         self.oracle.as_deref() == Some("overflow")
     }
+
+    /// Whether this finding is a CONTENT-BUG finding (a broken rendered label).
+    /// Like overflow it does not throw, so it is re-confirmed by re-evaluating the
+    /// EXPLORE:CONTENTBUG records over the replay graph.
+    fn is_content_bug(&self) -> bool {
+        self.oracle.as_deref() == Some("content-bug")
+    }
+
+    /// Whether this finding is a JANK finding (a main-thread stall on a
+    /// transition). Re-confirmed by re-evaluating the EXPLORE:JANK records.
+    fn is_jank(&self) -> bool {
+        self.oracle.as_deref() == Some("jank")
+    }
+
+    /// Whether this finding is a HANG/freeze finding (a no-progress main-thread
+    /// block). Re-confirmed by re-evaluating the EXPLORE:HANG records.
+    fn is_hang(&self) -> bool {
+        self.oracle.as_deref() == Some("hang")
+    }
 }
 
 /// Classify a single replay's drive log into a per-run verdict, WITHOUT a
@@ -378,6 +397,19 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     // re-drives to the same state and the runner re-emits EXPLORE:OVERFLOW iff the
     // layout still clips/overflows. Re-confirm by re-evaluating those records over
     // the replay graph rather than scanning for an exception.
+    // CONTENT-BUG / JANK / HANG findings, like graph/flicker/overflow, do not
+    // throw: the replay re-drives to the same state/transition and the runner
+    // re-emits the same EXPLORE:CONTENTBUG / EXPLORE:JANK / EXPLORE:HANG marker iff
+    // the defect is still present. Re-confirm by re-evaluating those records.
+    if trigger.is_content_bug() {
+        return content_bug_verdict(log, trigger);
+    }
+    if trigger.is_jank() {
+        return jank_verdict(log, trigger);
+    }
+    if trigger.is_hang() {
+        return hang_verdict(log, trigger);
+    }
     if trigger.is_overflow() {
         return overflow_verdict(log, trigger);
     }
@@ -548,6 +580,72 @@ fn overflow_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
         return RunVerdict::CouldNotReplay;
     }
     if crate::invariants::any_overflow(&obs) {
+        RunVerdict::Broke
+    } else {
+        RunVerdict::Green
+    }
+}
+
+/// Re-confirm a `no-broken-render` (content-bug) finding over a replay log,
+/// mirroring `overflow_verdict`: re-evaluate the EXPLORE:CONTENTBUG records
+/// against the recorded violating state sig, falling back to "any broken content
+/// remains" when no sig was recorded.
+fn content_bug_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::map::parse_run(log);
+    if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
+        return match crate::invariants::recheck_content_bug(&obs, sig) {
+            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        };
+    }
+    if obs.states.is_empty() {
+        return RunVerdict::CouldNotReplay;
+    }
+    if crate::invariants::any_content_bug(&obs) {
+        RunVerdict::Broke
+    } else {
+        RunVerdict::Green
+    }
+}
+
+/// Re-confirm a `no-jank` (web jank) finding over a replay log. A jank stall is
+/// keyed by the transition's FROM state, so re-evaluate the EXPLORE:JANK records
+/// against the recorded sig; fall back to "any jank remains" with no sig.
+fn jank_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::map::parse_run(log);
+    if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
+        return match crate::invariants::recheck_jank(&obs, sig) {
+            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        };
+    }
+    if obs.states.is_empty() {
+        return RunVerdict::CouldNotReplay;
+    }
+    if crate::invariants::any_jank(&obs) {
+        RunVerdict::Broke
+    } else {
+        RunVerdict::Green
+    }
+}
+
+/// Re-confirm a `no-hang` (freeze) finding over a replay log, mirroring
+/// `jank_verdict` against the EXPLORE:HANG records.
+fn hang_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::map::parse_run(log);
+    if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
+        return match crate::invariants::recheck_hang(&obs, sig) {
+            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        };
+    }
+    if obs.states.is_empty() {
+        return RunVerdict::CouldNotReplay;
+    }
+    if crate::invariants::any_hang(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green

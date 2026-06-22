@@ -147,6 +147,18 @@ pub struct InvariantsCfg {
     /// measurement from the web runner (`EXPLORE:OVERFLOW`).
     #[serde(default = "default_true")]
     pub no_overflow: bool,
+    /// Broken rendered content: a label showing a stringify/template artifact
+    /// (`[object Object]`, a bare `undefined`/`null`/`NaN`, or an unrendered
+    /// `{{...}}`/`${...}` placeholder). Deterministic DOM/label scan from the web
+    /// runner (`EXPLORE:CONTENTBUG`).
+    #[serde(default = "default_true")]
+    pub no_broken_render: bool,
+    /// Main-thread freeze (no-progress): an action whose synchronous handler
+    /// blocked the main thread past the hang floor (the app stopped making
+    /// progress). Deterministic, keyed off the browser's Long Tasks trace from the
+    /// web runner (`EXPLORE:HANG`).
+    #[serde(default = "default_true")]
+    pub no_hang: bool,
     /// State sigs OR label-substrings that mark intended end screens, exempt
     /// from no-dead-end. A bare entry matches a state sig exactly OR (case-
     /// insensitively) any of that state's labels, so you can list either the
@@ -168,6 +180,8 @@ impl Default for InvariantsCfg {
             no_leak: true,
             rerender_flicker: true,
             no_overflow: true,
+            no_broken_render: true,
+            no_hang: true,
             terminal_states: vec![],
             custom: vec![],
         }

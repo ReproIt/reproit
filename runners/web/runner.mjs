@@ -280,6 +280,182 @@ function detectOverflow(tol) {
   return out;
 }
 
+// CONTENT-BUG oracle (deterministic, DOM/label-based). A rendered label that is
+// clearly broken CONTENT: the literal artifacts a stringify/template bug leaks to
+// the screen. Six classes, each a pure substring/structure test over the VISIBLE
+// text of a stably-keyed element, never a pixel or timing read, so the same DOM
+// yields the same finding byte-for-byte on every run and on replay:
+//   - [object Object]   : an object coerced to a string label (the canonical bug)
+//   - undefined / null  : a missing value coerced into the label as a word
+//   - NaN               : a number computation that went non-finite
+//   - {{ ... }} / ${ }  : an unrendered template placeholder (the binding never ran)
+// We scan only the OWN text of keyed, visible elements (id/testid/name), so the
+// finding is addressed by a stable, locale-invariant key (never the text itself),
+// and a parent's text is not double-counted against every descendant. The match
+// is on STRUCTURE (a literal artifact token), not on natural language, so a real
+// label that merely mentions "null" in prose is not flagged: we require the token
+// to BE the artifact (whole-word `undefined`/`null`/`NaN`, the bracketed literal),
+// not appear as a substring of an ordinary sentence. Empty/whitespace labels are
+// NOT flagged here (that is an a11y/semantics concern, handled elsewhere); this
+// oracle is strictly about VISIBLE broken content. Clean apps render none of
+// these tokens, so the control stays silent (no marker, no finding).
+function detectContentBugs() {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const st = getComputedStyle(el);
+    return st.visibility !== 'hidden' && st.display !== 'none';
+  };
+  const keyOf = (el) => {
+    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+    if (tid) return 'testid:' + tid;
+    const id = (el.getAttribute('id') || '').trim();
+    if (id) return 'id:' + id;
+    const name = (el.getAttribute('name') || '').trim();
+    if (name) return 'name:' + name;
+    return null;
+  };
+  // The OWN (non-descendant) trimmed text of an element: only text directly under
+  // it, so a container's text isn't attributed to it via its children.
+  const ownText = (el) => {
+    let t = '';
+    for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
+    return t.replace(/\s+/g, ' ').trim();
+  };
+  // The artifact classifiers. Each returns a stable reason tag or null. Order is
+  // fixed and the first match wins, so a label can only carry one reason.
+  const reasonOf = (text) => {
+    if (!text) return null;
+    if (text.includes('[object Object]')) return 'object-object';
+    // An unrendered template placeholder: a `{{ expr }}` or `${ expr }` survived
+    // into the DOM (the binding engine never evaluated it).
+    if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) return 'unrendered-template';
+    // A bare value coerced into the label as a WHOLE word. `\b` guards against
+    // ordinary prose ("Cancellation", "Null Island"): the token must stand alone.
+    if (/(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])/.test(text)) return 'undefined';
+    if (/(^|[\s:>(\[,])null($|[\s.,!?)\]<])/.test(text)) return 'null';
+    if (/(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])/.test(text)) return 'nan';
+    return null;
+  };
+  const out = [];
+  const seen = new Set();
+  const all = document.body ? document.body.querySelectorAll('*') : [];
+  for (const el of all) {
+    if (!visible(el)) continue;
+    const key = keyOf(el);
+    if (!key) continue; // only stably-addressable nodes (replayable findings)
+    const text = ownText(el);
+    const reason = reasonOf(text);
+    if (!reason) continue;
+    const dedup = key + '|' + reason;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    // Clip the offending text so the marker stays bounded; the reason+key are the
+    // stable identity, the text is human detail.
+    out.push({ key, reason, text: text.slice(0, 80) });
+  }
+  // Stable order: by key then reason, so the marker is byte-identical run to run.
+  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  return out;
+}
+
+// JANK / HANG watchdog (deterministic, recorded-trace based). The wall-clock
+// DURATION of a synchronous handler flakes near any threshold, so we do NOT
+// sample it: we key off the browser's own Long Tasks trace. A `longtask`
+// PerformanceObserver entry is emitted for any task that blocks the main thread
+// > 50ms; the observer buffers entries and delivers them once the blocking task
+// finishes, so an action that ran a long synchronous stall leaves exactly one
+// (or more) longtask entries we can read AFTER the action returns. A clean
+// handler runs in well under 50ms and leaves ZERO entries. We classify by the
+// MAX blocked duration, bucketed into coarse, well-separated floors so timing
+// jitter can never flip the verdict:
+//   - >= HANG_FLOOR_MS  -> a freeze (the app stopped making progress)
+//   - >= JANK_FLOOR_MS  -> jank (a dropped-frame stall)
+//   - else              -> nothing (a clean action)
+// The floors are far from the fixtures (a 600ms stall vs a 3500ms freeze) so the
+// classification is discrete: 600ms is always >= 200 and < 2000 (jank), 3500ms is
+// always >= 2000 (hang). The marker carries the BUCKET, not the raw ms, so even
+// the detail is reproducible; the finding id is the action-trace hash, which is
+// already deterministic for a fixed seed.
+const JANK_FLOOR_MS = 200;
+const HANG_FLOOR_MS = 2000;
+// Install the longtask observer once per page; it accumulates entries into a
+// window-global the per-action probe drains. Best-effort: a browser without the
+// Long Tasks API (firefox/webkit) simply records nothing, so jank/hang are a
+// chromium-tier signal (stated honestly), never a false positive elsewhere.
+async function installLongTaskObserver(page) {
+  await page.addInitScript(() => {
+    try {
+      window.__reproitLongTasks = [];
+      const obs = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
+      });
+      obs.observe({ entryTypes: ['longtask'] });
+    } catch (_) { /* no Long Tasks API: jank/hang silent on this engine */ }
+  }).catch(() => {});
+}
+// Drain the longtask buffer and return the classification for the action that
+// just ran, or null when nothing crossed the jank floor. `kind` is 'hang' or
+// 'jank'; `bucket` is the coarse blocked-time floor (deterministic detail).
+async function drainJank(page) {
+  const tasks = await page.evaluate(() => {
+    const t = window.__reproitLongTasks || [];
+    window.__reproitLongTasks = [];
+    return t;
+  }).catch(() => []);
+  if (!tasks || !tasks.length) return null;
+  const max = Math.max(...tasks);
+  if (max >= HANG_FLOOR_MS) {
+    return { kind: 'hang', bucket: HANG_FLOOR_MS, count: tasks.length };
+  }
+  if (max >= JANK_FLOOR_MS) {
+    return { kind: 'jank', bucket: JANK_FLOOR_MS, count: tasks.length };
+  }
+  return null;
+}
+
+// LEAK sampler (deterministic, web heap). `--soak` replays a reversible cycle N
+// times and reads the heap slope; the Rust soak oracle flags growth that scales
+// with the cycle count. The web runner has no Dart VM service, so we read the v8
+// heap directly. PRECISION MATTERS HERE: `performance.memory.usedJSHeapSize` is
+// QUANTIZED by Chromium to a coarse bucket (it pins to a rounded value like 10MB
+// and barely moves) to defeat fingerprinting, so it CANNOT see a multi-MB leak
+// and is useless for this. The CDP `Runtime.getHeapUsage` reports the REAL,
+// unrounded v8 used-heap size, so we use that when a CDP session is available
+// (chromium) and force a GC first (`HeapProfiler.collectGarbage`) so the reading
+// is the RETAINED (live) heap, not transient garbage: a true leak survives GC and
+// grows monotonically, while a resource-neutral cycle collapses back flat. We emit
+// a MEMORY:SAMPLE marker per cycle; the soak side reconstructs the series from
+// these when no VM-service memory file exists. Without CDP (firefox/webkit) we
+// fall back to performance.memory (quantized, best-effort) so the marker is still
+// emitted but the slope may be too coarse; soak then reads what it can.
+async function sampleHeap(page, cdp, tMs) {
+  let used = null;
+  if (cdp) {
+    try {
+      // Force a GC so the reading reflects RETAINED memory, then read the precise
+      // v8 used-heap size. Both are CDP domains available without page changes.
+      await cdp.send('HeapProfiler.collectGarbage').catch(() => {});
+      const r = await cdp.send('Runtime.getHeapUsage');
+      if (r && typeof r.usedSize === 'number') used = Math.round(r.usedSize);
+    } catch (_) { used = null; }
+  }
+  if (used == null) {
+    // Fallback (no CDP): the quantized performance.memory read. Coarse, but a
+    // marker is better than none; the soak side reads whatever slope it shows.
+    try {
+      used = await page.evaluate(() => {
+        if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
+          return performance.memory.usedJSHeapSize;
+        }
+        return null;
+      });
+    } catch (_) { used = null; }
+  }
+  if (used == null) return;
+  log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
+}
+
 const ACTION_BUDGET = 36;
 const MAX_LABEL_LEN = 40;
 // Layer-1 value-class cap (docs/signature.md "Value-state"): once a structural
@@ -2093,6 +2269,11 @@ async function main() {
   };
   page.on('pageerror', emitError);
 
+  // Install the Long Tasks observer (jank/hang watchdog) BEFORE the first
+  // navigation so it is live for every action. addInitScript re-runs it on every
+  // document, so it survives in-app navigations and reloads.
+  await installLongTaskObserver(page);
+
   // Ready marker so the orchestrator starts its clock; matches the Dart
   // explorer's claim line.
   log('JOURNEY claimed role=a');
@@ -2222,6 +2403,14 @@ async function main() {
         if (ovf && ovf.length) {
           log('EXPLORE:OVERFLOW ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: ovf }));
         }
+        // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
+        // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
+        // emitted when a broken-content artifact is actually rendered, so a clean
+        // app stays silent (no marker, no finding).
+        const cbug = await page.evaluate(detectContentBugs).catch(() => null);
+        if (cbug && cbug.length) {
+          log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+        }
       }
       return snap;
     }
@@ -2232,7 +2421,19 @@ async function main() {
     const prefixLen = prefix ? prefix.length : 0;
     const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
 
+    // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
+    // sample the web heap once at the start and after every action, so the Rust
+    // soak oracle gets a heap-vs-time series to read the slope from. Off outside
+    // replay (a plain fuzz walk is not a soak). t0 anchors t_ms to walk start.
+    const t0 = Date.now();
+    if (replay) await sampleHeap(page, gtCdp, 0);
+
     for (let actions = 0; actions < budget && stuck < 3; actions++) {
+    // LEAK sampler: in replay mode, sample the heap once per action (this fires
+    // BEFORE acting, so action k's sample reflects the heap after the previous
+    // action settled; together with the start + final samples it forms the
+    // monotonic series the soak slope is read from). No-op outside replay.
+    if (replay && actions > 0) await sampleHeap(page, gtCdp, Date.now() - t0);
     let act;
     if (replay) act = replay[actions];
     else if (prefix && actions < prefixLen) act = prefix[actions];
@@ -2371,6 +2572,7 @@ async function main() {
       const before = current.sig;
       const beforeContent = current.content;
       await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
+      await page.evaluate(() => { window.__reproitLongTasks = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks
       const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
       const ok = await typeInto(page, sel, value);
       if (!ok) { if (typePix) await typePix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
@@ -2387,6 +2589,11 @@ async function main() {
       if (typeChurn && typeChurn.length) {
         log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, churned: typeChurn }));
       }
+      const typeJank = await drainJank(page);
+      if (typeJank) {
+        log('EXPLORE:' + (typeJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
+          JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, bucket: typeJank.bucket, count: typeJank.count }));
+      }
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, to: next.sig }));
@@ -2402,6 +2609,7 @@ async function main() {
     const before = current.sig;
     const beforeContent = current.content;
     await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
+    await page.evaluate(() => { window.__reproitLongTasks = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks
     const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
     const ok = await tap(page, sel);
     if (!ok) { if (tapPix) await tapPix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
@@ -2422,6 +2630,14 @@ async function main() {
     if (tapChurn && tapChurn.length) {
       log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'tap:' + sel, churned: tapChurn }));
     }
+    // JANK/HANG watchdog: did this action block the main thread past the
+    // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
+    // Rust side attributes it to this transition and `check` re-confirms it.
+    const tapJank = await drainJank(page);
+    if (tapJank) {
+      log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
+        JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
+    }
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
@@ -2435,6 +2651,9 @@ async function main() {
     current = next;
   }
 
+    // LEAK sampler: a final heap sample after the last action, so the series
+    // spans the whole soak (start ... last action). No-op outside replay.
+    if (replay) await sampleHeap(page, gtCdp, Date.now() - t0);
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   }
 
