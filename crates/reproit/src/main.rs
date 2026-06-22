@@ -692,8 +692,26 @@ enum CloudAction {
         #[arg(long, default_value_t = 0)]
         idx: usize,
     },
-    /// Grouped finding buckets + counts (fuzz + production). Was `triage find`.
-    /// Hits GET /v1/errors/:app.
+    /// The IMPACT-RANKED bug list: each bucket's content-addressed id, impact
+    /// score + severity, resolution status, count, and message, already sorted
+    /// by impact. This is the loop's STARTING point: the ONLY command that
+    /// surfaces the `bucketId` that `pull`/`triage`/`timeline` take via
+    /// `--bucket`. Hits GET /v1/apps/:app/buckets. Distinct from `findings` (the
+    /// cohort "who's affected" lens, which has no bucket id).
+    Buckets {
+        #[arg(long)]
+        app: String,
+        /// Filter buckets by message substring.
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        cloud: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// The cohort "who's affected" lens: grouped clusters + counts + the user
+    /// discriminators (versions, %), NOT the bucket id. Was `triage find`.
+    /// Hits GET /v1/errors/:app/cohorts.
     Findings {
         #[arg(long)]
         app: String,
@@ -2366,6 +2384,15 @@ async fn cloud_cmd(
                 from_prefix: None,
             };
             fuzz::fuzz(&loaded.config, &loaded.root, &args).await
+        }
+        CloudAction::Buckets {
+            app,
+            query,
+            cloud,
+            key,
+        } => {
+            let (cloud, key) = cloud_creds(cloud, key);
+            triage::buckets(&app, query.as_deref(), json, cloud, key).await
         }
         CloudAction::Findings {
             app,

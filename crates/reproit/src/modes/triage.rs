@@ -188,6 +188,62 @@ pub async fn find(
     Ok(())
 }
 
+/// `cloud buckets`: the IMPACT-RANKED bug list, each with its content-addressed
+/// `bucketId` -- the id the rest of the loop (`pull`/`triage`/`timeline`) keys
+/// off. GETs `/v1/apps/:app/buckets` (already impact-sorted server-side). This is
+/// the entry point the agent loop starts from: it's the ONLY place the `bkt_...`
+/// id is surfaced. Distinct from `find` (the cohort "who's affected" lens over
+/// `/v1/errors/:app/cohorts`, which carries sig/count/who but no bucket id).
+pub async fn buckets(
+    app: &str,
+    query: Option<&str>,
+    json: bool,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<()> {
+    let c = Cloud::new(cloud, key);
+    let v = c.get(&format!("/v1/apps/{app}/buckets")).await?;
+    if json {
+        // Raw, already impact-sorted payload straight through for an agent.
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    let empty = vec![];
+    let items = v["items"].as_array().unwrap_or(&empty);
+    let q = query.map(|s| s.to_lowercase());
+    let mut shown = 0;
+    println!("Impact-ranked buckets for '{app}' (highest impact first):");
+    for it in items {
+        let msg = it["message"].as_str().unwrap_or("");
+        if let Some(q) = &q {
+            if !msg.to_lowercase().contains(q.as_str()) {
+                continue;
+            }
+        }
+        let id = it["bucketId"].as_str().unwrap_or("?");
+        let count = it["count"].as_u64().unwrap_or(0);
+        let score = it["impact"]["score"].as_f64().unwrap_or(0.0);
+        let severity = it["impact"]["severity"].as_str().unwrap_or("?");
+        let resolution = it["resolution"]["status"].as_str().unwrap_or("?");
+        // One tight, agent-readable row: the id (the loop key) leads, then the
+        // ranking signals, then the message.
+        println!("\n  [{id}]  impact {score:.2} ({severity})  resolution {resolution}  x{count}");
+        println!("    {}", first_line(msg));
+        shown += 1;
+    }
+    if shown == 0 {
+        if items.is_empty() {
+            println!("  (no buckets yet)");
+        } else {
+            println!("  (no buckets match the query)");
+        }
+    }
+    println!(
+        "\nPull the top one: reproit cloud pull --app {app} --bucket <id> --as <name>   (then reproit check <name>)"
+    );
+    Ok(())
+}
+
 pub async fn explain(
     app: &str,
     sig: Option<&str>,
@@ -614,7 +670,8 @@ pub async fn triage(
     if !fib.is_null() {
         println!("  fixed in:  {}", fib.as_str().unwrap_or("?"));
     }
-    if let Some(updated) = t["updatedAt"].as_str() {
+    // The server returns snake_case `updated_at`; tolerate the camelCase form too.
+    if let Some(updated) = t["updated_at"].as_str().or_else(|| t["updatedAt"].as_str()) {
         println!("  updated:   {updated}");
     }
     if status.is_none() {

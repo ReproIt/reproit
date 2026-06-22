@@ -185,7 +185,7 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_cloud_buckets",
-            "description": "List grouped finding buckets + counts from the cloud (fuzz + production telemetry). `app` is the cloud app id (defaults to $REPROIT_CLOUD_APP); `query` filters buckets by message substring.",
+            "description": "The IMPACT-RANKED bug list and the loop's STARTING point: returns each bucket's content-addressed `bucketId`, impact score + severity, resolution status, count, and message, already sorted by impact (highest first). This is the ONLY tool that surfaces the `bucketId` -- the id reproit_cloud_pull / reproit_cloud_triage / reproit_cloud_timeline take via `bucket`. Distinct from reproit_cloud_blast_radius (the cohort who's-affected lens, which has no bucket id). `app` is the cloud app id (defaults to $REPROIT_CLOUD_APP); `query` filters buckets by message substring.",
             "inputSchema": { "type": "object", "properties": {
                 "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." },
                 "query": { "type": "string", "description": "Filter buckets by message substring." }
@@ -434,7 +434,9 @@ fn build_argv(
             let Some(app) = cloud_app(args) else {
                 return Err((missing_app(), true));
             };
-            argv.extend(["cloud".into(), "findings".into(), "--app".into(), app]);
+            // The impact-ranked list at GET /v1/apps/:app/buckets -- the ONLY
+            // command that surfaces the `bucketId` the rest of the loop keys off.
+            argv.extend(["cloud".into(), "buckets".into(), "--app".into(), app]);
             if let Some(q) = s("query") {
                 argv.extend(["--query".into(), q]);
             }
@@ -671,6 +673,33 @@ mod tests {
             .expect_err("missing bucket should error");
         assert!(err.1);
         assert!(err.0.contains("bucket"));
+    }
+
+    #[test]
+    fn cloud_buckets_dispatches_to_cloud_buckets_not_findings() {
+        // The loop-breaker fix: reproit_cloud_buckets must hit the impact-ranked
+        // `cloud buckets` (GET /v1/apps/:app/buckets, surfaces the bucketId), NOT
+        // `cloud findings` (the cohort lens, which has no bucket id).
+        let argv = argv("reproit_cloud_buckets", json!({ "app": "demo" }));
+        assert!(
+            argv.windows(2).any(|w| w == ["cloud", "buckets"]),
+            "expected `cloud buckets`, got {argv:?}"
+        );
+        assert!(
+            !argv.windows(2).any(|w| w == ["cloud", "findings"]),
+            "must NOT dispatch to `cloud findings`"
+        );
+        assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
+    }
+
+    #[test]
+    fn cloud_buckets_forwards_query_filter() {
+        let argv = argv(
+            "reproit_cloud_buckets",
+            json!({ "app": "demo", "query": "checkout" }),
+        );
+        assert!(argv.windows(2).any(|w| w == ["cloud", "buckets"]));
+        assert!(argv.windows(2).any(|w| w == ["--query", "checkout"]));
     }
 
     #[test]
