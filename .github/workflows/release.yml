@@ -1,16 +1,54 @@
 name: release
 
-# Build prebuilt `reproit` CLI binaries for macOS (arm64 + x86_64) and Linux
-# x86_64 on every pushed v* tag, then attach the tarballs to the GitHub Release.
+# Fully automatic release on every push to main, no PAT required: one workflow
+# run tags the next patch (highest vX.Y.* + 1), builds the cross-platform
+# binaries, publishes the GitHub release, and bumps the Homebrew tap. The build
+# jobs `needs` the tag job, so nothing relies on a tag-push re-triggering another
+# workflow (which the default GITHUB_TOKEN cannot do). Only a tag is pushed,
+# never a commit to main, so this never loops. The version itself comes from
+# `git describe` in build.rs, so the binary is stamped with the tag.
+
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history + tags so the release counter is correct
+
+      - id: t
+        run: |
+          set -euo pipefail
+          MM=$(grep -m1 '^version = ' crates/reproit/Cargo.toml | sed -E 's/version = "([0-9]+\.[0-9]+)\..*/\1/')
+          LAST=$(git tag -l "v${MM}.*" --sort=-v:refname | head -1)
+          PATCH="${LAST##*.}"
+          NEXT="v${MM}.$(( ${PATCH:--1} + 1 ))"
+          # Skip if HEAD is already released (the last tag points at HEAD), so a
+          # re-run or a no-op push does not cut a duplicate release.
+          if [ -n "$LAST" ] && [ "$(git rev-list -n1 "$LAST")" = "$(git rev-parse HEAD)" ]; then
+            echo "HEAD already released as $LAST; nothing to do"
+            exit 0
+          fi
+          git tag -a "$NEXT" -m "$NEXT"
+          git push origin "$NEXT"
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
     name: build ${{ matrix.target }}
     strategy:
       fail-fast: false
@@ -29,6 +67,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+          fetch-depth: 0 # so build.rs (git describe) stamps the tag version
 
       - name: Install Rust toolchain
         run: |
@@ -48,10 +89,12 @@ jobs:
       # reproit.exe (what Scoop/winget install).
       - name: Package
         shell: bash
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
           set -euo pipefail
           T="${{ matrix.target }}"
-          ARCHIVE="reproit-${{ github.ref_name }}-${T}"
+          ARCHIVE="reproit-${TAG}-${T}"
           cd "target/${T}/release"
           if [[ "$T" == *windows* ]]; then
             7z a "../../../${ARCHIVE}.zip" reproit.exe >/dev/null
@@ -63,16 +106,17 @@ jobs:
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: reproit-${{ github.ref_name }}-${{ matrix.target }}.*
+          tag_name: ${{ needs.tag.outputs.tag }}
+          files: reproit-${{ needs.tag.outputs.tag }}-${{ matrix.target }}.*
 
   # Regenerate the Homebrew formula with the real sha256s and push it to the tap
   # (github.com/ReproIt/homebrew-tap), so `brew install ReproIt/tap/reproit` tracks
   # each release with no manual editing. Requires a HOMEBREW_TAP_DEPLOY_KEY secret:
-  # the PRIVATE half of a write deploy key on the homebrew-tap repo (never expires,
-  # scoped to that one repo). Skips itself if the secret isn't set, so releases
-  # never fail on its account.
+  # the PRIVATE half of a write deploy key on the homebrew-tap repo. Skips itself
+  # if the secret isn't set, so releases never fail on its account.
   update-homebrew-tap:
-    needs: build
+    needs: [tag, build]
+    if: needs.tag.outputs.tag != ''
     runs-on: ubuntu-latest
     steps:
       - name: Check for tap deploy key
@@ -83,7 +127,7 @@ jobs:
         if: steps.gate.outputs.have == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
           set -euo pipefail
           for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu; do
@@ -97,12 +141,11 @@ jobs:
       - name: Render formula and push to tap
         if: steps.gate.outputs.have == 'true'
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.tag.outputs.tag }}
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
-          # Authenticate to the tap over SSH with the deploy key.
           mkdir -p ~/.ssh
           printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > ~/.ssh/tap_key
           chmod 600 ~/.ssh/tap_key

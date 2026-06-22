@@ -1,47 +1,31 @@
-//! Stamp the git commit + build date into the version at compile time.
+//! Stamp the version from the last RELEASE tag at compile time.
 //!
 //! `CARGO_PKG_VERSION` alone is stuck at 0.1.0 and cannot tell builds apart, so
 //! `reproit --version` could not distinguish an old installed binary from a
-//! fresh build. We embed the short git rev (with a `-dirty` marker when the
-//! working tree has uncommitted changes) and the build date, so every build
-//! self-identifies. The semver in Cargo.toml stays the deliberate release knob.
+//! fresh build. We derive the version from `git describe`, which is the exact
+//! release tag on a release build (e.g. "0.1.1") and "<tag>-<n>-g<hash>" for a
+//! dev build n commits past the last release, plus "-dirty" for uncommitted
+//! changes. So the version bumps only when a new vX.Y.Z tag is cut (one per
+//! release), NOT on every commit, and an install/release shows a clean "0.1.1".
+//! Falls back to Cargo.toml's version with no git or no tag (a crates.io tarball).
 
 use std::process::Command;
 
 fn main() {
-    let count = run(&["git", "rev-list", "--count", "HEAD"]);
-    // None on command failure / empty => not dirty (covers a no-git crates.io install).
-    let dirty = run(&["git", "status", "--porcelain"]).is_some();
-
-    // Base semver: major.minor from Cargo.toml + commit-count patch when building
-    // from a git checkout, so the patch moves on every commit (0.1.x) with zero
-    // manual bumping. With no git (a crates.io install), fall back to the full
-    // Cargo.toml version, which the release step set to the right 0.1.<count>.
-    // major.minor stays the deliberate knob: bump to 0.2 by hand for a release.
-    let pkg = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".into());
-    let base = match &count {
-        Some(c) => {
-            let mm: String = pkg.split('.').take(2).collect::<Vec<_>>().join(".");
-            format!("{mm}.{c}")
-        }
-        None => pkg,
-    };
-
-    // A clean install/build shows just `0.1.64`. Only a local working build
-    // (uncommitted edits) gets the rev + -dirty + date so it is obviously a dev
-    // build and not the published binary.
-    let version = if dirty {
-        let hash = run(&["git", "rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "nogit".into());
-        let date = run(&["date", "+%Y-%m-%d"]).unwrap_or_default();
-        format!("{base} ({hash}-dirty {date})")
-    } else {
-        base
+    let described = run(&["git", "describe", "--tags", "--dirty", "--always"])
+        .map(|d| d.trim_start_matches('v').to_string());
+    let version = match described {
+        // A real version contains dots ("0.1.1" / "0.1.1-3-gabc"); a bare hash
+        // (no tag reachable) does not, so fall back to the Cargo.toml version.
+        Some(v) if v.contains('.') => v,
+        _ => std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".into()),
     };
 
     println!("cargo:rustc-env=REPROIT_VERSION={version}");
-    // Re-stamp when a new commit lands or the index changes.
+    // Re-stamp when HEAD moves, the index changes, or a tag is cut.
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/index");
+    println!("cargo:rerun-if-changed=../../.git/refs/tags");
 }
 
 /// Run a command, returning trimmed stdout, or None on failure / empty output.
