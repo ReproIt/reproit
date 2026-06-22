@@ -165,10 +165,16 @@ impl Ctx {
     }
 }
 
+/// Version string stamped by build.rs: a clean `0.1.<commit-count>` for an
+/// install / clean build, plus a `(<rev>-dirty <date>)` suffix ONLY for local
+/// working builds with uncommitted edits. So `cargo install` shows a plain
+/// `0.1.64` while a dev build is obviously identifiable.
+const VERSION: &str = env!("REPROIT_VERSION");
+
 #[derive(Parser)]
 #[command(
     name = "reproit",
-    version,
+    version = VERSION,
     about = "Reproducible AI QA: map -> fuzz -> check"
 )]
 struct Cli {
@@ -1110,8 +1116,13 @@ async fn main() -> Result<ExitCode> {
             // --target / --device device selection. When neither is given and a
             // TTY is present (and not --yes), pick interactively; non-interactive
             // falls back to the config default rather than hanging.
-            let selected_device =
-                resolve_check_device(&ctx, target.as_deref(), device.as_deref()).await;
+            let selected_device = resolve_check_device(
+                &ctx,
+                &loaded.config.app.platform,
+                target.as_deref(),
+                device.as_deref(),
+            )
+            .await;
             if let Some(d) = &selected_device {
                 std::env::set_var("REPROIT_PLATFORM", d.target.as_str());
                 std::env::set_var("REPROIT_DEVICE", &d.id);
@@ -1694,8 +1705,12 @@ async fn main() -> Result<ExitCode> {
             } else if device.is_none()
                 && !ctx.yes
                 && std::io::IsTerminal::is_terminal(&std::io::stdin())
+                && run_needs_device_pick(&loaded.config.app.platform, sim)
             {
-                // No --target / --device on a TTY: offer the interactive picker.
+                // No --target / --device on a TTY, AND the run needs a device.
+                // The headless tier (flutter `flutter test`, web CDP) uses none,
+                // so prompting there is vestigial; fall through to the headless
+                // default run instead. Offer the interactive picker.
                 if let Some(dev) = pick_device_interactive(None).await {
                     ctx.say(format!("  selected {} ({})", dev.name, dev.target.as_str()));
                     return run_targets(
@@ -1931,6 +1946,15 @@ async fn enumerate_devices() -> Vec<crosscut::Device> {
 /// match it without prompting. Returns None if there are no devices or the
 /// selection is invalid/empty (the caller then falls back to the config
 /// default rather than hanging).
+/// Whether an interactive device picker is worth showing for this run. The
+/// headless tier (flutter `flutter test`, web CDP) uses NO device, so prompting
+/// for one there is vestigial noise; only pick a device when the run actually
+/// needs one: an explicit `--sim` flutter run, or a platform with no headless
+/// tier (native/appium). `--target`/`--device` bypass this upstream.
+fn run_needs_device_pick(platform: &str, sim: bool) -> bool {
+    sim || !(platform.starts_with("flutter") || platform.starts_with("web"))
+}
+
 async fn pick_device_interactive(want_name: Option<&str>) -> Option<crosscut::Device> {
     let devices = enumerate_devices().await;
     if devices.is_empty() {
@@ -1977,12 +2001,18 @@ async fn pick_device_interactive(want_name: Option<&str>) -> Option<crosscut::De
 /// rather than hanging on a prompt).
 async fn resolve_check_device(
     ctx: &Ctx,
+    platform: &str,
     target: Option<&str>,
     device: Option<&str>,
 ) -> Option<crosscut::Device> {
     if device.is_none() && target.is_none() {
-        if ctx.yes || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-            return None; // non-interactive: do not prompt; use config default.
+        // Non-interactive, OR a headless-tier run that uses no device: skip the
+        // prompt and let the config default (headless) stand.
+        if ctx.yes
+            || !std::io::IsTerminal::is_terminal(&std::io::stdin())
+            || !run_needs_device_pick(platform, false)
+        {
+            return None;
         }
         return pick_device_interactive(None).await;
     }
@@ -3628,6 +3658,19 @@ tap:Advanced
         // Mixed engine+platform is NOT all-engine -> platform path.
         assert!(!is_web_engines("chromium,ios"));
         assert!(!is_web_engines(""));
+    }
+
+    #[test]
+    fn headless_tier_skips_the_device_picker() {
+        // flutter/web default to a headless tier (flutter test / web CDP) that
+        // uses no device, so the interactive picker is vestigial and not offered.
+        assert!(!run_needs_device_pick("flutter-ios-sim", false));
+        assert!(!run_needs_device_pick("web-playwright", false));
+        // --sim turns a flutter run into a real sim run, which DOES need a device.
+        assert!(run_needs_device_pick("flutter-ios-sim", true));
+        // A platform with no headless tier (native/appium) always needs a device.
+        assert!(run_needs_device_pick("native-ios", false));
+        assert!(run_needs_device_pick("appium-android", false));
     }
 
     #[test]
