@@ -998,7 +998,7 @@ function descriptorOf(anchor, root) {
 }
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
-export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor, classifyFrameIntervals, drawFindingBoxes };
+export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor, classifyFrameIntervals, drawFindingBoxes, tap };
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -2049,8 +2049,8 @@ async function emitGroundtruth(page, cdp, sig) {
 //   key:id:<v>     -> #<v>
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
-async function tap(page, sel) {
-  const ok = await page.evaluate(({ s }) => {
+async function tap(page, sel, opts) {
+  const ok = await page.evaluate(({ s, mark }) => {
     const visible = (el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return false;
@@ -2074,6 +2074,19 @@ async function tap(page, sel) {
       return hit === el || el.contains(hit);
     };
     const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
+    // On a recorded replay, tag the clicked element so a crash/jank/hang box can
+    // point at exactly the control the user actuated (only the LAST one carries
+    // the tag). Gated on `mark` so a normal fuzz walk never touches the DOM.
+    const doClick = (el) => {
+      if (mark) {
+        try {
+          for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+          el.setAttribute('data-reproit-trigger', '1');
+        } catch (_) {}
+      }
+      el.click();
+      return true;
+    };
 
     if (s.startsWith('key:')) {
       const body = s.slice(4);
@@ -2097,8 +2110,7 @@ async function tap(page, sel) {
       // a silent pass. Reachability (not just style-visibility) is the floor so a
       // keyed selector to an offstage control fails exactly like a user would.
       if (!reachable(el)) return false;
-      el.click();
-      return true;
+      return doClick(el);
     }
 
     if (s.startsWith('role:')) {
@@ -2170,8 +2182,7 @@ async function tap(page, sel) {
       const root = document.body || document.documentElement;
       if (root) walk(root);
       if (!target) return false;
-      target.click();
-      return true;
+      return doClick(target);
     }
 
     // Label selector: an explicit `label:` prefix or a bare string, resolved by
@@ -2188,12 +2199,12 @@ async function tap(page, sel) {
         const nameOf = (el) =>
           (el.getAttribute('aria-label') || el.value || el.textContent || '').trim().toLowerCase();
         const el = els.find((e) => nameOf(e) === want) || els.find((e) => nameOf(e).includes(want));
-        if (el) { el.click(); return true; }
+        if (el) return doClick(el);
       }
     }
 
     return false;
-  }, { s: sel }).catch(() => false);
+  }, { s: sel, mark: !!(opts && opts.mark) }).catch(() => false);
   return !!ok;
 }
 
@@ -2202,8 +2213,8 @@ async function tap(page, sel) {
 // commit on Enter). Focuses the element, sets its value, and dispatches the
 // input/change events frameworks listen for. Returns true on success. The
 // selector resolution mirrors tap() exactly so role+index addressing lines up.
-async function typeInto(page, sel, value) {
-  const found = await page.evaluate(({ s }) => {
+async function typeInto(page, sel, value, opts) {
+  const found = await page.evaluate(({ s, mark }) => {
     const visible = (el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return false;
@@ -2322,8 +2333,13 @@ async function typeInto(page, sel, value) {
     if (!isText) return false;
     try { el.focus(); } catch (e) {}
     el.setAttribute('data-reproit-typed', '1');
+    // Recorded replay: tag this field as the trigger so a crash/jank box (e.g. a
+    // form that throws on submit) can point at it. Only the latest action's tag.
+    if (mark) {
+      try { for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger'); el.setAttribute('data-reproit-trigger', '1'); } catch (_) {}
+    }
     return true;
-  }, { s: sel }).catch(() => false);
+  }, { s: sel, mark: !!(opts && opts.mark) }).catch(() => false);
   if (!found) return false;
   // Type via the real keyboard so framework input handlers fire, then commit
   // with Enter. We located + focused the element above; type into the focused
@@ -2502,19 +2518,25 @@ async function showActionHud(page, act, step, total) {
     .catch(() => {});
 }
 
-// Draw red bounding box(es) around the element(s) a structural oracle flags on
-// the CURRENT (final) state of a recorded replay, so the clip visibly POINTS at
-// the bug: the HUD says what action was taken, the box says what broke. Mirrors
-// the overflow (spill/clip/page-scroll) and content-bug (artifact-token)
-// predicates so the highlight matches what the oracle reported - it is not a
-// second, divergent detector. Boxes are drawn in PAGE coordinates (scroll-
-// invariant) and capped/prioritized so a busy page stays legible; the primary
-// offender is scrolled into view so it lands inside the recorded frame. Replay+
-// record only; best-effort, never throws, no effect on the marker stream.
-async function drawFindingBoxes(page) {
+// Draw red bounding box(es) around the element(s) that broke on the CURRENT
+// (final) state of a recorded replay, so the clip visibly POINTS at the bug: the
+// HUD says what action was taken, the box says what broke. Covers every oracle
+// that HAS a place on screen:
+//   - overflow / content-bug : re-detected here from the settled DOM (mirrors the
+//     oracle predicates, not a divergent detector).
+//   - crash / jank / hang    : the element the triggering action targeted, tagged
+//     `[data-reproit-trigger]` at click/focus time (`hints.triggerLabel` names it).
+//   - flicker                : the persistent-chrome anchors that were rebuilt
+//     (`hints.flickerKeys`, resolved back to live nodes by the same key grammar).
+// (dead-end is a whole-screen graph property with no element; leak is process-
+// level: neither has a box.) Boxes are PAGE-coordinate (scroll-invariant) and
+// capped/prioritized so a busy page stays legible; the top offender is scrolled
+// into view so it lands in the recorded frame. Replay+record only; best-effort,
+// never throws, no effect on the marker stream.
+async function drawFindingBoxes(page, hints = {}) {
   await page
     .evaluate(
-      ({ tol }) => {
+      ({ tol, trigger, flickerKeys }) => {
         const old = document.getElementById('__reproit_boxes');
         if (old) old.remove();
         const visible = (el) => {
@@ -2592,6 +2614,36 @@ async function drawFindingBoxes(page) {
           seenC.add(el);
           push(el, 'content  ' + reason, 4, 1e6);
         }
+        // TRIGGER element (crash / jank / hang): the control the failing action
+        // targeted, tagged at click/focus time. Highest priority - it IS the bug
+        // the user reproduces - so it sorts first and is the one scrolled to.
+        if (trigger) {
+          const t = document.querySelector('[data-reproit-trigger]');
+          if (t && visible(t)) push(t, trigger, 5, 2e6);
+        }
+        // FLICKER: the persistent-chrome anchors that were rebuilt though their box
+        // and text were unchanged. Resolve each key back to a live node by the same
+        // id/testid/tag[role] grammar markAnchors used (first visible match).
+        if (flickerKeys && flickerKeys.length) {
+          const keyToEl = (key) => {
+            const ci = key.indexOf(':');
+            const kind = key.slice(0, ci), val = key.slice(ci + 1);
+            if (kind === 'id') return document.getElementById(val);
+            if (kind === 'testid') return document.querySelector('[data-testid="' + val + '"]') || document.querySelector('[data-test-id="' + val + '"]');
+            if (kind === 'tag') {
+              const m = val.match(/^([a-z0-9-]+)(?:\[([a-z]+)\])?$/i);
+              if (!m) return null;
+              const sel = m[2] ? m[1] + '[role="' + m[2] + '"]' : m[1];
+              for (const el of document.querySelectorAll(sel)) if (visible(el)) return el;
+            }
+            return null;
+          };
+          const seenF = new Set();
+          for (const k of flickerKeys) {
+            const el = keyToEl(k);
+            if (el && !seenF.has(el) && visible(el)) { seenF.add(el); push(el, 'flicker  rebuilt', 2, 5e5); }
+          }
+        }
         if (!hits.length) return;
         // De-dupe nested hits (keep the outer), prioritize, cap at 6.
         hits.sort((a, b) => b.prio - a.prio || b.mag - a.mag);
@@ -2619,8 +2671,11 @@ async function drawFindingBoxes(page) {
           ].join(';');
           const tag = document.createElement('div');
           tag.textContent = h.label;
+          // Sit the label above the box, but flip it just inside the top edge when
+          // the element hugs the page top (headers/banners) so it stays on-screen.
+          const labelTop = (h.top - sy) < 24 ? 3 : -22;
           tag.style.cssText = [
-            'position:absolute', 'top:-22px', 'left:-3px', 'background:#e21f1f', 'color:#fff',
+            'position:absolute', 'top:' + labelTop + 'px', 'left:-3px', 'background:#e21f1f', 'color:#fff',
             'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace', 'padding:4px 7px',
             'border-radius:5px', 'white-space:nowrap', 'box-shadow:0 2px 8px rgba(0,0,0,.4)',
           ].join(';');
@@ -2629,7 +2684,7 @@ async function drawFindingBoxes(page) {
         }
         (document.body || document.documentElement).appendChild(layer);
       },
-      { tol: OVERFLOW_TOL }
+      { tol: OVERFLOW_TOL, trigger: hints.triggerLabel || null, flickerKeys: hints.flickerKeys || null }
     )
     .catch(() => {});
 }
@@ -2810,6 +2865,38 @@ async function exerciseChoiceGroup(page, group, fromSig) {
           siblingMedian: Math.round(med),
         })
     );
+    // Recorded fuzz walk (`fuzz --record`): re-select the outlier and box it so
+    // the clip shows WHICH choice shifts the page - the differential finding made
+    // visible. Unlike the other oracles this fires during the fuzz walk (the
+    // exercise is fuzz-only), so it draws here, holds, then cleans up so the rest
+    // of the walk is untouched. Reuses the trigger path of drawFindingBoxes (the
+    // boxed outlier, plus any overflow the shift causes).
+    if (VIDEO_DIR) {
+      const label = max.opt.label || max.opt.sel;
+      await clickOptionByLabel(page, group.role, label);
+      await page.waitForTimeout(500);
+      await page
+        .evaluate(({ label }) => {
+          const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+          for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+          for (const el of document.querySelectorAll('button, [role=button], [role=tab], [role=radio]')) {
+            const ll = el.getAttribute('aria-labelledby');
+            let name = norm(el.getAttribute('aria-label'));
+            if (!name && ll) { const ref = document.getElementById(ll.split(/\s+/)[0]); if (ref) name = norm(ref.textContent); }
+            if (!name) name = norm(el.textContent);
+            if (name === label) { el.setAttribute('data-reproit-trigger', '1'); break; }
+          }
+        }, { label })
+        .catch(() => {});
+      await drawFindingBoxes(page, { triggerLabel: 'layout shift +' + Math.round(max.mag) + 'px' }).catch(() => {});
+      await page.waitForTimeout(2200);
+      await page
+        .evaluate(() => {
+          const b = document.getElementById('__reproit_boxes'); if (b) b.remove();
+          for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+        })
+        .catch(() => {});
+    }
   }
 }
 
@@ -2849,10 +2936,14 @@ async function main() {
   // Exception oracle: uncaught page errors (a throw in an onclick, an
   // unhandled rejection) become the same EXCEPTION block the Flutter
   // pipeline emits, so the fuzz oracle and exceptions.jsonl pick them up.
+  // `replayErrorCount` lets a recorded replay know a (kept) crash fired so the
+  // finding box labels the triggering element "crash".
+  let replayErrorCount = 0;
   const emitError = (err) => {
     const msg = String(err && err.message ? err.message : err);
     // Skip third-party-script throws and known-benign browser-policy errors.
     if (exceptionIsBenign(msg) || exceptionThrownInTracker(err && err.stack) || exceptionIsNonDeterministic(msg, err && err.stack) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    replayErrorCount++;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
     log(msg);
@@ -2951,6 +3042,12 @@ async function main() {
     const exercisedGroups = new Set(); // choice-groups already differential-tested this seed
     const pick = rng(fuzz.seed || 0);
     const replay = fuzz.replay || null;
+    // Finding-highlight hints for a recorded replay: the most recent action's
+    // transition-level signals, so the end-of-replay box can point at what broke.
+    const recording = !!(replay && VIDEO_DIR);
+    const crashAtStart = replayErrorCount;
+    let lastTriggerLabel = null; // 'jank' / 'froze' from the latest action (crash overrides)
+    let lastFlickerKeys = null;  // churned persistent-chrome anchor keys, latest action
     // Property-matched fixture inputs for this seed (field -> concrete value).
     // Empty unless the config carries `inputs`; when present, a matching `type:`
     // action types the provided value instead of the adversarial-class token.
@@ -3203,7 +3300,7 @@ async function main() {
       await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
       await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
       const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
-      const ok = await typeInto(page, sel, value);
+      const ok = await typeInto(page, sel, value, { mark: recording });
       if (!ok) { if (typePix) await typePix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
       // Replays settle longer than the fuzz walk: under recording/CI load the
       // app's handler (and any uncaught throw it triggers) needs more wall-clock
@@ -3223,6 +3320,10 @@ async function main() {
         log('EXPLORE:' + (typeJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
           JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, bucket: typeJank.bucket, count: typeJank.count }));
       }
+      if (recording) {
+        lastTriggerLabel = typeJank ? (typeJank.kind === 'hang' ? 'froze' : 'jank') : null;
+        lastFlickerKeys = (typeChurn && typeChurn.length) ? typeChurn : null;
+      }
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, to: next.sig }));
@@ -3240,7 +3341,7 @@ async function main() {
     await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
     await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
     const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
-    const ok = await tap(page, sel);
+    const ok = await tap(page, sel, { mark: recording });
     if (!ok) { if (tapPix) await tapPix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
     // Replays settle longer than the fuzz walk (see the type branch): a
     // deterministic crash must have time to throw + flush `pageerror` under load.
@@ -3267,6 +3368,10 @@ async function main() {
       log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
         JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
     }
+    if (recording) {
+      lastTriggerLabel = tapJank ? (tapJank.kind === 'hang' ? 'froze' : 'jank') : null;
+      lastFlickerKeys = (tapChurn && tapChurn.length) ? tapChurn : null;
+    }
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
@@ -3283,12 +3388,15 @@ async function main() {
     // LEAK sampler: a final heap sample after the last action, so the series
     // spans the whole soak (start ... last action). No-op outside replay.
     if (replay) await sampleHeap(page, gtCdp, Date.now() - t0);
-    // FINDING HIGHLIGHT: on a recorded replay, draw a red box around the
-    // element(s) the oracle flags on this final state and hold it so the clip
-    // ends on the bug itself - the visual companion to the action HUD. Replay+
+    // FINDING HIGHLIGHT: on a recorded replay, draw a red box around what broke
+    // on this final state and hold it so the clip ends on the bug itself - the
+    // visual companion to the action HUD. State oracles (overflow/content) are
+    // re-detected inside; crash/jank/hang/flicker come from the latest action's
+    // captured signals (crash overrides a jank label on the same action). Replay+
     // record only, so a normal fuzz hunt is untouched.
-    if (replay && VIDEO_DIR) {
-      await drawFindingBoxes(page).catch(() => {});
+    if (recording) {
+      const triggerLabel = replayErrorCount > crashAtStart ? 'crash' : lastTriggerLabel;
+      await drawFindingBoxes(page, { triggerLabel, flickerKeys: lastFlickerKeys }).catch(() => {});
       await page.waitForTimeout(2200);
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);

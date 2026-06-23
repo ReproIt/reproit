@@ -122,6 +122,11 @@ reproit check                 # run your whole saved suite
 reproit check <id> --record   # also produce an annotated video
 ```
 
+The `--record` video is paced and annotated: a caption names each action (the
+trigger step in red), and the clip ends with a red box around what broke - the
+crashing control, the overflowing element, the `[object Object]` text, the choice
+that shifts the layout. (dead-end and leak have no on-screen element, so no box.)
+
 Because repros are stored by *structure* (developer keys), a button that simply
 moved comes back as **stale**, not a false **fail**. The exit codes are the CI
 contract.

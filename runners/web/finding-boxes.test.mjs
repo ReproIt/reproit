@@ -1,0 +1,91 @@
+// Validates the recorded-replay finding-highlight (drawFindingBoxes + tap's
+// trigger tagging) end to end in a REAL Chromium: the "here's the bug" red box
+// that ends a `check --record` clip. Covers every oracle that has an on-screen
+// place - overflow + content-bug (re-detected from the settled DOM), crash/jank/
+// hang (the tagged trigger element), and flicker (a churned-anchor key resolved
+// back to its node). The fixture is static + deterministic so box counts/labels
+// are byte-reproducible. Run with `node --test`.
+import { test } from 'node:test';
+import assert from 'node:assert';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { chromium } from 'playwright';
+import { drawFindingBoxes, tap } from './runner.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const FIXTURE_URL = pathToFileURL(join(HERE, 'finding-boxes-fixture.html')).href;
+
+// The label text of every drawn box, in DOM order.
+async function boxLabels(page) {
+  return await page.evaluate(() => {
+    const layer = document.getElementById('__reproit_boxes');
+    if (!layer) return [];
+    return Array.from(layer.children).map((box) => (box.firstChild ? box.firstChild.textContent : ''));
+  });
+}
+
+async function withPage(fn) {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(FIXTURE_URL, { waitUntil: 'networkidle' });
+    await fn(page);
+  } finally {
+    await browser.close();
+  }
+}
+
+test('boxes the overflow and the content-bug from the settled DOM', async () => {
+  await withPage(async (page) => {
+    await drawFindingBoxes(page);
+    const labels = await boxLabels(page);
+    assert.ok(labels.some((l) => l.includes('overflow')), 'expected an overflow box: ' + JSON.stringify(labels));
+    assert.ok(labels.some((l) => l.includes('[object Object]')), 'expected a content box: ' + JSON.stringify(labels));
+  });
+});
+
+test("tap(mark) tags the clicked control, and the crash box points at it", async () => {
+  await withPage(async (page) => {
+    let crashes = 0;
+    page.on('pageerror', () => { crashes++; });
+    const tapped = await tap(page, 'label:Submit', { mark: true });
+    assert.equal(tapped, true);
+    await page.waitForTimeout(200);
+    assert.ok(crashes >= 1, 'the Submit button should have thrown');
+    const taggedId = await page.evaluate(() => {
+      const t = document.querySelector('[data-reproit-trigger]');
+      return t ? t.id : null;
+    });
+    assert.equal(taggedId, 'boom', 'the crashing button must carry the trigger tag');
+    await drawFindingBoxes(page, { triggerLabel: 'crash' });
+    const labels = await boxLabels(page);
+    assert.ok(labels.includes('crash'), 'expected a crash box: ' + JSON.stringify(labels));
+  });
+});
+
+test('only the LAST tapped control keeps the trigger tag', async () => {
+  await withPage(async (page) => {
+    await tap(page, 'label:Edit', { mark: true });
+    await tap(page, 'label:Submit', { mark: true }).catch(() => {}); // throws, but tags first
+    await page.waitForTimeout(100);
+    const ids = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-reproit-trigger]')).map((e) => e.id));
+    assert.deepEqual(ids, ['boom'], 'exactly the last clicked element is tagged: ' + JSON.stringify(ids));
+  });
+});
+
+test('tap WITHOUT mark never tags (a normal fuzz walk does not touch the DOM)', async () => {
+  await withPage(async (page) => {
+    await tap(page, 'label:Edit');
+    const n = await page.evaluate(() => document.querySelectorAll('[data-reproit-trigger]').length);
+    assert.equal(n, 0);
+  });
+});
+
+test('resolves a churned-anchor key back to its node and boxes it (flicker)', async () => {
+  await withPage(async (page) => {
+    await drawFindingBoxes(page, { flickerKeys: ['id:site-header'] });
+    const labels = await boxLabels(page);
+    assert.ok(labels.some((l) => l.includes('flicker')), 'expected a flicker box: ' + JSON.stringify(labels));
+  });
+});
