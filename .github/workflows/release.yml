@@ -35,7 +35,8 @@ jobs:
           MM=$(grep -m1 '^version = ' crates/reproit/Cargo.toml | sed -E 's/version = "([0-9]+\.[0-9]+)\..*/\1/')
           LAST=$(git tag -l "v${MM}.*" --sort=-v:refname | head -1)
           PATCH="${LAST##*.}"
-          NEXT="v${MM}.$(( ${PATCH:--1} + 1 ))"
+          VER="${MM}.$(( ${PATCH:--1} + 1 ))"
+          NEXT="v${VER}"
           # Skip if HEAD is already released (the last tag points at HEAD), so a
           # re-run or a no-op push does not cut a duplicate release.
           if [ -n "$LAST" ] && [ "$(git rev-list -n1 "$LAST")" = "$(git rev-parse HEAD)" ]; then
@@ -44,6 +45,22 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Bake the release version into the crate so an INSTALLED binary reports
+          # it even where `git describe` can't see tags (cargo install from git or
+          # crates.io, where build.rs falls back to CARGO_PKG_VERSION = the
+          # Cargo.toml version). The lockfile's own reproit entry is bumped too so
+          # `cargo build --locked` still matches. This commit goes to main with the
+          # default GITHUB_TOKEN, whose pushes do NOT trigger workflows, so there
+          # is no release loop. The tag points at this commit, so release binaries
+          # and source installs report the same version.
+          # perl (portable across the GNU/BSD split, unlike `sed -i`): set the
+          # first `version =` in the crate manifest, and the `version =` line that
+          # immediately follows `name = "reproit"` in the lockfile.
+          VER="$VER" perl -i -pe 'if (!$d && s/^version = .*/version = "$ENV{VER}"/) { $d=1 }' crates/reproit/Cargo.toml
+          VER="$VER" perl -i -pe 's/^version = "[0-9.]+"/version = "$ENV{VER}"/ if $p eq qq{name = "reproit"\n}; $p=$_' Cargo.lock
+          git add crates/reproit/Cargo.toml Cargo.lock
+          git commit -m "release v${VER}"
+          git push origin HEAD:main
           git tag -a "$NEXT" -m "$NEXT"
           git push origin "$NEXT"
           echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
