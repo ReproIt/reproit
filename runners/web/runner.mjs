@@ -2393,6 +2393,54 @@ async function runScenarioActor(browser) {
   await ctx.close().catch(() => {});
 }
 
+// Humanize a raw action string for the review HUD, matching the cloud
+// "path to the bug" vocabulary: `tap:<sel>` -> "tap <sel>", `type:<sel>=<val>`
+// -> 'type "<val>" -> <sel>', `back` -> "back", initial -> "load".
+function humanizeAction(act) {
+  if (!act || act === 'load') return 'load';
+  if (act === 'back') return '← back';
+  if (act.startsWith('tap:')) return 'tap  ' + act.slice(4);
+  if (act.startsWith('type:')) {
+    const body = act.slice(5);
+    const i = body.indexOf('=');
+    return i < 0 ? 'type  ' + body : 'type "' + body.slice(i + 1) + '"  →  ' + body.slice(0, i);
+  }
+  return act;
+}
+
+// Draw/update an on-page caption bar naming the action about to be performed,
+// with a step counter; the LAST replayed step (the trigger) goes red with an
+// x, mirroring the cloud path graph's failure node. Injected per action because
+// a navigation drops the previous document's overlay. Best-effort, never throws.
+async function showActionHud(page, act, step, total) {
+  const text = `step ${step + 1}/${total}   ${humanizeAction(act)}`;
+  const isFail = step >= total - 1;
+  await page
+    .evaluate(
+      ({ text, isFail }) => {
+        let el = document.getElementById('__reproit_hud');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = '__reproit_hud';
+          el.style.cssText = [
+            'position:fixed', 'top:14px', 'left:50%', 'transform:translateX(-50%)',
+            'z-index:2147483647', 'font:600 14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace',
+            'padding:10px 16px', 'border-radius:10px', 'pointer-events:none',
+            'box-shadow:0 6px 24px rgba(0,0,0,.45)', 'max-width:92vw',
+            'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
+          ].join(';');
+          (document.body || document.documentElement).appendChild(el);
+        }
+        el.style.background = isFail ? 'rgba(190,32,32,.96)' : 'rgba(18,20,26,.94)';
+        el.style.color = '#fff';
+        el.style.border = '1px solid ' + (isFail ? '#ff7a7a' : 'rgba(255,255,255,.14)');
+        el.textContent = (isFail ? '✗  ' : '▸  ') + text;
+      },
+      { text, isFail }
+    )
+    .catch(() => {});
+}
+
 async function main() {
   console.log(`JOURNEY[a] step: engine=${ENGINE}`);
   const browser = await BROWSER.launch({ headless: HEADLESS });
@@ -2656,6 +2704,14 @@ async function main() {
     }
 
     log('FUZZ:ACT ' + act);
+    // Record/review HUD: when recording a REPLAY (`check --record`), draw a
+    // paced on-screen caption of each action so a human can actually follow the
+    // repro - the video analogue of the cloud "path to the bug". Only when
+    // replaying AND recording, so a normal fuzz hunt is never slowed.
+    if (replay && VIDEO_DIR && !act.startsWith('assert:') && !act.startsWith('shoot:')) {
+      await showActionHud(page, act, actions, replay.length).catch(() => {});
+      await page.waitForTimeout(actions >= replay.length - 1 ? 1600 : 950);
+    }
     if (act.startsWith('shoot:')) {
       // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
       // the current screen to REPROIT_SHOTS_DIR and emit the SHOOT marker. Like
