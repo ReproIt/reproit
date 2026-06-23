@@ -423,6 +423,115 @@ static void ReproIt_Signature(const char* anchor, const ReproItSig_Node* root, c
 #endif  // REPROIT_SIGNATURE_CORE_H
 
 // ===========================================================================
+// CONTENT-BUG CLASSIFIER CORE (always available; the scan itself is fuzz-only)
+//
+// IDENTICAL to the content-bug classifier block in runners/reproit_clay.h
+// (shared guard, so if both headers land in one TU the classifier appears once).
+// Self-contained plain C: it depends on nothing but libc and never touches the
+// parity-critical signature core, so the parity test is unaffected.
+//
+// WHAT IT IS: the immediate-mode counterpart of the web runner's content-bug
+// oracle (runners/web/runner.mjs detectContentBugs/reasonOf). Instrumented
+// runners SEE the actual display strings the app draws (ImGui::Text/Button
+// labels, Clay text elements), so we can scan that VISIBLE text for the SAME
+// literal artifacts a stringify/template bug leaks to the screen, with the SAME
+// classifier semantics + precedence, byte-for-byte:
+//   - "[object Object]"          -> "object-object"      (object coerced to string)
+//   - "{{ ... }}" or "${ ... }"  -> "unrendered-template" (binding never evaluated)
+//   - whole-word "undefined"     -> "undefined"
+//   - whole-word "null"          -> "null"
+//   - whole-word "NaN"           -> "nan"
+// The order is fixed and the FIRST match wins, so a label carries one reason.
+// The match is on STRUCTURE (a literal artifact token), never natural language:
+// `undefined`/`null`/`NaN` must stand alone as a whole word (the same boundary
+// sets the web regex uses), so ordinary prose ("Cancellation", "Null Island")
+// is never flagged. A clean app renders none of these, so the control stays
+// silent (no marker, no finding). The finding is addressed by the widget's
+// STABLE id (locale-invariant), never by the text, so it is replayable.
+// ===========================================================================
+#ifndef REPROIT_CONTENTBUG_CORE_H
+#define REPROIT_CONTENTBUG_CORE_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+
+// Left/right whole-word boundary sets, IDENTICAL to the web runner's regex
+// character classes around `undefined`/`null`/`NaN`:
+//   left  (^|[\s:>(\[,])   right ($|[\s.,!?)\]<])
+// A NUL on either side is start/end of string (the `^`/`$` anchors). The
+// whitespace members mirror JS \s for the ASCII range (space/tab/newline/CR/
+// form-feed/vertical-tab); non-ASCII bytes are never boundary chars, matching
+// the web behaviour where a multibyte run keeps the token glued to its prose.
+static bool reproit_cbug_is_left_boundary(unsigned char c) {
+    if (c == 0) return true;  // start of string
+    switch (c) {
+        case ' ': case '\t': case '\n': case '\r': case '\f': case '\v':
+        case ':': case '>': case '(': case '[': case ',':
+            return true;
+        default: return false;
+    }
+}
+static bool reproit_cbug_is_right_boundary(unsigned char c) {
+    if (c == 0) return true;  // end of string
+    switch (c) {
+        case ' ': case '\t': case '\n': case '\r': case '\f': case '\v':
+        case '.': case ',': case '!': case '?': case ')': case ']': case '<':
+            return true;
+        default: return false;
+    }
+}
+
+// True if `word` occurs in `text` as a whole word per the boundary sets above.
+// Scans every occurrence (a later boundaried hit still counts), so the same
+// guarding the web `\b`-anchored regex applies.
+static bool reproit_cbug_has_word(const char* text, const char* word) {
+    size_t wlen = strlen(word);
+    if (wlen == 0) return false;
+    for (const char* p = text; (p = strstr(p, word)) != NULL; p++) {
+        unsigned char before = (p == text) ? 0 : (unsigned char)p[-1];
+        unsigned char after = (unsigned char)p[wlen];
+        if (reproit_cbug_is_left_boundary(before) && reproit_cbug_is_right_boundary(after))
+            return true;
+    }
+    return false;
+}
+
+// True if `text` contains an unrendered template placeholder: a "{{ ... }}" or
+// "${ ... }" where the "..." has no closing brace inside it. Mirrors the web
+// regexes /\{\{[^}]*\}\}/ and /\$\{[^}]*\}/.
+static bool reproit_cbug_has_template(const char* text) {
+    // {{ [^}]* }}
+    for (const char* p = strstr(text, "{{"); p; p = strstr(p + 1, "{{")) {
+        const char* q = p + 2;
+        while (*q && *q != '}') q++;
+        if (q[0] == '}' && q[1] == '}') return true;
+    }
+    // ${ [^}]* }
+    for (const char* p = strstr(text, "${"); p; p = strstr(p + 1, "${")) {
+        const char* q = p + 2;
+        while (*q && *q != '}') q++;
+        if (*q == '}') return true;
+    }
+    return false;
+}
+
+// Classify a display string into a stable content-bug reason tag, or NULL when
+// clean. Order is FIXED and the first match wins, IDENTICAL to the web
+// reasonOf precedence: object-object, then unrendered-template, then whole-word
+// undefined, null, nan. Returned tags are string literals (stable storage).
+static inline const char* reproit_cbug_reason(const char* text) {
+    if (!text || !text[0]) return NULL;
+    if (strstr(text, "[object Object]")) return "object-object";
+    if (reproit_cbug_has_template(text)) return "unrendered-template";
+    if (reproit_cbug_has_word(text, "undefined")) return "undefined";
+    if (reproit_cbug_has_word(text, "null")) return "null";
+    if (reproit_cbug_has_word(text, "NaN")) return "nan";
+    return NULL;
+}
+
+#endif  // REPROIT_CONTENTBUG_CORE_H
+
+// ===========================================================================
 // PRODUCTION TELEMETRY CORE (optional; OFF by default)
 //
 // IDENTICAL to the telemetry core block in runners/reproit_clay.h (shared guard,
@@ -1161,6 +1270,7 @@ inline void TelemetryShutdown(void)                      { ReproIt_Telemetry_Shu
 #endif  // REPROIT_IMGUI_H
 
 #ifdef REPROIT_IMGUI_IMPLEMENTATION
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -1286,6 +1396,14 @@ struct State {
     std::map<std::string, std::set<std::string>> valueVariants;
 
 #ifndef REPROIT_TELEMETRY
+    // Content-bug scan input (EXPLORE:CONTENTBUG): for every text-bearing widget
+    // drawn this frame, its stable id (the finding key) + its DISPLAY text (what
+    // the user sees, scanned for broken-content artifacts). Captured in document
+    // order; deduped + classified + sorted at FrameEnd. Fuzz-only: a telemetry
+    // build reports, it does not run oracles.
+    struct Content { std::string id; std::string text; };
+    std::vector<Content> frameContent;
+
     // --soak: this run is a soak (the soak tier writes {"replay":[..]}). When set,
     // we sample this process's RSS per step into a MEMORY:SAMPLE series soak.rs
     // reads. Off => no samples (a plain fuzz walk is not a soak).
@@ -1361,6 +1479,23 @@ std::string stableId(const char* label) {
     return s;  // no marker: the whole label is the developer-chosen id
 }
 
+#ifndef REPROIT_TELEMETRY
+// The DISPLAY text of an ImGui label: the part BEFORE "##"/"###" (what the user
+// actually sees on screen). Unlike the signature, the content-bug oracle scans
+// the VISIBLE text, so this is the string fed to the classifier. A bare label
+// with no "##" marker IS its own display text. "Play##play" -> "Play";
+// "${x}###k" -> "${x}"; "[object Object]" -> "[object Object]".
+std::string displayText(const char* label) {
+    if (!label) return std::string();
+    std::string s(label);
+    auto triple = s.find("###");
+    if (triple != std::string::npos) return s.substr(0, triple);
+    auto dbl = s.find("##");
+    if (dbl != std::string::npos) return s.substr(0, dbl);
+    return s;
+}
+#endif
+
 // Allocate a canonical node, append it under the current scope, return its idx.
 // `value` (optional) carries the node's displayed value for Layer 2 value-state;
 // `valueNode` opt-in marks a non-value-role node as value-bearing (Layer 3).
@@ -1409,6 +1544,15 @@ void emit(const char* role, const char* label, bool interactive,
         g.frameTappables.push_back(id);
         g.frameWidgets.push_back({id, gestureFor(role)});
     }
+#ifndef REPROIT_TELEMETRY
+    // Capture the widget's DISPLAY text for the content-bug scan, keyed by its
+    // stable id (only addressable, keyed widgets yield replayable findings). The
+    // text scanned is what the user sees (before "##"); the id is locale-stable.
+    if (!id.empty()) {
+        std::string disp = displayText(label);
+        if (!disp.empty()) g.frameContent.push_back({id, disp});
+    }
+#endif
 }
 
 // True for exactly the stable id the fuzzer chose this step.
@@ -1492,6 +1636,67 @@ void emitGroundtruth(const std::string& sig) {
     std::printf("]}\n");
     std::fflush(stdout);
 }
+
+#ifndef REPROIT_TELEMETRY
+// Append `s` to `out` as a JSON string body (no surrounding quotes), escaping the
+// JSON control set (" \\ and the C0 controls), so the emitted CONTENTBUG marker is
+// valid JSON the Rust parser (map.rs) reads. Deterministic, no locale.
+void appendJsonEscaped(std::string& out, const std::string& s) {
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') { out.push_back('\\'); out.push_back((char)c); }
+        else if (c == '\n') { out += "\\n"; }
+        else if (c == '\r') { out += "\\r"; }
+        else if (c == '\t') { out += "\\t"; }
+        else if (c < 0x20) { /* drop other control bytes */ }
+        else out.push_back((char)c);
+    }
+}
+
+// Emit one EXPLORE:CONTENTBUG line for the current frame's drawn text, keyed by
+// the SAME state signature as STATE/GROUNDTRUTH (single-line JSON). Scans each
+// keyed widget's DISPLAY text with the shared classifier (web-exact semantics +
+// precedence), dedupes by (key,reason), sorts by key then reason, and prints the
+// items[] array. Emitted ONLY when at least one artifact is found, so a clean app
+// stays silent (no marker, no finding) and the finding id is byte-identical run
+// to run / on replay. The `text` is clipped to 80 bytes like the web runner.
+void emitContentBugs(const std::string& sig) {
+    // Collect (key, reason, clippedText), deduped by key|reason.
+    struct Item { std::string key, reason, text; };
+    std::vector<Item> items;
+    std::set<std::string> dedup;
+    for (const auto& c : g.frameContent) {
+        const char* reason = reproit_cbug_reason(c.text.c_str());
+        if (!reason) continue;
+        std::string dk = c.id + "|" + reason;
+        if (!dedup.insert(dk).second) continue;
+        items.push_back({c.id, reason, c.text.substr(0, 80)});
+    }
+    if (items.empty()) return;  // clean frame: stay silent
+    // Stable order: by key then reason, so the marker is byte-identical run to run.
+    std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
+        if (a.key != b.key) return a.key < b.key;
+        return a.reason < b.reason;
+    });
+    std::string line = "EXPLORE:CONTENTBUG {\"sig\":\"";
+    line += sig;
+    line += "\",\"items\":[";
+    bool first = true;
+    for (const auto& it : items) {
+        if (!first) line += ",";
+        first = false;
+        line += "{\"key\":\"";
+        appendJsonEscaped(line, it.key);
+        line += "\",\"reason\":\"";
+        appendJsonEscaped(line, it.reason);
+        line += "\",\"text\":\"";
+        appendJsonEscaped(line, it.text);
+        line += "\"}";
+    }
+    line += "]}\n";
+    std::fputs(line.c_str(), stdout);
+    std::fflush(stdout);
+}
+#endif  // !REPROIT_TELEMETRY
 
 // ---- FUZZ-BUILD CRASH HANDLER (async-signal-safe) -------------------------
 //
@@ -1635,6 +1840,9 @@ void Frame() {
     g.frameTappables.clear();
     g.frameWidgets.clear();
     g.a11y.clear();
+#ifndef REPROIT_TELEMETRY
+    g.frameContent.clear();
+#endif
     g.anchor.clear();
     // Synthetic screen root (index 0); window contents nest under it.
     int root = alloc("screen", std::string(), nullptr, nullptr);
@@ -1798,6 +2006,13 @@ void FrameEnd() {
         // to shrink that gap. focusTrap is false: ImGui has no modal focus capture
         // we can observe. Emitted once per newly seen state (same key as STATE).
         emitGroundtruth(sig);
+#ifndef REPROIT_TELEMETRY
+        // Content-bug scan for this newly-seen state, keyed by the SAME sig. A pure
+        // scan of the drawn display text (no pixels, no timing), so it reproduces
+        // on replay. Only emitted when a broken-content artifact was actually drawn,
+        // so a clean app stays silent (no marker, no finding).
+        emitContentBugs(sig);
+#endif
     }
     if (!g.prevSig.empty() && sig != g.prevSig && !g.fireId.empty()) {
         std::printf("EXPLORE:EDGE {\"from\":\"%s\",\"action\":\"tap:%s\",\"to\":\"%s\"}\n",

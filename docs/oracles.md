@@ -39,16 +39,16 @@ caveat. `gap` = the platform does not expose the signal; not emitted (never fake
 | Web Chromium (CDP) | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y |
 | Web Firefox/WebKit | Y | Y | Y | Y | Y | Y | Y | Y |
 | Electron (CDP) | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y |
-| Tauri (WebDriver) | Y | Y | Y | Y (DOM) | Y | ~ | ~ | Y* |
+| Tauri (WebDriver) | Y | Y | Y | Y (DOM) | Y | Y | Y | Y* |
 | Flutter sim | Y | Y | Y | Y | Y | Y | Y | Y |
 | Flutter headless | Y | Y | Y | gap | Y | n/a | n/a | ~ |
 | RN / native Android (Appium) | Y | Y | Y | gap | Y | Y | Y | Y |
 | RN / native iOS (Appium) | Y | Y | Y | gap | Y | gap | Y | Y* |
 | Desktop macOS (AX) | Y | Y | Y | gap | Y | n/a | ~ | Y |
-| Desktop Windows (UIA) | Y | Y | Y | gap | Y | n/a | Y | Y |
+| Desktop Windows (UIA) | Y | Y | Y | gap | Y | gap | Y | Y |
 | Desktop Linux (AT-SPI) | Y | Y | Y | gap | Y | n/a | ~ | Y |
 | TUI (PTY) | Y | gap | Y | Y | Y | n/a | Y | Y* |
-| Dear ImGui / Clay (instrumented) | Y | gap | Y | gap | gap | Y | gap | Y* |
+| Dear ImGui / Clay (instrumented) | Y | gap | Y | gap | Y | Y | gap | Y* |
 
 ## Recently closed (and how)
 
@@ -70,13 +70,20 @@ just never wired. Each holds the same false-positive bar as the rest.
   app's host pid via `simctl launchctl list`), the TUI (the child pid), and
   ImGui/Clay (self RSS). Coarse (per-cycle, not per-transition) and gated on a
   *uniquely resolvable* pid, so any ambiguity stays silent rather than guessing.
-- **content-bug on the TUI** (`Y`): the runner already has the settled VT grid, so
-  it scans the cells for the same artifact tokens as the DOM scanner
-  (`[object Object]`, whole-word `undefined`/`null`/`NaN`, unrendered
-  `{{...}}`/`${...}`), keyed by a stable cell position.
+- **content-bug on the TUI, ImGui, and Clay** (`Y`): the TUI runner scans the
+  settled VT grid; the instrumented ImGui/Clay runners scan the actual label
+  strings the app draws (`ImGui::Text`/button labels, Clay text commands). All use
+  the same artifact tokens as the DOM scanner (`[object Object]`, whole-word
+  `undefined`/`null`/`NaN`, unrendered `{{...}}`/`${...}`), keyed by a stable
+  position / widget id.
 - **jank on ImGui/Clay** (`Y`): these are instrumented and render real frames, so
   per-frame durations are timed directly and fed the same jank/hang floors as the
   web runner. (Their leak is the coarse RSS path above.)
+- **jank + hang on Tauri** (`Y`): Long Tasks is Chromium-only (so silent on Tauri's
+  WebKit webview on mac/Linux). The same cross-engine `requestAnimationFrame`
+  detector built for Firefox/WebKit is injected into the webview via `execute()`;
+  Chromium/WebView2 keeps the precise Long Tasks path. Reuses the FP-validated
+  classifier verbatim.
 
 ## Remaining gaps (why)
 
@@ -88,10 +95,18 @@ at the runner that would emit it.
   the headless Flutter tier runs on a fake clock. Nothing to read, so nothing is
   emitted. (Flutter sim reads a real per-frame manifest; ImGui/Clay are
   instrumented and now do emit jank.)
-- **jank on iOS (Appium)** (`gap`): XCUITest exposes no clean in-session frame
-  trace; the only source is Instruments/xctrace, which runs out-of-band and cannot
-  be deterministically keyed to a `(from, action)` transition. (iOS *leak* is now
-  covered by the RSS sampler above; Android gets both via `dumpsys`.)
+- **jank on iOS (Appium)** (`gap`): no sim-attributable frame source exists (tried
+  against a real booted sim): xctrace's `Animation Hitches` template is unsupported
+  on the simulator, `Metal System Trace` captures host-wide GPU (the sim app fuses
+  into the host, so it is unattributable), and `xctrace --attach` cannot target an
+  in-simulator process. (iOS *leak* is covered by the RSS sampler above; Android
+  gets both via `dumpsys`.)
+- **jank on Windows desktop (UIA)** (`gap`): a real signal exists but only
+  in-process. Post-Win8.1 `DwmGetCompositionTimingInfo` accepts only `HWND=NULL` and
+  returns desktop-global counters (another app's animation reads as your jank; your
+  frozen app reads as clean), and the clean per-window `IDXGISwapChain::GetFrameStatistics`
+  needs the app's own swapchain. So the out-of-process UIA driver cannot reach it
+  FP-free; an in-process Windows agent could. (Hang is covered by `IsHungAppWindow`.)
 - **pixel-flicker on Tauri** (part of `flicker`): the pixel tier needs CDP
   `Page.startScreencast` to diff presented frames; WebDriver exposes no
   presented-frame stream. Tauri keeps its DOM-based rerender-flicker, unaffected.
@@ -100,10 +115,9 @@ at the runner that would emit it.
   scheduling, so a high 2000ms floor keeps it false-positive-free. Windows uses the
   OS `IsHungAppWindow` signal directly and has no such caveat.
 - **overflow on TUI / Clay** (`gap`): a VT grid clips rather than overflowing, and
-  Clay does not expose stable parent/child geometry in its command stream, so a
-  reliable child-exceeds-parent check is not available.
-- **content-bug on ImGui** (`gap`): no semantic label tree to scan the way a DOM, a
-  Flutter semantics tree, an a11y tree, or the TUI's text grid can be scanned.
+  Clay's render-command stream is flat with no parent linkage, so a child-exceeds-
+  parent check would need version-fragile parentage reconstruction. ImGui overflow
+  is `n/a` (immediate-mode clips/auto-sizes, no stable container box).
 
 ## Determinism bar
 

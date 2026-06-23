@@ -27,8 +27,11 @@
 // the core is unchanged. iOS LEAK is now covered COARSELY (session-level process
 // RSS sampled per replay cycle: the booted-sim app is a host process whose pid the
 // runner resolves over `simctl spawn booted launchctl list`, read with host `ps`);
-// see sampleIosHeap. iOS JANK stays a documented gap (no per-transition frame
-// trace over the XCUITest session); see the HANG/JANK/LEAK section.
+// see sampleIosHeap. iOS JANK stays a documented gap (no clean, non-flaky,
+// sim-attributable per-frame trace exists for a simulator app: Animation Hitches
+// is unsupported on the sim, Metal System Trace captures host-wide GPU work not
+// the sim app, and xctrace cannot attach to an in-sim process); the exact commands
+// tried and why each fails are recorded in the HANG/JANK/LEAK section.
 //
 // Env (set by the orchestrator's rn-appium runner):
 //   REPROIT_APPIUM_URL    Appium server base URL (e.g. http://127.0.0.1:4723)
@@ -1047,19 +1050,42 @@ async function appCrashed(driver) {
 //    HANG      both. Deterministic wall-clock watchdog around tap/back; Android
 //              optionally confirms with the ANR trace ("ANR in <pkg>").
 //    JANK      ANDROID ONLY, via `dumpsys gfxinfo <pkg>` framestats. iOS is a
-//              DOCUMENTED GAP: no per-frame trace is available over the Appium /
-//              XCUITest session. The only iOS frame source is xctrace /
-//              Instruments, which runs OUT-OF-BAND (a separate process attached to
-//              the device), not through the WebDriver session, so it cannot be
-//              keyed to a (from, action) transition deterministically here, and a
-//              session-level CA-commit / frame-timing capture from xctrace cannot
-//              be bucketed without flake (no clean, false-positive-free floor that
-//              maps to a deterministic finding id over a noisy sim). We do NOT fake
-//              an iOS jank signal: drainGfxinfoJank returns null on iOS, and no
-//              iOS jank marker is ever emitted. (APIs considered + rejected for
-//              cleanliness: `xcrun xctrace record --template 'Core Animation'` /
-//              `'Time Profiler'`; Appium `mobile: startPerfRecord` (Android-only);
-//              `driver.getPerformanceData` (Android-only).)
+//              DOCUMENTED GAP: no clean, non-flaky, sim-attributable per-frame
+//              trace exists for an iOS-SIMULATOR app, which is the only iOS target
+//              available here (real-device frame telemetry is out of scope). We do
+//              NOT fake an iOS jank signal: drainGfxinfoJank returns null on iOS and
+//              no iOS JANK marker is ever emitted. Unlike the iOS LEAK signal
+//              (DONE(coarse): a sim app is a host process, so its RSS is a real,
+//              deterministic, monotonic session-level number; see sampleIosHeap),
+//              frame timing has NO equivalent host-readable source on the simulator.
+//
+//              FRAME-TIMING SOURCES TRIED ON THE BOOTED SIM, AND WHY EACH FAILS
+//              (verified empirically against a booted iOS 26.2 sim, xctrace 26.0):
+//                - `xcrun xctrace record --template 'Animation Hitches'` (the
+//                  proper frame-pacing instrument): errors at record time with
+//                  "Hitches is not supported on this platform." Hitches read the
+//                  device render-server's hitch telemetry, which the simulator does
+//                  not emit; it works only on a REAL device. -> no data at all.
+//                - `xcrun xctrace record --template 'Metal System Trace' --device
+//                  <simUDID> --all-processes`: records, but the export TOC shows it
+//                  captured HOST macOS processes (the sim app's GPU work is fused
+//                  into the host GPU via the SimMetalHost XPC service), NOT the sim
+//                  app's per-frame display timing. There is no per-sim-app frame /
+//                  display / vsync table to bucket, and the data is host-wide, so it
+//                  is neither attributable to the app nor false-positive-free.
+//                - `xctrace ... --attach <pid|name>` for the sim app: fails with
+//                  "Cannot find process for provided pid" / "Cannot find process
+//                  matching name": xctrace cannot target an in-simulator process,
+//                  and the sim app's HOST pid (the one simctl launchctl list / the
+//                  LEAK path resolves) is invisible to xctrace attach. So even the
+//                  pid we CAN resolve for the leak signal does not open a frame
+//                  trace.
+//                - Appium `mobile: startPerfRecord` / `driver.getPerformanceData`:
+//                  Android-only (no iOS frame-timing surface).
+//              A session-level CA-commit / FPS capture would also be nondeterministic
+//              to bucket over a host-shared sim GPU (no clean floor mapping to a
+//              stable finding id), so even a coarse session-level iOS jank verdict
+//              would risk false positives. We leave it silent rather than guess.
 //    LEAK      BOTH, COARSELY, under --soak.
 //              ANDROID: `dumpsys meminfo <pkg>` retained PSS (sampleAndroidHeap).
 //              iOS: process RESIDENT SET SIZE (footprint) of the booted-sim app,

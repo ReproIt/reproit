@@ -1042,17 +1042,36 @@ const DETECT_CONTENTBUG_JS = `
 
 // PARITY: keep in sync with runners/web/runner.mjs (jank/hang watchdog).
 //
-// JANK / HANG watchdog (deterministic, recorded-trace based). We key off the
-// webview's own Long Tasks trace, never a wall-clock duration sample: a
-// `longtask` PerformanceObserver entry is emitted for any task that blocks the
-// main thread > 50ms, buffered and delivered after the blocking task finishes.
-// We classify by the MAX blocked duration into coarse, well-separated floors
-// (>=2000ms hang, >=200ms jank) so timing jitter can never flip the verdict.
-// The observer is installed inside the webview via execute() (idempotent), and
-// re-installed each observe() since a navigation replaces the window. A WebView
-// without the Long Tasks API (some WebKitGTK builds) records nothing, so
-// jank/hang are silent there, NEVER a false positive (same honesty as the web
-// runner's firefox/webkit fallback).
+// JANK / HANG watchdog (deterministic, recorded-trace based). Two paths, both
+// installed inside the webview via execute() (idempotent) and re-installed each
+// observe() since a navigation replaces the window:
+//
+//   1. Long Tasks (CHROMIUM / WebView2 only). We key off the webview's own Long
+//      Tasks trace, never a wall-clock duration sample: a `longtask`
+//      PerformanceObserver entry is emitted for any task that blocks the main
+//      thread > 50ms, buffered and delivered after the blocking task finishes.
+//      We classify by the MAX blocked duration into coarse, well-separated
+//      floors (>=2000ms hang, >=200ms jank) so timing jitter can never flip the
+//      verdict. The Long Tasks API exists ONLY in Chromium/WebView2; on Tauri's
+//      WebKit webview (WKWebView on macOS, WebKitGTK on Linux) it is ABSENT, so
+//      this path records nothing there.
+//
+//   2. requestAnimationFrame frame-drop detector (CROSS-ENGINE). rAF fires once
+//      per would-be paint in EVERY engine, so the interval between two callbacks
+//      is how long the main thread blocked between two frames. This is the path
+//      that closes the silence on Tauri's WebKit webview, where Long Tasks is
+//      unavailable. The classifier (classifyFrameIntervals) and its floors are
+//      COPIED VERBATIM from runners/web/runner.mjs, where they are FP-validated
+//      on real firefox/webkit (clean + animated sites stay silent). Emits the
+//      SAME EXPLORE:JANK / EXPLORE:HANG markers with the SAME reused
+//      JANK_FLOOR_MS / HANG_FLOOR_MS buckets, so the marker is byte-identical
+//      across paths and to the web runner.
+//
+// drainJankForEngine() runs the Long Tasks path when it produced entries (the
+// precise Chromium/WebView2 signal) and otherwise falls back to the rAF path,
+// so a WebView2 verdict is unchanged while WebKit gets the cross-engine signal.
+// A webview where NEITHER path sees a stall stays SILENT, NEVER a false positive
+// (same honesty as the web runner's firefox/webkit fallback).
 const JANK_FLOOR_MS = 200;
 const HANG_FLOOR_MS = 2000;
 const INSTALL_LONGTASK_JS = `
@@ -1086,6 +1105,120 @@ async function drainJank(browser) {
   if (max >= JANK_FLOOR_MS) return { kind: 'jank', bucket: JANK_FLOOR_MS, count: tasks.length };
   return null;
 }
+
+// CROSS-ENGINE jank/hang path (requestAnimationFrame frame-drop detector). COPIED
+// VERBATIM from runners/web/runner.mjs (installFrameObserver / drainFrameJank /
+// classifyFrameIntervals + the RAF_* constants). The Long Tasks path above is
+// CHROMIUM/WebView2-ONLY; on Tauri's WebKit webview it records nothing. rAF works
+// in every engine: the browser fires the callback once per would-be paint, so the
+// interval between two callbacks is how long the main thread blocked between two
+// frames. The classifier is deliberately conservative to stay FALSE-POSITIVE-FREE:
+//   - HANG: a single interval >= HANG_FLOOR_MS (2000ms). Nothing benign blocks
+//     paint for two whole seconds.
+//   - JANK: EITHER a LONE long frame >= RAF_JANK_LONE_MS (a stall far above any
+//     GC/scheduling blip), OR a SUSTAINED RUN of >= RAF_JANK_RUN_MIN consecutive
+//     long (>= RAF_FRAME_MS) frames whose summed blocked time reaches
+//     JANK_FLOOR_MS. A single GC pause is one sub-lone-floor frame -> dropped.
+// The EMITTED bucket is the SAME reused JANK_FLOOR_MS / HANG_FLOOR_MS constant the
+// Long Tasks path uses, so the marker is byte-identical across paths and to the
+// web runner. `count` is the number of distinct stall EVENTS (runs), not raw
+// frames. The floors are FP-validated on real firefox/webkit; do not retune them.
+const RAF_FRAME_MS = 100;       // an inter-frame interval this long is a "long frame"
+const RAF_JANK_RUN_MIN = 2;     // a sustained jank run needs >= this many long frames
+const RAF_JANK_LONE_MS = 350;   // a single frame this long is jank on its own (> GC noise, < the 600ms fixture)
+
+// Pure classifier over a list of inter-frame intervals (ms). Deterministic: the
+// SAME interval list always yields the same verdict. Byte-identical to the web
+// runner's classifyFrameIntervals. Returns { kind, bucket, count } or null.
+function classifyFrameIntervals(intervals) {
+  if (!intervals || !intervals.length) return null;
+  // A HANG is any single frame that blocked paint past the hang floor. Counted as
+  // distinct events so the detail is stable.
+  let hangRuns = 0;
+  for (const iv of intervals) if (iv >= HANG_FLOOR_MS) hangRuns++;
+  if (hangRuns > 0) return { kind: 'hang', bucket: HANG_FLOOR_MS, count: hangRuns };
+  // Group consecutive long frames into runs; a run is jank if it is a LONE frame
+  // past the lone floor, or a sustained run (>= RAF_JANK_RUN_MIN frames) whose
+  // total blocked time reaches the jank floor. A single sub-lone-floor frame
+  // (a GC blip) forms a length-1 run that meets neither test -> not jank.
+  let jankRuns = 0;
+  let i = 0;
+  const n = intervals.length;
+  while (i < n) {
+    if (intervals[i] < RAF_FRAME_MS) { i++; continue; }
+    let j = i;
+    let total = 0;
+    let peak = 0;
+    while (j < n && intervals[j] >= RAF_FRAME_MS) {
+      total += intervals[j];
+      if (intervals[j] > peak) peak = intervals[j];
+      j++;
+    }
+    const runLen = j - i;
+    const lone = peak >= RAF_JANK_LONE_MS;
+    const sustained = runLen >= RAF_JANK_RUN_MIN && total >= JANK_FLOOR_MS;
+    if (lone || sustained) jankRuns++;
+    i = j;
+  }
+  if (jankRuns > 0) return { kind: 'jank', bucket: JANK_FLOOR_MS, count: jankRuns };
+  return null;
+}
+
+// Install the rAF frame-interval recorder inside the webview, alongside the
+// longtask observer. A self-perpetuating requestAnimationFrame loop appends each
+// inter-frame interval to a window-global the per-action probe drains. Idempotent
+// (a navigation drops it; observe() re-installs). Cross-engine (rAF is universal),
+// cheap (one timestamp per frame), side-effect-free. The buffer is capped so a
+// long idle stretch cannot grow it unbounded.
+const INSTALL_FRAME_JS = `
+  try {
+    if (!window.__reproitFrameHooked) {
+      window.__reproitFrameHooked = true;
+      window.__reproitFrameIntervals = [];
+      let last = -1;
+      const tick = (now) => {
+        if (last >= 0) {
+          const d = now - last;
+          const buf = window.__reproitFrameIntervals;
+          if (buf.length < 4096) buf.push(Math.round(d));
+        }
+        last = now;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  } catch (_) { /* no rAF: cross-engine jank/hang silent (never a false positive) */ }
+  return true;
+`;
+const RESET_FRAME_JS = `try { window.__reproitFrameIntervals = []; } catch (_) {} return true;`;
+const DRAIN_FRAME_JS = `
+  const t = window.__reproitFrameIntervals || [];
+  window.__reproitFrameIntervals = [];
+  return t;
+`;
+async function installFrameObserver(browser) {
+  try { await browser.execute(INSTALL_FRAME_JS); } catch { /* webview not ready */ }
+}
+// Drain the rAF interval buffer and classify it. Returns the SAME shape as
+// drainJank ({ kind, bucket, count }) or null. The cross-engine path.
+async function drainFrameJank(browser) {
+  let intervals = [];
+  try { intervals = await browser.execute(DRAIN_FRAME_JS); } catch { return null; }
+  return classifyFrameIntervals(intervals);
+}
+// Per-action jank/hang verdict, engine-agnostic. Tauri cannot tell us which
+// engine backs the webview from JS, so we run the PRECISE Long Tasks path first;
+// when it produced a verdict (Chromium/WebView2), we keep it unchanged. When it
+// is silent (no Long Tasks API, i.e. WebKit, OR a genuinely clean Chromium
+// action), we fall back to the rAF path, which is the cross-engine signal that
+// closes the WebKit silence. A clean action returns null on both -> no marker.
+async function drainJankForEngine(browser) {
+  const lt = await drainJank(browser);
+  if (lt) return lt;
+  return drainFrameJank(browser);
+}
+
+export { classifyFrameIntervals };
 
 // LEAK sampler (deterministic). `--soak` replays a reversible cycle N times and
 // reads the heap slope. The web/Electron runners read the PRECISE, unrounded v8
@@ -1417,6 +1550,10 @@ async function main() {
   // Install the Long Tasks observer (jank/hang watchdog) so it is live for every
   // action. Re-installed in observe() since a navigation replaces the window.
   await installLongTaskObserver(browser);
+  // Install the cross-engine rAF frame observer too (the path that catches
+  // jank/hang on Tauri's WebKit webview, where Long Tasks is unavailable).
+  // Re-installed in observe() since a navigation replaces the window.
+  await installFrameObserver(browser);
   const seen = new Set(), tried = new Set();
   const pick = rng(fuzz.seed || 0);
 
@@ -1453,6 +1590,8 @@ async function main() {
     await installHooks(browser);
     // Re-install the Long Tasks observer too (a navigation drops it); idempotent.
     await installLongTaskObserver(browser);
+    // Re-install the cross-engine rAF frame observer too (a navigation drops it).
+    await installFrameObserver(browser);
     // Drain any errors that the just-completed action produced. observe() runs
     // after every action (tap and back), so this covers all action sites.
     await drainErrors(browser);
@@ -1570,6 +1709,7 @@ async function main() {
     const beforeContent = current.content;
     try { await browser.execute(MARK_ANCHORS_JS); } catch (e) {} // flicker oracle: tag persistent chrome
     try { await browser.execute(RESET_LONGTASK_JS); } catch (e) {} // jank/hang: drop pre-action longtasks
+    try { await browser.execute(RESET_FRAME_JS); } catch (e) {} // jank/hang: drop pre-action rAF intervals
     if (!(await tap(browser, sel))) { log('FUZZ:MISS ' + act); stuck++; continue; }
     await browser.pause(700);
     // Tier-1 flicker oracle: did this transition rebuild persistent chrome that
@@ -1583,7 +1723,10 @@ async function main() {
     // JANK/HANG watchdog: did this action block the main thread past the
     // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
     // Rust side attributes it to this transition and `check` re-confirms it.
-    const tapJank = await drainJank(browser);
+    // drainJankForEngine uses the precise Long Tasks path on WebView2/Chromium
+    // and the cross-engine rAF path on Tauri's WebKit webview, where Long Tasks
+    // is unavailable, so the signal is no longer silent on mac/Linux.
+    const tapJank = await drainJankForEngine(browser);
     if (tapJank) {
       log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
         JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));

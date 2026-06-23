@@ -49,6 +49,11 @@ OVERFLOW_TOL_PX = 4
 # HANG watchdog floor (ms): a coarse, well-separated floor so host scheduling
 # jitter can never flip the verdict. Matches the web runner's HANG_FLOOR_MS.
 HANG_FLOOR_MS = 2000
+# JANK floor (ms): the SAME coarse dropped-frame floor every other backend uses
+# (web runner's JANK_FLOOR_MS). Defined for parity with the marker contract even
+# though this runner does NOT emit EXPLORE:JANK; see the JANK GAP note below for
+# why an out-of-process UIA runner has no clean per-window frame timeline.
+JANK_FLOOR_MS = 200
 
 
 # ---- CONTENT-BUG oracle (deterministic, label-based) ------------------------
@@ -1080,6 +1085,63 @@ def maybe_emit_hang(window, from_sig, action):
     if _is_hung(hwnd):
         emit("EXPLORE:HANG " + json.dumps(
             {"from": from_sig, "action": action, "bucket": HANG_FLOOR_MS}))
+
+
+# ---- JANK oracle: DOCUMENTED GAP (no clean per-window frame timeline) --------
+# Jank = the app dropping frames BELOW the freeze threshold (a stutter, not a
+# (Not Responding) freeze, which IsHungAppWindow already covers cleanly above).
+# The web/instrumented backends catch jank from an IN-PROCESS frame trace (Long
+# Tasks / requestAnimationFrame / a per-frame manifest) keyed to the action that
+# ran. This UIA runner is strictly OUT-OF-PROCESS: it has no hook inside the
+# target, so the only frame-timing surfaces available to it are the system DWM
+# (Desktop Window Manager) APIs. We investigated each candidate against the
+# non-negotiable bar (a marker only when REAL, per-(from,action), and false-
+# positive-free). NONE clears it from outside the process, so this runner emits
+# NO EXPLORE:JANK. Silence is the correct, FP-free behavior; the matrix cell is a
+# documented GAP, not a flaky '~'. The exact calls evaluated, for re-validation
+# on a real Windows box:
+#
+#   1) dwmapi!DwmGetCompositionTimingInfo(HWND, DWM_TIMING_INFO*)
+#      - As of Windows 8.1+ the HWND parameter MUST be NULL or the call returns
+#        E_INVALIDARG: there is NO per-window variant anymore. With HWND=NULL the
+#        DWM_TIMING_INFO frame counters (cFramesDisplayed / cFramesDropped /
+#        cFramesMissed / cFramesPending, plus qpcVBlank / qpcCompose / cRefresh)
+#        describe the WHOLE compositor, not the target window.
+#      - DWM composes the desktop continuously at the display refresh regardless
+#        of whether the target submitted a frame, so:
+#          * FALSE POSITIVE: any OTHER process's animation, a cursor blink, a
+#            background window, or compositor scheduling moves the global counters
+#            during our (from,action) window, which we would misattribute to the
+#            target app.
+#          * FALSE NEGATIVE: a target that froze its own rendering but submitted
+#            nothing leaves the GLOBAL composition cadence untouched (the desktop
+#            keeps composing the last frame), so missed-interval counting reads
+#            clean while the app actually stuttered.
+#      - There is no way to key a desktop-global counter to a single window or a
+#        single (from,action) transition, which is exactly the determinism this
+#        oracle requires. Fails the bar on attribution AND on FP/FN.
+#
+#   2) dwmapi!DwmGetCompositionTimingInfo cRefresh delta as a "refresh rate"
+#      - Only yields the monitor's refresh cadence (a constant ~60/120Hz), not
+#        whether THIS app dropped a frame. No app-fault signal at all.
+#
+#   3) IDXGISwapChain::GetFrameStatistics / DXGI present statistics (the API MS
+#      actually recommends over the deprecated DWM timing path)
+#      - This IS a clean per-window present stream (PresentCount / SyncQPCTime),
+#        but it is IN-PROCESS only: it requires the TARGET app's own swapchain
+#        pointer. An out-of-process UIA driver cannot obtain another process's
+#        IDXGISwapChain, so this is unreachable from here. (It is the path an
+#        IN-PROCESS Windows agent, e.g. the WPF operability agent under
+#        runners/native/wpf-agent, could use to close this gap in-process; that
+#        is where a real Windows jank signal would live, NOT in this driver.)
+#
+# Net: there is no out-of-process, per-window, FP-free frame-drop signal on
+# Windows UIA. HANG (the freeze case) is covered above by the first-class
+# IsHungAppWindow OS verdict; sub-freeze JANK stays a deliberate, documented gap.
+# RUNTIME-UNVERIFIED: this conclusion is from API semantics (Win8.1+ NULL-HWND
+# requirement, global-vs-per-window scope); validate on the Windows VM by calling
+# DwmGetCompositionTimingInfo with a real HWND (expect E_INVALIDARG) and with NULL
+# (expect global counters that advance on an idle target).
 
 
 # ---- LEAK sampler (MEMORY:SAMPLE, --soak) -----------------------------------
