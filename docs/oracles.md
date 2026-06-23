@@ -14,7 +14,7 @@ does not. So coverage is not uniform, and faking a signal a platform cannot
 deliver would mean false positives, which are worse than a missing oracle. This
 page records, honestly, what fires where and why the gaps exist.
 
-## The eight oracles
+## The oracles
 
 | Oracle | Marker | Catches |
 |---|---|---|
@@ -26,6 +26,16 @@ page records, honestly, what fires where and why the gaps exist.
 | jank | `EXPLORE:JANK` / sim frame manifest | a transition that drops frames |
 | hang | `EXPLORE:HANG` | an action that freezes the UI |
 | leak | `MEMORY:SAMPLE` (`--soak`) | memory that grows and never comes back |
+| layout-shift | `EXPLORE:SHIFT` | a tap that makes the page reflow and jump (Web Chromium only) |
+
+The layout-shift oracle is distinct from overflow: overflow is static ("content
+does not fit its box"), layout-shift is *motion on interaction* ("a tap made the
+page jump"). It keys off the browser's Layout Instability API (the source of
+Google's CLS), summing the shift score during each action's settle window and
+flagging a transition whose score passes the CLS "poor" floor (0.25) — so a
+jarring whole-page jump (e.g. a code-block language tab that resizes and pushes
+content) is caught while a small local expansion is not. Chromium-only (like
+Long Tasks jank), so silent on firefox/webkit and the non-web backends.
 
 ## Coverage matrix
 

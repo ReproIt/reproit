@@ -159,6 +159,13 @@ pub struct InvariantsCfg {
     /// web runner (`EXPLORE:HANG`).
     #[serde(default = "default_true")]
     pub no_hang: bool,
+    /// Layout shift (reflow/jump): an action that makes the page reflow and push
+    /// already-visible content (e.g. a code-block language tab that resizes the
+    /// block). Distinct from overflow (static "doesn't fit"). Keyed off the
+    /// browser's Layout Instability API / CLS from the web runner
+    /// (`EXPLORE:SHIFT`); Chromium-only.
+    #[serde(default = "default_true")]
+    pub no_layout_shift: bool,
     /// State sigs OR label-substrings that mark intended end screens, exempt
     /// from no-dead-end. A bare entry matches a state sig exactly OR (case-
     /// insensitively) any of that state's labels, so you can list either the
@@ -182,6 +189,7 @@ impl Default for InvariantsCfg {
             no_overflow: true,
             no_broken_render: true,
             no_hang: true,
+            no_layout_shift: true,
             terminal_states: vec![],
             custom: vec![],
         }

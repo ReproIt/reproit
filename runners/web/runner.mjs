@@ -432,6 +432,43 @@ async function installLongTaskObserver(page) {
     } catch (_) { /* no Long Tasks API: jank/hang silent on this engine */ }
   }).catch(() => {});
 }
+
+// LAYOUT-SHIFT oracle: a tap that makes the page reflow and jump (e.g. selecting
+// a code-block language tab that resizes the block and pushes everything below)
+// is a real UX bug distinct from overflow. The browser's Layout Instability API
+// (the source of Google's CLS) scores each shift by viewport-fraction x distance,
+// so summing the shifts during an action's settle gives a deterministic jump
+// magnitude. A SHIFT_FLOOR at the standard CLS "poor" threshold keeps it
+// false-positive-free: a jarring whole-page jump scores far above 0.25, while a
+// small local expansion (an accordion, a tooltip) scores far below. Chromium-only
+// (like Long Tasks), so silent on firefox/webkit rather than guessing.
+const SHIFT_FLOOR = 0.25;
+async function installShiftObserver(page) {
+  await page.addInitScript(() => {
+    try {
+      window.__reproitShifts = [];
+      const obs = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) window.__reproitShifts.push(e.value);
+      });
+      obs.observe({ type: 'layout-shift', buffered: true });
+    } catch (_) { /* no Layout Instability API: shift silent on this engine */ }
+  }).catch(() => {});
+}
+// Drain the shift buffer and return the jump magnitude for the action that just
+// ran, or null when the summed shift stayed below the floor (a clean action).
+async function drainShift(page) {
+  const shifts = await page.evaluate(() => {
+    const s = window.__reproitShifts || [];
+    window.__reproitShifts = [];
+    return s;
+  }).catch(() => []);
+  if (!shifts || !shifts.length) return null;
+  const score = shifts.reduce((a, b) => a + (Number(b) || 0), 0);
+  if (score >= SHIFT_FLOOR) {
+    return { score: Math.round(score * 1000) / 1000, count: shifts.length };
+  }
+  return null;
+}
 // Drain the longtask buffer and return the classification for the action that
 // just ran, or null when nothing crossed the jank floor. `kind` is 'hang' or
 // 'jank'; `bucket` is the coarse blocked-time floor (deterministic detail).
@@ -2499,6 +2536,8 @@ async function main() {
   // (the precise Long Tasks path is kept), but installing it everywhere keeps the
   // page setup uniform.
   await installFrameObserver(page);
+  // Layout-shift (CLS) observer for the reflow/jump oracle. Chromium-only.
+  await installShiftObserver(page);
 
   // Ready marker so the orchestrator starts its clock; matches the Dart
   // explorer's claim line.
@@ -2810,7 +2849,7 @@ async function main() {
       const before = current.sig;
       const beforeContent = current.content;
       await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
-      await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
+      await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; window.__reproitShifts = []; }).catch(() => {}); // jank/hang/shift: drop pre-action longtasks + frame intervals + layout shifts
       const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
       const ok = await typeInto(page, sel, value);
       if (!ok) { if (typePix) await typePix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
@@ -2831,6 +2870,10 @@ async function main() {
       if (typeJank) {
         log('EXPLORE:' + (typeJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
           JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, bucket: typeJank.bucket, count: typeJank.count }));
+      }
+      const typeShift = await drainShift(page);
+      if (typeShift) {
+        log('EXPLORE:SHIFT ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, score: typeShift.score, count: typeShift.count }));
       }
       const next = await observe();
       if (next.sig !== before) {
@@ -2875,6 +2918,10 @@ async function main() {
     if (tapJank) {
       log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
         JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
+    }
+    const tapShift = await drainShift(page);
+    if (tapShift) {
+      log('EXPLORE:SHIFT ' + JSON.stringify({ from: before, action: 'tap:' + sel, score: tapShift.score, count: tapShift.count }));
     }
     const next = await observe();
     if (next.sig !== before) {

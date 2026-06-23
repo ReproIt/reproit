@@ -78,6 +78,12 @@ pub(crate) struct RunObs {
     /// watchdog at a higher floor). A freeze is a no-progress block; empty unless
     /// an action froze the UI past the hang floor.
     pub hangs: BTreeMap<(String, String), i64>,
+    /// (from sig, action) -> the summed LAYOUT SHIFT score (CLS) of a reflow/jump
+    /// on that transition, from `EXPLORE:SHIFT` records (the layout-shift oracle).
+    /// A tap that makes the page jump (e.g. a code-block language tab that resizes
+    /// and pushes content) scores past the runner floor; empty unless an action
+    /// shifted the layout. Chromium-only (Layout Instability API).
+    pub shifts: BTreeMap<(String, String), f64>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -145,6 +151,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         content_bugs: BTreeMap::new(),
         janks: BTreeMap::new(),
         hangs: BTreeMap::new(),
+        shifts: BTreeMap::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -295,6 +302,18 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 let bucket = json.get("bucket").and_then(Value::as_i64).unwrap_or(0);
                 obs.hangs
                     .insert((from.to_string(), action.to_string()), bucket);
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:SHIFT ") {
+            // A LAYOUT SHIFT (reflow/jump) on a transition (Layout Instability
+            // API / CLS). Keyed by (from, action); value is the summed shift score
+            // (viewport-fraction x distance), already past the runner's floor.
+            if let (Some(from), Some(action)) = (
+                json.get("from").and_then(Value::as_str),
+                json.get("action").and_then(Value::as_str),
+            ) {
+                let score = json.get("score").and_then(Value::as_f64).unwrap_or(0.0);
+                obs.shifts
+                    .insert((from.to_string(), action.to_string()), score);
             }
         }
     }
