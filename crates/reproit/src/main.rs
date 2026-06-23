@@ -1140,11 +1140,35 @@ async fn main() -> Result<ExitCode> {
                 });
             }
             if record {
-                // Run ONCE with full evidence + annotated video (was `run`).
+                // Run ONCE with full evidence + annotated video (was `run`),
+                // REPLAYING the kept repro. The runner draws the annotated overlay
+                // (paced action HUD + the red finding box) ONLY when it is fed a
+                // replay; without one it explores freely and the "annotated video"
+                // is a random walk, not the bug. So we write the repro's stored
+                // action sequence to the fuzz config the runner reads (exactly as
+                // `check`/`fuzz` do) and hand the path to the orchestrator as a
+                // define, instead of running a bare `explore` journey.
                 let name = repro
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("--record needs a repro id or alias"))?;
                 let journey = resolve_repro_journey(&loaded.root, &name)?;
+                let meta = repro::resolve(&loaded.root, &name)
+                    .ok_or_else(|| anyhow::anyhow!("no repro `{name}` (by id or alias)"))?;
+                let replay_path = repro::repro_dir(&loaded.root, &meta.id).join("replay.json");
+                let replay: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&replay_path).map_err(|e| {
+                        anyhow::anyhow!(
+                            "reading replay for `{name}` ({}): {e}",
+                            replay_path.display()
+                        )
+                    })?)?;
+                let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
+                std::fs::create_dir_all(cfg_path.parent().unwrap())?;
+                std::fs::write(&cfg_path, replay.to_string())?;
+                let extra = vec![(
+                    "REPROIT_FUZZ_CONFIG".to_string(),
+                    cfg_path.to_string_lossy().into_owned(),
+                )];
                 let outcome = orchestrator::run_journey(
                     &loaded.config,
                     &loaded.root,
@@ -1155,6 +1179,7 @@ async fn main() -> Result<ExitCode> {
                         warm,
                         shots_dir: shots_dir.as_deref(),
                         profile,
+                        extra_defines: &extra,
                         ..Default::default()
                     },
                 )
