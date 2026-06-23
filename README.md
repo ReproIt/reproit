@@ -45,7 +45,7 @@ Install script (macOS and Linux): fetches the binary and provisions the web
 runner so `reproit fuzz https://yoursite.com` works with no further setup.
 
 ```sh
-curl -fsSL https://reproit.com/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ReproIt/reproit/main/install.sh | sh
 ```
 
 Or Homebrew:

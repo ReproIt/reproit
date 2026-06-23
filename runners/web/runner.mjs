@@ -992,6 +992,20 @@ async function snapshot(page, valueNodeSelectors) {
       return false;
     };
 
+    // A link that navigates OFF the app-under-test's origin (a team member's
+    // LinkedIn, a "View on GitHub" footer). Tapping it leaves the app, so the
+    // explorer must not offer it as an action: the destination is a foreign
+    // site, not a state of the app, and recording it produces phantom states +
+    // spurious dead ends. mailto:/tel:/javascript: are not external navigation.
+    const isExternalLink = (el) => {
+      const a = el.closest && el.closest('a[href]');
+      if (!a) return false;
+      let href;
+      try { href = new URL(a.getAttribute('href'), location.href); } catch (e) { return false; }
+      if (href.protocol !== 'http:' && href.protocol !== 'https:') return false;
+      return href.origin !== location.origin;
+    };
+
     const nameOf = (el) => {
       const aria = el.getAttribute('aria-label');
       if (aria && aria.trim()) return aria.trim();
@@ -1134,6 +1148,7 @@ async function snapshot(page, valueNodeSelectors) {
             role, key: keyOf(el),
             label: name ? clipLabel(name) : '',
             unlabeled: !accessibleName(el),
+            external: isExternalLink(el),
           });
         } else if (reachable(el) && pointerOperable(el)) {
           // Only KEYED extras: a stable `key:<id>` selector is reproducible and
@@ -1174,7 +1189,7 @@ async function snapshot(page, valueNodeSelectors) {
       perRole[tn.role] = idx + 1;
       if (tn.unlabeled) unlabeled++;
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label };
+      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external };
     });
     // Append the keyed pointer-operable extras (keyed selector only; no role
     // index, so nothing above shifts). Dedup against selectors already present
@@ -2446,8 +2461,12 @@ async function main() {
       // Candidate edges: tap every tappable; for text fields ALSO offer a type
       // edge whose adversarial value is chosen deterministically from the seed
       // (the option string carries the value id so a replay reconstructs it).
-      const taps = current.tappables.map((e) => e.sel).sort();
-      const textSels = current.tappables.filter((e) => e.role === 'textfield').map((e) => e.sel).sort();
+      // Exclude cross-origin links from the action set: tapping one leaves the
+      // app (see isExternalLink). They stay in `tappables` so role:<role>#<idx>
+      // indices are unchanged; they are just never chosen as an edge.
+      const actable = current.tappables.filter((e) => !e.external);
+      const taps = actable.map((e) => e.sel).sort();
+      const textSels = actable.filter((e) => e.role === 'textfield').map((e) => e.sel).sort();
       const typeOpts = textSels.map((s) => {
         // Derive the adversarial id from seed + selector so the same field on
         // the same seed always types the same value (reproducible), but
@@ -2465,6 +2484,7 @@ async function main() {
     } else {
       act = null;
       for (const el of current.tappables) {
+        if (el.external) continue; // never leave the app-under-test's origin
         // Prefer an untried type edge for text fields (use the plain value in
         // the non-seeded walk; the seeded walk explores the adversarial set).
         const edge = el.role === 'textfield' ? 'type:' + el.sel + '=normal' : 'tap:' + el.sel;

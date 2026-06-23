@@ -242,6 +242,10 @@ async fn fuzz_one_locale(
     // batches (via absorb_run_inmem below), not within. Smaller batches tighten
     // the guidance loop at the cost of more startups.
     let mut map = crate::map::load_map(root, cfg);
+    // Routes the aggregate map can leave: folded into each per-seed dead-end
+    // check so a sparse seed does not false-flag an escapable page as a sink.
+    // Grows as seeds reveal exits the shallow map-build never reached.
+    let mut escapable = map_escapable_routes(&map);
     let mut visits = crate::map::load_visits(root);
     let mut warm = false;
     let mut done = 0u32;
@@ -285,6 +289,24 @@ async fn fuzz_one_locale(
             std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
         let segments = split_seed_segments(&full_log, &plans);
 
+        // Pool escapable routes across ALL seeds in this batch BEFORE judging any
+        // of them. A dead end is a graph property, so one seed's sparse view is
+        // too partial: an early seed that only reached a page as its budget
+        // terminus would false-flag it even though a sibling seed left it cleanly.
+        // Pooling (and accumulating into `escapable` across batches) means a page
+        // any seed could leave via a forward action is never a dead end. This is
+        // the trust fix: dead-end findings must survive the whole run's evidence.
+        for (_s, seg_log) in &segments {
+            let o = crate::map::parse_run(seg_log);
+            for (from, action, to) in &o.edges {
+                if action != "back" && to != from {
+                    if let Some(r) = o.routes.get(from) {
+                        escapable.insert(r.clone());
+                    }
+                }
+            }
+        }
+
         for (idx, (seed, seg_log)) in segments.iter().enumerate() {
             // Accrue this walk's coverage into the IN-MEMORY snapshot only, so
             // later batches in THIS run get the guidance, but the committed
@@ -302,7 +324,8 @@ async fn fuzz_one_locale(
             // so we feed invariants the exceptions and take its findings as the
             // exception+graph+label findings together. Jank/leak stay handled by
             // perf_findings below for the sim tier (session-wide frame stream).
-            let inv_obs = invariant_observations(seg_log, exceptions.clone(), args.sim);
+            let inv_obs =
+                invariant_observations(seg_log, exceptions.clone(), args.sim, escapable.clone());
             let mut findings = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
             // If the user turned no-exception OFF but we still parsed app
             // exceptions, keep them (the oracle should not go silent on a real
@@ -938,14 +961,38 @@ fn invariant_observations(
     seg_log: &str,
     exceptions: Vec<Value>,
     sim: bool,
+    escapable_routes: std::collections::BTreeSet<String>,
 ) -> crate::invariants::Observations {
+    let mut obs = crate::map::parse_run(seg_log);
+    obs.escapable_routes = escapable_routes;
     crate::invariants::Observations {
-        obs: crate::map::parse_run(seg_log),
+        obs,
         exceptions,
         jank_by_sig: std::collections::BTreeMap::new(),
         leak_signal: None,
         sim,
     }
+}
+
+/// Routes the AGGREGATE map can leave via a forward (non-back) action. Folded
+/// into each per-seed dead-end evaluation so a state on an escapable page is not
+/// flagged as a sink just because one sparse seed recorded no exit from it (the
+/// animated single-page-app false positive).
+fn map_escapable_routes(map: &crate::appmap::AppMap) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for t in &map.transitions {
+        if matches!(t.action, crate::appmap::Action::Back) || t.from == t.to {
+            continue;
+        }
+        if let Some(route) = map
+            .states
+            .get(&t.from)
+            .and_then(|s| s.signature.route.as_ref())
+        {
+            out.insert(route.clone());
+        }
+    }
+    out
 }
 
 /// The category of a finding: its named invariant id when present (e.g.
@@ -1024,7 +1071,10 @@ fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
     } else {
         exceptions_in_log(&log)
     };
-    let inv_obs = invariant_observations(&log, exceptions.clone(), sim);
+    // The check path re-verifies a specific recorded finding without the
+    // aggregate map in scope; an empty set keeps its dead-end check unchanged.
+    let inv_obs =
+        invariant_observations(&log, exceptions.clone(), sim, std::collections::BTreeSet::new());
     let mut f = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
     if !cfg.invariants.no_exception {
         f.extend(exceptions);

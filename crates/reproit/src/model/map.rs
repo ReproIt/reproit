@@ -28,6 +28,12 @@ pub(crate) struct RunObs {
     pub edges: Vec<(String, String, String)>,
     /// First state observed: the app's start state.
     pub start: Option<String>,
+    /// Routes that have a forward (non-back) exit in the AGGREGATE map, folded in
+    /// by the caller (the per-seed graph is too sparse on its own). The dead-end
+    /// oracle treats a state on such a route as escapable, so an animated
+    /// single-page snapshot whose one seed recorded no exit is not a false sink.
+    /// Empty unless a caller populates it (parse_run leaves it empty).
+    pub escapable_routes: std::collections::BTreeSet<String>,
     /// sig -> operability/accessibility gaps, from `EXPLORE:GROUNDTRUTH` records
     /// (the graph-1-minus-graph-2 diff). Empty for runners that don't emit it.
     pub gaps: BTreeMap<String, OperabilityGaps>,
@@ -124,6 +130,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         routes: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
+        escapable_routes: std::collections::BTreeSet::new(),
         gaps: BTreeMap::new(),
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),

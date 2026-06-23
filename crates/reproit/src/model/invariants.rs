@@ -311,21 +311,59 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
 /// exactly PLANTED-BUG 6 (the Advanced screen: reachable, but its only exit is
 /// system back).
 fn dead_ends(obs: &RunObs) -> Vec<String> {
+    // Routes (URL path / framework anchor) that have a forward exit from SOME
+    // state on them. On a dynamic single-page site, one logical page churns into
+    // several structural snapshots (animation, lazy render) that share a route;
+    // the snapshot where the walk's budget ran out has no recorded exit and would
+    // look like a sink. If a same-route sibling does have a forward exit, it is
+    // the same page and the walk could leave it, so the exit-less snapshot is an
+    // artifact, not a dead end. A genuinely trapped screen has its own route and
+    // is unaffected. Empty when no runner reports routes (TUI/desktop), so the
+    // predicate is unchanged there.
+    let mut routes_with_exit = std::collections::BTreeSet::new();
+    for (from, action, to) in &obs.edges {
+        if action != "back" && to != from {
+            if let Some(route) = obs.routes.get(from) {
+                routes_with_exit.insert(route.clone());
+            }
+        }
+    }
+
     let mut out = Vec::new();
     for sig in obs.states.keys() {
+        let is_start = obs.start.as_deref() == Some(sig.as_str());
         // Reachable as a destination of some edge, or the start state.
-        let reachable = obs.start.as_deref() == Some(sig.as_str())
-            || obs.edges.iter().any(|(_, _, to)| to == sig);
+        let reachable = is_start || obs.edges.iter().any(|(_, _, to)| to == sig);
         if !reachable {
+            continue;
+        }
+        // A START state the walk never acted from is an empty/unproductive walk,
+        // not a proven sink (this fn's contract, and the common shape of a web
+        // seed that churned without recording an exit). Only the start gets this
+        // pass: a NON-start state reached with no exit IS a genuine sink (the
+        // Advanced-screen planted bug), so it stays flagged.
+        let acted_from = obs.edges.iter().any(|(from, _, _)| from == sig);
+        if is_start && !acted_from {
             continue;
         }
         let has_forward_exit = obs
             .edges
             .iter()
             .any(|(from, action, to)| from == sig && action != "back" && to != sig);
-        if !has_forward_exit {
-            out.push(sig.clone());
+        if has_forward_exit {
+            continue;
         }
+        // Same page has a forward exit -> this is a transient snapshot of an
+        // escapable page, not a real sink. Two sources: a same-route sibling in
+        // THIS seed's sparse graph, and the AGGREGATE map's escapable routes
+        // folded in by the caller (covers the common case where one seed visited
+        // the page only as its budget terminus).
+        if let Some(route) = obs.routes.get(sig) {
+            if routes_with_exit.contains(route) || obs.escapable_routes.contains(route) {
+                continue;
+            }
+        }
+        out.push(sig.clone());
     }
     out
 }
@@ -658,6 +696,7 @@ mod tests {
                     .map(|(f, a, t)| (f.to_string(), a.to_string(), t.to_string()))
                     .collect(),
                 start: start.map(String::from),
+                escapable_routes: Default::default(),
                 gaps: Default::default(),
                 rerenders: Default::default(),
                 paint_flickers: Default::default(),
@@ -950,6 +989,60 @@ mod tests {
         assert!(f
             .iter()
             .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "advanced"));
+    }
+
+    #[test]
+    fn same_route_snapshots_are_not_dead_ends() {
+        // A dynamic single-page site: one route "/" churns into three structural
+        // snapshots as it animates. The walk ends at s2 (budget exhausted), which
+        // has no recorded exit, but its same-route siblings s0/s1 DO, so s2 is an
+        // animation artifact, not a sink. (Regression: the archastro.ai false
+        // positive.)
+        let mut o = obs_with(
+            &[
+                ("s0", &["Home"], 0),
+                ("s1", &["Home"], 0),
+                ("s2", &["Home"], 0),
+            ],
+            &[("s0", "tap:link", "s1"), ("s1", "tap:link", "s2")],
+            Some("s0"),
+        );
+        for s in ["s0", "s1", "s2"] {
+            o.obs.routes.insert(s.to_string(), "/".to_string());
+        }
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(
+            !f.iter().any(|x| x["invariant"] == "no-dead-end"),
+            "no snapshot of an escapable single-page route should be a dead end"
+        );
+    }
+
+    #[test]
+    fn lone_start_state_with_no_edges_is_not_a_dead_end() {
+        // The actual archastro.ai seed shape: the walk observed only the start
+        // state and recorded no edge (it churned without a clean transition). An
+        // unproductive walk is not a proven sink, so the landing page must not be
+        // flagged. (A non-start reached sink still is: see no_dead_end_flags_a_sink_node.)
+        let o = obs_with(&[("home", &["Home"], 0)], &[], Some("home"));
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(!f.iter().any(|x| x["invariant"] == "no-dead-end"));
+    }
+
+    #[test]
+    fn distinct_route_sink_is_still_a_dead_end() {
+        // home (/) -> trap (/trap); trap has no exit AND its own route, so the
+        // same-route suppression does not apply: still a real dead end.
+        let mut o = obs_with(
+            &[("home", &["Go"], 0), ("trap", &["Stuck"], 0)],
+            &[("home", "tap:Go", "trap")],
+            Some("home"),
+        );
+        o.obs.routes.insert("home".into(), "/".into());
+        o.obs.routes.insert("trap".into(), "/trap".into());
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(f
+            .iter()
+            .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "trap"));
     }
 
     #[test]
