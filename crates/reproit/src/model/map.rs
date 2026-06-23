@@ -78,6 +78,14 @@ pub(crate) struct RunObs {
     /// watchdog at a higher floor). A freeze is a no-progress block; empty unless
     /// an action froze the UI past the hang floor.
     pub hangs: BTreeMap<(String, String), i64>,
+    /// Choice-anomaly findings, from `EXPLORE:CHOICEBUG` records (the
+    /// component-choice differential oracle): one entry per multi-choice
+    /// component whose options behave UNIFORMLY except one outlier. Each is
+    /// `(from sig, role, outlier_label, sel, magnitude_px)`: the state, the
+    /// choice role (tab/radio/...), the option that deviated, its selector, and
+    /// how many px of global layout it moved. Empty unless a component has an
+    /// odd-one-out choice.
+    pub choice_bugs: Vec<(String, String, String, String, i64)>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -145,6 +153,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         content_bugs: BTreeMap::new(),
         janks: BTreeMap::new(),
         hangs: BTreeMap::new(),
+        choice_bugs: Vec::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -295,6 +304,24 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 let bucket = json.get("bucket").and_then(Value::as_i64).unwrap_or(0);
                 obs.hangs
                     .insert((from.to_string(), action.to_string()), bucket);
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:CHOICEBUG ") {
+            // A component-choice outlier: a multi-choice component whose options
+            // behave uniformly except one that deviates on the global layout.
+            if let (Some(from), Some(role), Some(outlier), Some(sel)) = (
+                json.get("from").and_then(Value::as_str),
+                json.get("role").and_then(Value::as_str),
+                json.get("outlier").and_then(Value::as_str),
+                json.get("sel").and_then(Value::as_str),
+            ) {
+                let mag = json.get("magnitude").and_then(Value::as_i64).unwrap_or(0);
+                obs.choice_bugs.push((
+                    from.to_string(),
+                    role.to_string(),
+                    outlier.to_string(),
+                    sel.to_string(),
+                    mag,
+                ));
             }
         }
     }

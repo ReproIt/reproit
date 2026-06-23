@@ -159,6 +159,12 @@ pub struct InvariantsCfg {
     /// web runner (`EXPLORE:HANG`).
     #[serde(default = "default_true")]
     pub no_hang: bool,
+    /// Component-choice anomaly: a multi-choice component (language tabs, a radio
+    /// group) where one option behaves differently from its siblings, shifting the
+    /// global layout. Differential (outlier vs siblings), not an absolute
+    /// threshold. From the web runner's `EXPLORE:CHOICEBUG`; Chromium-tier.
+    #[serde(default = "default_true")]
+    pub no_choice_anomaly: bool,
     /// State sigs OR label-substrings that mark intended end screens, exempt
     /// from no-dead-end. A bare entry matches a state sig exactly OR (case-
     /// insensitively) any of that state's labels, so you can list either the
@@ -182,6 +188,7 @@ impl Default for InvariantsCfg {
             no_overflow: true,
             no_broken_render: true,
             no_hang: true,
+            no_choice_anomaly: true,
             terminal_states: vec![],
             custom: vec![],
         }

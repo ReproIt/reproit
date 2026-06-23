@@ -259,6 +259,25 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // no-choice-anomaly: a multi-choice component (language tabs, a radio group)
+    // where every option has a similar effect EXCEPT one outlier that shifts the
+    // global layout. Differential, not an absolute threshold: the web runner
+    // exhaustively selects each choice, measures its effect on the page OUTSIDE
+    // the component, and reports only the choice whose effect deviates far from
+    // its siblings. Empty unless a component has an odd-one-out option.
+    if cfg.no_choice_anomaly {
+        for (from, role, outlier, _sel, mag) in &obs.obs.choice_bugs {
+            out.push(finding(
+                "no-choice-anomaly",
+                "CHOICE",
+                format!(
+                    "the {role} choice '{outlier}' behaves differently from its siblings: selecting it shifts the global page layout by {mag}px while the other choices do not (an odd-one-out option)"
+                ),
+                Some(from),
+            ));
+        }
+    }
+
     // no-leak: a leaked-resource / teardown signal. Headless surfaces a
     // teardown exception block (already in `exceptions` -> no-exception); this
     // adds a dedicated finding when a non-exception memory signal is present
@@ -740,6 +759,7 @@ mod tests {
                 content_bugs: Default::default(),
                 janks: Default::default(),
                 hangs: Default::default(),
+                choice_bugs: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),
@@ -944,6 +964,39 @@ mod tests {
             recheck_content_bug(&held.obs, "other"),
             GraphRecheck::NotReached
         );
+    }
+
+    #[test]
+    fn no_choice_anomaly_flags_an_outlier_choice() {
+        // A multi-choice component reported one option that shifted the global
+        // layout while its siblings did not. The differential outlier fires; a
+        // run with no choice-bugs stays silent.
+        let mut o = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
+        o.obs.choice_bugs.push((
+            "home".to_string(),
+            "tab".to_string(),
+            "Go".to_string(),
+            "role:tab#3".to_string(),
+            720,
+        ));
+        let f = evaluate(&o, &InvariantsCfg::default());
+        let v = f
+            .iter()
+            .find(|x| x["invariant"] == "no-choice-anomaly")
+            .unwrap();
+        assert_eq!(v["sig"], "home");
+        assert!(v["message"].as_str().unwrap().contains("Go"));
+        // Empty -> no finding.
+        let clean = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
+        assert!(!evaluate(&clean, &InvariantsCfg::default())
+            .iter()
+            .any(|x| x["invariant"] == "no-choice-anomaly"));
+        // Toggle off suppresses it.
+        let cfg = InvariantsCfg {
+            no_choice_anomaly: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-choice-anomaly".to_string()));
     }
 
     #[test]

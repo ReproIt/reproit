@@ -1,6 +1,6 @@
 # Oracles by backend
 
-An *oracle* is one named class of bug the fuzzer can catch. reproit ships eight,
+An *oracle* is one named class of bug the fuzzer can catch. reproit ships nine,
 all on by default. The oracle core is platform-agnostic: each per-backend runner
 emits the same `EXPLORE:*` / `MEMORY:*` markers, and the Rust core
 (`crates/reproit/src/model/{map,invariants}.rs`) evaluates them identically no
@@ -14,11 +14,12 @@ does not. So coverage is not uniform, and faking a signal a platform cannot
 deliver would mean false positives, which are worse than a missing oracle. This
 page records, honestly, what fires where and why the gaps exist.
 
-## The eight oracles
+## The oracles
 
 | Oracle | Marker | Catches |
 |---|---|---|
 | crash | exception block | an uncaught exception / signal |
+| choice-anomaly | `EXPLORE:CHOICEBUG` | one option of a multi-choice component shifts the global layout when its siblings do not (Web only) |
 | overflow | `EXPLORE:OVERFLOW` | a child element spilling out of its container |
 | dead-end | `EXPLORE:STATE` + `EXPLORE:EDGE` (graph) | a non-terminal screen with no way out |
 | flicker | `EXPLORE:RERENDER` / `EXPLORE:FLICKER` | a wasteful repaint / transient visual divergence |
@@ -26,6 +27,19 @@ page records, honestly, what fires where and why the gaps exist.
 | jank | `EXPLORE:JANK` / sim frame manifest | a transition that drops frames |
 | hang | `EXPLORE:HANG` | an action that freezes the UI |
 | leak | `MEMORY:SAMPLE` (`--soak`) | memory that grows and never comes back |
+
+The **choice-anomaly** oracle is differential, not absolute, which is what keeps
+it false-positive-free. When the fuzzer finds a multi-choice component (an ARIA
+`tab`/`radio` group, a `<select>`, or a cluster of sibling buttons where exactly
+one is selected, e.g. a code-block language picker), it exercises *every* choice
+and measures each one's effect on the GLOBAL layout (page horizontal-overflow +
+the page-absolute displacement of chrome anchors outside the component). The
+expected behavior is the COMMON effect across choices (every language resizes the
+code block a bit); a bug is the choice whose effect is an OUTLIER versus its
+siblings (only one language also shifts the whole page). It fires only when one
+choice's effect is >= 3x the sibling median and above a floor, so uniform choices
+produce nothing. Web-only (it needs the live layout); the component is selected
+by accessible label so below-fold pickers are scrolled into view and exercised.
 
 ## Coverage matrix
 

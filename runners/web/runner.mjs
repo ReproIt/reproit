@@ -972,6 +972,23 @@ async function snapshot(page, valueNodeSelectors) {
     const labels = [];          // DISPLAY-ONLY visible text
     const rawTaps = [];         // tappable nodes in document order
     const extraTaps = [];       // keyed pointer-operable nodes interactive() drops
+    // Parent registry: a stable per-container index so sibling tappables can be
+    // grouped (a button-cluster choice picker). Plus a selected-state read, so a
+    // mutually-exclusive choice group (exactly one selected) is distinguishable
+    // from a row of action buttons (none selected). Used by detectChoiceGroups.
+    const parentReg = new Map(); let parentIdx = 0;
+    const groupOf = (el) => {
+      const par = el.parentElement; if (!par) return -1;
+      if (!parentReg.has(par)) parentReg.set(par, parentIdx++);
+      return parentReg.get(par);
+    };
+    const selectedState = (el) => {
+      const a = (n) => (el.getAttribute(n) || '').toLowerCase();
+      if (a('aria-pressed') === 'true' || a('aria-selected') === 'true') return true;
+      if (a('aria-checked') === 'true' || el.getAttribute('aria-current') != null) return true;
+      const ds = a('data-state'); if (['active', 'selected', 'on', 'checked', 'open'].includes(ds)) return true;
+      return false;
+    };
     const textNodes = [];       // (stable-key, trimmed text) for the Layer-1 fingerprint
 
     // Fixed canonical role vocabulary (docs/signature.md "Roles").
@@ -1302,6 +1319,8 @@ async function snapshot(page, valueNodeSelectors) {
             label: name ? clipLabel(name) : '',
             unlabeled: !accessibleName(el),
             external: isExternalLink(el),
+            grp: groupOf(el),
+            selected: selectedState(el),
           });
         } else if (reachable(el) && pointerOperable(el)) {
           // Only KEYED extras: a stable `key:<id>` selector is reproducible and
@@ -1342,7 +1361,7 @@ async function snapshot(page, valueNodeSelectors) {
       perRole[tn.role] = idx + 1;
       if (tn.unlabeled) unlabeled++;
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external };
+      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external, grp: tn.grp, selected: !!tn.selected };
     });
     // Append the keyed pointer-operable extras (keyed selector only; no role
     // index, so nothing above shifts). Dedup against selectors already present
@@ -2441,6 +2460,185 @@ async function showActionHud(page, act, step, total) {
     .catch(() => {});
 }
 
+// ---- COMPONENT-CHOICE differential fuzzing ----
+// A multi-choice component (language tabs, a radio group) where EVERY choice has
+// a similar effect (the common, expected behavior) but ONE choice deviates is a
+// real bug. We exhaustively select each option and flag the one whose effect on
+// the GLOBAL layout (the page OUTSIDE the component) is an OUTLIER vs its
+// siblings - differential, not an absolute floor. If all choices behave alike
+// (every language merely resizes the code block), NOTHING is flagged. This is
+// what catches "only Go shifts the whole page" without the false positives an
+// absolute layout-shift threshold produced.
+const CHOICE_ROLES = new Set(['tab', 'radio', 'menuitemradio']);
+const CHOICE_OUTLIER_RATIO = 3; // outlier magnitude >= 3x the sibling median ...
+const CHOICE_MIN_MAGNITUDE = 24; // ...and at least this many px of global move.
+
+// Group the snapshot's choice-role tappables into mutually-exclusive option sets
+// (>= 2 options). Keyed by role; a page with two separate tablists merges into
+// one group, which is acceptable for v1 (the outlier test still holds).
+function detectChoiceGroups(tappables) {
+  const groups = [];
+  const claimed = new Set();
+  // 1) ARIA choice roles: a set of tab/radio/menuitemradio options.
+  const byRole = new Map();
+  for (const t of tappables) {
+    if (CHOICE_ROLES.has(t.role)) {
+      if (!byRole.has(t.role)) byRole.set(t.role, []);
+      byRole.get(t.role).push(t);
+    }
+  }
+  for (const [role, opts] of byRole) {
+    if (opts.length >= 2) {
+      groups.push({ role, opts });
+      for (const o of opts) claimed.add(o.sel);
+    }
+  }
+  // 2) Button-cluster pickers (no ARIA choice role, e.g. a code-block language
+  // switcher rendered as plain buttons): a set of >=3 same-parent, same-role
+  // tappables where EXACTLY ONE is selected. The one-of-N selected state is what
+  // separates a mutually-exclusive choice group from a row of action buttons
+  // (Save/Delete, none selected), so we never blindly tap a Delete.
+  const byGrp = new Map();
+  for (const t of tappables) {
+    // Only plain BUTTONS (links navigate, they are not a choice picker), with a
+    // label (a real picker labels every option).
+    if (claimed.has(t.sel) || t.role !== 'button' || !t.label || t.grp == null || t.grp < 0) continue;
+    if (!byGrp.has(t.grp)) byGrp.set(t.grp, []);
+    byGrp.get(t.grp).push(t);
+  }
+  for (const opts of byGrp.values()) {
+    if (opts.length >= 3 && opts.filter((o) => o.selected).length === 1) {
+      groups.push({ role: 'button-cluster', opts });
+    }
+  }
+  return groups;
+}
+
+// Capture a GLOBAL-layout fingerprint: page horizontal overflow + scroll height
+// + the positions of persistent chrome anchors OUTSIDE any one tab panel. The
+// point is to measure a choice's effect on the REST of the page, so a component
+// resizing ITSELF (expected) does not register.
+async function measureGlobalLayout(page) {
+  return await page
+    .evaluate(() => {
+      const de = document.documentElement;
+      const sx = window.scrollX || 0, sy = window.scrollY || 0;
+      const anchors = [];
+      for (const el of document.querySelectorAll(
+        'header, h1, h2, footer, [role=banner], [role=contentinfo], [role=navigation]'
+      )) {
+        const r = el.getBoundingClientRect();
+        // PAGE-ABSOLUTE position so scrolling between choices does not register as
+        // a layout move; only a real reflow shifts an element's absolute position.
+        if (r.width > 0) anchors.push([Math.round(r.top + sy), Math.round(r.left + sx)]);
+      }
+      return {
+        hOverflow: Math.max(0, de.scrollWidth - window.innerWidth),
+        scrollH: de.scrollHeight,
+        anchors,
+      };
+    })
+    .catch(() => null);
+}
+
+// Total px the global layout moved between two fingerprints: horizontal-overflow
+// delta + anchor displacement (matched by index; persistent chrome is stable).
+function layoutDelta(base, cur) {
+  if (!base || !cur) return 0;
+  let d = Math.abs((cur.hOverflow || 0) - (base.hOverflow || 0));
+  const n = Math.min(base.anchors.length, cur.anchors.length);
+  for (let i = 0; i < n; i++) {
+    d += Math.abs(cur.anchors[i][0] - base.anchors[i][0]);
+    d += Math.abs(cur.anchors[i][1] - base.anchors[i][1]);
+  }
+  return d;
+}
+
+function medianOf(xs) {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// Exhaustively select each option of a choice group, measure its effect on the
+// global layout, and emit at most one EXPLORE:CHOICEBUG for the outlier (a choice
+// whose effect is >= CHOICE_OUTLIER_RATIO x the median of its siblings AND at
+// least CHOICE_MIN_MAGNITUDE px). Needs >= 3 options so >= 2 siblings define the
+// norm. The caller re-observes afterward (the last option is left selected).
+// Select one option by its accessible label (scroll into view + click), robust
+// to below-fold pickers and to the positional selectors going stale as the
+// picker re-renders between choices. Returns true if an element was clicked.
+async function clickOptionByLabel(page, role, label) {
+  if (!label) return false;
+  return await page
+    .evaluate(
+      ({ label }) => {
+        const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+        for (const el of document.querySelectorAll('button, [role=button], [role=tab], [role=radio]')) {
+          const ll = el.getAttribute('aria-labelledby');
+          let name = norm(el.getAttribute('aria-label'));
+          if (!name && ll) {
+            const ref = document.getElementById(ll.split(/\s+/)[0]);
+            if (ref) name = norm(ref.textContent);
+          }
+          if (!name) name = norm(el.textContent);
+          if (name === label) {
+            el.scrollIntoView({ block: 'center', inline: 'center' });
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      },
+      { label }
+    )
+    .catch(() => false);
+}
+
+async function exerciseChoiceGroup(page, group, fromSig) {
+  const results = [];
+  let base = null;
+  for (const opt of group.opts) {
+    const ok = await clickOptionByLabel(page, group.role, opt.label);
+    if (!ok) {
+      results.push({ opt, mag: null });
+      continue;
+    }
+    await page.waitForTimeout(600);
+    const cur = await measureGlobalLayout(page);
+    // First successful selection is the baseline (scrolled into a stable view);
+    // absolute coords mean later scrolls do not register as layout moves.
+    if (!base) {
+      base = cur;
+      results.push({ opt, mag: 0 });
+      continue;
+    }
+    results.push({ opt, mag: cur ? layoutDelta(base, cur) : null });
+  }
+  const valid = results.filter((r) => r.mag !== null);
+  if (valid.length < 3) return; // need >= 2 siblings to call one an outlier
+  let max = valid[0];
+  for (const r of valid) if (r.mag > max.mag) max = r;
+  const siblings = valid.filter((r) => r !== max).map((r) => r.mag);
+  const med = medianOf(siblings);
+  const isOutlier =
+    max.mag >= CHOICE_MIN_MAGNITUDE && max.mag >= CHOICE_OUTLIER_RATIO * Math.max(med, 1);
+  if (isOutlier) {
+    log(
+      'EXPLORE:CHOICEBUG ' +
+        JSON.stringify({
+          from: fromSig,
+          role: group.role,
+          outlier: max.opt.label || max.opt.sel,
+          sel: max.opt.sel,
+          magnitude: Math.round(max.mag),
+          siblingMedian: Math.round(med),
+        })
+    );
+  }
+}
+
 async function main() {
   console.log(`JOURNEY[a] step: engine=${ENGINE}`);
   const browser = await BROWSER.launch({ headless: HEADLESS });
@@ -2576,6 +2774,7 @@ async function main() {
   async function runSeed(fuzz) {
     const seenStates = new Set();
     const triedEdges = new Set();
+    const exercisedGroups = new Set(); // choice-groups already differential-tested this seed
     const pick = rng(fuzz.seed || 0);
     const replay = fuzz.replay || null;
     // Property-matched fixture inputs for this seed (field -> concrete value).
@@ -2659,6 +2858,24 @@ async function main() {
     // action settled; together with the start + final samples it forms the
     // monotonic series the soak slope is read from). No-op outside replay.
     if (replay && actions > 0) await sampleHeap(page, gtCdp, Date.now() - t0);
+    // COMPONENT-CHOICE differential (fuzz only, not replay): when the current
+    // state exposes a multi-choice component not yet exercised this seed,
+    // exhaustively select each choice and flag a global-layout outlier. Each
+    // group is its own bounded sub-traversal, consuming one action slot.
+    if (!replay) {
+      let exercised = false;
+      for (const group of detectChoiceGroups(current.tappables)) {
+        const gkey =
+          current.sig + '|' + group.role + '|' + group.opts.map((o) => o.sel).join(',');
+        if (exercisedGroups.has(gkey)) continue;
+        exercisedGroups.add(gkey);
+        await exerciseChoiceGroup(page, group, current.sig);
+        current = await observe();
+        exercised = true;
+        break;
+      }
+      if (exercised) continue;
+    }
     let act;
     if (replay) act = replay[actions];
     else if (prefix && actions < prefixLen) act = prefix[actions];
