@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reproit_tui_sig::{content_fingerprint, labels_of, structural_sig};
 
@@ -296,6 +296,48 @@ fn ucb_pick(
 fn emit(s: &str) {
     println!("{s}");
     let _ = std::io::stdout().flush();
+}
+
+/// The target child's resident set size (RSS) in BYTES, or None on failure. RSS
+/// is the OS process analogue of the web runner's v8 `heap_used`: the soak oracle
+/// (modes/soak.rs) reads first-vs-last to compute the per-cycle slope. Linux reads
+/// `VmRSS` from `/proc/<pid>/status` (reported in kB); every other unix reads
+/// `ps -o rss= -p <pid>` (reported in KiB on macOS/BSD), matching how the AppKit /
+/// AT-SPI desktop runners sample. A pure read of the OS, so the same process state
+/// yields the same number; never taken outside soak (replay) mode.
+fn rss_bytes(pid: u32) -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        for line in status.lines() {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+                return Some(kb * 1024);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        let kib: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+        Some(kib * 1024)
+    }
+}
+
+/// Emit one `MEMORY:SAMPLE {"t_ms","heap_used"}` for the target child, the SAME
+/// shape every desktop/web runner emits and the soak oracle parses (heap_used
+/// carries RSS bytes). No-op when the pid is gone or RSS can't be read.
+fn sample_rss(pid: u32, t_ms: u64) {
+    if let Some(rss) = rss_bytes(pid) {
+        emit(&format!(
+            "MEMORY:SAMPLE {}",
+            serde_json::json!({ "t_ms": t_ms, "heap_used": rss })
+        ));
+    }
 }
 
 /// Sanitize a shoot name to the contract's `[A-Za-z0-9_/-]` alphabet, matching
@@ -577,6 +619,137 @@ fn region_has_word(grid: &[Vec<char>], rect: (usize, usize, usize, usize)) -> bo
         }
     }
     false
+}
+
+/// One broken-content artifact found on the settled screen: the offending
+/// position (a stable `pos:R,C` key), the artifact class, and the clipped text.
+/// Serialized into the `items` array of an `EXPLORE:CONTENTBUG` line.
+struct ContentBug {
+    /// `pos:R,C` of the match start (0-based row, col). Stable for a fixed
+    /// settled screen, so the finding id is the same across runs and replays.
+    key: String,
+    /// The artifact class, byte-identical to the web runner's reasons:
+    /// `object-object` / `unrendered-template` / `undefined` / `null` / `nan`.
+    reason: &'static str,
+    /// The clipped offending text (human detail; key+reason are the identity).
+    text: String,
+}
+
+/// Does a char count as a WORD boundary for the bare-value artifacts
+/// (`undefined`/`null`/`NaN`)? Mirrors the web classifier's `\b`-style guard so a
+/// real label that merely contains the substring ("Cancellation", "Null Island")
+/// is NOT flagged: the token must stand alone, bounded by start/end-of-line or a
+/// non-alphanumeric, non-`_` char. We treat the same separators the web regex
+/// allows (whitespace, `:>([,` before and whitespace, `.,!?)]<` after) as
+/// boundaries, generalized to "not a word char" so the grid scan stays simple
+/// and equally strict.
+fn is_word_boundary(c: Option<char>) -> bool {
+    match c {
+        None => true,
+        Some(ch) => !(ch.is_alphanumeric() || ch == '_'),
+    }
+}
+
+/// Does `row` contain the bare value `word` as a WHOLE word starting at `col`?
+/// Both neighbours must be word boundaries (mirrors the web `\b` guard).
+fn whole_word_at(row: &[char], col: usize, word: &[char]) -> bool {
+    if col + word.len() > row.len() {
+        return false;
+    }
+    if row[col..col + word.len()] != *word {
+        return false;
+    }
+    let before = if col == 0 { None } else { Some(row[col - 1]) };
+    let after = row.get(col + word.len()).copied();
+    is_word_boundary(before) && is_word_boundary(after)
+}
+
+/// CONTENT-BUG oracle (deterministic, settled-screen text scan). The TUI analogue
+/// of the web runner's `detectContentBugs`: a rendered run of cells that is
+/// clearly broken CONTENT, the literal artifacts a stringify/template bug leaks
+/// onto the screen. The SAME classes and the SAME order/first-match-wins rule as
+/// the web classifier, so the two surfaces agree byte-for-byte on what counts:
+///   - `[object Object]`      : an object coerced to a string (the canonical bug)
+///   - `{{ ... }}` / `${ ... }`: an unrendered template placeholder (binding never ran)
+///   - whole-word `undefined` : a missing value coerced into the text as a word
+///   - whole-word `null`      : same, a null coerced in
+///   - whole-word `NaN`       : a number computation that went non-finite
+/// We scan the SETTLED cell grid row by row (each row is one logical text run, so
+/// a wrapped artifact is not stitched across rows, matching how a TUI paints), and
+/// key each finding by the `pos:R,C` of the match start, deduped by (key, reason).
+/// Pure function of the grid, so the same settled screen yields the same findings
+/// on every run and on replay (no timing, no pixels). A clean screen renders none
+/// of these, so the control stays silent (no marker). The bracketed/`{{}}`/`${}`
+/// classes are matched as substrings; the bare values require whole-word
+/// boundaries so ordinary prose is not flagged.
+fn detect_content_bugs(grid: &[Vec<char>]) -> Vec<ContentBug> {
+    const OBJ: &[char] = &[
+        '[', 'o', 'b', 'j', 'e', 'c', 't', ' ', 'O', 'b', 'j', 'e', 'c', 't', ']',
+    ];
+    const UNDEFINED: &[char] = &['u', 'n', 'd', 'e', 'f', 'i', 'n', 'e', 'd'];
+    const NULL: &[char] = &['n', 'u', 'l', 'l'];
+    const NAN: &[char] = &['N', 'a', 'N'];
+    let mut out: Vec<ContentBug> = Vec::new();
+    let mut seen: BTreeSet<(String, &'static str)> = BTreeSet::new();
+    let mut push = |row: usize, col: usize, reason: &'static str, text: String| {
+        let key = format!("pos:{row},{col}");
+        if seen.insert((key.clone(), reason)) {
+            out.push(ContentBug { key, reason, text });
+        }
+    };
+    // The clipped human-detail text starting at a column (bounded length).
+    let snippet = |row: &[char], col: usize| -> String {
+        row[col..(col + 40).min(row.len())].iter().collect()
+    };
+    for (r, row) in grid.iter().enumerate() {
+        let n = row.len();
+        let mut c = 0usize;
+        while c < n {
+            // first-match-wins, same precedence order as the web classifier.
+            if c + OBJ.len() <= n && row[c..c + OBJ.len()] == *OBJ {
+                push(r, c, "object-object", snippet(row, c));
+                c += OBJ.len();
+                continue;
+            }
+            // `{{ ... }}` on the same row: a `{{` with a closing `}}` after it.
+            if c + 1 < n && row[c] == '{' && row[c + 1] == '{' {
+                if let Some(end) =
+                    (c + 2..n).find(|&k| row[k] == '}' && k + 1 < n && row[k + 1] == '}')
+                {
+                    push(r, c, "unrendered-template", snippet(row, c));
+                    c = end + 2;
+                    continue;
+                }
+            }
+            // `${ ... }` on the same row: a `${` with a closing `}` after it.
+            if c + 1 < n && row[c] == '$' && row[c + 1] == '{' {
+                if let Some(end) = (c + 2..n).find(|&k| row[k] == '}') {
+                    push(r, c, "unrendered-template", snippet(row, c));
+                    c = end + 1;
+                    continue;
+                }
+            }
+            if whole_word_at(row, c, UNDEFINED) {
+                push(r, c, "undefined", snippet(row, c));
+                c += UNDEFINED.len();
+                continue;
+            }
+            if whole_word_at(row, c, NULL) {
+                push(r, c, "null", snippet(row, c));
+                c += NULL.len();
+                continue;
+            }
+            if whole_word_at(row, c, NAN) {
+                push(r, c, "nan", snippet(row, c));
+                c += NAN.len();
+                continue;
+            }
+            c += 1;
+        }
+    }
+    // Stable order: by key then reason, so the marker is byte-identical run to run.
+    out.sort_by(|a, b| a.key.cmp(&b.key).then(a.reason.cmp(b.reason)));
+    out
 }
 
 /// Is a row "persistent chrome": does it contain box-drawing border glyphs (the
@@ -1093,6 +1266,15 @@ pub fn run() -> Result<()> {
         .ok()
         .filter(|s| !s.is_empty());
     let mut frames: Vec<serde_json::Value> = Vec::new();
+    // LEAK sampler (--soak): the soak tier writes a flat {"replay":[..]} of the
+    // cycle repeated N times, so a replay run IS a soak. In that mode we sample
+    // the child's RSS once at session start and after each replayed action,
+    // forming the RSS-vs-time series soak.rs reads (it uses first-vs-last to get
+    // the per-cycle slope). A TUI app is an OS process with a pid, so this is the
+    // same MEMORY:SAMPLE signal the AppKit/AT-SPI desktop runners emit. No-op
+    // outside replay (a plain fuzz walk is not a soak), matching every runner.
+    let is_soak = fuzz.replay.is_some();
+    let soak_start = Instant::now();
 
     // Returns (signature, content_fingerprint, was_this_state_newly_discovered).
     // The bool is the UCB reward signal. The fingerprint is the runner-local
@@ -1107,6 +1289,24 @@ pub fn run() -> Result<()> {
         if is_new {
             let payload = serde_json::json!({ "sig": sig, "labels": labels });
             emit(&format!("EXPLORE:STATE {payload}"));
+            // CONTENT-BUG oracle (EXPLORE:CONTENTBUG): scan the SETTLED screen for
+            // the same broken-content artifacts the web runner catches ([object
+            // Object], unrendered {{...}}/${...}, whole-word undefined/null/NaN).
+            // Emitted once per newly-seen state (keyed by the same sig as STATE so
+            // the engine attributes it to this node), each item keyed by the
+            // `pos:R,C` of the match. Pure function of the grid, so it re-confirms
+            // on replay; a clean screen emits nothing.
+            let bugs = detect_content_bugs(&grid_of(parser));
+            if !bugs.is_empty() {
+                let items: Vec<serde_json::Value> = bugs
+                    .iter()
+                    .map(
+                        |b| serde_json::json!({ "key": b.key, "reason": b.reason, "text": b.text }),
+                    )
+                    .collect();
+                let payload = serde_json::json!({ "sig": sig, "items": items });
+                emit(&format!("EXPLORE:CONTENTBUG {payload}"));
+            }
         }
         (sig, fp, is_new)
     };
@@ -1125,6 +1325,20 @@ pub fn run() -> Result<()> {
             }
         };
         std::thread::sleep(Duration::from_millis(if sessions == 1 { 900 } else { 450 }));
+        // The target child's pid, for the --soak RSS sampler. The session-start
+        // sample (t_ms=0 on the first session) is the soak baseline; per-action
+        // samples below extend the RSS-vs-time series.
+        let child_pid = child.process_id();
+        if is_soak {
+            if let Some(pid) = child_pid {
+                let t = if sessions == 1 {
+                    0
+                } else {
+                    soak_start.elapsed().as_millis() as u64
+                };
+                sample_rss(pid, t);
+            }
+        }
         let (mut cur_sig, mut cur_fp, _) = emit_state(&parser, &mut seen);
         // The start/launch state is reachable with NO input, so it can never be
         // a mouse-only state (Signal B).
@@ -1287,6 +1501,14 @@ pub fn run() -> Result<()> {
             if frames_path.is_some() {
                 let scr = parser.lock().unwrap().screen().contents();
                 frames.push(serde_json::json!({ "action": act, "screen": scr }));
+            }
+            // LEAK sampler (--soak): sample the child's RSS after this replayed
+            // action settled, extending the RSS-vs-time series. No-op if the pid
+            // is gone (the read just fails). Only in replay/soak mode.
+            if is_soak {
+                if let Some(pid) = child_pid {
+                    sample_rss(pid, soak_start.elapsed().as_millis() as u64);
+                }
             }
 
             // Oracle: a panic rendered to the screen, or the process dying.
@@ -1608,6 +1830,59 @@ mod tests {
         // Cap bounds the output.
         let wide = grid(&["\u{2500}", "\u{2500}", "\u{2500}"]);
         assert_eq!(churned_chrome_rows(&wide, &wide, 2).len(), 2, "capped");
+    }
+
+    #[test]
+    fn content_bugs_catch_the_web_artifact_classes_with_stable_positions() {
+        // The same broken-content classes the web classifier catches, scanned off
+        // the settled cell grid and keyed by `pos:R,C`. First-match-wins per the
+        // shared precedence; the output is sorted by (key, reason).
+        let g = grid(&[
+            "Name: [object Object]",
+            "Total: NaN items",
+            "Hi {{ user.name }} welcome",
+            "path is ${HOME}/x",
+            "value: undefined here",
+            "set to null now",
+        ]);
+        let bugs = detect_content_bugs(&g);
+        let got: Vec<(&str, &str)> = bugs.iter().map(|b| (b.key.as_str(), b.reason)).collect();
+        assert!(got.contains(&("pos:0,6", "object-object")));
+        assert!(got.contains(&("pos:1,7", "nan")));
+        assert!(got.contains(&("pos:2,3", "unrendered-template")));
+        assert!(got.contains(&("pos:3,8", "unrendered-template")));
+        assert!(got.contains(&("pos:4,7", "undefined")));
+        assert!(got.contains(&("pos:5,7", "null")));
+        // Deterministic: same grid -> identical findings (run-to-run / replay).
+        let again = detect_content_bugs(&g);
+        let keys = |v: &[ContentBug]| -> Vec<String> {
+            v.iter()
+                .map(|b| format!("{}|{}", b.key, b.reason))
+                .collect()
+        };
+        assert_eq!(keys(&bugs), keys(&again));
+    }
+
+    #[test]
+    fn content_bugs_do_not_flag_ordinary_prose_or_clean_screens() {
+        // The bare-value classes require WHOLE-WORD boundaries, so a word that
+        // merely CONTAINS the token ("Cancellation" ~ null, "Null Island" as a
+        // proper noun is flagged only when standalone) is left alone. A clean
+        // screen yields nothing (the control stays silent -> no marker).
+        let prose = grid(&[
+            "Cancellation policy applies",
+            "undefinedValue is a name",
+            "the NaNobot is friendly",
+            "Settings  Profile  Logout",
+        ]);
+        assert!(
+            detect_content_bugs(&prose).is_empty(),
+            "substrings inside words are not artifacts"
+        );
+        // A standalone bare value IS flagged (proves the boundary rule fires).
+        let bare = grid(&["status: null"]);
+        assert_eq!(detect_content_bugs(&bare).len(), 1);
+        assert_eq!(detect_content_bugs(&bare)[0].reason, "null");
     }
 
     #[test]

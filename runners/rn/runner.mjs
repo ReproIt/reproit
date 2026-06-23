@@ -24,8 +24,11 @@
 //   MEMORY:SAMPLE      {"t_ms":..,"heap_used":..}  Android PSS series under --soak
 // The OVERFLOW/CONTENTBUG/HANG/JANK/MEMORY markers share the EXACT contract the
 // web runner emits and the Rust core already parses (model/map.rs, modes/soak.rs);
-// the core is unchanged. iOS jank + leak are a documented platform gap (no frame
-// trace / heap readout over the XCUITest session); see the HANG/JANK/LEAK section.
+// the core is unchanged. iOS LEAK is now covered COARSELY (session-level process
+// RSS sampled per replay cycle: the booted-sim app is a host process whose pid the
+// runner resolves over `simctl spawn booted launchctl list`, read with host `ps`);
+// see sampleIosHeap. iOS JANK stays a documented gap (no per-transition frame
+// trace over the XCUITest session); see the HANG/JANK/LEAK section.
 //
 // Env (set by the orchestrator's rn-appium runner):
 //   REPROIT_APPIUM_URL    Appium server base URL (e.g. http://127.0.0.1:4723)
@@ -41,6 +44,7 @@
 import { remote } from 'webdriverio';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const APPIUM = process.env.REPROIT_APPIUM_URL || 'http://127.0.0.1:4723';
 const CAPS = JSON.parse(process.env.REPROIT_APPIUM_CAPS || '{}');
@@ -1047,14 +1051,33 @@ async function appCrashed(driver) {
 //              XCUITest session. The only iOS frame source is xctrace /
 //              Instruments, which runs OUT-OF-BAND (a separate process attached to
 //              the device), not through the WebDriver session, so it cannot be
-//              keyed to a (from, action) transition deterministically here. We do
-//              NOT fake an iOS jank signal: drainGfxinfoJank returns null on iOS.
-//    LEAK      ANDROID ONLY, via `dumpsys meminfo <pkg>` PSS under --soak. iOS is
-//              a DOCUMENTED GAP for the same reason: no heap / footprint readout
-//              is exposed over the XCUITest session (only Instruments allocations,
-//              out-of-band). sampleAndroidHeap is a no-op on iOS, so no
-//              MEMORY:SAMPLE is emitted and the soak oracle honestly reports it
-//              had no series rather than reading a fabricated one.
+//              keyed to a (from, action) transition deterministically here, and a
+//              session-level CA-commit / frame-timing capture from xctrace cannot
+//              be bucketed without flake (no clean, false-positive-free floor that
+//              maps to a deterministic finding id over a noisy sim). We do NOT fake
+//              an iOS jank signal: drainGfxinfoJank returns null on iOS, and no
+//              iOS jank marker is ever emitted. (APIs considered + rejected for
+//              cleanliness: `xcrun xctrace record --template 'Core Animation'` /
+//              `'Time Profiler'`; Appium `mobile: startPerfRecord` (Android-only);
+//              `driver.getPerformanceData` (Android-only).)
+//    LEAK      BOTH, COARSELY, under --soak.
+//              ANDROID: `dumpsys meminfo <pkg>` retained PSS (sampleAndroidHeap).
+//              iOS: process RESIDENT SET SIZE (footprint) of the booted-sim app,
+//              sampled per replay cycle (sampleIosHeap). The XCUITest session
+//              exposes no heap/footprint readout (getPerformanceData is Android-
+//              only; there is no `mobile: shell` on iOS), BUT a sim app is a HOST
+//              macOS process, so the runner resolves its pid deterministically
+//              from `simctl spawn booted launchctl list` (the single
+//              `UIKitApplication:<bundleId>[...]` row) and reads RSS with host
+//              `ps -o rss= -p <pid>`. This is a COARSE, SESSION-LEVEL signal
+//              (whole-process RSS, not the JS heap, attributed to the soak run not
+//              a transition), but it is REAL and DETERMINISTIC: a true leak grows
+//              RSS monotonically with cycle count. It is gated HARD on a uniquely
+//              resolved pid (exactly one matching app row + a single host pid);
+//              when the bundleId is unset, the row is ambiguous, simctl/ps are
+//              unavailable, or the pid does not resolve to one host process, it
+//              stays SILENT (emits nothing) rather than risk a wrong-process read.
+//              So iOS leak is DONE(coarse); iOS jank remains the documented gap.
 //
 //  The Android shell path (gfxinfo / meminfo / dumpsys / logcat) goes through the
 //  Appium `mobile: shell` extension, which requires the server to run with
@@ -1173,6 +1196,76 @@ async function sampleAndroidHeap(driver, pkg, tMs) {
   if (!isAndroid() || !pkg) return;
   const text = await mobileShell(driver, 'dumpsys', ['meminfo', pkg]);
   const used = pssFromMeminfo(text);
+  if (used == null) return;
+  log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
+}
+
+// ---- iOS LEAK: session-level process RSS of the booted-sim app (COARSE) -------
+// The XCUITest session exposes no heap/footprint readout, but an iOS-simulator app
+// is a HOST macOS process. We resolve its pid deterministically from the simulator
+// and read its resident set size (footprint) with host `ps`, giving a real, coarse
+// MEMORY:SAMPLE series the soak oracle reads. A true leak grows RSS monotonically
+// with cycle count; the floor in soak.rs (262KB/cycle) is far above GC noise, so a
+// resource-neutral cycle is not a false leak. Gated HARD: any ambiguity -> silent.
+
+// The target app's iOS bundle identifier (the join key for the launchctl row).
+function iosBundleId() {
+  return CAPS['appium:bundleId'] || CAPS.bundleId || '';
+}
+
+// Run a host command (simctl / ps) and return trimmed stdout, or null. Pure read;
+// never mutates the device or the app. Never throws (a missing binary, a non-zero
+// exit, or any spawn error yields null, so the sampler degrades to silence).
+function hostExec(cmd, args) {
+  try {
+    const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+    return out == null ? null : String(out);
+  } catch { return null; }
+}
+
+// Resolve the booted-sim app's HOST pid from `simctl spawn booted launchctl list`.
+// Each running app is one row "pid status UIKitApplication:<bundleId>[token]...".
+// We require EXACTLY ONE row whose UIKitApplication bundleId equals the target and
+// a single numeric pid; zero or multiple matches -> null (we never guess). The pid
+// is a real host pid (sim apps are host processes), readable with `ps`. iOS only.
+function resolveIosAppPid() {
+  if (isAndroid()) return null;
+  const bundle = iosBundleId();
+  if (!bundle) return null;
+  const out = hostExec('xcrun', ['simctl', 'spawn', 'booted', 'launchctl', 'list']);
+  if (out == null) return null;
+  const pids = [];
+  for (const line of out.split('\n')) {
+    // Match "<pid>\t<status>\tUIKitApplication:<bundleId>[..." anchoring the
+    // bundleId to a '[' so a prefix bundle (com.x vs com.x.y) never cross-matches.
+    const m = line.match(/^(\d+)\s+\S+\s+UIKitApplication:([^\[]+)\[/);
+    if (!m) continue;
+    if (m[2] !== bundle) continue;
+    pids.push(parseInt(m[1], 10));
+  }
+  if (pids.length !== 1 || !Number.isFinite(pids[0]) || pids[0] <= 0) return null;
+  return pids[0];
+}
+
+// Read a host pid's resident set size (KB, from `ps -o rss=`) as BYTES, or null.
+function hostRssBytes(pid) {
+  if (!(pid > 0)) return null;
+  const out = hostExec('ps', ['-o', 'rss=', '-p', String(pid)]);
+  if (out == null) return null;
+  const kb = parseInt(out.trim(), 10);
+  if (!Number.isFinite(kb) || kb <= 0) return null;
+  return kb * 1024;
+}
+
+// Sample the iOS-sim app's process RSS and emit the SAME MEMORY:SAMPLE marker the
+// soak oracle reads (heap_used in BYTES). No-op on Android / when the pid cannot be
+// uniquely resolved / when ps is unavailable -> stays silent, never false-positive.
+// `pidRef` is a one-shot cache ({ pid }) so the pid is resolved once per soak.
+function sampleIosHeap(pidRef, tMs) {
+  if (isAndroid()) return;
+  if (pidRef.pid == null) pidRef.pid = resolveIosAppPid();
+  if (!(pidRef.pid > 0)) return;
+  const used = hostRssBytes(pidRef.pid);
   if (used == null) return;
   log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
 }
@@ -1551,21 +1644,25 @@ async function main() {
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
 
-  // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}) on
-  // Android, sample retained PSS once at the start and after every action so the
-  // Rust soak oracle gets a heap-vs-time series to read the slope from. Off
-  // outside replay (a plain fuzz walk is not a soak) and on iOS (documented gap:
-  // no heap readout over the XCUITest session). t0 anchors t_ms to walk start.
+  // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
+  // sample memory once at the start and after every action so the Rust soak oracle
+  // gets a heap-vs-time series to read the slope from. Off outside replay (a plain
+  // fuzz walk is not a soak). ANDROID samples retained PSS (dumpsys meminfo); iOS
+  // samples the sim app's process RSS (a coarse, session-level signal resolved over
+  // simctl+ps, gated hard on a unique pid). t0 anchors t_ms to walk start; iosPid
+  // is the one-shot pid cache the iOS sampler resolves lazily on first use.
   const pkg = androidPkg();
+  const iosPid = { pid: null };
+  const sampleHeap = async (tMs) => { await sampleAndroidHeap(driver, pkg, tMs); sampleIosHeap(iosPid, tMs); };
   const t0 = Date.now();
-  if (replay) await sampleAndroidHeap(driver, pkg, 0);
+  if (replay) await sampleHeap(0);
 
   for (let actions = 0; actions < budget && stuck < 3; actions++) {
-    // LEAK sampler: in replay mode, sample PSS once per action (BEFORE acting, so
-    // action k's sample reflects the heap after the previous action settled);
+    // LEAK sampler: in replay mode, sample memory once per action (BEFORE acting,
+    // so action k's sample reflects the heap after the previous action settled);
     // together with the start + final samples it forms the monotonic series the
-    // soak slope is read from. No-op outside replay / on iOS.
-    if (replay && actions > 0) await sampleAndroidHeap(driver, pkg, Date.now() - t0);
+    // soak slope is read from. No-op outside replay; per-platform inside sampleHeap.
+    if (replay && actions > 0) await sampleHeap(Date.now() - t0);
     let act;
     if (replay) act = replay[actions];
     else if (prefix && actions < prefixLen) act = prefix[actions];
@@ -1662,9 +1759,9 @@ async function main() {
     current = next;
   }
 
-  // LEAK sampler: a final PSS sample after the last action, so the series spans
-  // the whole soak (start ... last action). No-op outside replay / on iOS.
-  if (replay) await sampleAndroidHeap(driver, pkg, Date.now() - t0);
+  // LEAK sampler: a final sample after the last action, so the series spans the
+  // whole soak (start ... last action). No-op outside replay; per-platform inside.
+  if (replay) await sampleHeap(Date.now() - t0);
   log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   log('JOURNEY DONE');
   log(crashed ? 'Some tests failed' : 'All tests passed');

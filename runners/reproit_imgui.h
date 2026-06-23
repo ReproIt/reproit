@@ -1171,15 +1171,78 @@ inline void TelemetryShutdown(void)                      { ReproIt_Telemetry_Shu
 #include <vector>
 #ifndef REPROIT_TELEMETRY
 // Fuzz-build crash handler needs POSIX signal + write(2). Telemetry builds pull
-// these in from their own block; the fuzz build includes them here.
+// these in from their own block; the fuzz build includes them here. The soak
+// (--soak) RSS sampler + the per-frame jank watchdog need a monotonic clock and
+// the current resident-set size, pulled in for the fuzz build below.
 #include <csignal>
 #include <unistd.h>
+#include <ctime>
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 #endif
 
 namespace reproit {
 namespace {
 
 #define REPROIT_IMGUI_MAX 512
+
+#ifndef REPROIT_TELEMETRY
+// ---- soak (MEMORY:SAMPLE) + jank (EXPLORE:JANK) shared primitives ----------
+//
+// Both run ONLY in the fuzz build (this header drives the app; in a telemetry
+// build the app is reporting, not driven). They are deterministic by
+// construction: the leak verdict is a slope over the whole walk (a true leak
+// grows monotonically; a neutral cycle collapses back), and the jank verdict is
+// a COARSE, well-separated bucket (a normal immediate-mode frame is < 16ms; the
+// jank floor is 200ms, the hang floor 2000ms), so wall-clock jitter cannot flip
+// either verdict and the finding id (from,action,bucket) is the same run to run.
+
+// Monotonic milliseconds (CLOCK_MONOTONIC), for per-frame durations + soak time.
+static uint64_t reproit_mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ull + (uint64_t)(ts.tv_nsec / 1000000ll);
+}
+
+// Current resident-set size in BYTES for THIS process (the app under test, which
+// hosts the fuzz driver), or 0 on failure. This is the OS-process analogue of the
+// web runner's v8 heap_used: soak.rs reads first-vs-last to compute the per-cycle
+// slope. Linux reads `/proc/self/statm` (pages -> bytes); Apple reads the Mach
+// task's resident_size. A pure read of the OS, so the same process state yields
+// the same number.
+static uint64_t reproit_rss_bytes(void) {
+#if defined(__APPLE__)
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS) {
+        return (uint64_t)info.resident_size;
+    }
+    return 0;
+#elif defined(__linux__)
+    FILE* f = std::fopen("/proc/self/statm", "rb");
+    if (!f) return 0;
+    long pages = 0, resident = 0;
+    int got = std::fscanf(f, "%ld %ld", &pages, &resident);
+    std::fclose(f);
+    if (got < 2 || resident <= 0) return 0;
+    long pg = sysconf(_SC_PAGESIZE);
+    if (pg <= 0) pg = 4096;
+    return (uint64_t)resident * (uint64_t)pg;
+#else
+    return 0;
+#endif
+}
+
+// Coarse, well-separated jank floors (ms), identical to the web runner so the two
+// surfaces classify the same way. A frame at/over HANG_FLOOR is a freeze; at/over
+// JANK_FLOOR is a dropped-frame stall; below it, nothing (a clean frame). The
+// emitted marker carries the BUCKET (the floor), never the raw ms, so even the
+// detail is reproducible.
+#define REPROIT_JANK_FLOOR_MS 200
+#define REPROIT_HANG_FLOOR_MS 2000
+#endif  // !REPROIT_TELEMETRY
 
 struct State {
     uint32_t rngState = 1;
@@ -1221,6 +1284,26 @@ struct State {
     // than 8 distinct value-class combinations, the runner drops its V: section
     // (structural-only) so an adversarial value generator cannot explode the graph.
     std::map<std::string, std::set<std::string>> valueVariants;
+
+#ifndef REPROIT_TELEMETRY
+    // --soak: this run is a soak (the soak tier writes {"replay":[..]}). When set,
+    // we sample this process's RSS per step into a MEMORY:SAMPLE series soak.rs
+    // reads. Off => no samples (a plain fuzz walk is not a soak).
+    bool soak = false;
+    uint64_t soakStart = 0;             // monotonic ms at the first sample (t=0 base)
+
+    // Per-frame jank watchdog. lastFrameMs is the monotonic timestamp at the start
+    // of the previous frame; the gap to this frame's start is that frame's render
+    // duration. While settling AFTER a fired action, we track the MAX frame
+    // duration in the window so a transition whose frames blow the jank floor is
+    // reported on the edge it belongs to (the action that caused the stall).
+    uint64_t lastFrameMs = 0;
+    bool haveLastFrame = false;
+    uint64_t windowMaxFrameMs = 0;      // max frame duration since the last fire
+    int windowJankFrames = 0;           // frames in the window over the jank floor
+    std::string jankFrom;               // the from-sig the pending action left
+    std::string jankAction;             // the action whose settle window we measure
+#endif
 };
 State g;
 
@@ -1248,6 +1331,12 @@ void loadConfig() {
     long seed = jsonInt(text, "seed", 0);
     g.rngState = seed ? (uint32_t)seed : 1;
     g.budget = (int)jsonInt(text, "budget", 36);
+#ifndef REPROIT_TELEMETRY
+    // Soak mode is signalled by a "replay" key in the config (the soak tier writes
+    // {"replay":[cycle x N]}); in that mode we sample RSS per step. A plain fuzz
+    // config has no "replay", so the leak sampler stays off.
+    g.soak = text.find("\"replay\"") != std::string::npos;
+#endif
 }
 
 uint32_t rngNext(uint32_t n) {
@@ -1521,6 +1610,26 @@ void reproit_imgui_build_crash_tail() {
 
 void Frame() {
     if (!g.loaded) loadConfig();
+#ifndef REPROIT_TELEMETRY
+    // Per-frame jank watchdog: the gap between the start of the previous frame and
+    // the start of this one is the previous frame's render duration. Accumulate
+    // the MAX duration since the last fired action so the settle window's worst
+    // frame is attributed to the transition that caused it. Only meaningful while
+    // a transition is in flight (we have a from-sig + action); idle frames before
+    // the first action just prime lastFrameMs.
+    if (!g.done) {
+        uint64_t now = reproit_mono_ms();
+        if (g.haveLastFrame) {
+            uint64_t dur = now - g.lastFrameMs;
+            if (!g.jankAction.empty()) {
+                if (dur > g.windowMaxFrameMs) g.windowMaxFrameMs = dur;
+                if (dur >= REPROIT_JANK_FLOOR_MS) g.windowJankFrames++;
+            }
+        }
+        g.lastFrameMs = now;
+        g.haveLastFrame = true;
+    }
+#endif
     g.nNodes = 0;
     g.scope.clear();
     g.frameTappables.clear();
@@ -1639,6 +1748,33 @@ void FrameEnd() {
     // each state/edge is reported exactly once.
     if (g.settleFrames > 0) { g.settleFrames--; return; }
 
+#ifndef REPROIT_TELEMETRY
+    // JANK / HANG watchdog (EXPLORE:JANK / EXPLORE:HANG). The settle window for the
+    // last fired action has now elapsed; if its WORST frame blew a floor, the
+    // action stalled the UI. Classify by the coarse bucket (jitter cannot flip a
+    // 200ms/2000ms-separated verdict) and key it by (from, action) like the web
+    // runner, so the engine attributes the stall to this exact transition and
+    // `check` re-confirms it. Cleared after evaluation so the next action starts a
+    // fresh window. The finding id is (from, action, bucket): deterministic.
+    if (!g.jankAction.empty()) {
+        if (g.windowMaxFrameMs >= REPROIT_HANG_FLOOR_MS) {
+            std::printf("EXPLORE:HANG {\"from\":\"%s\",\"action\":\"%s\",\"bucket\":%d,\"count\":%d}\n",
+                        g.jankFrom.c_str(), g.jankAction.c_str(),
+                        REPROIT_HANG_FLOOR_MS, g.windowJankFrames);
+            std::fflush(stdout);
+        } else if (g.windowMaxFrameMs >= REPROIT_JANK_FLOOR_MS) {
+            std::printf("EXPLORE:JANK {\"from\":\"%s\",\"action\":\"%s\",\"bucket\":%d,\"count\":%d}\n",
+                        g.jankFrom.c_str(), g.jankAction.c_str(),
+                        REPROIT_JANK_FLOOR_MS, g.windowJankFrames);
+            std::fflush(stdout);
+        }
+        g.jankAction.clear();
+        g.jankFrom.clear();
+        g.windowMaxFrameMs = 0;
+        g.windowJankFrames = 0;
+    }
+#endif
+
     // Layer 1 effect detection (immediate-mode): these UIs emit per frame, so an
     // action is effective iff the emitted signature changed between frames. The
     // signature here is the FULL canonical signature (structure + value-classes),
@@ -1671,6 +1807,24 @@ void FrameEnd() {
     g.prevSig = sig;
     g.fireId.clear();
 
+#ifndef REPROIT_TELEMETRY
+    // LEAK sampler (--soak): emit one MEMORY:SAMPLE per step with this process's
+    // current RSS, the SAME shape the desktop/web runners emit (heap_used carries
+    // RSS bytes), so soak.rs reconstructs the RSS-vs-time series and reads the
+    // slope. t_ms is monotonic from the first sample. No-op outside soak.
+    if (g.soak) {
+        uint64_t now = reproit_mono_ms();
+        if (g.soakStart == 0) g.soakStart = now;
+        uint64_t rss = reproit_rss_bytes();
+        if (rss) {
+            std::printf("MEMORY:SAMPLE {\"t_ms\":%llu,\"heap_used\":%llu}\n",
+                        (unsigned long long)(now - g.soakStart),
+                        (unsigned long long)rss);
+            std::fflush(stdout);
+        }
+    }
+#endif
+
     if (g.actions >= g.budget || g.frameTappables.empty()) {
         std::printf("JOURNEY[a] step: explored %zu states\nJOURNEY DONE\nAll tests passed\n", g.seen.size());
         std::fflush(stdout);
@@ -1686,6 +1840,15 @@ void FrameEnd() {
     std::fflush(stdout);
     g.actions++;
     g.settleFrames = 2;
+#ifndef REPROIT_TELEMETRY
+    // Arm the jank window for the action about to fire: its settle frames are
+    // measured (in Frame()) and evaluated when the window elapses next FrameEnd.
+    // from = the state we are in (prevSig); action = the edge label being fired.
+    g.jankFrom = g.prevSig;
+    g.jankAction = std::string("tap:") + g.fireId;
+    g.windowMaxFrameMs = 0;
+    g.windowJankFrames = 0;
+#endif
 #ifndef REPROIT_TELEMETRY
     // Refresh the pre-serialized crash payload to the state we are in (prevSig)
     // and the action about to fire (fireId), so if the app's own handler for this

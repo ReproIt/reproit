@@ -1140,13 +1140,75 @@ bool ReproIt_Clay_Shoot(const char* name);
 #include <string.h>
 #ifndef REPROIT_TELEMETRY
 // Fuzz-build crash handler needs POSIX signal + write(2). Telemetry builds pull
-// these in from their own block; the fuzz build includes them here.
+// these in from their own block; the fuzz build includes them here. The soak
+// (--soak) RSS sampler + the per-frame jank watchdog need a monotonic clock and
+// the current resident-set size, pulled in for the fuzz build below.
 #include <signal.h>
 #include <unistd.h>
+#include <time.h>
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 #endif
 
 #define REPROIT_CLAY_MAX 256
 #define REPROIT_CLAY_STR 64
+
+#ifndef REPROIT_TELEMETRY
+// ---- soak (MEMORY:SAMPLE) + jank (EXPLORE:JANK) shared primitives ----------
+//
+// Both run ONLY in the fuzz build (this header drives the app; a telemetry build
+// reports, it is not driven). They are deterministic by construction: the leak
+// verdict is a slope over the whole walk (a true leak grows monotonically; a
+// neutral cycle collapses back), and the jank verdict is a COARSE, well-separated
+// bucket (a normal Clay frame is < 16ms; the jank floor is 200ms, the hang floor
+// 2000ms), so wall-clock jitter cannot flip either verdict and the finding id
+// (from,action,bucket) is the same run to run.
+
+// Monotonic milliseconds (CLOCK_MONOTONIC), for per-frame durations + soak time.
+static uint64_t reproit_clay_mono_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ull + (uint64_t)(ts.tv_nsec / 1000000ll);
+}
+
+// Current resident-set size in BYTES for THIS process (the app under test, which
+// hosts the fuzz driver), or 0 on failure. The OS-process analogue of the web
+// runner's v8 heap_used: soak.rs reads first-vs-last for the per-cycle slope.
+// Linux reads `/proc/self/statm` (pages -> bytes); Apple reads the Mach task's
+// resident_size. A pure read of the OS, so the same process state yields the same
+// number.
+static uint64_t reproit_clay_rss_bytes(void) {
+#if defined(__APPLE__)
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS) {
+        return (uint64_t)info.resident_size;
+    }
+    return 0;
+#elif defined(__linux__)
+    FILE* f = fopen("/proc/self/statm", "rb");
+    if (!f) return 0;
+    long pages = 0, resident = 0;
+    int got = fscanf(f, "%ld %ld", &pages, &resident);
+    fclose(f);
+    if (got < 2 || resident <= 0) return 0;
+    long pg = sysconf(_SC_PAGESIZE);
+    if (pg <= 0) pg = 4096;
+    return (uint64_t)resident * (uint64_t)pg;
+#else
+    return 0;
+#endif
+}
+
+// Coarse, well-separated jank floors (ms), identical to the web runner so the two
+// surfaces classify the same way. A frame at/over HANG_FLOOR is a freeze; at/over
+// JANK_FLOOR is a dropped-frame stall; below it, nothing. The emitted marker
+// carries the BUCKET (the floor), never the raw ms, so the detail is reproducible.
+#define REPROIT_CLAY_JANK_FLOOR_MS 200
+#define REPROIT_CLAY_HANG_FLOOR_MS 2000
+#endif  // !REPROIT_TELEMETRY
 
 typedef struct {
     uint32_t rng;
@@ -1198,6 +1260,26 @@ typedef struct {
     // seen-state ring (signatures)
     char seen[REPROIT_CLAY_MAX][9];
     int nSeen;
+
+#ifndef REPROIT_TELEMETRY
+    // --soak: this run is a soak (the soak tier writes {"replay":[..]}). When set,
+    // we sample this process's RSS per step into a MEMORY:SAMPLE series soak.rs
+    // reads. Off => no samples (a plain fuzz walk is not a soak).
+    bool soak;
+    uint64_t soakStart;                 // monotonic ms at the first sample (t=0 base)
+
+    // Per-frame jank watchdog. lastFrameMs is the monotonic timestamp at the start
+    // of the previous frame; the gap to this frame's start is that frame's render
+    // duration. While settling AFTER a fired action we track the MAX frame
+    // duration so a transition whose frames blow the jank floor is reported on the
+    // edge it belongs to (the action that caused the stall).
+    uint64_t lastFrameMs;
+    bool haveLastFrame;
+    uint64_t windowMaxFrameMs;          // max frame duration since the last fire
+    int windowJankFrames;               // frames in the window over the jank floor
+    char jankFrom[9];                   // the from-sig the pending action left
+    char jankAction[REPROIT_CLAY_STR + 4]; // "tap:" + name of the action measured
+#endif
 } ReproItClay;
 static ReproItClay rc;
 
@@ -1225,6 +1307,12 @@ static void reproit_clay_load(void) {
     long seed = reproit_json_int(text, "seed", 0);
     rc.rng = seed ? (uint32_t)seed : 1;
     rc.budget = (int)reproit_json_int(text, "budget", 36);
+#ifndef REPROIT_TELEMETRY
+    // Soak mode is signalled by a "replay" key in the config (the soak tier writes
+    // {"replay":[cycle x N]}); in that mode we sample RSS per step. A plain fuzz
+    // config has no "replay", so the leak sampler stays off.
+    rc.soak = strstr(text, "\"replay\"") != NULL;
+#endif
 }
 
 static uint32_t reproit_clay_rng(uint32_t mod) {
@@ -1353,6 +1441,23 @@ bool ReproIt_Clay_Shoot(const char* name) { return ReproIt_Shoot(name); }
 // release if this does not compile.
 void ReproIt_Clay_Frame(Clay_RenderCommandArray commands) {
     if (!rc.loaded) reproit_clay_load();
+#ifndef REPROIT_TELEMETRY
+    // Per-frame jank watchdog: the gap between the start of the previous frame and
+    // the start of this one is the previous frame's render duration. Accumulate
+    // the MAX duration since the last fired action so the settle window's worst
+    // frame is attributed to the transition that caused it. Idle frames before the
+    // first action just prime lastFrameMs (jankAction empty => not accumulated).
+    if (!rc.done) {
+        uint64_t now = reproit_clay_mono_ms();
+        if (rc.haveLastFrame && rc.jankAction[0]) {
+            uint64_t dur = now - rc.lastFrameMs;
+            if (dur > rc.windowMaxFrameMs) rc.windowMaxFrameMs = dur;
+            if (dur >= REPROIT_CLAY_JANK_FLOOR_MS) rc.windowJankFrames++;
+        }
+        rc.lastFrameMs = now;
+        rc.haveLastFrame = true;
+    }
+#endif
     rc.nNodes = 0;
     rc.nTaps = 0;
     rc.nMarks = 0;
@@ -1587,6 +1692,30 @@ void ReproIt_Clay_FrameEnd(void) {
 #endif
     // Settle before reading, so each state/edge is emitted exactly once.
     if (rc.settle > 0) { rc.settle--; return; }
+#ifndef REPROIT_TELEMETRY
+    // JANK / HANG watchdog (EXPLORE:JANK / EXPLORE:HANG). The settle window for the
+    // last fired action has now elapsed; if its WORST frame blew a floor, the
+    // action stalled the UI. Classify by the coarse bucket (jitter cannot flip a
+    // 200ms/2000ms-separated verdict) and key by (from, action) like the web
+    // runner, so the engine attributes the stall to this exact transition and
+    // `check` re-confirms it. Cleared after evaluation. The finding id is
+    // (from, action, bucket): deterministic.
+    if (rc.jankAction[0]) {
+        if (rc.windowMaxFrameMs >= REPROIT_CLAY_HANG_FLOOR_MS) {
+            printf("EXPLORE:HANG {\"from\":\"%s\",\"action\":\"%s\",\"bucket\":%d,\"count\":%d}\n",
+                   rc.jankFrom, rc.jankAction, REPROIT_CLAY_HANG_FLOOR_MS, rc.windowJankFrames);
+            fflush(stdout);
+        } else if (rc.windowMaxFrameMs >= REPROIT_CLAY_JANK_FLOOR_MS) {
+            printf("EXPLORE:JANK {\"from\":\"%s\",\"action\":\"%s\",\"bucket\":%d,\"count\":%d}\n",
+                   rc.jankFrom, rc.jankAction, REPROIT_CLAY_JANK_FLOOR_MS, rc.windowJankFrames);
+            fflush(stdout);
+        }
+        rc.jankAction[0] = 0;
+        rc.jankFrom[0] = 0;
+        rc.windowMaxFrameMs = 0;
+        rc.windowJankFrames = 0;
+    }
+#endif
     // Apply value-node marks so value-classes are part of the emitted signature.
     reproit_clay_apply_marks();
     // Layer 1 effect detection (immediate-mode): Clay emits per frame, so an
@@ -1628,6 +1757,23 @@ void ReproIt_Clay_FrameEnd(void) {
     rc.fireId = 0;
     rc.fireName[0] = 0;
 
+#ifndef REPROIT_TELEMETRY
+    // LEAK sampler (--soak): emit one MEMORY:SAMPLE per step with this process's
+    // current RSS, the SAME shape the desktop/web runners emit (heap_used carries
+    // RSS bytes), so soak.rs reconstructs the RSS-vs-time series and reads the
+    // slope. t_ms is monotonic from the first sample. No-op outside soak.
+    if (rc.soak) {
+        uint64_t now = reproit_clay_mono_ms();
+        if (rc.soakStart == 0) rc.soakStart = now;
+        uint64_t rss = reproit_clay_rss_bytes();
+        if (rss) {
+            printf("MEMORY:SAMPLE {\"t_ms\":%llu,\"heap_used\":%llu}\n",
+                   (unsigned long long)(now - rc.soakStart), (unsigned long long)rss);
+            fflush(stdout);
+        }
+    }
+#endif
+
     if (rc.actions >= rc.budget || rc.nTaps == 0) {
         printf("JOURNEY[a] step: explored %d states\nJOURNEY DONE\nAll tests passed\n", rc.nSeen);
         fflush(stdout);
@@ -1643,6 +1789,15 @@ void ReproIt_Clay_FrameEnd(void) {
     fflush(stdout);
     rc.actions++;
     rc.settle = 2;
+#ifndef REPROIT_TELEMETRY
+    // Arm the jank window for the action about to fire: its settle frames are
+    // measured (in ReproIt_Clay_Frame) and evaluated when the window elapses next
+    // FrameEnd. from = the state we are in (prevSig); action = the edge label.
+    snprintf(rc.jankFrom, sizeof rc.jankFrom, "%s", rc.prevSig);
+    snprintf(rc.jankAction, sizeof rc.jankAction, "tap:%s", rc.fireName);
+    rc.windowMaxFrameMs = 0;
+    rc.windowJankFrames = 0;
+#endif
 #ifndef REPROIT_TELEMETRY
     // Refresh the pre-serialized crash payload to the state we are in (prevSig)
     // and the action about to fire (fireName), so a crash in the app's handler

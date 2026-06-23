@@ -1073,8 +1073,12 @@ fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
     };
     // The check path re-verifies a specific recorded finding without the
     // aggregate map in scope; an empty set keeps its dead-end check unchanged.
-    let inv_obs =
-        invariant_observations(&log, exceptions.clone(), sim, std::collections::BTreeSet::new());
+    let inv_obs = invariant_observations(
+        &log,
+        exceptions.clone(),
+        sim,
+        std::collections::BTreeSet::new(),
+    );
     let mut f = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
     if !cfg.invariants.no_exception {
         f.extend(exceptions);

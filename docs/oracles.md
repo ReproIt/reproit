@@ -29,65 +29,81 @@ page records, honestly, what fires where and why the gaps exist.
 
 ## Coverage matrix
 
-`Y` = fires. `~` = best-effort with a documented caveat. `gap` = the platform
-does not expose the signal; not emitted (never faked). `n/a` = the bug class
-cannot exist on that surface.
+`Y` = fires. `Y*` = fires, but coarse (session/process-level, not per-transition):
+leak via process-RSS sampling under `--soak`. `~` = best-effort with a documented
+caveat. `gap` = the platform does not expose the signal; not emitted (never faked).
+`n/a` = the bug class cannot exist on that surface.
 
 | Backend (driver) | crash | overflow | dead-end | flicker | content-bug | jank | hang | leak |
 |---|---|---|---|---|---|---|---|---|
 | Web Chromium (CDP) | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y |
-| Web Firefox/WebKit | Y | Y | Y | Y | Y | ~ | ~ | Y |
+| Web Firefox/WebKit | Y | Y | Y | Y | Y | Y | Y | Y |
 | Electron (CDP) | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y |
-| Tauri (WebDriver) | Y | Y | Y | Y (DOM) | Y | ~ | ~ | ~ |
+| Tauri (WebDriver) | Y | Y | Y | Y (DOM) | Y | ~ | ~ | Y* |
 | Flutter sim | Y | Y | Y | Y | Y | Y | Y | Y |
 | Flutter headless | Y | Y | Y | gap | Y | n/a | n/a | ~ |
 | RN / native Android (Appium) | Y | Y | Y | gap | Y | Y | Y | Y |
-| RN / native iOS (Appium) | Y | Y | Y | gap | Y | gap | Y | gap |
+| RN / native iOS (Appium) | Y | Y | Y | gap | Y | gap | Y | Y* |
 | Desktop macOS (AX) | Y | Y | Y | gap | Y | n/a | ~ | Y |
 | Desktop Windows (UIA) | Y | Y | Y | gap | Y | n/a | Y | Y |
 | Desktop Linux (AT-SPI) | Y | Y | Y | gap | Y | n/a | ~ | Y |
-| TUI (PTY) | Y | gap | Y | Y | gap | n/a | Y | n/a |
-| Dear ImGui / Clay (instrumented) | Y | gap | Y | gap | gap | n/a | gap | n/a |
+| TUI (PTY) | Y | gap | Y | Y | Y | n/a | Y | Y* |
+| Dear ImGui / Clay (instrumented) | Y | gap | Y | gap | gap | Y | gap | Y* |
 
-## Why the gaps exist
+## Recently closed (and how)
 
-These are platform limits, not unfinished work. Each is documented in-code at the
-runner that would emit it.
+These were gaps that turned out to have a real, deterministic signal that was
+just never wired. Each holds the same false-positive bar as the rest.
 
-- **jank on accessibility trees and the TUI** (`n/a`): jank is dropped frames, and
-  an a11y tree or a VT character grid has no GPU frame timeline to read. The web
-  oracle keys jank off the browser's Long Tasks API, which has no desktop-a11y or
-  terminal analogue. Flutter sim reads a real per-frame manifest; the headless
-  tier runs on a fake clock, so timing oracles (jank, hang) are sim-only there.
-- **jank + leak on iOS (Appium)** (`gap`): XCUITest exposes neither a per-transition
-  frame trace nor a heap/footprint readout over the session. The only source is
-  Instruments/xctrace, which runs out-of-band and cannot be keyed to a single
-  `(from, action)` transition. Android gets both via `dumpsys gfxinfo` /
-  `dumpsys meminfo`, which Appium reaches through `mobile: shell`.
-- **jank + hang on Firefox/WebKit, jank on Tauri** (`~`): the Long Tasks trace is
-  Chromium-only, so these degrade to silence on non-Chromium engines rather than
-  guess. Same honest fallback either way.
-- **leak on Tauri** (`~`): WebDriver has no CDP, so there is no precise V8 heap. It
-  falls back to `performance.memory`, which is quantized on WebView2/Chromium and
-  absent on WKWebView. Electron and Chromium use the precise
-  `Runtime.getHeapUsage` + forced-GC path.
+- **jank + hang on Firefox/WebKit** (`Y`): the Long Tasks trace is Chromium-only,
+  so a cross-engine `requestAnimationFrame` frame-drop detector now covers the
+  non-Chromium engines (Chromium keeps the more precise Long Tasks path). FP-safe:
+  a lone late frame counts only past 350ms (well above GC blips) or as a sustained
+  run of long frames; a single GC pause is dropped. The classifier is unit-tested
+  in both directions, and the no-false-positive behavior is runtime-validated on
+  real firefox and webkit (clean static and animated sites stay silent).
+- **leak via process-RSS sampling under `--soak`** (`Y*`, coarse): a leaked process
+  still grows its resident set, so where there is no precise heap readout, the
+  runner samples the target process's RSS per soak cycle and emits the same
+  `MEMORY:SAMPLE` series the slope oracle reads. Now covers Tauri (the webview
+  process, replacing the quantized `performance.memory` fallback), iOS (the sim
+  app's host pid via `simctl launchctl list`), the TUI (the child pid), and
+  ImGui/Clay (self RSS). Coarse (per-cycle, not per-transition) and gated on a
+  *uniquely resolvable* pid, so any ambiguity stays silent rather than guessing.
+- **content-bug on the TUI** (`Y`): the runner already has the settled VT grid, so
+  it scans the cells for the same artifact tokens as the DOM scanner
+  (`[object Object]`, whole-word `undefined`/`null`/`NaN`, unrendered
+  `{{...}}`/`${...}`), keyed by a stable cell position.
+- **jank on ImGui/Clay** (`Y`): these are instrumented and render real frames, so
+  per-frame durations are timed directly and fed the same jank/hang floors as the
+  web runner. (Their leak is the coarse RSS path above.)
+
+## Remaining gaps (why)
+
+These are genuine platform limits, not unfinished work. Each is documented in-code
+at the runner that would emit it.
+
+- **jank on accessibility trees, the TUI/PTY, and Flutter-headless** (`n/a`): jank
+  is dropped frames, and an a11y tree or a VT character grid has no frame timeline;
+  the headless Flutter tier runs on a fake clock. Nothing to read, so nothing is
+  emitted. (Flutter sim reads a real per-frame manifest; ImGui/Clay are
+  instrumented and now do emit jank.)
+- **jank on iOS (Appium)** (`gap`): XCUITest exposes no clean in-session frame
+  trace; the only source is Instruments/xctrace, which runs out-of-band and cannot
+  be deterministically keyed to a `(from, action)` transition. (iOS *leak* is now
+  covered by the RSS sampler above; Android gets both via `dumpsys`.)
 - **pixel-flicker on Tauri** (part of `flicker`): the pixel tier needs CDP
   `Page.startScreencast` to diff presented frames; WebDriver exposes no
-  presented-frame stream. Tauri keeps its DOM-based rerender-flicker, which is
-  unaffected.
-- **hang on macOS / Linux desktop** (`~`): implemented as a host-side wall-clock
-  watchdog around the synchronous AX / AT-SPI round trip (which blocks on the
-  target's main loop, so a freeze spikes it). It is host wall time, perturbable by
-  scheduling, so less deterministic than a frame trace; a high 2000ms floor keeps
-  it false-positive-free. Windows uses the OS `IsHungAppWindow` signal directly
-  and has no such caveat.
+  presented-frame stream. Tauri keeps its DOM-based rerender-flicker, unaffected.
+- **hang on macOS / Linux desktop** (`~`): a host-side wall-clock watchdog around
+  the synchronous AX / AT-SPI round trip. It is host wall time, perturbable by
+  scheduling, so a high 2000ms floor keeps it false-positive-free. Windows uses the
+  OS `IsHungAppWindow` signal directly and has no such caveat.
 - **overflow on TUI / Clay** (`gap`): a VT grid clips rather than overflowing, and
-  Clay does not expose parent/child geometry in its command stream (and its struct
-  layout shifts between versions), so a reliable child-exceeds-parent check is not
-  available.
-- **content-bug on TUI / ImGui** (`gap`): no semantic label tree to scan for broken
-  template output the way a DOM, a Flutter semantics tree, or an a11y tree can be
-  scanned.
+  Clay does not expose stable parent/child geometry in its command stream, so a
+  reliable child-exceeds-parent check is not available.
+- **content-bug on ImGui** (`gap`): no semantic label tree to scan the way a DOM, a
+  Flutter semantics tree, an a11y tree, or the TUI's text grid can be scanned.
 
 ## Determinism bar
 

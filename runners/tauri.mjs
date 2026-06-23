@@ -19,6 +19,8 @@
 // below without needing the heavy runtime dependency installed).
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { platform as osPlatform } from 'node:os';
 
 const APP = process.env.REPROIT_APP;
 const WD_URL = process.env.REPROIT_WEBDRIVER_URL || 'http://127.0.0.1:4444';
@@ -1085,19 +1087,29 @@ async function drainJank(browser) {
   return null;
 }
 
-// PARITY: keep in sync with runners/web/runner.mjs (leak heap sampler).
+// LEAK sampler (deterministic). `--soak` replays a reversible cycle N times and
+// reads the heap slope. The web/Electron runners read the PRECISE, unrounded v8
+// used-heap via CDP `Runtime.getHeapUsage` + a forced GC. Tauri is driven over
+// WebDriver, which has NO CDP, so that precise path is unreachable here.
 //
-// LEAK sampler (deterministic, web heap). `--soak` replays a reversible cycle N
-// times and reads the heap slope. The web/Electron runners read the PRECISE,
-// unrounded v8 used-heap via CDP `Runtime.getHeapUsage` + a forced GC. Tauri is
-// driven over WebDriver, which has NO CDP, so that precise path is unreachable
-// here; we fall back to `performance.memory.usedJSHeapSize` (the same fallback
-// the web runner uses on firefox/webkit). That value is QUANTIZED by Chromium
-// (WebView2) to a coarse bucket and ABSENT entirely in WebKit (WKWebView /
-// WebKitGTK), so the slope may be too coarse to see a small leak, or no sample is
-// emitted at all on WebKit. We emit MEMORY:SAMPLE when a number is available and
-// stay silent otherwise; soak reads whatever series it gets. (GAP vs web/Electron:
-// no precise CDP heap over WebDriver.)
+// PRIMARY (real, coarse, session-level): the Tauri webview is a HOST PROCESS, so we
+// sample its resident set size (RSS) with a host process tool. The app's main
+// process is the one whose executable IS the built binary ($REPROIT_APP); helper
+// processes (WebKitWebProcess / msedgewebview2 / *Helper) have a different argv[0]
+// and never match, so the read is the MAIN process's footprint, not a helper's.
+// RSS is whole-process memory (native + webview heaps), so it is COARSER than the
+// JS heap and attributed to the SOAK RUN, not a transition; but it is REAL and
+// DETERMINISTIC: a true leak grows RSS monotonically with cycle count, and the soak
+// floor (262KB/cycle) is far above sampling noise. Gated HARD: we use it only when
+// the app path resolves to EXACTLY ONE host pid; any ambiguity (zero or several
+// matches) -> we do NOT guess and fall through to the JS fallback below.
+//
+// FALLBACK (when the pid can't be cleanly resolved): `performance.memory.
+// usedJSHeapSize`, the same fallback the web runner uses on firefox/webkit. That
+// value is QUANTIZED by Chromium (WebView2) to a coarse bucket and ABSENT entirely
+// in WebKit (WKWebView / WebKitGTK), so the slope may be too coarse to see a small
+// leak, or no sample is emitted at all on WebKit ('~'). We emit MEMORY:SAMPLE when
+// a number is available and stay silent otherwise; soak reads whatever it gets.
 const PERF_MEMORY_JS = `
   try {
     if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
@@ -1106,7 +1118,86 @@ const PERF_MEMORY_JS = `
   } catch (_) {}
   return null;
 `;
-async function sampleHeap(browser, tMs) {
+
+// Run a host process tool and return trimmed stdout, or null. Pure read; never
+// throws (a missing binary / non-zero exit / spawn error yields null, so the
+// sampler degrades to the JS fallback).
+function hostExec(cmd, args) {
+  try {
+    const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+    return out == null ? null : String(out);
+  } catch { return null; }
+}
+
+// Resolve the Tauri app's MAIN host pid from its binary path ($REPROIT_APP), or
+// null. Cross-platform: macOS/Linux read `ps -axww -o pid=,comm=` and keep rows
+// whose command IS the app path; Windows queries `tasklist` by image name. We
+// require EXACTLY ONE matching pid (the main process); zero or several -> null, so
+// a helper-process race or a second instance never yields a wrong-process read.
+function resolveTauriPid(appPath) {
+  if (!appPath) return null;
+  const isWin = osPlatform() === 'win32';
+  if (isWin) {
+    // tasklist filters by image name; argv[0] path isn't exposed, so match the
+    // executable's base name and require a single PID row.
+    const base = appPath.split(/[\\/]/).pop() || appPath;
+    const out = hostExec('tasklist', ['/FI', 'IMAGENAME eq ' + base, '/FO', 'CSV', '/NH']);
+    if (out == null) return null;
+    const pids = [];
+    for (const line of out.split(/\r?\n/)) {
+      // CSV: "name","pid","session","sess#","mem". Take the 2nd quoted field.
+      const m = line.match(/^"[^"]*","(\d+)"/);
+      if (m) pids.push(parseInt(m[1], 10));
+    }
+    if (pids.length !== 1 || !Number.isFinite(pids[0]) || pids[0] <= 0) return null;
+    return pids[0];
+  }
+  const out = hostExec('ps', ['-axww', '-o', 'pid=,comm=']);
+  if (out == null) return null;
+  const pids = [];
+  for (const line of out.split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(.*)$/);
+    if (!m) continue;
+    if (m[2].trim() === appPath) pids.push(parseInt(m[1], 10));
+  }
+  if (pids.length !== 1 || !Number.isFinite(pids[0]) || pids[0] <= 0) return null;
+  return pids[0];
+}
+
+// Read a host pid's RSS as BYTES, or null. macOS/Linux: `ps -o rss=` (KB).
+// Windows: `tasklist` reports "N,NNN K" memory; parse the digits as KB.
+function hostRssBytes(pid) {
+  if (!(pid > 0)) return null;
+  if (osPlatform() === 'win32') {
+    const out = hostExec('tasklist', ['/FI', 'PID eq ' + pid, '/FO', 'CSV', '/NH']);
+    if (out == null) return null;
+    const m = out.match(/"([\d.,]+)\s*K"/);
+    if (!m) return null;
+    const kb = parseInt(m[1].replace(/[.,]/g, ''), 10);
+    if (!Number.isFinite(kb) || kb <= 0) return null;
+    return kb * 1024;
+  }
+  const out = hostExec('ps', ['-o', 'rss=', '-p', String(pid)]);
+  if (out == null) return null;
+  const kb = parseInt(out.trim(), 10);
+  if (!Number.isFinite(kb) || kb <= 0) return null;
+  return kb * 1024;
+}
+
+// Sample the leak signal and emit MEMORY:SAMPLE (heap_used in BYTES). PRIMARY:
+// the main webview process RSS (real, coarse, session-level), used when the pid
+// resolves uniquely. FALLBACK: performance.memory.usedJSHeapSize over WebDriver.
+// `pidRef` is a one-shot cache ({ pid, tried }) so the host pid is resolved once.
+async function sampleHeap(browser, tMs, pidRef) {
+  // PRIMARY: process RSS, gated on a uniquely resolved main-process pid.
+  if (pidRef) {
+    if (!pidRef.tried) { pidRef.tried = true; pidRef.pid = resolveTauriPid(APP); }
+    if (pidRef.pid > 0) {
+      const rss = hostRssBytes(pidRef.pid);
+      if (rss != null) { log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: rss })); return; }
+    }
+  }
+  // FALLBACK: quantized JS heap (Chromium/WebView2) or silence (WebKit '~').
   let used = null;
   try { used = await browser.execute(PERF_MEMORY_JS); } catch (_) { used = null; }
   if (used == null) return;
@@ -1417,15 +1508,17 @@ async function main() {
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
   // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
-  // sample the heap at the start and after every action so the Rust soak oracle
-  // gets a heap-vs-time series. Off outside replay. t0 anchors t_ms. Tauri uses
-  // the performance.memory fallback (no CDP over WebDriver); see sampleHeap.
+  // sample memory at the start and after every action so the Rust soak oracle gets
+  // a heap-vs-time series. Off outside replay. t0 anchors t_ms. PRIMARY signal is
+  // the webview process RSS (real, coarse); FALLBACK is performance.memory (no CDP
+  // over WebDriver); see sampleHeap. tauriPid caches the resolved host pid.
   const t0 = Date.now();
-  if (replay) await sampleHeap(browser, 0);
+  const tauriPid = { pid: null, tried: false };
+  if (replay) await sampleHeap(browser, 0, tauriPid);
   for (let a = 0; a < budget && stuck < 3; a++) {
     // LEAK sampler: in replay mode, sample once per action (fires BEFORE acting,
     // so action a's sample reflects the heap after the previous action settled).
-    if (replay && a > 0) await sampleHeap(browser, Date.now() - t0);
+    if (replay && a > 0) await sampleHeap(browser, Date.now() - t0, tauriPid);
     let act;
     if (replay) act = replay[a];
     else if (prefix && a < prefixLen) act = prefix[a];
@@ -1507,9 +1600,9 @@ async function main() {
     }
     current = next;
   }
-  // LEAK sampler: a final heap sample after the last action, so the series spans
-  // the whole soak (start ... last action). No-op outside replay.
-  if (replay) await sampleHeap(browser, Date.now() - t0);
+  // LEAK sampler: a final sample after the last action, so the series spans the
+  // whole soak (start ... last action). No-op outside replay.
+  if (replay) await sampleHeap(browser, Date.now() - t0, tauriPid);
   // Final drain: catch any error produced by the last action (or by async work
   // that settled after the last observe).
   await drainErrors(browser);

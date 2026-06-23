@@ -414,6 +414,121 @@ async function drainJank(page) {
   return null;
 }
 
+// CROSS-ENGINE jank/hang fallback (deterministic, requestAnimationFrame based).
+// The Long Tasks API above is CHROMIUM-ONLY: on firefox/webkit the longtask
+// observer records nothing, so jank/hang would be silent there. But reproit
+// drives a cross-engine differential (chromium,firefox,webkit), so those engines
+// ARE exercised and a Gecko/WebKit-only freeze must not go unseen. rAF works in
+// all three: the browser fires the callback once per would-be paint, so the
+// interval between two callbacks is how long the main thread blocked between two
+// frames. A clean handler keeps frames near the vsync cadence (~16-33ms, or the
+// browser's throttled headless rate); a synchronous stall shows up as ONE very
+// long inter-frame interval bracketing the block, and a sustained stutter shows
+// up as a RUN of long intervals.
+//
+// rAF timing is NOISIER than Long Tasks (a major GC, headless throttling, or a
+// background-tab clamp can stretch a single frame to ~100-250ms with no app
+// fault), so the classifier is deliberately conservative to stay FALSE-POSITIVE-
+// FREE. We never flag a single mid-range late frame:
+//   - HANG: a single interval >= HANG_FLOOR_MS (2000ms). Nothing benign blocks
+//     paint for two whole seconds; the freeze fixture stalls 3500ms.
+//   - JANK: EITHER a LONE long frame >= RAF_JANK_LONE_MS (a stall far above any
+//     GC/scheduling blip; the jank fixture stalls 600ms), OR a SUSTAINED RUN of
+//     >= RAF_JANK_RUN_MIN consecutive long (>= RAF_FRAME_MS) frames whose summed
+//     blocked time reaches JANK_FLOOR_MS. A single GC pause is one sub-lone-floor
+//     frame, so it is NEITHER a lone-jank nor a run: it is dropped.
+// The EMITTED bucket is the SAME reused JANK_FLOOR_MS / HANG_FLOOR_MS constant as
+// the Long Tasks path, so the marker is byte-identical across paths. `count` is
+// the number of distinct stall EVENTS (runs), not raw frames: a 600ms block is
+// one stall regardless of how rAF chopped it, so the detail is reproducible even
+// though the raw intervals are not. The fixtures (600ms / 3500ms) sit far from
+// the floors, so the verdict is discrete and a same-seed replay reproduces it.
+const RAF_FRAME_MS = 100;       // an inter-frame interval this long is a "long frame"
+const RAF_JANK_RUN_MIN = 2;     // a sustained jank run needs >= this many long frames
+const RAF_JANK_LONE_MS = 350;   // a single frame this long is jank on its own (> GC noise, < the 600ms fixture)
+
+// Pure classifier over a list of inter-frame intervals (ms). Deterministic: the
+// SAME interval list always yields the same verdict. Exported for unit tests.
+// Returns { kind, bucket, count } or null (clean). `count` = number of stall runs.
+function classifyFrameIntervals(intervals) {
+  if (!intervals || !intervals.length) return null;
+  // A HANG is any single frame that blocked paint past the hang floor. Counted as
+  // distinct events so the detail is stable.
+  let hangRuns = 0;
+  for (const iv of intervals) if (iv >= HANG_FLOOR_MS) hangRuns++;
+  if (hangRuns > 0) return { kind: 'hang', bucket: HANG_FLOOR_MS, count: hangRuns };
+  // Group consecutive long frames into runs; a run is jank if it is a LONE frame
+  // past the lone floor, or a sustained run (>= RAF_JANK_RUN_MIN frames) whose
+  // total blocked time reaches the jank floor. A single sub-lone-floor frame
+  // (a GC blip) forms a length-1 run that meets neither test -> not jank.
+  let jankRuns = 0;
+  let i = 0;
+  const n = intervals.length;
+  while (i < n) {
+    if (intervals[i] < RAF_FRAME_MS) { i++; continue; }
+    let j = i;
+    let total = 0;
+    let peak = 0;
+    while (j < n && intervals[j] >= RAF_FRAME_MS) {
+      total += intervals[j];
+      if (intervals[j] > peak) peak = intervals[j];
+      j++;
+    }
+    const runLen = j - i;
+    const lone = peak >= RAF_JANK_LONE_MS;
+    const sustained = runLen >= RAF_JANK_RUN_MIN && total >= JANK_FLOOR_MS;
+    if (lone || sustained) jankRuns++;
+    i = j;
+  }
+  if (jankRuns > 0) return { kind: 'jank', bucket: JANK_FLOOR_MS, count: jankRuns };
+  return null;
+}
+
+// Install the rAF frame-interval recorder once per page, alongside the longtask
+// observer. It runs a self-perpetuating requestAnimationFrame loop that appends
+// each inter-frame interval to a window-global the per-action probe drains.
+// Works in all three engines (rAF is universal), so it is the cross-engine
+// jank/hang path. Cheap (one timestamp per frame) and side-effect-free.
+async function installFrameObserver(page) {
+  await page.addInitScript(() => {
+    try {
+      window.__reproitFrameIntervals = [];
+      let last = -1;
+      const tick = (now) => {
+        if (last >= 0) {
+          const d = now - last;
+          // Cap the buffer so a long idle stretch cannot grow it unbounded; the
+          // per-action window is short, so this never trims a real stall.
+          const buf = window.__reproitFrameIntervals;
+          if (buf.length < 4096) buf.push(Math.round(d));
+        }
+        last = now;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    } catch (_) { /* no rAF: cross-engine jank/hang silent (never a false positive) */ }
+  }).catch(() => {});
+}
+// Drain the rAF interval buffer and classify it. Returns the SAME shape as
+// drainJank ({ kind, bucket, count }) or null. The cross-engine path.
+async function drainFrameJank(page) {
+  const intervals = await page.evaluate(() => {
+    const t = window.__reproitFrameIntervals || [];
+    window.__reproitFrameIntervals = [];
+    return t;
+  }).catch(() => []);
+  return classifyFrameIntervals(intervals);
+}
+// Per-action jank/hang verdict, engine-aware. On chromium we keep the PRECISE
+// Long Tasks path UNCHANGED (it is more accurate than rAF); the rAF path is the
+// cross-engine fallback used on firefox/webkit, where Long Tasks is unavailable.
+// This keeps chromium byte-for-byte identical (no rAF can flip its verdict) while
+// closing the silence on the other two engines.
+async function drainJankForEngine(page) {
+  if (ENGINE === 'chromium') return drainJank(page);
+  return drainFrameJank(page);
+}
+
 // LEAK sampler (deterministic, web heap). `--soak` replays a reversible cycle N
 // times and reads the heap slope; the Rust soak oracle flags growth that scales
 // with the cycle count. The web runner has no Dart VM service, so we read the v8
@@ -803,7 +918,7 @@ function descriptorOf(anchor, root) {
 }
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
-export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor };
+export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor, classifyFrameIntervals };
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -2288,6 +2403,11 @@ async function main() {
   // navigation so it is live for every action. addInitScript re-runs it on every
   // document, so it survives in-app navigations and reloads.
   await installLongTaskObserver(page);
+  // Install the cross-engine rAF frame-interval recorder too. On firefox/webkit
+  // (no Long Tasks API) it is the ONLY jank/hang signal; on chromium it is unused
+  // (the precise Long Tasks path is kept), but installing it everywhere keeps the
+  // page setup uniform.
+  await installFrameObserver(page);
 
   // Ready marker so the orchestrator starts its clock; matches the Dart
   // explorer's claim line.
@@ -2592,7 +2712,7 @@ async function main() {
       const before = current.sig;
       const beforeContent = current.content;
       await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
-      await page.evaluate(() => { window.__reproitLongTasks = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks
+      await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
       const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
       const ok = await typeInto(page, sel, value);
       if (!ok) { if (typePix) await typePix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
@@ -2609,7 +2729,7 @@ async function main() {
       if (typeChurn && typeChurn.length) {
         log('EXPLORE:RERENDER ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, churned: typeChurn }));
       }
-      const typeJank = await drainJank(page);
+      const typeJank = await drainJankForEngine(page);
       if (typeJank) {
         log('EXPLORE:' + (typeJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
           JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, bucket: typeJank.bucket, count: typeJank.count }));
@@ -2629,7 +2749,7 @@ async function main() {
     const before = current.sig;
     const beforeContent = current.content;
     await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
-    await page.evaluate(() => { window.__reproitLongTasks = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks
+    await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
     const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
     const ok = await tap(page, sel);
     if (!ok) { if (tapPix) await tapPix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
@@ -2653,7 +2773,7 @@ async function main() {
     // JANK/HANG watchdog: did this action block the main thread past the
     // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
     // Rust side attributes it to this transition and `check` re-confirms it.
-    const tapJank = await drainJank(page);
+    const tapJank = await drainJankForEngine(page);
     if (tapJank) {
       log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
         JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
