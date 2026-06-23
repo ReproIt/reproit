@@ -89,3 +89,46 @@ test('resolves a churned-anchor key back to its node and boxes it (flicker)', as
     assert.ok(labels.some((l) => l.includes('flicker')), 'expected a flicker box: ' + JSON.stringify(labels));
   });
 });
+
+// oracle scoping: a per-finding (gallery) clip boxes ONLY that finding's
+// category, a SINGLE box, so "each video is just that issue". The fixture has
+// BOTH an overflow and a content-bug; scoping must drop the other category.
+// The meta stores the short oracle form ("overflow", "broken-render"); the
+// violation-name form ("no-overflow") must work too. Both resolve by keyword.
+for (const oracle of ['overflow', 'no-overflow']) {
+  test(`oracle=${oracle} boxes ONLY the overflow, a single box`, async () => {
+    await withPage(async (page) => {
+      await drawFindingBoxes(page, { oracle });
+      const labels = await boxLabels(page);
+      assert.equal(labels.length, 1, 'exactly one box: ' + JSON.stringify(labels));
+      assert.ok(labels[0].includes('overflow'), 'the box is the overflow: ' + JSON.stringify(labels));
+      assert.ok(!labels.some((l) => l.includes('[object Object]')), 'content box must be dropped');
+    });
+  });
+}
+
+test('oracle=broken-render boxes ONLY the content bug, a single box', async () => {
+  await withPage(async (page) => {
+    await drawFindingBoxes(page, { oracle: 'broken-render' });
+    const labels = await boxLabels(page);
+    assert.equal(labels.length, 1, 'exactly one box: ' + JSON.stringify(labels));
+    assert.ok(labels[0].includes('[object Object]'), 'the box is the content bug: ' + JSON.stringify(labels));
+  });
+});
+
+test('no oracle hint keeps the old behavior (both categories boxed)', async () => {
+  await withPage(async (page) => {
+    await drawFindingBoxes(page);
+    const labels = await boxLabels(page);
+    assert.ok(labels.length >= 2, 'unscoped shows multiple: ' + JSON.stringify(labels));
+    assert.ok(labels.some((l) => l.includes('overflow')) && labels.some((l) => l.includes('[object Object]')));
+  });
+});
+
+test('oracle with no on-screen mark (dead-end) draws nothing', async () => {
+  await withPage(async (page) => {
+    await drawFindingBoxes(page, { oracle: 'dead-end' });
+    const labels = await boxLabels(page);
+    assert.equal(labels.length, 0, 'dead-end has no element box: ' + JSON.stringify(labels));
+  });
+});

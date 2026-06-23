@@ -1155,13 +1155,23 @@ async fn main() -> Result<ExitCode> {
                 let meta = repro::resolve(&loaded.root, &name)
                     .ok_or_else(|| anyhow::anyhow!("no repro `{name}` (by id or alias)"))?;
                 let replay_path = repro::repro_dir(&loaded.root, &meta.id).join("replay.json");
-                let replay: serde_json::Value =
+                let mut replay: serde_json::Value =
                     serde_json::from_str(&std::fs::read_to_string(&replay_path).map_err(|e| {
                         anyhow::anyhow!(
                             "reading replay for `{name}` ({}): {e}",
                             replay_path.display()
                         )
                     })?)?;
+                // Tell the runner which finding this clip is for, so the annotated
+                // box is scoped to JUST that oracle's issue (one box), not every
+                // problem on the page. The runner reads `highlight` from the config.
+                if let Some(oracle) =
+                    repro::load_meta(&loaded.root, &meta.id).and_then(|m| m.oracle)
+                {
+                    if let Some(obj) = replay.as_object_mut() {
+                        obj.insert("highlight".to_string(), serde_json::Value::String(oracle));
+                    }
+                }
                 let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
                 std::fs::create_dir_all(cfg_path.parent().unwrap())?;
                 std::fs::write(&cfg_path, replay.to_string())?;

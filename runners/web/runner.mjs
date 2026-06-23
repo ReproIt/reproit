@@ -2536,7 +2536,7 @@ async function showActionHud(page, act, step, total) {
 async function drawFindingBoxes(page, hints = {}) {
   await page
     .evaluate(
-      ({ tol, trigger, flickerKeys }) => {
+      ({ tol, trigger, flickerKeys, oracle }) => {
         const old = document.getElementById('__reproit_boxes');
         if (old) old.remove();
         const visible = (el) => {
@@ -2550,9 +2550,9 @@ async function drawFindingBoxes(page, hints = {}) {
         // clearest "the whole page is wrong" / "garbage on screen" signals),
         // then spill/clip, biggest magnitude first within a tier.
         const hits = [];
-        const push = (el, label, prio, mag) => {
+        const push = (el, label, prio, mag, cat) => {
           const r = el.getBoundingClientRect();
-          hits.push({ top: r.top + sy, left: r.left + sx, w: r.width, h: r.height, label, prio, mag, el });
+          hits.push({ top: r.top + sy, left: r.left + sx, w: r.width, h: r.height, label, prio, mag, el, cat });
         };
         const doc = document.documentElement;
         if (doc && doc.scrollWidth - doc.clientWidth > tol) {
@@ -2565,7 +2565,7 @@ async function drawFindingBoxes(page, hints = {}) {
             const by = r.right - window.innerWidth;
             if (by > worstBy && r.width < doc.scrollWidth) { worstBy = by; worst = el; }
           }
-          if (worst) push(worst, 'overflow  page +' + Math.round(doc.scrollWidth - doc.clientWidth) + 'px', 3, doc.scrollWidth - doc.clientWidth);
+          if (worst) push(worst, 'overflow  page +' + Math.round(doc.scrollWidth - doc.clientWidth) + 'px', 3, doc.scrollWidth - doc.clientWidth, 'overflow');
         }
         const all = document.body ? document.body.querySelectorAll('*') : [];
         for (const el of all) {
@@ -2574,7 +2574,7 @@ async function drawFindingBoxes(page, hints = {}) {
           const clips = st.overflow === 'hidden' || st.overflowX === 'hidden' || st.textOverflow === 'ellipsis';
           const oneLine = st.whiteSpace === 'nowrap' || st.textOverflow === 'ellipsis';
           if (clips && oneLine && el.scrollWidth - el.offsetWidth > tol) {
-            push(el, 'clipped  +' + Math.round(el.scrollWidth - el.offsetWidth) + 'px', 1, el.scrollWidth - el.offsetWidth);
+            push(el, 'clipped  +' + Math.round(el.scrollWidth - el.offsetWidth) + 'px', 1, el.scrollWidth - el.offsetWidth, 'overflow');
           }
           const p = el.parentElement;
           if (p && p !== document.body && p !== doc) {
@@ -2586,7 +2586,7 @@ async function drawFindingBoxes(page, hints = {}) {
               const padL = parseFloat(ps.paddingLeft) || 0, padR = parseFloat(ps.paddingRight) || 0;
               const bL = parseFloat(ps.borderLeftWidth) || 0, bR = parseFloat(ps.borderRightWidth) || 0;
               const over = Math.max(cr.right - (pr.right - bR - padR), (pr.left + bL + padL) - cr.left);
-              if (over > tol) push(el, 'overflow  +' + Math.round(over) + 'px', 2, over);
+              if (over > tol) push(el, 'overflow  +' + Math.round(over) + 'px', 2, over, 'overflow');
             }
           }
         }
@@ -2612,14 +2612,14 @@ async function drawFindingBoxes(page, hints = {}) {
           const reason = reasonOf(ownText(el));
           if (!reason || seenC.has(el)) continue;
           seenC.add(el);
-          push(el, 'content  ' + reason, 4, 1e6);
+          push(el, 'content  ' + reason, 4, 1e6, 'content');
         }
         // TRIGGER element (crash / jank / hang): the control the failing action
         // targeted, tagged at click/focus time. Highest priority - it IS the bug
         // the user reproduces - so it sorts first and is the one scrolled to.
         if (trigger) {
           const t = document.querySelector('[data-reproit-trigger]');
-          if (t && visible(t)) push(t, trigger, 5, 2e6);
+          if (t && visible(t)) push(t, trigger, 5, 2e6, 'trigger');
         }
         // FLICKER: the persistent-chrome anchors that were rebuilt though their box
         // and text were unchanged. Resolve each key back to a live node by the same
@@ -2641,20 +2641,51 @@ async function drawFindingBoxes(page, hints = {}) {
           const seenF = new Set();
           for (const k of flickerKeys) {
             const el = keyToEl(k);
-            if (el && !seenF.has(el) && visible(el)) { seenF.add(el); push(el, 'flicker  rebuilt', 2, 5e5); }
+            if (el && !seenF.has(el) && visible(el)) { seenF.add(el); push(el, 'flicker  rebuilt', 2, 5e5, 'flicker'); }
           }
         }
-        if (!hits.length) return;
-        // De-dupe nested hits (keep the outer), prioritize, cap at 6.
-        hits.sort((a, b) => b.prio - a.prio || b.mag - a.mag);
+        // SCOPE to the replayed finding's oracle: when this clip is one specific
+        // repro (a gallery clip), box ONLY that finding's category and show a
+        // SINGLE box, so each video is "just that issue", not every problem on the
+        // page. The oracle name is the invariant the repro reproduces. Without a
+        // hint (a generic record) keep the old behavior: all categories, up to 6.
+        // Map the repro's oracle to a box category by keyword, tolerant of both
+        // the violation-name form ("no-overflow", "rerender-flicker") and the
+        // short meta form ("overflow", "exception") - the controlled vocabulary
+        // makes substring matching unambiguous. Oracles with no on-screen element
+        // (dead-end, leak, a11y/labels) map to null and draw nothing.
+        const catOf = (o) => {
+          if (!o) return null;
+          if (o.includes('overflow')) return 'overflow';
+          if (o.includes('broken-render') || o.includes('content')) return 'content';
+          if (o.includes('flicker')) return 'flicker';
+          if (o.includes('exception') || o.includes('crash') || o.includes('jank') || o.includes('hang') || o.includes('choice')) return 'trigger';
+          return null;
+        };
+        let scoped;
+        let cap;
+        if (oracle) {
+          const wantCat = catOf(oracle);
+          // An oracle with no on-screen element (dead-end, leak, a11y) draws
+          // nothing rather than falling back to boxing unrelated issues.
+          if (!wantCat) return;
+          scoped = hits.filter((h) => h.cat === wantCat);
+          cap = 1; // a per-finding clip shows a SINGLE box: just that issue
+        } else {
+          scoped = hits;
+          cap = 6;
+        }
+        if (!scoped.length) return;
+        // De-dupe nested hits (keep the outer), prioritize, cap.
+        scoped.sort((a, b) => b.prio - a.prio || b.mag - a.mag);
         const chosen = [];
-        for (const h of hits) {
+        for (const h of scoped) {
           // Skip a hit already covered by a higher-priority one: the same
           // element (a page-overflow culprit that is also a spilling child) or
           // an outer element that contains it.
           if (chosen.some((c) => c.el === h.el || c.el.contains(h.el))) continue;
           chosen.push(h);
-          if (chosen.length >= 6) break;
+          if (chosen.length >= cap) break;
         }
         // Bring the top offender into the recorded frame.
         try { chosen[0].el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
@@ -2684,7 +2715,12 @@ async function drawFindingBoxes(page, hints = {}) {
         }
         (document.body || document.documentElement).appendChild(layer);
       },
-      { tol: OVERFLOW_TOL, trigger: hints.triggerLabel || null, flickerKeys: hints.flickerKeys || null }
+      {
+        tol: OVERFLOW_TOL,
+        trigger: hints.triggerLabel || null,
+        flickerKeys: hints.flickerKeys || null,
+        oracle: hints.oracle || null,
+      }
     )
     .catch(() => {});
 }
@@ -2888,7 +2924,10 @@ async function exerciseChoiceGroup(page, group, fromSig) {
           }
         }, { label })
         .catch(() => {});
-      await drawFindingBoxes(page, { triggerLabel: 'layout shift +' + Math.round(max.mag) + 'px' }).catch(() => {});
+      await drawFindingBoxes(page, {
+        triggerLabel: 'layout shift +' + Math.round(max.mag) + 'px',
+        oracle: 'no-choice-anomaly',
+      }).catch(() => {});
       await page.waitForTimeout(2200);
       await page
         .evaluate(() => {
@@ -3396,7 +3435,14 @@ async function main() {
     // record only, so a normal fuzz hunt is untouched.
     if (recording) {
       const triggerLabel = replayErrorCount > crashAtStart ? 'crash' : lastTriggerLabel;
-      await drawFindingBoxes(page, { triggerLabel, flickerKeys: lastFlickerKeys }).catch(() => {});
+      // `fuzz.highlight` (the repro's oracle, set by `check --record`) scopes the
+      // box to JUST this finding's category and a single box, so a per-finding
+      // gallery clip shows only its own issue. Absent for a generic record.
+      await drawFindingBoxes(page, {
+        triggerLabel,
+        flickerKeys: lastFlickerKeys,
+        oracle: fuzz.highlight || null,
+      }).catch(() => {});
       await page.waitForTimeout(2200);
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
