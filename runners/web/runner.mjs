@@ -43,6 +43,14 @@ const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
 // stack has no resolvable http(s) frame at all (inline/eval/anonymous - could be
 // app code; never drop on missing evidence). Drop only when EVERY http(s) frame
 // is off-origin. Pure + exported for unit testing.
+//
+// NOTE on "any app frame keeps it": deliberate. A real app bug whose bundle is
+// served from a sibling asset domain (BBC's `bundle.js` on `static.files.bbci.co.uk`
+// with a `www.bbc.com` frame deeper) must stay. The origin shape of that is
+// IDENTICAL to an analytics script the app self-hosts on its own CDN, so the
+// origin filter cannot separate them - that case is handled by
+// `exceptionThrownInTracker` below, which keys on the SCRIPT's identity, not its
+// origin (the only signal that actually tells them apart).
 export function exceptionIsFirstParty(stack, appOrigin) {
   if (!appOrigin) return true;
   const urls = String(stack || '').match(/https?:\/\/[^\s)'"]+/g) || [];
@@ -55,6 +63,40 @@ export function exceptionIsFirstParty(stack, appOrigin) {
     sawOffOrigin = true;
   }
   return !sawOffOrigin; // every frame off-origin -> third-party, drop
+}
+
+// A throw whose INNERMOST (top) frame is a well-known analytics / tag-manager /
+// tracking / error-monitor script is not the app's bug even when the script is
+// self-hosted on the app's OWN CDN (so the origin filter keeps it) - the stack's
+// deeper frames are just the app code that loaded the SDK. We key on the script's
+// IDENTITY by filename/host (Adobe `s_code.js`, GTM, GA, Facebook Pixel, Hotjar,
+// Segment, Sentry/NewRelic, ...), a small set of stable industry conventions, and
+// ONLY on the throwing frame, so an app that merely loads analytics is unaffected
+// unless the throw is literally inside the vendor script. This is what the origin
+// filter structurally cannot see: it removed the self-hosted `awshome_s_code.js`
+// false crash a docs sweep surfaced without touching a real same-CDN app bundle.
+// Pure + exported for unit testing.
+const TRACKER_SCRIPT_RE =
+  /s_code\.js|adobedtm|\bat\.js\b|fbevents\.js|connect\.facebook\.net|googletagmanager|\/gtag(\/|\.js)|gtm\.js|google-analytics\.com|\/ga\.js|\/analytics\.js|ima3\.js|doubleclick\.net|adsbygoogle|hotjar\.com|static\.hotjar|cdn\.mixpanel|cdn\.segment\.com|clarity\.ms|\/clarity\.js|cdn\.optimizely|amplitude\.com|fullstory\.com|quantserve|scorecardresearch|chartbeat|js-agent\.newrelic\.com|nr-data\.net|browser\.sentry-cdn\.com|bugsnag/i;
+export function exceptionThrownInTracker(stack) {
+  const urls = String(stack || '').match(/https?:\/\/[^\s)'"]+/g) || [];
+  if (!urls.length) return false;
+  return TRACKER_SCRIPT_RE.test(urls[0]); // the innermost (throwing) frame only
+}
+
+// Non-deterministic / non-app exception classes that must not become a crash
+// finding. A failed `fetch(...).json()` whose body was an HTML error page
+// ("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"), or a bare fetch
+// rejection, is a NETWORK condition (a 4xx/5xx, a login redirect, an offline
+// blip), not a deterministic UI bug: it depends on a server response, would not
+// reproduce on replay, and so fails reproit's determinism bar. Only honored for a
+// STACKLESS throw - a real app-code JSON.parse / fetch-handling bug carries an app
+// stack frame and is kept by the first-party rule above. Pure + exported for tests.
+const NONDET_ERROR_RE =
+  /is not valid JSON|Unexpected end of JSON input|Failed to fetch|NetworkError when attempting to fetch|Load failed/i;
+export function exceptionIsNonDeterministic(message, stack) {
+  if (!NONDET_ERROR_RE.test(String(message || ''))) return false;
+  return (String(stack || '').match(/https?:\/\//g) || []).length === 0;
 }
 
 // Known-benign browser-policy errors that are NOT app bugs and must not be
@@ -2386,7 +2428,7 @@ async function runScenarioActor(browser) {
   const page = await ctx.newPage();
   page.on('pageerror', (err) => {
     const msg = String(err && err.message ? err.message : err);
-    if (exceptionIsBenign(msg) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    if (exceptionIsBenign(msg) || exceptionThrownInTracker(err && err.stack) || exceptionIsNonDeterministic(msg, err && err.stack) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('actor ' + who + ': ' + msg);
     const stack = (err && err.stack) ? String(err.stack) : '';
@@ -2810,7 +2852,7 @@ async function main() {
   const emitError = (err) => {
     const msg = String(err && err.message ? err.message : err);
     // Skip third-party-script throws and known-benign browser-policy errors.
-    if (exceptionIsBenign(msg) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    if (exceptionIsBenign(msg) || exceptionThrownInTracker(err && err.stack) || exceptionIsNonDeterministic(msg, err && err.stack) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
     log(msg);
