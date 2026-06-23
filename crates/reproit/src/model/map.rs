@@ -24,6 +24,12 @@ pub(crate) struct RunObs {
     /// route anchor, the web URL path, ...) gets it merged, so the candidate map
     /// can reconcile by route instead of by a name that may not line up.
     pub routes: BTreeMap<String, String>,
+    /// sig -> number of tappable elements the runner offered on that state (the
+    /// `EXPLORE:STATE` `elements` count). Lets the dead-end oracle tell a proven
+    /// sink (no actions, or all actions tried with no forward exit) from a page
+    /// the walk simply never finished exploring (it offered tappables it never
+    /// tapped). 0 when the runner does not report elements.
+    pub tappables: BTreeMap<String, usize>,
     /// (from sig, action string e.g. "tap:X"/"back", to sig)
     pub edges: Vec<(String, String, String)>,
     /// First state observed: the app's start state.
@@ -128,6 +134,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
     let mut obs = RunObs {
         states: BTreeMap::new(),
         routes: BTreeMap::new(),
+        tappables: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
         escapable_routes: std::collections::BTreeSet::new(),
@@ -157,6 +164,10 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                             .entry(sig.to_string())
                             .or_insert_with(|| route.to_string());
                     }
+                }
+                // Tappable count: how many actionable elements the state offered.
+                if let Some(els) = json.get("elements").and_then(Value::as_array) {
+                    obs.tappables.entry(sig.to_string()).or_insert(els.len());
                 }
                 obs.states.entry(sig.to_string()).or_insert_with(|| {
                     (

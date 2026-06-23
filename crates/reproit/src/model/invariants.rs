@@ -328,6 +328,15 @@ fn dead_ends(obs: &RunObs) -> Vec<String> {
             }
         }
     }
+    // Routes that offered tappables on SOME snapshot. A different snapshot of the
+    // same route that reported zero tappables (header nav scrolled offscreen, a
+    // partial render) is not a proven sink: the page does have actions.
+    let routes_with_tappables: std::collections::BTreeSet<&String> = obs
+        .tappables
+        .iter()
+        .filter(|(_, &n)| n > 0)
+        .filter_map(|(sig, _)| obs.routes.get(sig))
+        .collect();
 
     let mut out = Vec::new();
     for sig in obs.states.keys() {
@@ -360,6 +369,32 @@ fn dead_ends(obs: &RunObs) -> Vec<String> {
         // the page only as its budget terminus).
         if let Some(route) = obs.routes.get(sig) {
             if routes_with_exit.contains(route) || obs.escapable_routes.contains(route) {
+                continue;
+            }
+        }
+        // Unexplored terminus, not a proven sink: the state OFFERED tappable
+        // elements the walk never tapped (more tappables than recorded tap
+        // actions from it). A real dead end either offers no forward action or
+        // has all its actions exhausted with no exit; a leaf page reached as the
+        // budget terminus (e.g. a blog article whose header nav was deduped after
+        // being tried elsewhere) still has untapped nav and is not a trap.
+        // tappables=0 (no element data, as in unit fixtures) never triggers this,
+        // so a genuine no-action sink stays flagged.
+        let offered = obs.tappables.get(sig).copied().unwrap_or(0);
+        if offered > 0 {
+            let tapped = obs
+                .edges
+                .iter()
+                .filter(|(from, action, _)| from == sig && action.starts_with("tap:"))
+                .count();
+            if offered > tapped {
+                continue;
+            }
+        } else if let Some(route) = obs.routes.get(sig) {
+            // This snapshot saw zero tappables, but if another snapshot of the
+            // same route did, the page has actions (a transient/partial render),
+            // not a sink.
+            if routes_with_tappables.contains(route) {
                 continue;
             }
         }
@@ -691,6 +726,7 @@ mod tests {
             obs: RunObs {
                 states: s,
                 routes: Default::default(),
+                tappables: Default::default(),
                 edges: edges
                     .iter()
                     .map(|(f, a, t)| (f.to_string(), a.to_string(), t.to_string()))
@@ -1026,6 +1062,42 @@ mod tests {
         let o = obs_with(&[("home", &["Home"], 0)], &[], Some("home"));
         let f = evaluate(&o, &InvariantsCfg::default());
         assert!(!f.iter().any(|x| x["invariant"] == "no-dead-end"));
+    }
+
+    #[test]
+    fn unexplored_leaf_with_untapped_nav_is_not_a_dead_end() {
+        // A leaf reached as the budget terminus that still offers tappable nav the
+        // walk never tapped (header links deduped after being tried elsewhere) is
+        // not a trap. Regression: the cloud.google.com /blog/<article> dead-end FP.
+        let mut o = obs_with(
+            &[("home", &["Home"], 0), ("article", &["Cloud", "Blog"], 0)],
+            &[("home", "tap:role:link#0", "article")],
+            Some("home"),
+        );
+        o.obs.tappables.insert("article".into(), 4); // offered 4 nav links, tapped 0
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(!f
+            .iter()
+            .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "article"));
+    }
+
+    #[test]
+    fn exhausted_sink_with_all_tappables_tried_is_still_a_dead_end() {
+        // The walk DID tap the screen's action and it self-looped (no forward
+        // exit). Tappables exhausted -> a genuine sink, still flagged.
+        let mut o = obs_with(
+            &[("home", &["Home"], 0), ("trap", &["Stuck"], 0)],
+            &[
+                ("home", "tap:role:link#0", "trap"),
+                ("trap", "tap:role:button#0", "trap"),
+            ],
+            Some("home"),
+        );
+        o.obs.tappables.insert("trap".into(), 1); // offered 1, tapped 1 -> exhausted
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(f
+            .iter()
+            .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "trap"));
     }
 
     #[test]
