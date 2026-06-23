@@ -31,7 +31,31 @@ import {
 import { transientDivergence } from './flicker-oracle.mjs';
 
 const APP_URL = process.env.REPROIT_URL || "http://localhost:8080";
+const APP_ORIGIN = (() => { try { return new URL(APP_URL).origin; } catch (e) { return ''; } })();
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
+
+// First-party check for the exception oracle: an uncaught error is the app's
+// bug only if its stack touches the app's own origin. Errors thrown ENTIRELY
+// inside third-party scripts (analytics, ad SDKs, tracking pixels - which big
+// sites load by the dozen) are NOT app bugs and must not be reported, or every
+// fbevents.js / imasdk.googleapis.com throw becomes a false "crash" finding.
+// Keep an error when any http(s) stack frame is on the app origin, OR when the
+// stack has no resolvable http(s) frame at all (inline/eval/anonymous - could be
+// app code; never drop on missing evidence). Drop only when EVERY http(s) frame
+// is off-origin. Pure + exported for unit testing.
+export function exceptionIsFirstParty(stack, appOrigin) {
+  if (!appOrigin) return true;
+  const urls = String(stack || '').match(/https?:\/\/[^\s)'"]+/g) || [];
+  if (urls.length === 0) return true; // no script evidence -> do not drop
+  let sawOffOrigin = false;
+  for (const u of urls) {
+    let origin;
+    try { origin = new URL(u).origin; } catch (e) { continue; }
+    if (origin === appOrigin) return true; // a frame on the app -> first-party
+    sawOffOrigin = true;
+  }
+  return !sawOffOrigin; // every frame off-origin -> third-party, drop
+}
 const HEADLESS = process.env.REPROIT_HEADLESS !== '0';
 // Desired UI locale for the run, a BCP47 tag (e.g. "de", "ar", "pt-BR"). When
 // set, the browser context is created with this locale so the page renders in
@@ -2328,6 +2352,7 @@ async function runScenarioActor(browser) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on('pageerror', (err) => {
+    if (!exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('actor ' + who + ': ' + String(err && err.message ? err.message : err));
     const stack = (err && err.stack) ? String(err.stack) : '';
@@ -2390,6 +2415,8 @@ async function main() {
   // unhandled rejection) become the same EXCEPTION block the Flutter
   // pipeline emits, so the fuzz oracle and exceptions.jsonl pick them up.
   const emitError = (err) => {
+    // Skip errors thrown entirely inside third-party scripts: not app bugs.
+    if (!exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
     log(String(err && err.message ? err.message : err));
