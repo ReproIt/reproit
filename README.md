@@ -64,8 +64,6 @@ The web fuzzer needs Node.js 18+. The web runner (Playwright + the headless
 browser) auto-provisions on first `reproit fuzz <url>` for every install method,
 so there is no manual `npm install` step.
 
-> Published under the [`ReproIt`](https://github.com/ReproIt) GitHub org.
-
 ## Quickstart
 
 ```sh
@@ -174,4 +172,4 @@ self-host freely; not as a hosted service to third parties).
 
 ---
 
-Internals: `docs/cli.md`, `docs/signature.md`, `docs/operability-graph.md`.
+Internals: `docs/cli.md`, `docs/signature.md`, `docs/oracles.md`, `docs/operability-graph.md`.
