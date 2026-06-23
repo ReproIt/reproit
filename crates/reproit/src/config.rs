@@ -580,10 +580,33 @@ pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     Ok(Loaded { config, root })
 }
 
-/// Locate the web runner directory (a checkout with Playwright installed) for a
-/// zero-config `--url` run: `$REPROIT_WEB_RUNNER_DIR`, else `./runners/web`, else
-/// `<binary-dir>/runners/web`. The first one carrying `node_modules` wins.
-pub fn resolve_web_runner_dir() -> Result<PathBuf> {
+/// GitHub repo whose releases carry the prebuilt `reproit-web-runner.tar.gz`.
+const RELEASE_REPO: &str = "ReproIt/reproit";
+
+/// Where the self-healed web runner lives: the OS data dir, `<data>/reproit/web`.
+/// Linux: `$XDG_DATA_HOME` or `~/.local/share`; macOS: `~/Library/Application
+/// Support`; Windows: `%LOCALAPPDATA%`. `install.sh` provisions into this same
+/// path, so a scripted install and a runtime self-heal converge on one location
+/// and never need `REPROIT_WEB_RUNNER_DIR`.
+pub fn web_runner_data_dir() -> PathBuf {
+    let base = if cfg!(target_os = "windows") {
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+    };
+    base.unwrap_or_else(|| PathBuf::from("."))
+        .join("reproit/web")
+}
+
+/// Pure lookup of an already-provisioned web runner (a dir carrying
+/// `node_modules`): `$REPROIT_WEB_RUNNER_DIR`, a local source checkout
+/// (`./runners/web`), the binary's sibling, then the self-healed data dir.
+/// `None` if the runner has not been provisioned yet.
+fn find_web_runner_dir() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(d) = std::env::var("REPROIT_WEB_RUNNER_DIR") {
         if !d.trim().is_empty() {
@@ -598,15 +621,114 @@ pub fn resolve_web_runner_dir() -> Result<PathBuf> {
             candidates.push(p.join("runners/web"));
         }
     }
-    for c in &candidates {
-        if c.join("node_modules").is_dir() {
-            return Ok(c.clone());
-        }
+    candidates.push(web_runner_data_dir());
+    candidates
+        .into_iter()
+        .find(|c| c.join("node_modules").is_dir())
+}
+
+/// Return a ready-to-use web runner dir, self-healing if none is provisioned:
+/// download the prebuilt runner bundle (runner + `node_modules`) for this
+/// binary's release into the data dir and ensure the headless browser. So a
+/// fresh `cargo install` / `brew install` / scripted install all reach a working
+/// `reproit fuzz <url>` with no `REPROIT_WEB_RUNNER_DIR` and no manual npm step.
+/// `version` is the running binary's version (pins the matching release asset);
+/// `log` receives human progress lines.
+pub fn ensure_web_runner_dir(version: &str, log: &dyn Fn(&str)) -> Result<PathBuf> {
+    if let Some(d) = find_web_runner_dir() {
+        return Ok(d);
     }
-    bail!(
-        "could not find a web runner with Playwright installed. Set REPROIT_WEB_RUNNER_DIR \
-         to a `runners/web` checkout where you ran `npm install && npx playwright install`."
-    );
+    // Node is the one external prerequisite for the web fuzzer (it drives
+    // Playwright). Check up front so the failure is actionable, not a cryptic
+    // spawn error deep in the drive loop.
+    let node_ok = std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !node_ok {
+        bail!(
+            "reproit's web fuzzer needs Node.js (18+), which was not found. Install it \
+             (https://nodejs.org or `brew install node`), then re-run."
+        );
+    }
+    let dir = web_runner_data_dir();
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("creating web runner dir {}", dir.display()))?;
+    log("web runner not found; provisioning it (one-time)...");
+    download_and_extract_runner(version, &dir, log)?;
+    ensure_web_browser(&dir, log)?;
+    Ok(dir)
+}
+
+/// Release asset URL for `asset`. A clean release version (e.g. "0.1.2") pins the
+/// matching tag; a dev build (e.g. "0.1.2-3-gabc-dirty") has no asset of its own,
+/// so it falls back to the latest release.
+fn release_asset_url(version: &str, asset: &str) -> String {
+    let is_release =
+        version.split('.').count() == 3 && version.chars().all(|c| c.is_ascii_digit() || c == '.');
+    if is_release {
+        format!("https://github.com/{RELEASE_REPO}/releases/download/v{version}/{asset}")
+    } else {
+        format!("https://github.com/{RELEASE_REPO}/releases/latest/download/{asset}")
+    }
+}
+
+/// Download the prebuilt runner bundle and extract it flat into `dir` (so
+/// `dir/runner.mjs` and `dir/node_modules` land in place). Shells out to `curl`
+/// and `tar`, which ship on macOS, Linux, and Windows 10+, to avoid pulling a
+/// TLS/archive stack into the binary just for this one-time provisioning.
+fn download_and_extract_runner(version: &str, dir: &Path, log: &dyn Fn(&str)) -> Result<()> {
+    let url = release_asset_url(version, "reproit-web-runner.tar.gz");
+    let tmp = std::env::temp_dir().join("reproit-web-runner.tar.gz");
+    log(&format!("  downloading {url}"));
+    let st = std::process::Command::new("curl")
+        .args(["-fsSL", "-o"])
+        .arg(&tmp)
+        .arg(&url)
+        .status()
+        .context("running curl to download the web runner (is curl installed?)")?;
+    if !st.success() {
+        bail!("failed to download the web runner bundle from {url}");
+    }
+    log("  extracting...");
+    let st = std::process::Command::new("tar")
+        .arg("-xzf")
+        .arg(&tmp)
+        .arg("-C")
+        .arg(dir)
+        .status()
+        .context("running tar to extract the web runner (is tar installed?)")?;
+    let _ = std::fs::remove_file(&tmp);
+    if !st.success() {
+        bail!("failed to extract the web runner bundle");
+    }
+    if !dir.join("node_modules").is_dir() {
+        bail!(
+            "web runner bundle extracted but node_modules is missing under {}",
+            dir.display()
+        );
+    }
+    Ok(())
+}
+
+/// Ensure the headless browser the runner drives is installed (Playwright caches
+/// it outside the runner dir, so this is a no-op when already present).
+fn ensure_web_browser(dir: &Path, log: &dyn Fn(&str)) -> Result<()> {
+    let cli = dir.join("node_modules/playwright/cli.js");
+    if !cli.exists() {
+        return Ok(());
+    }
+    log("  ensuring the headless browser (chromium)...");
+    let st = std::process::Command::new("node")
+        .arg(&cli)
+        .args(["install", "chromium"])
+        .status()
+        .context("running `playwright install chromium`")?;
+    if !st.success() {
+        bail!("failed to install the chromium browser for the web runner");
+    }
+    Ok(())
 }
 
 /// Build a web `Loaded` for the zero-config `reproit fuzz <url>` run, with

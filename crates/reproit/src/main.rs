@@ -1599,7 +1599,7 @@ async fn main() -> Result<ExitCode> {
             // graph. Anything else (e.g. "login") scopes the hunt to that alias.
             let target_url = target_arg.as_deref().and_then(target_as_url);
             let loaded = if let Some(u) = &target_url {
-                let wrd = config::resolve_web_runner_dir()?;
+                let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
                 let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
                 if !l.root.join(".reproit/appmap.json").exists() {

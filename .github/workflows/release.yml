@@ -111,6 +111,43 @@ jobs:
           tag_name: ${{ needs.tag.outputs.tag }}
           files: reproit-${{ needs.tag.outputs.tag }}-${{ matrix.target }}.*
 
+  # Build the web runner bundle (runner.mjs + helpers + production node_modules)
+  # and attach it as a single platform-agnostic tarball. The reproit binary's
+  # self-heal (config::ensure_web_runner_dir) and install.sh both download this
+  # from the release, so `reproit fuzz <url>` needs no `npm install` and no
+  # `REPROIT_WEB_RUNNER_DIR`. The headless browser is NOT bundled (it is fetched
+  # once via `playwright install chromium` at install / first run, like every
+  # browser-automation tool), which keeps this asset to a few MB.
+  web-runner:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build runner bundle
+        run: |
+          set -euo pipefail
+          cd runners/web
+          # Production deps only; pure JS, so the bundle is platform-agnostic.
+          npm ci --omit=dev
+          # Tar the runner CONTENTS (so it extracts flat into <data>/reproit/web),
+          # dropping tests/fixtures that the runtime never loads.
+          tar --exclude='*.test.mjs' --exclude='*-fixture.html' \
+            -czf "$GITHUB_WORKSPACE/reproit-web-runner.tar.gz" .
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.tag.outputs.tag }}
+          files: reproit-web-runner.tar.gz
+
   # Regenerate the Homebrew formula with the real sha256s and push it to the tap
   # (github.com/ReproIt/homebrew-tap), so `brew install ReproIt/tap/reproit` tracks
   # each release with no manual editing. Requires a HOMEBREW_TAP_DEPLOY_KEY secret:

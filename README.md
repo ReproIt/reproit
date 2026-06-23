@@ -41,7 +41,14 @@ byte-for-byte.
 
 ## Install
 
-Homebrew (macOS and Linux):
+Install script (macOS and Linux): fetches the binary and provisions the web
+runner so `reproit fuzz https://yoursite.com` works with no further setup.
+
+```sh
+curl -fsSL https://reproit.com/install.sh | sh
+```
+
+Or Homebrew:
 
 ```sh
 brew install ReproIt/tap/reproit
@@ -53,7 +60,9 @@ Or build from source with Cargo:
 cargo install --git https://github.com/ReproIt/reproit reproit
 ```
 
-Web also needs Playwright once: `cd runners/web && npm install && npx playwright install`.
+The web fuzzer needs Node.js 18+. The web runner (Playwright + the headless
+browser) auto-provisions on first `reproit fuzz <url>` for every install method,
+so there is no manual `npm install` step.
 
 > Published under the [`ReproIt`](https://github.com/ReproIt) GitHub org.
 

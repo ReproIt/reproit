@@ -62,10 +62,8 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         }
         Platform::Web => {
             println!("  1. edit reproit.yaml: set app.url to your dev/staging URL");
-            println!(
-                "  2. (cd <reproit>/runners/web && npm install && npx playwright install chromium)"
-            );
-            println!("  3. reproit doctor   then   reproit map");
+            println!("  2. reproit doctor   then   reproit map");
+            println!("     (the web runner auto-provisions on first run; needs Node 18+)");
         }
         Platform::Rn => {
             println!(
