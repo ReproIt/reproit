@@ -56,6 +56,20 @@ export function exceptionIsFirstParty(stack, appOrigin) {
   }
   return !sawOffOrigin; // every frame off-origin -> third-party, drop
 }
+
+// Known-benign browser-policy errors that are NOT app bugs and must not be
+// reported as crashes: (1) a same-origin-policy SecurityError from first-party
+// code reaching into a cross-origin iframe (ads, embeds) - it has a first-party
+// or EMPTY stack, so the origin filter alone keeps it, but it is just the SOP
+// doing its job; (2) the ResizeObserver loop notification, a benign layout-thrash
+// warning the browser recovers from, suppressed by default in every error tracker.
+// Matched by message because the signal is in the message, not the stack. Keep
+// this list TIGHT - over-suppression hides real bugs. Pure + exported for tests.
+const BENIGN_ERROR_RE =
+  /Blocked a frame with origin|accessing a cross-origin frame|Permission denied to access property .* on cross-origin|ResizeObserver loop/i;
+export function exceptionIsBenign(message) {
+  return BENIGN_ERROR_RE.test(String(message || ''));
+}
 const HEADLESS = process.env.REPROIT_HEADLESS !== '0';
 // Desired UI locale for the run, a BCP47 tag (e.g. "de", "ar", "pt-BR"). When
 // set, the browser context is created with this locale so the page renders in
@@ -2352,9 +2366,10 @@ async function runScenarioActor(browser) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on('pageerror', (err) => {
-    if (!exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    const msg = String(err && err.message ? err.message : err);
+    if (exceptionIsBenign(msg) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
-    log('actor ' + who + ': ' + String(err && err.message ? err.message : err));
+    log('actor ' + who + ': ' + msg);
     const stack = (err && err.stack) ? String(err.stack) : '';
     for (const line of stack.split('\n').slice(0, 8)) log(line);
     log('════════');
@@ -2415,11 +2430,12 @@ async function main() {
   // unhandled rejection) become the same EXCEPTION block the Flutter
   // pipeline emits, so the fuzz oracle and exceptions.jsonl pick them up.
   const emitError = (err) => {
-    // Skip errors thrown entirely inside third-party scripts: not app bugs.
-    if (!exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    const msg = String(err && err.message ? err.message : err);
+    // Skip third-party-script throws and known-benign browser-policy errors.
+    if (exceptionIsBenign(msg) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
-    log(String(err && err.message ? err.message : err));
+    log(msg);
     const stack = (err && err.stack) ? String(err.stack) : '';
     for (const line of stack.split('\n').slice(0, 8)) log(line);
     log('\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550');

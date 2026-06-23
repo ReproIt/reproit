@@ -3,7 +3,7 @@
 // ad SDKs - were being reported as app crashes). See runner.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { exceptionIsFirstParty } from './runner.mjs';
+import { exceptionIsFirstParty, exceptionIsBenign } from './runner.mjs';
 
 test('drops a throw entirely inside a third-party script (Facebook Pixel)', () => {
   const stack =
@@ -42,4 +42,27 @@ test('keeps an error with no resolvable http(s) frame (do not drop on missing ev
 test('no app origin known -> never drop', () => {
   const stack = 'Error\n    at https://connect.facebook.net/fbevents.js:1:1';
   assert.equal(exceptionIsFirstParty(stack, ''), true);
+});
+
+// exceptionIsBenign: known-benign browser-policy errors (stackless, so the
+// origin filter can't catch them) must be dropped by message.
+test('drops the cross-origin iframe SecurityError (stackless)', () => {
+  const msg = "Failed to read a named property 'document' from 'Window': " +
+    'Blocked a frame with origin "https://www.bvp.com" from accessing a cross-origin frame.';
+  assert.equal(exceptionIsBenign(msg), true);
+});
+
+test('drops the Firefox cross-origin variant and ResizeObserver loop noise', () => {
+  assert.equal(exceptionIsBenign('Permission denied to access property "document" on cross-origin object'), true);
+  assert.equal(exceptionIsBenign('ResizeObserver loop completed with undelivered notifications.'), true);
+  assert.equal(exceptionIsBenign('ResizeObserver loop limit exceeded'), true);
+});
+
+test('does NOT suppress the real crashes the sweep found', () => {
+  // These are genuine first-party bugs and must keep firing.
+  assert.equal(exceptionIsBenign('Minified React error #418; visit https://react.dev/errors/418'), false);
+  assert.equal(exceptionIsBenign("Identifier 'resizeTimeout' has already been declared"), false); // not "ResizeObserver loop"
+  assert.equal(exceptionIsBenign("Cannot read properties of null (reading 'addEventListener')"), false);
+  assert.equal(exceptionIsBenign('how is not defined'), false);
+  assert.equal(exceptionIsBenign(''), false);
 });
