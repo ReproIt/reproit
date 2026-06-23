@@ -2471,7 +2471,6 @@ async function main() {
     return snap.sig;
   }
 
-  const APP_ORIGIN = new URL(APP_URL).origin;
   // If an action navigated the browser off the app-under-test's origin (a
   // footer "View on GitHub", a social/outbound link), that destination is NOT
   // a state of the app: recording it would make the whole map + every fuzz
