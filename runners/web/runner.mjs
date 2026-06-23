@@ -956,7 +956,7 @@ function descriptorOf(anchor, root) {
 }
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
-export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor, classifyFrameIntervals };
+export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor, classifyFrameIntervals, drawFindingBoxes };
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -2460,6 +2460,138 @@ async function showActionHud(page, act, step, total) {
     .catch(() => {});
 }
 
+// Draw red bounding box(es) around the element(s) a structural oracle flags on
+// the CURRENT (final) state of a recorded replay, so the clip visibly POINTS at
+// the bug: the HUD says what action was taken, the box says what broke. Mirrors
+// the overflow (spill/clip/page-scroll) and content-bug (artifact-token)
+// predicates so the highlight matches what the oracle reported - it is not a
+// second, divergent detector. Boxes are drawn in PAGE coordinates (scroll-
+// invariant) and capped/prioritized so a busy page stays legible; the primary
+// offender is scrolled into view so it lands inside the recorded frame. Replay+
+// record only; best-effort, never throws, no effect on the marker stream.
+async function drawFindingBoxes(page) {
+  await page
+    .evaluate(
+      ({ tol }) => {
+        const old = document.getElementById('__reproit_boxes');
+        if (old) old.remove();
+        const visible = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        const sx = window.scrollX, sy = window.scrollY;
+        // {prio,mag} order findings: page-scroll + content artifacts first (the
+        // clearest "the whole page is wrong" / "garbage on screen" signals),
+        // then spill/clip, biggest magnitude first within a tier.
+        const hits = [];
+        const push = (el, label, prio, mag) => {
+          const r = el.getBoundingClientRect();
+          hits.push({ top: r.top + sy, left: r.left + sx, w: r.width, h: r.height, label, prio, mag, el });
+        };
+        const doc = document.documentElement;
+        if (doc && doc.scrollWidth - doc.clientWidth > tol) {
+          // Page-level horizontal overflow: box the widest visible block that
+          // pokes past the viewport's right edge (the thing actually spilling).
+          let worst = null, worstBy = 0;
+          for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+            if (!visible(el)) continue;
+            const r = el.getBoundingClientRect();
+            const by = r.right - window.innerWidth;
+            if (by > worstBy && r.width < doc.scrollWidth) { worstBy = by; worst = el; }
+          }
+          if (worst) push(worst, 'overflow  page +' + Math.round(doc.scrollWidth - doc.clientWidth) + 'px', 3, doc.scrollWidth - doc.clientWidth);
+        }
+        const all = document.body ? document.body.querySelectorAll('*') : [];
+        for (const el of all) {
+          if (!visible(el)) continue;
+          const st = getComputedStyle(el);
+          const clips = st.overflow === 'hidden' || st.overflowX === 'hidden' || st.textOverflow === 'ellipsis';
+          const oneLine = st.whiteSpace === 'nowrap' || st.textOverflow === 'ellipsis';
+          if (clips && oneLine && el.scrollWidth - el.offsetWidth > tol) {
+            push(el, 'clipped  +' + Math.round(el.scrollWidth - el.offsetWidth) + 'px', 1, el.scrollWidth - el.offsetWidth);
+          }
+          const p = el.parentElement;
+          if (p && p !== document.body && p !== doc) {
+            const ps = getComputedStyle(p);
+            const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
+            if (!scrollsX) {
+              const pr = p.getBoundingClientRect();
+              const cr = el.getBoundingClientRect();
+              const padL = parseFloat(ps.paddingLeft) || 0, padR = parseFloat(ps.paddingRight) || 0;
+              const bL = parseFloat(ps.borderLeftWidth) || 0, bR = parseFloat(ps.borderRightWidth) || 0;
+              const over = Math.max(cr.right - (pr.right - bR - padR), (pr.left + bL + padL) - cr.left);
+              if (over > tol) push(el, 'overflow  +' + Math.round(over) + 'px', 2, over);
+            }
+          }
+        }
+        // Content-bug artifacts: the literal broken-stringify tokens, on the OWN
+        // text of an element (mirrors detectContentBugs' reasonOf).
+        const ownText = (el) => {
+          let t = '';
+          for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
+          return t.replace(/\s+/g, ' ').trim();
+        };
+        const reasonOf = (text) => {
+          if (!text) return null;
+          if (text.includes('[object Object]')) return '[object Object]';
+          if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) return 'unrendered template';
+          if (/(^|[\s:>(\[,])undefined($|[\s.,!?)\]<])/.test(text)) return 'undefined';
+          if (/(^|[\s:>(\[,])null($|[\s.,!?)\]<])/.test(text)) return 'null';
+          if (/(^|[\s:>(\[,])NaN($|[\s.,!?)\]<])/.test(text)) return 'NaN';
+          return null;
+        };
+        const seenC = new Set();
+        for (const el of all) {
+          if (!visible(el)) continue;
+          const reason = reasonOf(ownText(el));
+          if (!reason || seenC.has(el)) continue;
+          seenC.add(el);
+          push(el, 'content  ' + reason, 4, 1e6);
+        }
+        if (!hits.length) return;
+        // De-dupe nested hits (keep the outer), prioritize, cap at 6.
+        hits.sort((a, b) => b.prio - a.prio || b.mag - a.mag);
+        const chosen = [];
+        for (const h of hits) {
+          // Skip a hit already covered by a higher-priority one: the same
+          // element (a page-overflow culprit that is also a spilling child) or
+          // an outer element that contains it.
+          if (chosen.some((c) => c.el === h.el || c.el.contains(h.el))) continue;
+          chosen.push(h);
+          if (chosen.length >= 6) break;
+        }
+        // Bring the top offender into the recorded frame.
+        try { chosen[0].el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+        const layer = document.createElement('div');
+        layer.id = '__reproit_boxes';
+        layer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none';
+        for (const h of chosen) {
+          const box = document.createElement('div');
+          box.style.cssText = [
+            'position:absolute', 'top:' + (h.top - 2) + 'px', 'left:' + (h.left - 2) + 'px',
+            'width:' + (h.w + 4) + 'px', 'height:' + (h.h + 4) + 'px',
+            'border:3px solid #e21f1f', 'background:rgba(226,31,31,.10)', 'border-radius:4px',
+            'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)', 'pointer-events:none',
+          ].join(';');
+          const tag = document.createElement('div');
+          tag.textContent = h.label;
+          tag.style.cssText = [
+            'position:absolute', 'top:-22px', 'left:-3px', 'background:#e21f1f', 'color:#fff',
+            'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace', 'padding:4px 7px',
+            'border-radius:5px', 'white-space:nowrap', 'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+          ].join(';');
+          box.appendChild(tag);
+          layer.appendChild(box);
+        }
+        (document.body || document.documentElement).appendChild(layer);
+      },
+      { tol: OVERFLOW_TOL }
+    )
+    .catch(() => {});
+}
+
 // ---- COMPONENT-CHOICE differential fuzzing ----
 // A multi-choice component (language tabs, a radio group) where EVERY choice has
 // a similar effect (the common, expected behavior) but ONE choice deviates is a
@@ -3109,6 +3241,14 @@ async function main() {
     // LEAK sampler: a final heap sample after the last action, so the series
     // spans the whole soak (start ... last action). No-op outside replay.
     if (replay) await sampleHeap(page, gtCdp, Date.now() - t0);
+    // FINDING HIGHLIGHT: on a recorded replay, draw a red box around the
+    // element(s) the oracle flags on this final state and hold it so the clip
+    // ends on the bug itself - the visual companion to the action HUD. Replay+
+    // record only, so a normal fuzz hunt is untouched.
+    if (replay && VIDEO_DIR) {
+      await drawFindingBoxes(page).catch(() => {});
+      await page.waitForTimeout(2200);
+    }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   }
 
