@@ -259,26 +259,6 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // no-layout-shift: a tap/type that made the page reflow and JUMP (Layout
-    // Instability API / CLS), distinct from overflow (which is static "doesn't
-    // fit"). The web runner reports a transition whose summed shift score passed
-    // the CLS "poor" floor, so a jarring whole-page jump (a code-block language
-    // tab that resizes and pushes content) is flagged while a small local
-    // expansion is not. Deterministic + re-confirms on replay; empty unless an
-    // action shifted the layout. Chromium-only (Layout Instability API).
-    if cfg.no_layout_shift {
-        for ((from, action), score) in &obs.obs.shifts {
-            out.push(finding(
-                "no-layout-shift",
-                "SHIFT",
-                format!(
-                    "transition {from} --{action}--> shifted the layout (CLS {score:.3}): the page reflowed and jumped, pushing already-visible content"
-                ),
-                Some(from),
-            ));
-        }
-    }
-
     // no-leak: a leaked-resource / teardown signal. Headless surfaces a
     // teardown exception block (already in `exceptions` -> no-exception); this
     // adds a dedicated finding when a non-exception memory signal is present
@@ -760,7 +740,6 @@ mod tests {
                 content_bugs: Default::default(),
                 janks: Default::default(),
                 hangs: Default::default(),
-                shifts: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),
@@ -1119,25 +1098,6 @@ mod tests {
         assert!(f
             .iter()
             .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "trap"));
-    }
-
-    #[test]
-    fn layout_shift_flags_a_jumping_transition() {
-        // A tap that scored past the CLS floor (e.g. a code-block language tab
-        // that resized and pushed content) is flagged; a clean run is not.
-        let mut o = obs_with(&[("home", &["Home"], 0)], &[], Some("home"));
-        o.obs
-            .shifts
-            .insert(("home".into(), "tap:key:lang-go".into()), 0.42);
-        let f = evaluate(&o, &InvariantsCfg::default());
-        assert!(f
-            .iter()
-            .any(|x| x["invariant"] == "no-layout-shift" && x["sig"] == "home"));
-        // No shift -> no finding.
-        let clean = obs_with(&[("home", &["Home"], 0)], &[], Some("home"));
-        assert!(!evaluate(&clean, &InvariantsCfg::default())
-            .iter()
-            .any(|x| x["invariant"] == "no-layout-shift"));
     }
 
     #[test]
