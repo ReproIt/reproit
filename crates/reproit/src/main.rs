@@ -279,8 +279,8 @@ enum Cmd {
         /// Write JUnit XML results to this path (for CI)
         #[arg(long)]
         junit: Option<PathBuf>,
-        /// Treat a quarantined repro's failure as blocking too (no effect on
-        /// the exit code today: every outcome already maps to its CI code).
+        /// Treat a quarantined (reported, non-blocking) repro's failure as
+        /// blocking too, so it gates the exit code like a required repro.
         #[arg(long)]
         strict: bool,
         /// Comma-separated locale list to check across (e.g. de,ar,ja). Each
@@ -325,13 +325,11 @@ enum Cmd {
         #[arg(long)]
         flicker: bool,
     },
-    /// Visual-regression a repro against the committed baseline (per-pixel
-    /// tolerance + ignore regions). Was `check --visual`. `--update` accepts the
-    /// current capture as the new baseline.
+    /// Visual-regression the current capture against the committed baseline
+    /// (per-pixel tolerance + ignore regions). Was `check --visual`. `--update`
+    /// accepts the current capture as the new baseline. What is compared is driven
+    /// by the `visual` section in reproit.yaml.
     Baseline {
-        /// The repro (id or alias) whose capture to diff. Optional; the visual
-        /// section in reproit.yaml selects what is compared.
-        repro: Option<String>,
         /// Accept the current capture as the new baseline.
         #[arg(long)]
         update: bool,
@@ -1201,8 +1199,7 @@ async fn main() -> Result<ExitCode> {
         // `baseline`: the visual oracle. Diff the current capture against the
         // committed baseline (per-pixel tolerance + ignore regions); `--update`
         // accepts the current capture as the new baseline. Was `check --visual`.
-        Cmd::Baseline { repro, update } => {
-            let _ = repro; // the visual section selects what is compared today.
+        Cmd::Baseline { update } => {
             let loaded = config::load(cli.config.as_deref())?;
             let Some(vis) = &loaded.config.visual else {
                 anyhow::bail!("no `visual` section in reproit.yaml");
@@ -1229,7 +1226,6 @@ async fn main() -> Result<ExitCode> {
             target,
             device,
         } => {
-            let _ = strict; // every outcome already maps to its CI code.
             let loaded = config::load(cli.config.as_deref())?;
             let locales = locale
                 .as_deref()
@@ -1373,7 +1369,18 @@ async fn main() -> Result<ExitCode> {
                         None,
                     )
                     .await?;
-                    worst = worst.max(result.outcome);
+                    // Quarantined repros are "reported but non-blocking": a
+                    // non-pass result is still shown and written to meta/junit/json
+                    // but does NOT raise the aggregate exit code, so a fresh keep
+                    // can't break CI before it has proven green once. `--strict`
+                    // opts into blocking on them too; required repros always gate.
+                    let blocks = strict || meta.status != repro::Status::Quarantined;
+                    let effective = if blocks {
+                        result.outcome
+                    } else {
+                        repro::Outcome::Pass
+                    };
+                    worst = worst.max(effective);
                     if result.outcome != repro::Outcome::Pass {
                         if let Some(l) = loc {
                             failed_by_id

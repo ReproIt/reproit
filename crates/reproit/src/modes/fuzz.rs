@@ -1028,7 +1028,47 @@ fn finding_signature(f: &Value) -> String {
         .and_then(|a| a.first())
         .and_then(Value::as_str)
         .unwrap_or("");
-    format!("{oracle}:{kind}:{message}:{frame}")
+    // Crashes bucket on the exact message + top frame (the crash LOCATION): two
+    // walks that reach the same crash by different paths share it, same-message
+    // crashes at different code locations stay distinct. For NON-crash oracles the
+    // message carries run/locale-varying detail ("3 overflowing elements", "jank
+    // 54.5%", a localized label) that must NOT split one defect into many buckets,
+    // so we key on a normalized message: digit runs -> `#`, quoted labels -> `<q>`.
+    if oracle == "crash" {
+        format!("{oracle}:{kind}:{message}:{frame}")
+    } else {
+        format!("{oracle}:{kind}:{}:{frame}", normalize_message(message))
+    }
+}
+
+/// Collapse run/locale-varying detail in a finding message so the same defect
+/// buckets to one signature: every digit run (counts, percentages, px, decimals)
+/// becomes `#`, and every quoted run (a localized label) becomes `<q>`.
+fn normalize_message(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut chars = message.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' | '\'' => {
+                let q = c;
+                for n in chars.by_ref() {
+                    if n == q {
+                        break;
+                    }
+                }
+                out.push_str("<q>");
+            }
+            d if d.is_ascii_digit() => {
+                out.push('#');
+                while matches!(chars.peek(), Some(n) if n.is_ascii_digit() || *n == '.' || *n == ',')
+                {
+                    chars.next();
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// A short human label for a bug bucket (oracle + kind + first line of the
@@ -2086,6 +2126,19 @@ FUZZ:ACT back
         assert_eq!(finding_signature(&a), finding_signature(&b));
         // A different crash LOCATION is a different bug, even with the same message.
         let c = json!({"kind":"EXCEPTION","message":"Cannot read 'id'","frames":["renderCart (app:200)"]});
+        assert_ne!(finding_signature(&a), finding_signature(&c));
+    }
+
+    #[test]
+    fn finding_signature_normalizes_counts_and_labels_for_non_crash() {
+        // Same overflow defect, message differs only in a run-varying count and a
+        // localized label. Both must bucket to ONE signature, else `--all`
+        // over-reports the same bug and the locale diff false-flags it as i18n.
+        let a = json!({"invariant":"no-overflow","kind":"OVERFLOW","message":"3 overflowing elements near \"Sign In\""});
+        let b = json!({"invariant":"no-overflow","kind":"OVERFLOW","message":"5 overflowing elements near \"Se connecter\""});
+        assert_eq!(finding_signature(&a), finding_signature(&b));
+        // A genuinely different overflow message still gets its own bucket.
+        let c = json!({"invariant":"no-overflow","kind":"OVERFLOW","message":"clipped header overlaps nav"});
         assert_ne!(finding_signature(&a), finding_signature(&c));
     }
 

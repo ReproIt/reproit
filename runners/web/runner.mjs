@@ -3504,7 +3504,10 @@ async function main() {
       continue;
     }
     const sel = act.slice('tap:'.length);
-    triedEdges.add(current.sig + '|' + sel);
+    // Key MUST match the picker's edge form (`tap:<sel>`, line ~3337); recording
+    // the bare `<sel>` left every tap looking perpetually untried, so the
+    // deterministic walk kept re-tapping the first control and under-explored.
+    triedEdges.add(current.sig + '|tap:' + sel);
     const before = current.sig;
     const beforeContent = current.content;
     await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome

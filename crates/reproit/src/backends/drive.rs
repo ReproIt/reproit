@@ -90,6 +90,11 @@ pub struct Drive {
     pub state: Arc<Mutex<DriveState>>,
     pub log_path: PathBuf,
     child: Child,
+    /// The stdout/stderr reader tasks. Held so teardown can DRAIN them: a verdict
+    /// line can be sitting in a pipe buffer, parsed but not yet handled, when we
+    /// decide to reap the child. Dropping the handles would abandon that line and
+    /// the run would spuriously report "no verdict -> FAIL".
+    readers: Vec<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Serialize)]
@@ -124,6 +129,7 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let mut readers = Vec::new();
     for stream in [stdout.map(StreamSrc::Out), stderr.map(StreamSrc::Err)]
         .into_iter()
         .flatten()
@@ -133,7 +139,7 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
         let log = log.clone();
         let label = label.to_string();
         let udid = udid.to_string();
-        tokio::spawn(async move {
+        readers.push(tokio::spawn(async move {
             let mut lines = match stream {
                 StreamSrc::Out(s) => Lines::Out(BufReader::new(s).lines()),
                 StreamSrc::Err(s) => Lines::Err(BufReader::new(s).lines()),
@@ -141,7 +147,7 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
             while let Ok(Some(line)) = lines.next().await {
                 handle_line(&ctx, &state, &log, &label, &udid, &line).await;
             }
-        });
+        }));
     }
 
     Ok(Drive {
@@ -149,6 +155,7 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
         state,
         log_path,
         child,
+        readers,
     })
 }
 
@@ -576,5 +583,11 @@ impl Drive {
     pub async fn kill(mut self) {
         let _ = self.child.start_kill();
         let _ = self.child.wait().await;
+        // The child is dead, so its stdout/stderr pipes hit EOF; the reader tasks
+        // drain whatever is still buffered (a final verdict line) and then exit.
+        // Await them (bounded) so that handling happens BEFORE the caller inspects
+        // `state` -- otherwise a buffered "PASS/FAIL" would be lost on reap.
+        let drain = futures_util::future::join_all(self.readers.drain(..));
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), drain).await;
     }
 }

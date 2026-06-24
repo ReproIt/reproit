@@ -406,7 +406,7 @@ reproit_sweep(target?)                default find: state-present bugs, one per 
 reproit_fuzz(target?, platform?)      deep sequence bugs (crash/jank/hang); deduped unique-bugs list
 reproit_check(repro?)                 run a repro / journey / pending finding and classify it
 reproit_record(repro, flicker?)       annotated video of a repro (flicker = also scan it)
-reproit_baseline(repro?, update?)     visual-regression diff vs the committed baseline
+reproit_baseline(update?)             visual-regression diff vs the committed baseline
 reproit_keep(id?, as?)                save a repro into the suite
 reproit_simplify(repro, actions)      adopt a shorter, verified-equivalent sequence
 reproit_repros()                      list saved repros + status + actions

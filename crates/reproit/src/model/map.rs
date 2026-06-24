@@ -714,10 +714,15 @@ pub(crate) fn frontier_path(map: &AppMap, visits: &Visits) -> Option<(String, Ve
     paths
         .iter()
         .filter(|(id, _)| **id != start_id)
+        // Deterministic frontier choice: least-visited, then deepest path, then a
+        // STABLE tie-break on the structural signature (and id). Without the last
+        // two keys a tie resolved on `HashMap` iteration order, which is randomized
+        // per run -- so `fuzz --frontier` picked a different target (and replayed a
+        // different prefix for every seed) run-to-run, breaking reproducibility.
         .min_by_key(|(id, path)| {
             let sig = sig_of.get(id.as_str()).copied().unwrap_or("");
             let count = visits.counts.get(sig).copied().unwrap_or(0);
-            (count, usize::MAX - path.len())
+            (count, usize::MAX - path.len(), sig, id.as_str())
         })
         .map(|(id, path)| (id.clone(), path.clone()))
 }
@@ -1004,6 +1009,45 @@ mod tests {
         assert!(p0.is_empty());
         // an unreachable/unknown label yields None.
         assert!(path_to_label(&m, "nonexistent-screen").is_none());
+    }
+
+    #[test]
+    fn frontier_path_is_deterministic_on_ties() {
+        // Two unvisited frontier states, each one tap from Home: equal visit count
+        // AND equal path length, so the pick comes down to the tie-break. Before
+        // the fix it resolved on `HashMap` iteration order (a fresh random seed per
+        // call), so `fuzz --frontier` could target a different state run-to-run.
+        let sig_state = |sig: &str| {
+            let mut s = st("x");
+            s.signature.semantics_hash = Some(sig.to_string());
+            s
+        };
+        let mut states = BTreeMap::new();
+        states.insert("Home".to_string(), sig_state("sig-home"));
+        states.insert("Alpha".to_string(), sig_state("sig-alpha"));
+        states.insert("Bravo".to_string(), sig_state("sig-bravo"));
+        let map = AppMap {
+            app: "demo".to_string(),
+            version: 1,
+            states,
+            transitions: vec![tap("Home", "a", "Alpha"), tap("Home", "b", "Bravo")],
+            invariants: vec![],
+            interrupts: vec![],
+        };
+        let visits = Visits {
+            start: Some("sig-home".to_string()),
+            counts: BTreeMap::new(),
+            edge_counts: BTreeMap::new(),
+        };
+        // Stable across many calls (each rebuilds the internal HashMaps with a new
+        // seed, so a non-deterministic tie-break would diverge over the loop)...
+        let first = frontier_path(&map, &visits).expect("a frontier exists");
+        for _ in 0..64 {
+            assert_eq!(frontier_path(&map, &visits), Some(first.clone()));
+        }
+        // ...and it is the smallest-signature tied state (sig-alpha < sig-bravo),
+        // not whichever happened to hash first.
+        assert_eq!(first.0, "Alpha");
     }
 
     #[test]
