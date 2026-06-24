@@ -822,7 +822,7 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
          defines: {{}}\ndevices:\n  namePrefix: web\nreset:\n  steps: []\njourneys:\n  \
          dir: integration_test\n  driver: web\n  readyMarker: \"claimed role\"\n  \
          doneMarkers:\n    - All tests passed\n    - Some tests failed\n  \
-         deviceDoneMarker: \"JOURNEY DONE\"\n  actionPrefix: \"JOURNEY\"\n  timeoutSec: 120\n\
+         deviceDoneMarker: \"JOURNEY DONE\"\n  actionPrefix: \"JOURNEY\"\n  timeoutSec: 300\n\
          evidence:\n  outDir: .reproit/runs\n  video: false\n",
     );
     let loaded = parse_str(&yaml, root)?;
