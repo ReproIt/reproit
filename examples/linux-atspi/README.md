@@ -115,4 +115,3 @@ fixture are Linux-only, and the `reproit` binary is built for linux in the image
 so the whole `map` -> `fuzz` loop runs natively against the live a11y bus. The
 host (macOS) only builds the image and the host `reproit` binary
 (`cargo build -p reproit`), which cannot drive AT-SPI itself.
-```

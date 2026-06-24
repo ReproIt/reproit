@@ -91,4 +91,3 @@ The parity test is the cross-language gate (mirrors the Rust oracle's
 exercises the mapping with synthetic ATK / AT-SPI accessibles; the LIVE
 GTK/AT-SPI walk against a running app needs a Linux display and a11y bus and is
 not exercised headless.
-```

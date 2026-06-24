@@ -131,4 +131,3 @@ vt100 model.
   diverge. The CJK and grouped-number golden vectors exercise the multi-byte path.
 - **Cursor**: the SDK takes a 0-based `(row, col)` exactly as `tui.rs` reads from
   `screen().cursor_position()`. The app must pass the same convention.
-```
