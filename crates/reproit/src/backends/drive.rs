@@ -520,6 +520,11 @@ fn parse_exception_block(ctx: &RunCtx, device: &str, buf: &[String]) -> Exceptio
             let l = clean(l);
             let start = l.find('╡')? + '╡'.len_utf8();
             let end = l.find('╞')?;
+            // Guard the slice: app stdout could contain these box-drawing chars
+            // out of order, and `l[start..end]` would panic when start > end.
+            if start > end {
+                return None;
+            }
             Some(l[start..end].trim().to_string())
         })
         .unwrap_or_else(|| "EXCEPTION".to_string());

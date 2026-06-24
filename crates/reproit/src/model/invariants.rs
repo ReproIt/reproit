@@ -289,10 +289,11 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // no-broken-route: the app links to a URL whose document responded 4xx/5xx
-    // (a dead route / 404). Keyed off the navigation HTTP status, so it is
-    // structural, locale-invariant, and false-positive-free (a 4xx is never an
-    // intended screen). Empty unless a visited route came back >= 400.
+    // no-broken-route: the app links to a URL whose document responded with a
+    // dead-link status -- 404 / 410 / 5xx. The runner deliberately excludes
+    // 401/403 (intentional auth gates) and 429 (rate limit), which respond >= 400
+    // but are not broken links. Keyed off the HTTP status, so it is structural and
+    // locale-invariant. Empty unless a visited route came back broken.
     if cfg.no_broken_route {
         for (sig, route, status) in &obs.obs.broken_routes {
             out.push(finding(

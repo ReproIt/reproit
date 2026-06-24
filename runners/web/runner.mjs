@@ -3245,10 +3245,13 @@ async function main() {
         if (cbug && cbug.length) {
           log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
         }
-        // BROKEN-ROUTE: the document for this URL came back >= 400 (a 404/5xx
-        // dead route the app linked to). Keyed by the SAME sig + route.
+        // BROKEN-ROUTE: the document for this URL came back with a status that
+        // means the LINK is dead -- 404 (not found), 410 (gone), or 5xx (server
+        // error). NOT 401/403 (intentional auth gates) or 429 (rate limit), which
+        // respond >= 400 but are not broken links -- flagging those was a false
+        // positive. Keyed by the SAME sig + route.
         const status = snap.anchor ? navStatus[snap.anchor] : undefined;
-        if (typeof status === 'number' && status >= 400) {
+        if (typeof status === 'number' && (status === 404 || status === 410 || status >= 500)) {
           log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), status }));
         }
       }

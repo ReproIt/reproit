@@ -87,8 +87,9 @@ pub(crate) struct RunObs {
     /// odd-one-out choice.
     pub choice_bugs: Vec<(String, String, String, String, i64)>,
     /// Broken-route findings, from `EXPLORE:BROKENROUTE` records: a state whose
-    /// document responded 4xx/5xx (a dead route the app linked to). Each is
-    /// `(sig, route, status)`. Empty unless a visited URL came back >= 400.
+    /// document responded with a dead-link status (404/410/5xx; the runner
+    /// excludes auth-gate 401/403 and rate-limit 429). Each is `(sig, route,
+    /// status)`. Empty unless a visited URL came back broken.
     pub broken_routes: Vec<(String, String, i64)>,
 }
 
@@ -859,7 +860,14 @@ commentary, no code fences.\n\n{listing}"
     let response = provider.complete(&llm::Task::new(prompt)).await?;
     let json_str = response
         .find('{')
-        .and_then(|s| response.rfind('}').map(|e| &response[s..=e]))
+        // Guard the slice: an LLM reply could place `}` before its first `{`, and
+        // `&response[s..=e]` would panic when e < s. Require e >= s.
+        .and_then(|s| {
+            response
+                .rfind('}')
+                .filter(|&e| e >= s)
+                .map(|e| &response[s..=e])
+        })
         .context("no JSON object in labeling response")?;
     let parsed: BTreeMap<String, String> = serde_json::from_str(json_str)?;
     let mut used = std::collections::HashSet::new();
