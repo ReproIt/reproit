@@ -776,7 +776,9 @@ pub async fn build_map(
             )
             .await?;
             if !outcome.passed {
-                println!("  note: exploration run did not pass cleanly; mapping what was observed");
+                eprintln!(
+                    "  note: exploration run did not pass cleanly; mapping what was observed"
+                );
             }
             outcome.run_dir
         }
@@ -830,18 +832,21 @@ pub async fn build_map(
                 }
                 save_map(root, &map)?;
             }
-            Err(e) => println!("  warn: labeling pass failed ({e}); keeping current names"),
+            Err(e) => eprintln!("  warn: labeling pass failed ({e}); keeping current names"),
         }
     }
 
     let map = load_map(root, cfg);
-    println!(
+    // Progress lines go to STDERR: stdout is reserved for machine output (e.g. a
+    // `--json` sweep/fuzz that auto-builds the map on first run), and these landing
+    // on stdout corrupted the JSON object a piped consumer parses.
+    eprintln!(
         "  map: {} states, {} transitions -> {}",
         map.states.len(),
         map.transitions.len(),
         root.join(".reproit/appmap.json").display()
     );
-    println!("  view: reproit map show --format html --out map.html");
+    eprintln!("  view: reproit map show --format html --out map.html");
     Ok(())
 }
 

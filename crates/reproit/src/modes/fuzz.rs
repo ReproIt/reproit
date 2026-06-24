@@ -179,7 +179,11 @@ pub struct SweepArgs {
 /// on each (overflow / content / a11y / choice-anomaly) - one finding per
 /// (screen x issue), no per-seed collapse. The runner already emits these markers
 /// on any walk; sweep is about COLLECTING and reporting them, not new detection.
-pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
+/// Returns `true` when the coverage walk COMPLETED (the runner declared done),
+/// `false` when it was cut short (timeout / killed) so its coverage is partial.
+/// The caller turns `false` into a non-zero exit so CI never reads an incomplete
+/// sweep as a clean pass.
+pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> {
     let json = args.json;
     let cfg_path = root.join(".reproit/fuzz_config.json");
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
@@ -196,11 +200,31 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
         "sweep: one coverage walk (every reachable screen, checked once)...".to_string(),
     );
     let outcome = run_explorer(cfg, root, &args.journey, false, &defines, false, args.sim).await?;
+    let completed = outcome.passed;
 
-    // ALL per-state findings (every state x oracle), NOT collapsed to one-per-seed.
-    let findings = findings_for_tier(cfg, &outcome.run_dir, args.sim);
+    // ALL per-state findings (every state x oracle), NOT collapsed to one-per-seed,
+    // then filtered to the STATE-PRESENT oracles -- the bugs visible on a single
+    // screen (overflow, content-bug, a11y, choice-anomaly, broken-route, dead-end).
+    // The sequence-dependent oracles (crash, jank, hang, leak, flicker) are
+    // `fuzz`'s job: a single coverage crawl can trip them flakily, so surfacing
+    // them here contradicted the documented sweep contract and was the main source
+    // of sweep non-determinism. They still land in the run log for `fuzz`.
+    let findings: Vec<Value> = findings_for_tier(cfg, &outcome.run_dir, args.sim)
+        .into_iter()
+        .filter(|f| is_state_present(&crate::crosscut::classify(f)))
+        .collect();
     let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
     let obs = crate::map::parse_run(&log);
+    // Distinct screens actually crawled (routes when the runner emits them, else
+    // state sigs) -- the coverage denominator, NOT "screens with findings".
+    let swept = {
+        let routes: std::collections::BTreeSet<&String> = obs.routes.values().collect();
+        if routes.is_empty() {
+            obs.states.len()
+        } else {
+            routes.len()
+        }
+    };
 
     // Group per SCREEN (route), deduped by (oracle, detail). A route is the
     // user's mental "screen": the same overflow/anomaly visited via several state
@@ -245,17 +269,16 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
             .collect();
         println!(
             "{}",
-            json!({ "command": "sweep", "screens": by_screen.len(), "issues": issues, "results": results, "clips": clips })
+            json!({ "command": "sweep", "complete": completed, "screens_swept": swept, "screens_with_findings": by_screen.len(), "issues": issues, "results": results, "clips": clips })
         );
-        return Ok(());
+        return Ok(completed);
     }
 
     say(
         json,
         format!(
-            "\nsweep: {} screen(s), {} distinct issue(s)",
+            "\nsweep: {swept} screen(s) swept; {} with {issues} distinct issue(s)",
             by_screen.len(),
-            issues
         ),
     );
     for (route, items) in &by_screen {
@@ -267,7 +290,36 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
     if !clips.is_empty() {
         say(json, format!("\n{} clip(s) recorded.", clips.len()));
     }
-    Ok(())
+    // Honest about partial coverage: a cut-short crawl did NOT check every screen,
+    // so don't let it read as a clean pass (the caller also exits non-zero).
+    if !completed {
+        say(
+            json,
+            "\nsweep: coverage INCOMPLETE -- the crawl was cut short (timeout/killed), \
+             so some screens were not checked. Raise --budget or journeys.timeoutSec \
+             to go deeper."
+                .to_string(),
+        );
+    }
+    Ok(completed)
+}
+
+/// The STATE-PRESENT oracles: bugs visible on a single screen, which is what
+/// `sweep` reports. Everything else (crash/jank/hang/leak/flicker and the
+/// cross-cutting visual/divergence/i18n classes) is sequence-dependent or a
+/// different mode's job and belongs to `fuzz`/`soak`/`baseline`, not a one-pass
+/// coverage crawl.
+fn is_state_present(oracle: &crate::crosscut::Oracle) -> bool {
+    use crate::crosscut::Oracle;
+    matches!(
+        oracle,
+        Oracle::Overflow
+            | Oracle::ContentBug
+            | Oracle::A11y
+            | Oracle::ChoiceAnomaly
+            | Oracle::BrokenRoute
+            | Oracle::Graph
+    )
 }
 
 /// Record one annotated clip per BOXABLE sweep finding. overflow / content-bug

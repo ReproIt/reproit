@@ -1683,8 +1683,14 @@ async fn main() -> Result<ExitCode> {
                 record,
                 out,
             };
-            fuzz::sweep(&loaded.config, &loaded.root, &args).await?;
-            return Ok(ExitCode::SUCCESS);
+            let completed = fuzz::sweep(&loaded.config, &loaded.root, &args).await?;
+            // A cut-short crawl (timeout/killed) checked only some screens; exit
+            // non-zero so CI/agents never read an incomplete sweep as a clean pass.
+            return Ok(if completed {
+                ExitCode::SUCCESS
+            } else {
+                exit_with(Exit::Regression)
+            });
         }
         Cmd::Fuzz {
             journey,
