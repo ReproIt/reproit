@@ -68,3 +68,24 @@ test('snapshot tappables are deterministic across repeated captures', async () =
     await browser.close();
   }
 });
+
+test('accessibleName aggregates the subtree: a logo link (img alt) is labeled, a nameless icon link is not', async () => {
+  // The ARIA accessible-name algorithm aggregates the subtree, so a link wrapping
+  // <img alt="..."> or <svg><title> is LABELED -- flagging those as unlabeled was
+  // a false positive on the common logo/icon-link pattern (surfincubator's logo).
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+    await page.setContent(`<!doctype html><html><body style="margin:0;font:16px sans-serif">
+      <a href="/" data-testid="logo" style="display:inline-block"><img src="x.png" alt="SURF Incubator" style="width:40px;height:40px"></a>
+      <a href="/y" data-testid="svgtitled" style="display:inline-block"><svg width="24" height="24"><title>Search</title></svg></a>
+      <a href="/x" data-testid="icononly" style="display:inline-block"><svg width="24" height="24"></svg></a>
+    </body></html>`);
+    const by = Object.fromEntries((await snapshot(page, [])).tappables.map((t) => [t.sel, t]));
+    assert.equal(by['key:testid:logo']?.unlabeled, false, 'img-alt link should be labeled');
+    assert.equal(by['key:testid:svgtitled']?.unlabeled, false, 'svg-title link should be labeled');
+    assert.equal(by['key:testid:icononly']?.unlabeled, true, 'nameless icon link should be flagged unlabeled');
+  } finally {
+    await browser.close();
+  }
+});

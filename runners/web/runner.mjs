@@ -1291,15 +1291,39 @@ async function snapshot(page, valueNodeSelectors) {
       const text = (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
       return text;
     };
+    // Has this control an accessible NAME, following the ARIA name algorithm
+    // (simplified)? The name can come from the element itself OR be aggregated
+    // from its SUBTREE -- so a link wrapping `<img alt="SURF Incubator">` is
+    // labeled by that alt, an `<a><svg><title>...` by the svg title, etc.
+    // Checking only the element's own alt/text flagged those as unlabeled (a
+    // false positive on the common icon/logo-link pattern).
     const accessibleName = (el) => {
-      const aria = el.getAttribute('aria-label');
-      if (aria && aria.trim()) return true;
-      const title = el.getAttribute('title');
-      if (title && title.trim()) return true;
-      const alt = el.getAttribute('alt');
-      if (alt && alt.trim()) return true;
-      const text = (el.innerText || el.textContent || '').trim();
-      return text.length > 0;
+      const has = (s) => !!(s && s.trim());
+      if (has(el.getAttribute('aria-label'))) return true;
+      // aria-labelledby: the referenced element's text names this one.
+      const lb = el.getAttribute('aria-labelledby');
+      if (lb) {
+        for (const id of lb.split(/\s+/)) {
+          const ref = id && document.getElementById(id);
+          if (ref && has(ref.textContent)) return true;
+        }
+      }
+      if (has(el.getAttribute('title'))) return true;
+      if (has(el.getAttribute('alt'))) return true;
+      if (has(el.innerText || el.textContent)) return true;
+      // Subtree name sources: a descendant image's alt, a descendant's own
+      // aria-label/title, or an <svg><title>.
+      for (const img of el.querySelectorAll('img[alt]')) {
+        if (has(img.getAttribute('alt'))) return true;
+      }
+      for (const d of el.querySelectorAll('[aria-label],[title]')) {
+        if (has(d.getAttribute('aria-label')) || has(d.getAttribute('title'))) return true;
+      }
+      for (const svg of el.querySelectorAll('svg')) {
+        const t = svg.querySelector('title');
+        if (t && has(t.textContent)) return true;
+      }
+      return false;
     };
     const visible = (el) => {
       const r = el.getBoundingClientRect();
