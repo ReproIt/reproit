@@ -2904,7 +2904,7 @@ async function clickOptionByLabel(page, role, label) {
     .catch(() => false);
 }
 
-async function exerciseChoiceGroup(page, group, fromSig) {
+async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
   const results = [];
   let base = null;
   for (const opt of group.opts) {
@@ -2925,7 +2925,7 @@ async function exerciseChoiceGroup(page, group, fromSig) {
     results.push({ opt, mag: cur ? layoutDelta(base, cur) : null });
   }
   const valid = results.filter((r) => r.mag !== null);
-  if (valid.length < 3) return; // need >= 2 siblings to call one an outlier
+  if (valid.length < 3) return false; // need >= 2 siblings to call one an outlier
   let max = valid[0];
   for (const r of valid) if (r.mag > max.mag) max = r;
   const siblings = valid.filter((r) => r !== max).map((r) => r.mag);
@@ -2972,13 +2972,19 @@ async function exerciseChoiceGroup(page, group, fromSig) {
         oracle: 'no-choice-anomaly',
       }).catch(() => {});
       await page.waitForTimeout(2200);
-      await page
-        .evaluate(() => {
-          const b = document.getElementById('__reproit_boxes'); if (b) b.remove();
-          for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
-        })
-        .catch(() => {});
+      // A sweep clip (`keepBox`) ends on the boxed outlier, so the cleanup that a
+      // mid-walk exercise does is skipped; the caller holds + finishes the clip.
+      if (!keepBox) {
+        await page
+          .evaluate(() => {
+            const b = document.getElementById('__reproit_boxes'); if (b) b.remove();
+            for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+          })
+          .catch(() => {});
+      }
+      return true;
     }
+    return false;
   }
 }
 
@@ -3504,18 +3510,42 @@ async function main() {
     // captured signals (crash overrides a jank label on the same action). Replay+
     // record only, so a normal fuzz hunt is untouched.
     if (recording) {
-      const triggerLabel = replayErrorCount > crashAtStart ? 'crash' : lastTriggerLabel;
-      // `fuzz.highlight` (the repro's oracle, set by `check --record`) scopes the
-      // box to JUST this finding's category and a single box, so a per-finding
-      // gallery clip shows only its own issue. Absent for a generic record.
-      await drawFindingBoxes(page, {
-        triggerLabel,
-        flickerKeys: lastFlickerKeys,
-        oracle: fuzz.highlight || null,
-        // broken-route: the dead route's path, so the box lands on the SOURCE
-        // link (the <a href=...> that points there) on this page.
-        linkHref: fuzz.linkHref || null,
-      }).catch(() => {});
+      if (fuzz.highlight && fuzz.highlight.includes('choice')) {
+        // CHOICE-ANOMALY clip: a single tap cannot reproduce the differential, so
+        // the clip drives the exercise itself -- re-run it on this loaded screen
+        // (selecting each option, measuring the global layout), which boxes the
+        // outlier whose effect deviates and keeps the box to the end of the clip.
+        let drew = false;
+        try {
+          // The code-block picker is below the fold and often lazy/hydrated, so a
+          // fresh load may not expose or settle it. Scroll through once to load +
+          // stabilise it, then back to top, before detecting + exercising.
+          await page.evaluate(async () => {
+            for (let y = 0; y <= document.body.scrollHeight; y += window.innerHeight) {
+              window.scrollTo(0, y);
+              await new Promise((r) => setTimeout(r, 200));
+            }
+            window.scrollTo(0, 0);
+          }).catch(() => {});
+          await page.waitForTimeout(600);
+          const snap = await snapshot(page, valueNodeSelectors);
+          for (const group of detectChoiceGroups(snap.tappables)) {
+            if (await exerciseChoiceGroup(page, group, snap.sig, true)) { drew = true; break; }
+          }
+        } catch (_) { /* ignore */ }
+        log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew }));
+      } else {
+        // FINDING HIGHLIGHT: box what broke on this final state. State oracles
+        // (overflow/content) are re-detected; crash/jank/hang come from the
+        // latest action's captured signals; broken-route boxes the source link.
+        const triggerLabel = replayErrorCount > crashAtStart ? 'crash' : lastTriggerLabel;
+        await drawFindingBoxes(page, {
+          triggerLabel,
+          flickerKeys: lastFlickerKeys,
+          oracle: fuzz.highlight || null,
+          linkHref: fuzz.linkHref || null,
+        }).catch(() => {});
+      }
       await page.waitForTimeout(2200);
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);

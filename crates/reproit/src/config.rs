@@ -626,11 +626,55 @@ pub fn web_runner_data_dir() -> PathBuf {
         .join("reproit/web")
 }
 
-/// Pure lookup of an already-provisioned web runner (a dir carrying
-/// `node_modules`): `$REPROIT_WEB_RUNNER_DIR`, a local source checkout
-/// (`./runners/web`), the binary's sibling, then the self-healed data dir.
-/// `None` if the runner has not been provisioned yet.
-fn find_web_runner_dir() -> Option<PathBuf> {
+/// The web runner's JS logic, EMBEDDED in the binary at compile time. This is the
+/// fix for runner/binary skew: the heavy `node_modules` (Playwright) is downloaded
+/// once, but the runner SCRIPTS always come from the binary, so the runner logic
+/// is in lock-step with the binary no matter how it was installed (`cargo install`,
+/// brew, install.sh) -- no stale cache, no `REPROIT_WEB_RUNNER_DIR` needed.
+const WEB_RUNNER_FILES: &[(&str, &str)] = &[
+    (
+        "runner.mjs",
+        include_str!("../../../runners/web/runner.mjs"),
+    ),
+    (
+        "flicker-oracle.mjs",
+        include_str!("../../../runners/web/flicker-oracle.mjs"),
+    ),
+    ("probe.mjs", include_str!("../../../runners/web/probe.mjs")),
+    (
+        "annotate.mjs",
+        include_str!("../../../runners/web/annotate.mjs"),
+    ),
+    (
+        "jank-oracle.mjs",
+        include_str!("../../../runners/web/jank-oracle.mjs"),
+    ),
+    ("jank.mjs", include_str!("../../../runners/web/jank.mjs")),
+    (
+        "differential.mjs",
+        include_str!("../../../runners/web/differential.mjs"),
+    ),
+    (
+        "package.json",
+        include_str!("../../../runners/web/package.json"),
+    ),
+];
+
+/// Write the binary's embedded runner scripts into `dir`, overwriting any stale
+/// copies, so the runner logic matches this binary exactly.
+fn write_embedded_runner(dir: &Path) -> Result<()> {
+    for (name, contents) in WEB_RUNNER_FILES {
+        std::fs::write(dir.join(name), contents)
+            .with_context(|| format!("writing embedded runner {name}"))?;
+    }
+    Ok(())
+}
+
+/// A DEV runner used verbatim (live edits, no embed sync): an explicit
+/// `$REPROIT_WEB_RUNNER_DIR`, a source checkout at `./runners/web`, or the
+/// binary's sibling. Must already carry `node_modules`. `None` falls through to
+/// the self-provisioned data-dir runner.
+fn find_dev_runner_dir() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(d) = std::env::var("REPROIT_WEB_RUNNER_DIR") {
         if !d.trim().is_empty() {
@@ -645,43 +689,50 @@ fn find_web_runner_dir() -> Option<PathBuf> {
             candidates.push(p.join("runners/web"));
         }
     }
-    candidates.push(web_runner_data_dir());
     candidates
         .into_iter()
         .find(|c| c.join("node_modules").is_dir())
 }
 
-/// Return a ready-to-use web runner dir, self-healing if none is provisioned:
-/// download the prebuilt runner bundle (runner + `node_modules`) for this
-/// binary's release into the data dir and ensure the headless browser. So a
-/// fresh `cargo install` / `brew install` / scripted install all reach a working
-/// `reproit fuzz <url>` with no `REPROIT_WEB_RUNNER_DIR` and no manual npm step.
-/// `version` is the running binary's version (pins the matching release asset);
-/// `log` receives human progress lines.
+/// Return a ready-to-use web runner dir. A dev/source runner is used verbatim;
+/// otherwise the self-provisioned data-dir runner is used, downloading the heavy
+/// `node_modules` (Playwright) once and then ALWAYS writing the binary's embedded
+/// runner scripts over it. So a fresh `cargo install` / `brew install` / scripted
+/// install all reach a working `reproit fuzz <url>` with the runner logic in
+/// lock-step with the binary -- no `REPROIT_WEB_RUNNER_DIR`, no stale-cache skew.
+/// `version` pins the matching release asset for the one-time `node_modules`
+/// download; `log` receives human progress lines.
 pub fn ensure_web_runner_dir(version: &str, log: &dyn Fn(&str)) -> Result<PathBuf> {
-    if let Some(d) = find_web_runner_dir() {
+    // Dev/source checkout: used as-is so edits are live without a reinstall.
+    if let Some(d) = find_dev_runner_dir() {
         return Ok(d);
-    }
-    // Node is the one external prerequisite for the web fuzzer (it drives
-    // Playwright). Check up front so the failure is actionable, not a cryptic
-    // spawn error deep in the drive loop.
-    let node_ok = std::process::Command::new("node")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !node_ok {
-        bail!(
-            "reproit's web fuzzer needs Node.js (18+), which was not found. Install it \
-             (https://nodejs.org or `brew install node`), then re-run."
-        );
     }
     let dir = web_runner_data_dir();
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("creating web runner dir {}", dir.display()))?;
-    log("web runner not found; provisioning it (one-time)...");
-    download_and_extract_runner(version, &dir, log)?;
-    ensure_web_browser(&dir, log)?;
+    // Provision the heavy deps (Playwright + node_modules + browser) ONCE.
+    if !dir.join("node_modules").is_dir() {
+        // Node is the one external prerequisite for the web fuzzer (it drives
+        // Playwright). Check up front so the failure is actionable, not a cryptic
+        // spawn error deep in the drive loop.
+        let node_ok = std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !node_ok {
+            bail!(
+                "reproit's web fuzzer needs Node.js (18+), which was not found. Install it \
+                 (https://nodejs.org or `brew install node`), then re-run."
+            );
+        }
+        log("web runner not found; provisioning it (one-time)...");
+        download_and_extract_runner(version, &dir, log)?;
+        ensure_web_browser(&dir, log)?;
+    }
+    // ALWAYS sync the runner scripts to THIS binary, so a binary update is never
+    // paired with a stale runner (the cause of clips silently failing).
+    write_embedded_runner(&dir)?;
     Ok(dir)
 }
 

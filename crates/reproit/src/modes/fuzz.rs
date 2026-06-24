@@ -309,20 +309,27 @@ async fn record_sweep_clips(
             .unwrap_or_else(|| sig.to_string())
     };
 
-    // One clip per (route, oracle) for the navigate-and-box findings. overflow /
-    // content / a11y land on the screen itself; broken-route lands on the SOURCE
-    // page (the edge that reached the dead route) and boxes the offending link.
-    let mut plans: std::collections::BTreeMap<(String, String), (String, Option<String>)> =
+    // One clip per (route, oracle), each with the reproduction its bug needs:
+    //  - overflow / content / a11y: land on the screen by URL, re-detect + box.
+    //  - broken-route: land on the SOURCE page, box the dead <a> by its href.
+    //  - choice-anomaly: land on the screen, tap the outlier option so the page
+    //    shifts, box the choice that did it.
+    //  - hang / jank: land on the screen, replay the one triggering action, box
+    //    the trigger element the runner tags at the tap.
+    // Each config is gated downstream on FINDING:BOXED, so a clip that does not
+    // reproduce is dropped rather than shipped with a misleading caption.
+    let mut plans: std::collections::BTreeMap<(String, String), Value> =
         std::collections::BTreeMap::new();
     for f in findings {
         let oracle = crate::crosscut::classify(f).as_str().to_string();
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
         let route = route_of(sig);
-        let (goto_route, link_href) = match oracle.as_str() {
-            "overflow" | "content-bug" | "a11y" => (route.clone(), None),
+        let goto = format!("{origin}{route}");
+        let config = match oracle.as_str() {
+            "overflow" | "content-bug" | "a11y" => {
+                json!({ "replay": [], "highlight": oracle, "gotoUrl": goto })
+            }
             "broken-route" => {
-                // Land on the SOURCE page; box the link whose href is the dead
-                // route. Skip if no edge reached it (no source link to point at).
                 let Some(src) = obs
                     .edges
                     .iter()
@@ -330,19 +337,45 @@ async fn record_sweep_clips(
                 else {
                     continue;
                 };
-                (src, Some(route.clone()))
+                json!({ "replay": [], "highlight": oracle, "gotoUrl": format!("{origin}{src}"), "linkHref": route })
             }
-            _ => continue, // sequence bugs (choice/hang/crash/jank) are stage 4
+            "choice-anomaly" => {
+                // The runner re-runs the choice differential on the loaded screen
+                // and boxes the outlier (a single tap can't reproduce it), so the
+                // clip just needs to land there with the choice highlight.
+                json!({ "replay": [], "highlight": "no-choice-anomaly", "gotoUrl": goto })
+            }
+            "hang" => {
+                let Some(action) = obs
+                    .hangs
+                    .keys()
+                    .find(|k| k.0.as_str() == sig)
+                    .map(|k| k.1.clone())
+                else {
+                    continue;
+                };
+                json!({ "replay": [action], "highlight": oracle, "gotoUrl": goto })
+            }
+            "jank" => {
+                let Some(action) = obs
+                    .janks
+                    .keys()
+                    .find(|k| k.0.as_str() == sig)
+                    .map(|k| k.1.clone())
+                else {
+                    continue;
+                };
+                json!({ "replay": [action], "highlight": oracle, "gotoUrl": goto })
+            }
+            _ => continue, // crash (no edge trigger), dead-end, leak: no clip
         };
-        plans
-            .entry((route, oracle))
-            .or_insert((format!("{origin}{goto_route}"), link_href));
+        plans.entry((route, oracle)).or_insert(config);
     }
 
     if plans.is_empty() {
         say(
             json,
-            "\nsweep --record: no navigate-and-box findings to clip on this run.".to_string(),
+            "\nsweep --record: no boxable findings to clip on this run.".to_string(),
         );
         return Vec::new();
     }
@@ -355,14 +388,7 @@ async fn record_sweep_clips(
         ),
     );
     let mut clips = Vec::new();
-    for ((route, oracle), (goto_url, link_href)) in &plans {
-        // Empty replay + a pinned `gotoUrl`: the runner loads that exact URL,
-        // re-detects the finding, and draws the box. `highlight` scopes it to one
-        // box; `linkHref` (broken-route) boxes the source link by its href.
-        let mut config = json!({ "replay": [], "highlight": oracle, "gotoUrl": goto_url });
-        if let Some(h) = link_href {
-            config["linkHref"] = json!(h);
-        }
+    for ((route, oracle), config) in &plans {
         if std::fs::write(cfg_path, config.to_string()).is_err() {
             continue;
         }
@@ -379,12 +405,30 @@ async fn record_sweep_clips(
         // TRUST GATE: only keep a clip whose box actually drew (the finding
         // re-detected on this load). A clip that did not reproduce is dropped
         // rather than shipped with a misleading caption.
-        if !boxed_drew(&outcome.run_dir) {
-            say(
-                json,
-                format!("    {label}: did not reproduce on load, skipped"),
-            );
-            continue;
+        match boxed_drew(&outcome.run_dir) {
+            Some(true) => {}
+            Some(false) => {
+                say(
+                    json,
+                    format!("    {label}: did not reproduce on load, skipped"),
+                );
+                continue;
+            }
+            None => {
+                // No FINDING:BOXED marker at all: the web runner is older than the
+                // binary and does not support the clip protocol (it also ignores
+                // the per-clip URL), so every clip would be wrong. Fail loudly with
+                // a fix rather than silently dropping all of them.
+                say(
+                    json,
+                    "\nsweep --record: the web runner is out of date and cannot \
+                     record clips for this version.\n  Refresh it: delete the cached \
+                     runner (re-downloaded on next run), or set REPROIT_WEB_RUNNER_DIR \
+                     to a matching runner."
+                        .to_string(),
+                );
+                return clips;
+            }
         }
         let Some(src) = newest_webm(&outcome.run_dir) else {
             say(json, format!("    no video produced for {label}"));
@@ -414,19 +458,18 @@ fn url_origin(u: &str) -> Option<String> {
     Some(format!("{scheme}://{authority}"))
 }
 
-/// Whether a clip run's box actually drew, read from the LAST `FINDING:BOXED`
-/// marker in its drive log. The trust gate: a `drew:false` means the finding did
-/// not reproduce on that load, so the clip is dropped rather than shipped.
-fn boxed_drew(run_dir: &Path) -> bool {
+/// Whether a clip run's box drew, from the LAST `FINDING:BOXED` marker in its
+/// drive log. `Some(true)` drew, `Some(false)` did not reproduce (drop the clip),
+/// `None` means NO marker at all -- the runner is too old to support the clip
+/// protocol, which the caller surfaces as an actionable error rather than a
+/// silent drop (the old runner also ignores the per-clip URL).
+fn boxed_drew(run_dir: &Path) -> Option<bool> {
     let log = std::fs::read_to_string(run_dir.join("drive-a.log")).unwrap_or_default();
-    log.lines()
-        .rev()
-        .find_map(|l| {
-            let i = l.find("FINDING:BOXED ")?;
-            let v: Value = serde_json::from_str(l[i + "FINDING:BOXED ".len()..].trim()).ok()?;
-            v.get("drew").and_then(Value::as_bool)
-        })
-        .unwrap_or(false)
+    log.lines().rev().find_map(|l| {
+        let i = l.find("FINDING:BOXED ")?;
+        let v: Value = serde_json::from_str(l[i + "FINDING:BOXED ".len()..].trim()).ok()?;
+        v.get("drew").and_then(Value::as_bool)
+    })
 }
 
 /// Newest `.webm` anywhere under a run dir (the web runner writes it into a
@@ -2211,9 +2254,16 @@ flutter: ═══════════════════════�
              FINDING:BOXED {\"oracle\":\"overflow\",\"drew\":true}\n",
         )
         .unwrap();
-        assert!(boxed_drew(&dir));
+        assert_eq!(boxed_drew(&dir), Some(true));
+        std::fs::write(
+            dir.join("drive-a.log"),
+            "FINDING:BOXED {\"oracle\":\"overflow\",\"drew\":false}\n",
+        )
+        .unwrap();
+        assert_eq!(boxed_drew(&dir), Some(false));
+        // No marker at all (an old runner) is distinct from drew:false.
         std::fs::write(dir.join("drive-a.log"), "no marker here\n").unwrap();
-        assert!(!boxed_drew(&dir));
+        assert_eq!(boxed_drew(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
