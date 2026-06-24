@@ -343,20 +343,24 @@ function detectOverflow(tol) {
     }
     // SPILL: a child whose border box escapes the parent's CONTENT box. We
     // compare against the parent content edges (padding-box minus padding) so a
-    // padded container is measured correctly, and only flag when the parent is
-    // NOT itself a scroll container for this axis (a scroller is meant to hold
-    // wider content, and the SCROLL signal already covers that case).
+    // padded container is measured correctly, and only flag when the parent does
+    // NOT CONTAIN the overflow on this axis. A parent that scrolls (auto/scroll)
+    // is meant to hold wider content (the SCROLL signal covers it); a parent that
+    // CLIPS (hidden/clip) hides the spill, so it isn't a visible bug either -- a
+    // carousel/slider whose wide inner track sits in an overflow:hidden frame was
+    // a false positive (it read as a multi-thousand-px spill the user can't see).
     const p = el.parentElement;
     if (p && p !== document.body && p !== doc) {
       const ps = getComputedStyle(p);
-      const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
+      const containsX = ['auto', 'scroll', 'hidden', 'clip'].includes(ps.overflowX)
+        || ['auto', 'scroll', 'hidden', 'clip'].includes(ps.overflow);
       const pr = p.getBoundingClientRect();
       // A zero-size parent (a collapsed wrapper / positioning context / fragment,
       // very common in SPA layouts) is NOT a container a child can overflow: its
       // content edge sits at the origin, so `child.right - 0` manufactures a giant
       // phantom spill (a normal top-right button reads as "overflowing" by ~1151px).
       // Require the parent to actually have a box before measuring spill against it.
-      if (!scrollsX && pr.width > 0 && pr.height > 0) {
+      if (!containsX && pr.width > 0 && pr.height > 0) {
         const cr = el.getBoundingClientRect();
         const padL = parseFloat(ps.paddingLeft) || 0;
         const padR = parseFloat(ps.paddingRight) || 0;
@@ -2690,11 +2694,15 @@ async function drawFindingBoxes(page, hints = {}) {
           const p = el.parentElement;
           if (p && p !== document.body && p !== doc) {
             const ps = getComputedStyle(p);
-            const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
+            // Skip a parent that CONTAINS the overflow (scroll OR clip): a wide
+            // child inside an overflow:hidden/clip/auto/scroll frame is intended
+            // (a carousel track), not a visible spill (mirrors detectOverflow).
+            const containsX = ['auto', 'scroll', 'hidden', 'clip'].includes(ps.overflowX)
+              || ['auto', 'scroll', 'hidden', 'clip'].includes(ps.overflow);
             const pr = p.getBoundingClientRect();
             // Skip a zero-size parent: not a real container, so child.right - 0
             // fakes a giant spill (mirrors detectOverflow's guard).
-            if (!scrollsX && pr.width > 0 && pr.height > 0) {
+            if (!containsX && pr.width > 0 && pr.height > 0) {
               const cr = el.getBoundingClientRect();
               const padL = parseFloat(ps.paddingLeft) || 0, padR = parseFloat(ps.paddingRight) || 0;
               const bL = parseFloat(ps.borderLeftWidth) || 0, bR = parseFloat(ps.borderRightWidth) || 0;
@@ -2827,27 +2835,49 @@ async function drawFindingBoxes(page, hints = {}) {
           if (chosen.length >= cap) break;
         }
         // Bring the top offender into the recorded frame, HUMAN-PACED: a smooth
-        // eased scroll plus a settle beat, so the clip glides to the bug instead
-        // of snapping. The boxes are page-absolute, so they stay anchored after
-        // the scroll.
+        // eased scroll, then WAIT FOR IT TO SETTLE before drawing. A fixed delay
+        // is too short on a long page (the smooth scroll outlasts it), so the box
+        // anchored to a mid-glide viewport and ended up off-screen once the scroll
+        // finished -- the "clip shows no box" bug. Poll scrollY until it stops.
         try { chosen[0].el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); } catch (_) {}
-        await new Promise((r) => setTimeout(r, 900));
+        {
+          let lastY = -1, stable = 0;
+          for (let i = 0; i < 50; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+            const y = window.scrollY;
+            if (y === lastY) { if (++stable >= 3) break; } else { stable = 0; lastY = y; }
+          }
+        }
+        const vx = window.scrollX, vy2 = window.scrollY;
+        const vw = window.innerWidth || document.documentElement.clientWidth;
+        const vh = window.innerHeight || document.documentElement.clientHeight;
         const layer = document.createElement('div');
         layer.id = '__reproit_boxes';
         layer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none';
         for (const h of chosen) {
           const box = document.createElement('div');
+          // CLAMP the box to the visible viewport (with an inset): an element bigger
+          // than the viewport (a horizontally-overflowing carousel, a full-bleed
+          // banner) drew its true bounds entirely off-frame, so nothing showed.
+          // A fully-visible element is unchanged (the clamps are no-ops).
+          const ins = 8;
+          const bl = Math.max(h.left - 2, vx + ins);
+          const bt = Math.max(h.top - 2, vy2 + ins);
+          const br = Math.min(h.left + h.w + 2, vx + vw - ins);
+          const bb = Math.min(h.top + h.h + 2, vy2 + vh - ins);
+          const bw = Math.max(8, br - bl);
+          const bh = Math.max(8, bb - bt);
           box.style.cssText = [
-            'position:absolute', 'top:' + (h.top - 2) + 'px', 'left:' + (h.left - 2) + 'px',
-            'width:' + (h.w + 4) + 'px', 'height:' + (h.h + 4) + 'px',
+            'position:absolute', 'top:' + bt + 'px', 'left:' + bl + 'px',
+            'width:' + bw + 'px', 'height:' + bh + 'px',
             'border:3px solid #e21f1f', 'background:rgba(226,31,31,.10)', 'border-radius:4px',
             'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)', 'pointer-events:none',
           ].join(';');
           const tag = document.createElement('div');
           tag.textContent = h.label;
           // Sit the label above the box, but flip it just inside the top edge when
-          // the element hugs the page top (headers/banners) so it stays on-screen.
-          const labelTop = (h.top - sy) < 24 ? 3 : -22;
+          // the box hugs the viewport top (a clamped/banner box) so it stays on-screen.
+          const labelTop = (bt - vy2) < 24 ? 3 : -22;
           tag.style.cssText = [
             'position:absolute', 'top:' + labelTop + 'px', 'left:-3px', 'background:#e21f1f', 'color:#fff',
             'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace', 'padding:4px 7px',
