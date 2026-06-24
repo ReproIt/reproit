@@ -1226,9 +1226,36 @@ async fn shrink(
             want.iter().cloned().collect::<Vec<_>>().join(", ")
         ),
     );
+    // ZERO-ACTION test: a "broken on arrival" finding (an overflow / content bug /
+    // a11y issue already present at load) needs NO action to reproduce. ddmin
+    // floors at one action and never tries the empty replay, so without this it
+    // keeps a meaningless leftover tap - often one that MISSES on replay - which
+    // makes the repro and its recorded clip nonsensical (the HUD shows a phantom
+    // action while the box sits on a load-state element). Test load-only FIRST: if
+    // the SAME finding category fires with zero actions, that IS the minimal repro.
+    // The reproduces_original category gate rejects an empty replay that merely
+    // trips an incidental graph invariant (no-dead-end / all-labeled), which is the
+    // case the in-loop `candidate.is_empty() -> false` guard was worried about.
+    std::fs::write(
+        cfg_path,
+        json!({ "replay": Vec::<String>::new() }).to_string(),
+    )?;
+    let load_only_reproduces =
+        match run_explorer(cfg, root, journey, true, defines, false, sim).await {
+            Ok(o) => reproduces_original(&findings_for_tier(cfg, &o.run_dir, sim), want),
+            Err(_) => false,
+        };
+    if load_only_reproduces {
+        say(
+            json,
+            "    -[0..0): reproduces on load, repro is empty (0 actions)",
+        );
+        return Ok(Vec::new());
+    }
+
     let mut current = trace;
     let mut granularity = 2usize;
-    let mut replays = 0usize;
+    let mut replays = 1usize; // the zero-action probe above counts as one replay
     while current.len() >= 2 && replays < MAX_SHRINK_REPLAYS {
         let chunk = current.len().div_ceil(granularity);
         let mut removed_any = false;
