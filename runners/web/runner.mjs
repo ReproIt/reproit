@@ -2536,7 +2536,7 @@ async function showActionHud(page, act, step, total) {
 async function drawFindingBoxes(page, hints = {}) {
   await page
     .evaluate(
-      ({ tol, trigger, flickerKeys, oracle }) => {
+      async ({ tol, trigger, flickerKeys, oracle }) => {
         const old = document.getElementById('__reproit_boxes');
         if (old) old.remove();
         const visible = (el) => {
@@ -2687,8 +2687,12 @@ async function drawFindingBoxes(page, hints = {}) {
           chosen.push(h);
           if (chosen.length >= cap) break;
         }
-        // Bring the top offender into the recorded frame.
-        try { chosen[0].el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+        // Bring the top offender into the recorded frame, HUMAN-PACED: a smooth
+        // eased scroll plus a settle beat, so the clip glides to the bug instead
+        // of snapping. The boxes are page-absolute, so they stay anchored after
+        // the scroll.
+        try { chosen[0].el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); } catch (_) {}
+        await new Promise((r) => setTimeout(r, 900));
         const layer = document.createElement('div');
         layer.id = '__reproit_boxes';
         layer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none';
