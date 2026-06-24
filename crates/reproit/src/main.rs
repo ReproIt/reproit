@@ -372,6 +372,22 @@ enum Cmd {
         #[arg(long, default_value_t = 20)]
         top: usize,
     },
+    /// Sweep the app for the bugs simply VISIBLE on each screen (overflow,
+    /// content, a11y, choice-anomaly): crawl every reachable screen once and
+    /// report one finding per screen+issue. The fast default "what's wrong here".
+    /// Use `fuzz` for the deeper, sequence-dependent bugs (crash, jank, hang).
+    Sweep {
+        /// What to sweep. A URL (https://app.com) runs zero-config against that
+        /// deployed app; any other value scopes the crawl to that alias/node.
+        #[arg(value_name = "TARGET")]
+        target_arg: Option<String>,
+        /// Coverage budget: how many actions the crawl may take to reach screens.
+        #[arg(long, default_value_t = 60)]
+        budget: u32,
+        /// Force the simulator tier (default: headless / web).
+        #[arg(long)]
+        sim: bool,
+    },
     /// Find repros using the map (pure; emits a fuzz artifact). All oracles on
     /// by default. `--soak` runs the leak cycle; `--target` selects engines.
     Fuzz {
@@ -1592,6 +1608,42 @@ async fn main() -> Result<ExitCode> {
             let loaded = config::load(cli.config.as_deref())?;
             analyze::analyze(&loaded.config, &loaded.root, run.as_deref()).await?;
             Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Sweep {
+            target_arg,
+            budget,
+            sim,
+        } => {
+            // Same zero-config setup as `fuzz`: a URL synthesizes a web config
+            // rooted at the cwd + auto-builds the map; anything else scopes to an
+            // alias/node. The synthesized config carries the URL through to the
+            // web runner, so no extra env is needed for the bare-URL case.
+            let target_url = target_arg.as_deref().and_then(target_as_url);
+            let loaded = if let Some(u) = &target_url {
+                let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
+                ctx.say(format!("zero-config web run against {u}"));
+                let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
+                if !l.root.join(".reproit/appmap.json").exists() {
+                    ctx.say("  building the app map (first run; re-run is faster)...");
+                    map::build_map(&l.config, &l.root, "explore", false, None).await?;
+                }
+                l
+            } else {
+                config::load(cli.config.as_deref())?
+            };
+            let journey = match &target_arg {
+                Some(t) if target_url.is_none() => t.clone(),
+                _ => "explore".to_string(),
+            };
+            let args = fuzz::SweepArgs {
+                journey,
+                seed: 1,
+                budget,
+                sim,
+                json: ctx.json,
+            };
+            fuzz::sweep(&loaded.config, &loaded.root, &args).await?;
+            return Ok(ExitCode::SUCCESS);
         }
         Cmd::Fuzz {
             journey,

@@ -21,6 +21,7 @@ reproit fuzz --no visual,i18n         # everything except these
 | `overflow` | DOM/layout overflow: content clipped or overflowing its container/viewport (web) | A child wider than its parent, text truncated by `text-overflow`, or a horizontal scroll appearing. Deterministic structural measurement (not a pixel diff). |
 | `content-bug` | A rendered label leaking a stringify/template artifact (web): `[object Object]`, a bare `undefined`/`null`/`NaN`, or an unrendered `{{...}}`/`${...}` | A binding/serialization bug put a raw value on screen. Built-in DOM/label scan (no custom invariant needed); deterministic, addressed by the element's stable key. |
 | `hang` | A synchronous main-thread freeze (web): an action whose handler stops the app making progress past the hang floor | The app froze for the duration (an unbounded/very long synchronous task). Deterministic, keyed off the browser's Long Tasks trace, bucketed so timing jitter can't flip the verdict. |
+| `choice-anomaly` | One option of a multi-choice component (tab/radio/`<select>`/button-cluster) shifts the global layout when its siblings do not (web) | An odd-one-out choice: differential, not absolute, so it is false-positive-free (the bug is the choice whose layout effect is an outlier vs its siblings). Surface these with `reproit sweep`. |
 
 ## Visual oracle specifics
 

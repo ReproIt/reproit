@@ -117,6 +117,10 @@ pub enum Oracle {
     /// Graph/structural findings (dead-end). Not a docs-listed oracle but a real
     /// finding class, so it gets a stable tag rather than being silently dropped.
     Graph,
+    /// Choice-anomaly: one option of a multi-choice component (tab/radio/select/
+    /// button-cluster) shifts the global layout when its siblings do not. A
+    /// differential, FP-free state-present finding from the web runner.
+    ChoiceAnomaly,
 }
 
 impl Oracle {
@@ -138,6 +142,7 @@ impl Oracle {
         Oracle::ContentBug,
         Oracle::Hang,
         Oracle::Graph,
+        Oracle::ChoiceAnomaly,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -154,6 +159,7 @@ impl Oracle {
             Oracle::ContentBug => "content-bug",
             Oracle::Hang => "hang",
             Oracle::Graph => "graph",
+            Oracle::ChoiceAnomaly => "choice-anomaly",
         }
     }
 
@@ -173,6 +179,7 @@ impl Oracle {
             "content-bug" | "content" | "contentbug" | "broken-render" => Some(Oracle::ContentBug),
             "hang" | "freeze" | "frozen" | "no-progress" => Some(Oracle::Hang),
             "graph" | "dead-end" | "deadend" => Some(Oracle::Graph),
+            "choice-anomaly" | "choice" | "choicebug" | "anomaly" => Some(Oracle::ChoiceAnomaly),
             _ => None,
         }
     }
@@ -197,6 +204,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-broken-render" => return Oracle::ContentBug,
         "no-hang" => return Oracle::Hang,
         "no-dead-end" => return Oracle::Graph,
+        "no-choice-anomaly" => return Oracle::ChoiceAnomaly,
         _ => {}
     }
     let kind = finding.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -758,6 +766,12 @@ mod tests {
         assert_eq!(Oracle::parse("hang"), Some(Oracle::Hang));
         assert_eq!(Oracle::parse("freeze"), Some(Oracle::Hang));
         assert_eq!(classify(&json!({ "kind": "PERF" })), Oracle::Jank);
+        // Choice-anomaly must NOT fall through to crash (it has its own category).
+        assert_eq!(
+            classify(&json!({ "invariant": "no-choice-anomaly" })),
+            Oracle::ChoiceAnomaly
+        );
+        assert_eq!(Oracle::parse("choice-anomaly"), Some(Oracle::ChoiceAnomaly));
         // Raw exception block: falls back to crash.
         assert_eq!(
             classify(&json!({ "kind": "EXCEPTION CAUGHT BY WIDGETS LIBRARY" })),

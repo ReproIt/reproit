@@ -161,6 +161,110 @@ pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<()> {
     Ok(())
 }
 
+pub struct SweepArgs {
+    pub journey: String,
+    pub seed: u64,
+    pub budget: u32,
+    pub sim: bool,
+    pub json: bool,
+}
+
+/// SWEEP: the coverage finder. Where `fuzz` permutes action sequences to provoke
+/// SEQUENCE-dependent bugs (crash/jank/hang), `sweep` does ONE crawl that visits
+/// every reachable screen once and reports the STATE-PRESENT bugs simply visible
+/// on each (overflow / content / a11y / choice-anomaly) - one finding per
+/// (screen x issue), no per-seed collapse. The runner already emits these markers
+/// on any walk; sweep is about COLLECTING and reporting them, not new detection.
+pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
+    let json = args.json;
+    let cfg_path = root.join(".reproit/fuzz_config.json");
+    std::fs::create_dir_all(cfg_path.parent().unwrap())?;
+    let defines = vec![(
+        "REPROIT_FUZZ_CONFIG".to_string(),
+        cfg_path.to_string_lossy().into_owned(),
+    )];
+    // One coverage walk: a generous budget lets the explorer reach the reachable
+    // screens once. We do not permute seeds - state-present bugs are path-independent.
+    let config = json!({ "seed": args.seed, "budget": args.budget });
+    std::fs::write(&cfg_path, config.to_string())?;
+    say(
+        json,
+        "sweep: one coverage walk (every reachable screen, checked once)...".to_string(),
+    );
+    let outcome = run_explorer(cfg, root, &args.journey, false, &defines, false, args.sim).await?;
+
+    // ALL per-state findings (every state x oracle), NOT collapsed to one-per-seed.
+    let findings = findings_for_tier(cfg, &outcome.run_dir, args.sim);
+    let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+    let obs = crate::map::parse_run(&log);
+
+    // Group per SCREEN (route), deduped by (oracle, detail). A route is the
+    // user's mental "screen": the same overflow/anomaly visited via several state
+    // sigs is one issue, not N, so we key on the route and strip the per-sig
+    // prefix from each detail. Genuinely different details on one route (6 spills
+    // vs 2) stay distinct because their normalized text differs.
+    let mut by_screen: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeSet<(String, String)>,
+    > = std::collections::BTreeMap::new();
+    for f in &findings {
+        let oracle = crate::crosscut::classify(f).as_str().to_string();
+        let sig = f.get("sig").and_then(Value::as_str).unwrap_or("-");
+        let route = obs
+            .routes
+            .get(sig)
+            .cloned()
+            .unwrap_or_else(|| sig.to_string());
+        let detail = sweep_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
+        by_screen.entry(route).or_default().insert((oracle, detail));
+    }
+
+    let issues: usize = by_screen.values().map(|s| s.len()).sum();
+    if json {
+        let results: Vec<Value> = by_screen
+            .iter()
+            .map(|(route, items)| {
+                json!({
+                    "screen": route,
+                    "findings": items.iter().map(|(o, d)| json!({"oracle": o, "detail": d})).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            json!({ "command": "sweep", "screens": by_screen.len(), "issues": issues, "results": results })
+        );
+        return Ok(());
+    }
+
+    say(
+        json,
+        format!(
+            "\nsweep: {} screen(s), {} distinct issue(s)",
+            by_screen.len(),
+            issues
+        ),
+    );
+    for (route, items) in &by_screen {
+        say(json, format!("\n  {route}"));
+        for (oracle, detail) in items {
+            say(json, format!("    {oracle:16} {detail}"));
+        }
+    }
+    Ok(())
+}
+
+/// Normalize a finding message into a short, route-stable detail: drop a leading
+/// "state <sig> " (so the same issue under different state sigs collapses) and a
+/// trailing explanatory parenthetical.
+fn sweep_detail(msg: &str) -> String {
+    let s = msg
+        .strip_prefix("state ")
+        .and_then(|rest| rest.split_once(' ').map(|(_sig, tail)| tail))
+        .unwrap_or(msg);
+    s.split(" (").next().unwrap_or(s).trim().to_string()
+}
+
 /// Like `fuzz`, but returns the union of finding signatures across every locale
 /// it ran. The `--target` dispatch uses this to diff findings across targets
 /// (a signature present on one target but not another is a divergence).
