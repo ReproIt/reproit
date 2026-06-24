@@ -1155,7 +1155,14 @@ fn spawn_session(cmdline: &str) -> Result<Session> {
     })?;
     let mut cmd = CommandBuilder::new("sh");
     cmd.arg("-c");
-    cmd.arg(cmdline);
+    // `exec` so the shell REPLACES itself with the app, keeping the same pid, so
+    // child.process_id() is reliably the app's pid, not the wrapping `sh`'s. The
+    // --soak RSS sampler keys on that pid; most shells already auto-exec a single
+    // simple command, but that's an optimization, not guaranteed, so without `exec`
+    // a shell that kept itself resident would have the sampler measure the constant
+    // shell RSS instead of the app's growing memory. A pipeline keeps the shell as
+    // parent (exec can't replace it), which is no worse than before.
+    cmd.arg(format!("exec {cmdline}"));
     cmd.env("TERM", "xterm-256color");
     let child = pair.slave.spawn_command(cmd)?;
     drop(pair.slave);
