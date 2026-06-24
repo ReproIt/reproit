@@ -216,6 +216,13 @@ fn target_as_url(t: &str) -> Option<String> {
     if t.is_empty() {
         return None;
     }
+    // A URL never contains whitespace, so a target with a space is a command line
+    // (e.g. `less sample.txt`), not a bare host that happens to end in a TLD-like
+    // token -- this is what lets `sweep "lazygit --flag"` reach executable detection
+    // instead of being misread as `https://lazygit --flag`.
+    if t.chars().any(char::is_whitespace) {
+        return None;
+    }
     if t.starts_with("http://") || t.starts_with("https://") {
         return Some(t.to_string());
     }
@@ -247,6 +254,71 @@ fn target_as_url(t: &str) -> Option<String> {
         return Some(format!("{scheme}://{t}"));
     }
     None
+}
+
+/// Does `p` name an existing executable file?
+fn is_executable_file(p: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(p)
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        p.is_file()
+    }
+}
+
+/// A non-URL target that names a runnable TERMINAL executable: an existing
+/// executable file path, or a bare command resolvable on `PATH` (e.g. `lazygit`,
+/// `htop`). Returns the command line to run in a PTY (`reproit sweep <exe>`),
+/// args preserved. `None` for anything that isn't clearly an executable, so a
+/// saved alias / journey / map node still resolves the way it does today.
+fn target_as_executable(t: &str) -> Option<String> {
+    let t = t.trim();
+    if t.is_empty() {
+        return None;
+    }
+    // The first whitespace token is the program; the rest are its args.
+    let prog = t.split_whitespace().next()?;
+    if prog.contains('/') {
+        // A path: it must point at an existing executable file.
+        return is_executable_file(std::path::Path::new(prog)).then(|| t.to_string());
+    }
+    // A bare name: resolvable on PATH.
+    let on_path = std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| is_executable_file(&dir.join(prog))))
+        .unwrap_or(false);
+    on_path.then(|| t.to_string())
+}
+
+/// SAFETY gate for a zero-config TUI fuzz: it drives a REAL process with REAL
+/// side effects (synthetic keystrokes can send messages, run shell commands,
+/// write/delete files), so confirm before launching. Always warns; proceeds on
+/// `--yes`, else prompts on a TTY, else refuses (CI must pass `--yes`).
+fn confirm_tui_fuzz(ctx: &Ctx, exe: &str) -> bool {
+    eprintln!(
+        "  WARNING: reproit will drive `{exe}` in a PTY by sending SYNTHETIC KEYSTROKES.\n  \
+         A real terminal app can have real side effects (send messages, run shell\n  \
+         commands, write or delete files). Point it at a THROWAWAY / sandboxed instance."
+    );
+    if ctx.yes {
+        return true;
+    }
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!("  Refusing without confirmation. Re-run with --yes to proceed.");
+        return false;
+    }
+    use std::io::Write;
+    eprint!("  Proceed? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 // A clap subcommand enum: variants carry their flags by value and are
@@ -389,7 +461,9 @@ enum Cmd {
     /// Use `fuzz` for the deeper, sequence-dependent bugs (crash, jank, hang).
     Sweep {
         /// What to sweep. A URL (https://app.com) runs zero-config against that
-        /// deployed app; any other value scopes the crawl to that alias/node.
+        /// deployed app; a terminal EXECUTABLE (e.g. `lazygit`, `htop`, or a path)
+        /// runs zero-config in a PTY; any other value scopes the crawl to that
+        /// alias/node in a reproit.yaml.
         #[arg(value_name = "TARGET")]
         target_arg: Option<String>,
         /// Coverage budget: how many actions the crawl may take to reach screens.
@@ -411,7 +485,9 @@ enum Cmd {
     /// by default. `--soak` runs the leak cycle; `--target` selects engines.
     Fuzz {
         /// What to fuzz (optional). A URL (https://app.com) is auto-detected and
-        /// runs zero-config against that deployed app, no reproit.yaml needed.
+        /// runs zero-config against that deployed app; a terminal EXECUTABLE
+        /// (e.g. `lazygit`, or a path) runs zero-config in a PTY; no reproit.yaml
+        /// needed for either.
         /// Any other value scopes the hunt to that alias/node.
         #[arg(value_name = "TARGET")]
         target_arg: Option<String>,
@@ -1657,11 +1733,13 @@ async fn main() -> Result<ExitCode> {
             record,
             out,
         } => {
-            // Same zero-config setup as `fuzz`: a URL synthesizes a web config
-            // rooted at the cwd + auto-builds the map; anything else scopes to an
-            // alias/node. The synthesized config carries the URL through to the
-            // web runner, so no extra env is needed for the bare-URL case.
+            // Zero-config targets: a URL synthesizes a web config; a bare terminal
+            // EXECUTABLE (when there's no project config) synthesizes a TUI/PTY
+            // config. Both auto-build the map. Anything else scopes to an
+            // alias/journey/node in a reproit.yaml (which wins over an executable
+            // of the same name, so a project is never hijacked).
             let target_url = target_arg.as_deref().and_then(target_as_url);
+            let mut synthesized = target_url.is_some();
             let loaded = if let Some(u) = &target_url {
                 let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
@@ -1672,10 +1750,28 @@ async fn main() -> Result<ExitCode> {
                 }
                 l
             } else {
-                config::load(cli.config.as_deref())?
+                match config::load(cli.config.as_deref()) {
+                    Ok(l) => l,
+                    Err(e) => match target_arg.as_deref().and_then(target_as_executable) {
+                        Some(exe) => {
+                            if !confirm_tui_fuzz(&ctx, &exe) {
+                                return Ok(ExitCode::SUCCESS);
+                            }
+                            ctx.say(format!("zero-config TUI run against `{exe}`"));
+                            let l = config::synthesize_tui(&exe, std::env::current_dir()?)?;
+                            if !l.root.join(".reproit/appmap.json").exists() {
+                                ctx.say("  building the app map (first run; re-run is faster)...");
+                                map::build_map(&l.config, &l.root, "explore", false, None).await?;
+                            }
+                            synthesized = true;
+                            l
+                        }
+                        None => return Err(e),
+                    },
+                }
             };
             let journey = match &target_arg {
-                Some(t) if target_url.is_none() => t.clone(),
+                Some(t) if !synthesized => t.clone(),
                 _ => "explore".to_string(),
             };
             let args = fuzz::SweepArgs {
@@ -1734,8 +1830,11 @@ async fn main() -> Result<ExitCode> {
             // or a bare google.com / localhost:3000) points reproit at a deployed
             // app with no reproit.yaml: synthesize a web config rooted at the cwd
             // (so `.reproit/` lands here) and auto-build the map so fuzz has a
-            // graph. Anything else (e.g. "login") scopes the hunt to that alias.
+            // graph. A bare terminal EXECUTABLE (when there's no project config)
+            // synthesizes a TUI/PTY config the same way. Anything else (e.g.
+            // "login") scopes the hunt to that alias/node in a reproit.yaml.
             let target_url = target_arg.as_deref().and_then(target_as_url);
+            let mut synthesized = target_url.is_some();
             let loaded = if let Some(u) = &target_url {
                 let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
@@ -1746,11 +1845,29 @@ async fn main() -> Result<ExitCode> {
                 }
                 l
             } else {
-                config::load(cli.config.as_deref())?
+                match config::load(cli.config.as_deref()) {
+                    Ok(l) => l,
+                    Err(e) => match target_arg.as_deref().and_then(target_as_executable) {
+                        Some(exe) => {
+                            if !confirm_tui_fuzz(&ctx, &exe) {
+                                return Ok(ExitCode::SUCCESS);
+                            }
+                            ctx.say(format!("zero-config TUI run against `{exe}`"));
+                            let l = config::synthesize_tui(&exe, std::env::current_dir()?)?;
+                            if !l.root.join(".reproit/appmap.json").exists() {
+                                ctx.say("  building the app map (first run; re-run is faster)...");
+                                map::build_map(&l.config, &l.root, &journey, false, None).await?;
+                            }
+                            synthesized = true;
+                            l
+                        }
+                        None => return Err(e),
+                    },
+                }
             };
-            // A non-URL positional scopes the hunt to that alias/node.
+            // A non-URL, non-executable positional scopes the hunt to that alias/node.
             let journey = match &target_arg {
-                Some(t) if target_url.is_none() => t.clone(),
+                Some(t) if !synthesized => t.clone(),
                 _ => journey,
             };
             // `--soak`: the leak oracle (was `soak`).
@@ -3635,6 +3752,27 @@ fn collect_cov_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_as_executable_detects_path_and_on_path_commands() {
+        // A bare command on PATH (`sh` is always present) is an executable target,
+        // with its args preserved.
+        assert_eq!(target_as_executable("sh").as_deref(), Some("sh"));
+        assert_eq!(
+            target_as_executable("sh -c true").as_deref(),
+            Some("sh -c true")
+        );
+        // An absolute path to an existing executable.
+        if std::path::Path::new("/bin/sh").exists() {
+            assert_eq!(target_as_executable("/bin/sh").as_deref(), Some("/bin/sh"));
+        }
+        // A non-existent path or a bare token not on PATH is NOT an executable, so
+        // it falls through to alias/journey resolution.
+        assert_eq!(target_as_executable("/no/such/binary-xyzzy"), None);
+        assert_eq!(target_as_executable("checkout-flow-screen-xyzzy"), None);
+        assert_eq!(target_as_executable("my-saved-alias-qqq"), None);
+        assert_eq!(target_as_executable(""), None);
+    }
 
     #[test]
     fn target_as_url_classifies_urls_vs_aliases() {

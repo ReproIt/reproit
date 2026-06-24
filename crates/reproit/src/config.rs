@@ -837,6 +837,34 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
     Ok(loaded)
 }
 
+/// Zero-config TUI run: synthesize a `platform: tui` config that drives the given
+/// terminal executable in a PTY (the built-in `reproit __tui` runner). The analogue
+/// of [`synthesize_web`] for `reproit sweep <executable>` (e.g. `lazygit`, `htop`).
+/// `executable` is the command line run via `sh -c`, so args and PATH resolution
+/// work. Persisted to `.reproit/reproit.yaml` so a follow-up check/keep replays.
+pub fn synthesize_tui(executable: &str, root: PathBuf) -> Result<Loaded> {
+    // JSON-quote into the YAML (a JSON scalar is a valid, fully-escaped YAML
+    // scalar), so a quote/backslash/space in the command can't break the document.
+    let exe = serde_json::to_string(executable).unwrap_or_else(|_| "\"\"".to_string());
+    // Same ready/done/action markers the `__tui` runner emits (tui.rs: "JOURNEY
+    // claimed role=a", "JOURNEY DONE", "All tests passed"), so the orchestrator
+    // contract matches without a hand-written reproit.yaml.
+    let yaml = format!(
+        "app:\n  platform: tui\n  executable: {exe}\n  defines: {{}}\ndevices:\n  \
+         namePrefix: tui\nreset:\n  steps: []\njourneys:\n  driver: \"\"\n  \
+         readyMarker: \"claimed role\"\n  doneMarkers:\n    - All tests passed\n    \
+         - Some tests failed\n  deviceDoneMarker: \"JOURNEY DONE\"\n  \
+         actionPrefix: \"JOURNEY\"\n  timeoutSec: 300\nevidence:\n  \
+         outDir: .reproit/runs\n  video: false\n",
+    );
+    let loaded = parse_str(&yaml, root)?;
+    let dir = loaded.root.join(".reproit");
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::write(dir.join("reproit.yaml"), &yaml);
+    }
+    Ok(loaded)
+}
+
 fn find_config(from: &Path) -> Option<PathBuf> {
     let mut dir = from.to_path_buf();
     loop {
@@ -898,7 +926,7 @@ fn interpolate_env(raw: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{interpolate_env, load, synthesize_web};
+    use super::{interpolate_env, load, synthesize_tui, synthesize_web};
     use std::path::PathBuf;
 
     #[test]
@@ -922,6 +950,28 @@ mod tests {
         // The journeys.doneMarkers validation (load's hard gate) must pass.
         assert!(!l.config.journeys.done_markers.is_empty());
         // The synthesized config is persisted so a later check/keep can replay.
+        assert!(proj.join(".reproit").join("reproit.yaml").exists());
+        let _ = std::fs::remove_dir_all(&proj);
+    }
+
+    #[test]
+    fn synthesize_tui_parses_to_a_valid_tui_config() {
+        let proj = std::env::temp_dir().join(format!("reproit_tui_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proj);
+        std::fs::create_dir_all(&proj).unwrap();
+        // A command with args + a quote, to exercise the JSON/YAML escaping.
+        let l = synthesize_tui("lazygit --use-config \"x y\"", proj.clone())
+            .expect("synthesized tui config parses + validates");
+        assert_eq!(l.config.app.platform, "tui");
+        assert_eq!(
+            l.config.app.executable.as_deref(),
+            Some("lazygit --use-config \"x y\"")
+        );
+        assert!(!l.config.journeys.done_markers.is_empty());
+        assert_eq!(
+            l.config.journeys.device_done_marker.as_deref(),
+            Some("JOURNEY DONE")
+        );
         assert!(proj.join(".reproit").join("reproit.yaml").exists());
         let _ = std::fs::remove_dir_all(&proj);
     }
