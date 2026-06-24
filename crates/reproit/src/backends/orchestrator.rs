@@ -121,15 +121,32 @@ pub async fn run_journey(
     let byo_target = !plat.backend.provisions_device();
     let n = devices.clamp(1, DEVICE_LETTERS.len());
 
-    // Evidence layout: <outDir>/<timestamp>-<journey>/
-    let run_dir = root
-        .join(&cfg.evidence.out_dir)
-        .join(format!("{}-{journey}", started_at.format("%Y%m%d-%H%M%S")));
-    // Create the run dir itself (actions.jsonl / exceptions.jsonl below need it).
+    // Evidence layout: <outDir>/<timestamp>-<journey>/ -- but the timestamp is
+    // second-resolution, so two reproit runs in the same root + journey within one
+    // second (the multi-agent / parallel-CI convention guarantees this) would
+    // share one dir and interleave/corrupt drive-a.log. Claim the dir with an
+    // ATOMIC create_dir (fails if it exists) and bump a `-N` suffix on collision,
+    // so concurrent runs never race onto the same path while names stay readable.
+    let out_dir = root.join(&cfg.evidence.out_dir);
+    std::fs::create_dir_all(&out_dir)?;
+    let base = format!("{}-{journey}", started_at.format("%Y%m%d-%H%M%S"));
     // The SHOOT landing dir is NOT created here: it is resolved later (default
     // <run_dir>/screenshots, or the visual/--shots-dir override) and created at
     // its real location, so an override run no longer leaves an empty screenshots/.
-    std::fs::create_dir_all(&run_dir)?;
+    let run_dir = {
+        let mut candidate = out_dir.join(&base);
+        let mut n = 1;
+        loop {
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => break candidate,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    candidate = out_dir.join(format!("{base}-{n}"));
+                    n += 1;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    };
 
     // BEFORE provisioning a device: the FlutterDrive sim tier needs a vendored
     // explorer (journey_<name>.dart or <name>.dart). Check it here so a missing

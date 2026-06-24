@@ -467,13 +467,40 @@ pub(crate) fn action_str(a: &Action) -> String {
     }
 }
 
+/// Inverse of [`action_str`]: parse an `EXPLORE:EDGE` action string back into an
+/// `Action`. `type:`/`scroll:`/`system:` MUST be parsed into their real variants
+/// (not collapsed to `Back`) or a form-driven transition lands in the persisted
+/// map as a meaningless `back` edge -- losing the finder/value, so the screen
+/// behind a typed input becomes unreplayable and frontier guidance over the map
+/// is wrong wherever a state is only reachable through typed input.
 fn parse_action(s: &str) -> Action {
-    match s.strip_prefix("tap:") {
-        Some(l) => Action::Tap {
+    if let Some(l) = s.strip_prefix("tap:") {
+        return Action::Tap {
             finder: format!("label:{l}"),
-        },
-        None => Action::Back,
+        };
     }
+    if let Some(rest) = s.strip_prefix("type:") {
+        // The runner emits `type:<finder>=<text>`; the `=<text>` is optional.
+        let (finder, text) = match rest.split_once('=') {
+            Some((f, t)) => (f.to_string(), t.to_string()),
+            None => (rest.to_string(), String::new()),
+        };
+        return Action::Type { finder, text };
+    }
+    if let Some(rest) = s.strip_prefix("scroll:") {
+        // `scroll:<finder>` or `scroll:<finder>=<dy>` (dy optional/recoverable).
+        let (finder, dy) = match rest.rsplit_once('=') {
+            Some((f, d)) => (f.to_string(), d.parse().unwrap_or(0)),
+            None => (rest.to_string(), 0),
+        };
+        return Action::Scroll { finder, dy };
+    }
+    if let Some(ev) = s.strip_prefix("system:") {
+        return Action::System {
+            event: ev.to_string(),
+        };
+    }
+    Action::Back
 }
 
 /// The app's entry state: one with no incoming transition, else the first by
@@ -1053,6 +1080,34 @@ mod tests {
         // ...and it is the smallest-signature tied state (sig-alpha < sig-bravo),
         // not whichever happened to hash first.
         assert_eq!(first.0, "Alpha");
+    }
+
+    #[test]
+    fn parse_action_recovers_typed_scroll_system_edges() {
+        // type:/scroll:/system: must round-trip into their real variants, not
+        // collapse to Back (which lost the finder/value of form-driven edges).
+        assert!(matches!(parse_action("tap:Go"), Action::Tap { .. }));
+        match parse_action("type:role:textfield#0=hello") {
+            Action::Type { finder, text } => {
+                assert_eq!(finder, "role:textfield#0");
+                assert_eq!(text, "hello");
+            }
+            a => panic!("expected Type, got {a:?}"),
+        }
+        match parse_action("scroll:key:list=-300") {
+            Action::Scroll { finder, dy } => {
+                assert_eq!(finder, "key:list");
+                assert_eq!(dy, -300);
+            }
+            a => panic!("expected Scroll, got {a:?}"),
+        }
+        match parse_action("system:back") {
+            Action::System { event } => assert_eq!(event, "back"),
+            a => panic!("expected System, got {a:?}"),
+        }
+        assert!(matches!(parse_action("back"), Action::Back));
+        // A typed edge with no `=value` still parses as Type (empty text), not Back.
+        assert!(matches!(parse_action("type:key:x"), Action::Type { .. }));
     }
 
     #[test]
