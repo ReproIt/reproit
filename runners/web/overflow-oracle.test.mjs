@@ -83,6 +83,26 @@ test('detectOverflow is deterministic across repeated captures', { skip: browser
   }
 });
 
+test('detectOverflow does NOT flag a child of a ZERO-SIZE parent (the SPA-wrapper false positive)', { skip: browserUnavailable }, async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    // A normal on-screen button whose immediate parent is a collapsed 0x0 wrapper
+    // (a positioning context / fragment, common in SPA layouts). The parent's
+    // content edge sits at the origin, so the old spill math reported a giant
+    // phantom overflow (button.right - 0 = ~1151px) for a button that renders fine.
+    await page.setContent('<!doctype html><html><body style="margin:0;font:16px monospace">' +
+      '<div style="width:0;height:0;position:relative">' +
+      '<button style="position:absolute;left:1032px;top:117px;width:119px">Copy page</button>' +
+      '</div></body></html>');
+    const items = await page.evaluate(detectOverflow, OVERFLOW_TOL);
+    const phantom = items.find((i) => i.kind === 'spill' && i.by > 200);
+    assert.equal(phantom, undefined, `a zero-size parent must not manufacture a spill, got ${JSON.stringify(items)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('detectOverflow stays silent on a layout with no overflow', { skip: browserUnavailable }, async () => {
   const browser = await chromium.launch();
   try {

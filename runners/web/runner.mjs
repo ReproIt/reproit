@@ -341,8 +341,13 @@ function detectOverflow(tol) {
     if (p && p !== document.body && p !== doc) {
       const ps = getComputedStyle(p);
       const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
-      if (!scrollsX) {
-        const pr = p.getBoundingClientRect();
+      const pr = p.getBoundingClientRect();
+      // A zero-size parent (a collapsed wrapper / positioning context / fragment,
+      // very common in SPA layouts) is NOT a container a child can overflow: its
+      // content edge sits at the origin, so `child.right - 0` manufactures a giant
+      // phantom spill (a normal top-right button reads as "overflowing" by ~1151px).
+      // Require the parent to actually have a box before measuring spill against it.
+      if (!scrollsX && pr.width > 0 && pr.height > 0) {
         const cr = el.getBoundingClientRect();
         const padL = parseFloat(ps.paddingLeft) || 0;
         const padR = parseFloat(ps.paddingRight) || 0;
@@ -2580,8 +2585,10 @@ async function drawFindingBoxes(page, hints = {}) {
           if (p && p !== document.body && p !== doc) {
             const ps = getComputedStyle(p);
             const scrollsX = ps.overflowX === 'auto' || ps.overflowX === 'scroll' || ps.overflow === 'auto' || ps.overflow === 'scroll';
-            if (!scrollsX) {
-              const pr = p.getBoundingClientRect();
+            const pr = p.getBoundingClientRect();
+            // Skip a zero-size parent: not a real container, so child.right - 0
+            // fakes a giant spill (mirrors detectOverflow's guard).
+            if (!scrollsX && pr.width > 0 && pr.height > 0) {
               const cr = el.getBoundingClientRect();
               const padL = parseFloat(ps.paddingLeft) || 0, padR = parseFloat(ps.paddingRight) || 0;
               const bL = parseFloat(ps.borderLeftWidth) || 0, bR = parseFloat(ps.borderRightWidth) || 0;
