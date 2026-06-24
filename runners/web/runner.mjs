@@ -3849,21 +3849,20 @@ async function main() {
       }
       await page.waitForTimeout(2200);
     }
-    // BROKEN-ROUTE link check: HEAD-probe same-origin links we SAW but never
-    // navigated to, so a dead link is caught even when the crawl didn't tap it
-    // (the footer /download 404 the coverage walk kept missing). Skip in a replay
-    // (a clip re-walk) -- only the real coverage walk probes. Same-origin fetch
-    // uses the page's session, so an auth gate behaves as the user would see it.
+    // BROKEN-ROUTE link check: catch a dead link the bounded crawl never tapped
+    // (a footer /download 404). Skip in a replay (a clip re-walk). TWO stages,
+    // because a raw fetch does NOT match a real browser navigation: an SPA serves a
+    // client route on navigation but 404s a bare fetch, so fetch alone false-flags
+    // working links (e.g. a jobs board's /jobs/role/* client routes).
+    //   1) cheap HEAD filter over every un-visited same-origin link (8-way),
+    //   2) VERIFY each flagged candidate with a real page.goto -- only a link that
+    //      truly 404s ON NAVIGATION (what the user experiences) is reported.
     if (!replay) {
-      const CAP = 300;
+      const FETCH_CAP = 400, VERIFY_CAP = 20;
       const toProbe = [...seenLinks.entries()].filter(([p]) => navStatus[p] === undefined);
-      const skipped = Math.max(0, toProbe.length - CAP);
-      const batch = toProbe.slice(0, CAP);
+      const batch = toProbe.slice(0, FETCH_CAP);
+      let statuses = {};
       if (batch.length) {
-        // Probe all at once with bounded (8-way) concurrency inside one evaluate,
-        // so a big docs site's hundreds of links are checked in seconds, not one
-        // slow request at a time.
-        let statuses = {};
         try {
           statuses = await page.evaluate(async (paths) => {
             const origin = location.origin, out = {};
@@ -3879,15 +3878,26 @@ async function main() {
             return out;
           }, batch.map(([p]) => p));
         } catch (_) {}
-        for (const [path, fromSig] of batch) {
-          const status = statuses[path] || 0;
-          navStatus[path] = status;
-          if (status === 404 || status === 410 || status >= 500) {
-            log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: fromSig, route: path, status, from: fromSig }));
-          }
+      }
+      const isDead = (s) => s === 404 || s === 410 || s >= 500;
+      const candidates = batch.filter(([p]) => isDead(statuses[p] || 0));
+      let verified = 0;
+      for (const [path, fromSig] of candidates) {
+        navStatus[path] = statuses[path] || 0; // remember the fetch verdict
+        if (verified >= VERIFY_CAP) continue;
+        verified++;
+        let navStat = 0;
+        try {
+          const r = await page.goto(APP_ORIGIN + path, { waitUntil: 'commit', timeout: 7000 });
+          navStat = r ? r.status() : 0;
+        } catch (_) {}
+        navStatus[path] = navStat;
+        if (isDead(navStat)) {
+          log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }));
         }
       }
-      if (skipped) log(`JOURNEY[a] step: broken-route link check capped (${skipped} link(s) not probed)`);
+      const unverified = candidates.length - Math.min(candidates.length, VERIFY_CAP);
+      if (unverified) log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   }
