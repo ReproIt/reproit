@@ -153,13 +153,16 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // so this reports nothing there.
     if cfg.no_overflow {
         for (sig, items) in &obs.obs.overflows {
-            // USER-facing reporting floor: only overflows at/above the configured
-            // px count, so a team can ignore minor clips/spills (the runner's
-            // OVERFLOW_TOL already dropped sub-pixel noise; this is the threshold
-            // for "worth flagging" on top). Default 2 keeps everything.
+            // Only real layout BREAKS: a `spill` is a child whose box exceeds its
+            // parent's content box (the i18n/long-string/RTL failure). Drop `clip`
+            // (designed `text-overflow: ellipsis` / `overflow: hidden`) and
+            // `scroll` (an intended scroll container) -- those are not bugs, and
+            // flagging them was the false-positive that boxed an ellipsis label.
+            // USER floor: only spills at/above the configured px count on top of
+            // the runner's sub-pixel OVERFLOW_TOL (default 2 keeps everything).
             let items: Vec<_> = items
                 .iter()
-                .filter(|(_, _, by)| *by >= cfg.overflow_min_px)
+                .filter(|(_, kind, by)| kind.as_str() == "spill" && *by >= cfg.overflow_min_px)
                 .collect();
             if items.is_empty() {
                 continue;
@@ -167,14 +170,14 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
             let detail = items
                 .iter()
                 .take(3)
-                .map(|(key, kind, by)| format!("{key} ({kind} by {by}px)"))
+                .map(|(key, _kind, by)| format!("{key} (spill by {by}px)"))
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push(finding(
                 "no-overflow",
                 "OVERFLOW",
                 format!(
-                    "state {sig} has {} overflowing/clipped element(s): {detail} (content does not fit its container/viewport; the i18n/long-string/RTL failure class)",
+                    "state {sig} has {} overflowing element(s): {detail} (a child does not fit its container; the i18n/long-string/RTL failure class)",
                     items.len()
                 ),
                 Some(sig),
@@ -526,10 +529,12 @@ pub fn recheck_overflow(obs: &RunObs, sig: &str) -> GraphRecheck {
     if !obs.states.contains_key(sig) {
         return GraphRecheck::NotReached;
     }
+    // Spill-only, matching the finding: a `clip`/`scroll` lingering on the state
+    // is intended truncation, not the bug, so it must not read as still-violating.
     if obs
         .overflows
         .get(sig)
-        .is_some_and(|items| !items.is_empty())
+        .is_some_and(|items| items.iter().any(|(_, kind, _)| kind.as_str() == "spill"))
     {
         GraphRecheck::StillViolating
     } else {
@@ -879,8 +884,8 @@ mod tests {
     }
 
     #[test]
-    fn no_overflow_flags_a_state_with_a_clipped_node() {
-        // A state with an overflowing node fires; a state with none stays silent.
+    fn no_overflow_flags_spills_not_intended_truncation() {
+        // A `spill` (child exceeds its parent) fires; a clean state stays silent.
         let mut o = obs_with(
             &[("home", &["Go"], 0), ("settings", &["Settings"], 0)],
             &[("home", "tap:Go", "settings")],
@@ -888,7 +893,7 @@ mod tests {
         );
         o.obs.overflows.insert(
             "settings".to_string(),
-            vec![("id:save".to_string(), "clip".to_string(), 84)],
+            vec![("id:save".to_string(), "spill".to_string(), 84)],
         );
         let f = evaluate(&o, &InvariantsCfg::default());
         assert!(
@@ -903,6 +908,18 @@ mod tests {
         assert!(!f
             .iter()
             .any(|x| x["invariant"] == "no-overflow" && x["sig"] == "home"));
+        // Designed `clip` (ellipsis) + `scroll` (a scroll container) are NOT bugs:
+        // a state with only those stays silent (this is the /login FP fix).
+        let mut intended = obs_with(&[("x", &["X"], 0)], &[], Some("x"));
+        intended.obs.overflows.insert(
+            "x".to_string(),
+            vec![
+                ("tag:label".to_string(), "clip".to_string(), 46),
+                ("tag:div".to_string(), "scroll".to_string(), 24),
+            ],
+        );
+        assert!(!kinds(&evaluate(&intended, &InvariantsCfg::default()))
+            .contains(&"no-overflow".to_string()));
         // Disabling the invariant suppresses it.
         let cfg = InvariantsCfg {
             no_overflow: false,
@@ -913,11 +930,11 @@ mod tests {
 
     #[test]
     fn overflow_min_px_floors_minor_overflows() {
-        // Default floor (2): a 12px overflow counts.
+        // Default floor (2): a 12px spill counts.
         let mut small = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
         small.obs.overflows.insert(
             "a".to_string(),
-            vec![("tag:span".to_string(), "clip".to_string(), 12)],
+            vec![("tag:span".to_string(), "spill".to_string(), 12)],
         );
         assert!(kinds(&evaluate(&small, &InvariantsCfg::default()))
             .contains(&"no-overflow".to_string()));

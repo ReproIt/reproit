@@ -2575,12 +2575,10 @@ async function drawFindingBoxes(page, hints = {}) {
         const all = document.body ? document.body.querySelectorAll('*') : [];
         for (const el of all) {
           if (!visible(el)) continue;
-          const st = getComputedStyle(el);
-          const clips = st.overflow === 'hidden' || st.overflowX === 'hidden' || st.textOverflow === 'ellipsis';
-          const oneLine = st.whiteSpace === 'nowrap' || st.textOverflow === 'ellipsis';
-          if (clips && oneLine && el.scrollWidth - el.offsetWidth > tol) {
-            push(el, 'clipped  +' + Math.round(el.scrollWidth - el.offsetWidth) + 'px', 1, el.scrollWidth - el.offsetWidth, 'overflow');
-          }
+          // Only box a real layout SPILL (a child exceeding its parent's content
+          // box). Designed `clip` (text-overflow ellipsis / overflow:hidden) is
+          // intended truncation, not a bug, so it is no longer boxed -- this is
+          // the fix for boxing an ellipsis label on /login.
           const p = el.parentElement;
           if (p && p !== document.body && p !== doc) {
             const ps = getComputedStyle(p);
