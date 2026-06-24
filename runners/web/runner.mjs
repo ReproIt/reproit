@@ -307,12 +307,21 @@ function detectOverflow(tol) {
     return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
   };
   const out = [];
-  const seen = new Set();
+  // Keep the MAX `by` per key|kind, not first-wins: several unkeyed spills collapse
+  // to one `tag:div` key, and if the FIRST happened to be small, first-wins both
+  // hid the larger sibling AND could sink the whole finding under the Rust px floor.
+  const seen = new Map(); // key|kind -> index in `out`
   const add = (el, kind, by) => {
-    const k = keyOf(el) + '|' + kind;
-    if (seen.has(k)) return;
-    seen.add(k);
-    out.push({ key: keyOf(el), kind, by: Math.round(by) });
+    const key = keyOf(el);
+    const k = key + '|' + kind;
+    const rounded = Math.round(by);
+    const idx = seen.get(k);
+    if (idx === undefined) {
+      seen.set(k, out.length);
+      out.push({ key, kind, by: rounded });
+    } else if (rounded > out[idx].by) {
+      out[idx].by = rounded;
+    }
   };
   const doc = document.documentElement;
   // Page-level horizontal scroll: the document content is wider than its viewport.
@@ -425,10 +434,18 @@ function detectContentBugs() {
   const out = [];
   const seen = new Set();
   const all = document.body ? document.body.querySelectorAll('*') : [];
+  // Document-order index per tag, so an UNKEYED element still gets a stable,
+  // distinct positional key (`tag:<tag>#<idx>`) -- a plain `<span>[object
+  // Object]</span>` with no id/testid was silently skipped before, missing a
+  // whole common class of broken-render artifacts. Same grammar as the overflow
+  // oracle's tag fallback; the index keeps two unkeyed artifacts from colliding.
+  const tagIdx = {};
   for (const el of all) {
     if (!visible(el)) continue;
-    const key = keyOf(el);
-    if (!key) continue; // only stably-addressable nodes (replayable findings)
+    const tag = el.tagName.toLowerCase();
+    const n = tagIdx[tag] || 0;
+    tagIdx[tag] = n + 1;
+    const key = keyOf(el) || 'tag:' + tag + '#' + n;
     const text = ownText(el);
     const reason = reasonOf(text);
     if (!reason) continue;
@@ -626,9 +643,12 @@ async function drainJankForEngine(page) {
 // is the RETAINED (live) heap, not transient garbage: a true leak survives GC and
 // grows monotonically, while a resource-neutral cycle collapses back flat. We emit
 // a MEMORY:SAMPLE marker per cycle; the soak side reconstructs the series from
-// these when no VM-service memory file exists. Without CDP (firefox/webkit) we
-// fall back to performance.memory (quantized, best-effort) so the marker is still
-// emitted but the slope may be too coarse; soak then reads what it can.
+// these when no VM-service memory file exists. CHROMIUM-ONLY by design: the
+// precise heap needs the CDP `Runtime.getHeapUsage` domain. There is deliberately
+// NO `performance.memory` fallback -- it is quantized to a coarse ~10MB bucket
+// (anti-fingerprinting) so it cannot see a multi-MB leak; emitting it would feed
+// the slope a leak-blind number, which docs/oracles.md rightly calls worse than
+// silence. Off Chromium the leak oracle is an honest `gap` (no sample emitted).
 async function sampleHeap(page, cdp, tMs) {
   let used = null;
   if (cdp) {
@@ -638,18 +658,6 @@ async function sampleHeap(page, cdp, tMs) {
       await cdp.send('HeapProfiler.collectGarbage').catch(() => {});
       const r = await cdp.send('Runtime.getHeapUsage');
       if (r && typeof r.usedSize === 'number') used = Math.round(r.usedSize);
-    } catch (_) { used = null; }
-  }
-  if (used == null) {
-    // Fallback (no CDP): the quantized performance.memory read. Coarse, but a
-    // marker is better than none; the soak side reads whatever slope it shows.
-    try {
-      used = await page.evaluate(() => {
-        if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
-          return performance.memory.usedJSHeapSize;
-        }
-        return null;
-      });
     } catch (_) { used = null; }
   }
   if (used == null) return;
@@ -2549,6 +2557,13 @@ async function runScenarioActor(browser) {
     for (const line of stack.split('\n').slice(0, 8)) log(line);
     log('════════');
   });
+  // Renderer/GPU/OOM crash (Playwright `crash`, not `pageerror`): emit the same
+  // app-crash block so a process death isn't misattributed to the runner.
+  page.on('crash', () => {
+    log('EXCEPTION CAUGHT BY WEB PAGE');
+    log('actor ' + who + ': the page crashed (renderer process gone -- GPU / out-of-memory / sad-tab)');
+    log('════════');
+  });
   await page.goto(APP_URL, { waitUntil: 'networkidle' }).catch(() => {});
   log('JOURNEY claimed role=' + who);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -2974,6 +2989,10 @@ function medianOf(xs) {
 // Select one option by its accessible label (scroll into view + click), robust
 // to below-fold pickers and to the positional selectors going stale as the
 // picker re-renders between choices. Returns true if an element was clicked.
+// Click a choice option by its ACCESSIBLE LABEL, scrolling it into view first
+// (below-fold pickers must be exercised). Used as the fallback when the precise
+// selector click can't resolve/reach the option (tap's reachability gate rejects
+// an off-screen control before it is scrolled in).
 async function clickOptionByLabel(page, role, label) {
   if (!label) return false;
   return await page
@@ -3005,7 +3024,12 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
   const results = [];
   let base = null;
   for (const opt of group.opts) {
-    const ok = await clickOptionByLabel(page, group.role, opt.label);
+    // Prefer the EXACT option by its structural selector (so two groups sharing an
+    // option label don't cross-exercise each other's components), but fall back to
+    // the label click when the precise selector can't be reached -- tap()'s
+    // reachability gate rejects a below-fold picker before clickOptionByLabel
+    // scrolls it into view, and losing that path silently killed the oracle.
+    const ok = (await tap(page, opt.sel)) || (await clickOptionByLabel(page, group.role, opt.label));
     if (!ok) {
       results.push({ opt, mag: null });
       continue;
@@ -3048,22 +3072,29 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
     // of the walk is untouched. Reuses the trigger path of drawFindingBoxes (the
     // boxed outlier, plus any overflow the shift causes).
     if (VIDEO_DIR) {
-      const label = max.opt.label || max.opt.sel;
-      await clickOptionByLabel(page, group.role, label);
+      // Re-select the EXACT outlier by selector and tag it (mark) so the box lands
+      // on the choice that shifted the page, not a same-label sibling. Fall back
+      // to the label click + a manual trigger tag when the selector can't be
+      // reached (below-fold), so the clip still boxes the right control.
+      const tapped = await tap(page, max.opt.sel, { mark: true });
+      if (!tapped) {
+        const label = max.opt.label || max.opt.sel;
+        await clickOptionByLabel(page, group.role, label);
+        await page
+          .evaluate(({ label }) => {
+            const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+            for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+            for (const el of document.querySelectorAll('button, [role=button], [role=tab], [role=radio]')) {
+              const ll = el.getAttribute('aria-labelledby');
+              let name = norm(el.getAttribute('aria-label'));
+              if (!name && ll) { const ref = document.getElementById(ll.split(/\s+/)[0]); if (ref) name = norm(ref.textContent); }
+              if (!name) name = norm(el.textContent);
+              if (name === label) { el.setAttribute('data-reproit-trigger', '1'); break; }
+            }
+          }, { label })
+          .catch(() => {});
+      }
       await page.waitForTimeout(500);
-      await page
-        .evaluate(({ label }) => {
-          const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-          for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
-          for (const el of document.querySelectorAll('button, [role=button], [role=tab], [role=radio]')) {
-            const ll = el.getAttribute('aria-labelledby');
-            let name = norm(el.getAttribute('aria-label'));
-            if (!name && ll) { const ref = document.getElementById(ll.split(/\s+/)[0]); if (ref) name = norm(ref.textContent); }
-            if (!name) name = norm(el.textContent);
-            if (name === label) { el.setAttribute('data-reproit-trigger', '1'); break; }
-          }
-        }, { label })
-        .catch(() => {});
       await drawFindingBoxes(page, {
         triggerLabel: 'layout shift +' + Math.round(max.mag) + 'px',
         oracle: 'no-choice-anomaly',
@@ -3137,6 +3168,17 @@ async function main() {
     log('\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550');
   };
   page.on('pageerror', emitError);
+  // A renderer/GPU/OOM crash raises Playwright's `crash` event, NOT `pageerror`.
+  // Without this the next action throws inside the runner and is misattributed to
+  // the runner ("EXCEPTION CAUGHT BY WEB RUNNER") instead of the app. Emit the
+  // same app-crash block and bump the counter so a recorded replay boxes it.
+  page.on('crash', () => {
+    replayErrorCount++;
+    log('EXCEPTION CAUGHT BY WEB PAGE');
+    log('The following error was thrown:');
+    log('the page crashed (renderer process gone -- GPU / out-of-memory / sad-tab)');
+    log('════════');
+  });
 
   // BROKEN-ROUTE oracle: record the HTTP status of main-frame DOCUMENT
   // navigations, keyed by URL pathname. A state whose document came back >= 400

@@ -521,10 +521,19 @@
     }
   }
 
-  // The screen anchor: route/path (location.pathname) when available.
+  // The screen anchor: path + SPA hash route, query EXCLUDED -- byte-identical to
+  // the runner (runners/web/runner.mjs). Hash routers put the real route in
+  // location.hash (#/a vs #/b on one pathname), so it MUST be in the anchor or the
+  // SDK collapses distinct screens that the runner keeps separate, breaking the
+  // "byte-identical to the runner's signature" contract on every hash-router SPA.
   function anchorOf() {
     try {
-      if (typeof location !== "undefined" && location.pathname) return location.pathname;
+      if (typeof location !== "undefined" && location.pathname) {
+        var hash = location.hash || "";
+        var q = hash.indexOf("?");
+        if (q >= 0) hash = hash.slice(0, q);
+        return location.pathname + hash;
+      }
     } catch (e) {}
     return null;
   }
