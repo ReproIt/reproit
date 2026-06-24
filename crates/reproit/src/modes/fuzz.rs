@@ -199,7 +199,17 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
         json,
         "sweep: one coverage walk (every reachable screen, checked once)...".to_string(),
     );
-    let outcome = run_explorer(cfg, root, &args.journey, false, &defines, false, args.sim).await?;
+    let outcome = run_explorer(
+        cfg,
+        root,
+        &args.journey,
+        false,
+        &defines,
+        false,
+        args.sim,
+        false,
+    )
+    .await?;
     let completed = outcome.passed;
 
     // ALL per-state findings (every state x oracle), NOT collapsed to one-per-seed,
@@ -449,14 +459,24 @@ async fn record_sweep_clips(
         }
         let label = format!("{}__{oracle}", sanitize_route(route));
         say(json, format!("  {label}..."));
-        let outcome =
-            match run_explorer(cfg, root, &args.journey, true, defines, false, args.sim).await {
-                Ok(o) => o,
-                Err(_) => {
-                    say(json, format!("    skipped {label}: run failed"));
-                    continue;
-                }
-            };
+        let outcome = match run_explorer(
+            cfg,
+            root,
+            &args.journey,
+            true,
+            defines,
+            false,
+            args.sim,
+            true,
+        )
+        .await
+        {
+            Ok(o) => o,
+            Err(_) => {
+                say(json, format!("    skipped {label}: run failed"));
+                continue;
+            }
+        };
         // TRUST GATE: only keep a clip whose box actually drew (the finding
         // re-detected on this load). A clip that did not reproduce is dropped
         // rather than shipped with a misleading caption.
@@ -735,6 +755,7 @@ async fn fuzz_one_locale(
             &defines,
             args.profile_timing,
             args.sim,
+            false,
         )
         .await?;
         warm = true;
@@ -955,6 +976,7 @@ async fn fuzz_one_locale(
                     &defines,
                     args.profile_timing,
                     true,
+                    false,
                 )
                 .await
                 {
@@ -1386,12 +1408,14 @@ async fn run_explorer(
     defines: &[(String, String)],
     profile_timing: bool,
     sim: bool,
+    record_video: bool,
 ) -> Result<RunOutcome> {
     let opts = orchestrator::RunOpts {
         devices: 1,
         warm,
         extra_defines: defines,
         profile_timing,
+        record_video,
         ..Default::default()
     };
     // Default: the HEADLESS tier (flutter test, no simulator) for Flutter; any
@@ -1769,7 +1793,7 @@ async fn shrink(
         json!({ "replay": Vec::<String>::new() }).to_string(),
     )?;
     let load_only_reproduces =
-        match run_explorer(cfg, root, journey, true, defines, false, sim).await {
+        match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
             Ok(o) => reproduces_original(&findings_for_tier(cfg, &o.run_dir, sim), want),
             Err(_) => false,
         };
@@ -1807,7 +1831,7 @@ async fn shrink(
                 // category as the original. Without this, a short/empty replay
                 // trivially fires graph invariants (no-dead-end, all-labeled)
                 // and shrink would minimize toward a non-reproducing trace.
-                match run_explorer(cfg, root, journey, true, defines, false, sim).await {
+                match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
                     Ok(o) => reproduces_original(&findings_for_tier(cfg, &o.run_dir, sim), want),
                     Err(_) => false,
                 }
@@ -1848,7 +1872,7 @@ async fn shrink(
     // crash; the truncated trace still reproduces (the crash fires at its end).
     if want.iter().any(|c| is_crash_category(c)) && current.len() >= 2 {
         std::fs::write(cfg_path, json!({ "replay": current }).to_string())?;
-        if let Ok(o) = run_explorer(cfg, root, journey, true, defines, false, sim).await {
+        if let Ok(o) = run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
             let log = std::fs::read_to_string(o.run_dir.join("drive-a.log")).unwrap_or_default();
             if let Some(n0) = crash_trigger_index(&log) {
                 // Back the cut off any TRAILING fragile actions to the last KEYED
@@ -1867,7 +1891,9 @@ async fn shrink(
                     let candidate: Vec<String> = current[..n].to_vec();
                     std::fs::write(cfg_path, json!({ "replay": candidate }).to_string())?;
                     let still =
-                        match run_explorer(cfg, root, journey, true, defines, false, sim).await {
+                        match run_explorer(cfg, root, journey, true, defines, false, sim, false)
+                            .await
+                        {
                             Ok(o2) => {
                                 reproduces_original(&findings_for_tier(cfg, &o2.run_dir, sim), want)
                             }

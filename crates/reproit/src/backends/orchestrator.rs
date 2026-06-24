@@ -41,6 +41,11 @@ pub struct RunOpts<'a> {
     /// Print a per-phase wall-clock breakdown (sim ensure, reset, build,
     /// launch->ready, walk, teardown). Off unless set.
     pub profile_timing: bool,
+    /// Record an annotated video for THIS run even when `evidence.video` is off:
+    /// the `record` command and `sweep --record` clip pass need the runner-side
+    /// webm. A plain fuzz/sweep walk leaves this false so the (web/electron/tauri)
+    /// runner doesn't record an unwanted video every run.
+    pub record_video: bool,
 }
 
 #[derive(Serialize)]
@@ -85,6 +90,7 @@ pub async fn run_journey(
         extra_defines,
         profile,
         profile_timing,
+        record_video,
     } = *opts;
     let started_at = chrono::Local::now();
     // Per-phase wall-clock instrumentation (printed only with profile_timing).
@@ -294,6 +300,10 @@ pub async fn run_journey(
             .collect(),
         shots_dir,
         capture_shots,
+        // The (web/electron/tauri) runner records its own webm only when video is
+        // actually wanted: an evidence video, or a record/clip pass. Otherwise a
+        // plain walk left a stray video on disk and a misleading manifest.
+        wants_video: cfg.evidence.video || record_video,
         defines,
         secrets,
         ready_marker: cfg.journeys.ready_marker.clone(),

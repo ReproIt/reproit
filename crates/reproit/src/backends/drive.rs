@@ -30,6 +30,10 @@ pub struct RunCtx {
     /// journey's `shoot:` steps are inert there (navigate-only, no pictures, no
     /// capture overhead); the same journey under `screenshots` takes the shots.
     pub capture_shots: bool,
+    /// Whether the runner should record its own video (web/electron/tauri webm):
+    /// true for an `evidence.video` run or a record/clip pass, false for a plain
+    /// walk (no stray video, honest `"video": null` manifest).
+    pub wants_video: bool,
     /// Drive in profile mode (AOT). Perf evidence is only representative
     /// here; debug (JIT) numbers overstate jank.
     pub profile: bool,
@@ -270,7 +274,9 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let mut c = Command::new("node");
             c.arg(dir.join("runner.mjs"));
             c.env("REPROIT_URL", ctx.web_url.clone().unwrap_or_default());
-            c.env("REPROIT_VIDEO_DIR", &video_dir);
+            if ctx.wants_video {
+                c.env("REPROIT_VIDEO_DIR", &video_dir);
+            }
             with_defines(&mut c);
             c
         }
@@ -279,7 +285,9 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let mut c = Command::new("node");
             c.arg(runner_script(ctx, &format!("{}.mjs", ctx.platform))?);
             c.env("REPROIT_APP", target_app(ctx)?);
-            c.env("REPROIT_VIDEO_DIR", &video_dir);
+            if ctx.wants_video {
+                c.env("REPROIT_VIDEO_DIR", &video_dir);
+            }
             with_defines(&mut c);
             c
         }
@@ -299,7 +307,9 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
                 "REPROIT_APPIUM_CAPS",
                 serde_json::to_string(&ctx.appium_caps).unwrap_or_else(|_| "{}".into()),
             );
-            c.env("REPROIT_VIDEO_DIR", &video_dir);
+            if ctx.wants_video {
+                c.env("REPROIT_VIDEO_DIR", &video_dir);
+            }
             with_defines(&mut c);
             c
         }

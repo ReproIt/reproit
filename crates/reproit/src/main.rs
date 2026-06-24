@@ -1175,6 +1175,9 @@ async fn main() -> Result<ExitCode> {
                     shots_dir: shots_dir.as_deref(),
                     profile,
                     extra_defines: &extra,
+                    // `record` produces an annotated video, so the runner must
+                    // record even when evidence.video is off.
+                    record_video: true,
                     ..Default::default()
                 },
             )
