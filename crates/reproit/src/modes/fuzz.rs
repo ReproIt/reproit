@@ -454,7 +454,7 @@ async fn fuzz_one_locale(
             // --all: file this finding under its crash signature so the same bug
             // reached by different paths collapses to one bucket.
             if args.all {
-                if let Some(primary) = findings.first() {
+                if let Some(primary) = primary_finding(&findings) {
                     let sig = finding_signature(primary);
                     buckets
                         .entry(sig)
@@ -1044,6 +1044,25 @@ fn shrink_target(findings: &[Value]) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
+/// The PRIMARY finding to headline: the most-severe one, so a real bug (overflow,
+/// crash, jank, content, flicker, ...) wins over an incidental graph/label
+/// invariant (`all-labeled`, `no-dead-end`) that merely co-occurred on the same
+/// trace - matching what `shrink_target` already minimizes toward. `findings`
+/// is not severity-ordered, so `findings.first()` could headline the incidental
+/// invariant, making the report + kept meta name the wrong oracle (e.g. `a11y`
+/// when the run actually shrank for `no-overflow`), which in turn left a scoped
+/// `check --record` clip nothing box-able to show. Stable: keeps the first
+/// finding among equal-severity ties, preserving the old order otherwise.
+fn primary_finding(findings: &[Value]) -> Option<&Value> {
+    findings.iter().reduce(|best, f| {
+        if category_severity(&finding_category(f)) > category_severity(&finding_category(best)) {
+            f
+        } else {
+            best
+        }
+    })
+}
+
 /// Does this candidate's finding set reproduce the original finding? True iff
 /// at least one candidate finding shares a category with the originals. An
 /// empty `want` (no categorizable original, defensive) falls back to "any
@@ -1376,8 +1395,9 @@ fn write_report(
     // finding's ORACLE category, its named INVARIANT, and (for graph invariants)
     // the offending STATE SIG, so `check` can re-confirm the SAME finding by its
     // oracle rather than only looking for exceptions. The primary finding is the
-    // first one (the others are collateral on the same trace).
-    if let Some(primary) = findings.first() {
+    // MOST-SEVERE one (a real bug over an incidental graph/label invariant on the
+    // same trace), consistent with the shrink target.
+    if let Some(primary) = primary_finding(findings) {
         let oracle = crate::crosscut::classify(primary).as_str();
         let inv = invariant_of(primary);
         let sig = primary.get("sig").and_then(Value::as_str).unwrap_or("");
@@ -1542,6 +1562,43 @@ mod tests {
         // And a dead-end-only candidate then fails the oracle against that target.
         let dead_end_only = vec![json!({ "invariant": "no-dead-end", "kind": "GRAPH" })];
         assert!(!reproduces_original(&dead_end_only, &target));
+    }
+
+    #[test]
+    fn primary_finding_headlines_the_real_bug_over_incidental_a11y() {
+        // The headline-oracle fix: an `all-labeled` that merely co-occurred with
+        // the real overflow must NOT become the reported oracle (which would make
+        // a scoped clip have nothing box-able). The most-severe finding wins.
+        let findings = vec![
+            json!({ "invariant": "all-labeled", "kind": "SEMANTICS" }),
+            json!({ "invariant": "no-overflow", "kind": "LAYOUT" }),
+        ];
+        assert_eq!(
+            finding_category(primary_finding(&findings).unwrap()),
+            "no-overflow"
+        );
+    }
+
+    #[test]
+    fn primary_finding_keeps_a11y_when_it_is_the_only_finding() {
+        let findings = vec![json!({ "invariant": "all-labeled", "kind": "SEMANTICS" })];
+        assert_eq!(
+            finding_category(primary_finding(&findings).unwrap()),
+            "all-labeled"
+        );
+    }
+
+    #[test]
+    fn primary_finding_is_stable_among_equal_severity_reals() {
+        // Two real bugs: keep the first (preserve the old order).
+        let findings = vec![
+            json!({ "invariant": "no-overflow", "kind": "LAYOUT" }),
+            json!({ "invariant": "no-exception", "kind": "EXCEPTION", "message": "boom" }),
+        ];
+        assert_eq!(
+            finding_category(primary_finding(&findings).unwrap()),
+            "no-overflow"
+        );
     }
 
     #[test]
