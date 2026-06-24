@@ -1004,6 +1004,7 @@ function descriptorOf(anchor, root) {
 function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 
 export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFLOW_TOL, typeInto, loadInputs, inputValueFor, classifyFrameIntervals, drawFindingBoxes, tap };
+// isEphemeralId / EPHEMERAL_ID_RE are exported at their definition (above).
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -1014,8 +1015,26 @@ export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFL
 // selector. Elements are addressed by stable selector preference
 // (data-testid > id > name > aria-role + structural index); a tappable lacking
 // any stable id falls back to role+index and is flagged `nokey`.
+// Framework-generated EPHEMERAL element ids: React `useId()` and the libraries
+// that wrap it (Radix, base-ui, Headless UI, MUI, Reach). These are RANDOM per
+// page load (e.g. `radix-_R_96bupfdj2mdb_`, `base-ui-_R_el35...`, React `:r0:`),
+// so letting them into the structural signature or a replay selector made the
+// SAME screen hash differently run-to-run -- non-deterministic state sigs and
+// unstable repro ids on any app built with these (very common) UI libraries. A
+// developer-assigned id (a semantic id, a data-testid) does NOT match and is
+// kept. The regex source is injected into the in-page snapshot evaluate (below)
+// so the browser context applies the EXACT same rule as this Node-side helper.
+export const EPHEMERAL_ID_RE = /:r[0-9a-z]+:|«r[0-9a-z]+»|_[rR]_[0-9a-z]+_|^(?:radix|base-ui|headlessui|mui|reach)-/i;
+export function isEphemeralId(id) {
+  return typeof id === 'string' && EPHEMERAL_ID_RE.test(id);
+}
+
 async function snapshot(page, valueNodeSelectors) {
-  const snap = await page.evaluate(({ maxLen, valueNodeSelectors }) => {
+  const snap = await page.evaluate(({ maxLen, valueNodeSelectors, ephemeralIdSrc, ephemeralIdFlags }) => {
+    // Same ephemeral-id rule as the Node-side isEphemeralId (injected so the two
+    // never drift): a random framework id must not enter the signature or a key.
+    const ephemeralRe = new RegExp(ephemeralIdSrc, ephemeralIdFlags);
+    const isEphemeralId = (v) => typeof v === 'string' && ephemeralRe.test(v);
     const labels = [];          // DISPLAY-ONLY visible text
     const rawTaps = [];         // tappable nodes in document order
     const extraTaps = [];       // keyed pointer-operable nodes interactive() drops
@@ -1124,22 +1143,26 @@ async function snapshot(page, valueNodeSelectors) {
     };
 
     // Stable developer id: data-testid > id > name (for the descriptor token).
+    // An EPHEMERAL framework id (Radix/base-ui/React useId) is skipped so it never
+    // enters the hashed signature -- otherwise the same screen hashes differently
+    // each load.
     const idOf = (el) => {
       const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
       if (testid && testid.trim()) return testid.trim();
       const id = el.getAttribute('id');
-      if (id && id.trim()) return id.trim();
+      if (id && id.trim() && !isEphemeralId(id.trim())) return id.trim();
       const name = el.getAttribute('name');
       if (name && name.trim()) return name.trim();
       return null;
     };
 
-    // Selector KEY (for replay): kind-tagged so tap() can resolve it.
+    // Selector KEY (for replay): kind-tagged so tap() can resolve it. Same
+    // ephemeral-id skip -- a random id is not a reproducible selector either.
     const keyOf = (el) => {
       const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
       if (testid && testid.trim()) return 'testid:' + testid.trim();
       const id = el.getAttribute('id');
-      if (id && id.trim()) return 'id:' + id.trim();
+      if (id && id.trim() && !isEphemeralId(id.trim())) return 'id:' + id.trim();
       const name = el.getAttribute('name');
       if (name && name.trim()) return 'name:' + name.trim();
       return null;
@@ -1471,7 +1494,7 @@ async function snapshot(page, valueNodeSelectors) {
     textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
 
     return { tree, anchor, path, labels: [...new Set(labels)], tappables, unlabeled, textNodes };
-  }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [] });
+  }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [], ephemeralIdSrc: EPHEMERAL_ID_RE.source, ephemeralIdFlags: EPHEMERAL_ID_RE.flags });
 
   // Hash the canonical Node tree with the host-pure canonical signature, exactly
   // like the Rust oracle and the golden vectors. Text never contributes.
