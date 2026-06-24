@@ -25,7 +25,7 @@ pub struct RunCtx {
     /// screenshot tour overrides this to the visual differ's shotsDir).
     pub shots_dir: PathBuf,
     /// Whether SHOOT markers actually take pictures. True only when the caller
-    /// asked for screenshots (the `screenshots` command, `--record`/`--visual`,
+    /// asked for screenshots (the `screenshots` command, `record`/`baseline`,
     /// or an explicit `--shots-dir`). A plain `check`/`fuzz` leaves it false, so a
     /// journey's `shoot:` steps are inert there (navigate-only, no pictures, no
     /// capture overhead); the same journey under `screenshots` takes the shots.
@@ -224,7 +224,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
         // orchestrator-side (simctl/adb) from the SHOOT marker; every other runner
         // (web, desktop, tui, instrumented) writes <REPROIT_SHOTS_DIR>/<name>.png
         // itself, then prints `SHOOT:<name>` so the orchestrator confirms + logs it.
-        // Only set in capture mode (the screenshots command / --record / --visual /
+        // Only set in capture mode (the screenshots command / record / baseline /
         // --shots-dir); otherwise the runner sees no dir and a `shoot:` step is a
         // no-op (it still prints the marker, but writes nothing), so a plain check
         // never produces screenshots.

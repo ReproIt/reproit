@@ -175,7 +175,7 @@ const VERSION: &str = env!("REPROIT_VERSION");
 #[command(
     name = "reproit",
     version = VERSION,
-    about = "Reproducible AI QA: map -> fuzz -> check"
+    about = "Reproducible AI QA: map -> sweep -> check"
 )]
 struct Cli {
     /// Path to reproit.yaml (default: search cwd and ancestors)
@@ -248,8 +248,7 @@ enum Cmd {
     },
     /// Run saved repros and classify each: pass (0) / fail (1) / flaky (2) /
     /// stale (3). With no name, runs the whole suite and exits with the worst.
-    /// `--record` runs a repro once with annotated video; `--visual` runs the
-    /// visual regression oracle.
+    /// (Annotated video is `record`; the visual oracle is `baseline`.)
     Check {
         /// Repro/journey name. Empty = run the whole saved suite.
         repro: Option<String>,
@@ -265,29 +264,6 @@ enum Cmd {
         /// Write JUnit XML results to this path (for CI)
         #[arg(long)]
         junit: Option<PathBuf>,
-        /// Run ONCE with full evidence capture + annotated video (was `run`)
-        #[arg(long)]
-        record: bool,
-        /// Reuse the previous build (--no-build). Only valid when the last
-        /// build was this same journey. Applies to `--record`.
-        #[arg(long)]
-        warm: bool,
-        /// (--record) capture SHOOT screenshots into this directory
-        #[arg(long)]
-        shots_dir: Option<PathBuf>,
-        /// (--record) drive in profile mode (AOT) for representative perf
-        #[arg(long)]
-        profile: bool,
-        /// Visual regression against the committed baseline (was `visual`)
-        #[arg(long)]
-        visual: bool,
-        /// (--visual) accept the current capture as the new baseline
-        #[arg(long)]
-        update: bool,
-        /// Intra-run flicker detection: record once, scan the video for transient
-        /// render glitches (a frame that diverges then snaps back). No baseline.
-        #[arg(long)]
-        flicker: bool,
         /// Treat a quarantined repro's failure as blocking too (no effect on
         /// the exit code today: every outcome already maps to its CI code).
         #[arg(long)]
@@ -306,6 +282,45 @@ enum Cmd {
         #[arg(long)]
         device: Option<String>,
     },
+    /// Record a repro ONCE with full evidence + an annotated video (paced action
+    /// HUD + the red finding box scoped to the repro's oracle). Was `check
+    /// --record`. `--flicker` also scans the recorded video for transient render
+    /// glitches (a frame that diverges then snaps back).
+    Record {
+        /// The repro (id or alias) to record.
+        repro: String,
+        /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
+        #[arg(long)]
+        kind: Option<String>,
+        /// Number of concurrent devices (multi-actor)
+        #[arg(long, default_value_t = 1)]
+        devices: usize,
+        /// Reuse the previous build (--no-build). Only valid when the last build
+        /// was this same journey.
+        #[arg(long)]
+        warm: bool,
+        /// Capture SHOOT screenshots into this directory
+        #[arg(long)]
+        shots_dir: Option<PathBuf>,
+        /// Drive in profile mode (AOT) for representative perf
+        #[arg(long)]
+        profile: bool,
+        /// After recording, scan the video for transient render glitches (intra-run
+        /// flicker: a frame that diverges then snaps back). No baseline needed.
+        #[arg(long)]
+        flicker: bool,
+    },
+    /// Visual-regression a repro against the committed baseline (per-pixel
+    /// tolerance + ignore regions). Was `check --visual`. `--update` accepts the
+    /// current capture as the new baseline.
+    Baseline {
+        /// The repro (id or alias) whose capture to diff. Optional; the visual
+        /// section in reproit.yaml selects what is compared.
+        repro: Option<String>,
+        /// Accept the current capture as the new baseline.
+        #[arg(long)]
+        update: bool,
+    },
     /// Save a repro from the latest fuzz run into the committed suite. The
     /// store dir is the repro's CONTENT HASH (.reproit/repros/<id>/), stable
     /// across machines and self-deduping. `--as` assigns a human alias.
@@ -321,22 +336,16 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
-    /// Verify an alternate action sequence still reproduces a repro's finding,
-    /// and adopt it if it does and is no longer than the current one. The engine
-    /// VERIFIES the candidate deterministically, so a simplification can never be
-    /// wrong: your agent proposes a shorter/cleaner sequence, reproit disposes.
-    Simplify {
-        /// The repro (id or alias) to simplify, or a pending fuzz finding id.
-        repro: String,
-        /// Candidate action sequence as a JSON array of action strings, e.g.
-        /// '["tap:key:testid:add","tap:key:testid:open-cart","tap:key:testid:remove"]'.
-        #[arg(long)]
-        to: String,
+    /// Advanced operations on an existing repro: `simplify` (verify + adopt a
+    /// shorter action sequence) and `why` (rank suspect code for the failure).
+    Repro {
+        #[command(subcommand)]
+        action: ReproAction,
     },
     /// List saved repros under .reproit/repros/
     Repros,
     /// Open a repro's recorded video in your default player. Recordings live
-    /// under .reproit/media/ (gitignored); make one with `check <id> --record`.
+    /// under .reproit/media/ (gitignored); make one with `record <id>`.
     Watch {
         /// The repro to watch (id or alias).
         repro: String,
@@ -361,17 +370,6 @@ enum Cmd {
     },
     /// List the simulators reproit manages (by configured name prefix)
     Devices,
-    /// Rank suspect code for a failure (spectrum-based fault localization,
-    /// Ochiai) over per-run coverage snapshots (*.cov.json from instrumented
-    /// runs). Contrasts passing vs failing coverage.
-    Why {
-        /// Directory scanned recursively for *.cov.json coverage snapshots
-        #[arg(long, default_value = ".reproit/runs")]
-        dir: String,
-        /// How many suspicious elements to print
-        #[arg(long, default_value_t = 20)]
-        top: usize,
-    },
     /// Sweep the app for the bugs simply VISIBLE on each screen (overflow,
     /// content, a11y, choice-anomaly): crawl every reachable screen once and
     /// report one finding per screen+issue. The fast default "what's wrong here".
@@ -596,6 +594,34 @@ enum Cmd {
     /// (internal) PTY-driven terminal-UI runner; spawned by the tui backend
     #[command(name = "__tui", hide = true)]
     TuiRun,
+}
+
+/// `repro` subcommands: advanced operations that act on an existing repro.
+#[derive(Subcommand)]
+enum ReproAction {
+    /// Verify an alternate action sequence still reproduces a repro's finding,
+    /// and adopt it if it does and is no longer than the current one. The engine
+    /// VERIFIES the candidate deterministically, so a simplification can never be
+    /// wrong: your agent proposes a shorter/cleaner sequence, reproit disposes.
+    Simplify {
+        /// The repro (id or alias) to simplify, or a pending fuzz finding id.
+        repro: String,
+        /// Candidate action sequence as a JSON array of action strings, e.g.
+        /// '["tap:key:testid:add","tap:key:testid:open-cart","tap:key:testid:remove"]'.
+        #[arg(long)]
+        to: String,
+    },
+    /// Rank suspect code for a failure (spectrum-based fault localization,
+    /// Ochiai) over per-run coverage snapshots (*.cov.json from instrumented
+    /// runs). Contrasts passing vs failing coverage.
+    Why {
+        /// Directory scanned recursively for *.cov.json coverage snapshots
+        #[arg(long, default_value = ".reproit/runs")]
+        dir: String,
+        /// How many suspicious elements to print
+        #[arg(long, default_value_t = 20)]
+        top: usize,
+    },
 }
 
 /// `skills` subcommands.
@@ -1073,23 +1099,109 @@ async fn main() -> Result<ExitCode> {
                 }
             }
         }
-        // `check`: run saved repros and classify each pass/fail/flaky/stale
-        // (the four-outcome CI contract), or one journey with video (--record),
-        // or the visual oracle (--visual). With no name, runs the whole suite
-        // and aggregates the worst outcome.
+        // `record`: run a repro ONCE with full evidence + annotated video,
+        // REPLAYING the kept repro. The runner draws the annotated overlay (paced
+        // action HUD + the red finding box) ONLY when it is fed a replay; without
+        // one it explores freely and the "annotated video" is a random walk, not
+        // the bug. So we write the repro's stored action sequence to the fuzz
+        // config the runner reads and hand the path to the orchestrator as a
+        // define, instead of running a bare `explore` journey. `--flicker` then
+        // scans the recorded video for transient render glitches.
+        Cmd::Record {
+            repro,
+            kind,
+            devices,
+            warm,
+            shots_dir,
+            profile,
+            flicker,
+        } => {
+            let loaded = config::load(cli.config.as_deref())?;
+            let journey = resolve_repro_journey(&loaded.root, &repro)?;
+            let meta = repro::resolve(&loaded.root, &repro)
+                .ok_or_else(|| anyhow::anyhow!("no repro `{repro}` (by id or alias)"))?;
+            let replay_path = repro::repro_dir(&loaded.root, &meta.id).join("replay.json");
+            let mut replay: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&replay_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "reading replay for `{repro}` ({}): {e}",
+                        replay_path.display()
+                    )
+                })?)?;
+            // Tell the runner which finding this clip is for, so the annotated box
+            // is scoped to JUST that oracle's issue (one box), not every problem
+            // on the page. The runner reads `highlight` from the config.
+            if let Some(oracle) = repro::load_meta(&loaded.root, &meta.id).and_then(|m| m.oracle) {
+                if let Some(obj) = replay.as_object_mut() {
+                    obj.insert("highlight".to_string(), serde_json::Value::String(oracle));
+                }
+            }
+            let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
+            std::fs::create_dir_all(cfg_path.parent().unwrap())?;
+            std::fs::write(&cfg_path, replay.to_string())?;
+            let extra = vec![(
+                "REPROIT_FUZZ_CONFIG".to_string(),
+                cfg_path.to_string_lossy().into_owned(),
+            )];
+            let outcome = orchestrator::run_journey(
+                &loaded.config,
+                &loaded.root,
+                &journey,
+                &orchestrator::RunOpts {
+                    kind: kind.as_deref(),
+                    devices,
+                    warm,
+                    shots_dir: shots_dir.as_deref(),
+                    profile,
+                    extra_defines: &extra,
+                    ..Default::default()
+                },
+            )
+            .await?;
+            // `--flicker`: scan the just-recorded video frame-to-frame for
+            // transient render glitches (a frame that diverges then snaps back).
+            if flicker {
+                let events =
+                    flicker::analyze_run(&outcome.run_dir, &flicker::FlickerCfg::default()).await?;
+                let clean = flicker::report(&events);
+                return Ok(if clean {
+                    ExitCode::SUCCESS
+                } else {
+                    exit_with(Exit::Regression)
+                });
+            }
+            return Ok(if outcome.passed {
+                ExitCode::SUCCESS
+            } else {
+                exit_with(Exit::Regression)
+            });
+        }
+        // `baseline`: the visual oracle. Diff the current capture against the
+        // committed baseline (per-pixel tolerance + ignore regions); `--update`
+        // accepts the current capture as the new baseline. Was `check --visual`.
+        Cmd::Baseline { repro, update } => {
+            let _ = repro; // the visual section selects what is compared today.
+            let loaded = config::load(cli.config.as_deref())?;
+            let Some(vis) = &loaded.config.visual else {
+                anyhow::bail!("no `visual` section in reproit.yaml");
+            };
+            let ok = visual::diff(vis, &loaded.root, update)?;
+            return Ok(if ok {
+                ExitCode::SUCCESS
+            } else {
+                exit_with(Exit::Regression)
+            });
+        }
+        // `check`: run saved repros and classify each pass/fail/flaky/stale (the
+        // four-outcome CI contract). With no name, runs the whole suite and
+        // aggregates the worst outcome. Recording and baseline diff are their own
+        // verbs now (`record`/`baseline`).
         Cmd::Check {
             repro,
             devices,
             kind,
             runs,
             junit,
-            record,
-            warm,
-            shots_dir,
-            profile,
-            visual,
-            update,
-            flicker,
             strict,
             locale,
             target,
@@ -1106,27 +1218,24 @@ async fn main() -> Result<ExitCode> {
             // platforms ios,android), run the saved suite on EACH target and diff
             // which repros are red on a SUBSET of targets (a divergence). The
             // single-target / no-target path below stays the rich locale+junit+
-            // promotion flow unchanged. Not used with --visual/--record (those
-            // are single-shot evidence runs).
-            if !visual && !record && !flicker {
-                if let Some(raw) = target.as_deref() {
-                    let (rts, unknown_t) = crosscut::parse_run_targets(raw);
-                    for u in &unknown_t {
-                        ctx.say(format!("  warn: unknown target `{u}` (ignored)"));
-                    }
-                    if rts.len() > 1 {
-                        return run_check_targets(
-                            &ctx,
-                            &loaded,
-                            &rts,
-                            device.as_deref(),
-                            &repro,
-                            runs,
-                            devices,
-                            kind.as_deref(),
-                        )
-                        .await;
-                    }
+            // promotion flow unchanged.
+            if let Some(raw) = target.as_deref() {
+                let (rts, unknown_t) = crosscut::parse_run_targets(raw);
+                for u in &unknown_t {
+                    ctx.say(format!("  warn: unknown target `{u}` (ignored)"));
+                }
+                if rts.len() > 1 {
+                    return run_check_targets(
+                        &ctx,
+                        &loaded,
+                        &rts,
+                        device.as_deref(),
+                        &repro,
+                        runs,
+                        devices,
+                        kind.as_deref(),
+                    )
+                    .await;
                 }
             }
             // --target / --device device selection. When neither is given and a
@@ -1143,109 +1252,6 @@ async fn main() -> Result<ExitCode> {
                 std::env::set_var("REPROIT_PLATFORM", d.target.as_str());
                 std::env::set_var("REPROIT_DEVICE", &d.id);
                 ctx.say(format!("  device: {} ({})", d.name, d.target.as_str()));
-            }
-            if visual {
-                let Some(vis) = &loaded.config.visual else {
-                    anyhow::bail!("no `visual` section in reproit.yaml");
-                };
-                let ok = visual::diff(vis, &loaded.root, update)?;
-                return Ok(if ok {
-                    ExitCode::SUCCESS
-                } else {
-                    exit_with(Exit::Regression)
-                });
-            }
-            if record {
-                // Run ONCE with full evidence + annotated video (was `run`),
-                // REPLAYING the kept repro. The runner draws the annotated overlay
-                // (paced action HUD + the red finding box) ONLY when it is fed a
-                // replay; without one it explores freely and the "annotated video"
-                // is a random walk, not the bug. So we write the repro's stored
-                // action sequence to the fuzz config the runner reads (exactly as
-                // `check`/`fuzz` do) and hand the path to the orchestrator as a
-                // define, instead of running a bare `explore` journey.
-                let name = repro
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("--record needs a repro id or alias"))?;
-                let journey = resolve_repro_journey(&loaded.root, &name)?;
-                let meta = repro::resolve(&loaded.root, &name)
-                    .ok_or_else(|| anyhow::anyhow!("no repro `{name}` (by id or alias)"))?;
-                let replay_path = repro::repro_dir(&loaded.root, &meta.id).join("replay.json");
-                let mut replay: serde_json::Value =
-                    serde_json::from_str(&std::fs::read_to_string(&replay_path).map_err(|e| {
-                        anyhow::anyhow!(
-                            "reading replay for `{name}` ({}): {e}",
-                            replay_path.display()
-                        )
-                    })?)?;
-                // Tell the runner which finding this clip is for, so the annotated
-                // box is scoped to JUST that oracle's issue (one box), not every
-                // problem on the page. The runner reads `highlight` from the config.
-                if let Some(oracle) =
-                    repro::load_meta(&loaded.root, &meta.id).and_then(|m| m.oracle)
-                {
-                    if let Some(obj) = replay.as_object_mut() {
-                        obj.insert("highlight".to_string(), serde_json::Value::String(oracle));
-                    }
-                }
-                let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
-                std::fs::create_dir_all(cfg_path.parent().unwrap())?;
-                std::fs::write(&cfg_path, replay.to_string())?;
-                let extra = vec![(
-                    "REPROIT_FUZZ_CONFIG".to_string(),
-                    cfg_path.to_string_lossy().into_owned(),
-                )];
-                let outcome = orchestrator::run_journey(
-                    &loaded.config,
-                    &loaded.root,
-                    &journey,
-                    &orchestrator::RunOpts {
-                        kind: kind.as_deref(),
-                        devices,
-                        warm,
-                        shots_dir: shots_dir.as_deref(),
-                        profile,
-                        extra_defines: &extra,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-                return Ok(if outcome.passed {
-                    ExitCode::SUCCESS
-                } else {
-                    exit_with(Exit::Regression)
-                });
-            }
-            if flicker {
-                // Record the repro once, then scan the video frame-to-frame for
-                // transient render glitches. A single-shot evidence run like
-                // --record/--visual.
-                let name = repro
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("--flicker needs a repro id or alias"))?;
-                let journey = resolve_repro_journey(&loaded.root, &name)?;
-                let outcome = orchestrator::run_journey(
-                    &loaded.config,
-                    &loaded.root,
-                    &journey,
-                    &orchestrator::RunOpts {
-                        kind: kind.as_deref(),
-                        devices,
-                        warm,
-                        shots_dir: shots_dir.as_deref(),
-                        profile,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-                let events =
-                    flicker::analyze_run(&outcome.run_dir, &flicker::FlickerCfg::default()).await?;
-                let clean = flicker::report(&events);
-                return Ok(if clean {
-                    ExitCode::SUCCESS
-                } else {
-                    exit_with(Exit::Regression)
-                });
             }
             let times = runs.unwrap_or(loaded.config.gate.runs).max(1);
             // A scripted journey (journeys/<name>.yaml) is a first-class check
@@ -1459,7 +1465,9 @@ async fn main() -> Result<ExitCode> {
             keep_repro(&ctx, &loaded, id.as_deref(), as_name.as_deref(), strict)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Simplify { repro, to } => {
+        Cmd::Repro {
+            action: ReproAction::Simplify { repro, to },
+        } => {
             let loaded = config::load(cli.config.as_deref())?;
             // Reference repro (kept or a pending finding) for its oracle + meta.
             let meta = repro::resolve(&loaded.root, &repro)
@@ -1961,7 +1969,9 @@ async fn main() -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Why { dir, top } => {
+        Cmd::Repro {
+            action: ReproAction::Why { dir, top },
+        } => {
             let mut files = Vec::new();
             collect_cov_files(std::path::Path::new(&dir), &mut files);
             let runs: Vec<fault::RunCoverage> = files
@@ -2852,7 +2862,7 @@ fn is_video(p: &Path) -> bool {
 ///
 /// Lookup order: the per-id media slot (`.reproit/media/<id>.*`) first; else the
 /// newest recording under `.reproit/runs/` (the one you just produced with
-/// `check --record`), which we then copy into the media slot. Bails with a
+/// `record <id>`), which we then copy into the media slot. Bails with a
 /// how-to if neither exists. `.reproit/media/` is gitignored, so a cached
 /// recording can never be committed by accident.
 fn resolve_repro_video(loaded: &config::Loaded, id_or_alias: &str) -> Result<PathBuf> {
@@ -2877,9 +2887,7 @@ fn resolve_repro_video(loaded: &config::Loaded, id_or_alias: &str) -> Result<Pat
             .map_err(|e| anyhow::anyhow!("caching recording to {}: {e}", dest.display()))?;
         return Ok(dest);
     }
-    anyhow::bail!(
-        "no recording for `{id_or_alias}`. Make one with:  reproit check {id_or_alias} --record"
-    )
+    anyhow::bail!("no recording for `{id_or_alias}`. Make one with:  reproit record {id_or_alias}")
 }
 
 /// Newest video file under `dir` (recursively), by modification time. When
@@ -3149,7 +3157,7 @@ fn adopt_simplified(
     Ok(())
 }
 
-/// Resolve the journey a kept repro replays under (for `--record`). Repros
+/// Resolve the journey a kept repro replays under (for `record`). Repros
 /// replay through the explorer journey, fed the stored replay.json; the journey
 /// name carried is the default explorer.
 fn resolve_repro_journey(root: &std::path::Path, name: &str) -> Result<String> {

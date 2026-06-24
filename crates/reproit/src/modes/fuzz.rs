@@ -421,22 +421,17 @@ async fn fuzz_one_locale(
             // attributed to whichever seed it lands in only when we can't split
             // perf per seed, frame timing is session-wide, so it is attributed
             // to the run as a whole on the first seed that has the manifest).
-            let exceptions = exceptions_in_log(seg_log);
             // The INVARIANTS oracle: evaluate the built-in + custom invariant
-            // set over THIS seed's parsed state graph + exceptions. no-exception
-            // subsumes the old raw-exception oracle (it wraps the same records),
-            // so we feed invariants the exceptions and take its findings as the
-            // exception+graph+label findings together. Jank/leak stay handled by
-            // perf_findings below for the sim tier (session-wide frame stream).
-            let inv_obs =
-                invariant_observations(seg_log, exceptions.clone(), args.sim, escapable.clone());
-            let mut findings = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
-            // If the user turned no-exception OFF but we still parsed app
-            // exceptions, keep them (the oracle should not go silent on a real
-            // crash just because the named invariant was disabled).
-            if !cfg.invariants.no_exception {
-                findings.extend(exceptions);
-            }
+            // set over THIS seed's parsed state graph + exceptions (shared with
+            // findings_for_tier/sweep via findings_from_log). no-exception
+            // subsumes the old raw-exception oracle, so the exceptions are fed in
+            // and folded back when that invariant is disabled. The pooled
+            // `escapable` routes keep a dead-end flagged only when no batch's
+            // evidence escapes it. Jank/leak stay handled by perf_findings below
+            // for the sim tier (session-wide frame stream).
+            let exceptions = exceptions_in_log(seg_log);
+            let mut findings =
+                findings_from_log(cfg, seg_log, exceptions, args.sim, escapable.clone());
             // Perf is session-wide (one frame stream); attribute it once. The
             // sim manifest's per-device jank is the authoritative no-jank signal;
             // headless has a fake clock so this is empty there (sim-only).
@@ -1180,6 +1175,32 @@ fn reproduces_original(candidate: &[Value], want: &std::collections::BTreeSet<St
         .any(|f| want.contains(&finding_category(f)))
 }
 
+/// The shared crawl -> per-state-findings core, given an already-read drive log
+/// plus the exceptions parsed for it. Runs the log's state graph + exceptions
+/// through the INVARIANTS oracle (built-in + custom) and folds the app
+/// exceptions back in when `no-exception` is disabled. This is the one place the
+/// invariant evaluation lives; `findings_for_tier` (a whole run dir), the
+/// per-seed fuzz loop (a session segment), and `sweep` all funnel through it,
+/// differing only in where the log/exceptions/escapable set come from and how
+/// perf is attributed. `escapable` is the pool of routes any walk could leave
+/// via a forward action, so a dead-end is only flagged when NO evidence escapes
+/// it (the per-seed loop pools across batches; single-finding re-verify passes
+/// an empty set).
+fn findings_from_log(
+    cfg: &Config,
+    log: &str,
+    exceptions: Vec<Value>,
+    sim: bool,
+    escapable: std::collections::BTreeSet<String>,
+) -> Vec<Value> {
+    let inv_obs = invariant_observations(log, exceptions.clone(), sim, escapable);
+    let mut f = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
+    if !cfg.invariants.no_exception {
+        f.extend(exceptions);
+    }
+    f
+}
+
 /// Findings for a run, by tier, run through the INVARIANTS oracle so a shrink
 /// replay is judged by the SAME named invariants that discovered the finding
 /// (a graph/label/exception invariant must reproduce, not just exceptions).
@@ -1196,16 +1217,13 @@ fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
     };
     // The check path re-verifies a specific recorded finding without the
     // aggregate map in scope; an empty set keeps its dead-end check unchanged.
-    let inv_obs = invariant_observations(
+    let mut f = findings_from_log(
+        cfg,
         &log,
-        exceptions.clone(),
+        exceptions,
         sim,
         std::collections::BTreeSet::new(),
     );
-    let mut f = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
-    if !cfg.invariants.no_exception {
-        f.extend(exceptions);
-    }
     if sim {
         f.extend(perf_findings(run_dir));
     }
@@ -1556,7 +1574,7 @@ fn write_report(
         }
     }
     md.push_str(&format!(
-        "\n## repro ({} actions{})\n\n```\n{}\n```\n\nReplay: write {{\"replay\": [...]}} to .reproit/fuzz_config.json and `reproit check explore --record --warm`.\n",
+        "\n## repro ({} actions{})\n\n```\n{}\n```\n\nReplay: write {{\"replay\": [...]}} to .reproit/fuzz_config.json and `reproit check explore --warm` (then `reproit record <id>` for an annotated video).\n",
         shrunk.len(),
         if shrunk.len() < trace.len() {
             format!(", shrunk from {}", trace.len())

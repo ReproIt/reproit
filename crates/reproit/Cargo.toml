@@ -34,5 +34,5 @@ vt100 = "0.16.2"
 reproit-tui-sig = { path = "../tui-sig" }
 
 [dev-dependencies]
-# Property testing (Antithesis Hegel).
+# Property-based testing.
 hegeltest = "0.21.2"

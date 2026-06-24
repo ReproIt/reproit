@@ -1,4 +1,4 @@
-//! INVARIANTS / PROPERTIES oracle (Antithesis-inspired).
+//! INVARIANTS / PROPERTIES oracle (property-based testing).
 //!
 //! The earlier oracles (uncaught exception, jank threshold, graph dead-end,
 //! unlabeled-semantics) were ad-hoc checks scattered through `modes/fuzz.rs`.

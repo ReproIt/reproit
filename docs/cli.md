@@ -9,13 +9,16 @@ If you just want the command list, jump to [Reference](#reference).
 
 ## The idea in 30 seconds
 
-reproit has three verbs:
+reproit has three core verbs:
 
 ```sh
 reproit map     # learn your app: build a graph of its screens
-reproit fuzz    # break your app: explore the graph and find bugs
+reproit sweep   # find what's wrong: scan every screen for visible bugs
 reproit check   # verify a bug: does it still reproduce? is it fixed yet?
 ```
+
+(`reproit fuzz` is the deeper, opt-in search for sequence-dependent bugs:
+crashes, jank, hangs. `sweep` is the fast default.)
 
 Two things make it different:
 
@@ -77,12 +80,31 @@ The crawl only reaches what it can actually get to (login walls and empty data
 limit it). `map` has a few companion views for understanding coverage and
 accessibility; see [More map views](#more-map-views).
 
-### `fuzz`: find bugs
+### `sweep`: scan every screen (the default find)
 
-`reproit fuzz` walks the live app and runs every bug detector ("oracle") at once:
-crashes, jank, memory leaks, visual regressions, cross-browser differences,
-accessibility, and i18n. Each bug it finds becomes a candidate repro with a
-content-hash id.
+`reproit sweep` is the fast "what's wrong here". It does ONE coverage crawl,
+visiting every reachable screen once, and reports the bugs simply VISIBLE on each
+screen: overflow/clipping, broken content (`[object Object]`, a bare `undefined`),
+unlabeled tappables (a11y), and choice-anomalies (one option of a picker that
+shifts the layout). You get one finding per (screen x issue), grouped by screen,
+nothing collapsed.
+
+```sh
+reproit sweep https://app.com  # zero-config: scan a deployed app, no setup
+reproit sweep                  # scan the whole app (uses ./reproit.yaml)
+reproit sweep login            # scope the crawl to one alias/node
+```
+
+Reach for `sweep` first when auditing an app. It is deterministic (no action
+permutations) and surfaces every per-screen issue, where `fuzz` collapses to one
+finding per seed. Use `fuzz` for the deeper, sequence-dependent bugs.
+
+### `fuzz`: find the deep, sequence-dependent bugs
+
+`reproit fuzz` combinatorially permutes action sequences to provoke the bugs that
+only appear after the right actions in the right order: crashes, jank, hangs, and
+memory leaks. Each bug it finds becomes a candidate repro with a content-hash id.
+(For bugs simply visible on a screen, prefer `sweep` above.)
 
 ```sh
 reproit fuzz                  # hunt the whole app (uses ./reproit.yaml)
@@ -119,10 +141,10 @@ committed graph or suite until you choose to `keep` it.
 ```sh
 reproit check a3f2c1b8e0d5    # check one finding or saved repro (by id or alias)
 reproit check                 # run your whole saved suite
-reproit check <id> --record   # also produce an annotated video
+reproit record <id>           # produce an annotated video of the bug
 ```
 
-The `--record` video is paced and annotated: a caption names each action (the
+The `record` video is paced and annotated: a caption names each action (the
 trigger step in red), and the clip ends with a red box around what broke - the
 crashing control, the overflowing element, the `[object Object]` text, the choice
 that shifts the layout. (dead-end and leak have no on-screen element, so no box.)
@@ -144,23 +166,23 @@ the first time it passes (that is, once you've fixed the bug). Re-keeping the sa
 case is harmless: it's content-addressed, so it maps to the same id and keeps its
 history.
 
-That's the whole loop: `fuzz` -> `check <id>` (confirm it's real) -> `keep`
-(guard it) -> `check` (prove the fix).
+That's the whole loop: `sweep` (or `fuzz`) -> `check <id>` (confirm it's real) ->
+`keep` (guard it) -> `check` (prove the fix).
 
 ## Saving and re-running bugs
 
 - `reproit repros` lists your saved repros with each one's last status and action
   sequence.
 - `reproit watch <id>` opens a repro's recorded video (record one with
-  `check <id> --record`).
-- `reproit simplify <id> --to '<actions>'` swaps in a shorter action sequence,
-  but only if reproit can verify it still reproduces the same bug. Fuzz-found
-  repros are sometimes tangled; this cleans them up safely. Your agent proposes a
-  minimal sequence, reproit replays it, and adopts it only if it still triggers
-  the bug.
-- `reproit why [repro]` ranks the source code most likely to blame for a failure
-  (spectrum-based fault localization). It needs both passing and failing runs,
-  which `fuzz` produces, and is strongest on instrumented targets.
+  `reproit record <id>`).
+- `reproit repro simplify <id> --to '<actions>'` swaps in a shorter action
+  sequence, but only if reproit can verify it still reproduces the same bug.
+  Fuzz-found repros are sometimes tangled; this cleans them up safely. Your agent
+  proposes a minimal sequence, reproit replays it, and adopts it only if it still
+  triggers the bug.
+- `reproit repro why [repro]` ranks the source code most likely to blame for a
+  failure (spectrum-based fault localization). It needs both passing and failing
+  runs, which `fuzz` produces, and is strongest on instrumented targets.
 
 ## Going further
 
@@ -278,16 +300,19 @@ history. Every cloud view is backed by exportable raw data.
 ## All commands
 
 ```
-reproit                       help: the map -> fuzz -> check story + top commands
+reproit                       help: the map -> sweep -> check story + top commands
 reproit map                   build the app's screen graph (bare map = map structural)
 reproit map --show            render the existing graph instead of rebuilding
-reproit fuzz [target]         find bugs (a screen/flow, or the whole app)
+reproit sweep [target]        scan every screen for visible bugs (the default find)
+reproit fuzz [target]         find deep sequence bugs (crash/jank/hang); opt-in
 reproit check [repro|journey] verify: pass(0) / fail(1) / flaky(2) / stale(3)
 reproit keep [id] [--as name] save a repro into your suite
+reproit record <id>           annotated video of a repro (--flicker also scans it)
+reproit baseline [--update]   visual-regression diff vs the committed baseline
 reproit repros                list saved repros + last status
-reproit simplify <id> --to .. swap in a shorter, verified-equivalent action sequence
+reproit repro simplify <id> --to ..  swap in a shorter, verified-equivalent sequence
+reproit repro why [repro]     rank suspect code for a failure (Ochiai)
 reproit watch <id>            open a repro's recorded video
-reproit why [repro]           rank suspect code for a failure (Ochiai)
 reproit journey list|save     manage scripted journeys
 reproit screenshots [tour]    store/marketing shots across locales + devices
 reproit import maestro <f>    convert a Maestro flow into a journey
@@ -324,7 +349,6 @@ audit the graph:
 --device "<name>"              else an interactive picker (when a TTY)
 --locale de,ar,ja              fuzz across locales (RTL / overflow / i18n)
 --from <journey>               (fuzz) replay a journey, then explore from its end
---record                       annotated video
 --times N                      repeat, to surface flakiness
 --only / --no crash,jank,leak  narrow the oracles (default: all)
 --strict                       new repros block instead of starting quarantined
@@ -371,8 +395,11 @@ reproit_context(target?)              scoped graph + screens + selectors for a t
 reproit_map(show?)                    build/refresh the graph (show = render existing)
 reproit_accessibility(state?, kind?)  UI-vs-a11y diff per screen, grounded by selector + file:line
 reproit_coverage()                    candidate map from source + coverage ledger + worklist
-reproit_fuzz(target?, platform?)      bug-finding; returns the deduped unique-bugs list
-reproit_check(repro?, record?, actions?)  run a repro / journey / pending finding / inline candidate
+reproit_sweep(target?)                default find: state-present bugs, one per (screen x issue)
+reproit_fuzz(target?, platform?)      deep sequence bugs (crash/jank/hang); deduped unique-bugs list
+reproit_check(repro?)                 run a repro / journey / pending finding and classify it
+reproit_record(repro, flicker?)       annotated video of a repro (flicker = also scan it)
+reproit_baseline(repro?, update?)     visual-regression diff vs the committed baseline
 reproit_keep(id?, as?)                save a repro into the suite
 reproit_simplify(repro, actions)      adopt a shorter, verified-equivalent sequence
 reproit_repros()                      list saved repros + status + actions
@@ -455,12 +482,16 @@ The previous CLI's commands fold into the three verbs:
 | `init` | `map` (scaffolds on first run) |
 | `doctor` | folded into `map` |
 | `graph` | `map --show` |
-| `run` | `check --record` |
+| `run` | `record` |
+| `check --record` | `record` |
+| `check --visual` | `baseline` |
+| `check --flicker` | `record --flicker` |
 | `gate` | `check` |
 | `soak` | `fuzz --soak` (leak oracle) |
-| `visual` | `check --visual` |
+| `visual` | `baseline` |
 | `web-diff` | `fuzz --target <engines>` |
-| `localize` | `why` |
+| `simplify` | `repro simplify` |
+| `localize` / `why` | `repro why` |
 | `auth` | `secrets set` |
 | `triage` | `cloud findings` / `cloud reproduce` |
 | `author` / `analyze` / `fix` | your agent over MCP |

@@ -12,13 +12,15 @@ fails the same way every time. AI maps the UI into a state graph; a deterministi
 engine does the finding and the replay. So "cannot reproduce" is gone, and every
 bug you find becomes a permanent CI guard.
 
-Three verbs:
+Three core verbs:
 
 ```sh
 reproit map     # build the app's state graph
-reproit fuzz    # find bugs (each saved as a replayable repro)
+reproit sweep   # find what's wrong: scan every screen for visible bugs
 reproit check   # verify repros: pass / fail / flaky / stale
 ```
+
+(`reproit fuzz` is the deeper, opt-in search for sequence bugs: crash, jank, hang.)
 
 ## Supported platforms
 
@@ -69,11 +71,14 @@ so there is no manual `npm install` step.
 ```sh
 cd <your-app>
 reproit map            # detect the platform, build the graph
-reproit fuzz           # find bugs; each finding prints a content-hash id
+reproit sweep          # scan every screen for visible bugs (the default find)
 reproit check <id>     # confirm a finding replays, before you commit to it
 reproit keep <id>      # like it? save it as a regression guard
 reproit check          # verify the suite (green after you fix it)
 ```
+
+`sweep` is the fast first pass (visible per-screen bugs); `reproit fuzz` is the
+deeper, opt-in search for sequence-dependent bugs (crash / jank / hang).
 
 A repro is a seed + action sequence, addressed by a content hash, so it's
 identical across machines. `check <id>` replays a finding straight from the fuzz
@@ -85,14 +90,17 @@ guard; fix the bug and `check` flips it to PASS and promotes it to required.
 
 ```sh
 reproit map [--show]                  # build/refresh the graph; --show renders it
-reproit fuzz [target]                 # find bugs (a screen/flow, or the whole app)
+reproit sweep [target]                # scan every screen for visible bugs (default find)
+reproit fuzz [target]                 # deep sequence bugs (crash/jank/hang); opt-in
 reproit check [repro]                 # verify: pass(0) / fail(1) / flaky(2) / stale(3)
+reproit record <id>                   # annotated repro video (--flicker also scans it)
+reproit baseline [--update]           # visual-regression diff vs the committed baseline
 reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices
 reproit import maestro <flow.yaml>    # convert a Maestro flow into a reproit journey
 reproit keep [id] [--as name]         # save a repro into the suite
 reproit repros                        # list saved repros + last status
 reproit watch <id>                    # open a repro's recorded video
-reproit why [repro]                   # rank suspect code (Ochiai fault localization)
+reproit repro simplify|why <id>       # shorten a repro (verified) / localize the failure
 reproit secrets set <k> [v]           # test-login creds for the app under test
 reproit mcp                           # serve reproit to your coding agent (stdio)
 reproit cloud login|fuzz|findings|blast-radius|reproduce|query
@@ -105,7 +113,6 @@ Cross-cutting flags on `fuzz`/`check`:
 --device "<name>"     # else an interactive picker
 --locale de,ar,ja     # fuzz across locales (RTL / overflow / i18n)
 --from <journey>      # (fuzz) replay a journey, then branch outward from its end state
---record              # annotated repro video
 --only / --no crash,jank,leak,…
 --json --quiet --yes  # CI
 ```

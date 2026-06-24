@@ -3,8 +3,8 @@
 //! deterministic runner ("the acceptance oracle for agents").
 //!
 //! The agent-facing surface mirrors the new CLI (see docs/cli.md, "MCP"): the
-//! deterministic core (map / fuzz / check / keep / repros / why / cloud) is
-//! exposed; authoring, triage and fixing are NOT tools, the host agent does
+//! deterministic core (map / sweep / fuzz / check / keep / record / repro /
+//! cloud) is exposed; authoring, triage and fixing are NOT tools, the host does
 //! those itself (no bundled LLM). `reproit_context` is the one composite tool:
 //! it assembles the scoped graph + screen list + selectors the agent needs to
 //! author or fix a target.
@@ -47,11 +47,13 @@ pub fn serve(config: Option<&std::path::Path>) -> anyhow::Result<()> {
                         "protocolVersion": requested,
                         "capabilities": { "tools": {} },
                         "serverInfo": { "name": "reproit", "version": env!("CARGO_PKG_VERSION") },
-                        "instructions": "Deterministic E2E bug oracle. map -> fuzz -> check. \
+                        "instructions": "Deterministic E2E bug oracle. map -> sweep -> check. \
                     Call reproit_context(target) to get the scoped graph + screens + selectors, \
-                    then author or fix yourself (no bundled LLM here). reproit_fuzz finds repros; \
-                    reproit_check classifies each pass/fail/flaky/stale (deterministic, so a green \
-                    check means you really fixed it); reproit_keep saves a repro; reproit_why ranks \
+                    then author or fix yourself (no bundled LLM here). reproit_sweep is the default \
+                    finder (state-present bugs visible on each screen); reproit_fuzz is the deep \
+                    search for sequence bugs (crash/jank/hang). reproit_check classifies each \
+                    pass/fail/flaky/stale (deterministic, so a green check means you really fixed \
+                    it); reproit_keep saves a repro; reproit_record clips it; reproit_why ranks \
                     suspect code. The cloud tools close the FULL production loop, so an agent can \
                     MANAGE + MONITOR bugs, not just fix them: reproit_cloud_buckets lists \
                     impact-ranked bugs -> reproit_cloud_pull the top one -> reproit_check (reproduce) \
@@ -127,8 +129,15 @@ fn tool_defs() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
+            "name": "reproit_sweep",
+            "description": "The DEFAULT \"what's wrong on every screen\" finder. One coverage crawl that visits each reachable screen once and reports the STATE-PRESENT bugs simply visible on each (overflow / broken content / a11y unlabeled / choice-anomaly), one finding per (screen x issue) -- grouped by screen, nothing collapsed. Prefer this over reproit_fuzz for \"audit this app / find the visible bugs\": it is deterministic, doesn't permute action sequences, and surfaces every per-screen issue (reproit_fuzz reports one finding per seed and drops most of these). Pass a URL (zero-config, deployed app) or an alias/node to scope. Pair the findings to reproit_keep / reproit_record. Use reproit_fuzz for the DEEPER sequence-dependent bugs (crash/jank/hang). Slow: a real run.",
+            "inputSchema": { "type": "object", "properties": {
+                "target": { "type": "string", "description": "A URL (https://app.com, zero-config) or an alias/node to scope the crawl to." }
+            } }
+        },
+        {
             "name": "reproit_fuzz",
-            "description": "The bug-FINDING step. Hunts over the existing map (run reproit_map first) and returns a DEDUPED unique-bugs work-list: findings are collected across the seed budget and grouped by crash signature, so the same bug reached by different paths is reported ONCE, with a canonical (shortest) repro id per bug. Pass an id to reproit_check (confirm it reproduces, before saving) or reproit_keep (save it as a guard), then reproit_simplify to clean the repro. All oracles on by default (crash/jank/leak/visual/divergence/a11y/i18n). `target` concentrates the hunt on an alias/node; `platform` selects ios|android|web|all (multi -> run all + diff for divergence). Slow: real runs.",
+            "description": "The DEEP, sequence-dependent bug search: combinatorially permutes action sequences to provoke bugs that only appear after the right actions in the right order (crash / jank / hang / leak). Hunts over the existing map (run reproit_map first) and returns a DEDUPED unique-bugs work-list grouped by signature, with a canonical (shortest) repro id per bug. For bugs simply VISIBLE on a screen (overflow / content / a11y / choice-anomaly) prefer reproit_sweep -- it is faster and reports every per-screen issue, where fuzz collapses to one finding per seed. Pass an id to reproit_check (confirm), reproit_keep (save), then reproit_simplify to clean the repro. `target` concentrates the hunt on an alias/node; `platform` selects ios|android|web|all (multi -> run all + diff for divergence). Slow: real runs.",
             "inputSchema": { "type": "object", "properties": {
                 "target": { "type": "string", "description": "Alias/node to concentrate the hunt on (e.g. \"login\")." },
                 "platform": { "type": "string", "description": "ios|android|web|all (comma list -> run all + divergence diff)." }
@@ -136,10 +145,25 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_check",
-            "description": "Run a repro and classify it: pass / fail (regression, exit 1) / flaky (app race, exit 2) / stale (UI changed, couldn't replay, exit 3). `repro` is a saved repro (id/alias) OR a pending fuzz finding id from reproit_fuzz, so you can confirm a finding reproduces BEFORE reproit_keep. With no `repro`, runs the whole committed suite and reports the worst. Deterministic, so a green check means the bug is really fixed. `record=true` produces an annotated video (taps, seed, crash moment).",
+            "description": "Run a repro and classify it: pass / fail (regression, exit 1) / flaky (app race, exit 2) / stale (UI changed, couldn't replay, exit 3). `repro` is a saved repro (id/alias) OR a pending fuzz finding id from reproit_fuzz, so you can confirm a finding reproduces BEFORE reproit_keep. With no `repro`, runs the whole committed suite and reports the worst. Deterministic, so a green check means the bug is really fixed. For an annotated video use reproit_record; for a baseline pixel diff use reproit_baseline.",
             "inputSchema": { "type": "object", "properties": {
-                "repro": { "type": "string", "description": "Saved repro id/alias, or a pending finding id from reproit_fuzz. Omit to run the whole saved suite." },
-                "record": { "type": "boolean", "description": "Run once with full evidence capture + annotated video." }
+                "repro": { "type": "string", "description": "Saved repro id/alias, or a pending finding id from reproit_fuzz. Omit to run the whole saved suite." }
+            } }
+        },
+        {
+            "name": "reproit_record",
+            "description": "Record a repro ONCE with full evidence + an annotated video (paced action HUD + a red box scoped to the repro's oracle, marking the bug's effect). `repro` is a saved repro (id/alias) or a pending fuzz finding id. Use it to produce a shareable clip of a confirmed bug. `flicker=true` also scans the recorded video for transient render glitches (a frame that diverges then snaps back). Slow: a real run.",
+            "inputSchema": { "type": "object", "properties": {
+                "repro": { "type": "string", "description": "Saved repro id/alias, or a pending finding id from reproit_fuzz." },
+                "flicker": { "type": "boolean", "description": "Also scan the recorded video for intra-run flicker." }
+            }, "required": ["repro"] }
+        },
+        {
+            "name": "reproit_baseline",
+            "description": "The visual-regression oracle: diff the current capture against the committed baseline (per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. `update=true` accepts the current capture as the new baseline (use after an intended UI change). Was `check --visual`.",
+            "inputSchema": { "type": "object", "properties": {
+                "repro": { "type": "string", "description": "Repro id/alias whose capture to diff (optional; the visual config selects what is compared)." },
+                "update": { "type": "boolean", "description": "Accept the current capture as the new baseline." }
             } }
         },
         {
@@ -373,13 +397,35 @@ fn build_argv(
                 argv.extend(["--target".into(), p]);
             }
         }
+        "reproit_sweep" => {
+            argv.push("sweep".into());
+            if let Some(t) = s("target") {
+                argv.push(t);
+            }
+        }
         "reproit_check" => {
             argv.push("check".into());
             if let Some(r) = s("repro") {
                 argv.push(r);
             }
-            if b("record") {
-                argv.push("--record".into());
+        }
+        "reproit_record" => {
+            argv.push("record".into());
+            let Some(r) = s("repro") else {
+                return Err((missing("repro"), true));
+            };
+            argv.push(r);
+            if b("flicker") {
+                argv.push("--flicker".into());
+            }
+        }
+        "reproit_baseline" => {
+            argv.push("baseline".into());
+            if let Some(r) = s("repro") {
+                argv.push(r);
+            }
+            if b("update") {
+                argv.push("--update".into());
             }
         }
         "reproit_keep" => {
@@ -392,7 +438,7 @@ fn build_argv(
             }
         }
         "reproit_simplify" => {
-            argv.push("simplify".into());
+            argv.extend(["repro".into(), "simplify".into()]);
             let Some(r) = s("repro") else {
                 return Err((missing("repro"), true));
             };
@@ -423,9 +469,9 @@ fn build_argv(
             ]);
         }
         "reproit_why" => {
-            // `why` localizes over coverage under a dir; a repro scopes to its
-            // own run dir so the contrast is that repro's passing vs failing.
-            argv.push("why".into());
+            // `repro why` localizes over coverage under a dir; a repro scopes to
+            // its own run dir so the contrast is that repro's passing vs failing.
+            argv.extend(["repro".into(), "why".into()]);
             if let Some(r) = s("repro") {
                 argv.extend(["--dir".into(), format!(".reproit/repros/{r}")]);
             }
@@ -787,5 +833,66 @@ mod tests {
         assert!(check_gloss(b"").is_none());
         // An unknown outcome string also yields no gloss (we never invent a label).
         assert!(check_gloss(br#"{"outcome":"weird"}"#).is_none());
+    }
+
+    #[test]
+    fn sweep_record_baseline_tools_are_present() {
+        // The redesigned find/evidence surface is advertised.
+        let names = tool_names();
+        for want in ["reproit_sweep", "reproit_record", "reproit_baseline"] {
+            assert!(names.contains(&want.to_string()), "missing tool {want}");
+        }
+    }
+
+    #[test]
+    fn sweep_dispatches_with_optional_target() {
+        // Bare sweep -> just the verb (+ the --json global).
+        let bare = argv("reproit_sweep", json!({}));
+        assert_eq!(bare.last().unwrap(), "sweep");
+        assert!(bare.contains(&"--json".to_string()));
+        // A target (URL or alias) is forwarded positionally.
+        let scoped = argv("reproit_sweep", json!({ "target": "https://app.com" }));
+        assert!(scoped.windows(2).any(|w| w == ["sweep", "https://app.com"]));
+    }
+
+    #[test]
+    fn check_no_longer_carries_record() {
+        // record is its own verb now: a plain check never forwards --record.
+        let a = argv("reproit_check", json!({ "repro": "cart-1" }));
+        assert!(a.windows(2).any(|w| w == ["check", "cart-1"]));
+        assert!(!a.iter().any(|x| x == "--record"));
+    }
+
+    #[test]
+    fn record_dispatches_and_requires_repro() {
+        let a = argv(
+            "reproit_record",
+            json!({ "repro": "cart-1", "flicker": true }),
+        );
+        assert!(a.windows(2).any(|w| w == ["record", "cart-1"]));
+        assert!(a.contains(&"--flicker".to_string()));
+        // repro is required.
+        let err =
+            build_argv(None, "reproit_record", &json!({})).expect_err("missing repro should error");
+        assert!(err.1 && err.0.contains("repro"));
+    }
+
+    #[test]
+    fn baseline_dispatches_with_update() {
+        let a = argv("reproit_baseline", json!({ "update": true }));
+        assert!(a.contains(&"baseline".to_string()));
+        assert!(a.contains(&"--update".to_string()));
+    }
+
+    #[test]
+    fn simplify_and_why_use_the_repro_group() {
+        // The advanced repro ops live under the `repro` subcommand now.
+        let s = argv(
+            "reproit_simplify",
+            json!({ "repro": "cart-1", "actions": ["tap:key:testid:add"] }),
+        );
+        assert!(s.windows(2).any(|w| w == ["repro", "simplify"]));
+        let w = argv("reproit_why", json!({ "repro": "cart-1" }));
+        assert!(w.windows(2).any(|x| x == ["repro", "why"]));
     }
 }

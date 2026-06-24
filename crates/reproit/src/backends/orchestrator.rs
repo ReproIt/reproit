@@ -255,7 +255,7 @@ pub async fn run_journey(
         journey.to_string()
     };
     // SHOOT only takes pictures when the caller asked for screenshots, i.e. it
-    // passed an explicit shots dir (the `screenshots` command, --record/--visual,
+    // passed an explicit shots dir (the `screenshots` command, record/baseline,
     // or --shots-dir). A plain check/fuzz passes None, so shoot steps stay inert.
     let capture_shots = shots_dir.is_some();
     let shots_dir = match shots_dir {

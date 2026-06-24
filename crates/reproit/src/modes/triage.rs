@@ -405,13 +405,13 @@ pub async fn reproduce(
     }
 
     if !run {
-        println!("\nRun it with:  reproit check {journey} --record --warm   (or pass --run here)");
+        println!("\nRun it with:  reproit check {journey} --warm   (or pass --run here)");
         return Ok(());
     }
     println!("\nRunning the replay ({journey})...");
     let exe = std::env::current_exe()?;
     let out = std::process::Command::new(exe)
-        .args(["check", journey, "--record", "--warm", "--json"])
+        .args(["check", journey, "--warm", "--json"])
         .output()
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);

@@ -20,21 +20,32 @@ finding itself.
 1. **Map** (once, or when the app changes): `reproit map`. It detects the
    platform, scaffolds config on first run, and crawls the running app into the
    structural graph. Skip if a map already exists.
-2. **Find**: `reproit fuzz [target]`. Each finding prints a content-hash id.
-   `target` concentrates the hunt on a screen/flow; omit it to fuzz the whole
-   app. All oracles run by default (see `references/oracles.md`).
-3. **Reproduce before touching code**: `reproit check <id>`. Exit codes:
+2. **Sweep** (the default "what's wrong here"): `reproit sweep [target]`. One
+   coverage crawl that visits every reachable screen once and reports the
+   STATE-PRESENT bugs simply visible on each (overflow / broken content / a11y /
+   choice-anomaly), one finding per (screen x issue). `target` is a URL (zero-
+   config against a deployed app) or an alias/node to scope. Deterministic and
+   exhaustive per screen, this is the first pass for auditing an app.
+3. **Fuzz** (the DEEP, opt-in search): `reproit fuzz [target]`. Combinatorially
+   permutes action sequences to provoke the SEQUENCE-dependent bugs (crash /
+   jank / hang / leak) that only appear after the right actions in the right
+   order. Each finding prints a content-hash id. All oracles run by default
+   (see `references/oracles.md`).
+4. **Reproduce before touching code**: `reproit check <id>`. Exit codes:
    `0` pass, `1` fail, `2` flaky, `3` stale. Never start fixing a finding you
    have not confirmed reproduces. If it is flaky (2), the bug is a race or a
    visual flicker, treat the flake itself as the bug, do not retry until green.
-4. **Localize**: `reproit why <id>` ranks suspect files by Ochiai fault
+5. **Localize**: `reproit repro why <id>` ranks suspect files by Ochiai fault
    localization. Open the top-ranked file first. See `references/why.md`.
-5. **Fix** the code.
-6. **Prove**: re-run `reproit check <id>`. `0` means the fix holds. Re-run twice
+6. **Fix** the code.
+7. **Prove**: re-run `reproit check <id>`. `0` means the fix holds. Re-run twice
    if it was originally flaky, to confirm the flake is gone.
-7. **Guard**: `reproit keep <id> [--as name]` saves it as a permanent
+8. **Guard**: `reproit keep <id> [--as name]` saves it as a permanent
    regression guard (quarantined/non-blocking until it next passes, then
    promoted to required). `keep` is not a git commit; it writes a local guard.
+
+For a shareable clip of a confirmed bug, `reproit record <id>` produces an
+annotated video (paced action HUD + a red box on the bug's effect).
 
 ## Rules
 
@@ -45,7 +56,9 @@ finding itself.
   graph is locale-invariant. Do not assume a screen changed just because text
   did.
 - `reproit repros` lists saved guards + last status. `reproit watch <id>`
-  opens the recorded video for a finding.
+  opens the recorded video for a finding (record one with `reproit record <id>`).
+- `reproit repro simplify <id> --to '[...]'` adopts a shorter action sequence
+  that reproit verifies still reproduces; `reproit repro why <id>` localizes.
 
 ## Going deeper
 
