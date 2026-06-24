@@ -121,6 +121,10 @@ pub enum Oracle {
     /// button-cluster) shifts the global layout when its siblings do not. A
     /// differential, FP-free state-present finding from the web runner.
     ChoiceAnomaly,
+    /// Broken route: the app links to a URL whose document responds 4xx/5xx (a
+    /// dead route / 404). Keyed off the navigation HTTP status, so it is
+    /// structural, locale-invariant, and false-positive-free (web only).
+    BrokenRoute,
 }
 
 impl Oracle {
@@ -143,6 +147,7 @@ impl Oracle {
         Oracle::Hang,
         Oracle::Graph,
         Oracle::ChoiceAnomaly,
+        Oracle::BrokenRoute,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -160,6 +165,7 @@ impl Oracle {
             Oracle::Hang => "hang",
             Oracle::Graph => "graph",
             Oracle::ChoiceAnomaly => "choice-anomaly",
+            Oracle::BrokenRoute => "broken-route",
         }
     }
 
@@ -180,6 +186,9 @@ impl Oracle {
             "hang" | "freeze" | "frozen" | "no-progress" => Some(Oracle::Hang),
             "graph" | "dead-end" | "deadend" => Some(Oracle::Graph),
             "choice-anomaly" | "choice" | "choicebug" | "anomaly" => Some(Oracle::ChoiceAnomaly),
+            "broken-route" | "broken-link" | "not-found" | "404" | "deadlink" => {
+                Some(Oracle::BrokenRoute)
+            }
             _ => None,
         }
     }
@@ -205,6 +214,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-hang" => return Oracle::Hang,
         "no-dead-end" => return Oracle::Graph,
         "no-choice-anomaly" => return Oracle::ChoiceAnomaly,
+        "no-broken-route" => return Oracle::BrokenRoute,
         _ => {}
     }
     let kind = finding.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -772,6 +782,13 @@ mod tests {
             Oracle::ChoiceAnomaly
         );
         assert_eq!(Oracle::parse("choice-anomaly"), Some(Oracle::ChoiceAnomaly));
+        // Broken-route is its own category, parsed from its names/aliases.
+        assert_eq!(
+            classify(&json!({ "invariant": "no-broken-route" })),
+            Oracle::BrokenRoute
+        );
+        assert_eq!(Oracle::parse("broken-route"), Some(Oracle::BrokenRoute));
+        assert_eq!(Oracle::parse("404"), Some(Oracle::BrokenRoute));
         // Raw exception block: falls back to crash.
         assert_eq!(
             classify(&json!({ "kind": "EXCEPTION CAUGHT BY WIDGETS LIBRARY" })),

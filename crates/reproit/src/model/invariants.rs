@@ -286,6 +286,21 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // no-broken-route: the app links to a URL whose document responded 4xx/5xx
+    // (a dead route / 404). Keyed off the navigation HTTP status, so it is
+    // structural, locale-invariant, and false-positive-free (a 4xx is never an
+    // intended screen). Empty unless a visited route came back >= 400.
+    if cfg.no_broken_route {
+        for (sig, route, status) in &obs.obs.broken_routes {
+            out.push(finding(
+                "no-broken-route",
+                "BROKENROUTE",
+                format!("route {route} returned HTTP {status} [dead route]"),
+                Some(sig),
+            ));
+        }
+    }
+
     // no-leak: a leaked-resource / teardown signal. Headless surfaces a
     // teardown exception block (already in `exceptions` -> no-exception); this
     // adds a dedicated finding when a non-exception memory signal is present
@@ -768,6 +783,7 @@ mod tests {
                 janks: Default::default(),
                 hangs: Default::default(),
                 choice_bugs: Default::default(),
+                broken_routes: Default::default(),
             },
             exceptions: vec![],
             jank_by_sig: BTreeMap::new(),
@@ -1030,6 +1046,35 @@ mod tests {
             ..Default::default()
         };
         assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-choice-anomaly".to_string()));
+    }
+
+    #[test]
+    fn no_broken_route_flags_a_4xx_state() {
+        // A visited route whose document responded >= 400 is a dead route the app
+        // linked to. It fires once per broken route; a clean run stays silent.
+        let mut o = obs_with(&[("dl", &["Page not found"], 0)], &[], Some("dl"));
+        o.obs
+            .broken_routes
+            .push(("dl".to_string(), "/download".to_string(), 404));
+        let f = evaluate(&o, &InvariantsCfg::default());
+        let v = f
+            .iter()
+            .find(|x| x["invariant"] == "no-broken-route")
+            .unwrap();
+        assert_eq!(v["sig"], "dl");
+        assert!(v["message"].as_str().unwrap().contains("/download"));
+        assert!(v["message"].as_str().unwrap().contains("404"));
+        // Empty -> no finding.
+        let clean = obs_with(&[("dl", &["x"], 0)], &[], Some("dl"));
+        assert!(!evaluate(&clean, &InvariantsCfg::default())
+            .iter()
+            .any(|x| x["invariant"] == "no-broken-route"));
+        // Toggle off suppresses it.
+        let cfg = InvariantsCfg {
+            no_broken_route: false,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-broken-route".to_string()));
     }
 
     #[test]

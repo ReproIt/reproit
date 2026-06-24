@@ -172,6 +172,11 @@ pub struct InvariantsCfg {
     /// threshold. From the web runner's `EXPLORE:CHOICEBUG`; Chromium-tier.
     #[serde(default = "default_true")]
     pub no_choice_anomaly: bool,
+    /// Broken route: the app links to a URL whose document responds 4xx/5xx (a
+    /// dead route / 404). Keyed off the navigation HTTP status from the web runner
+    /// (`EXPLORE:BROKENROUTE`); structural and false-positive-free. Web only.
+    #[serde(default = "default_true")]
+    pub no_broken_route: bool,
     /// State sigs OR label-substrings that mark intended end screens, exempt
     /// from no-dead-end. A bare entry matches a state sig exactly OR (case-
     /// insensitively) any of that state's labels, so you can list either the
@@ -197,6 +202,7 @@ impl Default for InvariantsCfg {
             no_broken_render: true,
             no_hang: true,
             no_choice_anomaly: true,
+            no_broken_route: true,
             terminal_states: vec![],
             custom: vec![],
         }

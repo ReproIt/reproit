@@ -27,6 +27,7 @@ page records, honestly, what fires where and why the gaps exist.
 | jank | `EXPLORE:JANK` / sim frame manifest | a transition that drops frames |
 | hang | `EXPLORE:HANG` | an action that freezes the UI |
 | leak | `MEMORY:SAMPLE` (`--soak`) | memory that grows and never comes back |
+| broken-route | `EXPLORE:BROKENROUTE` | the app links to a URL whose document returns 4xx/5xx (a dead route / 404) (Web only) |
 
 The **choice-anomaly** oracle is differential, not absolute, which is what keeps
 it false-positive-free. When the fuzzer finds a multi-choice component (an ARIA

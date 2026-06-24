@@ -86,6 +86,10 @@ pub(crate) struct RunObs {
     /// how many px of global layout it moved. Empty unless a component has an
     /// odd-one-out choice.
     pub choice_bugs: Vec<(String, String, String, String, i64)>,
+    /// Broken-route findings, from `EXPLORE:BROKENROUTE` records: a state whose
+    /// document responded 4xx/5xx (a dead route the app linked to). Each is
+    /// `(sig, route, status)`. Empty unless a visited URL came back >= 400.
+    pub broken_routes: Vec<(String, String, i64)>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -154,6 +158,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         janks: BTreeMap::new(),
         hangs: BTreeMap::new(),
         choice_bugs: Vec::new(),
+        broken_routes: Vec::new(),
     };
     for line in log.lines() {
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
@@ -322,6 +327,17 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                     sel.to_string(),
                     mag,
                 ));
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:BROKENROUTE ") {
+            // A dead route: the document for this state's URL responded 4xx/5xx.
+            if let Some(sig) = json.get("sig").and_then(Value::as_str) {
+                let route = json
+                    .get("route")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let status = json.get("status").and_then(Value::as_i64).unwrap_or(0);
+                obs.broken_routes.push((sig.to_string(), route, status));
             }
         }
     }

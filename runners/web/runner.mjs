@@ -3003,6 +3003,22 @@ async function main() {
   };
   page.on('pageerror', emitError);
 
+  // BROKEN-ROUTE oracle: record the HTTP status of main-frame DOCUMENT
+  // navigations, keyed by URL pathname. A state whose document came back >= 400
+  // is a dead route the app linked to (a 404/5xx). The status is structural and
+  // locale-invariant, and a 4xx/5xx is never an intended screen, so this is
+  // false-positive-free. Same-origin only (off-site links are handled elsewhere).
+  const navStatus = {};
+  page.on('response', (resp) => {
+    try {
+      const req = resp.request();
+      if (req.frame() !== page.mainFrame() || req.resourceType() !== 'document') return;
+      const u = new URL(resp.url());
+      if (u.origin !== APP_ORIGIN) return;
+      navStatus[u.pathname] = resp.status();
+    } catch (e) { /* ignore */ }
+  });
+
   // Install the Long Tasks observer (jank/hang watchdog) BEFORE the first
   // navigation so it is live for every action. addInitScript re-runs it on every
   // document, so it survives in-app navigations and reloads.
@@ -3155,6 +3171,12 @@ async function main() {
         const cbug = await page.evaluate(detectContentBugs).catch(() => null);
         if (cbug && cbug.length) {
           log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+        }
+        // BROKEN-ROUTE: the document for this URL came back >= 400 (a 404/5xx
+        // dead route the app linked to). Keyed by the SAME sig + route.
+        const status = snap.anchor ? navStatus[snap.anchor] : undefined;
+        if (typeof status === 'number' && status >= 400) {
+          log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), status }));
         }
       }
       return snap;
