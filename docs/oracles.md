@@ -1,6 +1,6 @@
 # Oracles by backend
 
-An *oracle* is one named class of bug the fuzzer can catch. reproit ships nine,
+An *oracle* is one named class of bug the fuzzer can catch. reproit ships ten,
 all on by default. The oracle core is platform-agnostic: each per-backend runner
 emits the same `EXPLORE:*` / `MEMORY:*` markers, and the Rust core
 (`crates/reproit/src/model/{map,invariants}.rs`) evaluates them identically no
@@ -31,7 +31,7 @@ page records, honestly, what fires where and why the gaps exist.
 
 The **choice-anomaly** oracle is differential, not absolute, which is what keeps
 it false-positive-free. When the fuzzer finds a multi-choice component (an ARIA
-`tab`/`radio` group, a `<select>`, or a cluster of sibling buttons where exactly
+`tab`/`radio` group, or a cluster of sibling buttons where exactly
 one is selected, e.g. a code-block language picker), it exercises *every* choice
 and measures each one's effect on the GLOBAL layout (page horizontal-overflow +
 the page-absolute displacement of chrome anchors outside the component). The
@@ -41,6 +41,9 @@ siblings (only one language also shifts the whole page). It fires only when one
 choice's effect is >= 3x the sibling median and above a floor, so uniform choices
 produce nothing. Web-only (it needs the live layout); the component is selected
 by accessible label so below-fold pickers are scrolled into view and exercised.
+A native `<select>` is NOT yet treated as a choice component (the runner maps it
+to a text field today), so its options are not differenced; that is a known gap,
+not a covered case.
 
 The **overflow** oracle has a user-configurable reporting floor,
 `invariants.overflowMinPx` (default 2px). The runner already drops sub-pixel
@@ -52,24 +55,25 @@ clips/spills. It is exact-pixel, not a magic heuristic.
 
 `Y` = fires. `Y*` = fires, but coarse (session/process-level, not per-transition):
 leak via process-RSS sampling under `--soak`. `~` = best-effort with a documented
-caveat. `gap` = the platform does not expose the signal; not emitted (never faked).
-`n/a` = the bug class cannot exist on that surface.
+caveat. `gap` = the platform does not expose the signal (or the oracle is not wired
+for it yet); not emitted (never faked). `n/a` = the bug class cannot exist on that
+surface. `choice` = choice-anomaly; `route` = broken-route.
 
-| Backend (driver) | crash | overflow | dead-end | flicker | content-bug | jank | hang | leak |
-|---|---|---|---|---|---|---|---|---|
-| Web Chromium (CDP) | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y |
-| Web Firefox/WebKit | Y | Y | Y | Y | Y | Y | Y | Y |
-| Electron (CDP) | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y |
-| Tauri (WebDriver) | Y | Y | Y | Y (DOM) | Y | Y | Y | Y* |
-| Flutter sim | Y | Y | Y | Y | Y | Y | Y | Y |
-| Flutter headless | Y | Y | Y | gap | Y | n/a | n/a | ~ |
-| RN / native Android (Appium) | Y | Y | Y | gap | Y | Y | Y | Y |
-| RN / native iOS (Appium) | Y | Y | Y | gap | Y | gap | Y | Y* |
-| Desktop macOS (AX) | Y | Y | Y | gap | Y | n/a | ~ | Y |
-| Desktop Windows (UIA) | Y | Y | Y | gap | Y | gap | Y | Y |
-| Desktop Linux (AT-SPI) | Y | Y | Y | gap | Y | n/a | ~ | Y |
-| TUI (PTY) | Y | gap | Y | Y | Y | n/a | Y | Y* |
-| Dear ImGui / Clay (instrumented) | Y | gap | Y | gap | Y | Y | gap | Y* |
+| Backend (driver) | crash | choice | overflow | dead-end | flicker | content-bug | jank | hang | leak | route |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Web Chromium (CDP) | Y | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y | Y |
+| Web Firefox/WebKit | Y | Y | Y | Y | Y | Y | Y | Y | gap | Y |
+| Electron (CDP) | Y | gap | Y | ~ | Y (+pixel) | Y | Y | Y | Y | gap |
+| Tauri (WebDriver) | Y | gap | Y | Y | Y (DOM) | Y | Y | Y | Y* | gap |
+| Flutter sim | Y | gap | Y | Y | Y | Y | Y | Y | Y | n/a |
+| Flutter headless | Y | gap | Y | Y | gap | Y | n/a | n/a | ~ | n/a |
+| RN / native Android (Appium) | Y | gap | Y | ~ | gap | Y | Y | Y | Y | n/a |
+| RN / native iOS (Appium) | Y | gap | Y | ~ | gap | Y | gap | Y | Y* | n/a |
+| Desktop macOS (AX) | Y | gap | Y | Y | gap | Y | n/a | ~ | Y | n/a |
+| Desktop Windows (UIA) | Y | gap | Y | Y | gap | Y | gap | Y | Y | n/a |
+| Desktop Linux (AT-SPI) | Y | gap | Y | Y | gap | Y | n/a | ~ | Y | n/a |
+| TUI (PTY) | Y | n/a | gap | Y | Y | Y | n/a | Y | Y* | n/a |
+| Dear ImGui / Clay (instrumented) | Y | n/a | gap | Y | gap | Y | Y | gap | Y* | n/a |
 
 ## Recently closed (and how)
 
@@ -111,6 +115,26 @@ just never wired. Each holds the same false-positive bar as the rest.
 These are genuine platform limits, not unfinished work. Each is documented in-code
 at the runner that would emit it.
 
+- **leak on Firefox/WebKit browsers** (`gap`): the precise heap readout comes from
+  the CDP `Runtime.getHeapUsage` domain, which is Chromium-only. The cross-engine
+  fallback is `performance.memory`, a non-standard API that Firefox and WebKit do
+  not implement, so the read returns nothing and NO `MEMORY:SAMPLE` is emitted (a
+  quantized, leak-blind number would be worse than silence). Run `--soak` on
+  Chromium for the heap-slope leak oracle; the other engines still get every other
+  oracle.
+- **choice-anomaly and broken-route are Web-only today** (`gap` off web): both live
+  only in the web reference runner -- choice-anomaly needs the live DOM layout to
+  difference each choice's global effect, and broken-route probes document HTTP
+  status. The CDP/WebDriver electron and tauri runners share the web architecture
+  and are the natural next ports (tracked); native, Flutter, TUI, and ImGui/Clay
+  surfaces have no URL-addressable routes (broken-route `n/a`) and, for the
+  immediate-mode TUI/ImGui/Clay, no stable layout box to difference (choice `n/a`).
+- **dead-end on Electron and React Native** (`~`): these runners drive taps but not
+  text entry yet, so a screen whose only forward exit is through a form field reads
+  as a false sink. Tracked as text-field driving for those runners; until it lands,
+  treat a dead-end finding on Electron/RN as best-effort and confirm the screen has
+  no typed-input escape. Web, Tauri, Flutter, and the desktop a11y drivers do drive
+  fields, so their dead-end stays exact.
 - **jank on accessibility trees, the TUI/PTY, and Flutter-headless** (`n/a`): jank
   is dropped frames, and an a11y tree or a VT character grid has no frame timeline;
   the headless Flutter tier runs on a fake clock. Nothing to read, so nothing is
