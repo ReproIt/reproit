@@ -811,15 +811,19 @@ fn ensure_web_browser(dir: &Path, log: &dyn Fn(&str)) -> Result<()> {
 /// persisted to `<root>/.reproit/reproit.yaml` so a follow-up `check <id>` /
 /// `keep` / `repros` can replay the run without a hand-written reproit.yaml.
 pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result<Loaded> {
+    // Serialize the URL and path as JSON strings: YAML is a JSON superset, so a
+    // JSON-quoted scalar is a valid, fully-escaped YAML scalar. Raw interpolation
+    // would let a `"`, backslash, or newline in the URL/path break the document.
+    let url = serde_json::to_string(url).unwrap_or_else(|_| "\"\"".to_string());
+    let wrd = serde_json::to_string(&web_runner_dir.display().to_string())
+        .unwrap_or_else(|_| "\"\"".to_string());
     let yaml = format!(
-        "app:\n  platform: web-playwright\n  webRunnerDir: \"{wrd}\"\n  url: \"{url}\"\n  \
+        "app:\n  platform: web-playwright\n  webRunnerDir: {wrd}\n  url: {url}\n  \
          defines: {{}}\ndevices:\n  namePrefix: web\nreset:\n  steps: []\njourneys:\n  \
          dir: integration_test\n  driver: web\n  readyMarker: \"claimed role\"\n  \
          doneMarkers:\n    - All tests passed\n    - Some tests failed\n  \
          deviceDoneMarker: \"JOURNEY DONE\"\n  actionPrefix: \"JOURNEY\"\n  timeoutSec: 120\n\
          evidence:\n  outDir: .reproit/runs\n  video: false\n",
-        wrd = web_runner_dir.display(),
-        url = url,
     );
     let loaded = parse_str(&yaml, root)?;
     // Persist so the zero-config flow is replayable: `find_config` picks this up

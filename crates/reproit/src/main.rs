@@ -227,7 +227,22 @@ fn target_as_url(t: &str) -> Option<String> {
         .rsplit_once(':')
         .map(|(_, p)| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
         .unwrap_or(false);
-    if host.contains('.') || is_loopback || has_port {
+    // A dotted host is a real host only if its LAST label is TLD-like (alphabetic,
+    // 2+ chars), so `google.com` is a URL but an alias like `checkout.2` (numeric
+    // last label) is not -- OR every label is numeric (an IPv4 address). (A bare
+    // `host:port` is still treated as a URL; `screen:1` vs `myhost:3000` can't be
+    // told apart by shape, so that case is left as-is.)
+    let labels: Vec<&str> = host.split('.').collect();
+    let dotted_host = labels.len() >= 2 && {
+        let last = labels.last().copied().unwrap_or("");
+        let tld_like = last.len() >= 2 && last.chars().all(|c| c.is_ascii_alphabetic());
+        let ipv4 = labels.len() == 4
+            && labels
+                .iter()
+                .all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_digit()));
+        tld_like || ipv4
+    };
+    if is_loopback || dotted_host || has_port {
         let scheme = if is_loopback { "http" } else { "https" };
         return Some(format!("{scheme}://{t}"));
     }
@@ -3642,6 +3657,15 @@ mod tests {
         assert_eq!(target_as_url("login"), None);
         assert_eq!(target_as_url("checkout"), None);
         assert_eq!(target_as_url(""), None);
+        // A dotted alias whose last label is numeric is NOT a host (no such TLD),
+        // so it stays an alias instead of being misread as a deployed app.
+        assert_eq!(target_as_url("checkout.2"), None);
+        assert_eq!(target_as_url("step.3"), None);
+        // ...but a real IPv4 (all-numeric labels) is still a URL.
+        assert_eq!(
+            target_as_url("10.0.0.5").as_deref(),
+            Some("https://10.0.0.5")
+        );
     }
 
     #[test]
