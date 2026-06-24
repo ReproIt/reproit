@@ -377,10 +377,11 @@ fn is_state_present(oracle: &crate::crosscut::Oracle) -> bool {
 /// Record one annotated clip per BOXABLE sweep finding. overflow / content-bug
 /// are re-detected by drawFindingBoxes on the loaded screen, so a clip = replay
 /// the crawl's own action path to that screen, then the runner draws the red box
-/// at the end and saves the video. a11y / dead-end / leak have no on-screen
-/// element, and choice-anomaly needs the live exercise on replay (a known-flaky
-/// below-fold case), so those are skipped here. Deduped by (route, oracle), each
-/// taking the SHORTEST path to its screen for the cleanest clip.
+/// at the end and saves the video. a11y boxes the specific unlabeled control by
+/// selector; choice-anomaly re-runs its live differential on the loaded screen.
+/// dead-end / leak / crash have no single on-screen element to box, so those are
+/// skipped here. Deduped by (route, oracle) -- plus one a11y clip per unique
+/// control across screens -- each taking the shortest path for the cleanest clip.
 async fn record_sweep_clips(
     cfg: &Config,
     root: &Path,
@@ -415,6 +416,7 @@ async fn record_sweep_clips(
 
     // One clip per (route, oracle), each with the reproduction its bug needs:
     //  - overflow / content: land on the screen by URL, re-detect + box.
+    //  - a11y: land on the screen, box the unlabeled control by selector (below).
     //  - broken-route: land on the SOURCE page, box the dead <a> by its href.
     //  - choice-anomaly: land on the screen, tap the outlier option so the page
     //    shifts, box the choice that did it.
@@ -430,9 +432,6 @@ async fn record_sweep_clips(
         let route = route_of(sig);
         let goto = format!("{origin}{route}");
         let config = match oracle.as_str() {
-            // a11y is a MISSING label -- there's no element to box, so a clip
-            // never reproduces (the FINDING:BOXED trust gate drops it); recording
-            // one only wasted a run. Matches the docs, which say a11y is skipped.
             "overflow" | "content-bug" => {
                 json!({ "replay": [], "highlight": oracle, "gotoUrl": goto })
             }
@@ -484,9 +483,37 @@ async fn record_sweep_clips(
                 };
                 json!({ "replay": [action], "highlight": oracle, "gotoUrl": goto })
             }
-            _ => continue, // crash (no edge trigger), dead-end, leak: no clip
+            // a11y is handled in its own pass below (it boxes a specific element
+            // by selector, deduped across screens). crash/dead-end/leak: no clip.
+            _ => continue,
         };
         plans.entry((route, oracle)).or_insert(config);
+    }
+
+    // a11y clips: box the SPECIFIC unlabeled control by selector (the finding now
+    // identifies it via obs.unlabeled_els). ONE clip per unique control -- a
+    // persistent header logo unlabeled on seven screens is one clip (its first
+    // screen), not seven -- and at most one a11y clip per screen.
+    {
+        let mut clipped: std::collections::BTreeSet<String> = Default::default();
+        for f in findings {
+            if !matches!(crate::crosscut::classify(f), crate::crosscut::Oracle::A11y) {
+                continue;
+            }
+            let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
+            let Some(sels) = obs.unlabeled_els.get(sig) else {
+                continue;
+            };
+            let Some(sel) = sels.iter().find(|s| !clipped.contains(*s)) else {
+                continue;
+            };
+            clipped.insert(sel.clone());
+            let route = route_of(sig);
+            let goto = format!("{origin}{route}");
+            plans.entry((route, "a11y".to_string())).or_insert(json!({
+                "replay": [], "highlight": "a11y", "gotoUrl": goto, "boxSel": sel,
+            }));
+        }
     }
 
     if plans.is_empty() {

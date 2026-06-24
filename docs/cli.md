@@ -99,8 +99,10 @@ reproit sweep --record         # also save an annotated clip per boxable finding
 `--record` (web) replays the path to each finding's screen and saves an annotated
 video with a red box on the bug, one clip per (screen x issue), into
 `.reproit/sweep-clips/` (or `--out <dir>`). It clips the findings with an
-on-screen element (overflow, content); a11y / dead-end / leak have nothing to box
-and choice-anomaly needs the live picker exercise, so those are skipped.
+on-screen element (overflow, content, a11y, broken-route, choice-anomaly, and the
+hang/jank trigger); a11y boxes the unlabeled control by selector (one clip per
+control across screens). dead-end / leak / crash have no single element to box, so
+those are skipped.
 
 Reach for `sweep` first when auditing an app. It is deterministic (no action
 permutations) and surfaces every per-screen issue, where `fuzz` collapses to one

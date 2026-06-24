@@ -3806,9 +3806,16 @@ async function main() {
         const fired = lastTriggerLabel === 'froze' || lastTriggerLabel === 'jank'
           || replayErrorCount > crashAtStart;
         log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew: !!fired }));
+      } else if (String(fuzz.highlight) === 'a11y' && fuzz.boxSel) {
+        // A11Y clip: box the SPECIFIC unlabeled control by selector. The control
+        // exists and has a location -- it just lacks an accessible label -- so we
+        // scroll it into view and draw a red box + caption (no click), showing the
+        // user exactly which control needs a label.
+        const drew = await tap(page, fuzz.boxSel, { box: 'missing label', boxColor: '#e21f1f' });
+        log('FINDING:BOXED ' + JSON.stringify({ oracle: 'a11y', drew: !!drew }));
       } else {
-        // STATE-PRESENT (overflow/content/a11y) + broken-route: re-detect on the
-        // live page and box it (the page is not frozen here).
+        // STATE-PRESENT (overflow/content) + broken-route: re-detect on the live
+        // page and box it (the page is not frozen here).
         await drawFindingBoxes(page, {
           triggerLabel: lastTriggerLabel,
           flickerKeys: lastFlickerKeys,
