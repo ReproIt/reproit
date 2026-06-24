@@ -18,7 +18,7 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy,rustfmt
           rustup default stable
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -42,9 +42,9 @@ jobs:
         working-directory: runners/web
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Install deps
         run: npm ci
       - name: Install the Chromium the runner drives
@@ -73,9 +73,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Web SDK parity (reproit-web.js; also the Electron/Tauri SDK)
         working-directory: sdk
         run: node test/signature_test.js
@@ -102,9 +102,9 @@ jobs:
         working-directory: sdk/reproit-react-native
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Install deps
         run: npm ci
       - name: Parity + unit tests (jest)
@@ -146,9 +146,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -164,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -194,7 +194,7 @@ jobs:
         working-directory: sdk/reproit-tui-go
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: sdk/reproit-tui-go/go.mod
       - name: Go TUI SDK signature parity (matches crates/.../backends/tui.rs)
@@ -207,7 +207,7 @@ jobs:
         working-directory: sdk/reproit-tui-ts
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
       - name: TS TUI SDK signature parity (node type-strips TS natively; no install)
@@ -224,7 +224,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "8.0.x"
       - name: Windows SDK signature parity (.NET core lib; no WPF/WinUI needed)
