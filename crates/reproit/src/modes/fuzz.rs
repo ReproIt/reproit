@@ -167,6 +167,10 @@ pub struct SweepArgs {
     pub budget: u32,
     pub sim: bool,
     pub json: bool,
+    /// `--record`: after the crawl, record one annotated clip per boxable finding.
+    pub record: bool,
+    /// `--out <dir>`: where the clips land (default `.reproit/sweep-clips`).
+    pub out: Option<std::path::PathBuf>,
 }
 
 /// SWEEP: the coverage finder. Where `fuzz` permutes action sequences to provoke
@@ -220,6 +224,15 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
     }
 
     let issues: usize = by_screen.values().map(|s| s.len()).sum();
+
+    // `--record`: replay each boxable finding's path and save an annotated clip.
+    // Done after the report grouping so the clips can be listed alongside it.
+    let clips = if args.record {
+        record_sweep_clips(cfg, root, args, &findings, &obs, &cfg_path, &defines).await
+    } else {
+        Vec::new()
+    };
+
     if json {
         let results: Vec<Value> = by_screen
             .iter()
@@ -232,7 +245,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
             .collect();
         println!(
             "{}",
-            json!({ "command": "sweep", "screens": by_screen.len(), "issues": issues, "results": results })
+            json!({ "command": "sweep", "screens": by_screen.len(), "issues": issues, "results": results, "clips": clips })
         );
         return Ok(());
     }
@@ -251,7 +264,211 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<()> {
             say(json, format!("    {oracle:16} {detail}"));
         }
     }
+    if !clips.is_empty() {
+        say(json, format!("\n{} clip(s) recorded.", clips.len()));
+    }
     Ok(())
+}
+
+/// Record one annotated clip per BOXABLE sweep finding. overflow / content-bug
+/// are re-detected by drawFindingBoxes on the loaded screen, so a clip = replay
+/// the crawl's own action path to that screen, then the runner draws the red box
+/// at the end and saves the video. a11y / dead-end / leak have no on-screen
+/// element, and choice-anomaly needs the live exercise on replay (a known-flaky
+/// below-fold case), so those are skipped here. Deduped by (route, oracle), each
+/// taking the SHORTEST path to its screen for the cleanest clip.
+async fn record_sweep_clips(
+    cfg: &Config,
+    root: &Path,
+    args: &SweepArgs,
+    findings: &[Value],
+    obs: &crate::map::RunObs,
+    cfg_path: &Path,
+    defines: &[(String, String)],
+) -> Vec<Value> {
+    let json = args.json;
+    let out = args
+        .out
+        .clone()
+        .unwrap_or_else(|| root.join(".reproit/sweep-clips"));
+    let _ = std::fs::create_dir_all(&out);
+
+    let mut best: std::collections::BTreeMap<(String, String), (Vec<String>, String)> =
+        std::collections::BTreeMap::new();
+    for f in findings {
+        let oracle = crate::crosscut::classify(f).as_str().to_string();
+        if !matches!(oracle.as_str(), "overflow" | "content-bug") {
+            continue;
+        }
+        let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
+        let route = obs
+            .routes
+            .get(sig)
+            .cloned()
+            .unwrap_or_else(|| sig.to_string());
+        let Some(path) = path_to_route(obs, &route) else {
+            continue;
+        };
+        let key = (route.clone(), oracle);
+        let shorter = best
+            .get(&key)
+            .map(|(p, _)| path.len() < p.len())
+            .unwrap_or(true);
+        if shorter {
+            best.insert(key, (path, route));
+        }
+    }
+
+    if best.is_empty() {
+        say(
+            json,
+            "\nsweep --record: no boxable findings to clip (overflow/content only; \
+             a11y/choice/dead-end/leak have no on-screen box)."
+                .to_string(),
+        );
+        return Vec::new();
+    }
+    say(
+        json,
+        format!(
+            "\nsweep --record: recording {} clip(s) to {}...",
+            best.len(),
+            out.display()
+        ),
+    );
+    let mut clips = Vec::new();
+    for ((route, oracle), (path, _)) in &best {
+        // The runner records video whenever it is fed a replay; an empty path
+        // just lands on the start screen. `highlight` scopes the box to this
+        // finding's category (a single box, just its issue).
+        let config = json!({ "replay": path, "highlight": oracle });
+        if std::fs::write(cfg_path, config.to_string()).is_err() {
+            continue;
+        }
+        let label = format!("{}__{oracle}", sanitize_route(route));
+        say(json, format!("  {label} ({} action(s))...", path.len()));
+        let outcome =
+            match run_explorer(cfg, root, &args.journey, true, defines, false, args.sim).await {
+                Ok(o) => o,
+                Err(_) => {
+                    say(json, format!("    skipped {label}: run failed"));
+                    continue;
+                }
+            };
+        let Some(src) = newest_webm(&outcome.run_dir) else {
+            say(json, format!("    no video produced for {label}"));
+            continue;
+        };
+        let dest = out.join(format!("{label}.webm"));
+        if std::fs::copy(&src, &dest).is_ok() {
+            say(json, format!("    saved {}", dest.display()));
+            clips.push(json!({
+                "screen": route,
+                "oracle": oracle,
+                "clip": dest.to_string_lossy(),
+            }));
+        }
+    }
+    clips
+}
+
+/// Shortest action path (the crawl's own `tap:`/`type:`/`back` edges) to the
+/// target ROUTE, for replay. We pathfind over ROUTES, not state sigs: a live
+/// page's sig drifts between visits (dynamic content) while its route (the URL
+/// path) is stable, so a sig-keyed search finds no outgoing edge from the start.
+/// Collapsing each edge's endpoints to their routes gives a stable graph. None
+/// if the route is unreachable; an empty vec when it IS the start route.
+fn path_to_route(obs: &crate::map::RunObs, target: &str) -> Option<Vec<String>> {
+    if target.is_empty() {
+        return None;
+    }
+    let route_of = |sig: &str| {
+        obs.routes
+            .get(sig)
+            .cloned()
+            .unwrap_or_else(|| sig.to_string())
+    };
+    let entry = obs
+        .start
+        .as_deref()
+        .map(route_of)
+        .or_else(|| obs.edges.first().map(|(f, _, _)| route_of(f)))?;
+    if entry == target {
+        return Some(Vec::new());
+    }
+    // Route adjacency: from-route -> (action, to-route), skipping self-route hops
+    // (a tap that only churns the sig within one route makes no path progress).
+    let mut seen = std::collections::BTreeSet::from([entry.clone()]);
+    let mut prev: std::collections::BTreeMap<String, (String, String)> =
+        std::collections::BTreeMap::new();
+    let mut q = std::collections::VecDeque::from([entry.clone()]);
+    while let Some(cur) = q.pop_front() {
+        for (from, act, to) in &obs.edges {
+            let (fr, tr) = (route_of(from), route_of(to));
+            if fr != cur || tr == fr {
+                continue;
+            }
+            if seen.insert(tr.clone()) {
+                prev.insert(tr.clone(), (cur.clone(), act.clone()));
+                if tr == target {
+                    let mut acts = Vec::new();
+                    let mut node = target.to_string();
+                    while node != entry {
+                        let (f, a) = prev[&node].clone();
+                        acts.push(a);
+                        node = f;
+                    }
+                    acts.reverse();
+                    return Some(acts);
+                }
+                q.push_back(tr);
+            }
+        }
+    }
+    None
+}
+
+/// Newest `.webm` anywhere under a run dir (the web runner writes it into a
+/// `video-<label>/` subdir with a Playwright-assigned name).
+fn newest_webm(run_dir: &Path) -> Option<std::path::PathBuf> {
+    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    let mut stack = vec![run_dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if p.extension().and_then(|x| x.to_str()) == Some("webm") {
+                let mt = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                if best.as_ref().map(|(t, _)| mt > *t).unwrap_or(true) {
+                    best = Some((mt, p));
+                }
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// A filesystem-safe clip label from a route ("/docs/en/home" -> "docs-en-home").
+fn sanitize_route(route: &str) -> String {
+    let s: String = route
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let t = s.trim_matches('-').to_string();
+    if t.is_empty() {
+        "root".to_string()
+    } else {
+        t
+    }
 }
 
 /// Normalize a finding message into a short, route-stable detail: drop a leading
@@ -1967,5 +2184,30 @@ flutter: boom
 flutter: ════════════════════════════════════════════════
 ";
         assert!(exceptions_in_log(framework).is_empty());
+    }
+
+    #[test]
+    fn path_to_route_is_sig_instability_proof() {
+        // A live page's sig drifts between visits (dynamic content) while its
+        // route is stable. Here the start state observed `home1`, but the edge
+        // out of home was recorded from a re-observed `home2` (same /home route).
+        // A sig-keyed search would find no edge from `home1`; the route-keyed one
+        // collapses both to /home and finds the path.
+        let log = "\
+EXPLORE:STATE {\"sig\":\"home1\",\"route\":\"/home\",\"labels\":[]}
+EXPLORE:STATE {\"sig\":\"home2\",\"route\":\"/home\",\"labels\":[]}
+EXPLORE:EDGE {\"from\":\"home2\",\"action\":\"tap:role:link#1\",\"to\":\"about1\"}
+EXPLORE:STATE {\"sig\":\"about1\",\"route\":\"/about\",\"labels\":[]}
+";
+        let obs = crate::map::parse_run(log);
+        // The start route reaches itself with an empty path.
+        assert_eq!(path_to_route(&obs, "/home"), Some(Vec::new()));
+        // /about is reached by the recorded tap, despite the start-sig mismatch.
+        assert_eq!(
+            path_to_route(&obs, "/about"),
+            Some(vec!["tap:role:link#1".to_string()])
+        );
+        // An unknown route is unreachable.
+        assert_eq!(path_to_route(&obs, "/nope"), None);
     }
 }

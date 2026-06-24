@@ -20,7 +20,7 @@ reproit sweep   # find what's wrong: scan every screen for visible bugs
 reproit check   # verify repros: pass / fail / flaky / stale
 ```
 
-(`reproit fuzz` is the deeper, opt-in search for sequence bugs: crash, jank, hang.)
+(`reproit fuzz` explores deeper for sequence-dependent bugs: crash, jank, hang.)
 
 ## Supported platforms
 
@@ -71,14 +71,16 @@ so there is no manual `npm install` step.
 ```sh
 cd <your-app>
 reproit map            # detect the platform, build the graph
-reproit sweep          # scan every screen for visible bugs (the default find)
+reproit sweep          # scan every screen for visible bugs (fast first pass)
+reproit fuzz           # explore deeper for crash / jank / hang bugs
 reproit check <id>     # confirm a finding replays, before you commit to it
 reproit keep <id>      # like it? save it as a regression guard
 reproit check          # verify the suite (green after you fix it)
 ```
 
-`sweep` is the fast first pass (visible per-screen bugs); `reproit fuzz` is the
-deeper, opt-in search for sequence-dependent bugs (crash / jank / hang).
+`sweep` checks every screen for the bugs visible on it (overflow, content, a11y,
+choice-anomaly); `fuzz` explores action sequences for the bugs that only appear
+after the right steps in the right order (crash, jank, hang, leak). Use both.
 
 A repro is a seed + action sequence, addressed by a content hash, so it's
 identical across machines. `check <id>` replays a finding straight from the fuzz
@@ -90,8 +92,8 @@ guard; fix the bug and `check` flips it to PASS and promotes it to required.
 
 ```sh
 reproit map [--show]                  # build/refresh the graph; --show renders it
-reproit sweep [target]                # scan every screen for visible bugs (default find)
-reproit fuzz [target]                 # deep sequence bugs (crash/jank/hang); opt-in
+reproit sweep [target]                # scan every screen for visible bugs (--record for clips)
+reproit fuzz [target]                 # explore deeper for sequence bugs (crash/jank/hang)
 reproit check [repro]                 # verify: pass(0) / fail(1) / flaky(2) / stale(3)
 reproit record <id>                   # annotated repro video (--flicker also scans it)
 reproit baseline [--update]           # visual-regression diff vs the committed baseline

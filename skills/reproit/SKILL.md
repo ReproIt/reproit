@@ -26,7 +26,7 @@ finding itself.
    choice-anomaly), one finding per (screen x issue). `target` is a URL (zero-
    config against a deployed app) or an alias/node to scope. Deterministic and
    exhaustive per screen, this is the first pass for auditing an app.
-3. **Fuzz** (the DEEP, opt-in search): `reproit fuzz [target]`. Combinatorially
+3. **Fuzz** (the DEEP search): `reproit fuzz [target]`. Combinatorially
    permutes action sequences to provoke the SEQUENCE-dependent bugs (crash /
    jank / hang / leak) that only appear after the right actions in the right
    order. Each finding prints a content-hash id. All oracles run by default

@@ -17,8 +17,8 @@ reproit sweep   # find what's wrong: scan every screen for visible bugs
 reproit check   # verify a bug: does it still reproduce? is it fixed yet?
 ```
 
-(`reproit fuzz` is the deeper, opt-in search for sequence-dependent bugs:
-crashes, jank, hangs. `sweep` is the fast default.)
+(`reproit fuzz` explores deeper for sequence-dependent bugs: crashes, jank,
+hangs. `sweep` is the fast first pass; use both.)
 
 Two things make it different:
 
@@ -93,7 +93,14 @@ nothing collapsed.
 reproit sweep https://app.com  # zero-config: scan a deployed app, no setup
 reproit sweep                  # scan the whole app (uses ./reproit.yaml)
 reproit sweep login            # scope the crawl to one alias/node
+reproit sweep --record         # also save an annotated clip per boxable finding
 ```
+
+`--record` (web) replays the path to each finding's screen and saves an annotated
+video with a red box on the bug, one clip per (screen x issue), into
+`.reproit/sweep-clips/` (or `--out <dir>`). It clips the findings with an
+on-screen element (overflow, content); a11y / dead-end / leak have nothing to box
+and choice-anomaly needs the live picker exercise, so those are skipped.
 
 Reach for `sweep` first when auditing an app. It is deterministic (no action
 permutations) and surfaces every per-screen issue, where `fuzz` collapses to one
@@ -303,8 +310,8 @@ history. Every cloud view is backed by exportable raw data.
 reproit                       help: the map -> sweep -> check story + top commands
 reproit map                   build the app's screen graph (bare map = map structural)
 reproit map --show            render the existing graph instead of rebuilding
-reproit sweep [target]        scan every screen for visible bugs (the default find)
-reproit fuzz [target]         find deep sequence bugs (crash/jank/hang); opt-in
+reproit sweep [target]        scan every screen for visible bugs (--record for clips)
+reproit fuzz [target]         explore deeper for sequence bugs (crash/jank/hang)
 reproit check [repro|journey] verify: pass(0) / fail(1) / flaky(2) / stale(3)
 reproit keep [id] [--as name] save a repro into your suite
 reproit record <id>           annotated video of a repro (--flicker also scans it)

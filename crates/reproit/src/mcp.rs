@@ -132,7 +132,8 @@ fn tool_defs() -> Value {
             "name": "reproit_sweep",
             "description": "The DEFAULT \"what's wrong on every screen\" finder. One coverage crawl that visits each reachable screen once and reports the STATE-PRESENT bugs simply visible on each (overflow / broken content / a11y unlabeled / choice-anomaly), one finding per (screen x issue) -- grouped by screen, nothing collapsed. Prefer this over reproit_fuzz for \"audit this app / find the visible bugs\": it is deterministic, doesn't permute action sequences, and surfaces every per-screen issue (reproit_fuzz reports one finding per seed and drops most of these). Pass a URL (zero-config, deployed app) or an alias/node to scope. Pair the findings to reproit_keep / reproit_record. Use reproit_fuzz for the DEEPER sequence-dependent bugs (crash/jank/hang). Slow: a real run.",
             "inputSchema": { "type": "object", "properties": {
-                "target": { "type": "string", "description": "A URL (https://app.com, zero-config) or an alias/node to scope the crawl to." }
+                "target": { "type": "string", "description": "A URL (https://app.com, zero-config) or an alias/node to scope the crawl to." },
+                "record": { "type": "boolean", "description": "Also save an annotated clip (red box on the bug) per boxable finding, into .reproit/sweep-clips/. Web only." }
             } }
         },
         {
@@ -401,6 +402,9 @@ fn build_argv(
             argv.push("sweep".into());
             if let Some(t) = s("target") {
                 argv.push(t);
+            }
+            if b("record") {
+                argv.push("--record".into());
             }
         }
         "reproit_check" => {

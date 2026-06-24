@@ -385,6 +385,13 @@ enum Cmd {
         /// Force the simulator tier (default: headless / web).
         #[arg(long)]
         sim: bool,
+        /// After the crawl, record an annotated clip (a red box on the bug) for
+        /// each boxable finding (overflow / content). Web only.
+        #[arg(long)]
+        record: bool,
+        /// Where the `--record` clips land (default: .reproit/sweep-clips).
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Find repros using the map (pure; emits a fuzz artifact). All oracles on
     /// by default. `--soak` runs the leak cycle; `--target` selects engines.
@@ -1621,6 +1628,8 @@ async fn main() -> Result<ExitCode> {
             target_arg,
             budget,
             sim,
+            record,
+            out,
         } => {
             // Same zero-config setup as `fuzz`: a URL synthesizes a web config
             // rooted at the cwd + auto-builds the map; anything else scopes to an
@@ -1649,6 +1658,8 @@ async fn main() -> Result<ExitCode> {
                 budget,
                 sim,
                 json: ctx.json,
+                record,
+                out,
             };
             fuzz::sweep(&loaded.config, &loaded.root, &args).await?;
             return Ok(ExitCode::SUCCESS);
