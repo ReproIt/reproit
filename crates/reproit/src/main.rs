@@ -256,7 +256,7 @@ fn target_as_url(t: &str) -> Option<String> {
     None
 }
 
-/// Does `p` name an existing executable file?
+/// Does `p` name an existing executable file (unix: with an exec bit)?
 fn is_executable_file(p: &std::path::Path) -> bool {
     #[cfg(unix)]
     {
@@ -271,6 +271,40 @@ fn is_executable_file(p: &std::path::Path) -> bool {
     }
 }
 
+/// Extensions to try when resolving a bare command name on `PATH`: just the name
+/// on unix; the Windows `PATHEXT` set (so `lazygit` finds `lazygit.exe`) plus the
+/// bare name (in case it already carries an extension) on Windows.
+fn path_executable_extensions() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let raw = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+        let mut exts: Vec<String> = raw
+            .split(';')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
+        exts.push(String::new());
+        exts
+    }
+    #[cfg(not(windows))]
+    {
+        vec![String::new()]
+    }
+}
+
+/// Is `prog` (a bare command name) resolvable to an executable on `PATH`? Honors
+/// Windows `PATHEXT`, so `htop` matches `htop.exe` there.
+fn command_on_path(prog: &str) -> bool {
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let exts = path_executable_extensions();
+    std::env::split_paths(&paths).any(|dir| {
+        exts.iter()
+            .any(|ext| is_executable_file(&dir.join(format!("{prog}{ext}"))))
+    })
+}
+
 /// A non-URL target that names a runnable TERMINAL executable: an existing
 /// executable file path, or a bare command resolvable on `PATH` (e.g. `lazygit`,
 /// `htop`). Returns the command line to run in a PTY (`reproit sweep <exe>`),
@@ -283,15 +317,15 @@ fn target_as_executable(t: &str) -> Option<String> {
     }
     // The first whitespace token is the program; the rest are its args.
     let prog = t.split_whitespace().next()?;
-    if prog.contains('/') {
-        // A path: it must point at an existing executable file.
-        return is_executable_file(std::path::Path::new(prog)).then(|| t.to_string());
-    }
-    // A bare name: resolvable on PATH.
-    let on_path = std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|dir| is_executable_file(&dir.join(prog))))
-        .unwrap_or(false);
-    on_path.then(|| t.to_string())
+    // A path (a separator -- `/` everywhere, also `\` on Windows): must point at an
+    // existing executable file. A bare name: resolve it on PATH.
+    let is_path = prog.contains('/') || (cfg!(windows) && prog.contains('\\'));
+    let ok = if is_path {
+        is_executable_file(std::path::Path::new(prog))
+    } else {
+        command_on_path(prog)
+    };
+    ok.then(|| t.to_string())
 }
 
 /// SAFETY gate for a zero-config TUI fuzz: it drives a REAL process with REAL

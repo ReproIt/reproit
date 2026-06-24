@@ -17,6 +17,9 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY templates ./templates
+# All workspace members must be present to resolve the workspace, even though we
+# only build `-p reproit` (the tui-rs SDK is a member, not a reproit dependency).
+COPY sdk/reproit-tui-rs ./sdk/reproit-tui-rs
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config && \
     rm -rf /var/lib/apt/lists/*
 # Only the `reproit` binary is needed for the desktop loop (no cloud/db deps).
