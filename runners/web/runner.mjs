@@ -30,6 +30,26 @@ import {
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
 
+// axe-core: the industry-standard accessibility engine (the same rules behind
+// Lighthouse and Deque). The web a11y oracle runs its NAME rules in-page to
+// decide which controls lack an accessible name, instead of a hand-rolled
+// heuristic that re-implemented (worse) the ARIA accessible-name algorithm.
+// Loaded best-effort: if axe isn't present the snapshot falls back to the
+// built-in check, so a runner without it still works.
+let AXE_SOURCE = null;
+try {
+  AXE_SOURCE = readFileSync(new URL('./node_modules/axe-core/axe.min.js', import.meta.url), 'utf8');
+} catch (_) { AXE_SOURCE = null; }
+// axe rules that mean "this control has no accessible NAME" -- the exact scope of
+// our a11y oracle. We deliberately DON'T run axe's full WCAG set here (contrast,
+// landmarks, ...) to keep the oracle focused and low-noise; expanding that is a
+// later choice.
+const AXE_NAME_RULES = [
+  'link-name', 'button-name', 'image-alt', 'input-image-alt', 'input-button-name',
+  'aria-command-name', 'aria-input-field-name', 'aria-toggle-field-name',
+  'select-name', 'area-alt', 'object-alt', 'svg-img-alt', 'frame-title',
+];
+
 const APP_URL = process.env.REPROIT_URL || "http://localhost:8080";
 const APP_ORIGIN = (() => { try { return new URL(APP_URL).origin; } catch (e) { return ''; } })();
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
@@ -1042,11 +1062,45 @@ export function isEphemeralId(id) {
 }
 
 async function snapshot(page, valueNodeSelectors) {
-  const snap = await page.evaluate(({ maxLen, valueNodeSelectors, ephemeralIdSrc, ephemeralIdFlags }) => {
+  // Inject axe-core once per page so the in-page accessible-name check below uses
+  // the standard engine. Best-effort: on any failure we fall back to the built-in
+  // heuristic, so the snapshot never depends on axe being present.
+  let axeReady = false;
+  if (AXE_SOURCE) {
+    try {
+      const has = await page.evaluate(() => typeof window.axe !== 'undefined').catch(() => false);
+      if (!has) await page.addScriptTag({ content: AXE_SOURCE });
+      axeReady = true;
+    } catch (_) { axeReady = false; }
+  }
+  const snap = await page.evaluate(async ({ maxLen, valueNodeSelectors, ephemeralIdSrc, ephemeralIdFlags, axeNameRules, useAxe }) => {
     // Same ephemeral-id rule as the Node-side isEphemeralId (injected so the two
     // never drift): a random framework id must not enter the signature or a key.
     const ephemeralRe = new RegExp(ephemeralIdSrc, ephemeralIdFlags);
     const isEphemeralId = (v) => typeof v === 'string' && ephemeralRe.test(v);
+    // The set of controls axe flags as missing an accessible name (the standard
+    // verdict). null when axe is unavailable/failed -> fall back to accessibleName.
+    let axeUnlabeled = null;
+    if (useAxe && window.axe) {
+      try {
+        const res = await window.axe.run(document, {
+          runOnly: { type: 'rule', values: axeNameRules },
+          resultTypes: ['violations'],
+          iframes: false,
+        });
+        axeUnlabeled = new Set();
+        for (const v of res.violations) {
+          for (const n of v.nodes) {
+            let el = null;
+            try { el = document.querySelector(n.target[n.target.length - 1]); } catch (_) {}
+            if (el) axeUnlabeled.add(el);
+          }
+        }
+      } catch (_) { axeUnlabeled = null; }
+    }
+    // Is this control unlabeled? Prefer axe's verdict; fall back to the built-in
+    // accessible-name check when axe is unavailable.
+    const isUnlabeled = (el) => (axeUnlabeled ? axeUnlabeled.has(el) : !accessibleName(el));
     const labels = [];          // DISPLAY-ONLY visible text
     const rawTaps = [];         // tappable nodes in document order
     const extraTaps = [];       // keyed pointer-operable nodes interactive() drops
@@ -1446,7 +1500,7 @@ async function snapshot(page, valueNodeSelectors) {
           rawTaps.push({
             role, key: keyOf(el),
             label: name ? clipLabel(name) : '',
-            unlabeled: !accessibleName(el),
+            unlabeled: isUnlabeled(el),
             external: isExternalLink(el),
             grp: groupOf(el),
             cgrp: choiceContainerOf(el),
@@ -1463,7 +1517,7 @@ async function snapshot(page, valueNodeSelectors) {
             extraTaps.push({
               role, key: k,
               label: name ? clipLabel(name) : '',
-              unlabeled: !accessibleName(el),
+              unlabeled: isUnlabeled(el),
             });
           }
         }
@@ -1530,7 +1584,7 @@ async function snapshot(page, valueNodeSelectors) {
     textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
 
     return { tree, anchor, path, labels: [...new Set(labels)], tappables, unlabeled, textNodes };
-  }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [], ephemeralIdSrc: EPHEMERAL_ID_RE.source, ephemeralIdFlags: EPHEMERAL_ID_RE.flags });
+  }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [], ephemeralIdSrc: EPHEMERAL_ID_RE.source, ephemeralIdFlags: EPHEMERAL_ID_RE.flags, axeNameRules: AXE_NAME_RULES, useAxe: axeReady });
 
   // Hash the canonical Node tree with the host-pure canonical signature, exactly
   // like the Rust oracle and the golden vectors. Text never contributes.
