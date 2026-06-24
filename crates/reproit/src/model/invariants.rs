@@ -149,20 +149,26 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // and emits EXPLORE:OVERFLOW per state. This is the i18n / long-string / RTL
     // failure class (a German or RTL label overflowing a fixed-width button).
     // Deterministic: pure layout measurement, no frame timing or pixels, so it
-    // re-confirms on replay. Empty for runners that don't emit it (e.g. Flutter),
-    // so this reports nothing there.
+    // re-confirms on replay. Flutter also emits it (its own `flex` RenderFlex
+    // report plus a geometric `spill`); empty for runners that don't measure it
+    // (e.g. the TUI / ImGui / Clay surfaces), so this reports nothing there.
     if cfg.no_overflow {
         for (sig, items) in &obs.obs.overflows {
             // Only real layout BREAKS: a `spill` is a child whose box exceeds its
-            // parent's content box (the i18n/long-string/RTL failure). Drop `clip`
-            // (designed `text-overflow: ellipsis` / `overflow: hidden`) and
-            // `scroll` (an intended scroll container) -- those are not bugs, and
+            // parent's content box (the i18n/long-string/RTL failure), and `flex`
+            // is Flutter's OWN `RenderFlex overflowed` determination (the yellow/
+            // black-stripe error, never intentional). Drop `clip` (designed
+            // `text-overflow: ellipsis` / `overflow: hidden`), `scroll` (an
+            // intended scroll container), and `viewport` (an off-screen element,
+            // e.g. a drawer/carousel -- FP-prone) -- those are not bugs, and
             // flagging them was the false-positive that boxed an ellipsis label.
-            // USER floor: only spills at/above the configured px count on top of
+            // USER floor: only breaks at/above the configured px count on top of
             // the runner's sub-pixel OVERFLOW_TOL (default 2 keeps everything).
             let items: Vec<_> = items
                 .iter()
-                .filter(|(_, kind, by)| kind.as_str() == "spill" && *by >= cfg.overflow_min_px)
+                .filter(|(_, kind, by)| {
+                    matches!(kind.as_str(), "spill" | "flex") && *by >= cfg.overflow_min_px
+                })
                 .collect();
             if items.is_empty() {
                 continue;
@@ -170,14 +176,14 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
             let detail = items
                 .iter()
                 .take(3)
-                .map(|(key, _kind, by)| format!("{key} (spill by {by}px)"))
+                .map(|(key, kind, by)| format!("{key} ({kind} by {by}px)"))
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push(finding(
                 "no-overflow",
                 "OVERFLOW",
                 format!(
-                    "state {sig} has {} overflowing element(s): {detail} (a child does not fit its container; the i18n/long-string/RTL failure class)",
+                    "state {sig} has {} overflowing element(s): {detail} (a child does not fit its container; an overflowing flex/row or a long i18n/RTL string)",
                     items.len()
                 ),
                 Some(sig),
@@ -530,13 +536,14 @@ pub fn recheck_overflow(obs: &RunObs, sig: &str) -> GraphRecheck {
     if !obs.states.contains_key(sig) {
         return GraphRecheck::NotReached;
     }
-    // Spill-only, matching the finding: a `clip`/`scroll` lingering on the state
-    // is intended truncation, not the bug, so it must not read as still-violating.
-    if obs
-        .overflows
-        .get(sig)
-        .is_some_and(|items| items.iter().any(|(_, kind, _)| kind.as_str() == "spill"))
-    {
+    // Real-break kinds only, matching the finding: a `clip`/`scroll`/`viewport`
+    // lingering on the state is intended truncation/scroll/offscreen, not the bug,
+    // so it must not read as still-violating.
+    if obs.overflows.get(sig).is_some_and(|items| {
+        items
+            .iter()
+            .any(|(_, kind, _)| matches!(kind.as_str(), "spill" | "flex"))
+    }) {
         GraphRecheck::StillViolating
     } else {
         GraphRecheck::Fixed
@@ -909,18 +916,36 @@ mod tests {
         assert!(!f
             .iter()
             .any(|x| x["invariant"] == "no-overflow" && x["sig"] == "home"));
-        // Designed `clip` (ellipsis) + `scroll` (a scroll container) are NOT bugs:
-        // a state with only those stays silent (this is the /login FP fix).
+        // Designed `clip` (ellipsis) + `scroll` (a scroll container) + `viewport`
+        // (an off-screen element, e.g. a drawer/carousel) are NOT bugs: a state
+        // with only those stays silent (this is the /login FP fix).
         let mut intended = obs_with(&[("x", &["X"], 0)], &[], Some("x"));
         intended.obs.overflows.insert(
             "x".to_string(),
             vec![
                 ("tag:label".to_string(), "clip".to_string(), 46),
                 ("tag:div".to_string(), "scroll".to_string(), 24),
+                ("tag:aside".to_string(), "viewport".to_string(), 300),
             ],
         );
         assert!(!kinds(&evaluate(&intended, &InvariantsCfg::default()))
             .contains(&"no-overflow".to_string()));
+        // Flutter's own `flex` overflow (RenderFlex overflowed -- the yellow/black
+        // stripe error, never intentional) IS a real break and must fire, or
+        // Flutter overflow coverage silently finds nothing.
+        let mut flutter = obs_with(&[("f", &["F"], 0)], &[], Some("f"));
+        flutter.obs.overflows.insert(
+            "f".to_string(),
+            vec![("key:row".to_string(), "flex".to_string(), 120)],
+        );
+        let ff = evaluate(&flutter, &InvariantsCfg::default());
+        assert!(kinds(&ff).contains(&"no-overflow".to_string()));
+        let fv = ff.iter().find(|x| x["invariant"] == "no-overflow").unwrap();
+        assert!(
+            fv["message"].as_str().unwrap().contains("flex by 120px"),
+            "flex detail should carry the kind: {}",
+            fv["message"]
+        );
         // Disabling the invariant suppresses it.
         let cfg = InvariantsCfg {
             no_overflow: false,
