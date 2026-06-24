@@ -515,6 +515,34 @@ fn sanitize_route(route: &str) -> String {
     }
 }
 
+/// Print the "also saw N state-present issue(s)" footer pointing at `sweep`.
+/// `fuzz` bundles every violation into one per-seed finding and headlines the
+/// crash, so the overflow/content/a11y/choice/broken-route issues it walked past
+/// are otherwise invisible. This surfaces their counts and routes the user to the
+/// command built to report + clip them. No-op when none were seen.
+fn state_present_footer(json: bool, sp: &std::collections::BTreeMap<String, String>) {
+    if sp.is_empty() {
+        return;
+    }
+    let mut by_oracle: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for o in sp.values() {
+        *by_oracle.entry(o.as_str()).or_default() += 1;
+    }
+    let detail = by_oracle
+        .iter()
+        .map(|(o, n)| format!("{o} x{n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    say(
+        json,
+        format!(
+            "\nnote: also saw {} state-present issue(s) on the way ({detail}) -- \
+             run `reproit sweep` to list + clip them.",
+            sp.len()
+        ),
+    );
+}
+
 /// Normalize a finding message into a short, route-stable detail: drop a leading
 /// "state <sig> " (so the same issue under different state sigs collapses) and a
 /// trailing explanatory parenthetical.
@@ -565,6 +593,10 @@ async fn fuzz_one_locale(
     locale: Option<&str>,
 ) -> Result<std::collections::BTreeSet<String>> {
     let mut found_sigs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // State-present issues (overflow/content/a11y/choice/broken-route) seen on the
+    // way, deduped by signature -> oracle, for the footer that points at `sweep`.
+    let mut state_present: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     // --all: crash-signature -> (human label, [(repro id, action count, seed)]).
     // Same signature = same bug; the buckets become the unique-bugs summary.
     let mut buckets: BugBuckets = BugBuckets::new();
@@ -722,6 +754,17 @@ async fn fuzz_one_locale(
             }
             for f in &findings {
                 found_sigs.insert(finding_signature(f));
+                // Tally the STATE-PRESENT issues this walk passed (overflow /
+                // content / a11y / choice / broken-route), deduped by signature,
+                // so the report can point them at `sweep` instead of burying them
+                // under the per-seed crash headline.
+                let oracle = crate::crosscut::classify(f).as_str();
+                if matches!(
+                    oracle,
+                    "overflow" | "content-bug" | "a11y" | "choice-anomaly" | "broken-route"
+                ) {
+                    state_present.insert(finding_signature(f), oracle.to_string());
+                }
             }
             if findings.is_empty() {
                 say(json, format!("  seed {seed}: clean"));
@@ -909,6 +952,7 @@ async fn fuzz_one_locale(
             // Default: one finding per invocation (shrinking is expensive; fix it
             // before hunting more). With --all, keep going to collect every bug.
             if !args.all {
+                state_present_footer(json, &state_present);
                 return Ok(found_sigs);
             }
         }
@@ -940,6 +984,7 @@ async fn fuzz_one_locale(
                 format!("    confirm: reproit check {id}   keep: reproit keep {id} --as <name>"),
             );
         }
+        state_present_footer(json, &state_present);
         let _ = std::fs::write(&cfg_path, "{}");
         return Ok(found_sigs);
     }
