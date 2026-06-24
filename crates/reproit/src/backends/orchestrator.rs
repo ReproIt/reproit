@@ -663,11 +663,19 @@ pub async fn run_journey_headless(
     }
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
-
-    let output = cmd
-        .output()
-        .await
-        .with_context(|| format!("spawning flutter test for {target}"))?;
+    // The headless tier is the DEFAULT "fast" path, but `flutter test` had no
+    // timeout -- a wedged toolchain hung the whole run forever (the simulator
+    // tier is bounded, this was not). Bound it by the journey timeout plus a
+    // compile budget, and kill_on_drop so a timeout reaps the child.
+    cmd.kill_on_drop(true);
+    let bound = std::time::Duration::from_secs(cfg.journeys.timeout_sec.max(120) + 300);
+    let output = match tokio::time::timeout(bound, cmd.output()).await {
+        Ok(r) => r.with_context(|| format!("spawning flutter test for {target}"))?,
+        Err(_) => anyhow::bail!(
+            "flutter test timed out after {}s for {target} (raise journeys.timeoutSec if the build is legitimately slow)",
+            bound.as_secs()
+        ),
+    };
 
     // Persist BOTH streams to drive-a.log: marker lines are on stdout, but the
     // test framework prints exception blocks and verdicts on either, so the

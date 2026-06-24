@@ -37,7 +37,10 @@ impl Cloud {
     }
 
     async fn get(&self, path: &str) -> Result<Value> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_default();
         let mut req = client.get(format!("{}{}", self.base, path));
         if let Some(k) = &self.key {
             req = req.bearer_auth(k);
@@ -58,7 +61,10 @@ impl Cloud {
     /// when a key is present, bail with a clear message on a non-2xx, and parse
     /// the (JSON) response body. Used by the triage SET path.
     async fn post(&self, path: &str, body: &Value) -> Result<Value> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_default();
         let mut req = client.post(format!("{}{}", self.base, path)).json(body);
         if let Some(k) = &self.key {
             req = req.bearer_auth(k);
@@ -95,7 +101,10 @@ pub async fn raw(
 /// freshly stored token. Hits the root; any successful response (even an
 /// unrelated body) means the cloud is up and the bearer was accepted.
 pub async fn ping(base: &str, key: Option<&str>) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .unwrap_or_default();
     let mut req = client.get(base.trim_end_matches('/'));
     if let Some(k) = key {
         req = req.bearer_auth(k);

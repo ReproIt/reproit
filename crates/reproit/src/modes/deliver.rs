@@ -211,7 +211,10 @@ impl Cloud {
     }
 
     async fn get(&self, path: &str) -> Result<Value> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_default();
         let mut req = client.get(format!("{}{}", self.base, path));
         if let Some(k) = &self.key {
             req = req.bearer_auth(k);
@@ -254,7 +257,10 @@ impl Cloud {
             form = form.part("file", part);
         }
         let url = format!("{}/v1/errors/{app}/{idx}/evidence", self.base);
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_default();
         let mut req = client.post(&url).multipart(form);
         if let Some(k) = &self.key {
             req = req.bearer_auth(k);
@@ -622,7 +628,10 @@ impl GitHubTarget {
             "{}/repos/{}/issues/{}/comments",
             self.api, self.repo, self.pr
         );
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_default();
         let resp = client
             .post(&url)
             .bearer_auth(&self.token)
