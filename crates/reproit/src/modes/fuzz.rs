@@ -362,7 +362,7 @@ async fn record_sweep_clips(
     };
 
     // One clip per (route, oracle), each with the reproduction its bug needs:
-    //  - overflow / content / a11y: land on the screen by URL, re-detect + box.
+    //  - overflow / content: land on the screen by URL, re-detect + box.
     //  - broken-route: land on the SOURCE page, box the dead <a> by its href.
     //  - choice-anomaly: land on the screen, tap the outlier option so the page
     //    shifts, box the choice that did it.
@@ -378,7 +378,10 @@ async fn record_sweep_clips(
         let route = route_of(sig);
         let goto = format!("{origin}{route}");
         let config = match oracle.as_str() {
-            "overflow" | "content-bug" | "a11y" => {
+            // a11y is a MISSING label -- there's no element to box, so a clip
+            // never reproduces (the FINDING:BOXED trust gate drops it); recording
+            // one only wasted a run. Matches the docs, which say a11y is skipped.
+            "overflow" | "content-bug" => {
                 json!({ "replay": [], "highlight": oracle, "gotoUrl": goto })
             }
             "broken-route" => {
@@ -698,6 +701,11 @@ async fn fuzz_one_locale(
     let mut visits = crate::map::load_visits(root);
     let mut warm = false;
     let mut done = 0u32;
+    // Seeds that ACTUALLY executed (one log segment each), vs `done` which counts
+    // seeds DISPATCHED into a batch. A wall-clock timeout can kill a multi-seed
+    // batch after only the first seed, so the summary must report seeds_run, not
+    // the configured count, or it overstates how much was explored.
+    let mut seeds_run = 0u32;
     while done < args.runs {
         let this_batch = batch_size.min(args.runs - done);
         let plans: Vec<SeedPlan> = (0..this_batch)
@@ -737,6 +745,7 @@ async fn fuzz_one_locale(
         let full_log =
             std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
         let segments = split_seed_segments(&full_log, &plans);
+        seeds_run += segments.len() as u32;
 
         // Pool escapable routes across ALL seeds in this batch BEFORE judging any
         // of them. A dead end is a graph property, so one seed's sparse view is
@@ -1015,9 +1024,8 @@ async fn fuzz_one_locale(
         say(
             json,
             format!(
-                "\nunique bugs: {} (from {total} finding(s) over {} seed(s))",
+                "\nunique bugs: {} (from {total} finding(s) over {seeds_run} seed(s))",
                 buckets.len(),
-                args.runs
             ),
         );
         for (_sig, (label, mut entries)) in buckets {
@@ -1043,8 +1051,8 @@ async fn fuzz_one_locale(
     say(
         json,
         format!(
-            "\nno findings over {} seed(s), budget {}",
-            args.runs, args.budget
+            "\nno findings over {seeds_run} seed(s), budget {}",
+            args.budget
         ),
     );
     // Neutralize: a later `reproit run --warm` must not replay fuzz state.
@@ -1972,7 +1980,7 @@ fn write_report(
         }
     }
     md.push_str(&format!(
-        "\n## repro ({} actions{})\n\n```\n{}\n```\n\nReplay: write {{\"replay\": [...]}} to .reproit/fuzz_config.json and `reproit check explore --warm` (then `reproit record <id>` for an annotated video).\n",
+        "\n## repro ({} actions{})\n\n```\n{}\n```\n\nReplay: write {{\"replay\": [...]}} to .reproit/fuzz_config.json and `reproit check explore` (then `reproit record <id>` for an annotated video).\n",
         shrunk.len(),
         if shrunk.len() < trace.len() {
             format!(", shrunk from {}", trace.len())

@@ -399,7 +399,8 @@ enum Cmd {
         #[arg(long)]
         sim: bool,
         /// After the crawl, record an annotated clip (a red box on the bug) for
-        /// each boxable finding (overflow / content). Web only.
+        /// each boxable finding (overflow, content-bug, broken-route,
+        /// choice-anomaly, and the hang/jank trigger). Web only.
         #[arg(long)]
         record: bool,
         /// Where the `--record` clips land (default: .reproit/sweep-clips).

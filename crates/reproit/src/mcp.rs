@@ -163,7 +163,6 @@ fn tool_defs() -> Value {
             "name": "reproit_baseline",
             "description": "The visual-regression oracle: diff the current capture against the committed baseline (per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. `update=true` accepts the current capture as the new baseline (use after an intended UI change). Was `check --visual`.",
             "inputSchema": { "type": "object", "properties": {
-                "repro": { "type": "string", "description": "Repro id/alias whose capture to diff (optional; the visual config selects what is compared)." },
                 "update": { "type": "boolean", "description": "Accept the current capture as the new baseline." }
             } }
         },
@@ -425,9 +424,9 @@ fn build_argv(
         }
         "reproit_baseline" => {
             argv.push("baseline".into());
-            if let Some(r) = s("repro") {
-                argv.push(r);
-            }
+            // No positional `repro`: the CLI `baseline` command takes only
+            // `--update` (the visual config selects what is compared). Pushing a
+            // repro arg made clap reject the call with "unexpected argument".
             if b("update") {
                 argv.push("--update".into());
             }

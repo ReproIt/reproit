@@ -414,13 +414,15 @@ pub async fn reproduce(
     }
 
     if !run {
-        println!("\nRun it with:  reproit check {journey} --warm   (or pass --run here)");
+        println!("\nRun it with:  reproit check {journey}   (or pass --run here)");
         return Ok(());
     }
     println!("\nRunning the replay ({journey})...");
     let exe = std::env::current_exe()?;
+    // `check` has no `--warm` flag (that was an invalid invocation clap rejected,
+    // so `triage --run` always failed to get a verdict); a plain check replays it.
     let out = std::process::Command::new(exe)
-        .args(["check", journey, "--warm", "--json"])
+        .args(["check", journey, "--json"])
         .output()
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);
