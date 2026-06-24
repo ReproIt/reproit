@@ -1029,6 +1029,29 @@ async function snapshot(page, valueNodeSelectors) {
       if (!parentReg.has(par)) parentReg.set(par, parentIdx++);
       return parentReg.get(par);
     };
+    // Owning-container id for a choice option: the CLOSEST ARIA choice container
+    // (tablist / radiogroup / menu(bar)) or a <fieldset>, registered to a stable
+    // id in DOM order. This scopes the choice-anomaly oracle per component so two
+    // INDEPENDENT tablists/radiogroups on one page are not compared as one (which
+    // produced false outliers). A radio with no container still groups by its
+    // `name`. null when nothing owns it (the oracle then falls back to bare role).
+    const choiceReg = new Map();
+    let choiceIdx = 0;
+    const choiceContainerOf = (el) => {
+      const cont = el.closest && el.closest(
+        '[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset'
+      );
+      if (cont) {
+        if (!choiceReg.has(cont)) choiceReg.set(cont, 'c' + choiceIdx++);
+        return choiceReg.get(cont);
+      }
+      const tag = el.tagName ? el.tagName.toLowerCase() : '';
+      if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') {
+        const nm = el.getAttribute('name');
+        if (nm) return 'name:' + nm;
+      }
+      return null;
+    };
     const selectedState = (el) => {
       const a = (n) => (el.getAttribute(n) || '').toLowerCase();
       if (a('aria-pressed') === 'true' || a('aria-selected') === 'true') return true;
@@ -1367,6 +1390,7 @@ async function snapshot(page, valueNodeSelectors) {
             unlabeled: !accessibleName(el),
             external: isExternalLink(el),
             grp: groupOf(el),
+            cgrp: choiceContainerOf(el),
             selected: selectedState(el),
           });
         } else if (reachable(el) && pointerOperable(el)) {
@@ -1408,7 +1432,7 @@ async function snapshot(page, valueNodeSelectors) {
       perRole[tn.role] = idx + 1;
       if (tn.unlabeled) unlabeled++;
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external, grp: tn.grp, selected: !!tn.selected };
+      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected };
     });
     // Append the keyed pointer-operable extras (keyed selector only; no role
     // index, so nothing above shifts). Dedup against selectors already present
@@ -1422,15 +1446,31 @@ async function snapshot(page, valueNodeSelectors) {
       tappables.push({ sel, role: tn.role, index: -1, key: tn.key, label: tn.label });
     }
 
-    // Anchor: route/path of the current screen.
+    // Anchor: route of the current screen = path + SPA hash route, but NOT the
+    // query string. Hash routers (the common SPA case) put the real route in
+    // location.hash (#/a vs #/b on one pathname), so the hash MUST be in the
+    // signature or distinct screens collapse into one state. The query string
+    // (location.search, plus any ?... embedded in the hash) is deliberately
+    // EXCLUDED: utm/session/token params are volatile and would explode the
+    // state space, and a screen that genuinely differs by query still differs
+    // structurally (the DOM tree), so it stays distinct on its own.
     let anchor = null;
-    try { if (location && location.pathname) anchor = location.pathname; } catch (e) {}
+    let path = null;
+    try {
+      if (location && location.pathname) {
+        path = location.pathname;
+        let hash = location.hash || '';
+        const q = hash.indexOf('?');
+        if (q >= 0) hash = hash.slice(0, q);
+        anchor = location.pathname + hash;
+      }
+    } catch (e) {}
 
     // Layer-1 content fingerprint source: sorted (stable-key, trimmed text) over
     // value + keyed-text nodes. Sorted here so it is order-independent.
     textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
 
-    return { tree, anchor, labels: [...new Set(labels)], tappables, unlabeled, textNodes };
+    return { tree, anchor, path, labels: [...new Set(labels)], tappables, unlabeled, textNodes };
   }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [] });
 
   // Hash the canonical Node tree with the host-pure canonical signature, exactly
@@ -2812,22 +2852,26 @@ const CHOICE_OUTLIER_RATIO = 3; // outlier magnitude >= 3x the sibling median ..
 const CHOICE_MIN_MAGNITUDE = 24; // ...and at least this many px of global move.
 
 // Group the snapshot's choice-role tappables into mutually-exclusive option sets
-// (>= 2 options). Keyed by role; a page with two separate tablists merges into
-// one group, which is acceptable for v1 (the outlier test still holds).
+// (>= 2 options). Scoped by the OWNING choice container (cgrp), so two separate
+// tablists/radiogroups on one page are distinct components, not one merged group
+// (comparing across independent components produced false outliers). When no
+// container owns the options, the role alone is the key (the prior v1 behavior).
 function detectChoiceGroups(tappables) {
   const groups = [];
   const claimed = new Set();
-  // 1) ARIA choice roles: a set of tab/radio/menuitemradio options.
+  // 1) ARIA choice roles: a set of tab/radio/menuitemradio options, partitioned
+  // by `role|owning-container` so independent groups never merge.
   const byRole = new Map();
   for (const t of tappables) {
     if (CHOICE_ROLES.has(t.role)) {
-      if (!byRole.has(t.role)) byRole.set(t.role, []);
-      byRole.get(t.role).push(t);
+      const key = t.role + '|' + (t.cgrp != null ? t.cgrp : 'role');
+      if (!byRole.has(key)) byRole.set(key, []);
+      byRole.get(key).push(t);
     }
   }
-  for (const [role, opts] of byRole) {
+  for (const opts of byRole.values()) {
     if (opts.length >= 2) {
-      groups.push({ role, opts });
+      groups.push({ role: opts[0].role, opts });
       for (const o of opts) claimed.add(o.sel);
     }
   }
@@ -3221,26 +3265,24 @@ async function main() {
           }),
           unlabeled: snap.unlabeled,
         }));
-        // Operability/accessibility ground truth for this newly-seen state,
-        // keyed by the SAME sig. Emitted once per state (alongside the
-        // EXPLORE:STATE line). The keyboard-activation probe inside can mutate
-        // the DOM, so it runs AFTER the snapshot was captured and the state was
-        // recorded; the next action then drives the live (possibly mutated) DOM.
-        await emitGroundtruth(page, gtCdp, snap.sig);
-        // DOM/layout overflow for this newly-seen state, keyed by the SAME sig so
-        // the oracle attributes the finding to this node. Pure structural
-        // measurement (scrollWidth/clientWidth, child-vs-parent content box,
-        // offsetWidth<scrollWidth), no pixels, so it reproduces on replay. Only
-        // emitted when something actually overflows, so a clean layout stays
-        // silent (no marker, no finding).
+        // The structural oracle scans run on the SAME (un-mutated) DOM the
+        // snapshot captured, and crucially BEFORE emitGroundtruth -- whose
+        // keyboard-activation probe mutates the DOM and whose framebuffer probe
+        // (REPROIT_PROBE=1) RELOADS the page to the start URL. Running them after
+        // would scan the reloaded/mutated page yet attribute findings to THIS
+        // sig, so a probe run mis-keyed every overflow/content-bug to the wrong
+        // state. Order is therefore: scans first, ground-truth (mutating) last.
+        //
+        // DOM/layout overflow, keyed by the SAME sig so the oracle attributes the
+        // finding to this node. Pure structural measurement (scrollWidth/
+        // clientWidth, child-vs-parent content box, offsetWidth<scrollWidth), no
+        // pixels, so it reproduces on replay. Silent when nothing overflows.
         const ovf = await page.evaluate(detectOverflow, OVERFLOW_TOL).catch(() => null);
         if (ovf && ovf.length) {
           log('EXPLORE:OVERFLOW ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: ovf }));
         }
-        // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
-        // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
-        // emitted when a broken-content artifact is actually rendered, so a clean
-        // app stays silent (no marker, no finding).
+        // CONTENT-BUG, keyed by the SAME sig. Pure DOM/label scan (no pixels, no
+        // timing), so it reproduces on replay. Silent when nothing is broken.
         const cbug = await page.evaluate(detectContentBugs).catch(() => null);
         if (cbug && cbug.length) {
           log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
@@ -3249,11 +3291,20 @@ async function main() {
         // means the LINK is dead -- 404 (not found), 410 (gone), or 5xx (server
         // error). NOT 401/403 (intentional auth gates) or 429 (rate limit), which
         // respond >= 400 but are not broken links -- flagging those was a false
-        // positive. Keyed by the SAME sig + route.
-        const status = snap.anchor ? navStatus[snap.anchor] : undefined;
+        // positive. Looked up by bare PATHNAME (snap.path), not the signature
+        // anchor: a document status is a SERVER concern keyed on the path the
+        // request hit, while the SPA hash (#/route) and query string never reach
+        // the server. Two URLs that differ only by query thus share one status
+        // entry -- a per-query dead route is a known limitation, not distinguished.
+        const status = snap.path ? navStatus[snap.path] : undefined;
         if (typeof status === 'number' && (status === 404 || status === 410 || status >= 500)) {
           log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), status }));
         }
+        // Operability/accessibility ground truth LAST: its keyboard-activation
+        // probe mutates the DOM and its framebuffer probe reloads the page, so it
+        // must run after the snapshot, the state record, AND the scans above. The
+        // next action then drives the live (possibly mutated/reloaded) DOM.
+        await emitGroundtruth(page, gtCdp, snap.sig);
       }
       return snap;
     }
