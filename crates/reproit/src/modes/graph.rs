@@ -190,21 +190,29 @@ const DATA = /*DATA*/;
 document.getElementById('title').textContent = DATA.app + ' app map';
 document.getElementById('meta').textContent =
   'v' + DATA.version + ' / ' + DATA.nodes.length + ' states / ' + DATA.edges.length + ' transitions';
-const W = innerWidth, H = innerHeight;
+const W = innerWidth || 1200, H = innerHeight || 800;
 const N = DATA.nodes.map((n,i)=>({...n,
   x: W/2 + Math.cos(i/DATA.nodes.length*6.283)*Math.min(W,H)/3.2,
-  y: H/2 + Math.sin(i/DATA.nodes.length*6.283)*Math.min(W,H)/3.2, vx:0, vy:0}));
+  y: H/2 + Math.sin(i/DATA.nodes.length*6.283)*Math.min(W,H)/3.2}));
 const byId = Object.fromEntries(N.map(n=>[n.id,n]));
 const E = DATA.edges.filter(e=>byId[e.from]&&byId[e.to]);
-for (let it=0; it<400; it++) {           // tiny force sim
+// Stable Fruchterman-Reingold layout: per step, sum repulsion + spring + a gentle
+// pull to center, then move each node by the CLAMPED, COOLED net force. The old
+// integrator accumulated unbounded velocity (the spring term was quadratic in
+// distance), so on a real graph it exploded to NaN -- and NaN coords render at
+// the SVG origin, piling every node in the top-left corner (the "no map" bug).
+for (let it=0; it<500; it++) {
+  const cool = Math.max(0.02, 1 - it/500);
+  for (const n of N) { n.fx=0; n.fy=0; }
   for (const a of N) for (const b of N) { if (a===b) continue;
-    let dx=a.x-b.x, dy=a.y-b.y, d2=dx*dx+dy*dy+0.01, f=9000/d2;
-    a.vx+=dx*f/Math.sqrt(d2); a.vy+=dy*f/Math.sqrt(d2); }
+    let dx=a.x-b.x, dy=a.y-b.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=24000/(d*d);
+    a.fx+=dx/d*f; a.fy+=dy/d*f; }
   for (const e of E) { const a=byId[e.from], b=byId[e.to];
-    let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)+0.01, f=(d-190)*0.012;
-    a.vx+=dx/d*f*d; a.vy+=dy/d*f*d; b.vx-=dx/d*f*d; b.vy-=dy/d*f*d; }
-  for (const n of N) { n.vx+=(W/2-n.x)*0.002; n.vy+=(H/2-n.y)*0.002;
-    n.x+=n.vx*0.08; n.y+=n.vy*0.08; n.vx*=0.6; n.vy*=0.6; }
+    let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-180)*0.5;
+    a.fx+=dx/d*f; a.fy+=dy/d*f; b.fx-=dx/d*f; b.fy-=dy/d*f; }
+  for (const n of N) { n.fx+=(W/2-n.x)*0.02; n.fy+=(H/2-n.y)*0.02; }
+  for (const n of N) { const sp=Math.sqrt(n.fx*n.fx+n.fy*n.fy)||1, k=Math.min(sp,40)/sp;
+    n.x+=n.fx*k*cool; n.y+=n.fy*k*cool; }
 }
 const view = document.getElementById('view');
 const NS = 'http://www.w3.org/2000/svg';
