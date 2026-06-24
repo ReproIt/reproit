@@ -68,16 +68,18 @@ pub(crate) struct RunObs {
     /// clipped visible text. Pure DOM/label scan, so it re-confirms on replay;
     /// empty for runners/states that render no broken content.
     pub content_bugs: BTreeMap<String, Vec<(String, String, String)>>,
-    /// (from sig, action) -> the coarse blocked-time bucket (ms) of a main-thread
-    /// JANK stall on that transition, from `EXPLORE:JANK` records (the jank
-    /// watchdog). Keyed off the browser's Long Tasks trace, bucketed so timing
-    /// jitter can't flip the verdict; empty unless an action janked.
-    pub janks: BTreeMap<(String, String), i64>,
-    /// (from sig, action) -> the coarse blocked-time bucket (ms) of a main-thread
-    /// HANG/freeze on that transition, from `EXPLORE:HANG` records (the same
-    /// watchdog at a higher floor). A freeze is a no-progress block; empty unless
-    /// an action froze the UI past the hang floor.
-    pub hangs: BTreeMap<(String, String), i64>,
+    /// (from sig, action) -> `(bucket, unit)` of a main-thread JANK stall on that
+    /// transition, from `EXPLORE:JANK` records. `bucket` is the coarse magnitude
+    /// and `unit` names what it measures ("ms" on the web Long-Tasks tier; a runner
+    /// without frame timing may report e.g. "pct" janky frames), so the message
+    /// never claims milliseconds for a non-ms metric. Empty unless an action janked.
+    pub janks: BTreeMap<(String, String), (i64, String)>,
+    /// (from sig, action) -> `(bucket, unit)` of a main-thread HANG/freeze on that
+    /// transition, from `EXPLORE:HANG` records (the same watchdog at a higher
+    /// floor). `unit` is "ms" on the web tier, but e.g. "keypresses" on the TUI
+    /// (a PTY has no frame clock, so the floor is a count of ignored inputs). Empty
+    /// unless an action froze the UI past the hang floor.
+    pub hangs: BTreeMap<(String, String), (i64, String)>,
     /// Choice-anomaly findings, from `EXPLORE:CHOICEBUG` records (the
     /// component-choice differential oracle): one entry per multi-choice
     /// component whose options behave UNIFORMLY except one outlier. Each is
@@ -301,8 +303,9 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 json.get("action").and_then(Value::as_str),
             ) {
                 let bucket = json.get("bucket").and_then(Value::as_i64).unwrap_or(0);
+                let unit = parse_metric_unit(&json);
                 obs.janks
-                    .insert((from.to_string(), action.to_string()), bucket);
+                    .insert((from.to_string(), action.to_string()), (bucket, unit));
             }
         } else if let Some(json) = extract(line, "EXPLORE:HANG ") {
             // A main-thread HANG/freeze on a transition (Long Tasks trace, higher
@@ -312,8 +315,9 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 json.get("action").and_then(Value::as_str),
             ) {
                 let bucket = json.get("bucket").and_then(Value::as_i64).unwrap_or(0);
+                let unit = parse_metric_unit(&json);
                 obs.hangs
-                    .insert((from.to_string(), action.to_string()), bucket);
+                    .insert((from.to_string(), action.to_string()), (bucket, unit));
             }
         } else if let Some(json) = extract(line, "EXPLORE:CHOICEBUG ") {
             // A component-choice outlier: a multi-choice component whose options
@@ -459,6 +463,19 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
             expected: None,
         });
     }
+}
+
+/// The metric unit on a JANK/HANG marker -- what `bucket` measures. Defaults to
+/// "ms" (the web Long-Tasks tier), so a marker without an explicit `unit` keeps
+/// the historical millisecond meaning. A runner whose floor is NOT milliseconds
+/// (the TUI's ignored-keypress count; an RSS-only tier's janky-frame percent)
+/// sets `unit` so the rendered message doesn't claim "ms" for a count/percent.
+fn parse_metric_unit(json: &Value) -> String {
+    json.get("unit")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("ms")
+        .to_string()
 }
 
 pub(crate) fn action_str(a: &Action) -> String {

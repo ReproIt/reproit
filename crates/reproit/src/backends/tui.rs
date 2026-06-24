@@ -1647,8 +1647,10 @@ pub fn run() -> Result<()> {
                 // run so a long freeze is one finding.
                 if stuck >= STUCK_FLOOR && !hang_emitted {
                     if let Some((from, action)) = &hang_origin {
+                        // `unit: keypresses` (a PTY has no frame clock), so the Rust
+                        // message renders ">= 14 keypresses", not a bogus ">= 14ms".
                         let payload = serde_json::json!({
-                            "from": from, "action": action, "bucket": STUCK_FLOOR,
+                            "from": from, "action": action, "bucket": STUCK_FLOOR, "unit": "keypresses",
                         });
                         emit(&format!("EXPLORE:HANG {payload}"));
                         hang_emitted = true;

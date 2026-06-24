@@ -46,6 +46,18 @@ pub struct Observations {
     pub sim: bool,
 }
 
+/// Render a jank/hang magnitude with its unit: `>= 16ms` for the millisecond tier,
+/// `>= 14 keypresses` / `>= 30 pct` for non-ms tiers, so a finding never implies
+/// wall-clock time for a count or percentage (the TUI's bucket is ignored
+/// keystrokes, an RSS-only tier's could be janky-frame percent).
+fn metric(bucket: i64, unit: &str) -> String {
+    if unit == "ms" {
+        format!(">= {bucket}ms")
+    } else {
+        format!(">= {bucket} {unit}")
+    }
+}
+
 /// A single invariant finding, shaped like every other finding so the existing
 /// report/shrink path consumes it unchanged.
 pub fn finding(invariant: &str, kind: &str, message: String, sig: Option<&str>) -> Value {
@@ -246,12 +258,13 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
                 }
             }
         }
-        for ((from, action), bucket) in &obs.obs.janks {
+        for ((from, action), (bucket, unit)) in &obs.obs.janks {
             out.push(finding(
                 "no-jank",
                 "PERF",
                 format!(
-                    "transition {from} --{action}--> blocked the main thread >= {bucket}ms (a dropped-frame jank stall; the handler ran a long synchronous task)"
+                    "transition {from} --{action}--> blocked the main thread {} (a dropped-frame jank stall; the handler ran a long synchronous task)",
+                    metric(*bucket, unit)
                 ),
                 Some(from),
             ));
@@ -264,12 +277,13 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // than jank), from the same Long Tasks trace, so it is deterministic and
     // re-confirms on replay. Empty unless an action froze the UI.
     if cfg.no_hang {
-        for ((from, action), bucket) in &obs.obs.hangs {
+        for ((from, action), (bucket, unit)) in &obs.obs.hangs {
             out.push(finding(
                 "no-hang",
                 "HANG",
                 format!(
-                    "transition {from} --{action}--> froze the main thread >= {bucket}ms with no progress (a synchronous hang: the app stopped responding for the duration)"
+                    "transition {from} --{action}--> froze the main thread {} with no progress (a synchronous hang: the app stopped responding for the duration)",
+                    metric(*bucket, unit)
                 ),
                 Some(from),
             ));
@@ -434,12 +448,18 @@ fn dead_ends(obs: &RunObs) -> Vec<String> {
         // so a genuine no-action sink stays flagged.
         let offered = obs.tappables.get(sig).copied().unwrap_or(0);
         if offered > 0 {
-            let tapped = obs
+            // Count any FORWARD action tried from this state, not just `tap:`. The
+            // forward-action verb differs by platform -- web/native a11y tap and
+            // type, the TUI presses keys (`key:Down`/`key:Enter`) -- so keying off
+            // `tap:` alone made every TUI state look like all its offered elements
+            // were untried (suppression always fired, real TUI sinks never flagged).
+            // `!= "back"` is the platform-neutral "the walk tried something here".
+            let tried = obs
                 .edges
                 .iter()
-                .filter(|(from, action, _)| from == sig && action.starts_with("tap:"))
+                .filter(|(from, action, _)| from == sig && *action != "back")
                 .count();
-            if offered > tapped {
+            if offered > tried {
                 continue;
             }
         } else if let Some(route) = obs.routes.get(sig) {
@@ -1130,12 +1150,13 @@ mod tests {
         let mut o = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
         o.obs.janks.insert(
             ("home".to_string(), "tap:key:testid:recompute".to_string()),
-            200,
+            (200, "ms".to_string()),
         );
         let f = evaluate(&o, &InvariantsCfg::default());
         let v = f.iter().find(|x| x["invariant"] == "no-jank").unwrap();
         assert_eq!(v["kind"], "PERF");
         assert_eq!(v["sig"], "home");
+        assert!(v["message"].as_str().unwrap().contains(">= 200ms"));
         // `recheck_jank` re-confirms by FROM-sig.
         assert_eq!(recheck_jank(&o.obs, "home"), GraphRecheck::StillViolating);
         // Disabling no-jank suppresses it.
@@ -1151,19 +1172,36 @@ mod tests {
         let mut o = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
         o.obs.hangs.insert(
             ("home".to_string(), "tap:key:testid:export".to_string()),
-            2000,
+            (2000, "ms".to_string()),
         );
         let f = evaluate(&o, &InvariantsCfg::default());
         let v = f.iter().find(|x| x["invariant"] == "no-hang").unwrap();
         assert_eq!(v["kind"], "HANG");
         assert_eq!(v["sig"], "home");
         assert!(v["message"].as_str().unwrap().contains("froze"));
+        assert!(v["message"].as_str().unwrap().contains(">= 2000ms"));
         assert_eq!(recheck_hang(&o.obs, "home"), GraphRecheck::StillViolating);
         let cfg = InvariantsCfg {
             no_hang: false,
             ..Default::default()
         };
         assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-hang".to_string()));
+    }
+
+    #[test]
+    fn hang_message_renders_a_non_ms_unit_without_claiming_milliseconds() {
+        // The TUI hang bucket is a count of ignored keypresses, not wall-clock ms;
+        // the message must say so ("14 keypresses"), not "14ms".
+        let mut o = obs_with(&[("home", &["Go"], 0)], &[], Some("home"));
+        o.obs.hangs.insert(
+            ("home".to_string(), "key:Enter".to_string()),
+            (14, "keypresses".to_string()),
+        );
+        let f = evaluate(&o, &InvariantsCfg::default());
+        let v = f.iter().find(|x| x["invariant"] == "no-hang").unwrap();
+        let msg = v["message"].as_str().unwrap();
+        assert!(msg.contains(">= 14 keypresses"), "got: {msg}");
+        assert!(!msg.contains("14ms"), "must not claim ms: {msg}");
     }
 
     #[test]
@@ -1275,6 +1313,32 @@ mod tests {
         assert!(f
             .iter()
             .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "trap"));
+    }
+
+    #[test]
+    fn tui_exhausted_sink_counts_key_actions_as_tried() {
+        // A TUI sink (forward actions are `key:*`, not `tap:`) that offered 2
+        // elements and tried both via key presses, self-looping with no forward
+        // exit, IS a genuine dead end. The old `tap:`-only count read the key
+        // presses as untried (offered > tapped), so it suppressed every TUI sink
+        // and the oracle never fired on the TUI despite being marked covered.
+        let mut o = obs_with(
+            &[("home", &["Home"], 0), ("trap", &["Stuck"], 0)],
+            &[
+                ("home", "key:Enter", "trap"),
+                ("trap", "key:Down", "trap"),
+                ("trap", "key:Enter", "trap"),
+            ],
+            Some("home"),
+        );
+        o.obs.tappables.insert("trap".into(), 2); // offered 2, tried 2 keys -> exhausted
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(
+            f.iter()
+                .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "trap"),
+            "a TUI sink with all key actions tried must flag: {:?}",
+            kinds(&f)
+        );
     }
 
     #[test]
