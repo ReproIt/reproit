@@ -147,6 +147,13 @@ pub struct InvariantsCfg {
     /// measurement from the web runner (`EXPLORE:OVERFLOW`).
     #[serde(default = "default_true")]
     pub no_overflow: bool,
+    /// Minimum overflow magnitude (px) for a `no-overflow` finding to count. The
+    /// web runner already drops sub-pixel noise (OVERFLOW_TOL); this is a USER
+    /// floor on top of it, so a team can ignore minor clips/spills and report only
+    /// overflows they care about (set higher for "dramatic only"). Default 2 keeps
+    /// every measured overflow, matching the prior behavior.
+    #[serde(default = "default_overflow_min_px")]
+    pub overflow_min_px: i64,
     /// Broken rendered content: a label showing a stringify/template artifact
     /// (`[object Object]`, a bare `undefined`/`null`/`NaN`, or an unrendered
     /// `{{...}}`/`${...}` placeholder). Deterministic DOM/label scan from the web
@@ -186,6 +193,7 @@ impl Default for InvariantsCfg {
             no_leak: true,
             rerender_flicker: true,
             no_overflow: true,
+            overflow_min_px: default_overflow_min_px(),
             no_broken_render: true,
             no_hang: true,
             no_choice_anomaly: true,
@@ -257,6 +265,9 @@ where
     }
 }
 
+fn default_overflow_min_px() -> i64 {
+    2
+}
 fn default_jank_pct_max() -> f64 {
     25.0
 }

@@ -153,6 +153,14 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // so this reports nothing there.
     if cfg.no_overflow {
         for (sig, items) in &obs.obs.overflows {
+            // USER-facing reporting floor: only overflows at/above the configured
+            // px count, so a team can ignore minor clips/spills (the runner's
+            // OVERFLOW_TOL already dropped sub-pixel noise; this is the threshold
+            // for "worth flagging" on top). Default 2 keeps everything.
+            let items: Vec<_> = items
+                .iter()
+                .filter(|(_, _, by)| *by >= cfg.overflow_min_px)
+                .collect();
             if items.is_empty() {
                 continue;
             }
@@ -885,6 +893,31 @@ mod tests {
             ..Default::default()
         };
         assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-overflow".to_string()));
+    }
+
+    #[test]
+    fn overflow_min_px_floors_minor_overflows() {
+        // Default floor (2): a 12px overflow counts.
+        let mut small = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
+        small.obs.overflows.insert(
+            "a".to_string(),
+            vec![("tag:span".to_string(), "clip".to_string(), 12)],
+        );
+        assert!(kinds(&evaluate(&small, &InvariantsCfg::default()))
+            .contains(&"no-overflow".to_string()));
+        // A user floor of 40px now IGNORES that 12px overflow -> silent.
+        let floor40 = InvariantsCfg {
+            overflow_min_px: 40,
+            ..Default::default()
+        };
+        assert!(!kinds(&evaluate(&small, &floor40)).contains(&"no-overflow".to_string()));
+        // ...but a 100px overflow still fires at floor 40.
+        let mut big = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
+        big.obs.overflows.insert(
+            "a".to_string(),
+            vec![("tag:div".to_string(), "spill".to_string(), 100)],
+        );
+        assert!(kinds(&evaluate(&big, &floor40)).contains(&"no-overflow".to_string()));
     }
 
     #[test]

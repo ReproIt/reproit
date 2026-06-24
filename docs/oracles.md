@@ -41,6 +41,12 @@ choice's effect is >= 3x the sibling median and above a floor, so uniform choice
 produce nothing. Web-only (it needs the live layout); the component is selected
 by accessible label so below-fold pickers are scrolled into view and exercised.
 
+The **overflow** oracle has a user-configurable reporting floor,
+`invariants.overflowMinPx` (default 2px). The runner already drops sub-pixel
+measurement noise; this is the threshold for "worth flagging" on top of it, so a
+team can set, say, 40 to report only dramatic overflows and ignore minor
+clips/spills. It is exact-pixel, not a magic heuristic.
+
 ## Coverage matrix
 
 `Y` = fires. `Y*` = fires, but coarse (session/process-level, not per-transition):
