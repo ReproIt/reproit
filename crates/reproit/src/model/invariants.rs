@@ -802,6 +802,7 @@ mod tests {
                 states: s,
                 routes: Default::default(),
                 tappables: Default::default(),
+                unlabeled_els: Default::default(),
                 edges: edges
                     .iter()
                     .map(|(f, a, t)| (f.to_string(), a.to_string(), t.to_string()))

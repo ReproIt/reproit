@@ -1463,7 +1463,7 @@ async function snapshot(page, valueNodeSelectors) {
       perRole[tn.role] = idx + 1;
       if (tn.unlabeled) unlabeled++;
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected };
+      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected, unlabeled: !!tn.unlabeled };
     });
     // Append the keyed pointer-operable extras (keyed selector only; no role
     // index, so nothing above shifts). Dedup against selectors already present
@@ -3333,6 +3333,11 @@ async function main() {
           elements: snap.tappables.slice(0, 24).map((e) => {
             const o = { sel: e.sel, role: e.role, label: e.label };
             if (!e.key) o.nokey = true;
+            // Flag WHICH elements are unlabeled (not just the count), so the
+            // a11y oracle can identify a persistent-chrome control (e.g. a header
+            // logo with the same selector on every screen) and report it once
+            // instead of once per page.
+            if (e.unlabeled) o.unlabeled = true;
             return o;
           }),
           unlabeled: snap.unlabeled,

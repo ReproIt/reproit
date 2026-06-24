@@ -30,6 +30,12 @@ pub(crate) struct RunObs {
     /// the walk simply never finished exploring (it offered tappables it never
     /// tapped). 0 when the runner does not report elements.
     pub tappables: BTreeMap<String, usize>,
+    /// sig -> the selectors of the UNLABELED tappables on that state (the
+    /// `EXPLORE:STATE` elements flagged `unlabeled`). Lets the a11y oracle name
+    /// WHICH control lacks a label and recognize a persistent-chrome control (the
+    /// same selector unlabeled on many screens) as one issue, not one per page.
+    /// Empty for runners that don't flag per-element labeling.
+    pub unlabeled_els: BTreeMap<String, Vec<String>>,
     /// (from sig, action string e.g. "tap:X"/"back", to sig)
     pub edges: Vec<(String, String, String)>,
     /// First state observed: the app's start state.
@@ -154,6 +160,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         states: BTreeMap::new(),
         routes: BTreeMap::new(),
         tappables: BTreeMap::new(),
+        unlabeled_els: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
         escapable_routes: std::collections::BTreeSet::new(),
@@ -189,6 +196,19 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 // Tappable count: how many actionable elements the state offered.
                 if let Some(els) = json.get("elements").and_then(Value::as_array) {
                     obs.tappables.entry(sig.to_string()).or_insert(els.len());
+                    // Selectors of the UNLABELED tappables (per-element flag), so
+                    // the a11y oracle can name the control and dedup persistent
+                    // chrome across screens.
+                    let unlabeled_sels: Vec<String> = els
+                        .iter()
+                        .filter(|e| e.get("unlabeled").and_then(Value::as_bool).unwrap_or(false))
+                        .filter_map(|e| e.get("sel").and_then(Value::as_str).map(String::from))
+                        .collect();
+                    if !unlabeled_sels.is_empty() {
+                        obs.unlabeled_els
+                            .entry(sig.to_string())
+                            .or_insert(unlabeled_sels);
+                    }
                 }
                 obs.states.entry(sig.to_string()).or_insert_with(|| {
                     (

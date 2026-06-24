@@ -245,14 +245,56 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
         String,
         std::collections::BTreeSet<(String, String)>,
     > = std::collections::BTreeMap::new();
+    // Persistent-chrome dedup for a11y: an unlabeled control with the SAME selector
+    // on several screens (a header logo, a nav icon) is ONE issue, not one per
+    // page. Map each unlabeled selector to the distinct routes it is unlabeled on.
+    let route_of = |sig: &str| {
+        obs.routes
+            .get(sig)
+            .cloned()
+            .unwrap_or_else(|| sig.to_string())
+    };
+    let mut a11y_sel_routes: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for (sig, sels) in &obs.unlabeled_els {
+        let route = route_of(sig);
+        for sel in sels {
+            a11y_sel_routes
+                .entry(sel.clone())
+                .or_default()
+                .insert(route.clone());
+        }
+    }
+    // The synthetic "screen" persistent-chrome findings group under; sorts before
+    // any URL path so site-wide issues lead the report.
+    const SITE_WIDE: &str = "(all screens — persistent chrome)";
     for f in &findings {
         let oracle = crate::crosscut::classify(f).as_str().to_string();
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("-");
-        let route = obs
-            .routes
-            .get(sig)
-            .cloned()
-            .unwrap_or_else(|| sig.to_string());
+        let route = route_of(sig);
+        // a11y: name the specific unlabeled control(s) and collapse the ones that
+        // recur across screens, instead of repeating a bare "1 unlabeled tappable".
+        if oracle == "a11y" {
+            if let Some(sels) = obs.unlabeled_els.get(sig) {
+                for sel in sels {
+                    let n = a11y_sel_routes.get(sel).map(|r| r.len()).unwrap_or(1);
+                    if n > 1 {
+                        by_screen.entry(SITE_WIDE.to_string()).or_default().insert((
+                            oracle.clone(),
+                            format!("unlabeled control {sel} (on {n} screens)"),
+                        ));
+                    } else {
+                        by_screen
+                            .entry(route.clone())
+                            .or_default()
+                            .insert((oracle.clone(), format!("unlabeled control {sel}")));
+                    }
+                }
+                continue;
+            }
+        }
         let detail = sweep_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
         by_screen.entry(route).or_default().insert((oracle, detail));
     }
