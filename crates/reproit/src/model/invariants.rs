@@ -301,7 +301,7 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // but are not broken links. Keyed off the HTTP status, so it is structural and
     // locale-invariant. Empty unless a visited route came back broken.
     if cfg.no_broken_route {
-        for (sig, route, status) in &obs.obs.broken_routes {
+        for (sig, route, status, _from) in &obs.obs.broken_routes {
             out.push(finding(
                 "no-broken-route",
                 "BROKENROUTE",
@@ -1096,9 +1096,12 @@ mod tests {
         // A visited route whose document responded >= 400 is a dead route the app
         // linked to. It fires once per broken route; a clean run stays silent.
         let mut o = obs_with(&[("dl", &["Page not found"], 0)], &[], Some("dl"));
-        o.obs
-            .broken_routes
-            .push(("dl".to_string(), "/download".to_string(), 404));
+        o.obs.broken_routes.push((
+            "dl".to_string(),
+            "/download".to_string(),
+            404,
+            Some("home".to_string()),
+        ));
         let f = evaluate(&o, &InvariantsCfg::default());
         let v = f
             .iter()

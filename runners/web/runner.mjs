@@ -3302,6 +3302,13 @@ async function main() {
     const inputs = loadInputs(fuzz);
     if (fuzz.seed) log(`JOURNEY[a] step: fuzz seed=${fuzz.seed}`);
 
+    // The state + action that triggered the CURRENT navigation, so a broken-route
+    // landed on by tapping a link is attributed to the exact SOURCE page and link
+    // (not reverse-matched by destination, which is arbitrary when several pages
+    // link to the same dead route). Set right before each navigating tap; null for
+    // the initial load (the start URL has no in-app source).
+    let lastNav = null;
+
     async function observe() {
       const snap = await snapshot(page, valueNodeSelectors);
       snap.sig = effectiveSig(snap);
@@ -3363,7 +3370,13 @@ async function main() {
         // entry -- a per-query dead route is a known limitation, not distinguished.
         const status = snap.path ? navStatus[snap.path] : undefined;
         if (typeof status === 'number' && (status === 404 || status === 410 || status >= 500)) {
-          log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), status }));
+          log('EXPLORE:BROKENROUTE ' + JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            status,
+            // Exact source attribution: the page + link that led here.
+            ...(lastNav ? { from: lastNav.from, action: lastNav.action } : {}),
+          }));
         }
         // Operability/accessibility ground truth LAST: its keyboard-activation
         // probe mutates the DOM and its framebuffer probe reloads the page, so it
@@ -3626,6 +3639,9 @@ async function main() {
     triedEdges.add(current.sig + '|tap:' + sel);
     const before = current.sig;
     const beforeContent = current.content;
+    // Remember the source page + link before this (possibly navigating) tap, so a
+    // broken-route landed on next is attributed to exactly here, not reverse-matched.
+    lastNav = { from: before, action: 'tap:' + sel };
     await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
     await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
     const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames

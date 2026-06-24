@@ -395,11 +395,21 @@ async fn record_sweep_clips(
                 json!({ "replay": [], "highlight": oracle, "gotoUrl": goto })
             }
             "broken-route" => {
-                let Some(src) = obs
-                    .edges
+                // Prefer the EXACT source the runner recorded on the marker (the
+                // page + link that led to the dead route), so the clip lands on the
+                // right page when several link to the same dead URL. Fall back to a
+                // reverse edge match by destination when `from` wasn't recorded.
+                let recorded = obs
+                    .broken_routes
                     .iter()
-                    .find_map(|(from, _a, to)| (route_of(to) == route).then(|| route_of(from)))
-                else {
+                    .find(|(s, _r, _st, _f)| s == sig)
+                    .and_then(|(_s, _r, _st, from)| from.as_deref())
+                    .map(route_of);
+                let Some(src) = recorded.or_else(|| {
+                    obs.edges
+                        .iter()
+                        .find_map(|(from, _a, to)| (route_of(to) == route).then(|| route_of(from)))
+                }) else {
                     continue;
                 };
                 json!({ "replay": [], "highlight": oracle, "gotoUrl": format!("{origin}{src}"), "linkHref": route })

@@ -89,8 +89,12 @@ pub(crate) struct RunObs {
     /// Broken-route findings, from `EXPLORE:BROKENROUTE` records: a state whose
     /// document responded with a dead-link status (404/410/5xx; the runner
     /// excludes auth-gate 401/403 and rate-limit 429). Each is `(sig, route,
-    /// status)`. Empty unless a visited URL came back broken.
-    pub broken_routes: Vec<(String, String, i64)>,
+    /// status, from)`, where `from` is the SOURCE state sig that linked to the
+    /// dead route (the runner records it at the tap), so the clip attributes the
+    /// dead link to the exact page instead of reverse-matching by destination.
+    /// `from` is None for a route reached without an in-app navigation (start URL).
+    /// Empty unless a visited URL came back broken.
+    pub broken_routes: Vec<(String, String, i64, Option<String>)>,
 }
 
 /// Compute a state's operability gaps from an `EXPLORE:GROUNDTRUTH` element
@@ -338,7 +342,9 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                     .unwrap_or("")
                     .to_string();
                 let status = json.get("status").and_then(Value::as_i64).unwrap_or(0);
-                obs.broken_routes.push((sig.to_string(), route, status));
+                let from = json.get("from").and_then(Value::as_str).map(str::to_string);
+                obs.broken_routes
+                    .push((sig.to_string(), route, status, from));
             }
         }
     }
