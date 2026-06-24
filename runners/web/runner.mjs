@@ -2055,7 +2055,7 @@ async function emitGroundtruth(page, cdp, sig) {
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
 async function tap(page, sel, opts) {
-  const ok = await page.evaluate(({ s, mark }) => {
+  const ok = await page.evaluate(({ s, mark, box, boxColor }) => {
     const visible = (el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return false;
@@ -2088,6 +2088,36 @@ async function tap(page, sel, opts) {
           for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
           el.setAttribute('data-reproit-trigger', '1');
         } catch (_) {}
+      }
+      // PREVIEW (`box`): instead of clicking, highlight the element reproit is
+      // ABOUT to tap, with a human-readable caption, drawn while the page is still
+      // live. So a tap that then navigates / freezes / crashes still shows the
+      // right element and the right name (a frozen page can't be annotated after).
+      if (box) {
+        try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); } catch (_) {}
+        const old = document.getElementById('__reproit_tapbox'); if (old) old.remove();
+        const r = el.getBoundingClientRect();
+        const layer = document.createElement('div');
+        layer.id = '__reproit_tapbox';
+        layer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none';
+        const b = document.createElement('div');
+        const col = boxColor || '#2f6bff';
+        b.style.cssText = [
+          'position:absolute', 'top:' + (r.top + window.scrollY - 2) + 'px', 'left:' + (r.left + window.scrollX - 2) + 'px',
+          'width:' + (r.width + 4) + 'px', 'height:' + (r.height + 4) + 'px',
+          'border:3px solid ' + col, 'background:' + col + '20', 'border-radius:4px',
+          'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)',
+        ].join(';');
+        const tag = document.createElement('div');
+        tag.textContent = box;
+        tag.style.cssText = [
+          'position:absolute', 'top:-22px', 'left:-3px', 'background:' + col, 'color:#fff',
+          'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace', 'padding:4px 7px',
+          'border-radius:5px', 'white-space:nowrap', 'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+        ].join(';');
+        b.appendChild(tag); layer.appendChild(b);
+        (document.body || document.documentElement).appendChild(layer);
+        return true;
       }
       el.click();
       return true;
@@ -2209,7 +2239,7 @@ async function tap(page, sel, opts) {
     }
 
     return false;
-  }, { s: sel, mark: !!(opts && opts.mark) }).catch(() => false);
+  }, { s: sel, mark: !!(opts && opts.mark), box: (opts && opts.box) || null, boxColor: (opts && opts.boxColor) || null }).catch(() => false);
   return !!ok;
 }
 
@@ -3312,8 +3342,29 @@ async function main() {
     // repro - the video analogue of the cloud "path to the bug". Only when
     // replaying AND recording, so a normal fuzz hunt is never slowed.
     if (replay && VIDEO_DIR && !act.startsWith('assert:') && !act.startsWith('shoot:')) {
-      await showActionHud(page, act, actions, replay.length).catch(() => {});
-      await page.waitForTimeout(actions >= replay.length - 1 ? 1600 : 950);
+      const isLast = actions >= replay.length - 1;
+      if (act.startsWith('tap:')) {
+        // Highlight the element reproit is ABOUT to tap, with its human-readable
+        // name (not `role:link#7`), drawn while the page is still live. For the
+        // final trigger of a sequence-bug clip (hang/crash/jank) it is the bug
+        // itself, so box it RED with the outcome; other taps are BLUE "here's what
+        // I clicked". Drawing pre-tap means a tap that navigates/freezes still
+        // shows the right element (a frozen page can't be annotated afterward).
+        const sel = act.slice('tap:'.length);
+        const target = current.tappables.find((e) => e.sel === sel);
+        let name = (target && target.label && String(target.label).trim()) || sel;
+        if (name.length > 36) name = name.slice(0, 35) + '…';
+        const o = String(fuzz.highlight || '');
+        const trigger = isLast && /hang|jank|exception|crash/.test(o);
+        const outcome = /hang/.test(o) ? '  → froze' : /jank/.test(o) ? '  → janked' : /exception|crash/.test(o) ? '  → crashed' : '';
+        await tap(page, sel, {
+          box: 'tap  ' + name + (trigger ? outcome : ''),
+          boxColor: trigger ? '#e21f1f' : '#2f6bff',
+        }).catch(() => {});
+      } else {
+        await showActionHud(page, act, actions, replay.length).catch(() => {});
+      }
+      await page.waitForTimeout(isLast ? 1600 : 950);
     }
     if (act.startsWith('shoot:')) {
       // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
@@ -3461,6 +3512,25 @@ async function main() {
     // Replays settle longer than the fuzz walk (see the type branch): a
     // deterministic crash must have time to throw + flush `pageerror` under load.
     await page.waitForTimeout(replay ? 1100 : 700);
+    // SEQUENCE-BUG clip (hang/crash/jank), FINAL action: this tap IS the trigger
+    // and the page may now be frozen/busy. The churn + observe below each do a
+    // page.evaluate, which BLOCKS on a busy main thread for ~30s -- that is what
+    // made a hang clip ~80s long. So for a clip we skip them and detect the bug by
+    // RESPONSIVENESS (a hang's own definition: the page stops responding), which
+    // is fast AND faithful (it really re-fired), not a timeout that gives up.
+    if (recording && replay && actions >= replay.length - 1
+        && /hang|jank|exception|crash/.test(String(fuzz.highlight || ''))) {
+      if (tapPix) await tapPix.stop();
+      if (/hang|jank/.test(String(fuzz.highlight))) {
+        const responsive = await Promise.race([
+          page.evaluate(() => true).then(() => true, () => true),
+          new Promise((r) => setTimeout(() => r(false), 2500)),
+        ]);
+        if (!responsive) lastTriggerLabel = 'froze'; // unresponsive = the hang re-fired
+      }
+      // crash: the pageerror handler already bumped replayErrorCount.
+      break; // end the replay; the end-of-replay block emits FINDING:BOXED + holds
+    }
     // ORIGIN GUARD: a tap on an outbound link (footer "View on GitHub", a
     // social link) navigates off the app-under-test's origin. That page is NOT
     // a state of the app; recording it would make the whole map about the
@@ -3534,13 +3604,20 @@ async function main() {
           }
         } catch (_) { /* ignore */ }
         log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew }));
+      } else if (/hang|jank|exception|crash/.test(String(fuzz.highlight || ''))) {
+        // SEQUENCE-BUG clip (hang/crash/jank): the trigger was already boxed RED
+        // PRE-tap (while the page was live), so we do NOT draw on the now-frozen/
+        // broken page -- that is what made the clip wait ~80s for the freeze to
+        // release. The trust gate is whether the bug ACTUALLY RE-FIRED on replay
+        // (a real re-hang / re-crash), not whether a box drew. Faithful or dropped.
+        const fired = lastTriggerLabel === 'froze' || lastTriggerLabel === 'jank'
+          || replayErrorCount > crashAtStart;
+        log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew: !!fired }));
       } else {
-        // FINDING HIGHLIGHT: box what broke on this final state. State oracles
-        // (overflow/content) are re-detected; crash/jank/hang come from the
-        // latest action's captured signals; broken-route boxes the source link.
-        const triggerLabel = replayErrorCount > crashAtStart ? 'crash' : lastTriggerLabel;
+        // STATE-PRESENT (overflow/content/a11y) + broken-route: re-detect on the
+        // live page and box it (the page is not frozen here).
         await drawFindingBoxes(page, {
-          triggerLabel,
+          triggerLabel: lastTriggerLabel,
           flickerKeys: lastFlickerKeys,
           oracle: fuzz.highlight || null,
           linkHref: fuzz.linkHref || null,

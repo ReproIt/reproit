@@ -63,6 +63,24 @@ test("tap(mark) tags the clicked control, and the crash box points at it", async
   });
 });
 
+test('tap box mode draws a labeled highlight on the target WITHOUT clicking', async () => {
+  await withPage(async (page) => {
+    let crashes = 0;
+    page.on('pageerror', () => { crashes++; });
+    // `box` previews the target (pre-tap annotation) instead of clicking it. The
+    // fixture's Submit throws on click, so a click would crash; box mode must not.
+    const ok = await tap(page, 'label:Submit', { box: 'tap  Submit', boxColor: '#e21f1f' });
+    assert.equal(ok, true);
+    await page.waitForTimeout(150);
+    assert.equal(crashes, 0, 'box mode must NOT click the element');
+    const caption = await page.evaluate(() => {
+      const l = document.getElementById('__reproit_tapbox');
+      return l && l.firstChild && l.firstChild.firstChild ? l.firstChild.firstChild.textContent : null;
+    });
+    assert.ok(caption && caption.includes('Submit'), 'expected a labeled tapbox: ' + caption);
+  });
+});
+
 test('only the LAST tapped control keeps the trigger tag', async () => {
   await withPage(async (page) => {
     await tap(page, 'label:Edit', { mark: true });
