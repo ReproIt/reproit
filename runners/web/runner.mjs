@@ -2539,9 +2539,9 @@ async function showActionHud(page, act, step, total) {
 // into view so it lands in the recorded frame. Replay+record only; best-effort,
 // never throws, no effect on the marker stream.
 async function drawFindingBoxes(page, hints = {}) {
-  await page
+  const drew = await page
     .evaluate(
-      async ({ tol, trigger, flickerKeys, oracle }) => {
+      async ({ tol, trigger, flickerKeys, oracle, linkHref, a11y }) => {
         const old = document.getElementById('__reproit_boxes');
         if (old) old.remove();
         const visible = (el) => {
@@ -2649,6 +2649,30 @@ async function drawFindingBoxes(page, hints = {}) {
             if (el && !seenF.has(el) && visible(el)) { seenF.add(el); push(el, 'flicker  rebuilt', 2, 5e5, 'flicker'); }
           }
         }
+        // A11Y: an unlabeled tappable (a control a screen reader cannot name).
+        // Box the first visible clickable with no accessible name.
+        if (a11y) {
+          const nameOf = (el) => (el.getAttribute('aria-label') || el.getAttribute('title') || (el.textContent || '').trim() || el.getAttribute('alt') || '');
+          for (const el of document.querySelectorAll('button,a,[role="button"],[role="link"],input[type="button"],input[type="submit"],[onclick]')) {
+            if (!visible(el) || nameOf(el)) continue;
+            push(el, 'a11y  unlabeled control', 3, 4e5, 'a11y');
+            break;
+          }
+        }
+        // BROKEN-ROUTE: the source link whose navigation target is the dead route.
+        // Box the <a> on THIS (source) page, captioned with its visible text +
+        // href, so the bad link is locatable where a person would click it.
+        if (linkHref) {
+          for (const a of document.querySelectorAll('a[href]')) {
+            if (!visible(a)) continue;
+            let path = '';
+            try { path = new URL(a.getAttribute('href'), location.href).pathname; } catch (e) { continue; }
+            if (path !== linkHref) continue;
+            const txt = (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+            push(a, 'broken link  ' + (txt ? '"' + txt + '" → ' : '') + linkHref, 5, 3e6, 'link');
+            break;
+          }
+        }
         // SCOPE to the replayed finding's oracle: when this clip is one specific
         // repro (a gallery clip), box ONLY that finding's category and show a
         // SINGLE box, so each video is "just that issue", not every problem on the
@@ -2664,6 +2688,8 @@ async function drawFindingBoxes(page, hints = {}) {
           if (o.includes('overflow')) return 'overflow';
           if (o.includes('broken-render') || o.includes('content')) return 'content';
           if (o.includes('flicker')) return 'flicker';
+          if (o.includes('broken-route') || o.includes('not-found')) return 'link';
+          if (o.includes('a11y') || o.includes('label')) return 'a11y';
           if (o.includes('exception') || o.includes('crash') || o.includes('jank') || o.includes('hang') || o.includes('choice')) return 'trigger';
           return null;
         };
@@ -2671,16 +2697,16 @@ async function drawFindingBoxes(page, hints = {}) {
         let cap;
         if (oracle) {
           const wantCat = catOf(oracle);
-          // An oracle with no on-screen element (dead-end, leak, a11y) draws
-          // nothing rather than falling back to boxing unrelated issues.
-          if (!wantCat) return;
+          // An oracle with no on-screen element (dead-end, leak) draws nothing
+          // rather than falling back to boxing unrelated issues.
+          if (!wantCat) return false;
           scoped = hits.filter((h) => h.cat === wantCat);
           cap = 1; // a per-finding clip shows a SINGLE box: just that issue
         } else {
           scoped = hits;
           cap = 6;
         }
-        if (!scoped.length) return;
+        if (!scoped.length) return false;
         // De-dupe nested hits (keep the outer), prioritize, cap.
         scoped.sort((a, b) => b.prio - a.prio || b.mag - a.mag);
         const chosen = [];
@@ -2723,15 +2749,23 @@ async function drawFindingBoxes(page, hints = {}) {
           layer.appendChild(box);
         }
         (document.body || document.documentElement).appendChild(layer);
+        return chosen.length > 0;
       },
       {
         tol: OVERFLOW_TOL,
         trigger: hints.triggerLabel || null,
         flickerKeys: hints.flickerKeys || null,
         oracle: hints.oracle || null,
+        linkHref: hints.linkHref || null,
+        a11y: !!(hints.oracle && (String(hints.oracle).includes('a11y') || String(hints.oracle).includes('label'))),
       }
     )
-    .catch(() => {});
+    .catch(() => false);
+  // TRUST GATE: tell the Rust side whether the box actually drew, so a clip that
+  // did not reproduce the finding on this load is dropped rather than shipped
+  // with a misleading caption.
+  log('FINDING:BOXED ' + JSON.stringify({ oracle: hints.oracle || null, drew: !!drew }));
+  return !!drew;
 }
 
 // ---- COMPONENT-CHOICE differential fuzzing ----
@@ -3030,7 +3064,12 @@ async function main() {
   // Ready marker so the orchestrator starts its clock; matches the Dart
   // explorer's claim line.
   log('JOURNEY claimed role=a');
-  await page.goto(APP_URL, { waitUntil: 'networkidle' }).catch(() => {});
+  // A `sweep --record` clip pins the START url so it lands directly on the
+  // finding's screen (a faithful, hand-followable "open this URL"), instead of
+  // replaying drifty positional taps. Same-origin as APP_URL, so the off-origin
+  // guards still hold. Absent for a normal run -> the app's start URL.
+  const START_URL = loadFuzz().gotoUrl || APP_URL;
+  await page.goto(START_URL, { waitUntil: 'networkidle' }).catch(() => {});
   await page.waitForTimeout(800);
 
   // Layer-3 opt-in value-node selectors from reproit.yaml (empty if none).
@@ -3473,6 +3512,9 @@ async function main() {
         triggerLabel,
         flickerKeys: lastFlickerKeys,
         oracle: fuzz.highlight || null,
+        // broken-route: the dead route's path, so the box lands on the SOURCE
+        // link (the <a href=...> that points there) on this page.
+        linkHref: fuzz.linkHref || null,
       }).catch(() => {});
       await page.waitForTimeout(2200);
     }

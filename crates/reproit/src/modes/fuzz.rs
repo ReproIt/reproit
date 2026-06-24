@@ -293,60 +293,81 @@ async fn record_sweep_clips(
         .unwrap_or_else(|| root.join(".reproit/sweep-clips"));
     let _ = std::fs::create_dir_all(&out);
 
-    let mut best: std::collections::BTreeMap<(String, String), (Vec<String>, String)> =
+    // Clips navigate by REAL URL (a faithful, hand-followable "open this URL"),
+    // not by replaying drifty positional taps, so they need the app's origin.
+    let Some(origin) = cfg.app.url.as_deref().and_then(url_origin) else {
+        say(
+            json,
+            "\nsweep --record: clips need a web URL target; skipped.".to_string(),
+        );
+        return Vec::new();
+    };
+    let route_of = |sig: &str| {
+        obs.routes
+            .get(sig)
+            .cloned()
+            .unwrap_or_else(|| sig.to_string())
+    };
+
+    // One clip per (route, oracle) for the navigate-and-box findings. overflow /
+    // content / a11y land on the screen itself; broken-route lands on the SOURCE
+    // page (the edge that reached the dead route) and boxes the offending link.
+    let mut plans: std::collections::BTreeMap<(String, String), (String, Option<String>)> =
         std::collections::BTreeMap::new();
     for f in findings {
         let oracle = crate::crosscut::classify(f).as_str().to_string();
-        if !matches!(oracle.as_str(), "overflow" | "content-bug") {
-            continue;
-        }
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
-        let route = obs
-            .routes
-            .get(sig)
-            .cloned()
-            .unwrap_or_else(|| sig.to_string());
-        let Some(path) = path_to_route(obs, &route) else {
-            continue;
+        let route = route_of(sig);
+        let (goto_route, link_href) = match oracle.as_str() {
+            "overflow" | "content-bug" | "a11y" => (route.clone(), None),
+            "broken-route" => {
+                // Land on the SOURCE page; box the link whose href is the dead
+                // route. Skip if no edge reached it (no source link to point at).
+                let Some(src) = obs
+                    .edges
+                    .iter()
+                    .find_map(|(from, _a, to)| (route_of(to) == route).then(|| route_of(from)))
+                else {
+                    continue;
+                };
+                (src, Some(route.clone()))
+            }
+            _ => continue, // sequence bugs (choice/hang/crash/jank) are stage 4
         };
-        let key = (route.clone(), oracle);
-        let shorter = best
-            .get(&key)
-            .map(|(p, _)| path.len() < p.len())
-            .unwrap_or(true);
-        if shorter {
-            best.insert(key, (path, route));
-        }
+        plans
+            .entry((route, oracle))
+            .or_insert((format!("{origin}{goto_route}"), link_href));
     }
 
-    if best.is_empty() {
+    if plans.is_empty() {
         say(
             json,
-            "\nsweep --record: no boxable findings to clip (overflow/content only; \
-             a11y/choice/dead-end/leak have no on-screen box)."
-                .to_string(),
+            "\nsweep --record: no navigate-and-box findings to clip on this run.".to_string(),
         );
         return Vec::new();
     }
     say(
         json,
         format!(
-            "\nsweep --record: recording {} clip(s) to {}...",
-            best.len(),
+            "\nsweep --record: recording up to {} clip(s) to {}...",
+            plans.len(),
             out.display()
         ),
     );
     let mut clips = Vec::new();
-    for ((route, oracle), (path, _)) in &best {
-        // The runner records video whenever it is fed a replay; an empty path
-        // just lands on the start screen. `highlight` scopes the box to this
-        // finding's category (a single box, just its issue).
-        let config = json!({ "replay": path, "highlight": oracle });
+    for ((route, oracle), (goto_url, link_href)) in &plans {
+        // Empty replay + a pinned `gotoUrl`: the runner loads that exact URL,
+        // re-detects the finding, and draws the box. `highlight` scopes it to one
+        // box; `linkHref` (broken-route) boxes the source link by its href.
+        let mut config = json!({ "replay": [], "highlight": oracle, "gotoUrl": goto_url });
+        if let Some(h) = link_href {
+            config["linkHref"] = json!(h);
+        }
         if std::fs::write(cfg_path, config.to_string()).is_err() {
             continue;
         }
         let label = format!("{}__{oracle}", sanitize_route(route));
-        say(json, format!("  {label} ({} action(s))...", path.len()));
+        say(json, format!("  {label}..."));
         let outcome =
             match run_explorer(cfg, root, &args.journey, true, defines, false, args.sim).await {
                 Ok(o) => o,
@@ -355,6 +376,16 @@ async fn record_sweep_clips(
                     continue;
                 }
             };
+        // TRUST GATE: only keep a clip whose box actually drew (the finding
+        // re-detected on this load). A clip that did not reproduce is dropped
+        // rather than shipped with a misleading caption.
+        if !boxed_drew(&outcome.run_dir) {
+            say(
+                json,
+                format!("    {label}: did not reproduce on load, skipped"),
+            );
+            continue;
+        }
         let Some(src) = newest_webm(&outcome.run_dir) else {
             say(json, format!("    no video produced for {label}"));
             continue;
@@ -372,60 +403,30 @@ async fn record_sweep_clips(
     clips
 }
 
-/// Shortest action path (the crawl's own `tap:`/`type:`/`back` edges) to the
-/// target ROUTE, for replay. We pathfind over ROUTES, not state sigs: a live
-/// page's sig drifts between visits (dynamic content) while its route (the URL
-/// path) is stable, so a sig-keyed search finds no outgoing edge from the start.
-/// Collapsing each edge's endpoints to their routes gives a stable graph. None
-/// if the route is unreachable; an empty vec when it IS the start route.
-fn path_to_route(obs: &crate::map::RunObs, target: &str) -> Option<Vec<String>> {
-    if target.is_empty() {
+/// The scheme://authority origin of a URL (e.g. "https://app.com:8080"), for
+/// building a per-clip navigation URL by joining it with a finding's route path.
+fn url_origin(u: &str) -> Option<String> {
+    let (scheme, rest) = u.split_once("://")?;
+    let authority = rest.split('/').next().unwrap_or(rest);
+    if authority.is_empty() {
         return None;
     }
-    let route_of = |sig: &str| {
-        obs.routes
-            .get(sig)
-            .cloned()
-            .unwrap_or_else(|| sig.to_string())
-    };
-    let entry = obs
-        .start
-        .as_deref()
-        .map(route_of)
-        .or_else(|| obs.edges.first().map(|(f, _, _)| route_of(f)))?;
-    if entry == target {
-        return Some(Vec::new());
-    }
-    // Route adjacency: from-route -> (action, to-route), skipping self-route hops
-    // (a tap that only churns the sig within one route makes no path progress).
-    let mut seen = std::collections::BTreeSet::from([entry.clone()]);
-    let mut prev: std::collections::BTreeMap<String, (String, String)> =
-        std::collections::BTreeMap::new();
-    let mut q = std::collections::VecDeque::from([entry.clone()]);
-    while let Some(cur) = q.pop_front() {
-        for (from, act, to) in &obs.edges {
-            let (fr, tr) = (route_of(from), route_of(to));
-            if fr != cur || tr == fr {
-                continue;
-            }
-            if seen.insert(tr.clone()) {
-                prev.insert(tr.clone(), (cur.clone(), act.clone()));
-                if tr == target {
-                    let mut acts = Vec::new();
-                    let mut node = target.to_string();
-                    while node != entry {
-                        let (f, a) = prev[&node].clone();
-                        acts.push(a);
-                        node = f;
-                    }
-                    acts.reverse();
-                    return Some(acts);
-                }
-                q.push_back(tr);
-            }
-        }
-    }
-    None
+    Some(format!("{scheme}://{authority}"))
+}
+
+/// Whether a clip run's box actually drew, read from the LAST `FINDING:BOXED`
+/// marker in its drive log. The trust gate: a `drew:false` means the finding did
+/// not reproduce on that load, so the clip is dropped rather than shipped.
+fn boxed_drew(run_dir: &Path) -> bool {
+    let log = std::fs::read_to_string(run_dir.join("drive-a.log")).unwrap_or_default();
+    log.lines()
+        .rev()
+        .find_map(|l| {
+            let i = l.find("FINDING:BOXED ")?;
+            let v: Value = serde_json::from_str(l[i + "FINDING:BOXED ".len()..].trim()).ok()?;
+            v.get("drew").and_then(Value::as_bool)
+        })
+        .unwrap_or(false)
 }
 
 /// Newest `.webm` anywhere under a run dir (the web runner writes it into a
@@ -2187,27 +2188,32 @@ flutter: ═══════════════════════�
     }
 
     #[test]
-    fn path_to_route_is_sig_instability_proof() {
-        // A live page's sig drifts between visits (dynamic content) while its
-        // route is stable. Here the start state observed `home1`, but the edge
-        // out of home was recorded from a re-observed `home2` (same /home route).
-        // A sig-keyed search would find no edge from `home1`; the route-keyed one
-        // collapses both to /home and finds the path.
-        let log = "\
-EXPLORE:STATE {\"sig\":\"home1\",\"route\":\"/home\",\"labels\":[]}
-EXPLORE:STATE {\"sig\":\"home2\",\"route\":\"/home\",\"labels\":[]}
-EXPLORE:EDGE {\"from\":\"home2\",\"action\":\"tap:role:link#1\",\"to\":\"about1\"}
-EXPLORE:STATE {\"sig\":\"about1\",\"route\":\"/about\",\"labels\":[]}
-";
-        let obs = crate::map::parse_run(log);
-        // The start route reaches itself with an empty path.
-        assert_eq!(path_to_route(&obs, "/home"), Some(Vec::new()));
-        // /about is reached by the recorded tap, despite the start-sig mismatch.
+    fn url_origin_extracts_scheme_and_authority() {
+        // A clip's gotoUrl is origin + route, so origin must stop at the authority.
         assert_eq!(
-            path_to_route(&obs, "/about"),
-            Some(vec!["tap:role:link#1".to_string()])
+            url_origin("https://app.com/docs/en/home?q=1"),
+            Some("https://app.com".to_string())
         );
-        // An unknown route is unreachable.
-        assert_eq!(path_to_route(&obs, "/nope"), None);
+        assert_eq!(
+            url_origin("http://localhost:3000/x"),
+            Some("http://localhost:3000".to_string())
+        );
+        assert_eq!(url_origin("not-a-url"), None);
+    }
+
+    #[test]
+    fn boxed_drew_reads_the_last_marker() {
+        let dir = std::env::temp_dir().join(format!("reproit-boxed-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(
+            dir.join("drive-a.log"),
+            "FINDING:BOXED {\"oracle\":\"overflow\",\"drew\":false}\n\
+             FINDING:BOXED {\"oracle\":\"overflow\",\"drew\":true}\n",
+        )
+        .unwrap();
+        assert!(boxed_drew(&dir));
+        std::fs::write(dir.join("drive-a.log"), "no marker here\n").unwrap();
+        assert!(!boxed_drew(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
