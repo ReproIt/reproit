@@ -3317,6 +3317,11 @@ async function main() {
   async function runSeed(fuzz) {
     const seenStates = new Set();
     const triedEdges = new Set();
+    // Same-origin link targets SEEN during the crawl (pathname -> source state
+    // sig), HEAD-probed for dead links at the end. Coverage is bounded, so a dead
+    // link the walk never tapped (a footer /download 404) was missed when
+    // broken-route relied only on actual navigations.
+    const seenLinks = new Map();
     const exercisedGroups = new Set(); // choice-groups already differential-tested this seed
     const pick = rng(fuzz.seed || 0);
     const replay = fuzz.replay || null;
@@ -3419,6 +3424,21 @@ async function main() {
         // next action then drives the live (possibly mutated/reloaded) DOM.
         await emitGroundtruth(page, gtCdp, snap.sig);
       }
+      // Record same-origin link targets on this page (dedup by pathname, first
+      // source state wins) for the end-of-crawl broken-route link check.
+      try {
+        const links = await page.evaluate(() => {
+          const out = [];
+          for (const a of document.querySelectorAll('a[href]')) {
+            try {
+              const u = new URL(a.getAttribute('href'), location.href);
+              if (u.origin === location.origin && u.pathname) out.push(u.pathname);
+            } catch (_) {}
+          }
+          return out;
+        });
+        for (const p of links) if (!seenLinks.has(p)) seenLinks.set(p, snap.sig);
+      } catch (_) {}
       return snap;
     }
 
@@ -3797,6 +3817,46 @@ async function main() {
         }).catch(() => {});
       }
       await page.waitForTimeout(2200);
+    }
+    // BROKEN-ROUTE link check: HEAD-probe same-origin links we SAW but never
+    // navigated to, so a dead link is caught even when the crawl didn't tap it
+    // (the footer /download 404 the coverage walk kept missing). Skip in a replay
+    // (a clip re-walk) -- only the real coverage walk probes. Same-origin fetch
+    // uses the page's session, so an auth gate behaves as the user would see it.
+    if (!replay) {
+      const CAP = 300;
+      const toProbe = [...seenLinks.entries()].filter(([p]) => navStatus[p] === undefined);
+      const skipped = Math.max(0, toProbe.length - CAP);
+      const batch = toProbe.slice(0, CAP);
+      if (batch.length) {
+        // Probe all at once with bounded (8-way) concurrency inside one evaluate,
+        // so a big docs site's hundreds of links are checked in seconds, not one
+        // slow request at a time.
+        let statuses = {};
+        try {
+          statuses = await page.evaluate(async (paths) => {
+            const origin = location.origin, out = {};
+            let i = 0;
+            const worker = async () => {
+              while (i < paths.length) {
+                const p = paths[i++];
+                try { const r = await fetch(origin + p, { method: 'HEAD', redirect: 'manual' }); out[p] = r.status; }
+                catch (e) { out[p] = 0; }
+              }
+            };
+            await Promise.all(Array.from({ length: 8 }, worker));
+            return out;
+          }, batch.map(([p]) => p));
+        } catch (_) {}
+        for (const [path, fromSig] of batch) {
+          const status = statuses[path] || 0;
+          navStatus[path] = status;
+          if (status === 404 || status === 410 || status >= 500) {
+            log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: fromSig, route: path, status, from: fromSig }));
+          }
+        }
+      }
+      if (skipped) log(`JOURNEY[a] step: broken-route link check capped (${skipped} link(s) not probed)`);
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   }
