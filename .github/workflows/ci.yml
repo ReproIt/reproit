@@ -46,7 +46,14 @@ jobs:
         with:
           node-version: "20"
       - name: Install deps
-        run: npm ci || npm install
+        run: npm ci
+      - name: Install the Chromium the runner drives
+        # The browser-backed tests (drawFindingBoxes, detectOverflow, the a11y/
+        # trigger tagging) test the REAL runner behaviour, so CI installs the
+        # pinned Chromium and runs them -- they used to skip here, which left the
+        # runner logic untested. The version is fixed by the committed lockfile,
+        # so this is deterministic.
+        run: npx playwright install --with-deps chromium
       - name: Syntax-check the runner + harnesses
         run: |
           node --check runner.mjs
@@ -54,7 +61,7 @@ jobs:
           node --check jank.mjs
           node --check jank-oracle.mjs
           node --check flicker-oracle.mjs
-      - name: Unit-test the jank + flicker detectors
+      - name: Unit-test the detectors + browser-backed runner behaviour
         run: node --test
 
   # The byte-for-byte signature promise: every SDK and runner must reproduce the
@@ -99,7 +106,7 @@ jobs:
         with:
           node-version: "20"
       - name: Install deps
-        run: npm ci || npm install
+        run: npm ci
       - name: Parity + unit tests (jest)
         run: npm test
 

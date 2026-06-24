@@ -153,9 +153,9 @@ jobs:
           set -euo pipefail
           cd runners/web
           # Production deps only; pure JS, so the bundle is platform-agnostic.
-          # `npm install` (not `npm ci`): the lockfile is gitignored, so there is
-          # no committed lock to clean-install from at the tag checkout.
-          npm install --omit=dev --no-audit --no-fund
+          # `npm ci` from the committed lockfile pins the exact versions, so the
+          # shipped runner bundle never floats Playwright between releases.
+          npm ci --omit=dev --no-audit --no-fund
           # Tar the runner CONTENTS (so it extracts flat into <data>/reproit/web),
           # dropping tests/fixtures that the runtime never loads.
           tar --exclude='*.test.mjs' --exclude='*-fixture.html' \

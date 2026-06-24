@@ -10,11 +10,11 @@ dist/
 
 /target
 
-# web/rn runner deps (playwright + browsers ~90MB; appium client + home)
+# web/rn runner deps (playwright + browsers ~90MB; appium client + home).
+# The lockfiles ARE committed: a determinism tool must pin Playwright et al so
+# CI/release install the exact versions (npm ci), not whatever floats today.
 runners/web/node_modules/
-runners/web/package-lock.json
 runners/rn/node_modules/
-runners/rn/package-lock.json
 .appium-home/
 examples/imgui-headless/demo
 .hegel/

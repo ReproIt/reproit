@@ -19,20 +19,7 @@ import { detectOverflow, OVERFLOW_TOL } from './runner.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_URL = pathToFileURL(join(HERE, 'overflow-fixture.html')).href;
 
-// Browser-backed: skip cleanly where Chromium isn't installed (e.g. the CI
-// web-runner job, which runs `node --test` without `npx playwright install`), so
-// this never red-flags a browserless environment. It runs fully anywhere a
-// browser is present (local dev, or a CI job that installs one). Same guard as
-// groundtruth-taps.test.mjs.
-let browserUnavailable = false;
-try {
-  const probe = await chromium.launch();
-  await probe.close();
-} catch (e) {
-  browserUnavailable = `chromium not launchable (${e && e.message ? e.message.split('\n')[0] : e}); skipping`;
-}
-
-test('detectOverflow fires on clipped/overflowing nodes and is silent on the clean control', { skip: browserUnavailable }, async () => {
+test('detectOverflow fires on clipped/overflowing nodes and is silent on the clean control', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -69,7 +56,7 @@ test('detectOverflow fires on clipped/overflowing nodes and is silent on the cle
   }
 });
 
-test('detectOverflow is deterministic across repeated captures', { skip: browserUnavailable }, async () => {
+test('detectOverflow is deterministic across repeated captures', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -83,7 +70,7 @@ test('detectOverflow is deterministic across repeated captures', { skip: browser
   }
 });
 
-test('detectOverflow does NOT flag a child of a ZERO-SIZE parent (the SPA-wrapper false positive)', { skip: browserUnavailable }, async () => {
+test('detectOverflow does NOT flag a child of a ZERO-SIZE parent (the SPA-wrapper false positive)', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -103,7 +90,7 @@ test('detectOverflow does NOT flag a child of a ZERO-SIZE parent (the SPA-wrappe
   }
 });
 
-test('detectOverflow stays silent on a layout with no overflow', { skip: browserUnavailable }, async () => {
+test('detectOverflow stays silent on a layout with no overflow', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });

@@ -18,18 +18,6 @@ import assert from 'node:assert';
 import { chromium } from 'playwright';
 import { typeInto, loadInputs, inputValueFor } from './runner.mjs';
 
-// Browser-backed: skip cleanly where Chromium isn't installed (e.g. the CI
-// web-runner job, which runs `node --test` without `npx playwright install`),
-// so this never red-flags a browserless environment. The pure tests below run
-// everywhere; only the typing test is gated.
-let browserUnavailable = false;
-try {
-  const probe = await chromium.launch();
-  await probe.close();
-} catch (e) {
-  browserUnavailable = `chromium not launchable (${e && e.message ? e.message.split('\n')[0] : e}); skipping`;
-}
-
 // A 312-char unicode name with an emoji and a Turkish dotless i: the exact
 // property-matched shape crate::fixture::synthesize emits for the motivating
 // {minLen:312, charset:"unicode", emoji:true} spec. This is the value the
@@ -80,7 +68,7 @@ test('precedence: an explicit input value wins over the class token, else null',
 });
 
 test('replaying a type action types the exact provided fixture value into the field',
-  { skip: browserUnavailable }, async () => {
+  async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });

@@ -12,18 +12,6 @@ import assert from 'node:assert';
 import { chromium } from 'playwright';
 import { snapshot } from './runner.mjs';
 
-// Browser-backed: skip cleanly where Chromium isn't installed (e.g. the CI
-// web-runner job, which runs `node --test` without `npx playwright install`), so
-// this never red-flags a browserless environment. It runs fully anywhere a
-// browser is present (local dev, or a CI job that installs one).
-let browserUnavailable = false;
-try {
-  const probe = await chromium.launch();
-  await probe.close();
-} catch (e) {
-  browserUnavailable = `chromium not launchable (${e && e.message ? e.message.split('\n')[0] : e}); skipping`;
-}
-
 // A delegated-click "SPA" shape: each option carries NO own handler; a single
 // document listener drives every option. The options use tabindex="-1" (focusable
 // only programmatically) so interactive() genuinely MISSES them -- its existing
@@ -47,7 +35,7 @@ const EXPECTED_TESTID_SELS = [
   // 'key:testid:decor' is deliberately ABSENT: no role/cursor/tabindex.
 ];
 
-test('snapshot tappables include keyed pointer-operable controls interactive() drops', { skip: browserUnavailable }, async () => {
+test('snapshot tappables include keyed pointer-operable controls interactive() drops', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -68,7 +56,7 @@ test('snapshot tappables include keyed pointer-operable controls interactive() d
   }
 });
 
-test('snapshot tappables are deterministic across repeated captures', { skip: browserUnavailable }, async () => {
+test('snapshot tappables are deterministic across repeated captures', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
