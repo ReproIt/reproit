@@ -1,8 +1,0 @@
-dir : Cannot find path 'C:\Users\reproit\Usersreproit' because it does not exist.
-At line:1 char:1
-+ dir C:Usersreproit /b
-+ ~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : ObjectNotFound: (C:\Users\reproit\Usersreproit:String) [Get-ChildIt 
-   em], ItemNotFoundException
-    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetChildItemCommand
- 
