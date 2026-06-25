@@ -344,6 +344,25 @@ function detectOverflow(tol) {
     }
   };
   const doc = document.documentElement;
+  // A spill is only a VISIBLE bug if no ancestor CLIPS it before it reaches the
+  // screen. An infinite carousel positions cloned slides far outside an inner
+  // track (overflow:visible) that itself sits in an overflow:hidden frame, so the
+  // slides spill the track yet are clipped by the frame and never seen (mabl.com:
+  // 200+ phantom "overflowing" slider clones). Walk from the spilling element to
+  // the NEAREST clipping ancestor; if the element's box reaches past that clip
+  // box, the spill is hidden, not a layout bug.
+  const clippedByAncestor = (cr, fromParent, tol) => {
+    for (let anc = fromParent; anc && anc !== doc; anc = anc.parentElement) {
+      const as = getComputedStyle(anc);
+      const clips = ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflowX)
+        || ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflow);
+      if (clips) {
+        const ar = anc.getBoundingClientRect();
+        return cr.right > ar.right + tol || cr.left < ar.left - tol;
+      }
+    }
+    return false;
+  };
   // Page-level horizontal scroll: the document content is wider than its viewport.
   if (doc && doc.scrollWidth - doc.clientWidth > tol) {
     out.push({ key: 'tag:html', kind: 'scroll', by: Math.round(doc.scrollWidth - doc.clientWidth) });
@@ -397,7 +416,22 @@ function detectOverflow(tol) {
         // modestly exceeding its container, on-screen. Gate it on element width
         // so an 8000px logo rail no longer floods every page with "overflow".
         const vw = window.innerWidth || document.documentElement.clientWidth || 1;
-        if (over > tol && cr.width <= vw * 3) add(el, 'spill', over);
+        // A spill LARGER than a full viewport is not a layout overflow: the
+        // element is positioned independently of its parent (a carousel slide
+        // whose track is translateX'd thousands of px, an absolutely-positioned
+        // node), so "child.edge - parent.edge" manufactures a multi-screen phantom
+        // the user never sees. A genuine spill is a control/card/text exceeding
+        // its container by tens to a few hundred px, on-screen.
+        // An absolutely/fixed-positioned element is PLACED (via top/left/right
+        // against some positioned ancestor), not flowed inside its parent's
+        // content box -- so "child.edge - parent.contentEdge" is a placement
+        // artifact, not an overflow. This is the cookie-banner close button, a
+        // corner badge, a dropdown: intentionally poking past its parent. (Its
+        // OWN content not fitting is still caught by the `scroll` kind above.)
+        const placed = st.position === 'absolute' || st.position === 'fixed';
+        if (over > tol && over <= vw && cr.width <= vw * 3 && !placed && !clippedByAncestor(cr, p, tol)) {
+          add(el, 'spill', over);
+        }
       }
     }
   }
@@ -2794,11 +2828,28 @@ async function drawFindingBoxes(page, hints = {}) {
               const padL = parseFloat(ps.paddingLeft) || 0, padR = parseFloat(ps.paddingRight) || 0;
               const bL = parseFloat(ps.borderLeftWidth) || 0, bR = parseFloat(ps.borderRightWidth) || 0;
               const over = Math.max(cr.right - (pr.right - bR - padR), (pr.left + bL + padL) - cr.left);
-              // Skip an intended horizontal scroller / marquee track (several
-              // screens wide), mirroring detectOverflow -- it should neither be a
-              // finding nor get a box.
+              // Mirror detectOverflow's spill guards exactly, so a box is only
+              // drawn for a finding the oracle actually emits: skip a marquee
+              // track (>3x viewport wide), a multi-screen phantom spill (over a
+              // viewport -> independent positioning), an absolutely/fixed-PLACED
+              // element (a corner close button/badge), and a spill CLIPPED by an
+              // ancestor frame (carousel slides in an overflow:hidden track).
               const vw = window.innerWidth || document.documentElement.clientWidth || 1;
-              if (over > tol && cr.width <= vw * 3) push(el, 'overflow  +' + Math.round(over) + 'px', 2, over, 'overflow');
+              const est = getComputedStyle(el);
+              const placed = est.position === 'absolute' || est.position === 'fixed';
+              let clipped = false;
+              for (let anc = p; anc && anc !== doc; anc = anc.parentElement) {
+                const as = getComputedStyle(anc);
+                if (['auto', 'scroll', 'hidden', 'clip'].includes(as.overflowX)
+                  || ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflow)) {
+                  const ar = anc.getBoundingClientRect();
+                  clipped = cr.right > ar.right + tol || cr.left < ar.left - tol;
+                  break;
+                }
+              }
+              if (over > tol && over <= vw && cr.width <= vw * 3 && !placed && !clipped) {
+                push(el, 'overflow  +' + Math.round(over) + 'px', 2, over, 'overflow');
+              }
             }
           }
         }
