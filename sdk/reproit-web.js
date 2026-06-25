@@ -859,7 +859,7 @@
         self._emit({
           kind: "error",
           sig: self._cur,
-          path: self._path.slice(),
+          path: self._errorPath(),
           message: e.message || String(e),
           stack: e.error && e.error.stack ? String(e.error.stack).split("\n").slice(0, 8) : undefined,
           source: e.filename,
@@ -872,7 +872,7 @@
         self._emit({
           kind: "error",
           sig: self._cur,
-          path: self._path.slice(),
+          path: self._errorPath(),
           message: "unhandledrejection: " + (r.message || String(r)),
           stack: r.stack ? String(r.stack).split("\n").slice(0, 8) : undefined,
           context: self._errorContext(),
@@ -922,6 +922,18 @@
         labels: this._cfg.redactLabels ? undefined : snap.labels,
       });
       this._pending = null;
+    },
+
+    // The action path to an error, INCLUDING the in-flight action. A click that
+    // throws synchronously (the crashing tap) sets `_pending` but crashes before
+    // its debounced `_observe` records it, so the bare path stops one step short
+    // of the bug. Append the pending action so the captured repro contains the
+    // step that actually triggers the crash -- otherwise a replay reaches the
+    // screen but never fires it.
+    _errorPath: function () {
+      var path = this._path.slice();
+      if (this._pending) path.push({ sig: this._cur, action: this._pending });
+      return path;
     },
 
     // On-error context. Tier-3 input fingerprints ride here under
