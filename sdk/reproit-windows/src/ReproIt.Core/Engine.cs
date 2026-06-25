@@ -295,6 +295,17 @@ namespace ReproIt.Core
             {
                 pathOut.Add(s.ToMap());
             }
+            // Include the in-flight action: a click whose handler throws
+            // synchronously sets _pendingAction but crashes before its debounced
+            // observe records it, so the bare path stops one step short of the bug.
+            if (!string.IsNullOrEmpty(_pendingAction))
+            {
+                pathOut.Add(new Dictionary<string, object>
+                {
+                    ["sig"] = _currentSig ?? string.Empty,
+                    ["action"] = _pendingAction,
+                });
+            }
             ev["path"] = pathOut;
             ev["message"] = message;
             var cappedStack = new List<object>();

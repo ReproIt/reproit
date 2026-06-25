@@ -199,7 +199,12 @@ class Engine(
         val ev = LinkedHashMap<String, Any?>()
         ev["kind"] = "error"
         ev["sig"] = currentSig ?: ""
-        ev["path"] = path.map { it.toMap() }
+        // Include the in-flight action: a click whose handler throws synchronously
+        // sets `pendingAction` but crashes before its debounced observe records it,
+        // so the bare path stops one step short of the crashing tap.
+        val pathOut = path.map { it.toMap() }.toMutableList()
+        pendingAction?.let { pathOut.add(mapOf("sig" to (currentSig ?: ""), "action" to it)) }
+        ev["path"] = pathOut
         ev["message"] = message
         ev["stack"] = stack.take(8)
         ev["source"] = source

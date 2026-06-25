@@ -337,10 +337,17 @@ class ReproItImpl {
         line = Number.parseInt(m[2], 10);
       }
     }
+    // Include the in-flight action: a press whose handler throws synchronously
+    // (the crashing tap) sets `pendingAction` but crashes before its debounced
+    // observe records it, so the bare path stops one step short of the bug.
+    const errPath = this.path.slice();
+    if (this.pendingAction) {
+      errPath.push({ sig: this.cur ?? '', action: this.pendingAction });
+    }
     const ev: ErrorEvent = {
       kind: 'error',
       sig: this.cur ?? '',
-      path: this.path.slice(),
+      path: errPath,
       message,
       t: Date.now(),
     };

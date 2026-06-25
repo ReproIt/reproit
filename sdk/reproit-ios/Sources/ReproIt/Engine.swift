@@ -193,7 +193,13 @@ public final class ReproItEngine {
         lock.lock()
         if stopped { lock.unlock(); return }
         let sig = currentSig ?? ""
-        let pathCopy = path
+        // Include the in-flight action: a tap whose handler throws synchronously
+        // sets pendingAction but crashes before the next observe records it, so
+        // the bare path stops one step short of the crashing tap.
+        var pathCopy = path
+        if let pending = pendingAction {
+            pathCopy.append(ReproItStep(sig: sig, action: pending))
+        }
         let trimmed = Array(stack.prefix(8))
         let ev = ReproItEvent.error(
             sig: sig, path: pathCopy, message: message,

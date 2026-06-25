@@ -163,10 +163,12 @@ class Reporter:
         self._emit(ev)
         return sig
 
-    def record_error(self, exc, message=None):
+    def record_error(self, exc, message=None, action=None):
         """Record an uncaught-error event carrying the graph path that produced
         it, then flush promptly (errors are worth shipping immediately). Matches
-        the other SDKs' error shape (sig + path + message + stack)."""
+        the other SDKs' error shape (sig + path + message + stack). `action` is
+        the in-flight action (the one that threw); it is appended to the path so a
+        path-based replay fires the bug, not stop one step short of it."""
         import traceback
         if message is None:
             message = "%s: %s" % (type(exc).__name__, exc) if exc else "unknown error"
@@ -177,10 +179,13 @@ class Reporter:
         except Exception:
             pass
         with self._lock:
+            err_path = [dict(p) for p in self._path]
+            if action:
+                err_path.append({"sig": self._cur or "", "action": action})
             ev = {
                 "kind": "error",
                 "sig": self._cur or "",
-                "path": [dict(p) for p in self._path],
+                "path": err_path,
                 "message": str(message),
                 "t": _now_ms(),
             }

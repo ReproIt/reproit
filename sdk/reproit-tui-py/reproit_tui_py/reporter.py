@@ -203,7 +203,7 @@ class Reporter:
         with self._lock:
             return self._cur
 
-    def record_error(self, exc, message=None):
+    def record_error(self, exc, message=None, action=None):
         """Record an uncaught-error event carrying the current signature and the
         graph path that produced it, then flush promptly (errors ship
         immediately). Matches the other SDKs' error shape (sig + path + message +
@@ -218,10 +218,16 @@ class Reporter:
         except Exception:
             pass
         with self._lock:
+            # Include the in-flight action in the path: an action whose handler
+            # throws stops the path one step short of the bug, so a path-based
+            # replay would never fire it. Mirrors the GUI SDKs.
+            err_path = [dict(p) for p in self._path]
+            if action:
+                err_path.append({"sig": self._cur or "", "action": action})
             ev = {
                 "kind": "error",
                 "sig": self._cur or "",
-                "path": [dict(p) for p in self._path],
+                "path": err_path,
                 "message": str(message),
                 "t": _now_ms(),
             }

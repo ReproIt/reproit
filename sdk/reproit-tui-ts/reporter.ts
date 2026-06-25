@@ -173,13 +173,20 @@ export class Reporter {
   // Error, a string, or anything stringifiable.
   recordError(err: unknown, action?: string): void {
     const { message, stack } = describe(err);
+    // Include the crashing action in the PATH (not only the top-level `action`):
+    // an action whose handler throws stops the path one step short of the bug, so
+    // a path-based replay would never fire it. Mirrors the GUI SDKs' in-flight
+    // append, keeping the repro path complete across every platform.
+    const path = action
+      ? [...this.path, { sig: this.cur, action }]
+      : this.path.slice();
     this.emit({
       kind: "error",
       t: 0,
       sig: this.cur,
       to: this.cur,
       action,
-      path: this.path.slice(),
+      path,
       message,
       stack,
     });
