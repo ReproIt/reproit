@@ -1,9 +1,9 @@
 /**
  * Context API parity test. Mirrors the Flutter SDK's `test/context_test.dart`:
  * verifies the tier-1 auto dimensions, the hashed (never-raw) `uid` from
- * identify(), and that setContext/setContexts merge, the inputs the cloud
- * (`crates/cloud/src/ingest.rs`) folds into each event's context to compute a
- * cohort discriminator.
+ * identify(), and that setContext/setContexts merge, the inputs the cloud's
+ * ingest endpoint (`POST /v1/events`) folds into each event's context to compute
+ * a cohort discriminator.
  */
 
 // RN is a peer dependency and not installed in the node test env, so stub the

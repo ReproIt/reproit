@@ -196,8 +196,8 @@ Error (with replay path + PII-safe input fingerprint):
 Batched as `{ "appId", "sentAt", "ctx"?, "events": [...] }` and POSTed to
 `<endpoint>/v1/events` with `Content-Type: application/json` and, when `apiKey`
 is set, `Authorization: Bearer <apiKey>`. `ctx` is the PII-safe context map and
-is present only when non-empty. These match `crates/cloud/src/ingest.rs`, which
-folds edges into the production graph, attaches `ctx` to each event for cohort
+is present only when non-empty. These match the cloud's `POST /v1/events`
+contract, which folds edges into the production graph, attaches `ctx` to each event for cohort
 discrimination, and stores errors with their path for repro
 (`GET /v1/errors/:app/:idx/repro`).
 

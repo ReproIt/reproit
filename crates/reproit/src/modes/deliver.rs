@@ -13,7 +13,7 @@
 //!      posts it to the GitHub PR (or prints it with --dry-run).
 //!
 //! The cloud client mirrors modes/triage.rs: base URL/key from flags, then
-//! REPROIT_CLOUD_URL / REPROIT_API_KEY, then http://cloud.reproit.localhost.
+//! REPROIT_CLOUD_URL / REPROIT_CLOUD_KEY, then https://cloud.reproit.com.
 
 use crate::config::Config;
 use anyhow::{Context, Result};
@@ -199,7 +199,7 @@ impl Cloud {
         let base = cloud
             .or_else(|| std::env::var("REPROIT_CLOUD_URL").ok())
             .unwrap_or_else(|| "https://cloud.reproit.com".to_string());
-        let key = key.or_else(|| std::env::var("REPROIT_API_KEY").ok());
+        let key = key.or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok());
         Cloud {
             base: base.trim_end_matches('/').to_string(),
             key,
@@ -687,16 +687,15 @@ mod tests {
                 discr("plan", "free", 1.0, 2.67),
             ],
             cohort_count: 3,
-            gif_url: Some("http://cloud.reproit.localhost/v1/blob/bugzoo/0/x.gif".to_string()),
-            video_url: Some("http://cloud.reproit.localhost/v1/blob/bugzoo/0/x.mp4".to_string()),
-            dashboard_url: Some("http://cloud.reproit.localhost/app/bugzoo/errors/0".to_string()),
+            gif_url: Some("https://cloud.reproit.com/v1/blob/bugzoo/0/x.gif".to_string()),
+            video_url: Some("https://cloud.reproit.com/v1/blob/bugzoo/0/x.mp4".to_string()),
+            dashboard_url: Some("https://cloud.reproit.com/app/bugzoo/errors/0".to_string()),
             confirmed_on_sim: true,
         };
         let md = render_comment(&input);
         // Structure: header, inline GIF, summary, suspected, repro, cohort, links.
         assert!(md.starts_with("## reproit found a bug"));
-        assert!(md
-            .contains("![minimized repro](http://cloud.reproit.localhost/v1/blob/bugzoo/0/x.gif)"));
+        assert!(md.contains("![minimized repro](https://cloud.reproit.com/v1/blob/bugzoo/0/x.gif)"));
         assert!(md.contains("**EXCEPTION CAUGHT BY WIDGETS LIBRARY: Ticker disposed"));
         assert!(md.contains("**Suspected:** `lib/main.dart:210`"));
         assert!(md.contains("**Confirmed:** reproduced on the real runtime"));
@@ -704,11 +703,10 @@ mod tests {
         assert!(md.contains("tap:Compose\ntap:New post"));
         assert!(md.contains("Seen **3x** in production"));
         assert!(md.contains("`locale=tr`: 100% of affected users (2.67x baseline)"));
-        assert!(md
-            .contains("[full repro video](http://cloud.reproit.localhost/v1/blob/bugzoo/0/x.mp4)"));
-        assert!(md.contains(
-            "[evidence + dashboard](http://cloud.reproit.localhost/app/bugzoo/errors/0)"
-        ));
+        assert!(md.contains("[full repro video](https://cloud.reproit.com/v1/blob/bugzoo/0/x.mp4)"));
+        assert!(
+            md.contains("[evidence + dashboard](https://cloud.reproit.com/app/bugzoo/errors/0)")
+        );
     }
 
     #[test]
@@ -766,8 +764,8 @@ mod tests {
     #[test]
     fn dashboard_url_shape() {
         assert_eq!(
-            dashboard_url("http://cloud.reproit.localhost", "bugzoo", 3),
-            "http://cloud.reproit.localhost/app/bugzoo/errors/3"
+            dashboard_url("https://cloud.reproit.com", "bugzoo", 3),
+            "https://cloud.reproit.com/app/bugzoo/errors/3"
         );
     }
 }

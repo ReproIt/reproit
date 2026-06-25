@@ -4,7 +4,7 @@
  * RN can't auto-detect the app build version / git commit without a native
  * module, so the developer supplies them via `init({ build })`. They ride every
  * event's context as `context.build = { version, commit }` (only the provided
- * fields). The cloud (reproit-cloud/src/ingest/buckets.rs::build_of) reads
+ * fields). The cloud's bucketing reads
  * `context.build.version`/`.commit` to segment bugs by build ("regressed in
  * 1.4.2 / no hits since 1.4.5"). Back-compat: no `build` -> no `build` key.
  */

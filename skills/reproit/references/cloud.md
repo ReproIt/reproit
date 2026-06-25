@@ -5,8 +5,8 @@ captured it, and you replay it **locally and deterministically**.
 
 ```sh
 reproit cloud login
-reproit cloud findings                 # browse what production reported
-reproit cloud reproduce <bucket>       # replay a real session on your machine
+reproit cloud buckets --app <app>      # browse what production reported
+reproit cloud reproduce --app <app> --bucket <bkt> --as <name> --run
 ```
 
 `reproduce` pulls the captured session (seed + actions + environment) and runs
@@ -16,7 +16,7 @@ any other.
 
 ## Loop
 
-1. `reproit cloud reproduce <bucket>` to pull and replay the crash.
+1. `reproit cloud reproduce --app <app> --bucket <bkt> --as <name> --run` to pull and replay the crash.
 2. It lands as a local repro id, from here it is the normal loop: `check` to
    confirm, `why` to localize, fix, `check` to prove.
 3. `reproit cloud blast-radius` shows how many sessions/users a given crash

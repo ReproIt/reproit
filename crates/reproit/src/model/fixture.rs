@@ -4,8 +4,8 @@
 //! Turkish dotless "i", an empty or RTL field, a specific locale) reproduces.
 //!
 //! The cloud derives the spec PII-safely from input fingerprints + cohort
-//! discriminators (see `crates/cloud/src/ingest.rs::fixture_spec`); this module
-//! is the reproit-side synthesizer. It generates FEATURES-matching values, not
+//! discriminators and delivers it with a pulled repro; this module is the
+//! reproit-side synthesizer. It generates FEATURES-matching values, not
 //! the user's real data (which is never stored). Synthesis is deterministic
 //! (no RNG): the same spec always yields the same fixture, so a property-matched
 //! replay is as reproducible as an action replay.

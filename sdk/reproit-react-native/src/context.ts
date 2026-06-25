@@ -2,9 +2,9 @@
  * PII-safe context dimensions sent with each batch (the "which users" answer).
  *
  * Mirrors the Flutter SDK (`sdk/reproit_flutter/lib/reproit_flutter.dart`):
- * a `ctx` map of low-cardinality, zero-PII signals that the reproit cloud
- * (`crates/cloud/src/ingest.rs`) folds into every event's context and uses to
- * compute a cohort DISCRIMINATOR ("this error hits users where locale=tr"),
+ * a `ctx` map of low-cardinality, zero-PII signals that the reproit cloud's
+ * ingest endpoint (`POST /v1/events`) folds into every event's context and uses
+ * to compute a cohort DISCRIMINATOR ("this error hits users where locale=tr"),
  * turning "works for me but not for them" into a queryable cohort.
  *
  * Tier-1 auto dimensions (collected at init, dependency-free):

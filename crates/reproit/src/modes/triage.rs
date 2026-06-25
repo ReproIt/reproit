@@ -10,7 +10,8 @@
 //! - `diagnose`: match a free-text report to a cluster, then explain (+repro).
 //!
 //! The cloud base URL/key come from --cloud/--key, then REPROIT_CLOUD_URL /
-//! REPROIT_API_KEY, then localhost. Output is plain text so MCP can relay it.
+//! REPROIT_CLOUD_KEY, then the hosted cloud. Output is plain text so MCP can
+//! relay it.
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -24,12 +25,13 @@ struct Cloud {
 
 impl Cloud {
     fn new(cloud: Option<String>, key: Option<String>) -> Self {
-        // Defaults to the hosted cloud; set REPROIT_CLOUD_URL to point elsewhere
-        // (e.g. http://cloud.reproit.localhost for the local Traefik edge proxy).
+        // Defaults to the hosted cloud; set REPROIT_CLOUD_URL to point elsewhere.
         let base = cloud
             .or_else(|| std::env::var("REPROIT_CLOUD_URL").ok())
             .unwrap_or_else(|| "https://cloud.reproit.com".to_string());
-        let key = key.or_else(|| std::env::var("REPROIT_API_KEY").ok());
+        // Cloud key precedence: explicit key (already resolved by `cloud_creds`)
+        // > REPROIT_CLOUD_KEY (the project key, sk_live_...).
+        let key = key.or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok());
         Cloud {
             base: base.trim_end_matches('/').to_string(),
             key,
@@ -97,28 +99,63 @@ pub async fn raw(
     c.get(&format!("/v1/errors/{app}{suffix}")).await
 }
 
-/// Lightweight reachability + auth probe used by `cloud login` to validate a
-/// freshly stored token. Hits the root; any successful response (even an
-/// unrelated body) means the cloud is up and the bearer was accepted.
-pub async fn ping(base: &str, key: Option<&str>) -> Result<()> {
+/// Validate a cloud/project key for `cloud login` by hitting an AUTHENTICATED
+/// endpoint, so login proves the key actually WORKS (not just that the host is
+/// up). With an `app`, validates against `GET /v1/apps/:app/buckets` (the loop's
+/// real entrypoint); without one, against `GET /v1/me`. A 401/403 is a clear
+/// "bad key" error; any other non-2xx surfaces the status. On success returns a
+/// short human description of what the key resolved to.
+pub async fn validate_login(base: &str, key: &str, app: Option<&str>) -> Result<String> {
+    let base = base.trim_end_matches('/');
+    let path = match app {
+        Some(a) => format!("/v1/apps/{a}/buckets"),
+        None => "/v1/me".to_string(),
+    };
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .unwrap_or_default();
-    let mut req = client.get(base.trim_end_matches('/'));
-    if let Some(k) = key {
-        req = req.bearer_auth(k);
-    }
+    let req = client.get(format!("{base}{path}")).bearer_auth(key);
     let resp = req
         .send()
         .await
-        .with_context(|| format!("connecting to {base}"))?;
+        .with_context(|| format!("validating key against {base}{path}"))?;
     let status = resp.status();
-    if status.is_success() || status.as_u16() == 404 {
-        // 404 at the root still proves the host + auth layer are reachable.
-        Ok(())
-    } else {
-        anyhow::bail!("{base} -> {status}")
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        anyhow::bail!("the cloud rejected the key ({status}); check it is a valid sk_live_... key");
+    }
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("{base}{path} -> {status}: {}", body.trim());
+    }
+    // Describe what the key resolved to, without assuming a shape (the two
+    // endpoints differ). For /v1/me: orgId + project count; for the buckets list:
+    // the bucket count. Best-effort: a 2xx already proved the key is accepted.
+    let body: Value = resp.json().await.unwrap_or(Value::Null);
+    match app {
+        Some(a) => {
+            let n = body["buckets"]
+                .as_array()
+                .map(|a| a.len())
+                .or_else(|| body.as_array().map(|a| a.len()));
+            match n {
+                Some(n) => Ok(format!("key accepted for app {a} ({n} buckets)")),
+                None => Ok(format!("key accepted for app {a}")),
+            }
+        }
+        None => {
+            // orgId is an integer (tenant.org_id) but tolerate a string too.
+            let org = body["orgId"]
+                .as_i64()
+                .map(|n| n.to_string())
+                .or_else(|| body["orgId"].as_str().map(String::from));
+            let projects = body["projects"].as_u64();
+            match (org, projects) {
+                (Some(o), Some(p)) => Ok(format!("key accepted (org {o}, {p} projects)")),
+                (Some(o), None) => Ok(format!("key accepted (org {o})")),
+                _ => Ok("key accepted".to_string()),
+            }
+        }
     }
 }
 
@@ -312,7 +349,15 @@ pub async fn explain(
             actions.join(" -> ")
         }
     );
-    println!("\nReproduce: reproit cloud reproduce --app {app} --idx {target_idx}");
+    // The content-addressed bucket form is the only reproduce path. When the cloud
+    // returned a bucketId, hint the exact command; otherwise point at `cloud
+    // buckets` to find the id.
+    match repro["bucketId"].as_str().filter(|b| !b.is_empty()) {
+        Some(bkt) => println!(
+            "\nReproduce: reproit cloud reproduce --app {app} --bucket {bkt} --as <name> --run"
+        ),
+        None => println!("\nReproduce: reproit cloud buckets --app {app}   (find the bkt_... id, then `cloud reproduce --bucket <id> --as <name> --run`)"),
+    }
     Ok(())
 }
 
@@ -417,12 +462,23 @@ pub async fn reproduce(
         println!("\nRun it with:  reproit check {journey}   (or pass --run here)");
         return Ok(());
     }
-    println!("\nRunning the replay ({journey})...");
+    run_check_and_classify(journey, Some(&repro["context"]))
+}
+
+/// Spawn `reproit check <target> --json`, read its deterministic verdict, and
+/// print a human reproduction summary. Shared by `reproduce` (the index-based
+/// path `diagnose` uses, where `<target>` is the journey name and the fuzz config
+/// was pre-written) and `reproduce_bucket` (where `<target>` is the just-pulled
+/// repro's alias). The
+/// `context_hint`, when present, is shown on a CLEAN verdict (the distinguishing
+/// dimension to synthesize from).
+fn run_check_and_classify(target: &str, context_hint: Option<&Value>) -> Result<()> {
+    println!("\nRunning the replay ({target})...");
     let exe = std::env::current_exe()?;
     // `check` has no `--warm` flag (that was an invalid invocation clap rejected,
     // so `triage --run` always failed to get a verdict); a plain check replays it.
     let out = std::process::Command::new(exe)
-        .args(["check", journey, "--json"])
+        .args(["check", target, "--json"])
         .output()
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);
@@ -445,7 +501,7 @@ pub async fn reproduce(
     // exit-1 as `Reproduced` and prints a FALSE "REPRODUCED" though nothing ran.
     if outcome.is_none() && marker.is_empty() {
         println!(
-            "COULD NOT RUN the replay: `check {journey}` produced no verdict (exit {:?}); \
+            "COULD NOT RUN the replay: `check {target}` produced no verdict (exit {:?}); \
              this is a setup error (the repro/journey did not resolve), not a reproduction.",
             out.status.code()
         );
@@ -460,7 +516,9 @@ pub async fn reproduce(
                 "NOT reproduced: the path replayed CLEAN (the bug did not fire). Likely \
                  data-dependent (the production session carried data this replay does not)."
             );
-            println!("  -> synthesize from context: {}", repro["context"]);
+            if let Some(ctx) = context_hint {
+                println!("  -> synthesize from context: {ctx}");
+            }
         }
         ReproVerdict::Stale => {
             println!(
@@ -482,15 +540,77 @@ pub async fn reproduce(
     Ok(())
 }
 
-/// What a pulled cloud package materializes into LOCALLY: the same two on-disk
-/// artifacts `keep` writes (`meta.json` + `replay.json`'s `{seed, replay}`), so a
-/// pulled repro is byte-identical in SHAPE to a kept one and `check` reads it
-/// unchanged. This is the PURE core of `cloud pull`: a replay-package JSON in, a
-/// `Meta` + action sequence out, with no network and no filesystem. The boundary
-/// is one explicit verb; once materialized, the repro is local-first-class.
+/// Bucket-first `cloud reproduce`: `pull` the content-addressed bucket into a
+/// first-class LOCAL repro named `as_name`, then (with `run`) `check` it. This is
+/// the one-step "show me this prod bug locally" verb; it REUSES the existing pull
+/// + check code paths (no duplicated materialize/replay logic), so the pulled
+/// repro carries its property-matched fixture and replays exactly as a kept one.
+#[allow(clippy::too_many_arguments)]
+pub async fn reproduce_bucket(
+    root: &std::path::Path,
+    app: &str,
+    bucket: &str,
+    as_name: &str,
+    run: bool,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<()> {
+    // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
+    // (fixture folded in) and prints the save summary + the `check` hint.
+    pull(root, app, bucket, as_name, cloud, key).await?;
+    if !run {
+        return Ok(());
+    }
+    // Reuse the standard local verification by alias; no context hint (the pulled
+    // repro carries its own fixture, so a CLEAN verdict is a genuine no-repro).
+    run_check_and_classify(as_name, None)
+}
+
+/// What a pulled cloud package materializes into LOCALLY: the same on-disk
+/// artifacts `keep` writes (`meta.json` + `replay.json`), so a pulled repro is
+/// byte-identical in SHAPE to a kept one and `check` reads it unchanged. This is
+/// the PURE core of `cloud pull`: a replay-package JSON in, a `Meta` + action
+/// sequence + property-matched fixture out, with no network and no filesystem.
+/// The boundary is one explicit verb; once materialized, the repro is
+/// local-first-class.
+///
+/// The `fixture` carries the property-matched replay data (tier 3) synthesized
+/// from the package's `fixtureSpec`: the locale + per-field concrete values a
+/// data-dependent prod bug needs. `build_replay_json` folds it into replay.json
+/// so it flows through `check` to the runner, NOT just sits in meta.
 pub struct PulledRepro {
     pub meta: repro::Meta,
     pub actions: Vec<String>,
+    pub fixture: crate::fixture::Fixture,
+}
+
+/// Build the replay.json a pulled (or kept) repro stores on disk, in the EXACT
+/// shape `check_repro` reads and forwards verbatim to the runner's fuzz config:
+/// `{ "seed", "replay", [inputs], [locale] }`. The `inputs`/`locale` keys are the
+/// property-matched fixture (`Fixture::to_config`), spread at the TOP LEVEL so the
+/// web/RN/native runners read them per-seed (they read `inputs` off each seed
+/// config; `check_repro` resolves a top-level `locale` to `REPROIT_LOCALE`). This
+/// is the SAME shape `reproduce` writes into `.reproit/fuzz_config.json`, so a
+/// pulled repro and a `reproduce`d one drive the runner identically.
+pub fn build_replay_json(
+    seed: u64,
+    actions: &[String],
+    fixture: &crate::fixture::Fixture,
+) -> Value {
+    let mut m = serde_json::Map::new();
+    m.insert("seed".to_string(), serde_json::json!(seed));
+    m.insert("replay".to_string(), serde_json::json!(actions));
+    if !fixture.is_empty() {
+        // Spread the fixture's `inputs`/`locale` at the top level, matching the
+        // shape `reproduce` builds for the fuzz config (so the runner consumes
+        // them the same way on a pulled repro as on a `reproduce`d one).
+        if let Some(obj) = fixture.to_config().as_object() {
+            for (k, v) in obj {
+                m.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    Value::Object(m)
 }
 
 /// Materialize a cloud replay package (the bucket endpoint's JSON, or the legacy
@@ -545,51 +665,50 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
         trigger_sig,
         oracle: Some("crash".to_string()),
     };
-    Ok(PulledRepro { meta, actions })
+    // Property-matched replay (tier 3): synthesize the concrete locale + per-field
+    // values from the cloud's `fixtureSpec`, the SAME way `reproduce` does, so a
+    // data-dependent prod bug (a 312-char unicode name, an RTL field, a specific
+    // locale/role/plan) actually reproduces under a later `check`. Empty spec ->
+    // empty fixture (a path-only repro), so this is inert for non-data bugs.
+    let fixture = crate::fixture::synthesize(&pkg["fixtureSpec"]);
+    Ok(PulledRepro {
+        meta,
+        actions,
+        fixture,
+    })
 }
 
 /// `cloud pull`: EXPLICITLY download a cloud bucket as a first-class LOCAL repro.
 ///
 /// This is the ONE cloud boundary in the check loop: it fetches the bucket's
-/// replay package (the content-addressed `GET /v1/apps/:app/buckets/:bucket`, or
-/// the legacy `GET /v1/errors/:app/:idx/repro` with `--idx`), materializes it the
-/// way `keep` does, and writes `.reproit/repros/<id>/{meta,replay}.json`. After
-/// this, `reproit check <name>` runs the STANDARD local, network-free
-/// verification and `reproit repros` lists it -- indistinguishable from a locally
-/// found repro.
+/// replay package (the content-addressed `GET /v1/apps/:app/buckets/:bucket`),
+/// materializes it the way `keep` does, and writes
+/// `.reproit/repros/<id>/{meta,replay}.json`. After this, `reproit check <name>`
+/// runs the STANDARD local, network-free verification and `reproit repros` lists
+/// it -- indistinguishable from a locally found repro.
 pub async fn pull(
     root: &std::path::Path,
     app: &str,
-    bucket: Option<&str>,
-    idx: Option<usize>,
+    bucket: &str,
     as_name: &str,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<()> {
     let c = Cloud::new(cloud, key);
-    // Prefer the content-addressed bucket endpoint (matches the content-hash
-    // model); accept the legacy errors/idx endpoint when --idx is given instead.
-    let (pkg, source) = match (bucket, idx) {
-        (Some(b), _) => (
-            c.get(&format!("/v1/apps/{app}/buckets/{b}")).await?,
-            format!("bucket {b}"),
-        ),
-        (None, Some(i)) => (
-            c.get(&format!("/v1/errors/{app}/{i}/repro")).await?,
-            format!("error #{i}"),
-        ),
-        (None, None) => anyhow::bail!("pull needs either --bucket <id> or --idx <n>"),
-    };
+    // The content-addressed bucket endpoint (matches the content-hash model).
+    let pkg = c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await?;
+    let source = format!("bucket {bucket}");
 
     let pulled = materialize_pull(&pkg, as_name, &chrono::Local::now().to_rfc3339())?;
     let meta = &pulled.meta;
 
     // Write the SAME two artifacts `keep` writes, so `check` reads it unchanged:
-    // replay.json ({seed, replay}) for the action sequence, meta.json for the
-    // identity + trigger context + alias.
+    // replay.json for the action sequence (PLUS the property-matched fixture's
+    // inputs/locale when the bug is data-dependent, so it flows through `check` to
+    // the runner), meta.json for the identity + trigger context + alias.
     let dir = repro::repro_dir(root, &meta.id);
     std::fs::create_dir_all(&dir)?;
-    let replay = serde_json::json!({ "seed": meta.seed, "replay": pulled.actions });
+    let replay = build_replay_json(meta.seed, &pulled.actions, &pulled.fixture);
     std::fs::write(
         dir.join("replay.json"),
         serde_json::to_string_pretty(&replay)?,
@@ -608,6 +727,9 @@ pub async fn pull(
         println!("  signature: {sig}");
     }
     println!("  replay:    {}", pulled.actions.join(" -> "));
+    if !pulled.fixture.is_empty() {
+        println!("  fixture:   {}", pulled.fixture.summary());
+    }
     println!(
         "  saved:     {} ({}, alias {})",
         meta.id,
@@ -908,6 +1030,61 @@ mod tests {
         );
         assert_eq!(m.oracle.as_deref(), Some("crash"));
         assert_eq!(m.created, "2026-06-21T00:00:00+00:00");
+        // An empty fixtureSpec -> empty fixture: replay.json is the bare
+        // {seed, replay} shape, no inputs/locale (a path-only repro).
+        assert!(pulled.fixture.is_empty());
+        let replay = build_replay_json(m.seed, &pulled.actions, &pulled.fixture);
+        assert_eq!(replay["seed"], json!(0));
+        assert_eq!(replay["replay"], json!(["tap:key:id:reset", "key:Enter"]));
+        assert!(replay.get("inputs").is_none());
+        assert!(replay.get("locale").is_none());
+    }
+
+    #[test]
+    fn pull_preserves_fixture_in_replay_json() {
+        // TASK 1: a data-dependent prod bug (locale + a long-name field) must pull
+        // with its property-matched fixture FOLDED INTO replay.json, in the shape
+        // `check_repro` forwards verbatim to the runner (top-level `inputs`, and a
+        // top-level `locale` it lifts to REPROIT_LOCALE). Without this the repro
+        // pulls path-only and replays clean (the bug never fires).
+        let pkg = json!({
+            "expectedError": "RangeError: index out of range",
+            "crashSig": "crash:RangeError:render",
+            "replay": ["tap:key:id:name", "type:key:id:name=longname"],
+            "fixtureSpec": {
+                "locale": "tr",
+                "inputs": [{
+                    "field": "name",
+                    "generate": { "charset": "unicode", "minLen": 312 },
+                }],
+            },
+        });
+        let pulled = materialize_pull(&pkg, "name-crash", "t").unwrap();
+        assert!(
+            !pulled.fixture.is_empty(),
+            "the fixtureSpec carries locale + a field, so the fixture is non-empty"
+        );
+
+        let replay = build_replay_json(pulled.meta.seed, &pulled.actions, &pulled.fixture);
+        // The action sequence is preserved as before.
+        assert_eq!(
+            replay["replay"],
+            json!(["tap:key:id:name", "type:key:id:name=longname"])
+        );
+        // Locale is lifted to a top-level key (check_repro forwards it to
+        // REPROIT_LOCALE when no explicit --locale is given).
+        assert_eq!(replay["locale"], json!("tr"));
+        // The per-field synthesized value lands in a top-level `inputs` array,
+        // exactly where the runner's loadInputs() reads it off each seed config.
+        let inputs = replay["inputs"].as_array().expect("inputs array present");
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0]["field"], json!("name"));
+        // A concrete, non-empty synthesized value (deterministic; no RNG).
+        let v = inputs[0]["value"].as_str().expect("a string value");
+        assert!(
+            !v.is_empty(),
+            "the long-name field synthesized to a concrete value"
+        );
     }
 
     #[test]

@@ -435,7 +435,7 @@ status=fixed --fixed-in-build X (record the fix intent) -> watch
 ## Cloud commands
 
 ```
-reproit cloud login                 service token (distinct from secrets)
+reproit cloud login                 cloud/project key, sk_live_... (distinct from secrets)
 reproit cloud fuzz [--pr N]         fan-out job -> stored artifact (auto-links to a PR)
 reproit cloud findings              grouped buckets + counts (fuzz + production)
 reproit cloud blast-radius <bucket> who's affected: cohorts, %, versions (--export)

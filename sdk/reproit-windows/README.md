@@ -162,8 +162,8 @@ Error (with replay path):
 ```
 
 Batch envelope: `{ "appId": "...", "sentAt": <ms>, "ctx": {...}?, "events": [...] }`
-(`ctx` is omitted when empty). These match `crates/cloud/src/ingest.rs`
-(`POST /v1/events`), which folds edges into the production graph and stores errors
+(`ctx` is omitted when empty). These match the cloud's `POST /v1/events`
+contract, which folds edges into the production graph and stores errors
 with their path for repro.
 
 ## Context: which users hit it (`ctx` / `Identify`)

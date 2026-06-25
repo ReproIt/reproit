@@ -123,16 +123,16 @@ Error (with replay path + PII-safe input fingerprint):
 ```
 
 Batch envelope: `{ "appId": "...", "sentAt": <ms>, "ctx": {...}?, "events": [...] }`
-(`ctx` is omitted when empty). These match `crates/cloud/src/ingest.rs`
-(`POST /v1/events`), which folds edges into the production graph and stores errors
+(`ctx` is omitted when empty). These match the cloud's `POST /v1/events`
+contract, which folds edges into the production graph and stores errors
 with their path for repro (`GET /v1/errors/:app/:idx/repro`).
 
 ## Context: which users hit it (`ctx` / `identify`)
 
 Errors that "can't be reproduced" are usually scoped to a cohort (a locale, an OS
 version, a plan tier). The SDK attaches a small, **PII-safe** context map to every
-batch as the `ctx` field; the cloud (`crates/cloud/src/ingest.rs`) folds it into
-each event and computes a **cohort discriminator** (`GET /v1/errors/:app/cohorts`),
+batch as the `ctx` field; the cloud's ingest endpoint (`POST /v1/events`) folds it
+into each event and computes a **cohort discriminator** (`GET /v1/errors/:app/cohorts`),
 e.g. "this error is 6x over-represented in `locale=tr`".
 
 **Tier-1 auto dimensions** are populated automatically at `init` (zero PII):

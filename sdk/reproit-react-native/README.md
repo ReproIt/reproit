@@ -123,8 +123,8 @@ best-effort `source`/`line` parsed from the top frame.
 
 A state graph tells you *what* broke; the batch **context** (`ctx`) tells you
 *who* it broke for, so a prod "works for me but not for them" becomes a
-queryable cohort. The cloud (`crates/cloud/src/ingest.rs`) folds `ctx` into
-every event and computes a **cohort discriminator** (e.g. "this error hits
+queryable cohort. The cloud's ingest endpoint (`POST /v1/events`) folds `ctx`
+into every event and computes a **cohort discriminator** (e.g. "this error hits
 users where `locale=tr`"). All dimensions are low-cardinality and zero-PII.
 
 **Tier-1 auto dimensions** are collected at `init` (dependency-free):
@@ -261,7 +261,7 @@ Error (with replay path + PII-safe input fingerprint):
   "t": 1717939200123 }
 ```
 
-These match `crates/cloud/src/ingest.rs` (`POST /v1/events`), which folds edges
+These match the cloud's `POST /v1/events` contract, which folds edges
 into the production graph and stores errors with their path for repro
 (`GET /v1/errors/:app/:idx/repro`).
 

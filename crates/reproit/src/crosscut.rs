@@ -644,7 +644,7 @@ pub fn parse_adb_devices(text: &str) -> Vec<Device> {
 // Cloud token persistence
 // ---------------------------------------------------------------------------
 
-/// The path the cloud service token is persisted to: `~/.reproit/token`.
+/// The path the cloud/project key is persisted to: `~/.reproit/token`.
 /// Falls back to `.reproit/token` under cwd when there is no home directory.
 pub fn token_path() -> PathBuf {
     if let Some(home) = home_dir() {
@@ -663,7 +663,7 @@ fn home_dir() -> Option<PathBuf> {
         .filter(|p| !p.as_os_str().is_empty())
 }
 
-/// Persist a cloud service token (+ base URL) to `path`. Written as JSON so the
+/// Persist a cloud/project key (+ base URL) to `path`. Written as JSON so the
 /// URL travels with the token. Creates parent dirs as needed. On unix the file
 /// is written 0600 (it holds a credential).
 pub fn save_token(path: &std::path::Path, token: &str, url: &str) -> anyhow::Result<()> {

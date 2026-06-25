@@ -225,11 +225,12 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_cloud_reproduce",
-            "description": "Pull a real user session for a bucket and replay it locally, reporting whether it reproduced (an exception fired) or replayed clean (likely data-dependent). `bucket` is the bucket index. `app` is the cloud app id (defaults to $REPROIT_CLOUD_APP). Slow: a real run.",
+            "description": "Pull a real user session for a bucket and replay it locally in one step (pull -> check), reporting whether it reproduced (an exception fired) or replayed clean (likely data-dependent). Equivalent to reproit_cloud_pull then reproit_check, but saves the repro AND runs it. `bucket` is the content-addressed bucket id from reproit_cloud_buckets (a `bkt_...` id, NOT an integer index). `as` is a short local name for the saved repro (used as reproit_check <name>). `app` defaults to $REPROIT_CLOUD_APP. Slow: a real run.",
             "inputSchema": { "type": "object", "properties": {
-                "bucket": { "type": "string", "description": "Bucket index (integer) to reproduce." },
+                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
+                "as": { "type": "string", "description": "A short local name for the pulled repro (used as reproit_check <name>)." },
                 "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
-            }, "required": ["bucket"] }
+            }, "required": ["bucket", "as"] }
         },
         {
             "name": "reproit_cloud_pull",
@@ -512,13 +513,21 @@ fn build_argv(
             let Some(bucket) = s("bucket") else {
                 return Err((missing("bucket"), true));
             };
+            let Some(as_name) = s("as") else {
+                return Err((missing("as"), true));
+            };
+            // Bucket-first: pass the content-addressed `bkt_...` id to the
+            // bucket-based reproduce (pull -> check). The old `--idx <bucket>`
+            // dispatch broke with real bucket ids (they are not integers).
             argv.extend([
                 "cloud".into(),
                 "reproduce".into(),
                 "--app".into(),
                 app,
-                "--idx".into(),
+                "--bucket".into(),
                 bucket,
+                "--as".into(),
+                as_name,
                 "--run".into(),
             ]);
         }

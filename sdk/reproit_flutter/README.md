@@ -80,7 +80,7 @@ Error (with replay path + PII-safe input fingerprint):
   "t": 1717939200123 }
 ```
 
-These match `crates/cloud/src/ingest.rs` (`POST /v1/events`), which folds edges
+These match the cloud's `POST /v1/events` contract, which folds edges
 into the production graph and stores errors with their path for repro
 (`GET /v1/errors/:app/:idx/repro`).
 

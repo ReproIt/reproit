@@ -47,7 +47,7 @@ on:
         default: "0"
         type: string
     secrets:
-      REPROIT_API_KEY:
+      REPROIT_CLOUD_KEY:
         description: "reproit cloud API key"
         required: false
 
@@ -85,7 +85,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPROIT_CLOUD_URL: ${{ inputs.cloud_url }}
-          REPROIT_API_KEY: ${{ secrets.REPROIT_API_KEY }}
+          REPROIT_CLOUD_KEY: ${{ secrets.REPROIT_CLOUD_KEY }}
         run: |
           # The fuzz mode runs the headless oracle, escalates a finding to the
           # simulator to record the minimized repro, uploads it, and posts the PR
@@ -116,7 +116,7 @@ jobs:
 #         journey: explore
 #         runs: "30"
 #       secrets:
-#         REPROIT_API_KEY: ${{ secrets.REPROIT_API_KEY }}
+#         REPROIT_CLOUD_KEY: ${{ secrets.REPROIT_CLOUD_KEY }}
 #
 # The default GITHUB_TOKEN posts the comment; no extra secret needed for that.
 # ---------------------------------------------------------------------------

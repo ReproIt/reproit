@@ -842,15 +842,20 @@ enum MapAction {
 /// Cloud subcommands. Each maps to an existing triage::*/deliver::* handler.
 #[derive(Subcommand)]
 enum CloudAction {
-    /// Authenticate with a cloud service token (distinct from `secrets`).
-    /// Reads $REPROIT_API_KEY / $REPROIT_CLOUD_URL when not passed.
+    /// Authenticate with a cloud/project key (sk_live_..., distinct from
+    /// `secrets`) and VALIDATE it against the cloud. Reads $REPROIT_CLOUD_KEY /
+    /// $REPROIT_CLOUD_URL when not passed.
     Login {
         /// Cloud base URL (default: $REPROIT_CLOUD_URL)
         #[arg(long)]
         cloud: Option<String>,
-        /// Cloud service token (default: $REPROIT_API_KEY)
+        /// Cloud/project key, sk_live_... (default: $REPROIT_CLOUD_KEY)
         #[arg(long)]
         key: Option<String>,
+        /// App id to validate the key against (validates via GET
+        /// /v1/apps/:app/buckets). Without it, login validates via GET /v1/me.
+        #[arg(long)]
+        app: Option<String>,
     },
     /// Fan-out fuzz job -> stored artifact (auto-links to a PR). Submits via the
     /// existing fuzz cloud-delivery path.
@@ -921,21 +926,22 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Pull a real user session and replay it locally. Was `triage reproduce`.
-    /// Hits GET /v1/errors/:app/:idx/repro.
+    /// Pull a real user session and replay it locally: `pull` then `check`, in one
+    /// step. Bucket-first: name a content-addressed `--bucket <bkt_...>` and a
+    /// local `--as <name>`; it saves the repro (the SAME shape `keep`/`pull`
+    /// write, fixture included) and, with `--run`, verifies it locally.
     Reproduce {
         #[arg(long)]
         app: String,
+        /// Content-addressed bucket id to reproduce. With `--as`, does pull -> check.
         #[arg(long)]
-        idx: usize,
-        #[arg(long, default_value = "explore")]
-        journey: String,
-        /// Actually execute the replay (otherwise just write the config)
+        bucket: String,
+        /// Local name (alias) for the saved repro, used in `check <name>`.
+        #[arg(long = "as", name = "reproduce_as")]
+        as_name: String,
+        /// Actually execute the replay (otherwise just write/save the repro).
         #[arg(long)]
         run: bool,
-        /// Write the raw repro JSON to stdout instead of a rendered view.
-        #[arg(long)]
-        export: bool,
         #[arg(long)]
         cloud: Option<String>,
         #[arg(long)]
@@ -947,17 +953,13 @@ enum CloudAction {
     /// the SAME on-disk shape `keep` produces. Afterwards `reproit check <name>`
     /// runs the standard local, network-free verification and `reproit repros`
     /// lists it -- indistinguishable from a locally found repro.
-    /// Prefers the content-addressed `GET /v1/apps/:app/buckets/:bucket`; pass
-    /// `--idx` to use the legacy `GET /v1/errors/:app/:idx/repro` instead.
+    /// Fetches the content-addressed `GET /v1/apps/:app/buckets/:bucket`.
     Pull {
         #[arg(long)]
         app: String,
-        /// Content-addressed bucket id to pull (preferred). Provide this OR --idx.
+        /// Content-addressed bucket id to pull.
         #[arg(long)]
-        bucket: Option<String>,
-        /// Legacy error index to pull instead of a bucket. Provide this OR --bucket.
-        #[arg(long)]
-        idx: Option<usize>,
+        bucket: String,
         /// Local name (alias) for the saved repro, used in `check <name>`.
         #[arg(long = "as", name = "name")]
         as_name: String,
@@ -2632,24 +2634,26 @@ fn is_web_engines(target: &str) -> bool {
     !toks.is_empty() && toks.iter().all(|t| crosscut::is_web_engine_token(t))
 }
 
-/// Resolve the effective cloud (url, key) for a cloud subcommand: an explicit
-/// flag wins, then the env (REPROIT_CLOUD_URL / REPROIT_API_KEY), then the
-/// persisted token from `cloud login` (~/.reproit/token). This is the single
-/// place the persisted token is read so every `cloud` command honors it.
+/// Resolve the effective cloud (url, key) for a cloud subcommand. Precedence:
+///   url:  --cloud flag > $REPROIT_CLOUD_URL > the persisted login url.
+///   key:  --key flag > $REPROIT_CLOUD_KEY (the project key, sk_live_...) >
+///         the persisted login key.
+/// This is the single place the persisted login is read so every `cloud` command
+/// honors it.
 fn cloud_creds(cloud: Option<String>, key: Option<String>) -> (Option<String>, Option<String>) {
     let persisted = crosscut::load_token(&crosscut::token_path());
     let url = cloud
         .or_else(|| std::env::var("REPROIT_CLOUD_URL").ok())
         .or_else(|| persisted.as_ref().and_then(|(_, u)| u.clone()));
     let key = key
-        .or_else(|| std::env::var("REPROIT_API_KEY").ok())
+        .or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok())
         .or_else(|| persisted.as_ref().map(|(t, _)| t.clone()));
     (url, key)
 }
 
 /// Dispatch the `cloud` subcommands onto the existing triage::*/deliver::*
-/// handlers. `login` persists a service token; every other command resolves the
-/// token via `cloud_creds` and uses it as a bearer. Network failures surface as
+/// handlers. `login` persists the cloud/project key; every other command resolves
+/// the key via `cloud_creds` and uses it as a bearer. Network failures surface as
 /// a clear message (the triage layer bails rather than panicking).
 async fn cloud_cmd(
     config_path: Option<&std::path::Path>,
@@ -2657,32 +2661,55 @@ async fn cloud_cmd(
     json: bool,
 ) -> Result<()> {
     match action {
-        CloudAction::Login { cloud, key } => {
+        CloudAction::Login { cloud, key, app } => {
             let url = cloud
                 .or_else(|| std::env::var("REPROIT_CLOUD_URL").ok())
                 .unwrap_or_else(|| "https://cloud.reproit.com".into());
-            let token = key.or_else(|| std::env::var("REPROIT_API_KEY").ok());
+            // Key precedence: --key > REPROIT_CLOUD_KEY (project key).
+            let token = key.or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok());
             let Some(token) = token else {
                 anyhow::bail!(
-                    "no service token: pass --key or set REPROIT_API_KEY (get one from the cloud dashboard)"
+                    "no cloud key: pass --key or set REPROIT_CLOUD_KEY (the sk_live_... project key from the cloud dashboard)"
                 );
             };
-            let path = crosscut::token_path();
-            crosscut::save_token(&path, &token, &url)?;
-            println!("cloud url:     {url}");
-            println!(
-                "service token: stored ({} chars) in {}",
-                token.len(),
-                path.display()
-            );
-            // Best-effort validation: a GET that needs auth. A failure is a
-            // warning, not an error (the token is still saved for later use).
-            let probe = triage::ping(&url, Some(&token)).await;
-            match probe {
-                Ok(()) => println!("validated:     ok (cloud reachable, token accepted)"),
-                Err(e) => println!("validated:     warn: could not verify token now ({e})"),
+            // Validate BEFORE persisting: a login that stores an unusable key is a
+            // worse failure mode than failing loudly now. With --app, validate
+            // against the app's buckets; otherwise against /v1/me. A 401/403 fails
+            // clearly (bad key); a transient network error is a soft warning (the
+            // key may still be fine, so we store it and let the user retry).
+            match triage::validate_login(&url, &token, app.as_deref()).await {
+                Ok(desc) => {
+                    let path = crosscut::token_path();
+                    crosscut::save_token(&path, &token, &url)?;
+                    println!("cloud url:     {url}");
+                    println!(
+                        "cloud key:     stored ({} chars) in {}",
+                        token.len(),
+                        path.display()
+                    );
+                    println!("validated:     ok ({desc})");
+                    Ok(())
+                }
+                Err(e) => {
+                    // Distinguish a rejected key (do NOT store) from a transient
+                    // reachability failure (store + warn): the message from
+                    // validate_login carries "rejected the key" on a 401/403.
+                    let msg = e.to_string();
+                    if msg.contains("rejected the key") {
+                        anyhow::bail!("login failed: {msg}");
+                    }
+                    let path = crosscut::token_path();
+                    crosscut::save_token(&path, &token, &url)?;
+                    println!("cloud url:     {url}");
+                    println!(
+                        "cloud key:     stored ({} chars) in {}",
+                        token.len(),
+                        path.display()
+                    );
+                    println!("validated:     warn: could not verify the key now ({msg})");
+                    Ok(())
+                }
             }
-            Ok(())
         }
         CloudAction::Fuzz {
             app,
@@ -2771,48 +2798,30 @@ async fn cloud_cmd(
         }
         CloudAction::Reproduce {
             app,
-            idx,
-            journey,
+            bucket,
+            as_name,
             run,
-            export,
             cloud,
             key,
         } => {
             let (cloud, key) = cloud_creds(cloud, key);
-            if export {
-                // Raw repro JSON from GET /v1/errors/:app/:idx/repro.
-                let v = triage::raw(&app, &format!("/{idx}/repro"), cloud, key).await?;
-                println!("{}", serde_json::to_string_pretty(&v)?);
-                Ok(())
-            } else {
-                triage::reproduce(&app, idx, &journey, run, cloud, key).await
-            }
+            // Bucket-first: pull -> check, in one step. Reuses the pull + check
+            // code paths so the saved repro carries its fixture.
+            let loaded = config::load(config_path)?;
+            triage::reproduce_bucket(&loaded.root, &app, &bucket, &as_name, run, cloud, key).await
         }
         CloudAction::Pull {
             app,
             bucket,
-            idx,
             as_name,
             cloud,
             key,
         } => {
-            if bucket.is_none() && idx.is_none() {
-                anyhow::bail!("cloud pull needs either --bucket <id> or --idx <n>");
-            }
             // Resolve the local repro store root so the pulled repro lands as a
             // first-class saved repro under .reproit/repros/, just like `keep`.
             let loaded = config::load(config_path)?;
             let (cloud, key) = cloud_creds(cloud, key);
-            triage::pull(
-                &loaded.root,
-                &app,
-                bucket.as_deref(),
-                idx,
-                &as_name,
-                cloud,
-                key,
-            )
-            .await
+            triage::pull(&loaded.root, &app, &bucket, &as_name, cloud, key).await
         }
         CloudAction::Triage {
             app,
@@ -3450,7 +3459,15 @@ async fn check_repro(
     // LOCALE contract: the locale travels to the runner as REPROIT_LOCALE (a
     // dart-define for Flutter, an env var for the rest, both via the
     // orchestrator's define list), so a repro can be replayed under each locale.
-    if let Some(loc) = locale {
+    // Precedence: an explicit `--locale` (the cross-locale matrix) wins; otherwise
+    // fall back to a `locale` pinned in the stored replay.json by `cloud pull` /
+    // `reproduce` (the property-matched fixture's locale), so a locale-dependent
+    // prod bug reproduces under a plain `reproit check <name>` without the caller
+    // having to remember which locale it came from. The runner reads `inputs` off
+    // the config directly, but reads locale ONLY from REPROIT_LOCALE, so the
+    // fixture locale must be lifted here.
+    let fixture_locale = replay.get("locale").and_then(|v| v.as_str());
+    if let Some(loc) = locale.or(fixture_locale) {
         defines.push((crosscut::LOCALE_ENV.to_string(), loc.to_string()));
     }
 

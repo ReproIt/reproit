@@ -7,7 +7,7 @@
 // edge/error state machine, the PII-safe context map (SetContext / SetContexts /
 // Identify with the SHA-256 "uid" hash) and the {appId, sentAt, ctx?, events}
 // batch envelope are byte-for-byte the same wire shape as the other SDKs and the
-// cloud (crates/cloud/src/ingest.rs, POST /v1/events).
+// cloud's ingest endpoint (POST /v1/events).
 
 using System;
 using System.Collections.Generic;

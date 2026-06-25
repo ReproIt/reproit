@@ -7,7 +7,7 @@
 //   • the FNV-1a state signature over sorted, '|'-joined accessible names
 //   • the accessible-name normalization rule
 //   • the edge / error event shapes and the {appId, sentAt, events} batch
-//   • the /v1/events POST (URLSession), batching, flush, sampling
+//   • the POST /v1/events transport (URLSession), batching, flush, sampling
 //
 // The live view-hierarchy capture (snapshotting, tap hit-testing, error hooks)
 // lives in Capture.swift, guarded by `#if canImport(UIKit)`.
@@ -351,7 +351,7 @@ public struct ReproItSnapshot {
     }
 }
 
-// MARK: - Events (shapes match crates/cloud/src/ingest.rs)
+// MARK: - Events (shapes match the cloud's POST /v1/events contract)
 
 /// A single graph step retained for repro paths.
 public struct ReproItStep: Equatable {
@@ -364,7 +364,7 @@ public struct ReproItStep: Equatable {
 }
 
 /// An event the SDK emits. JSON shapes are byte-compatible with the web/Flutter
-/// SDKs and `crates/cloud/src/ingest.rs`.
+/// SDKs and the cloud's `POST /v1/events` contract.
 public enum ReproItEvent {
     /// `{kind:"edge", from?, action, to, labels?, t}`
     case edge(from: String?, action: String, to: String, labels: [String]?, t: Int64)

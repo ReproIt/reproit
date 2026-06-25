@@ -50,8 +50,8 @@ class Engine(
      * PII-safe context dimensions sent with each batch (the "which users" answer).
      * Insertion-ordered and merged in place; included as the batch envelope's
      * `ctx` field (only when non-empty), exactly like the Flutter/web SDKs. The
-     * cloud (`crates/cloud/src/ingest.rs`) folds this into each event's context
-     * and computes a cohort discriminator from it.
+     * cloud's ingest endpoint (`POST /v1/events`) folds this into each event's
+     * context and computes a cohort discriminator from it.
      */
     private val context = LinkedHashMap<String, Any?>()
 

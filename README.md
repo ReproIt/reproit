@@ -105,7 +105,17 @@ reproit watch <id>                    # open a repro's recorded video
 reproit repro simplify|why <id>       # shorten a repro (verified) / localize the failure
 reproit secrets set <k> [v]           # test-login creds for the app under test
 reproit mcp                           # serve reproit to your coding agent (stdio)
-reproit cloud login|fuzz|findings|blast-radius|reproduce|query
+```
+
+Cloud golden path (production bug -> local repro -> triaged fix):
+
+```sh
+reproit cloud login --cloud <url> --key sk_live_...
+reproit cloud buckets --app app_...
+reproit cloud pull --app app_... --bucket bkt_... --as checkout-crash
+reproit check checkout-crash
+reproit cloud triage --app app_... --bucket bkt_... --status fixed --fixed-in-build 1.2.3
+reproit cloud resolution-events --app app_...
 ```
 
 Cross-cutting flags on `fuzz`/`check`:
@@ -139,8 +149,8 @@ coding agent fixes them; `check` proves the fix. AI builds it, reproit proves it
 A worker pool runs the **same `reproit` binary** across shards (one seed/device
 each): orchestration, fleet, and storage around the CLI, not a reimplementation.
 The headline use case is a **production crash reproduced on your machine**: the
-SDK reports the real session and `reproit cloud reproduce <bucket>` replays it
-locally. Self-hosted or managed.
+SDK reports the real session and `reproit cloud pull --bucket bkt_... --as <name>`
+then `reproit check <name>` replays it locally. Self-hosted or managed.
 
 The SDK captures the *structure* of a session, not user data: input values and
 personal data never leave your app (an error attaches only PII-safe derived
