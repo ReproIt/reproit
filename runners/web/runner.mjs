@@ -389,7 +389,15 @@ function detectOverflow(tol) {
         const contentLeft = pr.left + bL + padL;
         const contentRight = pr.right - bR - padR;
         const over = Math.max(cr.right - contentRight, contentLeft - cr.left);
-        if (over > tol) add(el, 'spill', over);
+        // A spilling element several screens wide is an intended horizontal
+        // SCROLLER -- a marquee/logo rail, a carousel track (often animated via
+        // transform, so its parent does not need overflow:scroll). The user only
+        // ever sees the on-screen slice; it is meant to extend off-frame, so it
+        // is not a visible layout bug. A genuine spill is a control/card/text
+        // modestly exceeding its container, on-screen. Gate it on element width
+        // so an 8000px logo rail no longer floods every page with "overflow".
+        const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+        if (over > tol && cr.width <= vw * 3) add(el, 'spill', over);
       }
     }
   }
@@ -2786,7 +2794,11 @@ async function drawFindingBoxes(page, hints = {}) {
               const padL = parseFloat(ps.paddingLeft) || 0, padR = parseFloat(ps.paddingRight) || 0;
               const bL = parseFloat(ps.borderLeftWidth) || 0, bR = parseFloat(ps.borderRightWidth) || 0;
               const over = Math.max(cr.right - (pr.right - bR - padR), (pr.left + bL + padL) - cr.left);
-              if (over > tol) push(el, 'overflow  +' + Math.round(over) + 'px', 2, over, 'overflow');
+              // Skip an intended horizontal scroller / marquee track (several
+              // screens wide), mirroring detectOverflow -- it should neither be a
+              // finding nor get a box.
+              const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+              if (over > tol && cr.width <= vw * 3) push(el, 'overflow  +' + Math.round(over) + 'px', 2, over, 'overflow');
             }
           }
         }
