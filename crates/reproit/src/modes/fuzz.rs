@@ -859,7 +859,12 @@ async fn fuzz_one_locale(
             for (from, action, to) in &o.edges {
                 if action != "back" && to != from {
                     if let Some(r) = o.routes.get(from) {
-                        escapable.insert(r.clone());
+                        let labels: std::collections::BTreeSet<String> = o
+                            .states
+                            .get(from)
+                            .map(|(l, _)| l.iter().cloned().collect())
+                            .unwrap_or_default();
+                        escapable.entry(r.clone()).or_default().push(labels);
                     }
                 }
             }
@@ -1569,10 +1574,13 @@ fn invariant_observations(
     seg_log: &str,
     exceptions: Vec<Value>,
     sim: bool,
-    escapable_routes: std::collections::BTreeSet<String>,
+    escapable_route_labels: std::collections::BTreeMap<
+        String,
+        Vec<std::collections::BTreeSet<String>>,
+    >,
 ) -> crate::invariants::Observations {
     let mut obs = crate::map::parse_run(seg_log);
-    obs.escapable_routes = escapable_routes;
+    obs.escapable_route_labels = escapable_route_labels;
     crate::invariants::Observations {
         obs,
         exceptions,
@@ -1582,22 +1590,32 @@ fn invariant_observations(
     }
 }
 
-/// Routes the AGGREGATE map can leave via a forward (non-back) action. Folded
-/// into each per-seed dead-end evaluation so a state on an escapable page is not
-/// flagged as a sink just because one sparse seed recorded no exit from it (the
-/// animated single-page-app false positive).
-fn map_escapable_routes(map: &crate::appmap::AppMap) -> std::collections::BTreeSet<String> {
-    let mut out = std::collections::BTreeSet::new();
+/// route -> the label sets of states the AGGREGATE map can leave via a forward
+/// (non-back) action. Folded into each per-seed dead-end evaluation so a state on
+/// an escapable page is not flagged as a sink just because one sparse seed
+/// recorded no exit from it (the animated single-page-app false positive). The
+/// label set (recovered from the state description, which is its first labels)
+/// lets the oracle suppress only a same-or-reduced render of the escapable page,
+/// not a distinct screen that merely shares the URL.
+fn map_escapable_routes(
+    map: &crate::appmap::AppMap,
+) -> std::collections::BTreeMap<String, Vec<std::collections::BTreeSet<String>>> {
+    let mut out: std::collections::BTreeMap<String, Vec<std::collections::BTreeSet<String>>> =
+        std::collections::BTreeMap::new();
     for t in &map.transitions {
         if matches!(t.action, crate::appmap::Action::Back) || t.from == t.to {
             continue;
         }
-        if let Some(route) = map
-            .states
-            .get(&t.from)
-            .and_then(|s| s.signature.route.as_ref())
-        {
-            out.insert(route.clone());
+        if let Some(state) = map.states.get(&t.from) {
+            if let Some(route) = state.signature.route.as_ref() {
+                let labels: std::collections::BTreeSet<String> = state
+                    .description
+                    .split(", ")
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect();
+                out.entry(route.clone()).or_default().push(labels);
+            }
         }
     }
     out
@@ -1700,7 +1718,7 @@ fn findings_from_log(
     log: &str,
     exceptions: Vec<Value>,
     sim: bool,
-    escapable: std::collections::BTreeSet<String>,
+    escapable: std::collections::BTreeMap<String, Vec<std::collections::BTreeSet<String>>>,
 ) -> Vec<Value> {
     let inv_obs = invariant_observations(log, exceptions.clone(), sim, escapable);
     let mut f = crate::invariants::evaluate(&inv_obs, &cfg.invariants);
@@ -1731,7 +1749,7 @@ fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
         &log,
         exceptions,
         sim,
-        std::collections::BTreeSet::new(),
+        std::collections::BTreeMap::new(),
     );
     if sim {
         f.extend(perf_findings(run_dir));

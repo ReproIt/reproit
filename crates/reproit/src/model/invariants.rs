@@ -386,23 +386,58 @@ fn dead_ends(obs: &RunObs) -> Vec<String> {
     // artifact, not a dead end. A genuinely trapped screen has its own route and
     // is unaffected. Empty when no runner reports routes (TUI/desktop), so the
     // predicate is unchanged there.
-    let mut routes_with_exit = std::collections::BTreeSet::new();
+    // route -> the label sets of states with a forward exit, from THIS seed's
+    // edges plus the aggregate-map fold-in. A sink on such a route is excused only
+    // when its labels are a SUBSET of one of these escapable siblings -- a
+    // same-or-reduced render of that page (animation churn). A structurally
+    // DISTINCT screen sharing the URL (a section toggle with no route change)
+    // shows labels the escapable page lacks, so it is not a subset and stays
+    // flagged. Empty when no runner reports routes (TUI/desktop), so the predicate
+    // is unchanged there.
+    let mut route_exit_labels: std::collections::BTreeMap<
+        String,
+        Vec<std::collections::BTreeSet<String>>,
+    > = std::collections::BTreeMap::new();
     for (from, action, to) in &obs.edges {
         if action != "back" && to != from {
             if let Some(route) = obs.routes.get(from) {
-                routes_with_exit.insert(route.clone());
+                let labels: std::collections::BTreeSet<String> =
+                    label_set(obs, from).into_iter().collect();
+                route_exit_labels
+                    .entry(route.clone())
+                    .or_default()
+                    .push(labels);
             }
         }
     }
-    // Routes that offered tappables on SOME snapshot. A different snapshot of the
-    // same route that reported zero tappables (header nav scrolled offscreen, a
-    // partial render) is not a proven sink: the page does have actions.
-    let routes_with_tappables: std::collections::BTreeSet<&String> = obs
-        .tappables
-        .iter()
-        .filter(|(_, &n)| n > 0)
-        .filter_map(|(sig, _)| obs.routes.get(sig))
-        .collect();
+    for (route, sets) in &obs.escapable_route_labels {
+        route_exit_labels
+            .entry(route.clone())
+            .or_default()
+            .extend(sets.iter().cloned());
+    }
+    // route -> label sets of states that offered tappables on SOME snapshot. A
+    // zero-tappable snapshot of the same route (header nav scrolled offscreen, a
+    // partial render) is not a proven sink IF it is a same-or-reduced render of a
+    // tappable-bearing sibling (its labels are a subset). A distinct content-only
+    // screen sharing the URL (an "Advanced" pane with no controls) shows labels no
+    // tappable sibling has, so it is not excused here.
+    let mut routes_with_tappables: std::collections::BTreeMap<
+        String,
+        Vec<std::collections::BTreeSet<String>>,
+    > = std::collections::BTreeMap::new();
+    for (sig, &n) in &obs.tappables {
+        if n > 0 {
+            if let Some(route) = obs.routes.get(sig) {
+                let labels: std::collections::BTreeSet<String> =
+                    label_set(obs, sig).into_iter().collect();
+                routes_with_tappables
+                    .entry(route.clone())
+                    .or_default()
+                    .push(labels);
+            }
+        }
+    }
 
     let mut out = Vec::new();
     for sig in obs.states.keys() {
@@ -434,8 +469,16 @@ fn dead_ends(obs: &RunObs) -> Vec<String> {
         // folded in by the caller (covers the common case where one seed visited
         // the page only as its budget terminus).
         if let Some(route) = obs.routes.get(sig) {
-            if routes_with_exit.contains(route) || obs.escapable_routes.contains(route) {
-                continue;
+            if let Some(sibling_sets) = route_exit_labels.get(route) {
+                let sink_labels: std::collections::BTreeSet<String> =
+                    label_set(obs, sig).into_iter().collect();
+                // Suppress only a same-or-reduced render of an escapable sibling:
+                // the sink shows nothing the escapable page does not already show.
+                // A distinct screen at the same URL carries labels no escapable
+                // sibling has, so it is not a subset and is correctly flagged.
+                if sibling_sets.iter().any(|s| sink_labels.is_subset(s)) {
+                    continue;
+                }
             }
         }
         // Unexplored terminus, not a proven sink: the state OFFERED tappable
@@ -463,11 +506,17 @@ fn dead_ends(obs: &RunObs) -> Vec<String> {
                 continue;
             }
         } else if let Some(route) = obs.routes.get(sig) {
-            // This snapshot saw zero tappables, but if another snapshot of the
-            // same route did, the page has actions (a transient/partial render),
-            // not a sink.
-            if routes_with_tappables.contains(route) {
-                continue;
+            // This snapshot saw zero tappables. If a same-route sibling that DID
+            // offer tappables is a superset of this one's labels, this is a
+            // transient/partial render of that page, not a sink. A distinct
+            // content-only screen at the same URL has labels no tappable sibling
+            // carries, so it stays flagged.
+            if let Some(sibling_sets) = routes_with_tappables.get(route) {
+                let sink_labels: std::collections::BTreeSet<String> =
+                    label_set(obs, sig).into_iter().collect();
+                if sibling_sets.iter().any(|s| sink_labels.is_subset(s)) {
+                    continue;
+                }
             }
         }
         out.push(sig.clone());
@@ -808,7 +857,7 @@ mod tests {
                     .map(|(f, a, t)| (f.to_string(), a.to_string(), t.to_string()))
                     .collect(),
                 start: start.map(String::from),
-                escapable_routes: Default::default(),
+                escapable_route_labels: Default::default(),
                 gaps: Default::default(),
                 rerenders: Default::default(),
                 paint_flickers: Default::default(),
@@ -1241,6 +1290,39 @@ mod tests {
         assert!(f
             .iter()
             .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "advanced"));
+    }
+
+    #[test]
+    fn single_url_distinct_screen_sink_is_a_dead_end() {
+        // A single-URL app (JS section toggle, no hash/path change): the dashboard
+        // and a content-only "Advanced" pane share route "/". The dashboard has a
+        // forward exit and tappables; Advanced is a genuine sink (reached by an
+        // action, no exit, no controls). Because every state shares the one route,
+        // route-only suppression would wrongly excuse Advanced via the dashboard's
+        // exit/tappables. Its labels are NOT a subset of the dashboard's, so the
+        // label-aware predicate keeps it flagged. (Regression: corpus
+        // dead-end-advanced went silent under route-only suppression.)
+        let mut o = obs_with(
+            &[
+                (
+                    "dashboard",
+                    &["Dashboard", "Open advanced settings", "Refresh queue"],
+                    2,
+                ),
+                ("advanced", &["Advanced", "Nothing to configure yet."], 0),
+            ],
+            &[("dashboard", "tap:advanced", "advanced")],
+            Some("dashboard"),
+        );
+        for s in ["dashboard", "advanced"] {
+            o.obs.routes.insert(s.to_string(), "/".to_string());
+        }
+        let f = evaluate(&o, &InvariantsCfg::default());
+        assert!(
+            f.iter()
+                .any(|x| x["invariant"] == "no-dead-end" && x["sig"] == "advanced"),
+            "a distinct content-only screen sharing the URL is a real dead end"
+        );
     }
 
     #[test]

@@ -40,12 +40,15 @@ pub(crate) struct RunObs {
     pub edges: Vec<(String, String, String)>,
     /// First state observed: the app's start state.
     pub start: Option<String>,
-    /// Routes that have a forward (non-back) exit in the AGGREGATE map, folded in
-    /// by the caller (the per-seed graph is too sparse on its own). The dead-end
-    /// oracle treats a state on such a route as escapable, so an animated
-    /// single-page snapshot whose one seed recorded no exit is not a false sink.
+    /// route -> the label sets of states on that route that have a forward
+    /// (non-back) exit in the AGGREGATE map, folded in by the caller (the per-seed
+    /// graph is too sparse on its own). The dead-end oracle treats a state on such
+    /// a route as escapable ONLY when its labels are a subset of an escapable
+    /// sibling's (same-or-reduced render of the same page = animation churn); a
+    /// structurally DISTINCT screen sharing the URL (a section toggle with no
+    /// route change) shows labels the escapable page lacks, so it stays flagged.
     /// Empty unless a caller populates it (parse_run leaves it empty).
-    pub escapable_routes: std::collections::BTreeSet<String>,
+    pub escapable_route_labels: BTreeMap<String, Vec<std::collections::BTreeSet<String>>>,
     /// sig -> operability/accessibility gaps, from `EXPLORE:GROUNDTRUTH` records
     /// (the graph-1-minus-graph-2 diff). Empty for runners that don't emit it.
     pub gaps: BTreeMap<String, OperabilityGaps>,
@@ -163,7 +166,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         unlabeled_els: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
-        escapable_routes: std::collections::BTreeSet::new(),
+        escapable_route_labels: BTreeMap::new(),
         gaps: BTreeMap::new(),
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),
