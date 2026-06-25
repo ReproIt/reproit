@@ -718,16 +718,25 @@ pub async fn run_journey_headless(
     // judged by the fuzz oracle, not the test exit code). Treat a JOURNEY DONE
     // marker as the run completing; a non-zero exit with no marker is a harness
     // failure, not a finding.
+    // A JOURNEY DONE marker means the explore loop ran to completion. Its ABSENCE
+    // is a HARNESS failure (a compile/dependency error, a crash before the first
+    // pump, a kill), NOT a clean app -- the app was never driven. Reporting "no
+    // findings" there is the dangerous false-green, so fail loudly instead.
     let done = log.contains("JOURNEY DONE");
-    let passed = done && output.status.success();
     if !done {
-        eprintln!(
-            "  warn: headless run produced no JOURNEY DONE marker (flutter test \
-             exit {:?}); see {}",
+        anyhow::bail!(
+            "headless run did not complete: no JOURNEY DONE marker (flutter test exit {:?}).\n  \
+             This is a harness failure, not a clean app -- the app was never driven, so \
+             \"no findings\" would be a false green.\n  \
+             It is usually a compile or dependency error in the test. See the log:\n    {}\n  \
+             Reproduce it directly: (cd {} && flutter test {})",
             output.status.code(),
-            log_path.display()
+            log_path.display(),
+            project_dir.display(),
+            target,
         );
     }
+    let passed = output.status.success();
 
     // Minimal manifest so downstream tooling (list/triage) finds the run; no
     // device/video/frames (those are the simulator tier's evidence).
