@@ -1483,12 +1483,15 @@ async fn main() -> Result<ExitCode> {
                         None,
                     )
                     .await?;
-                    // Quarantined repros are "reported but non-blocking": a
-                    // non-pass result is still shown and written to meta/junit/json
-                    // but does NOT raise the aggregate exit code, so a fresh keep
-                    // can't break CI before it has proven green once. `--strict`
-                    // opts into blocking on them too; required repros always gate.
-                    let blocks = strict || meta.status != repro::Status::Quarantined;
+                    // Quarantined repros are "reported but non-blocking" in a
+                    // WHOLE-SUITE check (no id): a fresh keep can't break CI before
+                    // it has proven green once. But an EXPLICIT `check <id>` is the
+                    // user verifying THAT bug -- if it still reproduces it must be
+                    // RED (exit non-zero), so the find -> check(RED) -> fix ->
+                    // check(GREEN) -> guard loop is honest. `--strict` blocks
+                    // everywhere; required repros always gate.
+                    let blocks =
+                        strict || repro.is_some() || meta.status != repro::Status::Quarantined;
                     let effective = if blocks {
                         result.outcome
                     } else {
