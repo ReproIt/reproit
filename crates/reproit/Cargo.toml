@@ -23,6 +23,10 @@ tokio = { workspace = true }
 # auth vault + TOTP. getrandom is the OS CSPRNG primitive for salt/nonce/keyfile
 # bytes (rand 0.10 dropped rand::rngs::OsRng; getrandom is the canonical source).
 aes-gcm = "0.10.3"
+# Argon2id KDF for passphrase-derived vault keys (REPROIT_VAULT_KEY). A single
+# SHA256 is fine for the random keyfile but brute-forceable for a human secret.
+# Pinned to 0.5 to match the cloud crate's argon2 version.
+argon2 = "0.5"
 getrandom = "0.3"
 hmac = "0.13.0"
 sha1 = "0.11.0"

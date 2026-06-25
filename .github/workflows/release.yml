@@ -160,12 +160,20 @@ jobs:
           # dropping tests/fixtures that the runtime never loads.
           tar --exclude='*.test.mjs' --exclude='*-fixture.html' \
             -czf "$GITHUB_WORKSPACE/reproit-web-runner.tar.gz" .
+          # Publish the SHA-256 alongside the tarball so the binary's self-heal
+          # (config::download_and_extract_runner) can verify the bundle it
+          # downloads before executing it. Format: "<hex>  <filename>", the
+          # standard shasum/sha256sum layout the CLI parses.
+          cd "$GITHUB_WORKSPACE"
+          shasum -a 256 reproit-web-runner.tar.gz > reproit-web-runner.tar.gz.sha256
 
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.tag.outputs.tag }}
-          files: reproit-web-runner.tar.gz
+          files: |
+            reproit-web-runner.tar.gz
+            reproit-web-runner.tar.gz.sha256
 
   # Regenerate the Homebrew formula with the real sha256s and push it to the tap
   # (github.com/ReproIt/homebrew-tap), so `brew install ReproIt/tap/reproit` tracks

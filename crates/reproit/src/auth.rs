@@ -8,6 +8,24 @@
 //! (a passphrase) when set, otherwise from a machine-local keyfile created
 //! 0600 under the user config dir. A random per-vault salt is stored in the
 //! file header, so the same passphrase yields a distinct key per vault.
+//!
+//! Key derivation is recorded in the header so we can evolve it without locking
+//! existing users out. Two on-disk formats exist:
+//!
+//!   RMV1 (legacy): MAGIC | salt(16) | nonce(12) | ciphertext
+//!       Key is always SHA256(salt || material). Still READ for back-compat;
+//!       never written anymore.
+//!
+//!   RMV2 (current): MAGIC | kdf_id(1) | salt(16) | nonce(12) | ciphertext
+//!       `kdf_id` records the derivation used:
+//!         KDF_SHA256 (0): SHA256(salt || material). Used for machine-keyfile
+//!             material (already 32 random bytes -- a slow KDF adds nothing).
+//!         KDF_ARGON2ID (1): Argon2id(material, salt) with the params below.
+//!             Used for REPROIT_VAULT_KEY passphrases (a human secret, so a
+//!             single SHA256 would be brute-forceable).
+//!
+//! On open we dispatch on magic, then (for RMV2) on `kdf_id`, so a vault always
+//! decrypts with the same derivation it was written with.
 
 use crate::config::AuthCfg;
 use aes_gcm::aead::{Aead, KeyInit};
@@ -18,9 +36,30 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MAGIC: &[u8; 4] = b"RMV1";
+const MAGIC_V1: &[u8; 4] = b"RMV1";
+const MAGIC_V2: &[u8; 4] = b"RMV2";
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
+
+/// KDF identifiers recorded in the RMV2 header (1 byte).
+const KDF_SHA256: u8 = 0; // SHA256(salt || material); for random keyfile material.
+const KDF_ARGON2ID: u8 = 1; // Argon2id; for human passphrase material.
+
+/// Argon2id parameters for passphrase-derived keys. Recorded here (not in the
+/// header) because they are fixed for the RMV2/KDF_ARGON2ID scheme: any future
+/// change gets a new kdf_id so old vaults keep decrypting with the old cost.
+/// 19 MiB / 2 passes / 1 lane is the OWASP-recommended Argon2id baseline.
+const ARGON2_MEM_KIB: u32 = 19 * 1024;
+const ARGON2_ITERS: u32 = 2;
+const ARGON2_LANES: u32 = 1;
+
+/// Which source the key material came from, so save() can pick the matching KDF.
+enum Material {
+    /// REPROIT_VAULT_KEY passphrase (low-entropy human secret -> Argon2id).
+    Passphrase(Vec<u8>),
+    /// Machine keyfile (32 random bytes -> fast SHA256).
+    Keyfile(Vec<u8>),
+}
 
 /// The decrypted secret store: opaque name -> secret value.
 pub struct Vault {
@@ -39,13 +78,30 @@ impl Vault {
         }
         let raw =
             std::fs::read(path).with_context(|| format!("reading vault {}", path.display()))?;
-        if raw.len() < MAGIC.len() + SALT_LEN + NONCE_LEN || &raw[..4] != MAGIC {
+        // Dispatch on the magic, then (for RMV2) the recorded kdf_id, so a vault
+        // always decrypts with the exact derivation it was written with.
+        let (kdf_id, salt, nonce, ct) = if raw.len() >= 4 && &raw[..4] == MAGIC_V2 {
+            if raw.len() < 4 + 1 + SALT_LEN + NONCE_LEN {
+                bail!("{} is not a reproit vault (truncated RMV2)", path.display());
+            }
+            let kdf_id = raw[4];
+            let salt = &raw[5..5 + SALT_LEN];
+            let nonce = &raw[5 + SALT_LEN..5 + SALT_LEN + NONCE_LEN];
+            let ct = &raw[5 + SALT_LEN + NONCE_LEN..];
+            (kdf_id, salt, nonce, ct)
+        } else if raw.len() >= 4 && &raw[..4] == MAGIC_V1 {
+            // Legacy: no kdf byte, key is always SHA256(salt || material).
+            if raw.len() < 4 + SALT_LEN + NONCE_LEN {
+                bail!("{} is not a reproit vault (truncated RMV1)", path.display());
+            }
+            let salt = &raw[4..4 + SALT_LEN];
+            let nonce = &raw[4 + SALT_LEN..4 + SALT_LEN + NONCE_LEN];
+            let ct = &raw[4 + SALT_LEN + NONCE_LEN..];
+            (KDF_SHA256, salt, nonce, ct)
+        } else {
             bail!("{} is not a reproit vault (bad header)", path.display());
-        }
-        let salt = &raw[4..4 + SALT_LEN];
-        let nonce = &raw[4 + SALT_LEN..4 + SALT_LEN + NONCE_LEN];
-        let ct = &raw[4 + SALT_LEN + NONCE_LEN..];
-        let key = derive_key(salt)?;
+        };
+        let key = derive_key(kdf_id, salt)?;
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         let pt = cipher.decrypt(Nonce::from_slice(nonce), ct).map_err(|_| {
             anyhow::anyhow!("vault decrypt failed: wrong REPROIT_VAULT_KEY or keyfile")
@@ -67,14 +123,22 @@ impl Vault {
         getrandom::fill(&mut salt).expect("OS RNG");
         let mut nonce = [0u8; NONCE_LEN];
         getrandom::fill(&mut nonce).expect("OS RNG");
-        let key = derive_key(&salt)?;
+        // Always write the current RMV2 format. The kdf_id follows the material
+        // source: Argon2id for a passphrase, fast SHA256 for the random keyfile.
+        let material = key_material()?;
+        let kdf_id = match &material {
+            Material::Passphrase(_) => KDF_ARGON2ID,
+            Material::Keyfile(_) => KDF_SHA256,
+        };
+        let key = derive_key_from(kdf_id, &salt, &material)?;
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         let pt = serde_json::to_vec(&self.map)?;
         let ct = cipher
             .encrypt(Nonce::from_slice(&nonce), pt.as_ref())
             .map_err(|_| anyhow::anyhow!("vault encrypt failed"))?;
-        let mut out = Vec::with_capacity(MAGIC.len() + SALT_LEN + NONCE_LEN + ct.len());
-        out.extend_from_slice(MAGIC);
+        let mut out = Vec::with_capacity(MAGIC_V2.len() + 1 + SALT_LEN + NONCE_LEN + ct.len());
+        out.extend_from_slice(MAGIC_V2);
+        out.push(kdf_id);
         out.extend_from_slice(&salt);
         out.extend_from_slice(&nonce);
         out.extend_from_slice(&ct);
@@ -95,17 +159,55 @@ impl Vault {
     }
 }
 
-/// Resolve the 32-byte AES key from the passphrase env var or machine keyfile.
-fn derive_key(salt: &[u8]) -> Result<[u8; 32]> {
-    use sha2::{Digest, Sha256};
-    let material = match std::env::var("REPROIT_VAULT_KEY") {
-        Ok(p) if !p.is_empty() => p.into_bytes(),
-        _ => machine_keyfile()?,
+/// Resolve the raw key material: the passphrase env var (low entropy, human)
+/// or the machine keyfile (32 random bytes). The variant drives which KDF runs.
+fn key_material() -> Result<Material> {
+    match std::env::var("REPROIT_VAULT_KEY") {
+        Ok(p) if !p.is_empty() => Ok(Material::Passphrase(p.into_bytes())),
+        _ => Ok(Material::Keyfile(machine_keyfile()?)),
+    }
+}
+
+/// Derive the 32-byte AES key for `kdf_id`, resolving the material from the
+/// current environment. Used on OPEN, where the on-disk header dictates which
+/// KDF to run regardless of which source the material happens to come from.
+fn derive_key(kdf_id: u8, salt: &[u8]) -> Result<[u8; 32]> {
+    derive_key_from(kdf_id, salt, &key_material()?)
+}
+
+/// Derive the 32-byte AES key for `kdf_id` from explicit `material`.
+fn derive_key_from(kdf_id: u8, salt: &[u8], material: &Material) -> Result<[u8; 32]> {
+    let bytes = match material {
+        Material::Passphrase(b) | Material::Keyfile(b) => b.as_slice(),
     };
+    match kdf_id {
+        KDF_SHA256 => Ok(derive_sha256(salt, bytes)),
+        KDF_ARGON2ID => derive_argon2id(salt, bytes),
+        other => bail!("vault uses an unknown key-derivation id {other}; upgrade reproit"),
+    }
+}
+
+/// Fast derivation for high-entropy (random keyfile) material: SHA256(salt||material).
+fn derive_sha256(salt: &[u8], material: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(salt);
-    h.update(&material);
-    Ok(h.finalize().into())
+    h.update(material);
+    h.finalize().into()
+}
+
+/// Memory-hard derivation for low-entropy passphrase material: Argon2id with the
+/// recorded params, keyed by the per-vault salt.
+fn derive_argon2id(salt: &[u8], material: &[u8]) -> Result<[u8; 32]> {
+    use argon2::{Algorithm, Argon2, Params, Version};
+    let params = Params::new(ARGON2_MEM_KIB, ARGON2_ITERS, ARGON2_LANES, Some(32))
+        .map_err(|e| anyhow::anyhow!("invalid argon2 params: {e}"))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut key = [0u8; 32];
+    argon2
+        .hash_password_into(material, salt, &mut key)
+        .map_err(|e| anyhow::anyhow!("argon2 key derivation failed: {e}"))?;
+    Ok(key)
 }
 
 /// Read (or create) the 32-byte machine keyfile used when no passphrase is set.
@@ -302,17 +404,97 @@ mod tests {
         assert_eq!(format!("{:06}", hotp(&key, 1) % 1_000_000), "287082");
     }
 
+    // REPROIT_VAULT_KEY is process-global, so the env-touching vault tests must
+    // not run concurrently. Serialize them through this mutex.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "reproit-vault-test-{}-{}-{:?}",
+            std::process::id(),
+            tag,
+            std::thread::current().id()
+        ))
+    }
+
     #[test]
     fn vault_roundtrips_under_a_passphrase() {
+        let _g = ENV_LOCK.lock().unwrap();
         std::env::set_var("REPROIT_VAULT_KEY", "test-passphrase-xyz");
-        let dir = std::env::temp_dir().join(format!("reproit-vault-test-{}", std::process::id()));
+        let dir = unique_dir("pass");
+        let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("secrets.vault");
-        let _ = std::fs::remove_file(&path);
         let mut v = Vault::open(&path).unwrap();
         v.set("alice.password", "hunter2");
         v.save().unwrap();
+        // New writes are the Argon2id RMV2 format (magic + kdf_id == 1).
+        let raw = std::fs::read(&path).unwrap();
+        assert_eq!(&raw[..4], MAGIC_V2);
+        assert_eq!(raw[4], KDF_ARGON2ID);
         let v2 = Vault::open(&path).unwrap();
         assert_eq!(v2.get("alice.password"), Some("hunter2"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::remove_var("REPROIT_VAULT_KEY");
+    }
+
+    #[test]
+    fn vault_roundtrips_under_the_machine_keyfile() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("REPROIT_VAULT_KEY");
+        let dir = unique_dir("keyfile");
+        let _ = std::fs::remove_dir_all(&dir);
+        // Point the keyfile at this test's dir so we don't clobber the user's.
+        std::env::set_var("XDG_CONFIG_HOME", &dir);
+        let path = dir.join("secrets.vault");
+        let mut v = Vault::open(&path).unwrap();
+        v.set("k", "v");
+        v.save().unwrap();
+        // Keyfile material is already random, so the fast SHA256 KDF is recorded.
+        let raw = std::fs::read(&path).unwrap();
+        assert_eq!(&raw[..4], MAGIC_V2);
+        assert_eq!(raw[4], KDF_SHA256);
+        let v2 = Vault::open(&path).unwrap();
+        assert_eq!(v2.get("k"), Some("v"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+
+    // An existing RMV1 vault (old SHA256-derived key, no kdf byte) must keep
+    // opening so current users are never locked out by the format bump. We write
+    // one by hand in the legacy layout and confirm Vault::open reads it.
+    #[test]
+    fn legacy_rmv1_vault_still_opens() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("REPROIT_VAULT_KEY", "legacy-passphrase");
+        let dir = unique_dir("rmv1");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("secrets.vault");
+
+        // Hand-build the legacy RMV1 file: MAGIC | salt | nonce | ciphertext,
+        // with the key derived the old way (SHA256(salt || passphrase)).
+        let mut salt = [0u8; SALT_LEN];
+        getrandom::fill(&mut salt).unwrap();
+        let mut nonce = [0u8; NONCE_LEN];
+        getrandom::fill(&mut nonce).unwrap();
+        let key = derive_sha256(&salt, b"legacy-passphrase");
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+        let mut map = BTreeMap::new();
+        map.insert("old.secret".to_string(), "still-here".to_string());
+        let pt = serde_json::to_vec(&map).unwrap();
+        let ct = cipher
+            .encrypt(Nonce::from_slice(&nonce), pt.as_ref())
+            .unwrap();
+        let mut out = Vec::new();
+        out.extend_from_slice(MAGIC_V1);
+        out.extend_from_slice(&salt);
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&ct);
+        std::fs::write(&path, &out).unwrap();
+
+        // The current code path opens it via the legacy branch.
+        let v = Vault::open(&path).unwrap();
+        assert_eq!(v.get("old.secret"), Some("still-here"));
         let _ = std::fs::remove_dir_all(&dir);
         std::env::remove_var("REPROIT_VAULT_KEY");
     }

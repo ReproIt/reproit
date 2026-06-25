@@ -323,6 +323,14 @@ class ReproIt {
   static Map<String, Object?> get context =>
       Map.unmodifiable(_i?._context ?? const {});
 
+  /// PII-safe fingerprints of the on-screen text fields right now (the same set
+  /// attached to an error event's `context.fingerprint`). Exposed for tests so
+  /// they can assert the privacy contract (e.g. obscured/password fields are
+  /// skipped entirely). Returns an empty list when uninitialized.
+  @visibleForTesting
+  static List<Map<String, Object>> collectFieldFingerprints() =>
+      _i?._collectFields() ?? const [];
+
   /// Attach a hashed user id (so the cloud can group "these N users hit it"
   /// without storing identity) plus optional context dimensions.
   static void identify(String userId, {Map<String, Object?>? context}) {
@@ -614,17 +622,21 @@ class ReproIt {
   /// value to FEATURES, then discards the value. The raw text never leaves this
   /// method.
   ///
-  /// LIMITATION (honest, see README): a field's text is read from the semantics
-  /// node's `value` (what the platform a11y layer exposes). Obscured fields
-  /// (`obscureText`, e.g. passwords) report their value as masked bullets in
-  /// semantics, so their fingerprint reflects the masked form (length is right,
-  /// charset is ascii); we treat that as acceptable since the real value is
-  /// never read. Fields with no value contribute `isEmpty:true`.
+  /// Obscured fields (`obscureText`, e.g. passwords) are skipped entirely: they
+  /// are flagged [SemanticsFlag.isObscured] in the semantics tree, and we never
+  /// fingerprint or read the value of such a node. This matches the privacy
+  /// contract in docs/data-handling.md ("Password and hidden fields ... are never
+  /// read at all, not even to fingerprint them") and the Web/RN SDKs, which skip
+  /// password fields. Even the masked form (which would still leak the real
+  /// length and the field's identity) is never captured. Fields with no value
+  /// contribute `isEmpty:true`.
   List<Map<String, Object>> _collectFields() {
     final out = <Map<String, Object>>[];
     var index = 0;
     _walk((d, _) {
       if (!d.hasFlag(SemanticsFlag.isTextField)) return;
+      // Never read or fingerprint obscured (password) fields.
+      if (d.hasFlag(SemanticsFlag.isObscured)) return;
       final label = _labelOf(d);
       final field = label.isNotEmpty
           ? label

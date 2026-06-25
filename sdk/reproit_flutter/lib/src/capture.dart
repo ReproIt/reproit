@@ -72,7 +72,14 @@ String? idFromKey(Key? k) {
 /// Returns the raw value string (possibly empty, which classifies to EMPTY).
 /// Chrome roles (buttons, headers, plain text) return null here, so rule 1's
 /// chrome-text exclusion is preserved.
+///
+/// Obscured (password) fields return null: their value is NEVER read, not even
+/// to derive a value-class, honoring docs/data-handling.md ("Password and hidden
+/// fields ... are never read at all") and matching the Web/RN SDKs. The field's
+/// structural node is still emitted (so the tree topology is unchanged); it just
+/// contributes no value to the `V:` section.
 String? valueFromSemantics(SemanticsData d) {
+  if (d.hasFlag(SemanticsFlag.isObscured)) return null;
   if (d.hasFlag(SemanticsFlag.isTextField)) return d.value;
   if (d.hasFlag(SemanticsFlag.isSlider)) return d.value;
   if (d.hasFlag(SemanticsFlag.isLiveRegion)) {

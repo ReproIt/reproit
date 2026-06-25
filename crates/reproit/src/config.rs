@@ -766,8 +766,54 @@ fn download_and_extract_runner(version: &str, dir: &Path, log: &dyn Fn(&str)) ->
     if !st.success() {
         bail!("failed to download the web runner bundle from {url}");
     }
+
+    // Integrity check: the binary downloads and executes this bundle, so verify
+    // it against the SHA-256 the release publishes alongside it before trusting
+    // it. We fetch the sibling `.sha256` asset and compare.
+    //
+    // Transition safety: older releases predate the checksum asset, so an ABSENT
+    // checksum logs a warning and proceeds (a hard failure would brick installs
+    // of already-published releases). Whenever the checksum IS present, a
+    // mismatch is fatal (fail closed) -- we delete the temp file and bail.
+    //
+    // TODO: once every live release publishes `reproit-web-runner.tar.gz.sha256`
+    // (the release workflow now does), make a MISSING checksum fatal too.
+    let sum_url = release_asset_url(version, "reproit-web-runner.tar.gz.sha256");
+    match fetch_text(&sum_url) {
+        Some(sum_body) => match parse_sha256_hex(&sum_body) {
+            Some(expected) => {
+                let actual = sha256_file_hex(&tmp)
+                    .with_context(|| format!("hashing downloaded bundle {}", tmp.display()))?;
+                if !actual.eq_ignore_ascii_case(&expected) {
+                    let _ = std::fs::remove_file(&tmp);
+                    bail!(
+                        "web runner checksum mismatch (expected {expected}, got {actual}); \
+                         refusing to use a tampered or corrupt bundle"
+                    );
+                }
+                log("  checksum verified.");
+            }
+            None => {
+                let _ = std::fs::remove_file(&tmp);
+                bail!("web runner checksum asset {sum_url} is malformed");
+            }
+        },
+        None => {
+            log("  WARNING: no checksum asset published for this release; \
+                 skipping integrity verification (older release).");
+        }
+    }
+
     log("  extracting...");
+    // Harden extraction: refuse absolute paths and `..` traversal, and don't
+    // restore archived ownership. Flags are chosen to work on GNU tar (Linux),
+    // bsdtar (macOS, Windows 10+). `-P` is OFF by default on all three, so a
+    // leading `/` is already stripped; we additionally validate every entry path
+    // ourselves below so a malicious `..` can never escape `dir` even if a tar
+    // build ignored a flag.
+    validate_tar_entries(&tmp)?;
     let st = std::process::Command::new("tar")
+        .arg("--no-same-owner")
         .arg("-xzf")
         .arg(&tmp)
         .arg("-C")
@@ -783,6 +829,83 @@ fn download_and_extract_runner(version: &str, dir: &Path, log: &dyn Fn(&str)) ->
             "web runner bundle extracted but node_modules is missing under {}",
             dir.display()
         );
+    }
+    Ok(())
+}
+
+/// Fetch a small text asset (the checksum file) over curl. Returns None when the
+/// asset is absent (HTTP 404 -> curl `-f` exits non-zero), so callers can treat
+/// a missing checksum as "older release, skip verification".
+fn fetch_text(url: &str) -> Option<String> {
+    let out = std::process::Command::new("curl")
+        .args(["-fsSL", url])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Pull the 64-hex-char SHA-256 out of a `shasum`/`sha256sum`-style line, which
+/// is `<hex>  <filename>` (the hex may also stand alone). Returns None if no
+/// well-formed 64-char hex token is present.
+fn parse_sha256_hex(body: &str) -> Option<String> {
+    let tok = body.split_whitespace().next()?;
+    if tok.len() == 64 && tok.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(tok.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
+/// SHA-256 of a file, lowercase hex.
+fn sha256_file_hex(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path)?;
+    let mut h = Sha256::new();
+    h.update(&bytes);
+    Ok(hex_lower(&h.finalize()))
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+/// Defense-in-depth path validation: list the tarball entries and reject the
+/// whole archive if any entry is absolute or contains a `..` component, so a
+/// crafted bundle can never write outside the target dir regardless of how the
+/// platform `tar` treats traversal. Cross-platform: `tar -tzf` lists on GNU tar
+/// and bsdtar alike.
+fn validate_tar_entries(tarball: &Path) -> Result<()> {
+    let out = std::process::Command::new("tar")
+        .arg("-tzf")
+        .arg(tarball)
+        .output()
+        .context("listing the web runner tarball entries (is tar installed?)")?;
+    if !out.status.success() {
+        bail!("failed to list the web runner bundle (corrupt download?)");
+    }
+    let listing = String::from_utf8_lossy(&out.stdout);
+    for entry in listing.lines() {
+        let e = entry.trim();
+        if e.is_empty() {
+            continue;
+        }
+        // Absolute paths (unix `/...`, Windows `C:\...` or `\...`).
+        let abs =
+            e.starts_with('/') || e.starts_with('\\') || (e.len() >= 2 && e.as_bytes()[1] == b':');
+        if abs {
+            bail!("web runner bundle contains an absolute path entry ({e}); refusing to extract");
+        }
+        // `..` traversal in any path component (handle both separators).
+        if e.split(['/', '\\']).any(|c| c == "..") {
+            bail!("web runner bundle contains a `..` traversal entry ({e}); refusing to extract");
+        }
     }
     Ok(())
 }
@@ -926,8 +1049,47 @@ fn interpolate_env(raw: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{interpolate_env, load, synthesize_tui, synthesize_web};
+    use super::{
+        interpolate_env, load, parse_sha256_hex, sha256_file_hex, synthesize_tui, synthesize_web,
+    };
     use std::path::PathBuf;
+
+    #[test]
+    fn parse_sha256_hex_accepts_shasum_lines_and_rejects_junk() {
+        let hex = "e".repeat(64);
+        // bare hex
+        assert_eq!(parse_sha256_hex(&hex).as_deref(), Some(hex.as_str()));
+        // `shasum`/`sha256sum` "<hex>  <file>" form, plus trailing newline
+        let line = format!("{hex}  reproit-web-runner.tar.gz\n");
+        assert_eq!(parse_sha256_hex(&line).as_deref(), Some(hex.as_str()));
+        // uppercase is normalized to lowercase
+        assert_eq!(
+            parse_sha256_hex(&"A".repeat(64)).as_deref(),
+            Some("a".repeat(64).as_str())
+        );
+        // wrong length / non-hex / empty -> None
+        assert!(parse_sha256_hex("deadbeef").is_none());
+        assert!(parse_sha256_hex(&"z".repeat(64)).is_none());
+        assert!(parse_sha256_hex("").is_none());
+    }
+
+    #[test]
+    fn sha256_file_hex_matches_known_vector() {
+        // SHA-256("abc") is a published NIST test vector.
+        let dir = std::env::temp_dir().join(format!("reproit_sha_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("data");
+        std::fs::write(&f, b"abc").unwrap();
+        assert_eq!(
+            sha256_file_hex(&f).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // The compare in download_and_extract_runner is case-insensitive; confirm.
+        let upper = sha256_file_hex(&f).unwrap().to_ascii_uppercase();
+        assert!(upper.eq_ignore_ascii_case(&sha256_file_hex(&f).unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn synthesize_web_parses_to_a_valid_web_config() {
