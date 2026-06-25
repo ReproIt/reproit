@@ -919,7 +919,6 @@ pub async fn build_map(
         map.transitions.len(),
         root.join(".reproit/appmap.json").display()
     );
-    eprintln!("  view: reproit map show --format html --out map.html");
     Ok(())
 }
 

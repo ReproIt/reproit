@@ -805,7 +805,7 @@ enum MapAction {
     /// Validate semantic candidates against the structural map, prune the wrong
     /// ones, repeat until nothing new resolves.
     Converge,
-    /// Render the map (mermaid | dot | html).
+    /// Render the map graph as text (mermaid | dot) for an external viewer.
     Show {
         #[arg(long, default_value = "mermaid")]
         format: String,

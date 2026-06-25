@@ -69,7 +69,7 @@ that move between them. Run it once to start, and again whenever the app changes
 
 ```sh
 reproit map            # build the graph (this is the common one)
-reproit map --show     # just render the existing graph (fast, no run)
+reproit map show       # print the existing graph as mermaid/dot text (fast, no run)
 ```
 
 On the very first run it scaffolds a `reproit.yaml` config for you. If a login
@@ -311,7 +311,7 @@ history. Every cloud view is backed by exportable raw data.
 ```
 reproit                       help: the map -> sweep -> check story + top commands
 reproit map                   build the app's screen graph (bare map = map structural)
-reproit map --show            render the existing graph instead of rebuilding
+reproit map show              print the screen graph as mermaid/dot text (no rebuild)
 reproit sweep [target]        scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]         explore deeper for sequence bugs (crash/jank/hang)
 reproit check [repro|journey] verify: pass(0) / fail(1) / flaky(2) / stale(3)
@@ -333,7 +333,7 @@ reproit platforms             UI-framework -> backend matrix
 
 ### More map views
 
-Beyond `map` (crawl) and `map --show` (render), these help you understand and
+Beyond `map` (crawl) and `map show` (mermaid/dot text), these help you understand and
 audit the graph:
 
 - `map semantic`: an LLM reads your *source* for the screens that *should*
@@ -490,7 +490,7 @@ The previous CLI's commands fold into the three verbs:
 |---|---|
 | `init` | `map` (scaffolds on first run) |
 | `doctor` | folded into `map` |
-| `graph` | `map --show` |
+| `graph` | `map show` |
 | `run` | `record` |
 | `check --record` | `record` |
 | `check --visual` | `baseline` |
