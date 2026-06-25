@@ -59,9 +59,12 @@ final class ReproItTests: XCTestCase {
 
     func testGoldenVectorsMatch() throws {
         let vectors = try loadVectors()
-        // The current contract ships 24 golden vectors (structural + value-state);
-        // assert ALL of them are present and each reproduces bit-for-bit.
-        XCTAssertEqual(vectors.count, 24, "expected 24 vectors, got \(vectors.count)")
+        // The contract ships at least 24 golden vectors (structural + value-state);
+        // assert they are present and each reproduces bit-for-bit. Use >= so adding
+        // new golden vectors (e.g. the non-ASCII byte-order case) does not require
+        // touching this assertion.
+        XCTAssertGreaterThanOrEqual(
+            vectors.count, 24, "expected >= 24 vectors, got \(vectors.count)")
         for v in vectors {
             let got = ReproItSignature.of(anchor: v.anchor, tree: v.tree)
             XCTAssertEqual(

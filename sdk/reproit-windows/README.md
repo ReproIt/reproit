@@ -277,5 +277,9 @@ vectors) and asserts all 24 reproduce byte-for-byte, mirroring
 and `sdk/reproit-android/.../Signature.kt`. The FNV-1a uses C# `uint` (unsigned,
 wraps mod 2^32 by definition), the value-class uses the strict ASCII
 period-decimal grammar with `InvariantCulture` parsing (never locale-aware), and
-the `V:` section sorts keys with `string.CompareOrdinal` to match the byte order
-of the other ports. The 24 golden vectors are the single source of truth.
+the `V:` section sorts keys by their UTF-8 byte sequence (`Encoding.UTF8.GetBytes`
+compared lexicographically) to match the Rust oracle's `String::cmp` byte order.
+Note this is NOT `string.CompareOrdinal`, which is UTF-16 code-unit order and
+diverges for astral characters (surrogate pairs sort below high-BMP chars under
+UTF-16 but above them under UTF-8/code-point order). The golden vectors are the
+single source of truth.

@@ -335,7 +335,11 @@ List<MapEntry<String, String>> valuePairs(RNode root) {
     out.add(MapEntry(_valueKey(root, 0), valueClass(root.value!)));
   }
   children(root);
-  out.sort((a, b) => a.key.compareTo(b.key));
+  // Sort by UTF-8 BYTE order to match the Rust oracle's `String::cmp`. Dart's
+  // `String.compareTo` uses UTF-16 code-unit order, which DIVERGES for astral
+  // chars (surrogate pairs sort below high-BMP chars). Code-point order (runes)
+  // == UTF-8 byte order, so compare rune-by-rune.
+  out.sort((a, b) => _compareUtf8(a.key, b.key));
   return out;
 }
 
@@ -390,6 +394,19 @@ String fnv1a32(String s) {
   // Encode as UTF-8 so non-ASCII descriptors hash identically to Rust's
   // byte-oriented FNV. ASCII-only descriptors (the common case) are unaffected.
   return fnv1a32Hex(_utf8(s));
+}
+
+/// Compare two strings by their UTF-8 byte sequences (== Rust `String::cmp`).
+/// Code-point order equals UTF-8 byte order, so iterating runes is sufficient
+/// and avoids materializing the full byte lists.
+int _compareUtf8(String a, String b) {
+  final ra = a.runes.toList();
+  final rb = b.runes.toList();
+  final n = ra.length < rb.length ? ra.length : rb.length;
+  for (var i = 0; i < n; i++) {
+    if (ra[i] != rb[i]) return ra[i] < rb[i] ? -1 : 1;
+  }
+  return ra.length - rb.length;
 }
 
 /// Minimal UTF-8 encoder (avoids a dart:convert import here; identical output).

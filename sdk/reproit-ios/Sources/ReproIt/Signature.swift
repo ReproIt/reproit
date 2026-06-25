@@ -297,7 +297,11 @@ private func reproitValuePairs(_ root: ReproItNode) -> [(String, String)] {
         out.append((reproitValueKey(root, 0), reproitValueClass(root.value ?? "")))
     }
     reproitCollectValueChildren(root, &out)
-    out.sort { $0.0 < $1.0 }
+    // Sort by the UTF-8 BYTE sequence of the key, matching the Rust oracle's
+    // `String::cmp`. Swift's `String <` uses canonical (Unicode-normalized)
+    // ordering, which only agrees with byte order by coincidence; comparing the
+    // UTF-8 views directly is provably identical to Rust.
+    out.sort { Array($0.0.utf8).lexicographicallyPrecedes(Array($1.0.utf8)) }
     return out
 }
 

@@ -300,9 +300,12 @@ namespace ReproIt.Core
             {
                 return string.Empty;
             }
-            // Sort by key. Ordinal comparison matches the Rust String::cmp byte order
-            // and the JS/Swift/Kotlin ports' lexical key sort.
-            pairs.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+            // Sort by the UTF-8 BYTE sequence of the key, matching the Rust
+            // oracle's String::cmp (== Unicode code-POINT order). Note: string
+            // .CompareOrdinal is UTF-16 code-UNIT order, which DIVERGES for astral
+            // chars (surrogate pairs 0xD800-0xDBFF sort below high-BMP chars under
+            // UTF-16, but above them under UTF-8/code-point order).
+            pairs.Sort((a, b) => CompareUtf8(a.Key, b.Key));
             var sb = new StringBuilder();
             sb.Append("\nV:");
             for (int i = 0; i < pairs.Count; i++)
@@ -316,6 +319,26 @@ namespace ReproIt.Core
                 sb.Append(pairs[i].Value);
             }
             return sb.ToString();
+        }
+
+        /// <summary>Compare two strings by their UTF-8 byte sequences, matching the
+        /// Rust oracle's <c>String::cmp</c> (== Unicode code-POINT order). This is
+        /// NOT the same as <c>string.CompareOrdinal</c> (UTF-16 code-UNIT order),
+        /// which diverges for astral chars (surrogate pairs sort below high-BMP
+        /// chars under UTF-16, but above them under UTF-8/code-point order).</summary>
+        private static int CompareUtf8(string a, string b)
+        {
+            byte[] ba = Encoding.UTF8.GetBytes(a);
+            byte[] bb = Encoding.UTF8.GetBytes(b);
+            int n = ba.Length < bb.Length ? ba.Length : bb.Length;
+            for (int i = 0; i < n; i++)
+            {
+                if (ba[i] != bb[i])
+                {
+                    return ba[i] - bb[i];
+                }
+            }
+            return ba.Length - bb.Length;
         }
 
         // ---- structural body (rules 1-4) ----------------------------------------

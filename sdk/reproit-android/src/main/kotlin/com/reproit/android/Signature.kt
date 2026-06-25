@@ -271,8 +271,26 @@ object Signature {
             out.add(valueKey(root, 0) to valueClass(root.value!!))
         }
         collectChildValues(root, out)
-        out.sortBy { it.first }
+        // Sort by UTF-8 BYTE order to match the Rust oracle's `String::cmp`.
+        // Kotlin's natural String order is UTF-16 code-unit order, which
+        // DIVERGES for astral chars (surrogate pairs sort below high-BMP chars).
+        out.sortWith { a, b -> compareUtf8(a.first, b.first) }
         return out
+    }
+
+    /** Compare two strings by their UTF-8 byte sequences (== Rust `String::cmp`).
+     * Unsigned byte comparison; needed because Kotlin's natural String order is
+     * UTF-16 code-unit order, which diverges for astral chars. */
+    private fun compareUtf8(a: String, b: String): Int {
+        val ba = a.toByteArray(Charsets.UTF_8)
+        val bb = b.toByteArray(Charsets.UTF_8)
+        val n = minOf(ba.size, bb.size)
+        for (i in 0 until n) {
+            val x = ba[i].toInt() and 0xFF
+            val y = bb[i].toInt() and 0xFF
+            if (x != y) return x - y
+        }
+        return ba.size - bb.size
     }
 
     private fun collectChildValues(node: Node, out: MutableList<Pair<String, String>>) {
