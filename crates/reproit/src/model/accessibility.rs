@@ -37,7 +37,15 @@ pub(crate) fn report(
     let include_focus_trap = kind.is_none_or(|f| f == "focus_trap");
 
     let mut screens: Vec<serde_json::Value> = Vec::new();
-    let (mut t_po, mut t_ku, mut t_nr, mut t_ft) = (0u32, 0u32, 0u32, 0u32);
+    // Summary totals dedup by SELECTOR across states: a gap control on a screen
+    // that churns into several structural signatures (a status line appearing, a
+    // value-state) must count ONCE, not once per snapshot -- else 3 planted gaps
+    // read as 6. Per-screen counts below stay per-state; only the rolled-up
+    // summary is deduped. focus_trap (screen-level, no selector) dedups by route.
+    let mut po_sel: std::collections::BTreeSet<String> = Default::default();
+    let mut ku_sel: std::collections::BTreeSet<String> = Default::default();
+    let mut nr_sel: std::collections::BTreeSet<String> = Default::default();
+    let mut ft_keys: std::collections::BTreeSet<String> = Default::default();
 
     for (sig, st) in &map.states {
         if let Some(want) = state {
@@ -67,11 +75,27 @@ pub(crate) fn report(
         if items.is_empty() && !focus_trap {
             continue;
         }
-        t_po += g.pointer_only;
-        t_ku += g.keyboard_unreachable;
-        t_nr += g.no_role;
-        if g.focus_trap {
-            t_ft += 1;
+        for it in &g.items {
+            for k in &it.kinds {
+                if !want_kind(k) {
+                    continue;
+                }
+                match k.as_str() {
+                    "pointer_only" => {
+                        po_sel.insert(it.selector.clone());
+                    }
+                    "keyboard_unreachable" => {
+                        ku_sel.insert(it.selector.clone());
+                    }
+                    "no_role" => {
+                        nr_sel.insert(it.selector.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if focus_trap {
+            ft_keys.insert(st.signature.route.clone().unwrap_or_else(|| sig.clone()));
         }
         // How to reach this screen: the route (if the app exposes one) plus a
         // best-effort action path over the map's transitions. Either may be
@@ -89,6 +113,14 @@ pub(crate) fn report(
             "items": items,
         }));
     }
+
+    // Deduped summary totals (unique controls / focus-trapped routes).
+    let (t_po, t_ku, t_nr, t_ft) = (
+        po_sel.len() as u32,
+        ku_sel.len() as u32,
+        nr_sel.len() as u32,
+        ft_keys.len() as u32,
+    );
 
     // Markdown: an exportable, WCAG-cited report (redirect to a file to hand to
     // a reviewer). Printed unconditionally; it IS the requested output.
