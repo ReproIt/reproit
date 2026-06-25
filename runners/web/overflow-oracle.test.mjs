@@ -90,6 +90,54 @@ test('detectOverflow does NOT flag a child of a ZERO-SIZE parent (the SPA-wrappe
   }
 });
 
+test('detectOverflow does NOT flag items of a horizontal RAIL (logo marquee / carousel)', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    // A "trusted by" logo marquee: a track many viewports wide (scrollWidth >>
+    // clientWidth) under an overflow-hidden frame, holding logos each a few px
+    // WIDER than their slot. Items meant to scroll past the frame -- on-screen
+    // ones spill their slot, off-screen ones spill the (off-screen) track. None is
+    // a visible layout bug. (Mirrors the real-site false positive.)
+    let logos = '';
+    for (let i = 0; i < 30; i++) {
+      // slot 200px, logo 234px (spills its slot by ~34px on each side).
+      logos += '<li class="slot" style="flex:0 0 200px;display:flex;justify-content:center">' +
+        '<img class="logo" style="width:234px;height:40px;background:#ccc" alt="logo' + i + '"></li>';
+    }
+    await page.setContent('<!doctype html><html><body style="margin:0;font:16px monospace">' +
+      '<div class="frame" style="overflow:hidden;width:1280px">' +
+      '<ul class="track" style="display:flex;list-style:none;margin:0;padding:0;width:max-content;transform:translateX(-606px)">' +
+      logos + '</ul></div></body></html>');
+    const items = await page.evaluate(detectOverflow, OVERFLOW_TOL);
+    const railSpill = items.find((i) => i.kind === 'spill' && i.key === 'tag:img');
+    assert.equal(railSpill, undefined, `a marquee logo must not be flagged as a spill, got ${JSON.stringify(items)}`);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('detectOverflow does NOT flag a spill entirely off-screen horizontally', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    // A child wider than its parent, but the whole parent is parked off-screen to
+    // the left (a slid-away panel / off-canvas menu). The spill is real in the box
+    // model but the user never sees it, so it must not be reported.
+    await page.setContent('<!doctype html><html><body style="margin:0;font:16px monospace">' +
+      '<div style="position:absolute;left:-900px;top:100px;width:200px;height:60px">' +
+      '<div style="width:340px;height:60px;background:#ccc">offscreen panel content</div>' +
+      '</div></body></html>');
+    const items = await page.evaluate(detectOverflow, OVERFLOW_TOL);
+    assert.ok(
+      !items.some((i) => i.kind === 'spill'),
+      `an entirely off-screen spill must not be flagged, got ${JSON.stringify(items)}`,
+    );
+  } finally {
+    await browser.close();
+  }
+});
+
 test('detectOverflow stays silent on a layout with no overflow', async () => {
   const browser = await chromium.launch();
   try {

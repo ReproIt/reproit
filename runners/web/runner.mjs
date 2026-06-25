@@ -345,21 +345,32 @@ function detectOverflow(tol) {
   };
   const doc = document.documentElement;
   // A spill is only a VISIBLE bug if no ancestor CLIPS it before it reaches the
-  // screen. An infinite carousel positions cloned slides far outside an inner
-  // track (overflow:visible) that itself sits in an overflow:hidden frame, so the
-  // slides spill the track yet are clipped by the frame and never seen (mabl.com:
-  // 200+ phantom "overflowing" slider clones). Walk from the spilling element to
-  // the NEAREST clipping ancestor; if the element's box reaches past that clip
-  // box, the spill is hidden, not a layout bug.
+  // screen, AND it is not an item of a horizontal RAIL (carousel / logo marquee).
+  // Two intertwined cases, both walked from the spilling element up its ancestors:
+  //   1. An infinite carousel positions cloned slides far outside an inner track
+  //      (overflow:visible) that itself sits in an overflow:hidden frame, so the
+  //      slides spill the track yet are clipped by the frame and never seen (200+
+  //      phantom "overflowing" slider clones). If the element's box reaches past a
+  //      clipping ancestor's box, the spill is hidden, not a layout bug.
+  //   2. A logo marquee / card rail is a track whose content is many viewports
+  //      wide (scrollWidth >> clientWidth) under an overflow-contained ancestor;
+  //      its items are MEANT to scroll past the frame, and each item is routinely
+  //      a few px wider than its slot ("trusted by" logos, ~34px each). That
+  //      per-slot spill is a rail artifact, not a layout bug, even for the items
+  //      momentarily on-screen -- so suppress any descendant of such a track.
+  const clipsValues = ['auto', 'scroll', 'hidden', 'clip'];
   const clippedByAncestor = (cr, fromParent, tol) => {
+    const vp = window.innerWidth || doc.clientWidth || 1;
     for (let anc = fromParent; anc && anc !== doc; anc = anc.parentElement) {
       const as = getComputedStyle(anc);
-      const clips = ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflowX)
-        || ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflow);
-      if (clips) {
-        const ar = anc.getBoundingClientRect();
-        return cr.right > ar.right + tol || cr.left < ar.left - tol;
-      }
+      const clips = clipsValues.includes(as.overflowX) || clipsValues.includes(as.overflow);
+      if (!clips) continue;
+      const ar = anc.getBoundingClientRect();
+      if (cr.right > ar.right + tol || cr.left < ar.left - tol) return true;
+      // A track holding a full viewport (or more) of off-screen horizontal
+      // content is a carousel / marquee rail; its items' per-slot spills are not
+      // visible layout bugs.
+      if (anc.clientWidth > 0 && anc.scrollWidth > anc.clientWidth + vp) return true;
     }
     return false;
   };
@@ -429,7 +440,15 @@ function detectOverflow(tol) {
         // corner badge, a dropdown: intentionally poking past its parent. (Its
         // OWN content not fitting is still caught by the `scroll` kind above.)
         const placed = st.position === 'absolute' || st.position === 'fixed';
-        if (over > tol && over <= vw && cr.width <= vw * 3 && !placed && !clippedByAncestor(cr, p, tol)) {
+        // An element entirely off-screen HORIZONTALLY is not a visible overflow:
+        // it is a marquee/carousel item scrolled past the frame (a "trusted by"
+        // logo rail translateX'd so a given logo sits at x=-606, spilling its
+        // also-off-screen track), or any node parked outside the viewport. The
+        // user never sees it, so its spill is not a layout bug. A genuine spill is
+        // at least partly on-screen. (Vertical-offscreen is normal -- below-fold
+        // content scrolls into view -- so this gate is horizontal only.)
+        const onScreenX = cr.right > 0 && cr.left < vw;
+        if (over > tol && over <= vw && cr.width <= vw * 3 && !placed && onScreenX && !clippedByAncestor(cr, p, tol)) {
           add(el, 'spill', over);
         }
       }
@@ -2837,17 +2856,17 @@ async function drawFindingBoxes(page, hints = {}) {
               const vw = window.innerWidth || document.documentElement.clientWidth || 1;
               const est = getComputedStyle(el);
               const placed = est.position === 'absolute' || est.position === 'fixed';
+              const onScreenX = cr.right > 0 && cr.left < vw;
               let clipped = false;
               for (let anc = p; anc && anc !== doc; anc = anc.parentElement) {
                 const as = getComputedStyle(anc);
-                if (['auto', 'scroll', 'hidden', 'clip'].includes(as.overflowX)
-                  || ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflow)) {
-                  const ar = anc.getBoundingClientRect();
-                  clipped = cr.right > ar.right + tol || cr.left < ar.left - tol;
-                  break;
-                }
+                if (!(['auto', 'scroll', 'hidden', 'clip'].includes(as.overflowX)
+                  || ['auto', 'scroll', 'hidden', 'clip'].includes(as.overflow))) continue;
+                const ar = anc.getBoundingClientRect();
+                if (cr.right > ar.right + tol || cr.left < ar.left - tol
+                  || (anc.clientWidth > 0 && anc.scrollWidth > anc.clientWidth + vw)) { clipped = true; break; }
               }
-              if (over > tol && over <= vw && cr.width <= vw * 3 && !placed && !clipped) {
+              if (over > tol && over <= vw && cr.width <= vw * 3 && !placed && onScreenX && !clipped) {
                 push(el, 'overflow  +' + Math.round(over) + 'px', 2, over, 'overflow');
               }
             }
