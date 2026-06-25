@@ -732,7 +732,14 @@ class ReproIt {
     final ev = <String, dynamic>{
       'kind': 'error',
       'sig': _currentSig ?? '',
-      'path': _path.map((s) => s.toJson()).toList(),
+      // Include the in-flight action: a tap whose handler throws synchronously
+      // (the crashing tap) sets `_pendingAction` but crashes before its debounced
+      // snapshot records it, so the bare path stops one step short of the bug.
+      // Append it so the captured path contains the step that actually crashes.
+      'path': <Map<String, dynamic>>[
+        ..._path.map((s) => s.toJson()),
+        if (_pendingAction != null) _Step(_currentSig ?? '', _pendingAction!).toJson(),
+      ],
       'message': message,
       'stack': lines,
       'source': source,
