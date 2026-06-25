@@ -3641,28 +3641,35 @@ async function main() {
     // replaying AND recording, so a normal fuzz hunt is never slowed.
     if (replay && VIDEO_DIR && !act.startsWith('assert:') && !act.startsWith('shoot:')) {
       const isLast = actions >= replay.length - 1;
+      const o = String(fuzz.highlight || '');
+      // The final action of a sequence-bug clip is the one that BREAKS the app.
+      const trigger = isLast && /hang|jank|exception|crash/.test(o);
       if (act.startsWith('tap:')) {
         // Highlight the element reproit is ABOUT to tap, with its human-readable
         // name (not `role:link#7`), drawn while the page is still live. For the
         // final trigger of a sequence-bug clip (hang/crash/jank) it is the bug
         // itself, so box it RED with the outcome; other taps are BLUE "here's what
-        // I clicked". Drawing pre-tap means a tap that navigates/freezes still
-        // shows the right element (a frozen page can't be annotated afterward).
+        // I clicked". Drawing pre-tap (a PREVIEW box, no click) means a tap that
+        // navigates/freezes still shows the right element (a frozen page can't be
+        // annotated afterward), and lets the clip LINGER on the doomed control
+        // before it is actually tapped.
         const sel = act.slice('tap:'.length);
         const target = current.tappables.find((e) => e.sel === sel);
         let name = (target && target.label && String(target.label).trim()) || sel;
         if (name.length > 36) name = name.slice(0, 35) + '…';
-        const o = String(fuzz.highlight || '');
-        const trigger = isLast && /hang|jank|exception|crash/.test(o);
         const outcome = /hang/.test(o) ? '  → froze' : /jank/.test(o) ? '  → janked' : /exception|crash/.test(o) ? '  → crashed' : '';
         await tap(page, sel, {
-          box: 'tap  ' + name + (trigger ? outcome : ''),
+          box: 'about to tap  ' + name + (trigger ? outcome : ''),
           boxColor: trigger ? '#e21f1f' : '#2f6bff',
         }).catch(() => {});
       } else {
         await showActionHud(page, act, actions, replay.length).catch(() => {});
       }
-      await page.waitForTimeout(isLast ? 1600 : 950);
+      // Hold before performing the action. Linger LONGEST on the control that is
+      // about to break (the crash/jank/hang trigger) so the recorded clip clearly
+      // shows the doomed element for a beat -- highlighted, pausable -- and THEN
+      // breaks. Other final steps get a shorter beat; mid-sequence steps are quick.
+      await page.waitForTimeout(trigger ? 2600 : isLast ? 1600 : 950);
     }
     if (act.startsWith('shoot:')) {
       // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
