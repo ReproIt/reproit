@@ -2732,6 +2732,7 @@ async function drawFindingBoxes(page, hints = {}) {
   const drew = await page
     .evaluate(
       async ({ tol, trigger, flickerKeys, oracle, linkHref, a11y }) => {
+        try { clearInterval(window.__reproitBoxHeal); } catch (_) {}
         const old = document.getElementById('__reproit_boxes');
         if (old) old.remove();
         const visible = (el) => {
@@ -2939,10 +2940,17 @@ async function drawFindingBoxes(page, hints = {}) {
           // banner) drew its true bounds entirely off-frame, so nothing showed.
           // A fully-visible element is unchanged (the clamps are no-ops).
           const ins = 8;
-          const bl = Math.max(h.left - 2, vx + ins);
-          const bt = Math.max(h.top - 2, vy2 + ins);
-          const br = Math.min(h.left + h.w + 2, vx + vw - ins);
-          const bb = Math.min(h.top + h.h + 2, vy2 + vh - ins);
+          // Clamp the box fully INSIDE the viewport on BOTH axes. The old clamp
+          // only pulled a box's NEAR edge in, so an element entirely off to the
+          // right (a horizontal marquee/carousel whose box left > viewport right)
+          // kept its off-screen left and drew nothing on camera -- the "overflow
+          // clip shows no box" bug on dynamic sites. Pin the near edge into
+          // [inset, viewport - inset - 8] so a box always lands on screen, at the
+          // edge nearest the offender. A fully-visible element is unchanged.
+          const bl = Math.min(Math.max(h.left - 2, vx + ins), vx + vw - ins - 8);
+          const bt = Math.min(Math.max(h.top - 2, vy2 + ins), vy2 + vh - ins - 8);
+          const br = Math.min(Math.max(h.left + h.w + 2, bl + 8), vx + vw - ins);
+          const bb = Math.min(Math.max(h.top + h.h + 2, bt + 8), vy2 + vh - ins);
           const bw = Math.max(8, br - bl);
           const bh = Math.max(8, bb - bt);
           box.style.cssText = [
@@ -2965,6 +2973,18 @@ async function drawFindingBoxes(page, hints = {}) {
           layer.appendChild(box);
         }
         (document.body || document.documentElement).appendChild(layer);
+        // Self-heal: some sites (a React/Next route-transition re-render) detach
+        // injected nodes on their next reconcile, so the box flashed once then
+        // vanished mid-clip. Re-attach it for a bounded window so it stays on
+        // camera through the hold. Auto-stops; the box-removal sites clear it.
+        try { clearInterval(window.__reproitBoxHeal); } catch (_) {}
+        let heals = 0;
+        window.__reproitBoxHeal = setInterval(() => {
+          if (!document.getElementById('__reproit_boxes')) {
+            (document.body || document.documentElement).appendChild(layer);
+          }
+          if (++heals >= 24) { clearInterval(window.__reproitBoxHeal); window.__reproitBoxHeal = null; }
+        }, 150);
         return chosen.length > 0;
       },
       {
@@ -3213,6 +3233,7 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
       if (!keepBox) {
         await page
           .evaluate(() => {
+            try { clearInterval(window.__reproitBoxHeal); } catch (_) {}
             const b = document.getElementById('__reproit_boxes'); if (b) b.remove();
             for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
           })
