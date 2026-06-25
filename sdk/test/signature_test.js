@@ -39,9 +39,11 @@ function check(name, fn) {
 }
 
 // ---- THE parity gate: every golden vector must match the oracle -----------
-// 24 vectors total: 15 structural/anchor + 9 value-state (Layer 2). Every one,
-// including the value-state vectors, must hash byte-for-byte to the oracle.
-assert.ok(vectors.length >= 24, "need >= 24 golden vectors, got " + vectors.length);
+// 25 vectors total: 15 structural/anchor + 9 value-state (Layer 2) + 1 non-ASCII
+// Unicode vector. Every one must hash byte-for-byte to the oracle, INCLUDING the
+// Unicode vector (which only passes once the hash folds UTF-8 bytes and the V:
+// section sorts by UTF-8 byte order).
+assert.ok(vectors.length >= 25, "need >= 25 golden vectors, got " + vectors.length);
 var valueVectors = vectors.filter(function (v) { return /^VALUE:/.test(v.description); });
 assert.ok(valueVectors.length >= 9, "need >= 9 value-state vectors, got " + valueVectors.length);
 

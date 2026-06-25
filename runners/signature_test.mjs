@@ -43,10 +43,11 @@ function runOne(name, signatureOf, descriptorOf, vectors) {
   return { name, total: vectors.length, pass, failures };
 }
 
-// The golden set has 24 vectors today (structural + anchor + value-state). The
-// parity gate asserts ALL of them for BOTH runners; a drift in either the vector
-// file or a runner's signature implementation fails CI.
-const EXPECTED_VECTOR_COUNT = 24;
+// The golden set has 25 vectors today (structural + anchor + value-state + one
+// non-ASCII/Unicode vector). The parity gate asserts ALL of them for BOTH
+// runners; a drift in either the vector file or a runner's signature
+// implementation fails CI.
+const EXPECTED_VECTOR_COUNT = 25;
 
 function main() {
   const vectors = loadVectors();

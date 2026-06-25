@@ -157,8 +157,8 @@ def run_value_state_checks(name, mod):
 
 def main():
     vectors = load_vectors()
-    if len(vectors) != 24:
-        print("FAIL: expected exactly 24 golden vectors, got {}".format(len(vectors)))
+    if len(vectors) != 25:
+        print("FAIL: expected exactly 25 golden vectors, got {}".format(len(vectors)))
         return 1
 
     runners = [

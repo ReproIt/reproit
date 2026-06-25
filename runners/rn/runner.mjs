@@ -124,12 +124,31 @@ function rng(seed) {
   return (n) => { s ^= (s << 13); s >>>= 0; s ^= (s >> 17); s ^= (s << 5); s >>>= 0; return (s & 0x7fffffff) % n; };
 }
 
-// FNV-1a over an arbitrary descriptor string. Matches the Rust oracle / web SDK
-// / explorer.dart so signatures and seeds line up across platforms.
+// The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
+// descriptor and V: keys can carry non-ASCII (a localized anchor, a non-ASCII
+// id, an emoji icon), so we MUST fold the UTF-8 BYTES, exactly like the Rust
+// oracle's `desc.as_bytes()`. Folding UTF-16 code units silently diverged.
+const REPROIT_UTF8 = new TextEncoder();
+
+// FNV-1a over the UTF-8 BYTES of an arbitrary descriptor string. Matches the
+// Rust oracle / web SDK / explorer.dart so signatures and seeds line up across
+// platforms.
 function fnv1a(s) {
+  const bytes = REPROIT_UTF8.encode(s);
   let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+// Lexicographic comparison by UTF-8 byte sequence, matching Rust's String::cmp
+// (byte order). JS `<` compares UTF-16 code units, which diverges for astral vs
+// high-BMP keys, so the canonical V: section MUST sort with this.
+function reproitCmpUtf8(a, b) {
+  const ab = REPROIT_UTF8.encode(a);
+  const bb = REPROIT_UTF8.encode(b);
+  const n = Math.min(ab.length, bb.length);
+  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
 // ====================================================================
@@ -262,7 +281,7 @@ function valueSection(root) {
   const pairs = [];
   collectValues(root, pairs);
   if (pairs.length === 0) return '';
-  pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  pairs.sort((a, b) => reproitCmpUtf8(a[0], b[0]));
   return '\nV:' + pairs.map((p) => p[0] + '=' + p[1]).join(';');
 }
 

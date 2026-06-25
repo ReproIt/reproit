@@ -27,8 +27,8 @@ function loadVectors(): Vector[] {
 describe('canonical structural signature, golden vectors', () => {
   const vectors = loadVectors();
 
-  test('all golden vectors are present (structural + value-state)', () => {
-    expect(vectors.length).toBe(24);
+  test('all golden vectors are present (structural + value-state + unicode)', () => {
+    expect(vectors.length).toBe(25);
   });
 
   for (const v of vectors) {

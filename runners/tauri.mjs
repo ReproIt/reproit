@@ -21,6 +21,34 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { platform as osPlatform } from 'node:os';
+// CHOICE-ANOMALY oracle, shared with the web + electron runners. We inject the
+// SAME self-contained in-page pass into the webview via executeAsync() (the way
+// every other oracle is injected on Tauri, which has no CDP); it works over WebKit
+// or WebView2 alike because it only touches the live DOM + layout. The constants
+// are the single source of truth for the outlier thresholds. Host-pure +
+// dependency-free, so a static import keeps this module import-safe for the parity
+// test (it imports the signature functions without the webdriverio runtime).
+import {
+  CHOICE_ANOMALY_IN_PAGE_SRC, CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, CHOICE_ROLES,
+} from './web/choice-oracle.mjs';
+
+// The choice-anomaly pass as an executeAsync() body. WebDriver executeAsync passes
+// a `done` callback as the FINAL argument; the choice pass is async (it waits for
+// layout to settle between options), so we run it then hand its findings to done.
+// Built from CHOICE_ANOMALY_IN_PAGE_SRC (the exact function unit-tested via the web
+// runner's page.evaluate) so there is no second copy to drift. The thresholds are
+// interpolated from the shared constants.
+const CHOICE_ANOMALY_ASYNC_JS = `
+  var __reproitChoiceFn = ${CHOICE_ANOMALY_IN_PAGE_SRC};
+  var __reproitDone = arguments[arguments.length - 1];
+  __reproitChoiceFn({
+    settleMs: 600,
+    ratio: ${CHOICE_OUTLIER_RATIO},
+    minMag: ${CHOICE_MIN_MAGNITUDE},
+    choiceRoles: ${JSON.stringify(CHOICE_ROLES)},
+  }).then(function (findings) { __reproitDone(findings || []); })
+    .catch(function () { __reproitDone([]); });
+`;
 
 const APP = process.env.REPROIT_APP;
 const WD_URL = process.env.REPROIT_WEBDRIVER_URL || 'http://127.0.0.1:4444';
@@ -108,16 +136,34 @@ function parseValueNodes(text) {
 }
 function rng(seed) { let s = (seed >>> 0) || 1; return (n) => { s ^= (s << 13); s >>>= 0; s ^= (s >> 17); s ^= (s << 5); s >>>= 0; return (s & 0x7fffffff) % n; }; }
 
-// FNV-1a over an arbitrary descriptor string. Used for the STRUCTURAL signature
-// (fed a structure descriptor, never localized text). Matches the web runner /
+// The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
+// descriptor and V: keys can carry non-ASCII (a localized anchor, a non-ASCII
+// id, an emoji icon), so we MUST fold the UTF-8 BYTES, exactly like the Rust
+// oracle's `desc.as_bytes()`. Folding UTF-16 code units silently diverged.
+const REPROIT_UTF8 = new TextEncoder();
+
+// FNV-1a over the UTF-8 BYTES of an arbitrary descriptor string. Used for the
+// STRUCTURAL signature (fed a structure descriptor). Matches the web runner /
 // Rust oracle.
 function fnv1a(s) {
+  const bytes = REPROIT_UTF8.encode(s);
   let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+// Lexicographic comparison by UTF-8 byte sequence, matching Rust's String::cmp
+// (byte order). JS `<` compares UTF-16 code units, which diverges for astral vs
+// high-BMP keys, so the canonical V: section MUST sort with this.
+function reproitCmpUtf8(a, b) {
+  const ab = REPROIT_UTF8.encode(a);
+  const bb = REPROIT_UTF8.encode(b);
+  const n = Math.min(ab.length, bb.length);
+  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
 // ====================================================================
@@ -253,7 +299,7 @@ function valueSection(root) {
   const pairs = [];
   collectValues(root, pairs);
   if (pairs.length === 0) return '';
-  pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  pairs.sort((a, b) => reproitCmpUtf8(a[0], b[0]));
   return '\nV:' + pairs.map((p) => p[0] + '=' + p[1]).join(';');
 }
 function descriptorOf(anchor, root) {
@@ -1544,6 +1590,12 @@ async function main() {
 
   log('JOURNEY claimed role=a');
   await browser.pause(1500);
+  // Raise the async-script timeout so the choice-anomaly pass (which waits for
+  // layout to settle between each option of a multi-choice component) is not cut
+  // off mid-exercise. A picker with many options at ~600ms each can run several
+  // seconds; 30s leaves comfortable headroom without hanging the run if a webview
+  // wedges (executeAsync still rejects on its own timeout). Best-effort.
+  try { await browser.setTimeout({ script: 30000 }); } catch (_) {}
   // Install the exception hooks before the first snapshot so even errors thrown
   // during initial render are captured.
   await installHooks(browser);
@@ -1646,6 +1698,7 @@ async function main() {
   const prefix = fuzz.prefix || null, replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  const exercisedChoiceStates = new Set(); // sigs whose choice components were exercised
   // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
   // sample memory at the start and after every action so the Rust soak oracle gets
   // a heap-vs-time series. Off outside replay. t0 anchors t_ms. PRIMARY signal is
@@ -1658,6 +1711,31 @@ async function main() {
     // LEAK sampler: in replay mode, sample once per action (fires BEFORE acting,
     // so action a's sample reflects the heap after the previous action settled).
     if (replay && a > 0) await sampleHeap(browser, Date.now() - t0, tauriPid);
+    // COMPONENT-CHOICE differential (fuzz only, not replay), ported from the web
+    // runner. Tauri has no CDP, so the SAME self-contained in-page pass is injected
+    // via executeAsync(): it finds the webview's choice components (native
+    // <select>, ARIA tab/radio groups, button-cluster pickers), exercises each
+    // option, measures the global-layout effect, and returns the outlier(s) using
+    // the SHARED threshold rule -- entirely in-page, so it needs no presented-frame
+    // or status stream the WebDriver surface lacks. Non-destructive (it restores
+    // each component) and once per state per seed. Each finding -> EXPLORE:CHOICEBUG.
+    if (!replay && !exercisedChoiceStates.has(current.sig)) {
+      exercisedChoiceStates.add(current.sig);
+      let findings = [];
+      try { findings = await browser.executeAsync(CHOICE_ANOMALY_ASYNC_JS); } catch (_) { findings = []; }
+      let emitted = false;
+      for (const f of (findings || [])) {
+        emitted = true;
+        log('EXPLORE:CHOICEBUG ' + JSON.stringify({
+          from: current.sig,
+          role: f.role,
+          outlier: f.outlier,
+          magnitude: f.magnitude,
+          siblingMedian: f.siblingMedian,
+        }));
+      }
+      if (emitted) { current = await observe(); continue; }
+    }
     let act;
     if (replay) act = replay[a];
     else if (prefix && a < prefixLen) act = prefix[a];

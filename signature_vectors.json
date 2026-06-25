@@ -565,5 +565,34 @@
       ],
       "role": "screen"
     }
+  },
+  {
+    "anchor": "/café",
+    "description": "UNICODE: non-ASCII descriptor + V: byte-order sort. A non-ASCII anchor (/café), a header whose id is non-ASCII (café), a button with an astral/emoji icon (❤), and two value-bearing status nodes whose ids are an astral emoji (🎉, key:🎉=POS1) and a high-BMP CJK-compat glyph (豈, key:豈=ZERO). Guards two cross-platform bugs at once: the hash MUST fold UTF-8 BYTES (not UTF-16 code units), and the V: section MUST sort by UTF-8 byte order (key:豈 lead byte 0xEF sorts BEFORE key:🎉 lead byte 0xF0), the opposite of a UTF-16-unit sort (where the astral lead 0xD83C sorts before 0xF900). All-ASCII vectors miss both; this expected_sig is the canonical value from the Rust oracle.",
+    "expected_sig": "234cd190",
+    "tree": {
+      "children": [
+        {
+          "id": "café",
+          "role": "header"
+        },
+        {
+          "icon": "❤",
+          "id": "submit",
+          "role": "button"
+        },
+        {
+          "id": "🎉",
+          "role": "status",
+          "value": "5"
+        },
+        {
+          "id": "豈",
+          "role": "status",
+          "value": "0"
+        }
+      ],
+      "role": "screen"
+    }
   }
 ]

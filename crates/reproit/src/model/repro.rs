@@ -423,8 +423,14 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     for line in log.lines() {
         if let Some(sig) = want_sig {
             // Reaching the finding's recorded state signature counts as reaching
-            // the trigger context regardless of action accounting.
-            if !sig.is_empty() && line.contains(sig) {
+            // the trigger context regardless of action accounting. Match ONLY the
+            // signature carried by an EXPLORE:STATE marker, by EQUALITY -- never an
+            // unanchored substring of the whole line. A short hex/token sig can
+            // otherwise collide with unrelated earlier content (a selector, route,
+            // or marker that happens to contain the token), which would falsely set
+            // `saw_trigger_sig` and read a path-moved replay (the trigger state was
+            // never reached -> should be stale/re-record) as Green/Pass.
+            if !sig.is_empty() && state_sig_matches(line, sig) {
                 saw_trigger_sig = true;
             }
         }
@@ -467,6 +473,27 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     } else {
         RunVerdict::Green
     }
+}
+
+/// Whether an `EXPLORE:STATE` marker line carries the recorded trigger state
+/// signature `want`, by EQUALITY of the parsed sig token (never an unanchored
+/// substring of the line). Only `EXPLORE:STATE` lines carry a state signature,
+/// so any other line is ignored. The marker payload is everything after
+/// `EXPLORE:STATE `; it is either a JSON record with a `"sig"` field (the
+/// runner's protocol, mirrored by `map::parse_run`) or a bare `SIG:...` token
+/// (the recorded sig is then the whole payload). Match the recorded `want`
+/// against the JSON `sig` value when present, else the trimmed bare payload.
+fn state_sig_matches(line: &str, want: &str) -> bool {
+    let Some(idx) = line.find("EXPLORE:STATE ") else {
+        return false;
+    };
+    let payload = line[idx + "EXPLORE:STATE ".len()..].trim();
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) {
+        if let Some(sig) = json.get("sig").and_then(serde_json::Value::as_str) {
+            return sig == want;
+        }
+    }
+    payload == want
 }
 
 /// Whether the replay produced ANY evidence that it actually ran the case: a
@@ -977,6 +1004,43 @@ JOURNEY DONE
 ";
         assert_eq!(
             verdict_from_log_with_trigger(log, true, &trigger),
+            RunVerdict::Green
+        );
+    }
+
+    #[test]
+    fn trigger_sig_substring_collision_is_stale_not_pass() {
+        // Regression: the recorded trigger sig is a short token that ALSO appears
+        // as a substring of an unrelated EARLIER log line (a selector here), but
+        // the actual trigger STATE is never reached -- the path moved and the first
+        // action missed. The sig must be matched by EQUALITY on EXPLORE:STATE
+        // markers only, not by an unanchored `line.contains(sig)`. An unanchored
+        // match would falsely set saw_trigger_sig and return Green/Pass, silently
+        // turning a stale (should-re-record) repro into a passing one. The correct
+        // verdict is CouldNotReplay -> Stale.
+        let trigger = Trigger {
+            index: Some(9),
+            sig: Some("checkout".to_string()),
+            oracle: None,
+        };
+        let log = "\
+FUZZ:MISS tap:checkout-button
+JOURNEY DONE
+";
+        assert_eq!(
+            verdict_from_log_with_trigger(log, true, &trigger),
+            RunVerdict::CouldNotReplay
+        );
+
+        // And the converse still holds: the sig DOES appear as a proper
+        // EXPLORE:STATE marker before the miss -> the trigger was reached -> Green.
+        let reached = "\
+EXPLORE:STATE {\"sig\":\"checkout\",\"labels\":[\"Pay\"],\"unlabeled\":0}
+FUZZ:MISS tap:Pay
+JOURNEY DONE
+";
+        assert_eq!(
+            verdict_from_log_with_trigger(reached, true, &trigger),
             RunVerdict::Green
         );
     }

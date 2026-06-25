@@ -29,6 +29,9 @@ import {
   gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth, DEFAULT_GRID,
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
+import {
+  CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, layoutDelta, medianOf,
+} from './choice-oracle.mjs';
 
 // axe-core: the industry-standard accessibility engine (the same rules behind
 // Lighthouse and Deque). The web a11y oracle runs its NAME rules in-page to
@@ -939,16 +942,34 @@ function rng(seed) {
   };
 }
 
-// FNV-1a over an arbitrary descriptor string. Used for the STRUCTURAL signature
-// (fed a structure descriptor, never localized text) and for hashing long
-// labels in clipLabel. Matches explorer.dart's fnv1a so seeds/hashes line up.
+// The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
+// descriptor and V: keys can carry non-ASCII (a localized anchor, a non-ASCII
+// id, an emoji icon), so we MUST fold the UTF-8 BYTES, exactly like the Rust
+// oracle's `desc.as_bytes()`. Folding UTF-16 code units silently diverged.
+const REPROIT_UTF8 = new TextEncoder();
+
+// FNV-1a over the UTF-8 BYTES of an arbitrary descriptor string. Used for the
+// STRUCTURAL signature (fed a structure descriptor) and for hashing long labels
+// in clipLabel. Matches explorer.dart's fnv1a so seeds/hashes line up.
 function fnv1a(s) {
+  const bytes = REPROIT_UTF8.encode(s);
   let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+// Lexicographic comparison by UTF-8 byte sequence, matching Rust's String::cmp
+// (byte order). JS `<` compares UTF-16 code units, which diverges for astral vs
+// high-BMP keys, so the canonical V: section MUST sort with this.
+function reproitCmpUtf8(a, b) {
+  const ab = REPROIT_UTF8.encode(a);
+  const bb = REPROIT_UTF8.encode(b);
+  const n = Math.min(ab.length, bb.length);
+  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
 // ====================================================================
@@ -1084,7 +1105,7 @@ function valueSection(root) {
   const pairs = [];
   collectValues(root, pairs);
   if (pairs.length === 0) return '';
-  pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  pairs.sort((a, b) => reproitCmpUtf8(a[0], b[0]));
   return '\nV:' + pairs.map((p) => p[0] + '=' + p[1]).join(';');
 }
 
@@ -3095,9 +3116,10 @@ async function drawFindingBoxes(page, hints = {}) {
 // (every language merely resizes the code block), NOTHING is flagged. This is
 // what catches "only Go shifts the whole page" without the false positives an
 // absolute layout-shift threshold produced.
+// CHOICE_OUTLIER_RATIO / CHOICE_MIN_MAGNITUDE come from ./choice-oracle.mjs (the
+// single source of truth shared with the electron + tauri ports); only the role
+// SET is local here (detectChoiceGroups wants O(1) membership).
 const CHOICE_ROLES = new Set(['tab', 'radio', 'menuitemradio']);
-const CHOICE_OUTLIER_RATIO = 3; // outlier magnitude >= 3x the sibling median ...
-const CHOICE_MIN_MAGNITUDE = 24; // ...and at least this many px of global move.
 
 // Group the snapshot's choice-role tappables into mutually-exclusive option sets
 // (>= 2 options). Scoped by the OWNING choice container (cgrp), so two separate
@@ -3144,6 +3166,106 @@ function detectChoiceGroups(tappables) {
   return groups;
 }
 
+// FEATURE 1: native <select> as a multi-choice component. The snapshot maps a
+// <select> to a `textfield` role, so detectChoiceGroups (which keys off ARIA
+// choice roles / button clusters) never sees it -- the most common real-world
+// picker. Here we query the page for visible <select>s with >= 3 enabled
+// <option>s and return a choice group per select, keyed by a stable structural
+// selector (data-testid > id > name) so the same picker re-resolves across the
+// option-by-option exercise even as the framework re-renders. Each option carries
+// its raw `value` (the thing we set on the element), exercised below by setting
+// select.value + dispatching change/input so a bound framework reacts. The group
+// shape mirrors the ARIA/button groups so exerciseChoiceGroup difffs it with the
+// SAME global-layout measurement and the SAME outlier rule; the only difference
+// is how an option is selected (set value vs click), branched on group.role.
+async function detectSelectGroups(page) {
+  const raw = await page
+    .evaluate(() => {
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return false;
+        const st = getComputedStyle(el);
+        return st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      const keyOf = (el) => {
+        const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+        if (tid) return 'testid:' + tid;
+        const id = (el.getAttribute('id') || '').trim();
+        if (id) return 'id:' + id;
+        const name = (el.getAttribute('name') || '').trim();
+        if (name) return 'name:' + name;
+        return null;
+      };
+      const out = [];
+      let nth = -1;
+      for (const sel of document.querySelectorAll('select')) {
+        nth++;
+        if (!visible(sel)) continue;
+        const opts = Array.from(sel.options || []).filter((o) => !o.disabled);
+        if (opts.length < 3) continue;
+        const key = keyOf(sel);
+        // Structural selector for replay/exercise: stable key, else document-order
+        // index among <select>s (never the visible text), matching the runner's
+        // selector grammar.
+        const ssel = key ? 'key:' + key : 'tag:select#' + nth;
+        out.push({
+          ssel,
+          orig: sel.value,
+          opts: opts.map((o) => ({ value: o.value, label: norm(o.label || o.textContent) || o.value })),
+        });
+      }
+      return out;
+    })
+    .catch(() => []);
+  // One choice group per select. opts carry the option `value` + `label`; `sel`
+  // is the option's addressable identity (selectSelector=optionValue) so a
+  // recorded clip / dedup key is stable and locale-invariant.
+  return raw.map((s) => ({
+    role: 'select',
+    selectSel: s.ssel,
+    orig: s.orig,
+    opts: s.opts.map((o) => ({ sel: s.ssel + '=' + o.value, value: o.value, label: o.label })),
+  }));
+}
+
+// Set a native <select>'s value by structural selector (key:<...> or
+// tag:select#<idx>) and dispatch input+change so frameworks bound to it react.
+// Returns true when the select was found and set. Non-destructive aside from the
+// value change (restored by exerciseChoiceGroup after the pass).
+async function setSelectValue(page, selectSel, value) {
+  return await page
+    .evaluate(
+      ({ selectSel, value }) => {
+        const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&'));
+        let el = null;
+        if (selectSel.startsWith('key:')) {
+          const body = selectSel.slice(4);
+          const ci = body.indexOf(':');
+          const kind = ci >= 0 ? body.slice(0, ci) : '';
+          const val = ci >= 0 ? body.slice(ci + 1) : body;
+          if (kind === 'testid') {
+            el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
+              || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+          } else if (kind === 'id') el = document.getElementById(val);
+          else if (kind === 'name') el = document.querySelector('select[name="' + cssEscape(val) + '"]');
+        } else if (selectSel.startsWith('tag:select#')) {
+          const idx = parseInt(selectSel.slice('tag:select#'.length), 10);
+          const all = document.querySelectorAll('select');
+          el = idx >= 0 && idx < all.length ? all[idx] : null;
+        }
+        if (!el || el.tagName.toLowerCase() !== 'select') return false;
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        el.value = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      },
+      { selectSel, value }
+    )
+    .catch(() => false);
+}
+
 // Capture a GLOBAL-layout fingerprint: page horizontal overflow + scroll height
 // + the positions of persistent chrome anchors OUTSIDE any one tab panel. The
 // point is to measure a choice's effect on the REST of the page, so a component
@@ -3171,25 +3293,9 @@ async function measureGlobalLayout(page) {
     .catch(() => null);
 }
 
-// Total px the global layout moved between two fingerprints: horizontal-overflow
-// delta + anchor displacement (matched by index; persistent chrome is stable).
-function layoutDelta(base, cur) {
-  if (!base || !cur) return 0;
-  let d = Math.abs((cur.hOverflow || 0) - (base.hOverflow || 0));
-  const n = Math.min(base.anchors.length, cur.anchors.length);
-  for (let i = 0; i < n; i++) {
-    d += Math.abs(cur.anchors[i][0] - base.anchors[i][0]);
-    d += Math.abs(cur.anchors[i][1] - base.anchors[i][1]);
-  }
-  return d;
-}
-
-function medianOf(xs) {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
+// layoutDelta (global-layout move between two fingerprints) and medianOf are
+// imported from ./choice-oracle.mjs so the web reference and the electron/tauri
+// ports difference identically.
 
 // Exhaustively select each option of a choice group, measure its effect on the
 // global layout, and emit at most one EXPLORE:CHOICEBUG for the outlier (a choice
@@ -3234,12 +3340,16 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
   const results = [];
   let base = null;
   for (const opt of group.opts) {
-    // Prefer the EXACT option by its structural selector (so two groups sharing an
-    // option label don't cross-exercise each other's components), but fall back to
-    // the label click when the precise selector can't be reached -- tap()'s
-    // reachability gate rejects a below-fold picker before clickOptionByLabel
-    // scrolls it into view, and losing that path silently killed the oracle.
-    const ok = (await tap(page, opt.sel)) || (await clickOptionByLabel(page, group.role, opt.label));
+    // Select an option. A native <select> (FEATURE 1) is driven by setting its
+    // .value + dispatching change/input (no element to click); every other group
+    // kind clicks the option element. Prefer the EXACT option by its structural
+    // selector (so two groups sharing an option label don't cross-exercise each
+    // other's components), but fall back to the label click when the precise
+    // selector can't be reached -- tap()'s reachability gate rejects a below-fold
+    // picker before clickOptionByLabel scrolls it into view.
+    const ok = group.role === 'select'
+      ? await setSelectValue(page, group.selectSel, opt.value)
+      : ((await tap(page, opt.sel)) || (await clickOptionByLabel(page, group.role, opt.label)));
     if (!ok) {
       results.push({ opt, mag: null });
       continue;
@@ -3254,6 +3364,14 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
       continue;
     }
     results.push({ opt, mag: cur ? layoutDelta(base, cur) : null });
+  }
+  // FEATURE 1 restore: a native <select> is left on the last option above, so put
+  // it back to its original value (non-destructive, like the rest of the oracle).
+  // ARIA/button groups are left selected by design (the caller re-observes the
+  // resulting state); a hidden form value is not a navigable state, so it is
+  // restored instead.
+  if (group.role === 'select' && group.selectSel) {
+    await setSelectValue(page, group.selectSel, group.orig);
   }
   const valid = results.filter((r) => r.mag !== null);
   if (valid.length < 3) return false; // need >= 2 siblings to call one an outlier
@@ -3282,11 +3400,41 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
     // of the walk is untouched. Reuses the trigger path of drawFindingBoxes (the
     // boxed outlier, plus any overflow the shift causes).
     if (VIDEO_DIR) {
-      // Re-select the EXACT outlier by selector and tag it (mark) so the box lands
-      // on the choice that shifted the page, not a same-label sibling. Fall back
-      // to the label click + a manual trigger tag when the selector can't be
-      // reached (below-fold), so the clip still boxes the right control.
-      const tapped = await tap(page, max.opt.sel, { mark: true });
+      // A native <select> outlier: re-set the select to the outlier value and tag
+      // the SELECT element so the box lands on the picker that shifted the page.
+      let tapped = false;
+      if (group.role === 'select' && group.selectSel) {
+        await setSelectValue(page, group.selectSel, max.opt.value);
+        tapped = await page
+          .evaluate(({ selectSel }) => {
+            const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&'));
+            let el = null;
+            if (selectSel.startsWith('key:')) {
+              const body = selectSel.slice(4);
+              const ci = body.indexOf(':');
+              const kind = ci >= 0 ? body.slice(0, ci) : '';
+              const val = ci >= 0 ? body.slice(ci + 1) : body;
+              if (kind === 'testid') el = document.querySelector('[data-testid="' + cssEscape(val) + '"]') || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+              else if (kind === 'id') el = document.getElementById(val);
+              else if (kind === 'name') el = document.querySelector('select[name="' + cssEscape(val) + '"]');
+            } else if (selectSel.startsWith('tag:select#')) {
+              const idx = parseInt(selectSel.slice('tag:select#'.length), 10);
+              const all = document.querySelectorAll('select');
+              el = idx >= 0 && idx < all.length ? all[idx] : null;
+            }
+            if (!el) return false;
+            for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+            el.setAttribute('data-reproit-trigger', '1');
+            return true;
+          }, { selectSel: group.selectSel })
+          .catch(() => false);
+      } else {
+        // Re-select the EXACT outlier by selector and tag it (mark) so the box lands
+        // on the choice that shifted the page, not a same-label sibling. Fall back
+        // to the label click + a manual trigger tag when the selector can't be
+        // reached (below-fold), so the clip still boxes the right control.
+        tapped = await tap(page, max.opt.sel, { mark: true });
+      }
       if (!tapped) {
         const label = max.opt.label || max.opt.sel;
         await clickOptionByLabel(page, group.role, label);
@@ -3648,7 +3796,12 @@ async function main() {
     // group is its own bounded sub-traversal, consuming one action slot.
     if (!replay) {
       let exercised = false;
-      for (const group of detectChoiceGroups(current.tappables)) {
+      // ARIA / button-cluster groups (from the snapshot tappables) plus native
+      // <select> components (FEATURE 1; queried live since the snapshot maps a
+      // <select> to a text field and so never surfaces its options).
+      const groups = detectChoiceGroups(current.tappables)
+        .concat(await detectSelectGroups(page));
+      for (const group of groups) {
         const gkey =
           current.sig + '|' + group.role + '|' + group.opts.map((o) => o.sel).join(',');
         if (exercisedGroups.has(gkey)) continue;
@@ -3980,7 +4133,9 @@ async function main() {
           }).catch(() => {});
           await page.waitForTimeout(600);
           const snap = await snapshot(page, valueNodeSelectors);
-          for (const group of detectChoiceGroups(snap.tappables)) {
+          const groups = detectChoiceGroups(snap.tappables)
+            .concat(await detectSelectGroups(page));
+          for (const group of groups) {
             if (await exerciseChoiceGroup(page, group, snap.sig, true)) { drew = true; break; }
           }
         } catch (_) { /* ignore */ }

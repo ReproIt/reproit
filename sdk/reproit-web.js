@@ -167,14 +167,38 @@
     return node.value != null && (!!VALUE_ROLES[node.role] || !!node.value_node);
   }
 
-  // FNV-1a 32-bit over the UTF-16 char codes (ASCII descriptor) -> 8 hex.
+  // The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
+  // descriptor and V: keys can carry non-ASCII (a localized route in the anchor,
+  // a non-ASCII developer id, an emoji icon), so we MUST fold the UTF-8 BYTES of
+  // the string, exactly like the Rust oracle's `desc.as_bytes()`. Hashing the
+  // UTF-16 code units instead silently diverged on any non-ASCII descriptor.
+  var REPROIT_UTF8 = new TextEncoder();
+
+  // FNV-1a 32-bit over the UTF-8 BYTES of the descriptor -> 8 hex. Byte-for-byte
+  // identical to the Rust oracle's fnv1a32_hex (offset basis 0x811c9dc5, prime
+  // 0x01000193) over `descriptor.as_bytes()`.
   function fnv1a32hex(s) {
+    var bytes = REPROIT_UTF8.encode(s);
     var h = 0x811c9dc5;
-    for (var i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
+    for (var i = 0; i < bytes.length; i++) {
+      h ^= bytes[i];
       h = Math.imul(h, 0x01000193) >>> 0;
     }
     return ("0000000" + (h >>> 0).toString(16)).slice(-8);
+  }
+
+  // Lexicographic comparison of two strings by their UTF-8 byte sequence, to
+  // match Rust's `String::cmp` (which compares bytes). JS `<` compares UTF-16
+  // code units, which diverges from byte order for astral vs high-BMP keys, so
+  // the V: section MUST sort with this instead.
+  function reproitCmpUtf8(a, b) {
+    var ab = REPROIT_UTF8.encode(a);
+    var bb = REPROIT_UTF8.encode(b);
+    var n = ab.length < bb.length ? ab.length : bb.length;
+    for (var i = 0; i < n; i++) {
+      if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1;
+    }
+    return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
   }
 
   // Rules 1, 2, 4: exclude text (no text field exists), drop transient
@@ -318,7 +342,7 @@
     var pairs = [];
     collectValues(root, pairs);
     if (pairs.length === 0) return "";
-    pairs.sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+    pairs.sort(function (a, b) { return reproitCmpUtf8(a[0], b[0]); });
     var body = pairs.map(function (p) { return p[0] + "=" + p[1]; }).join(";");
     return "\nV:" + body;
   }

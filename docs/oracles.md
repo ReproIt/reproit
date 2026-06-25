@@ -19,7 +19,7 @@ page records, honestly, what fires where and why the gaps exist.
 | Oracle | Marker | Catches |
 |---|---|---|
 | crash | exception block | an uncaught exception / signal |
-| choice-anomaly | `EXPLORE:CHOICEBUG` | one option of a multi-choice component shifts the global layout when its siblings do not (Web only) |
+| choice-anomaly | `EXPLORE:CHOICEBUG` | one option of a multi-choice component (ARIA tab/radio group, button-cluster picker, or native `<select>`) shifts the global layout when its siblings do not (Web / Electron / Tauri) |
 | overflow | `EXPLORE:OVERFLOW` | a child element spilling out of its container |
 | dead-end | `EXPLORE:STATE` + `EXPLORE:EDGE` (graph) | a non-terminal screen with no way out |
 | flicker | `EXPLORE:RERENDER` / `EXPLORE:FLICKER` | a wasteful repaint / transient visual divergence |
@@ -27,7 +27,7 @@ page records, honestly, what fires where and why the gaps exist.
 | jank | `EXPLORE:JANK` / sim frame manifest | a transition that drops frames |
 | hang | `EXPLORE:HANG` | an action that freezes the UI |
 | leak | `MEMORY:SAMPLE` (`--soak`) | memory that grows and never comes back |
-| broken-route | `EXPLORE:BROKENROUTE` | the app links to a URL whose document returns 404 / 410 / 5xx (a dead route). Not 401/403/429 (intentional auth gates / rate limits) (Web only) |
+| broken-route | `EXPLORE:BROKENROUTE` | the app links to a URL whose document returns 404 / 410 / 5xx (a dead route). Not 401/403/429 (intentional auth gates / rate limits) (Web + Electron; Tauri gap, no document-status stream over WebDriver) |
 
 The **choice-anomaly** oracle is differential, not absolute, which is what keeps
 it false-positive-free. When the fuzzer finds a multi-choice component (an ARIA
@@ -39,11 +39,18 @@ expected behavior is the COMMON effect across choices (every language resizes th
 code block a bit); a bug is the choice whose effect is an OUTLIER versus its
 siblings (only one language also shifts the whole page). It fires only when one
 choice's effect is >= 3x the sibling median and above a floor, so uniform choices
-produce nothing. Web-only (it needs the live layout); the component is selected
-by accessible label so below-fold pickers are scrolled into view and exercised.
-A native `<select>` is NOT yet treated as a choice component (the runner maps it
-to a text field today), so its options are not differenced; that is a known gap,
-not a covered case.
+produce nothing. It needs the live layout, so it runs on the three browser-backed
+backends -- Web, Electron (CDP, same as Web Chromium), and Tauri (the same in-page
+pass injected via WebDriver `execute()`) -- and the differencing/threshold rule is
+ONE shared implementation (`runners/web/choice-oracle.mjs`), so a finding means the
+same thing on every backend. A multi-choice component is selected by accessible
+label so below-fold pickers are scrolled into view and exercised. A native
+`<select>` is now treated as a choice component too: its `<option>`s are
+enumerated, each is selected (setting `.value` + dispatching `change`/`input` so
+frameworks react) and differenced with the SAME global-layout measurement and the
+SAME outlier rule, then the original value is restored (non-destructive). That
+closes the most common real-world picker, which the snapshot otherwise maps to a
+text field and never differences.
 
 The **overflow** oracle has a user-configurable reporting floor,
 `invariants.overflowMinPx` (default 2px). The runner already drops sub-pixel
@@ -63,8 +70,8 @@ surface. `choice` = choice-anomaly; `route` = broken-route.
 |---|---|---|---|---|---|---|---|---|---|---|
 | Web Chromium (CDP) | Y | Y | Y | Y | Y (+pixel) | Y | Y | Y | Y | Y |
 | Web Firefox/WebKit | Y | Y | Y | Y | Y | Y | Y | Y | gap | Y |
-| Electron (CDP) | Y | gap | Y | ~ | Y (+pixel) | Y | Y | Y | Y | gap |
-| Tauri (WebDriver) | Y | gap | Y | Y | Y (DOM) | Y | Y | Y | Y* | gap |
+| Electron (CDP) | Y | Y | Y | ~ | Y (+pixel) | Y | Y | Y | Y | Y |
+| Tauri (WebDriver) | Y | Y | Y | Y | Y (DOM) | Y | Y | Y | Y* | gap |
 | Flutter sim | Y | gap | Y | Y | Y | Y | Y | Y | Y | n/a |
 | Flutter headless | Y | gap | Y | Y | gap | Y | n/a | n/a | ~ | n/a |
 | RN / native Android (Appium) | Y | gap | Y | ~ | gap | Y | Y | Y | Y | n/a |
@@ -109,6 +116,26 @@ just never wired. Each holds the same false-positive bar as the rest.
   detector built for Firefox/WebKit is injected into the webview via `execute()`;
   Chromium/WebView2 keeps the precise Long Tasks path. Reuses the FP-validated
   classifier verbatim.
+- **choice-anomaly on Electron and Tauri** (`Y`): the differential outlier rule and
+  the global-layout measurement now live in ONE shared module
+  (`runners/web/choice-oracle.mjs`), with a self-contained in-page pass that finds
+  the page's choice components (native `<select>`, ARIA tab/radio groups, button-
+  cluster pickers), exercises each option, and flags the one whose effect on the
+  page outside the component is an outlier (>= 3x the sibling median and above the
+  floor). Electron is Chromium, so it runs that pass over CDP (`page.evaluate`)
+  exactly like Web; Tauri has no CDP, so the SAME pass is injected via WebDriver
+  `executeAsync()`. It is non-destructive (each component is restored) and stays
+  differential, so it inherits the no-false-positive bar verbatim. The unit test
+  (`runners/web/choice-oracle.test.mjs`) drives the exact in-page function on a
+  real Chromium fixture, covering all three ports' detector.
+- **broken-route on Electron** (`Y`): Electron's renderer is Chromium with the same
+  Playwright `response` events as Web, so the web runner's broken-route oracle ports
+  directly: record the HTTP status of main-frame document navigations (origin pinned
+  from the first document response), fire on 404/410/5xx, and run the same end-of-
+  crawl two-stage link check (HEAD filter, then real-navigation verify) that avoids
+  the SPA fetch-vs-navigation false positive. Excludes 401/403/429 (intentional auth
+  gates / rate limits) exactly as on Web. Gated on an http(s) app origin: a packaged
+  `file://` Electron app has no server status to read, so it stays silent there.
 
 ## Remaining gaps (why)
 
@@ -122,13 +149,21 @@ at the runner that would emit it.
   quantized, leak-blind number would be worse than silence). Run `--soak` on
   Chromium for the heap-slope leak oracle; the other engines still get every other
   oracle.
-- **choice-anomaly and broken-route are Web-only today** (`gap` off web): both live
-  only in the web reference runner -- choice-anomaly needs the live DOM layout to
-  difference each choice's global effect, and broken-route probes document HTTP
-  status. The CDP/WebDriver electron and tauri runners share the web architecture
-  and are the natural next ports (tracked); native, Flutter, TUI, and ImGui/Clay
-  surfaces have no URL-addressable routes (broken-route `n/a`) and, for the
-  immediate-mode TUI/ImGui/Clay, no stable layout box to difference (choice `n/a`).
+- **broken-route on Tauri** (`gap`): broken-route needs the document's HTTP STATUS
+  for a navigation, and the WebDriver surface Tauri drives over exposes no such
+  stream -- there is no CDP `response`/`Network` domain, and Tauri serves its app
+  over a custom protocol (`tauri://` / the asset protocol), not HTTP with a status
+  the driver surfaces. An in-page `fetch().status` probe is exactly the
+  fetch-vs-navigation false positive the web runner guards against with a real
+  navigation that re-reads the status, and WebDriver `url()` navigates but cannot
+  read the resulting status. So a 404/410/5xx cannot be told from a working route
+  FP-free here; emitting a guessed signal would break the no-false-positive bar, so
+  it stays silent. (choice-anomaly DID port to Tauri -- it runs entirely in-page, so
+  it needs no status stream; broken-route on Electron ported too, since Electron's
+  Chromium renderer surfaces real HTTP responses.) Native, Flutter, TUI, and
+  ImGui/Clay surfaces have no URL-addressable routes (broken-route `n/a`) and, for
+  the immediate-mode TUI/ImGui/Clay, no stable layout box to difference (choice
+  `n/a`).
 - **dead-end on Electron and React Native** (`~`): these runners drive taps but not
   text entry yet, so a screen whose only forward exit is through a form field reads
   as a false sink. Tracked as text-field driving for those runners; until it lands,

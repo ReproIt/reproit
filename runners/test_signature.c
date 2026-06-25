@@ -213,6 +213,22 @@ static ReproItSig_Node* v_chrome_value(void) {
     return s;
 }
 
+// UNICODE vector: a non-ASCII anchor (/café), a header whose id is non-ASCII
+// (café), a button with an astral/emoji icon (❤), and two value-bearing status
+// nodes whose ids are an astral emoji (🎉) and a high-BMP CJK-compat glyph (豈).
+// C source string literals are already UTF-8 bytes, and the core hashes bytes +
+// sorts the V: section by strcmp (byte order), so this matches the Rust oracle:
+// key:豈 (lead byte 0xEF) sorts BEFORE key:🎉 (lead byte 0xF0) -> ZERO then POS1.
+static ReproItSig_Node* v_unicode(void) {
+    reset_pool();
+    ReproItSig_Node* s = N("screen");
+    kid(s, with_id(N("header"), "caf\xc3\xa9"));
+    kid(s, with_icon(with_id(N("button"), "submit"), "\xe2\x9d\xa4"));
+    kid(s, with_value(with_id(N("status"), "\xf0\x9f\x8e\x89"), "5"));
+    kid(s, with_value(with_id(N("status"), "\xef\xa4\x80"), "0"));
+    return s;
+}
+
 static Vector VECTORS[] = {
     {"empty screen",              NULL,         v_empty,           "34fa65ea"},
     {"basic login",              "/login",      v_login,           "cae5a9d5"},
@@ -239,6 +255,8 @@ static Vector VECTORS[] = {
     {"counter POS1 (3)",        "/counter",    v_counter_p3,      "2517a50a"},
     {"counter POS1 (7)",        "/counter",    v_counter_p7,      "2517a50a"},
     {"chrome value (no V:)",    "/home",       v_chrome_value,    "c9416741"},
+    // Unicode: non-ASCII descriptor + UTF-8 byte-order V: sort.
+    {"unicode descriptor + V:", "/caf\xc3\xa9", v_unicode,         "234cd190"},
 };
 
 // Extra Layer 2 checks that exercise paths the table cannot (the opt-in

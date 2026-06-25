@@ -21,6 +21,15 @@
 import { readFileSync, statSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
+// CHOICE-ANOMALY oracle, shared with the web runner. choiceAnomalyInPage is the
+// self-contained in-page pass (it works over page.evaluate here because the
+// Electron renderer is Chromium, exactly like the web runner's CDP path); the
+// constants are the single source of truth for the outlier thresholds. Host-pure
+// + dependency-free, so a static import keeps this module import-safe (the parity
+// test that imports the signature functions pulls this in without side effects).
+import {
+  choiceAnomalyInPage, CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, CHOICE_ROLES,
+} from './web/choice-oracle.mjs';
 
 const APP = process.env.REPROIT_APP_DIR || process.env.REPROIT_APP;
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
@@ -108,16 +117,34 @@ function parseValueNodes(text) {
   return out;
 }
 
-// FNV-1a over an arbitrary descriptor string. Used for the STRUCTURAL signature
-// (fed a structure descriptor, never localized text) and for hashing long
-// labels in clipLabel. Matches the web runner / Rust oracle.
+// The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
+// descriptor and V: keys can carry non-ASCII (a localized anchor, a non-ASCII
+// id, an emoji icon), so we MUST fold the UTF-8 BYTES, exactly like the Rust
+// oracle's `desc.as_bytes()`. Folding UTF-16 code units silently diverged.
+const REPROIT_UTF8 = new TextEncoder();
+
+// FNV-1a over the UTF-8 BYTES of an arbitrary descriptor string. Used for the
+// STRUCTURAL signature (fed a structure descriptor) and for hashing long labels
+// in clipLabel. Matches the web runner / Rust oracle.
 function fnv1a(s) {
+  const bytes = REPROIT_UTF8.encode(s);
   let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+// Lexicographic comparison by UTF-8 byte sequence, matching Rust's String::cmp
+// (byte order). JS `<` compares UTF-16 code units, which diverges for astral vs
+// high-BMP keys, so the canonical V: section MUST sort with this.
+function reproitCmpUtf8(a, b) {
+  const ab = REPROIT_UTF8.encode(a);
+  const bb = REPROIT_UTF8.encode(b);
+  const n = Math.min(ab.length, bb.length);
+  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
 // ====================================================================
@@ -253,7 +280,7 @@ function valueSection(root) {
   const pairs = [];
   collectValues(root, pairs);
   if (pairs.length === 0) return '';
-  pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  pairs.sort((a, b) => reproitCmpUtf8(a[0], b[0]));
   return '\nV:' + pairs.map((p) => p[0] + '=' + p[1]).join(';');
 }
 function descriptorOf(anchor, root) {
@@ -1560,6 +1587,31 @@ async function main() {
     log('═'.repeat(8));
   });
 
+  // BROKEN-ROUTE oracle (ported from the web runner): record the HTTP status of
+  // main-frame DOCUMENT navigations, keyed by URL pathname. A document that came
+  // back 404 / 410 / 5xx is a dead route the app linked to. NOT 401/403 (auth
+  // gates) or 429 (rate limit), which are intentional >= 400 responses, never a
+  // broken link. The status is structural + locale-invariant, so this is
+  // false-positive-free. Same-origin only; the app origin is pinned from the
+  // first document response (an Electron app loads its own http(s) origin or a
+  // file:// bundle -- both have a stable origin). A file:// origin is "null", so
+  // the same-origin filter naturally limits the probe to http(s) apps; a packaged
+  // file:// app has no server status to read and stays an honest gap there.
+  const navStatus = {};
+  const seenLinks = new Map(); // pathname -> source sig (first wins)
+  let appOrigin = null;
+  page.on('response', (resp) => {
+    try {
+      const req = resp.request();
+      if (req.frame() !== page.mainFrame() || req.resourceType() !== 'document') return;
+      const u = new URL(resp.url());
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+      if (appOrigin == null) appOrigin = u.origin; // pin from the first document
+      if (u.origin !== appOrigin) return;
+      navStatus[u.pathname] = resp.status();
+    } catch (e) { /* ignore */ }
+  });
+
   // Install the Long Tasks observer (jank/hang watchdog) BEFORE the renderer
   // settles so it is live for every action. addInitScript re-runs it on every
   // document, so it survives in-app navigations and reloads.
@@ -1659,7 +1711,33 @@ async function main() {
       if (cbug && cbug.length) {
         log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
       }
+      // BROKEN-ROUTE: this state's document came back with a status that means the
+      // LINK is dead (404 / 410 / 5xx). NOT 401/403 (auth gates) or 429 (rate
+      // limit). Looked up by bare pathname (snap.anchor), keyed on the SAME sig.
+      const status = snap.anchor ? navStatus[snap.anchor] : undefined;
+      if (typeof status === 'number' && (status === 404 || status === 410 || status >= 500)) {
+        log('EXPLORE:BROKENROUTE ' + JSON.stringify({
+          sig: snap.sig,
+          ...(snap.anchor ? { route: snap.anchor } : {}),
+          status,
+        }));
+      }
     }
+    // Record same-origin link targets on this page (dedup by pathname, first
+    // source state wins) for the end-of-crawl broken-route link check.
+    try {
+      const links = await page.evaluate(() => {
+        const out = [];
+        for (const a of document.querySelectorAll('a[href]')) {
+          try {
+            const u = new URL(a.getAttribute('href'), location.href);
+            if (u.origin === location.origin && u.pathname && (u.protocol === 'http:' || u.protocol === 'https:')) out.push(u.pathname);
+          } catch (_) {}
+        }
+        return out;
+      });
+      for (const p of links) if (!seenLinks.has(p)) seenLinks.set(p, snap.sig);
+    } catch (_) {}
     return snap;
   };
 
@@ -1667,6 +1745,7 @@ async function main() {
   const prefix = fuzz.prefix || null, replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  const exercisedChoiceStates = new Set(); // sigs whose choice components were exercised
   // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
   // sample the v8 heap at the start and after every action, so the Rust soak
   // oracle gets a heap-vs-time series. Off outside replay. t0 anchors t_ms.
@@ -1676,6 +1755,34 @@ async function main() {
     // LEAK sampler: in replay mode, sample once per action (fires BEFORE acting,
     // so action a's sample reflects the heap after the previous action settled).
     if (replay && a > 0) await sampleHeap(page, gtCdp, Date.now() - t0);
+    // COMPONENT-CHOICE differential (fuzz only, not replay), ported from the web
+    // runner. The Electron renderer is Chromium, so the SAME self-contained in-
+    // page pass the web runner uses runs here over page.evaluate: it finds the
+    // page's choice components (native <select>, ARIA tab/radio groups, button-
+    // cluster pickers), exercises each option, measures the global-layout effect,
+    // and returns the outlier(s) using the SHARED threshold rule. Non-destructive
+    // (it restores each component) and once per state per seed. Each returned
+    // finding becomes an EXPLORE:CHOICEBUG keyed by the current sig.
+    if (!replay && !exercisedChoiceStates.has(current.sig)) {
+      exercisedChoiceStates.add(current.sig);
+      const findings = await page
+        .evaluate(choiceAnomalyInPage, {
+          settleMs: 600, ratio: CHOICE_OUTLIER_RATIO, minMag: CHOICE_MIN_MAGNITUDE, choiceRoles: CHOICE_ROLES,
+        })
+        .catch(() => []);
+      let emitted = false;
+      for (const f of (findings || [])) {
+        emitted = true;
+        log('EXPLORE:CHOICEBUG ' + JSON.stringify({
+          from: current.sig,
+          role: f.role,
+          outlier: f.outlier,
+          magnitude: f.magnitude,
+          siblingMedian: f.siblingMedian,
+        }));
+      }
+      if (emitted) { current = await observe(); continue; }
+    }
     let act;
     if (replay) act = replay[a];
     else if (prefix && a < prefixLen) act = prefix[a];
@@ -1761,6 +1868,55 @@ async function main() {
   // LEAK sampler: a final heap sample after the last action, so the series spans
   // the whole soak (start ... last action). No-op outside replay.
   if (replay) await sampleHeap(page, gtCdp, Date.now() - t0);
+  // BROKEN-ROUTE link check (ported from the web runner): catch a dead link the
+  // bounded crawl never tapped (a footer 404). Skip in replay. Two stages, since
+  // a raw fetch does not match a real navigation (an SPA serves a client route on
+  // navigation but 404s a bare fetch): (1) a cheap HEAD filter over every un-
+  // visited same-origin link, (2) VERIFY each flagged candidate with a real
+  // page.goto -- only a link that truly 404s ON NAVIGATION is reported. Gated on
+  // an http(s) app origin (a file:// app has no server status; honest gap there).
+  if (!replay && appOrigin) {
+    const FETCH_CAP = 400, VERIFY_CAP = 20;
+    const toProbe = [...seenLinks.entries()].filter(([p]) => navStatus[p] === undefined);
+    const batch = toProbe.slice(0, FETCH_CAP);
+    let statuses = {};
+    if (batch.length) {
+      try {
+        statuses = await page.evaluate(async (paths) => {
+          const origin = location.origin, out = {};
+          let i = 0;
+          const worker = async () => {
+            while (i < paths.length) {
+              const p = paths[i++];
+              try { const r = await fetch(origin + p, { method: 'HEAD', redirect: 'manual' }); out[p] = r.status; }
+              catch (e) { out[p] = 0; }
+            }
+          };
+          await Promise.all(Array.from({ length: 8 }, worker));
+          return out;
+        }, batch.map(([p]) => p));
+      } catch (_) {}
+    }
+    const isDead = (s) => s === 404 || s === 410 || s >= 500;
+    const candidates = batch.filter(([p]) => isDead(statuses[p] || 0));
+    let verified = 0;
+    for (const [path, fromSig] of candidates) {
+      navStatus[path] = statuses[path] || 0;
+      if (verified >= VERIFY_CAP) continue;
+      verified++;
+      let navStat = 0;
+      try {
+        const r = await page.goto(appOrigin + path, { waitUntil: 'commit', timeout: 7000 });
+        navStat = r ? r.status() : 0;
+      } catch (_) {}
+      navStatus[path] = navStat;
+      if (isDead(navStat)) {
+        log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }));
+      }
+    }
+    const unverified = candidates.length - Math.min(candidates.length, VERIFY_CAP);
+    if (unverified) log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
+  }
   log(`JOURNEY[a] step: explored ${seen.size} states`);
   log('JOURNEY DONE');
   log('All tests passed');
