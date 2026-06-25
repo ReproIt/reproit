@@ -3322,6 +3322,26 @@ fn load_repro_actions(loaded: &config::Loaded, id: &str) -> Result<Vec<String>> 
 /// content-hash store dir (carrying the alias, status, and oracle), and remove
 /// the superseded one. The trigger is the candidate's full length (a clean
 /// agent-proposed repro ends at the action that fires the finding).
+/// Build the simplified repro's replay.json: the minimized ACTIONS plus the seed,
+/// carrying over the property-matched fixture (`inputs`/`locale`) from the source
+/// repro so a data-dependent bug still reproduces after simplification (simplify
+/// minimizes actions, never the data). A source without a fixture (a path-only
+/// repro, or a pending finding with no replay.json) yields the bare
+/// `{seed, replay}`. Pure, so it is unit-tested.
+fn build_simplified_replay(
+    seed: u64,
+    candidate: &[String],
+    src_replay: &serde_json::Value,
+) -> serde_json::Value {
+    let mut replay = serde_json::json!({ "seed": seed, "replay": candidate });
+    for k in ["inputs", "locale"] {
+        if let Some(v) = src_replay.get(k) {
+            replay[k] = v.clone();
+        }
+    }
+    replay
+}
+
 fn adopt_simplified(
     loaded: &config::Loaded,
     meta: &repro::Meta,
@@ -3331,7 +3351,16 @@ fn adopt_simplified(
     let root = loaded.root.as_path();
     let new_dir = repro::repro_dir(root, new_id);
     std::fs::create_dir_all(&new_dir)?;
-    let replay = serde_json::json!({ "seed": meta.seed, "replay": candidate });
+    // Carry the property-matched fixture (inputs/locale) from the source repro so a
+    // data-dependent bug still reproduces after simplification: we minimize ACTIONS,
+    // never the data. A path-only repro (or a pending finding with no replay.json)
+    // carries neither, so this is inert for non-data bugs.
+    let src_replay: serde_json::Value =
+        std::fs::read_to_string(repro::repro_dir(root, &meta.id).join("replay.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+    let replay = build_simplified_replay(meta.seed, candidate, &src_replay);
     std::fs::write(
         new_dir.join("replay.json"),
         serde_json::to_string_pretty(&replay)?,
@@ -3438,13 +3467,18 @@ async fn check_repro(
             );
     };
 
-    // Verify an alternate sequence (simplify): replace the actions, keep the seed
-    // and the oracle so the verdict still answers "does this reproduce the SAME
-    // finding?".
+    // Verify an alternate sequence (simplify): replace ONLY the actions, keeping
+    // the seed AND the property-matched fixture (inputs/locale) so the verdict
+    // still answers "does this reproduce the SAME finding?". Dropping the fixture
+    // here would re-run each candidate WITHOUT the data a data-dependent bug needs,
+    // so the minimization would shrink against a bug that never fires (garbage
+    // result), and the adopted minimal repro would lose its data and stop
+    // reproducing. Clone + overwrite the action list to preserve the rest.
     let replay = match override_actions {
         Some(actions) => {
-            let seed = replay.get("seed").cloned().unwrap_or(serde_json::json!(0));
-            serde_json::json!({ "seed": seed, "replay": actions })
+            let mut r = replay.clone();
+            r["replay"] = serde_json::json!(actions);
+            r
         }
         None => replay,
     };
@@ -3806,6 +3840,33 @@ fn collect_cov_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn simplify_preserves_the_property_matched_fixture() {
+        // A data-dependent repro carries inputs + locale. Simplifying it minimizes
+        // the ACTIONS but must keep the data, or the adopted repro stops
+        // reproducing the bug that only fires for that fixture.
+        let src = serde_json::json!({
+            "seed": 7u64,
+            "replay": ["tap:a", "tap:b", "tap:c"],
+            "inputs": [{ "field": "name", "value": "a-long-unicode-name" }],
+            "locale": "tr",
+        });
+        let out = build_simplified_replay(7, &["tap:c".to_string()], &src);
+        assert_eq!(out["replay"], serde_json::json!(["tap:c"]));
+        assert_eq!(out["locale"], "tr");
+        assert_eq!(out["inputs"], src["inputs"]);
+
+        // A path-only repro (no fixture) stays the bare {seed, replay} shape.
+        let bare = build_simplified_replay(
+            7,
+            &["tap:c".to_string()],
+            &serde_json::json!({ "seed": 7u64, "replay": ["tap:a", "tap:c"] }),
+        );
+        assert!(bare.get("inputs").is_none());
+        assert!(bare.get("locale").is_none());
+        assert_eq!(bare["replay"], serde_json::json!(["tap:c"]));
+    }
 
     #[test]
     fn target_as_executable_detects_path_and_on_path_commands() {
