@@ -640,6 +640,10 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
         "flicker-oracle.mjs",
         include_str!("../../../runners/web/flicker-oracle.mjs"),
     ),
+    (
+        "choice-oracle.mjs",
+        include_str!("../../../runners/web/choice-oracle.mjs"),
+    ),
     ("probe.mjs", include_str!("../../../runners/web/probe.mjs")),
     (
         "pw-capture.mjs",
@@ -1290,5 +1294,50 @@ mod tests {
             super::load(Some(&path)).unwrap_or_else(|e| panic!("toolkit {id} failed: {e:#}"));
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Pull every `./<name>.mjs` referenced by a static `from` or dynamic
+    /// `import(...)` out of a runner script.
+    fn local_mjs_imports(src: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for marker in ["from './", "from \"./", "import('./", "import(\"./"] {
+            let mut rest = src;
+            while let Some(i) = rest.find(marker) {
+                rest = &rest[i + marker.len()..];
+                let end = rest.find(['\'', '"']).unwrap_or(rest.len());
+                let module = &rest[..end];
+                if module.ends_with(".mjs") {
+                    out.push(module.to_string());
+                }
+                rest = &rest[end..];
+            }
+        }
+        out
+    }
+
+    // Every local module a runner script imports must also ship in
+    // WEB_RUNNER_FILES. Otherwise `write_embedded_runner` syncs a runner that
+    // crashes on import (ERR_MODULE_NOT_FOUND) for any install whose runner dir
+    // predates the new import -- which silently breaks the documented "in
+    // lock-step with the binary, no stale cache" guarantee. Regression guard for
+    // choice-oracle.mjs, which runner.mjs imported but was never listed here.
+    #[test]
+    fn web_runner_files_are_import_closed() {
+        let shipped: std::collections::HashSet<&str> = super::WEB_RUNNER_FILES
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        for (name, contents) in super::WEB_RUNNER_FILES {
+            if !name.ends_with(".mjs") {
+                continue;
+            }
+            for import in local_mjs_imports(contents) {
+                assert!(
+                    shipped.contains(import.as_str()),
+                    "{name} imports './{import}' but it is missing from WEB_RUNNER_FILES \
+                     (the embedded sync won't write it, breaking installs on upgrade)"
+                );
+            }
+        }
     }
 }
