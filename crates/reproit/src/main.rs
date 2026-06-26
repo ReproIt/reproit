@@ -56,6 +56,8 @@ mod import;
 mod journey;
 #[path = "modes/mapplan.rs"]
 mod mapplan;
+#[path = "modes/pwfuzz.rs"]
+mod pwfuzz;
 #[path = "modes/screenshots.rs"]
 mod screenshots;
 #[path = "modes/soak.rs"]
@@ -518,10 +520,13 @@ enum Cmd {
     /// Find repros using the map (pure; emits a fuzz artifact). All oracles on
     /// by default. `--soak` runs the leak cycle; `--target` selects engines.
     Fuzz {
-        /// What to fuzz (optional). A URL (https://app.com) is auto-detected and
-        /// runs zero-config against that deployed app; a terminal EXECUTABLE
-        /// (e.g. `lazygit`, or a path) runs zero-config in a PTY; no reproit.yaml
-        /// needed for either.
+        /// What to fuzz (optional). A PLAYWRIGHT TEST file
+        /// (`reproit fuzz your-test.spec.ts`) is run under trace; reproit replays
+        /// its actions to reach its deep state, then fuzzes onward for the bugs the
+        /// test never covered (you wrote the test; reproit finds the bugs you
+        /// didn't). A URL (https://app.com) is auto-detected and runs zero-config
+        /// against that deployed app; a terminal EXECUTABLE (e.g. `lazygit`, or a
+        /// path) runs zero-config in a PTY; no reproit.yaml needed for any of these.
         /// Any other value scopes the hunt to that alias/node.
         #[arg(value_name = "TARGET")]
         target_arg: Option<String>,
@@ -1872,9 +1877,46 @@ async fn main() -> Result<ExitCode> {
             // graph. A bare terminal EXECUTABLE (when there's no project config)
             // synthesizes a TUI/PTY config the same way. Anything else (e.g.
             // "login") scopes the hunt to that alias/node in a reproit.yaml.
-            let target_url = target_arg.as_deref().and_then(target_as_url);
-            let mut synthesized = target_url.is_some();
-            let loaded = if let Some(u) = &target_url {
+            // A Playwright TEST file (`.spec.ts/.spec.js/.test.*`) is detected
+            // first: reproit RUNS the test under trace, reads its action sequence,
+            // and fuzzes OUTWARD from the deep state the test reached. The pitch:
+            // "you wrote the test; reproit finds the bugs you didn't" -- the test's
+            // own actions become the per-seed replay prefix (incl. login fills, so
+            // auth comes for free), and its first page.goto becomes the start URL.
+            let pw_test: Option<PathBuf> = target_arg.as_deref().and_then(|t| {
+                let p = PathBuf::from(t);
+                let is_test = pwfuzz::looks_like_playwright_test(t)
+                    || (pwfuzz::has_pw_test_ext(t) && p.is_file());
+                is_test.then_some(p)
+            });
+            let mut pw_capture: Option<pwfuzz::Capture> = None;
+            let target_url = if pw_test.is_some() {
+                None
+            } else {
+                target_arg.as_deref().and_then(target_as_url)
+            };
+            let mut synthesized = target_url.is_some() || pw_test.is_some();
+            let loaded = if let Some(test_path) = &pw_test {
+                let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
+                let cap = pwfuzz::capture(&wrd, test_path, &|m| ctx.say(m))?;
+                let base = cap.base_url.clone().or_else(|| cap.goto_url.clone());
+                let Some(base) = base else {
+                    return Err(anyhow::anyhow!(
+                        "the test never called page.goto, so reproit has no app URL to fuzz. \
+                         Add a `await page.goto(...)` to the test."
+                    ));
+                };
+                ctx.say(format!(
+                    "zero-config web run from Playwright test against {base}"
+                ));
+                let l = config::synthesize_web(&base, &wrd, std::env::current_dir()?)?;
+                if !l.root.join(".reproit/appmap.json").exists() {
+                    ctx.say("  building the app map (first run; re-run is faster)...");
+                    map::build_map(&l.config, &l.root, &journey, false, None).await?;
+                }
+                pw_capture = Some(cap);
+                l
+            } else if let Some(u) = &target_url {
                 let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
                 let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
@@ -1954,9 +1996,33 @@ async fn main() -> Result<ExitCode> {
             // `--from <journey>`: resolve the journey to its replay actions
             // host-side now, so a bad/multi-actor journey fails before any drive
             // (and the secret/map resolution happens once, not per seed).
-            let from_prefix = match &from {
-                Some(name) => Some(journey::prefix_actions(&loaded, name)?),
-                None => None,
+            //
+            // A Playwright-test target produces the SAME kind of replay prefix from
+            // the captured trace: its mapped actions become the per-seed prefix the
+            // runner replays before exploring, and its start URL pins the runner's
+            // gotoUrl so every seed lands on the same page the test reached.
+            let from_prefix = if let Some(cap) = &pw_capture {
+                pwfuzz::report(cap, pw_test.as_deref().unwrap_or(Path::new("test")), &|m| {
+                    ctx.say(m)
+                });
+                // The start URL already rode into the synthesized config's app.url
+                // (-> REPROIT_URL -> the runner's APP_URL/START_URL), so every seed
+                // lands on the page the test reached before replaying the prefix.
+                let prefix = cap.replay_prefix();
+                if prefix.is_empty() {
+                    ctx.say(
+                        "  no replayable actions captured from the test; fuzzing from the \
+                         start URL only.",
+                    );
+                    None
+                } else {
+                    Some(prefix)
+                }
+            } else {
+                match &from {
+                    Some(name) => Some(journey::prefix_actions(&loaded, name)?),
+                    None => None,
+                }
             };
 
             let args = fuzz::FuzzArgs {

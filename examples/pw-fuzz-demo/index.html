@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pw-fuzz demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 720px; }
+    button, input { font-size: 1rem; padding: 0.5rem 0.9rem; margin: 0.3rem 0; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+    #step2-overflow {
+      width: 120px;
+      overflow: hidden;
+      white-space: nowrap;
+      border: 1px solid #ccc;
+      padding: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Account flow</h1>
+
+  <!-- STEP 1: the only screen the user's Playwright test ever reaches. -->
+  <section id="step1" class="screen active">
+    <h2>Step 1: sign in</h2>
+    <label>Username <input data-testid="username" name="username" /></label><br />
+    <label>Password <input data-testid="password" name="password" type="password" /></label><br />
+    <button data-testid="continue">Continue</button>
+  </section>
+
+  <!-- STEP 2: only reachable after Continue. Holds bugs the test never sees. -->
+  <section id="step2" class="screen">
+    <h2>Step 2: account</h2>
+    <!-- BUG A: clicking this throws (calls a method on undefined). -->
+    <button data-testid="load-profile">Load profile</button>
+    <!-- BUG B: a long string forced into a narrow, clipped box (overflow). -->
+    <div id="step2-overflow">This account label is far too long to ever fit in this little box</div>
+    <!-- BUG C: renders a raw object as text on click ([object Object]). -->
+    <button data-testid="show-meta">Show metadata</button>
+    <div id="meta"></div>
+  </section>
+
+  <script>
+    function show(id) {
+      for (const s of document.querySelectorAll('.screen')) s.classList.remove('active');
+      document.getElementById(id).classList.add('active');
+    }
+    document.querySelector('[data-testid="continue"]').addEventListener('click', () => {
+      // Gate: only advance once BOTH fields are filled (the test fills them; a
+      // blind fuzzer typing random junk into the wrong fields stays on step 1).
+      const u = document.querySelector('[data-testid="username"]').value.trim();
+      const p = document.querySelector('[data-testid="password"]').value.trim();
+      if (u && p) show('step2');
+    });
+    // BUG A: throws on click -- reproit's crash oracle catches the uncaught error.
+    document.querySelector('[data-testid="load-profile"]').addEventListener('click', () => {
+      const profile = undefined;
+      document.getElementById('meta').textContent = profile.displayName; // TypeError
+    });
+    // BUG C: stringifies an object straight into the DOM -> "[object Object]".
+    document.querySelector('[data-testid="show-meta"]').addEventListener('click', () => {
+      const meta = { plan: 'pro', seats: 5 };
+      document.getElementById('meta').textContent = 'Plan: ' + meta; // [object Object]
+    });
+  </script>
+</body>
+</html>

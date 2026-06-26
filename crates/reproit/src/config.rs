@@ -642,6 +642,10 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
     ),
     ("probe.mjs", include_str!("../../../runners/web/probe.mjs")),
     (
+        "pw-capture.mjs",
+        include_str!("../../../runners/web/pw-capture.mjs"),
+    ),
+    (
         "annotate.mjs",
         include_str!("../../../runners/web/annotate.mjs"),
     ),
