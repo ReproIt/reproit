@@ -630,12 +630,6 @@ enum Cmd {
         /// GPU compositor runs)
         #[arg(long)]
         headless: bool,
-        /// (--target web engines) output dir for frames, diffs, report.html
-        #[arg(long, default_value = "/tmp/reproit-diff")]
-        out: String,
-        /// (--target web engines) optional replay path JSON
-        #[arg(long)]
-        replay: Option<String>,
         /// Comma-separated locale list to fuzz across (e.g. de,ar,ja). Each
         /// locale runs the flow once with REPROIT_LOCALE set; findings are
         /// tagged with their locale and locale-specific i18n findings are
@@ -1862,8 +1856,6 @@ async fn main() -> Result<ExitCode> {
             target,
             url,
             headless,
-            out,
-            replay,
             locale,
             only,
             no_oracles,
@@ -1970,10 +1962,6 @@ async fn main() -> Result<ExitCode> {
             }
             // The web-engine cross-engine env (URL + headless) travels to the
             // web runner via process env, set per engine inside `run_targets`.
-            // `--out`/`--replay` were the old standalone `differential.mjs`
-            // surface; the unified routing diffs from each engine's fuzz run, so
-            // they no longer apply (kept as accepted flags for compatibility).
-            let _ = (&out, &replay);
             if is_web_engines(target.as_deref().unwrap_or("")) {
                 let url = url.or_else(|| loaded.config.app.url.clone());
                 if let Some(u) = url {

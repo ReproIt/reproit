@@ -9,23 +9,19 @@
 //! 0600 under the user config dir. A random per-vault salt is stored in the
 //! file header, so the same passphrase yields a distinct key per vault.
 //!
-//! Key derivation is recorded in the header so we can evolve it without locking
-//! existing users out. Two on-disk formats exist:
+//! Key derivation is recorded in the header so we can evolve it. The on-disk
+//! format is:
 //!
-//!   RMV1 (legacy): MAGIC | salt(16) | nonce(12) | ciphertext
-//!       Key is always SHA256(salt || material). Still READ for back-compat;
-//!       never written anymore.
-//!
-//!   RMV2 (current): MAGIC | kdf_id(1) | salt(16) | nonce(12) | ciphertext
+//!   RMV2: MAGIC | kdf_id(1) | salt(16) | nonce(12) | ciphertext
 //!       `kdf_id` records the derivation used:
 //!         KDF_SHA256 (0): SHA256(salt || material). Used for machine-keyfile
-//!             material (already 32 random bytes -- a slow KDF adds nothing).
+//!             material (already 32 random bytes, a slow KDF adds nothing).
 //!         KDF_ARGON2ID (1): Argon2id(material, salt) with the params below.
 //!             Used for REPROIT_VAULT_KEY passphrases (a human secret, so a
 //!             single SHA256 would be brute-forceable).
 //!
-//! On open we dispatch on magic, then (for RMV2) on `kdf_id`, so a vault always
-//! decrypts with the same derivation it was written with.
+//! On open we dispatch on `kdf_id`, so a vault always decrypts with the same
+//! derivation it was written with.
 
 use crate::config::AuthCfg;
 use aes_gcm::aead::{Aead, KeyInit};
@@ -36,7 +32,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MAGIC_V1: &[u8; 4] = b"RMV1";
 const MAGIC_V2: &[u8; 4] = b"RMV2";
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
@@ -78,8 +73,8 @@ impl Vault {
         }
         let raw =
             std::fs::read(path).with_context(|| format!("reading vault {}", path.display()))?;
-        // Dispatch on the magic, then (for RMV2) the recorded kdf_id, so a vault
-        // always decrypts with the exact derivation it was written with.
+        // Dispatch on the recorded kdf_id, so a vault always decrypts with the
+        // exact derivation it was written with.
         let (kdf_id, salt, nonce, ct) = if raw.len() >= 4 && &raw[..4] == MAGIC_V2 {
             if raw.len() < 4 + 1 + SALT_LEN + NONCE_LEN {
                 bail!("{} is not a reproit vault (truncated RMV2)", path.display());
@@ -89,15 +84,6 @@ impl Vault {
             let nonce = &raw[5 + SALT_LEN..5 + SALT_LEN + NONCE_LEN];
             let ct = &raw[5 + SALT_LEN + NONCE_LEN..];
             (kdf_id, salt, nonce, ct)
-        } else if raw.len() >= 4 && &raw[..4] == MAGIC_V1 {
-            // Legacy: no kdf byte, key is always SHA256(salt || material).
-            if raw.len() < 4 + SALT_LEN + NONCE_LEN {
-                bail!("{} is not a reproit vault (truncated RMV1)", path.display());
-            }
-            let salt = &raw[4..4 + SALT_LEN];
-            let nonce = &raw[4 + SALT_LEN..4 + SALT_LEN + NONCE_LEN];
-            let ct = &raw[4 + SALT_LEN + NONCE_LEN..];
-            (KDF_SHA256, salt, nonce, ct)
         } else {
             bail!("{} is not a reproit vault (bad header)", path.display());
         };
@@ -457,46 +443,6 @@ mod tests {
         assert_eq!(v2.get("k"), Some("v"));
         let _ = std::fs::remove_dir_all(&dir);
         std::env::remove_var("XDG_CONFIG_HOME");
-    }
-
-    // An existing RMV1 vault (old SHA256-derived key, no kdf byte) must keep
-    // opening so current users are never locked out by the format bump. We write
-    // one by hand in the legacy layout and confirm Vault::open reads it.
-    #[test]
-    fn legacy_rmv1_vault_still_opens() {
-        let _g = ENV_LOCK.lock().unwrap();
-        std::env::set_var("REPROIT_VAULT_KEY", "legacy-passphrase");
-        let dir = unique_dir("rmv1");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("secrets.vault");
-
-        // Hand-build the legacy RMV1 file: MAGIC | salt | nonce | ciphertext,
-        // with the key derived the old way (SHA256(salt || passphrase)).
-        let mut salt = [0u8; SALT_LEN];
-        getrandom::fill(&mut salt).unwrap();
-        let mut nonce = [0u8; NONCE_LEN];
-        getrandom::fill(&mut nonce).unwrap();
-        let key = derive_sha256(&salt, b"legacy-passphrase");
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
-        let mut map = BTreeMap::new();
-        map.insert("old.secret".to_string(), "still-here".to_string());
-        let pt = serde_json::to_vec(&map).unwrap();
-        let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce), pt.as_ref())
-            .unwrap();
-        let mut out = Vec::new();
-        out.extend_from_slice(MAGIC_V1);
-        out.extend_from_slice(&salt);
-        out.extend_from_slice(&nonce);
-        out.extend_from_slice(&ct);
-        std::fs::write(&path, &out).unwrap();
-
-        // The current code path opens it via the legacy branch.
-        let v = Vault::open(&path).unwrap();
-        assert_eq!(v.get("old.secret"), Some("still-here"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::env::remove_var("REPROIT_VAULT_KEY");
     }
 
     #[test]
