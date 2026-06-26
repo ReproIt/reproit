@@ -305,8 +305,9 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
             // DOM/layout overflow for a state: nodes whose content is clipped or
             // overflows their container/viewport. Keyed by signature (last write
             // wins); each item is an OverflowItem (key, kind, px, tag, interactive).
-            // `tag`/`interactive` default for older runners that omit them, so the
-            // filter degrades to kind+px without them.
+            // The web runner is embedded in (and synced to) this binary, so every
+            // field is always present; an item missing one is a bug, not an older
+            // runner, and is dropped.
             if let (Some(sig), Some(items)) = (
                 json.get("sig").and_then(Value::as_str),
                 json.get("items").and_then(Value::as_array),
@@ -314,24 +315,12 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 let parsed: Vec<OverflowItem> = items
                     .iter()
                     .filter_map(|it| {
-                        let key = it.get("key").and_then(Value::as_str)?.to_string();
-                        let kind = it.get("kind").and_then(Value::as_str)?.to_string();
-                        let by = it.get("by").and_then(Value::as_i64).unwrap_or(0);
-                        let tag = it
-                            .get("tag")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string();
-                        let interactive = it
-                            .get("interactive")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false);
                         Some(OverflowItem {
-                            key,
-                            kind,
-                            by,
-                            tag,
-                            interactive,
+                            key: it.get("key").and_then(Value::as_str)?.to_string(),
+                            kind: it.get("kind").and_then(Value::as_str)?.to_string(),
+                            by: it.get("by").and_then(Value::as_i64).unwrap_or(0),
+                            tag: it.get("tag").and_then(Value::as_str)?.to_string(),
+                            interactive: it.get("interactive").and_then(Value::as_bool)?,
                         })
                     })
                     .collect();
@@ -1367,7 +1356,7 @@ mod tests {
         let log = concat!(
             r#"EXPLORE:STATE {"sig":"s1","labels":[],"unlabeled":0}"#,
             "\n",
-            r#"EXPLORE:OVERFLOW {"sig":"s1","items":[{"key":"id:save","kind":"clip","by":84},{"key":"tag:html","kind":"scroll","by":120}]}"#,
+            r#"EXPLORE:OVERFLOW {"sig":"s1","items":[{"key":"id:save","kind":"clip","by":84,"tag":"button","interactive":true},{"key":"tag:html","kind":"scroll","by":120,"tag":"html","interactive":false}]}"#,
             "\n",
             r#"EXPLORE:OVERFLOW {"sig":"s2","items":[]}"#,
         );
@@ -1376,9 +1365,8 @@ mod tests {
         assert_eq!(
             items,
             &vec![
-                // tag/interactive default ("", false) for a marker that omits them.
-                OverflowItem::new("id:save", "clip", 84, "", false),
-                OverflowItem::new("tag:html", "scroll", 120, "", false),
+                OverflowItem::new("id:save", "clip", 84, "button", true),
+                OverflowItem::new("tag:html", "scroll", 120, "html", false),
             ]
         );
         assert!(
