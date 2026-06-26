@@ -24,7 +24,7 @@
 //! the headless explorer DOES emit) and authoritative under `--sim`.
 
 use crate::config::{InvariantScope, InvariantsCfg};
-use crate::map::RunObs;
+use crate::map::{OverflowItem, RunObs};
 use serde_json::{json, Value};
 
 /// Everything the invariant set needs to evaluate one run. Built by the caller
@@ -166,21 +166,14 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // (e.g. the TUI / ImGui / Clay surfaces), so this reports nothing there.
     if cfg.no_overflow {
         for (sig, items) in &obs.obs.overflows {
-            // Only real layout BREAKS: a `spill` is a child whose box exceeds its
-            // parent's content box (the i18n/long-string/RTL failure), and `flex`
-            // is Flutter's OWN `RenderFlex overflowed` determination (the yellow/
-            // black-stripe error, never intentional). Drop `clip` (designed
-            // `text-overflow: ellipsis` / `overflow: hidden`), `scroll` (an
-            // intended scroll container), and `viewport` (an off-screen element,
-            // e.g. a drawer/carousel -- FP-prone) -- those are not bugs, and
-            // flagging them was the false-positive that boxed an ellipsis label.
-            // USER floor: only breaks at/above the configured px count on top of
-            // the runner's sub-pixel OVERFLOW_TOL (default 2 keeps everything).
+            // Element-aware reporting filter: see `overflow_is_break`. CSS overflow
+            // is a ubiquitous INTENTIONAL tool (scroll containers, ellipsis
+            // truncation, full-bleed art), so the raw structural signal is noisy.
+            // We report only the kind+element combinations that are bugs, not the
+            // ones a designer meant.
             let items: Vec<_> = items
                 .iter()
-                .filter(|(_, kind, by)| {
-                    matches!(kind.as_str(), "spill" | "flex") && *by >= cfg.overflow_min_px
-                })
+                .filter(|item| overflow_is_break(item, cfg.overflow_min_px))
                 .collect();
             if items.is_empty() {
                 continue;
@@ -188,7 +181,7 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
             let detail = items
                 .iter()
                 .take(3)
-                .map(|(key, kind, by)| format!("{key} ({kind} by {by}px)"))
+                .map(|item| format!("{} ({} by {}px)", item.key, item.kind, item.by))
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push(finding(
@@ -595,6 +588,45 @@ pub fn any_rerender_flicker(obs: &RunObs) -> bool {
     !obs.rerenders.is_empty() || !obs.paint_flickers.is_empty()
 }
 
+/// Spill floor: a child's box must escape its parent's content box by at least
+/// this many CSS px to be a *visible* break. The runner's OVERFLOW_TOL (2) only
+/// drops sub-pixel noise; in the wild, real layouts spill bare wrappers by a few
+/// px constantly (a 3px `div` spill is invisible), so the reporting floor sits
+/// higher. A genuine container break is tens to hundreds of px.
+const SPILL_FLOOR: i64 = 8;
+
+/// Floor for re-confirming an overflow on replay without the run config (the
+/// per-kind element gates in `overflow_is_break` still apply).
+const RECHECK_OVERFLOW_MIN_PX: i64 = 1;
+
+/// Whether an overflow signal is a *reportable bug*, not intended design. CSS
+/// overflow is a first-class intentional tool, so the structural measurement
+/// alone is FP-prone; we gate on kind + element type:
+///   - `flex`  : Flutter's own `RenderFlex overflowed` -- never intentional --
+///               at/above the user floor.
+///   - `spill` : a child escaping its parent's content box by a visible margin
+///               (>= max(floor, SPILL_FLOOR)), excluding icon/inline artifacts
+///               (svg/img/i/br/hr) whose few-px spill is decorative, not a break.
+///   - `clip`  : a single-line label HARD-truncated inside an INTERACTIVE control
+///               (button/link/tab) -- the i18n/long-string failure that hides the
+///               action's text. The identical ellipsis on a caption/cell is
+///               intended truncation, so non-interactive clips are dropped.
+///   - `scroll`: ONLY the document scroller (`tag:html`) = "the whole page scrolls
+///               sideways", a real responsive break. Per-element scroll is an
+///               intended container (code block, carousel, input).
+fn overflow_is_break(item: &OverflowItem, min_px: i64) -> bool {
+    match item.kind.as_str() {
+        "flex" => item.by >= min_px,
+        "spill" => {
+            item.by >= min_px.max(SPILL_FLOOR)
+                && !matches!(item.tag.as_str(), "svg" | "img" | "i" | "br" | "hr")
+        }
+        "clip" => item.interactive && item.by >= min_px,
+        "scroll" => item.key == "tag:html" && item.by >= min_px,
+        _ => false,
+    }
+}
+
 /// Re-confirm a `no-overflow` finding over a replay log, mirroring
 /// `recheck_rerender_flicker`: the recorded violating state sig is re-evaluated
 /// against the replay's `EXPLORE:OVERFLOW` records.
@@ -605,13 +637,12 @@ pub fn recheck_overflow(obs: &RunObs, sig: &str) -> GraphRecheck {
     if !obs.states.contains_key(sig) {
         return GraphRecheck::NotReached;
     }
-    // Real-break kinds only, matching the finding: a `clip`/`scroll`/`viewport`
-    // lingering on the state is intended truncation/scroll/offscreen, not the bug,
-    // so it must not read as still-violating.
+    // Mirror the report filter: only a reportable break lingering on the state
+    // counts as still-violating (an intended ellipsis/scroll/offscreen must not).
     if obs.overflows.get(sig).is_some_and(|items| {
         items
             .iter()
-            .any(|(_, kind, _)| matches!(kind.as_str(), "spill" | "flex"))
+            .any(|item| overflow_is_break(item, RECHECK_OVERFLOW_MIN_PX))
     }) {
         GraphRecheck::StillViolating
     } else {
@@ -619,10 +650,14 @@ pub fn recheck_overflow(obs: &RunObs, sig: &str) -> GraphRecheck {
     }
 }
 
-/// Whether the replay graph has ANY overflow signal (used by `check` for an
-/// overflow repro that recorded no specific violating sig).
+/// Whether the replay graph has ANY reportable overflow break (used by `check`
+/// for an overflow repro that recorded no specific violating sig).
 pub fn any_overflow(obs: &RunObs) -> bool {
-    obs.overflows.values().any(|items| !items.is_empty())
+    obs.overflows.values().any(|items| {
+        items
+            .iter()
+            .any(|item| overflow_is_break(item, RECHECK_OVERFLOW_MIN_PX))
+    })
 }
 
 /// Re-confirm a `no-broken-render` (content-bug) finding over a replay log,
@@ -971,7 +1006,7 @@ mod tests {
         );
         o.obs.overflows.insert(
             "settings".to_string(),
-            vec![("id:save".to_string(), "spill".to_string(), 84)],
+            vec![OverflowItem::new("id:save", "spill", 84, "div", false)],
         );
         let f = evaluate(&o, &InvariantsCfg::default());
         assert!(
@@ -986,19 +1021,44 @@ mod tests {
         assert!(!f
             .iter()
             .any(|x| x["invariant"] == "no-overflow" && x["sig"] == "home"));
-        // Designed `clip` (ellipsis) + `scroll` (a scroll container) + `viewport`
-        // (an off-screen element, e.g. a drawer/carousel) are NOT bugs: a state
-        // with only those stays silent (this is the /login FP fix).
+        // Designed truncation/scroll/offscreen are NOT bugs: a NON-interactive
+        // `clip` (ellipsis on a caption), a per-element `scroll` (a scroll
+        // container), and a `viewport` (off-screen drawer) -- a state with only
+        // those stays silent (the i18n-ellipsis / scroll-container FP fix).
         let mut intended = obs_with(&[("x", &["X"], 0)], &[], Some("x"));
         intended.obs.overflows.insert(
             "x".to_string(),
             vec![
-                ("tag:label".to_string(), "clip".to_string(), 46),
-                ("tag:div".to_string(), "scroll".to_string(), 24),
-                ("tag:aside".to_string(), "viewport".to_string(), 300),
+                OverflowItem::new("tag:label", "clip", 46, "label", false),
+                OverflowItem::new("tag:div", "scroll", 24, "div", false),
+                OverflowItem::new("tag:aside", "viewport", 300, "aside", false),
             ],
         );
         assert!(!kinds(&evaluate(&intended, &InvariantsCfg::default()))
+            .contains(&"no-overflow".to_string()));
+        // ...but the SAME `clip` on an INTERACTIVE control (a button label hard-
+        // truncated) IS the i18n bug and must fire: the user can't read the action.
+        let mut clipped_btn = obs_with(&[("c", &["C"], 0)], &[], Some("c"));
+        clipped_btn.obs.overflows.insert(
+            "c".to_string(),
+            vec![OverflowItem::new(
+                "id:clip-btn",
+                "clip",
+                156,
+                "button",
+                true,
+            )],
+        );
+        assert!(kinds(&evaluate(&clipped_btn, &InvariantsCfg::default()))
+            .contains(&"no-overflow".to_string()));
+        // ...and a document-level `scroll` (`tag:html`) = the whole page scrolls
+        // sideways = a real responsive break, must fire (per-element scroll does not).
+        let mut page_scroll = obs_with(&[("p", &["P"], 0)], &[], Some("p"));
+        page_scroll.obs.overflows.insert(
+            "p".to_string(),
+            vec![OverflowItem::new("tag:html", "scroll", 64, "html", false)],
+        );
+        assert!(kinds(&evaluate(&page_scroll, &InvariantsCfg::default()))
             .contains(&"no-overflow".to_string()));
         // Flutter's own `flex` overflow (RenderFlex overflowed -- the yellow/black
         // stripe error, never intentional) IS a real break and must fire, or
@@ -1006,7 +1066,7 @@ mod tests {
         let mut flutter = obs_with(&[("f", &["F"], 0)], &[], Some("f"));
         flutter.obs.overflows.insert(
             "f".to_string(),
-            vec![("key:row".to_string(), "flex".to_string(), 120)],
+            vec![OverflowItem::new("key:row", "flex", 120, "", false)],
         );
         let ff = evaluate(&flutter, &InvariantsCfg::default());
         assert!(kinds(&ff).contains(&"no-overflow".to_string()));
@@ -1026,15 +1086,33 @@ mod tests {
 
     #[test]
     fn overflow_min_px_floors_minor_overflows() {
-        // Default floor (2): a 12px spill counts.
+        // A 12px spill clears the built-in SPILL_FLOOR (8) at the default config.
         let mut small = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
         small.obs.overflows.insert(
             "a".to_string(),
-            vec![("tag:span".to_string(), "spill".to_string(), 12)],
+            vec![OverflowItem::new("tag:span", "spill", 12, "span", false)],
         );
         assert!(kinds(&evaluate(&small, &InvariantsCfg::default()))
             .contains(&"no-overflow".to_string()));
-        // A user floor of 40px now IGNORES that 12px overflow -> silent.
+        // A sub-floor spill (3px, below SPILL_FLOOR) is invisible noise -> silent
+        // even at the default config (the `tag:div spill by:3` real-app FP).
+        let mut tiny = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
+        tiny.obs.overflows.insert(
+            "a".to_string(),
+            vec![OverflowItem::new("tag:div", "spill", 3, "div", false)],
+        );
+        assert!(!kinds(&evaluate(&tiny, &InvariantsCfg::default()))
+            .contains(&"no-overflow".to_string()));
+        // An icon/inline element (svg) spilling a few px is a decorative artifact,
+        // not a layout break -> silent even well above the floor.
+        let mut icon = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
+        icon.obs.overflows.insert(
+            "a".to_string(),
+            vec![OverflowItem::new("tag:svg", "spill", 40, "svg", false)],
+        );
+        assert!(!kinds(&evaluate(&icon, &InvariantsCfg::default()))
+            .contains(&"no-overflow".to_string()));
+        // A user floor of 40px now IGNORES the 12px overflow -> silent.
         let floor40 = InvariantsCfg {
             overflow_min_px: 40,
             ..Default::default()
@@ -1044,7 +1122,7 @@ mod tests {
         let mut big = obs_with(&[("a", &["A"], 0)], &[], Some("a"));
         big.obs.overflows.insert(
             "a".to_string(),
-            vec![("tag:div".to_string(), "spill".to_string(), 100)],
+            vec![OverflowItem::new("tag:div", "spill", 100, "div", false)],
         );
         assert!(kinds(&evaluate(&big, &floor40)).contains(&"no-overflow".to_string()));
     }
@@ -1055,7 +1133,7 @@ mod tests {
         let mut o = obs_with(&[("s1", &["x"], 0)], &[], Some("s1"));
         o.obs.overflows.insert(
             "s1".to_string(),
-            vec![("id:btn".to_string(), "spill".to_string(), 40)],
+            vec![OverflowItem::new("id:btn", "spill", 40, "div", false)],
         );
         assert_eq!(recheck_overflow(&o.obs, "s1"), GraphRecheck::StillViolating);
         // Fixed: the sig is observed but nothing overflows there (the fix held).

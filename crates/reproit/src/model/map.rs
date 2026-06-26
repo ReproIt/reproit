@@ -15,6 +15,35 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
 
+/// One overflowing/clipped node from `EXPLORE:OVERFLOW`. `kind` is the signal
+/// (`scroll`/`clip`/`spill`); `by` is the CSS-pixel magnitude; `tag` is the
+/// element's tag (so a keyed node like `id:clip-btn` still carries it); and
+/// `interactive` marks a control the user operates (button/link/tab/...). The
+/// reporting filter (`model::invariants`) gates on kind + interactive + tag so an
+/// intended ellipsis on a caption and a clipped button label are told apart.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OverflowItem {
+    pub key: String,
+    pub kind: String,
+    pub by: i64,
+    pub tag: String,
+    pub interactive: bool,
+}
+
+#[cfg(test)]
+impl OverflowItem {
+    /// Terse constructor for tests/fixtures.
+    pub fn new(key: &str, kind: &str, by: i64, tag: &str, interactive: bool) -> Self {
+        Self {
+            key: key.into(),
+            kind: kind.into(),
+            by,
+            tag: tag.into(),
+            interactive,
+        }
+    }
+}
+
 /// One run's observations, keyed by semantics signature.
 pub(crate) struct RunObs {
     /// sig -> (labels, unlabeled tappable count)
@@ -65,11 +94,12 @@ pub(crate) struct RunObs {
     /// Empty unless the pixel oracle is enabled.
     pub paint_flickers: BTreeMap<(String, String), f64>,
     /// sig -> the overflowing/clipped nodes in that state, from `EXPLORE:OVERFLOW`
-    /// records (the DOM/layout overflow oracle). Each entry is `(key, kind, by)`:
-    /// the offending node's stable key, the signal (`scroll`/`clip`/`spill`), and
-    /// how many CSS pixels it overflowed by. Deterministic structural measurement,
-    /// so it re-confirms on replay; empty for runners/states that don't emit it.
-    pub overflows: BTreeMap<String, Vec<(String, String, i64)>>,
+    /// records (the DOM/layout overflow oracle). See `OverflowItem`: the node's
+    /// stable key, the signal (`scroll`/`clip`/`spill`), the px magnitude, the
+    /// element tag, and whether it is an interactive control. Deterministic
+    /// structural measurement, so it re-confirms on replay; empty for
+    /// runners/states that don't emit it.
+    pub overflows: BTreeMap<String, Vec<OverflowItem>>,
     /// sig -> rendered broken-content artifacts in that state, from
     /// `EXPLORE:CONTENTBUG` records (the content-bug oracle). Each entry is
     /// `(key, reason, text)`: the offending node's stable key, the artifact class
@@ -274,18 +304,35 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         } else if let Some(json) = extract(line, "EXPLORE:OVERFLOW ") {
             // DOM/layout overflow for a state: nodes whose content is clipped or
             // overflows their container/viewport. Keyed by signature (last write
-            // wins); each item is (key, kind, by-pixels), the grounded detail.
+            // wins); each item is an OverflowItem (key, kind, px, tag, interactive).
+            // `tag`/`interactive` default for older runners that omit them, so the
+            // filter degrades to kind+px without them.
             if let (Some(sig), Some(items)) = (
                 json.get("sig").and_then(Value::as_str),
                 json.get("items").and_then(Value::as_array),
             ) {
-                let parsed: Vec<(String, String, i64)> = items
+                let parsed: Vec<OverflowItem> = items
                     .iter()
                     .filter_map(|it| {
                         let key = it.get("key").and_then(Value::as_str)?.to_string();
                         let kind = it.get("kind").and_then(Value::as_str)?.to_string();
                         let by = it.get("by").and_then(Value::as_i64).unwrap_or(0);
-                        Some((key, kind, by))
+                        let tag = it
+                            .get("tag")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let interactive = it
+                            .get("interactive")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        Some(OverflowItem {
+                            key,
+                            kind,
+                            by,
+                            tag,
+                            interactive,
+                        })
                     })
                     .collect();
                 if !parsed.is_empty() {
@@ -1329,8 +1376,9 @@ mod tests {
         assert_eq!(
             items,
             &vec![
-                ("id:save".to_string(), "clip".to_string(), 84),
-                ("tag:html".to_string(), "scroll".to_string(), 120),
+                // tag/interactive default ("", false) for a marker that omits them.
+                OverflowItem::new("id:save", "clip", 84, "", false),
+                OverflowItem::new("tag:html", "scroll", 120, "", false),
             ]
         );
         assert!(

@@ -27,10 +27,18 @@ test('detectOverflow fires on clipped/overflowing nodes and is silent on the cle
     const items = await page.evaluate(detectOverflow, OVERFLOW_TOL);
 
     // FIRES: the clipped button is reported with kind `clip` (its single-line
-    // label is wider than the fixed-width box, truncated by text-overflow).
+    // label is wider than the fixed-width box, truncated by text-overflow), and is
+    // marked INTERACTIVE so the reporting layer keeps it (a hidden control label).
     assert.ok(
-      items.some((i) => i.key === 'id:clip-btn' && i.kind === 'clip'),
-      `expected a clip finding for #clip-btn, got ${JSON.stringify(items)}`,
+      items.some((i) => i.key === 'id:clip-btn' && i.kind === 'clip' && i.interactive === true),
+      `expected an interactive clip finding for #clip-btn, got ${JSON.stringify(items)}`,
+    );
+    // EMITTED BUT NON-INTERACTIVE: the same ellipsis on a caption is intended
+    // truncation. detectOverflow still reports the `clip`, but interactive:false
+    // tells the reporting layer to drop it (not a hidden control label).
+    assert.ok(
+      items.some((i) => i.key === 'id:clip-caption' && i.kind === 'clip' && i.interactive === false),
+      `expected a non-interactive clip for #clip-caption, got ${JSON.stringify(items)}`,
     );
     // FIRES: the wide child escapes its non-scrolling fixed-width parent. The
     // overflow surfaces as a `spill` (child border box past parent content box)

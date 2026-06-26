@@ -54,8 +54,14 @@
   </style>
 </head>
 <body>
-  <!-- OVERFLOWING: clipped label (German-length string in a fixed-width button). -->
+  <!-- OVERFLOWING: clipped label (German-length string in a fixed-width button).
+       An interactive control -> the truncation hides the action's text (a bug). -->
   <button id="clip-btn" class="clip-btn">Einstellungen speichern und fortfahren</button>
+
+  <!-- INTENDED TRUNCATION: the SAME ellipsis clip on a NON-interactive caption.
+       detectOverflow still emits `clip` but marks it interactive:false, so the
+       reporting layer drops it (intended truncation, not a hidden control label). -->
+  <p id="clip-caption" class="clip-btn">Einstellungen speichern und fortfahren</p>
 
   <!-- OVERFLOWING: a child wider than its non-scrolling fixed-width parent. -->
   <div id="fixed-box" class="fixed-box">

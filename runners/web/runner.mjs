@@ -329,6 +329,26 @@ function detectOverflow(tol) {
     const role = (el.getAttribute('role') || '').trim();
     return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
   };
+  // Is this node a CONTROL the user operates? The reporting layer (Rust
+  // invariants) gates the `clip` signal on this: a clipped label on a button /
+  // link / tab hides the action's text (a real bug), whereas the SAME
+  // text-overflow:ellipsis on a caption / table cell is intended truncation. The
+  // key alone can't say (a keyed `id:clip-btn` loses its tag), so carry it here.
+  const INTERACTIVE_TAGS = new Set(['a', 'button', 'select', 'textarea', 'input', 'summary']);
+  const INTERACTIVE_ROLES = new Set([
+    'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+    'checkbox', 'radio', 'switch', 'option', 'combobox', 'slider', 'spinbutton',
+    'searchbox', 'textbox',
+  ]);
+  const isInteractive = (el) => {
+    if (INTERACTIVE_TAGS.has(el.tagName.toLowerCase())) return true;
+    const role = (el.getAttribute('role') || '').trim().toLowerCase();
+    if (INTERACTIVE_ROLES.has(role)) return true;
+    const ti = el.getAttribute('tabindex');
+    if (ti !== null && parseInt(ti, 10) >= 0) return true;
+    if (typeof el.onclick === 'function') return true;
+    return false;
+  };
   const out = [];
   // Keep the MAX `by` per key|kind, not first-wins: several unkeyed spills collapse
   // to one `tag:div` key, and if the FIRST happened to be small, first-wins both
@@ -341,7 +361,7 @@ function detectOverflow(tol) {
     const idx = seen.get(k);
     if (idx === undefined) {
       seen.set(k, out.length);
-      out.push({ key, kind, by: rounded });
+      out.push({ key, kind, by: rounded, tag: el.tagName.toLowerCase(), interactive: isInteractive(el) });
     } else if (rounded > out[idx].by) {
       out[idx].by = rounded;
     }
@@ -379,7 +399,7 @@ function detectOverflow(tol) {
   };
   // Page-level horizontal scroll: the document content is wider than its viewport.
   if (doc && doc.scrollWidth - doc.clientWidth > tol) {
-    out.push({ key: 'tag:html', kind: 'scroll', by: Math.round(doc.scrollWidth - doc.clientWidth) });
+    out.push({ key: 'tag:html', kind: 'scroll', by: Math.round(doc.scrollWidth - doc.clientWidth), tag: 'html', interactive: false });
   }
   const all = document.body ? document.body.querySelectorAll('*') : [];
   for (const el of all) {

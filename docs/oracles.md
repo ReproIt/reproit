@@ -52,11 +52,22 @@ SAME outlier rule, then the original value is restored (non-destructive). That
 closes the most common real-world picker, which the snapshot otherwise maps to a
 text field and never differences.
 
-The **overflow** oracle has a user-configurable reporting floor,
-`invariants.overflowMinPx` (default 2px). The runner already drops sub-pixel
-measurement noise; this is the threshold for "worth flagging" on top of it, so a
-team can set, say, 40 to report only dramatic overflows and ignore minor
-clips/spills. It is exact-pixel, not a magic heuristic.
+The **overflow** oracle reports only the kind+element combinations that are
+*bugs*, not the many INTENTIONAL uses of CSS overflow (scroll containers, ellipsis
+truncation, full-bleed art). The runner measures every overflow structurally; the
+reporting filter (`model/invariants::overflow_is_break`) then keeps:
+- `spill` — a child escaping its parent's content box by a visible margin
+  (>= `max(overflowMinPx, 8px)`), excluding icon/inline artifacts (svg/img/...);
+- `clip` — a single-line label hard-truncated inside an **interactive control**
+  (button/link/tab): the i18n/long-string failure that hides the action's text. The
+  identical ellipsis on a caption/cell is intended truncation and is dropped;
+- `scroll` — only the **document** scroller (the whole page scrolls sideways);
+  per-element scroll is an intended container;
+- `flex` — Flutter's own `RenderFlex overflowed` (never intentional).
+
+The user-configurable floor `invariants.overflowMinPx` (default 2px) raises the
+spill/clip/page-scroll threshold on top of this (set, say, 40 to report only
+dramatic overflows). It is exact-pixel, not a magic heuristic.
 
 ## Coverage matrix
 
