@@ -21,9 +21,9 @@ test('css #id / [id] / [name] -> key:id / key:name', () => {
   assert.deepStrictEqual(mapSelector('internal:attr=[id="email"s]'), { finder: 'key:id:email' });
 });
 
-test('getByRole with name -> label:N', () => {
-  assert.deepStrictEqual(mapSelector('internal:role=button[name="Save"i]'), { finder: 'label:Save' });
-  assert.deepStrictEqual(mapSelector('internal:role=heading[name="Step 2: account"s]'), { finder: 'label:Step 2: account' });
+test('getByRole with visible name is skipped', () => {
+  assert.deepStrictEqual(mapSelector('internal:role=button[name="Save"i]'), { skip: true, reason: 'role selector by visible name' });
+  assert.deepStrictEqual(mapSelector('internal:role=heading[name="Step 2: account"s]'), { skip: true, reason: 'role selector by visible name' });
 });
 
 test('getByRole WITHOUT a name -> role:<role>#0, flagged weak (not guessed)', () => {
@@ -33,11 +33,11 @@ test('getByRole WITHOUT a name -> role:<role>#0, flagged weak (not guessed)', ()
   assert.ok(/without an accessible name/.test(m.reason));
 });
 
-test('getByText / getByLabel / getByPlaceholder -> label:T', () => {
-  assert.deepStrictEqual(mapSelector('internal:text="Sign in"i'), { finder: 'label:Sign in' });
-  assert.deepStrictEqual(mapSelector('internal:label="Email"s'), { finder: 'label:Email' });
-  assert.deepStrictEqual(mapSelector('internal:has-text="Continue"'), { finder: 'label:Continue' });
-  assert.deepStrictEqual(mapSelector('internal:attr=[placeholder="Search…"s]'), { finder: 'label:Search…' });
+test('getByText / getByLabel / getByPlaceholder are skipped', () => {
+  assert.deepStrictEqual(mapSelector('internal:text="Sign in"i'), { skip: true, reason: 'visible-text selector' });
+  assert.deepStrictEqual(mapSelector('internal:label="Email"s'), { skip: true, reason: 'visible-text selector' });
+  assert.deepStrictEqual(mapSelector('internal:has-text="Continue"'), { skip: true, reason: 'visible-text selector' });
+  assert.deepStrictEqual(mapSelector('internal:attr=[placeholder="Search…"s]'), { skip: true, reason: 'placeholder text selector' });
 });
 
 test('complex / xpath / chained selectors are SKIPPED with a reason (never guessed)', () => {

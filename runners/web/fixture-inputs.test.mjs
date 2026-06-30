@@ -26,10 +26,10 @@ const SYNTH_NAME = '🚀' + 'ıİßçğ'.repeat(80); // 1 + 400 code points
 
 test('loadInputs normalizes {field,value} and tolerates a missing/garbage array', () => {
   assert.deepStrictEqual(
-    loadInputs({ inputs: [{ field: 'name', value: 'x' }, { sel: 'key:id:bio', value: '' }] }),
+    loadInputs({ inputs: [{ field: 'name', value: 'x' }, { field: 'key:id:bio', value: '' }] }),
     [{ field: 'name', value: 'x' }, { field: 'key:id:bio', value: '' }],
   );
-  // `sel` aliases `field`; numbers coerce to strings; bad entries are dropped.
+  // Values coerce to strings; bad entries are dropped.
   assert.deepStrictEqual(
     loadInputs({ inputs: [{ value: 42 }, null, 7, { field: 'zip', value: 90210 }] }),
     [{ field: 'zip', value: '90210' }],

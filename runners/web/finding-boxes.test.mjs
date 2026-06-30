@@ -48,7 +48,7 @@ test("tap(mark) tags the clicked control, and the crash box points at it", async
   await withPage(async (page) => {
     let crashes = 0;
     page.on('pageerror', () => { crashes++; });
-    const tapped = await tap(page, 'label:Submit', { mark: true });
+    const tapped = await tap(page, 'key:id:boom', { mark: true });
     assert.equal(tapped, true);
     await page.waitForTimeout(200);
     assert.ok(crashes >= 1, 'the Submit button should have thrown');
@@ -69,7 +69,7 @@ test('tap box mode draws a labeled highlight on the target WITHOUT clicking', as
     page.on('pageerror', () => { crashes++; });
     // `box` previews the target (pre-tap annotation) instead of clicking it. The
     // fixture's Submit throws on click, so a click would crash; box mode must not.
-    const ok = await tap(page, 'label:Submit', { box: 'tap  Submit', boxColor: '#e21f1f' });
+    const ok = await tap(page, 'key:id:boom', { box: 'tap  Submit', boxColor: '#e21f1f' });
     assert.equal(ok, true);
     await page.waitForTimeout(150);
     assert.equal(crashes, 0, 'box mode must NOT click the element');
@@ -83,8 +83,8 @@ test('tap box mode draws a labeled highlight on the target WITHOUT clicking', as
 
 test('only the LAST tapped control keeps the trigger tag', async () => {
   await withPage(async (page) => {
-    await tap(page, 'label:Edit', { mark: true });
-    await tap(page, 'label:Submit', { mark: true }).catch(() => {}); // throws, but tags first
+    await tap(page, 'key:id:safe', { mark: true });
+    await tap(page, 'key:id:boom', { mark: true }).catch(() => {}); // throws, but tags first
     await page.waitForTimeout(100);
     const ids = await page.evaluate(() =>
       Array.from(document.querySelectorAll('[data-reproit-trigger]')).map((e) => e.id));
@@ -94,7 +94,7 @@ test('only the LAST tapped control keeps the trigger tag', async () => {
 
 test('tap WITHOUT mark never tags (a normal fuzz walk does not touch the DOM)', async () => {
   await withPage(async (page) => {
-    await tap(page, 'label:Edit');
+    await tap(page, 'key:id:safe');
     const n = await page.evaluate(() => document.querySelectorAll('[data-reproit-trigger]').length);
     assert.equal(n, 0);
   });

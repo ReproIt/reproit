@@ -58,7 +58,7 @@ test('drops the Firefox cross-origin variant and ResizeObserver loop noise', () 
   assert.equal(exceptionIsBenign('ResizeObserver loop limit exceeded'), true);
 });
 
-test('does NOT suppress the real crashes the sweep found', () => {
+test('does NOT suppress the real crashes the scan found', () => {
   // These are genuine first-party bugs and must keep firing.
   assert.equal(exceptionIsBenign('Minified React error #418; visit https://react.dev/errors/418'), false);
   assert.equal(exceptionIsBenign("Identifier 'resizeTimeout' has already been declared"), false); // not "ResizeObserver loop"

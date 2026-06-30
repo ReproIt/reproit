@@ -62,13 +62,12 @@ export function mapSelector(selector) {
   m = sel.match(/^internal:attr=\[id="([^"]*)"[si]?\]/i);
   if (m) return { finder: 'key:id:' + m[1] };
 
-  // internal:role=role[name="N"i]  (getByRole with an accessible name) -> label:N
-  // Without a name we can only address by role+index; reproit's role:<role>#0 is
-  // the closest, flagged so the report is honest about the weaker selector.
+  // internal:role=role[name="N"i] cannot be replayed faithfully without a stable
+  // selector from the captured app. The name is visible text; reproit actions use
+  // structural selectors only.
   m = sel.match(/^internal:role=([a-z]+)\[name="((?:[^"\\]|\\.)*)"[si]?\]/i);
   if (m) {
-    const name = m[2].replace(/\\(.)/g, '$1');
-    return { finder: 'label:' + name };
+    return { skip: true, reason: 'role selector by visible name' };
   }
   m = sel.match(/^internal:role=([a-z]+)\b/i);
   if (m) {
@@ -78,15 +77,13 @@ export function mapSelector(selector) {
   // internal:label="T"  /  internal:text="T"  /  internal:has-text="T"
   m = sel.match(/^internal:(?:label|text|has-text)="((?:[^"\\]|\\.)*)"[si]?/i);
   if (m) {
-    const t = m[1].replace(/\\(.)/g, '$1');
-    return { finder: 'label:' + t };
+    return { skip: true, reason: 'visible-text selector' };
   }
-  // getByPlaceholder -> internal:attr=[placeholder="T"]  -> label:T (the visible
-  // affordance reproit's label finder resolves by accessible name/text).
+  // getByPlaceholder -> internal:attr=[placeholder="T"]; placeholder text is not
+  // a structural selector, so it is not replayed.
   m = sel.match(/^internal:attr=\[placeholder="((?:[^"\\]|\\.)*)"[si]?\]/i); // flag before ]
   if (m) {
-    const t = m[1].replace(/\\(.)/g, '$1');
-    return { finder: 'label:' + t };
+    return { skip: true, reason: 'placeholder text selector' };
   }
 
   // Plain CSS forms reproit can address: #id, [id="x"], [name="x"], [data-testid].
