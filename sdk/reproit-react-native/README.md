@@ -263,7 +263,7 @@ Error (with replay path + PII-safe input fingerprint):
 
 These match the cloud's `POST /v1/events` contract, which folds edges
 into the production graph and stores errors with their path for repro
-(`GET /v1/errors/:app/:idx/repro`).
+(`GET /v1/apps/:app/buckets/:bucket`).
 
 ## Privacy
 

@@ -921,15 +921,15 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Who's affected by a bucket: cohorts, %, versions. Hits
-    /// GET /v1/errors/:app/cohorts.
+    /// Explain a bucket package, or resolve a crash signature to its bucket.
     BlastRadius {
         #[arg(long)]
         app: String,
+        /// Content-addressed bucket id. Omit with --sig to resolve by signature.
+        #[arg(long)]
+        bucket: Option<String>,
         #[arg(long)]
         sig: Option<String>,
-        #[arg(long)]
-        idx: Option<usize>,
         /// Write the raw cohorts JSON to stdout instead of a rendered view.
         #[arg(long)]
         export: bool,
@@ -1043,15 +1043,13 @@ enum CloudAction {
         report: String,
         #[arg(long)]
         run: bool,
-        #[arg(long, default_value = "explore")]
-        journey: String,
         #[arg(long)]
         cloud: Option<String>,
         #[arg(long)]
         key: Option<String>,
     },
-    /// Raw data out for your own analysis. Applies the same query filter as
-    /// `findings --export`.
+    /// Bucket data out for your own analysis. Applies the same query filter as
+    /// `buckets`.
     Query {
         #[arg(long)]
         app: String,
@@ -2910,8 +2908,10 @@ async fn cloud_cmd(
         } => {
             let (cloud, key) = cloud_creds(cloud, key);
             if export {
-                // Raw findings JSON straight from GET /v1/errors/:app.
+                // Raw findings JSON straight from GET /v1/errors/:app, with
+                // the same message filter as the rendered view.
                 let v = triage::raw(&app, "", cloud, key).await?;
+                let v = triage::filter_errors(v, query.as_deref());
                 println!("{}", serde_json::to_string_pretty(&v)?);
                 Ok(())
             } else {
@@ -2920,8 +2920,8 @@ async fn cloud_cmd(
         }
         CloudAction::BlastRadius {
             app,
+            bucket,
             sig,
-            idx,
             export,
             cloud,
             key,
@@ -2933,7 +2933,7 @@ async fn cloud_cmd(
                 println!("{}", serde_json::to_string_pretty(&v)?);
                 Ok(())
             } else {
-                triage::explain(&app, sig.as_deref(), idx, cloud, key).await
+                triage::explain(&app, bucket.as_deref(), sig.as_deref(), cloud, key).await
             }
         }
         CloudAction::Reproduce {
@@ -3012,12 +3012,11 @@ async fn cloud_cmd(
             app,
             report,
             run,
-            journey,
             cloud,
             key,
         } => {
             let (cloud, key) = cloud_creds(cloud, key);
-            triage::diagnose(&app, &report, run, &journey, cloud, key).await
+            triage::diagnose(&app, &report, run, cloud, key).await
         }
         CloudAction::Query {
             app,
@@ -3026,17 +3025,18 @@ async fn cloud_cmd(
             cloud,
             key,
         } => {
-            // Raw data out for your own analysis: GET /v1/errors/:app, filtered
-            // by --query when given. With --export, emit the raw JSON; otherwise
-            // render the findings list (the data behind the view).
+            // Bucket-first data out for your own analysis: GET
+            // /v1/apps/:app/buckets, filtered by --query when given. With
+            // --export, emit the raw JSON; otherwise render the same list as
+            // `cloud buckets`.
             let (cloud, key) = cloud_creds(cloud, key);
             if export {
-                let v = triage::raw(&app, "", cloud, key).await?;
-                let v = triage::filter_errors(v, query.as_deref());
+                let v = triage::raw_buckets(&app, cloud, key).await?;
+                let v = triage::filter_buckets(v, query.as_deref());
                 println!("{}", serde_json::to_string_pretty(&v)?);
                 Ok(())
             } else {
-                triage::find(&app, query.as_deref(), cloud, key).await
+                triage::buckets(&app, query.as_deref(), false, cloud, key).await
             }
         }
     }

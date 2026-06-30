@@ -4,9 +4,9 @@
 //! deterministic reproduction.
 //!
 //! - `find`: list production error clusters + their context discriminator.
-//! - `explain`: one cluster in full (path, "which users" discriminator,
+//! - `explain`: one bucket package in full (path, "which users" discriminator,
 //!   suspected source from the stack, and the replay).
-//! - `reproduce`: materialize the deterministic replay and run it.
+//! - `reproduce`: pull a bucket package, then run the saved local repro.
 //! - `diagnose`: match a free-text report to a cluster, then explain (+repro).
 //!
 //! The cloud base URL/key come from --cloud/--key, then REPROIT_CLOUD_URL /
@@ -85,8 +85,8 @@ impl Cloud {
 }
 
 /// Raw GET against the cloud errors namespace: `/v1/errors/:app{suffix}`. Used
-/// by the `--export` paths (`cloud query`, `cloud findings --export`, etc.) to
-/// surface the unrendered JSON the dashboard views are built from. Fails
+/// by legacy cluster/cohort export paths (`cloud findings --export`, etc.) to
+/// surface the unrendered JSON those views are built from. Fails
 /// gracefully: a connection error or non-2xx surfaces as an anyhow error with a
 /// clear message (Cloud::get already bails), never a panic.
 pub async fn raw(
@@ -97,6 +97,13 @@ pub async fn raw(
 ) -> Result<Value> {
     let c = Cloud::new(cloud, key);
     c.get(&format!("/v1/errors/{app}{suffix}")).await
+}
+
+/// Raw bucket list payload: `/v1/apps/:app/buckets`. This is the bucket-first
+/// export surface behind `cloud query --export` and `cloud buckets --json`.
+pub async fn raw_buckets(app: &str, cloud: Option<String>, key: Option<String>) -> Result<Value> {
+    let c = Cloud::new(cloud, key);
+    c.get(&format!("/v1/apps/{app}/buckets")).await
 }
 
 /// Validate a cloud/project key for `cloud login` by hitting an AUTHENTICATED
@@ -177,6 +184,23 @@ pub fn filter_errors(mut v: Value, query: Option<&str>) -> Value {
     v
 }
 
+/// Filter a bucket list response by free text across the fields users actually
+/// search: bucket id, crash signature, repro hint, and message.
+pub fn filter_buckets(mut v: Value, query: Option<&str>) -> Value {
+    let Some(q) = query.map(|s| s.to_lowercase()) else {
+        return v;
+    };
+    if let Some(arr) = v.get_mut("items").and_then(Value::as_array_mut) {
+        arr.retain(|b| {
+            ["bucketId", "crashSig", "repro", "message"]
+                .iter()
+                .filter_map(|field| b.get(field).and_then(Value::as_str))
+                .any(|s| s.to_lowercase().contains(&q))
+        });
+    }
+    v
+}
+
 /// A one-line discriminator summary like `locale=tr (100% of cohort, 8.3x baseline)`.
 fn fmt_discriminators(ds: &[Value]) -> String {
     if ds.is_empty() {
@@ -247,8 +271,7 @@ pub async fn buckets(
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<()> {
-    let c = Cloud::new(cloud, key);
-    let v = c.get(&format!("/v1/apps/{app}/buckets")).await?;
+    let v = filter_buckets(raw_buckets(app, cloud, key).await?, query);
     if json {
         // Raw, already impact-sorted payload straight through for an agent.
         println!("{}", serde_json::to_string_pretty(&v)?);
@@ -256,16 +279,10 @@ pub async fn buckets(
     }
     let empty = vec![];
     let items = v["items"].as_array().unwrap_or(&empty);
-    let q = query.map(|s| s.to_lowercase());
     let mut shown = 0;
     println!("Impact-ranked buckets for '{app}' (highest impact first):");
     for it in items {
         let msg = it["message"].as_str().unwrap_or("");
-        if let Some(q) = &q {
-            if !msg.to_lowercase().contains(q.as_str()) {
-                continue;
-            }
-        }
         let id = it["bucketId"].as_str().unwrap_or("?");
         let count = it["count"].as_u64().unwrap_or(0);
         let score = it["impact"]["score"].as_f64().unwrap_or(0.0);
@@ -313,51 +330,69 @@ pub async fn top_bucket_id(
 
 pub async fn explain(
     app: &str,
+    bucket: Option<&str>,
     sig: Option<&str>,
-    idx: Option<usize>,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<()> {
     let c = Cloud::new(cloud, key);
-    // resolve to an index into the error list (repro is by index)
-    let errors = c.get(&format!("/v1/errors/{app}")).await?;
+    let buckets = c.get(&format!("/v1/apps/{app}/buckets")).await?;
     let empty = vec![];
-    let list = errors["errors"].as_array().unwrap_or(&empty);
-    let target_idx = match (sig, idx) {
-        (_, Some(i)) => i,
-        (Some(sig), None) => list
+    let list = buckets["items"].as_array().unwrap_or(&empty);
+    let item = match (bucket, sig) {
+        (Some(bucket), _) => list
             .iter()
-            .position(|e| e["sig"].as_str() == Some(sig))
-            .context("no error with that signature")?,
-        (None, None) => 0,
+            .find(|b| b["bucketId"].as_str() == Some(bucket))
+            .with_context(|| {
+                format!(
+                    "no bucket `{bucket}` in app `{app}`; run `reproit cloud buckets --app {app}`"
+                )
+            })?,
+        (None, Some(sig)) => list
+            .iter()
+            .find(|b| b["crashSig"].as_str() == Some(sig))
+            .with_context(|| {
+                format!(
+                    "no bucket with crash signature `{sig}`; run `reproit cloud buckets --app {app}`"
+                )
+            })?,
+        (None, None) => list.first().with_context(|| {
+            format!("no buckets available for `{app}`; run `reproit cloud buckets --app {app}`")
+        })?,
     };
-    let err = list.get(target_idx).context("no such error")?;
-    let sig = err["sig"].as_str().unwrap_or("?");
-    let msg = err["message"].as_str().unwrap_or("");
-
-    // cohort discriminator for this signature
-    let cohorts = c.get(&format!("/v1/errors/{app}/cohorts")).await?;
-    let ds = cohorts["errors"]
+    let bucket = item["bucketId"]
+        .as_str()
+        .context("bucket list item did not include bucketId")?;
+    let pkg = c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await?;
+    let crash_sig = pkg["crashSig"]
+        .as_str()
+        .or_else(|| item["crashSig"].as_str())
+        .unwrap_or("?");
+    let msg = pkg["message"]
+        .as_str()
+        .or_else(|| item["message"].as_str())
+        .unwrap_or("");
+    let count = pkg["count"]
+        .as_u64()
+        .or_else(|| item["count"].as_u64())
+        .unwrap_or(0);
+    let ds = pkg["discriminators"]
         .as_array()
-        .and_then(|cs| cs.iter().find(|cl| cl["sig"].as_str() == Some(sig)))
-        .and_then(|cl| cl["discriminators"].as_array().cloned())
+        .cloned()
         .unwrap_or_default();
+    let replay = pkg["replay"].as_array().cloned().unwrap_or_default();
 
-    let repro = c
-        .get(&format!("/v1/errors/{app}/{target_idx}/repro"))
-        .await?;
-    let replay = repro["replay"].as_array().cloned().unwrap_or_default();
-
-    println!("Error [{sig}] (#{target_idx}) in '{app}'");
+    println!("Bucket [{bucket}] in '{app}'");
+    println!("  crash:     {crash_sig}");
     println!("  message:   {}", first_line(msg));
     if let Some(src) = suspected_source(msg) {
         println!("  suspected: {src}");
     }
+    println!("  count:     {count}");
     println!("  who:       {}", fmt_discriminators(&ds));
-    println!(
-        "  ended at:  {}",
-        repro["endedAtState"].as_str().unwrap_or("?")
-    );
+    if let Some(start) = pkg["startSig"].as_str().filter(|s| !s.is_empty()) {
+        println!("  path:      {start} -> {crash_sig}");
+    }
     let actions: Vec<String> = replay
         .iter()
         .filter_map(|a| a.as_str().map(String::from))
@@ -370,15 +405,10 @@ pub async fn explain(
             actions.join(" -> ")
         }
     );
-    // The content-addressed bucket form is the only reproduce path. When the cloud
-    // returned a bucketId, hint the exact command; otherwise point at `cloud
-    // buckets` to find the id.
-    match repro["bucketId"].as_str().filter(|b| !b.is_empty()) {
-        Some(bkt) => println!(
-            "\nReproduce: reproit cloud reproduce --app {app} --bucket {bkt} --as <name> --run"
-        ),
-        None => println!("\nReproduce: reproit cloud buckets --app {app}   (find the bkt_... id, then `cloud reproduce --bucket <id> --as <name> --run`)"),
-    }
+
+    println!(
+        "\nReproduce: reproit cloud reproduce --app {app} --bucket {bucket} --as <name> --run"
+    );
     Ok(())
 }
 
@@ -415,92 +445,13 @@ pub(crate) fn classify_repro(outcome: Option<&str>, exit_code: Option<i32>) -> R
     }
 }
 
-pub async fn reproduce(
-    app: &str,
-    idx: usize,
-    journey: &str,
-    run: bool,
-    cloud: Option<String>,
-    key: Option<String>,
-) -> Result<()> {
-    let c = Cloud::new(cloud, key);
-    let repro = c.get(&format!("/v1/errors/{app}/{idx}/repro")).await?;
-    let replay: Vec<String> = repro["replay"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Property-matched replay (tier 3): synthesize concrete, deterministic input
-    // data from the cloud's fixtureSpec, so a bug that only hits SOME users (a
-    // 312-char unicode name, an emoji, a Turkish dotless "i", an empty/RTL field,
-    // a specific locale) reproduces. Features-matching, never the real PII.
-    let fixture = crate::fixture::synthesize(&repro["fixtureSpec"]);
-
-    if replay.is_empty() && fixture.is_empty() {
-        println!("This error has no executable replay actions and no data signal.");
-        println!(
-            "context (the distinguishing dimension to synthesize): {}",
-            repro["context"]
-        );
-        return Ok(());
-    }
-
-    // Materialize the deterministic config the runner reads: the action replay
-    // plus, when the bug is data-specific, the synthesized fixture (inputs +
-    // locale) the explorer types into matching fields during replay.
-    let root = std::env::current_dir()?;
-    let cfg_path = crate::layout::fuzz_config_path(&root);
-    if let Some(dir) = cfg_path.parent() {
-        std::fs::create_dir_all(dir).ok();
-    }
-    let mut cfg = serde_json::Map::new();
-    cfg.insert("replay".to_string(), serde_json::json!(replay));
-    if !fixture.is_empty() {
-        let fc = fixture.to_config();
-        if let Some(obj) = fc.as_object() {
-            for (k, v) in obj {
-                cfg.insert(k.clone(), v.clone());
-            }
-        }
-    }
-    std::fs::write(
-        &cfg_path,
-        serde_json::to_string_pretty(&serde_json::Value::Object(cfg))?,
-    )
-    .with_context(|| format!("writing {}", cfg_path.display()))?;
-    println!("Deterministic replay written to {}:", cfg_path.display());
-    if replay.is_empty() {
-        println!("  (no navigation actions: data-only reproduction)");
-    } else {
-        println!("  {}", replay.join(" -> "));
-    }
-    if !fixture.is_empty() {
-        println!("  property-matched fixture: {}", fixture.summary());
-    }
-
-    if !run {
-        println!("\nRun it with:  reproit check {journey}   (or pass --run here)");
-        return Ok(());
-    }
-    run_check_and_classify(journey, Some(&repro["context"]))
-}
-
 /// Spawn `reproit check <target> --json`, read its deterministic verdict, and
-/// print a human reproduction summary. Shared by `reproduce` (the index-based
-/// path `diagnose` uses, where `<target>` is the journey name and the fuzz config
-/// was pre-written) and `reproduce_bucket` (where `<target>` is the just-pulled
-/// repro's alias). The
-/// `context_hint`, when present, is shown on a CLEAN verdict (the distinguishing
-/// dimension to synthesize from).
+/// print a human reproduction summary. Used by `reproduce_bucket`, where
+/// `<target>` is the just-pulled repro's alias.
 fn run_check_and_classify(target: &str, context_hint: Option<&Value>) -> Result<()> {
     println!("\nRunning the replay ({target})...");
     let exe = std::env::current_exe()?;
-    // `check` has no `--warm` flag (that was an invalid invocation clap rejected,
-    // so `triage --run` always failed to get a verdict); a plain check replays it.
+    // `check` has no `--warm` flag; a plain check replays the saved repro.
     let out = std::process::Command::new(exe)
         .args(["check", target, "--json"])
         .output()
@@ -952,20 +903,20 @@ pub async fn diagnose(
     app: &str,
     report: &str,
     run: bool,
-    journey: &str,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<()> {
     let c = Cloud::new(cloud.clone(), key.clone());
-    let errors = c.get(&format!("/v1/errors/{app}")).await?;
+    let buckets = c.get(&format!("/v1/apps/{app}/buckets")).await?;
     let empty = vec![];
-    let list = errors["errors"].as_array().unwrap_or(&empty);
+    let list = buckets["items"].as_array().unwrap_or(&empty);
     if list.is_empty() {
-        println!("No production errors recorded for '{app}' yet.");
+        println!("No production buckets recorded for '{app}' yet.");
         return Ok(());
     }
-    // Rank candidates by overlap between the report's words and the error
-    // message (a cheap, honest first pass; an LLM rerank can slot in later).
+    // Rank candidates by overlap between the report's words and the bucket
+    // summary/signature (a cheap, honest first pass; an LLM rerank can slot in
+    // later).
     let words: Vec<String> = report
         .to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
@@ -975,16 +926,12 @@ pub async fn diagnose(
     let mut scored: Vec<(usize, usize)> = list
         .iter()
         .enumerate()
-        .map(|(i, e)| {
-            // Match the report against the message AND the action trail, since
-            // symptoms ("compose", "new post") live in the path, not the message.
-            let mut hay = e["message"].as_str().unwrap_or("").to_lowercase();
-            if let Some(path) = e["path"].as_array() {
-                for step in path {
-                    if let Some(a) = step["action"].as_str() {
-                        hay.push(' ');
-                        hay.push_str(&a.to_lowercase());
-                    }
+        .map(|(i, b)| {
+            let mut hay = String::new();
+            for field in ["message", "crashSig", "bucketId", "repro"] {
+                if let Some(s) = b[field].as_str() {
+                    hay.push(' ');
+                    hay.push_str(&s.to_lowercase());
                 }
             }
             let score = words.iter().filter(|w| hay.contains(w.as_str())).count();
@@ -993,16 +940,20 @@ pub async fn diagnose(
         .collect();
     scored.sort_by_key(|b| std::cmp::Reverse(b.1));
     let (best, score) = scored[0];
+    let bucket = list[best]["bucketId"]
+        .as_str()
+        .context("matched bucket did not include bucketId")?;
     println!("Report: \"{report}\"");
     if score == 0 {
         println!("\nNo strong textual match. Best-effort: showing the most frequent cluster.\n");
     } else {
-        println!("\nBest match (#{best}, {score} term overlap):\n");
+        println!("\nBest match ({bucket}, {score} term overlap):\n");
     }
-    explain(app, None, Some(best), cloud.clone(), key.clone()).await?;
+    explain(app, Some(bucket), None, cloud.clone(), key.clone()).await?;
     if run {
-        println!();
-        reproduce(app, best, journey, true, cloud, key).await?;
+        println!(
+            "\n`cloud diagnose --run` now resolves the bucket only. Pull and run it with:\n  reproit cloud reproduce --app {app} --bucket {bucket} --as <name> --run"
+        );
     }
     Ok(())
 }
@@ -1184,5 +1135,18 @@ mod tests {
         let v = json!({ "unexpected": true });
         let out = filter_errors(v.clone(), Some("x"));
         assert_eq!(out, v);
+    }
+
+    #[test]
+    fn filter_buckets_matches_bucket_identity_fields() {
+        let v = json!({ "items": [
+            { "bucketId": "bkt_feed", "crashSig": "sig_a", "message": "RangeError in feed" },
+            { "bucketId": "bkt_login", "crashSig": "sig_b", "message": "Null check" },
+            { "bucketId": "bkt_cart", "crashSig": "checkout_sig", "message": "Payment failed" },
+        ]});
+        let out = filter_buckets(v, Some("checkout"));
+        let arr = out["items"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["bucketId"], "bkt_cart");
     }
 }

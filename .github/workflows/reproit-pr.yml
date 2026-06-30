@@ -41,10 +41,9 @@ on:
         required: false
         default: "20"
         type: string
-      app_idx:
-        description: "Finding index in the cloud error list to attach to"
-        required: false
-        default: "0"
+      bucket:
+        description: "Cloud bucket id to attach evidence to (bkt_...)"
+        required: true
         type: string
     secrets:
       REPROIT_CLOUD_KEY:
@@ -98,7 +97,7 @@ jobs:
             --confirm-on-sim \
             --cloud "${{ inputs.cloud_url }}" \
             --app "${{ inputs.app }}" \
-            --app-idx "${{ inputs.app_idx }}" \
+            --bucket "${{ inputs.bucket }}" \
             --post-comment
 
 # ---------------------------------------------------------------------------
@@ -113,6 +112,7 @@ jobs:
 #       with:
 #         app: my-app-id
 #         cloud_url: https://cloud.reproit.com
+#         bucket: bkt_...
 #         journey: explore
 #         runs: "30"
 #       secrets:

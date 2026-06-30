@@ -125,7 +125,7 @@ Error (with replay path + PII-safe input fingerprint):
 Batch envelope: `{ "appId": "...", "sentAt": <ms>, "ctx": {...}?, "events": [...] }`
 (`ctx` is omitted when empty). These match the cloud's `POST /v1/events`
 contract, which folds edges into the production graph and stores errors
-with their path for repro (`GET /v1/errors/:app/:idx/repro`).
+as bucket packages for repro (`GET /v1/apps/:app/buckets/:bucket`).
 
 ## Context: which users hit it (`ctx` / `identify`)
 

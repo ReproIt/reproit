@@ -199,7 +199,7 @@ is set, `Authorization: Bearer <apiKey>`. `ctx` is the PII-safe context map and
 is present only when non-empty. These match the cloud's `POST /v1/events`
 contract, which folds edges into the production graph, attaches `ctx` to each event for cohort
 discrimination, and stores errors with their path for repro
-(`GET /v1/errors/:app/:idx/repro`).
+(`GET /v1/apps/:app/buckets/:bucket`).
 
 ## Configuration
 
