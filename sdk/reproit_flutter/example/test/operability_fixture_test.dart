@@ -936,7 +936,7 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
 
       // Multiline labels (e.g. "Compose\nTab 2 of 3") normalize to first line.
       final label = data.label.trim().split('\n').first.trim();
-      final rect = _globalRect(n);
+      final rect = _globalRect(node);
       final bounds = rect.width > 0 && rect.height > 0
           ? <int>[
               rect.left.round(),

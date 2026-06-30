@@ -18,12 +18,25 @@ cd "$EXAMPLE_DIR"
 flutter pub get >/dev/null
 
 LIVE="$(mktemp)"
-trap 'rm -f "$LIVE"' EXIT
+RAW="$(mktemp)"
+trap 'rm -f "$LIVE" "$RAW"' EXIT
 
 # `flutter test` streams the explorer's stdout through; grab the GROUNDTRUTH line.
-flutter test -r expanded test/operability_fixture_test.dart 2>&1 | grep -a 'EXPLORE:GROUNDTRUTH' > "$LIVE" || {
+set +e
+flutter test -r expanded test/operability_fixture_test.dart > "$RAW" 2>&1
+STATUS=$?
+set -e
+grep -a 'EXPLORE:GROUNDTRUTH' "$RAW" > "$LIVE" || {
   echo "capture-flutter: no EXPLORE:GROUNDTRUTH emitted by the flutter agent" >&2
+  echo "capture-flutter: flutter test output follows" >&2
+  tail -120 "$RAW" >&2
   exit 1
 }
+if [ "$STATUS" -ne 0 ]; then
+  echo "capture-flutter: flutter test failed with exit code $STATUS" >&2
+  echo "capture-flutter: flutter test output follows" >&2
+  tail -120 "$RAW" >&2
+  exit "$STATUS"
+fi
 
 node "$HERE/canonicalize-diff.mjs" flutter "$LIVE"
