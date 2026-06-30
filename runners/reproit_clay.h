@@ -356,8 +356,8 @@ static void reproit_sig_collect_values(const ReproItSig_Node* n, unsigned idx,
 }
 
 // Build the V: section suffix. Returns nothing appended when there are NO value-
-// bearing nodes, keeping the descriptor byte-identical to a pre-value-state tree
-// (backward-compatible). Otherwise appends "\nV:" + key=class;... sorted by key.
+// bearing nodes, keeping the descriptor purely structural. Otherwise appends
+// "\nV:" + key=class;... sorted by key.
 static void reproit_sig_value_section(const ReproItSig_Node* root, ReproItSig_Buf* out) {
     static ReproItSig_VEntry entries[REPROIT_SIG_MAX_CHILDREN * 4];
     int cap = (int)(sizeof entries / sizeof *entries);

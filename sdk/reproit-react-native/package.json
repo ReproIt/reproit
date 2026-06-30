@@ -17,7 +17,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"test/**/*.ts\"",
-    "test": "jest",
+    "test": "jest --watchman=false",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

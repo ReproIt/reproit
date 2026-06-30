@@ -32,6 +32,7 @@ func emit(_ s: String) { print(s); fflush(stdout) }
 struct FuzzCfg {
     var seed: UInt32 = 0
     var budget: Int = actionBudgetDefault
+    var configured: Bool = false
     var replay: [String]?
     var prefix: [String]?
     var edgeWeights: [String: [String: Int]] = [:]
@@ -43,6 +44,7 @@ func loadFuzz() -> FuzzCfg {
           let data = FileManager.default.contents(atPath: p),
           let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     else { return c }
+    c.configured = true
     if let s = j["seed"] as? NSNumber { c.seed = UInt32(truncatingIfNeeded: s.intValue) }
     if let b = j["budget"] as? NSNumber { c.budget = b.intValue }
     c.replay = j["replay"] as? [String]
@@ -51,13 +53,59 @@ func loadFuzz() -> FuzzCfg {
     return c
 }
 
+func edgeKey(_ sig: String, _ action: String) -> String { "\(sig)|\(action)" }
+
+func rememberActions(_ actionsByState: inout [String: [String]], _ sig: String, _ actions: [String]) {
+    var known = actionsByState[sig] ?? []
+    for action in actions where !known.contains(action) { known.append(action) }
+    actionsByState[sig] = known
+}
+
+func firstUntriedAction(_ actionsByState: [String: [String]], _ tried: Set<String>, _ sig: String) -> String? {
+    for action in actionsByState[sig] ?? [] {
+        if !tried.contains(edgeKey(sig, action)) { return action }
+    }
+    return nil
+}
+
+func hasFrontier(_ actionsByState: [String: [String]], _ tried: Set<String>) -> Bool {
+    actionsByState.keys.contains { firstUntriedAction(actionsByState, tried, $0) != nil }
+}
+
+func rememberEdge(_ graph: inout [String: [(String, String)]], _ from: String, _ action: String, _ to: String) {
+    var edges = graph[from] ?? []
+    if !edges.contains(where: { $0.0 == action && $0.1 == to }) {
+        edges.append((action, to))
+    }
+    graph[from] = edges
+}
+
+func pathToFrontier(_ graph: [String: [(String, String)]], _ actionsByState: [String: [String]], _ tried: Set<String>, _ start: String) -> [String]? {
+    if firstUntriedAction(actionsByState, tried, start) != nil { return [] }
+    var seen: Set<String> = [start]
+    var q: [(String, [String])] = [(start, [])]
+    var idx = 0
+    while idx < q.count {
+        let (sig, path) = q[idx]
+        idx += 1
+        for (action, to) in graph[sig] ?? [] {
+            if seen.contains(to) { continue }
+            seen.insert(to)
+            let nextPath = path + [action]
+            if firstUntriedAction(actionsByState, tried, to) != nil { return nextPath }
+            q.append((to, nextPath))
+        }
+    }
+    return nil
+}
+
 // ---- Layer 3 opt-in: value_nodes from reproit.yaml ----------------------
 // Read the `value_nodes:` selector list from reproit.yaml (docs/signature.md
 // "Value-state"), marking EXTRA nodes value-bearing even when their role is not
 // in the value-role set. No YAML dependency: the block is a flat list of
 // strings, so a tiny line parser is enough. Path precedence: REPROIT_CONFIG env,
 // else ./reproit.yaml in the cwd. A missing/unparseable file yields an empty
-// list (value-less behavior, fully backward-compatible). Same grammar as the
+// list, so value-state is strictly opt-in. Same grammar as the
 // web runner: key:<id> | role:<role>#<idx>.
 func loadValueNodes() -> [String] {
     let env = ProcessInfo.processInfo.environment
@@ -887,9 +935,9 @@ func runSelfTest() -> Bool {
             FileHandle.standardError.write(line.data(using: .utf8)!)
         }
     }
-    // The current contract ships 24 golden vectors (structural + value-state).
+    // The current contract ships 25 golden vectors (structural + value-state).
     // Assert ALL of them are present, so a truncated vectors file fails the gate.
-    let expectedCount = 24
+    let expectedCount = 25
     if arr.count != expectedCount {
         ok = false
         FileHandle.standardError.write(
@@ -1196,6 +1244,9 @@ if !valueNodeSelectors.isEmpty { emit("JOURNEY[a] step: value_nodes=\(valueNodeS
 
 var seen = Set<String>()
 var tried = Set<String>()
+var actionsByState: [String: [String]] = [:]
+var graph: [String: [(String, String)]] = [:]
+var launchSig: String?
 
 // Layer-1/2 hard cap (docs/signature.md "Value-state"): per structural node,
 // track the DISTINCT value-class combinations seen. Once a node exceeds
@@ -1259,10 +1310,12 @@ func observe() -> Snapshot {
 }
 
 var current = observe()
+launchSig = current.sig
 var stuck = 0
 var failed = false
 let prefixLen = fuzz.prefix?.count ?? 0
-let budget = fuzz.replay?.count ?? (fuzz.budget + prefixLen)
+let mapMode = fuzz.replay == nil && fuzz.prefix == nil && fuzz.seed == 0
+let budget = fuzz.replay?.count ?? ((mapMode && !fuzz.configured ? Int.max / 4 : fuzz.budget) + prefixLen)
 // LEAK sampler (--soak): only in REPLAY mode (the soak tier writes {"replay":[..]})
 // do we sample the target's RSS, once at start and after each cycle, forming the
 // RSS-vs-time series soak.rs reads. No-op outside replay (a plain fuzz is no soak).
@@ -1290,10 +1343,15 @@ while i < budget && stuck < 3 {
         act = options.last
         for k in 0..<options.count { r -= weights[k]; if r <= 0 { act = options[k]; break } }
     } else {
-        for label in current.tappables where !tried.contains("\(current.sig)|\(label)") {
-            act = "tap:\(label)"; break
+        let options = current.tappables.sorted().map { "tap:\($0)" } + ["back"]
+        rememberActions(&actionsByState, current.sig, options)
+        act = firstUntriedAction(actionsByState, tried, current.sig)
+        if act == nil, let path = pathToFrontier(graph, actionsByState, tried, current.sig) {
+            act = path.first
         }
-        if act == nil { act = "back" }
+        if act == nil && hasFrontier(actionsByState, tried) && current.sig != launchSig {
+            break
+        }
     }
     guard let a = act else { break }
     emit("FUZZ:ACT \(a)")
@@ -1310,6 +1368,7 @@ while i < budget && stuck < 3 {
         continue
     }
     if a == "back" {
+        tried.insert(edgeKey(current.sig, "back"))
         // Non-hijacking "back": press an in-app Back/Close via AXPress (no
         // global input, no cursor move), so the runner does not take over the
         // host keyboard. Only fall back to a synthetic Escape if the operator
@@ -1338,7 +1397,9 @@ while i < budget && stuck < 3 {
         // fingerprint changed; a value-only change (a counter ticking) still
         // counts, so a value-state app does not stall to a single dead state.
         if next.sig != current.sig {
-            emitEdge(current.sig, "back", next.sig); stuck = 0
+            emitEdge(current.sig, "back", next.sig)
+            rememberEdge(&graph, current.sig, "back", next.sig)
+            stuck = 0
         } else if next.content != current.content {
             stuck = 0 // effective (value changed) but same node: keep exploring
         } else {
@@ -1349,7 +1410,7 @@ while i < budget && stuck < 3 {
         continue
     }
     let label = String(a.dropFirst("tap:".count))
-    tried.insert("\(current.sig)|\(label)")
+    tried.insert(edgeKey(current.sig, a))
     // HANG watchdog: time the synchronous press + observe round trip. AX calls
     // block on the target's main run loop, so a freeze spikes this. The fixed
     // settle sleep is subtracted below so only blocking time crosses the floor.
@@ -1391,7 +1452,9 @@ while i < budget && stuck < 3 {
     // key, a disabled control) leaves both unchanged. A value-only change emits
     // no edge (same node) but still counts as progress.
     if next.sig != current.sig {
-        emitEdge(current.sig, "tap:\(label)", next.sig); stuck = 0
+        emitEdge(current.sig, "tap:\(label)", next.sig)
+        rememberEdge(&graph, current.sig, "tap:\(label)", next.sig)
+        stuck = 0
     } else if next.content != current.content {
         stuck = 0
     }

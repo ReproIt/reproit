@@ -70,7 +70,7 @@ impl Backend {
 
     /// The host OS a backend must run on, if it is OS-bound. The desktop
     /// accessibility APIs are OS-specific (AX = macOS, UIA = Windows, AT-SPI =
-    /// Linux), and flutter-ios-sim needs a Mac. None means OS-agnostic.
+    /// Linux), and flutter needs a Mac. None means OS-agnostic.
     pub fn required_os(self) -> Option<&'static str> {
         match self {
             Backend::DesktopAx | Backend::FlutterDrive => Some("macos"),
@@ -81,39 +81,11 @@ impl Backend {
     }
 }
 
-/// Implementation maturity. The registry is honest: `Planned` platforms parse
-/// and report, but refuse to run with a message saying what's needed, rather
-/// than faking a result.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
-    /// Built and validated end to end.
-    Live,
-    /// Registered and routed to a backend; runner not built yet. Kept for new
-    /// backends added ahead of their runner.
-    #[allow(dead_code)]
-    Planned,
-}
-
-impl Status {
-    pub fn label(self) -> &'static str {
-        match self {
-            Status::Live => "live",
-            Status::Planned => "planned",
-        }
-    }
-    /// Whether `reproit run` will attempt execution. Planned platforms error
-    /// early with guidance instead.
-    pub fn executable(self) -> bool {
-        matches!(self, Status::Live)
-    }
-}
-
 /// A registered platform identifier (the `app.platform` string in reproit.yaml).
 #[derive(Debug, Clone, Copy)]
 pub struct Platform {
     pub id: &'static str,
     pub backend: Backend,
-    pub status: Status,
     /// Human description of the toolkit and what running it needs.
     pub note: &'static str,
 }
@@ -130,48 +102,41 @@ fn desktop_backend() -> Backend {
 }
 
 /// Static platforms whose backend does not depend on the host OS.
-const STATIC_PLATFORMS: &[(Backend, Status, &str, &str)] = &[
-    // id is the 3rd field for the static table; see resolve() below.
-    // (backend, status, id, note)
+const STATIC_PLATFORMS: &[(Backend, &str, &str)] = &[
+    // id is the 2nd field for the static table; see resolve() below.
+    // (backend, id, note)
     (
         Backend::FlutterDrive,
-        Status::Live,
-        "flutter-ios-sim",
+        "flutter",
         "Flutter on the iOS simulator via flutter drive + Dart VM service.",
     ),
     (
         Backend::WebCdp,
-        Status::Live,
-        "web-playwright",
+        "web",
         "Any web app driven by Playwright (Chromium); DOM a11y tree is the state.",
     ),
     (
         Backend::Appium,
-        Status::Live,
-        "rn-appium",
+        "react-native",
         "React Native over an Appium session; a11y source is the tree.",
     ),
     (
         Backend::WebCdp,
-        Status::Live,
         "electron",
         "Electron desktop app: Chromium under the hood, driven over CDP.",
     ),
     (
         Backend::WebCdp,
-        Status::Live,
         "tauri",
         "Tauri desktop app: system webview driven over WebDriver (tauri-driver).",
     ),
     (
         Backend::Appium,
-        Status::Live,
         "swift-ios",
         "Native iOS (UIKit/SwiftUI) via XCUITest through Appium.",
     ),
     (
         Backend::Appium,
-        Status::Live,
         "android",
         "Native Android (Jetpack Compose / Views) via Appium UiAutomator2; \
          Compose nodes surface by text/content-desc, and testTagsAsResourceId=true \
@@ -179,31 +144,26 @@ const STATIC_PLATFORMS: &[(Backend, Status, &str, &str)] = &[
     ),
     (
         Backend::DesktopAx,
-        Status::Live,
         "swift-macos",
         "Native macOS (AppKit/SwiftUI) read through the AXUIElement API.",
     ),
     (
         Backend::DesktopUia,
-        Status::Live,
         "winui",
         "WinUI / WPF read through Windows UI Automation.",
     ),
     (
         Backend::Instrumented,
-        Status::Live,
         "imgui",
         "Dear ImGui: immediate-mode, no a11y; needs the in-app reproit hook.",
     ),
     (
         Backend::Instrumented,
-        Status::Live,
         "clay",
         "Clay: immediate-mode layout lib; needs the in-app reproit hook.",
     ),
     (
         Backend::Tui,
-        Status::Live,
         "tui",
         "Any terminal UI / CLI (vim, lazygit, k9s, Claude Code) driven in a PTY.",
     ),
@@ -229,15 +189,14 @@ const DESKTOP_TOOLKITS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Resolve a platform identifier to its backend, status and note. Returns None
+/// Resolve a platform identifier to its backend and note. Returns None
 /// for unknown ids (config load turns that into a helpful error).
 pub fn resolve(id: &str) -> Option<Platform> {
-    for &(backend, status, pid, note) in STATIC_PLATFORMS {
+    for &(backend, pid, note) in STATIC_PLATFORMS {
         if pid == id {
             return Some(Platform {
                 id: pid,
                 backend,
-                status,
                 note,
             });
         }
@@ -247,7 +206,6 @@ pub fn resolve(id: &str) -> Option<Platform> {
             return Some(Platform {
                 id: pid,
                 backend: desktop_backend(),
-                status: Status::Live,
                 note,
             });
         }
@@ -270,25 +228,19 @@ pub fn backend(id: &str) -> Option<Backend> {
 /// unsupported backend fails with a clear message instead of booting idle
 /// devices that just sit there.
 pub fn speaks_barrier(id: &str) -> bool {
-    matches!(id, "web-playwright" | "flutter-ios-sim")
+    matches!(id, "web" | "flutter")
 }
 
 /// The full support matrix, for `reproit platforms` and error messages.
 pub fn all() -> Vec<Platform> {
     let mut out: Vec<Platform> = STATIC_PLATFORMS
         .iter()
-        .map(|&(backend, status, id, note)| Platform {
-            id,
-            backend,
-            status,
-            note,
-        })
+        .map(|&(backend, id, note)| Platform { id, backend, note })
         .collect();
     for &(id, note) in DESKTOP_TOOLKITS {
         out.push(Platform {
             id,
             backend: desktop_backend(),
-            status: Status::Live,
             note,
         });
     }
@@ -297,7 +249,7 @@ pub fn all() -> Vec<Platform> {
 
 /// One-line, copy-pasteable summary of valid platform ids for error text.
 pub fn known_ids() -> String {
-    let mut ids: Vec<&str> = STATIC_PLATFORMS.iter().map(|t| t.2).collect();
+    let mut ids: Vec<&str> = STATIC_PLATFORMS.iter().map(|t| t.1).collect();
     ids.extend(DESKTOP_TOOLKITS.iter().map(|t| t.0));
     ids.join(", ")
 }
@@ -307,16 +259,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validated_platforms_are_executable() {
-        for id in ["flutter-ios-sim", "web-playwright", "rn-appium", "android"] {
+    fn registered_platforms_are_resolvable() {
+        for id in ["flutter", "web", "react-native", "android"] {
             let p = resolve(id).expect("known");
-            assert!(p.status.executable(), "{id} should be executable");
+            assert_eq!(p.id, id);
         }
     }
 
     #[test]
     fn webviews_share_the_web_backend() {
-        for id in ["web-playwright", "electron", "tauri"] {
+        for id in ["web", "electron", "tauri"] {
             assert_eq!(backend(id), Some(Backend::WebCdp), "{id}");
         }
     }
@@ -340,7 +292,7 @@ mod tests {
     fn native_mobile_shares_the_appium_backend() {
         // React Native, native iOS (XCUITest) and native Android (UiAutomator2)
         // are all Appium sessions: one backend, three a11y sources.
-        for id in ["rn-appium", "swift-ios", "android"] {
+        for id in ["react-native", "swift-ios", "android"] {
             assert_eq!(backend(id), Some(Backend::Appium), "{id}");
         }
     }

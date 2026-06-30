@@ -76,8 +76,8 @@ function resolveConfig(opts: ReproItConfig): ResolvedConfig {
 
 /**
  * Keep only the provided string fields of a developer-supplied build identity.
- * Returns null when neither `version` nor `commit` is a non-empty string, so the
- * back-compat path (no `build` provided) stamps nothing into the context.
+ * Returns null when neither `version` nor `commit` is a non-empty string, so no
+ * build object is stamped into the context.
  */
 function normalizeBuild(
   build: ReproItConfig['build']
@@ -132,8 +132,7 @@ class ReproItImpl {
 
     // Developer-provided build identity, stamped under `context.build` so the
     // cloud can segment bugs by build (regressed in / resolved since). Only the
-    // provided fields ride; omitted entirely when no build was supplied
-    // (back-compat: no `build` key, today's behavior exactly).
+    // provided fields ride; omitted entirely when no build was supplied.
     if (cfg.build) this.ctx.build = cfg.build;
 
     this.installErrorHook();

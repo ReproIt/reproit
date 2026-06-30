@@ -36,7 +36,7 @@ import Foundation
 func emit(_ s: String) { print(s); fflush(stdout) }
 
 // ---- canonical signature (FNV-1a over a normalized role/id token tree) ------
-// Byte-compatible subset of the oracle in runners/macos-ax.swift: we only need
+// Byte-identical subset of the oracle in runners/macos-ax.swift: we only need
 // the structural signature for the marker's `sig` field here (no value-state),
 // so this is the minimal descriptorOf + FNV-1a. The engine treats `sig` as an
 // opaque state key, so any stable per-state string works; we use the real one.

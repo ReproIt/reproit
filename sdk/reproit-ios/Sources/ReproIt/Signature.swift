@@ -337,8 +337,7 @@ public func reproitDescriptorFrom(_ anchor: String?, _ root: ReproItNode, _ excl
 
 /// Build the exact UTF-8 descriptor string that gets hashed, with the full
 /// (uncapped) `V:` section. The `A:` prefix line is always present, even with no
-/// anchor. A tree with no value-bearing nodes is byte-identical to a
-/// pre-value-state tree (backward-compatible).
+/// anchor. A tree with no value-bearing nodes stays purely structural.
 public func reproitDescriptor(_ anchor: String?, _ root: ReproItNode) -> String {
     reproitDescriptorFrom(anchor, root, nil)
 }

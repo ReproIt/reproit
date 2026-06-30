@@ -69,8 +69,8 @@ async function shoot(page, name) {
 // selectors from reproit.yaml. We avoid adding a YAML dependency: the block is
 // a simple flat list of strings, so a tiny line parser is enough and keeps the
 // runner dependency-free. Path precedence: REPROIT_CONFIG env, else
-// ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list
-// (value-less behavior, fully backward-compatible).
+// ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list,
+// so value-state is strictly opt-in.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
   if (!p) { const def = resolvePath(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
@@ -347,7 +347,7 @@ function resolveElectronLaunch(app) {
 // Chromium, so this is identical to runners/web/runner.mjs: the signature is a
 // hash of the canonical role tree + stable developer identifiers (data-testid,
 // id, name, aria role, input type) + structural position, with ALL user-facing
-// text excluded. Visible text is kept only as a display label for `map --show`,
+// text excluded. Visible text is kept only as a display label for `map show`,
 // never folded into the hash or a selector. Elements are addressed by stable
 // selector preference (data-testid > id > name > aria-role + structural index);
 // a tappable lacking any stable id falls back to role+index and is flagged
@@ -1676,7 +1676,7 @@ async function main() {
       seen.add(snap.sig);
       // sig: STRUCTURAL (roles + tree shape + stable developer keys),
       //      locale-invariant.
-      // labels: DISPLAY-ONLY visible text (map --show), never in the sig.
+      // labels: DISPLAY-ONLY visible text (map show), never in the sig.
       // elements: structural selectors for replay; `nokey` flags a tappable
       //           with no stable id (data-testid/id/name).
       log('EXPLORE:STATE ' + JSON.stringify({

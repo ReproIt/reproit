@@ -81,7 +81,7 @@ enum ReproItCapture {
 
     // MARK: window / tap recognizer
 
-    /// Best-effort key window across scene-based and legacy apps.
+    /// Best-effort key window across UIKit scene configurations.
     static func keyWindow() -> UIWindow? {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -441,7 +441,7 @@ enum ReproItCapture {
     /// the iOS analogue of `reproit.yaml`'s `value_nodes:` list. Set via
     /// ``setValueNodeSelectors(_:)``; matched against each element so a developer
     /// can mark EXTRA value-bearing nodes (e.g. a score label) whose role is not
-    /// in the value-role set. Empty by default (fully backward-compatible).
+    /// in the value-role set. Empty by default.
     static var valueNodeSelectors: [String] = []
 
     /// Replace the Layer-3 value-node selector list and re-snapshot. Each

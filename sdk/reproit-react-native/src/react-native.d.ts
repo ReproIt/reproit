@@ -4,7 +4,7 @@
  * This lets the package typecheck and emit `.d.ts` standalone, without the full
  * React Native toolchain installed (it is a peerDependency). When the SDK is
  * consumed inside a real RN app, that app's own `react-native` types are
- * present and authoritative; this shim only covers `View` + the responder
+ * present and authoritative; this declaration only covers `View` + the responder
  * props the provider attaches, and is intentionally tiny.
  */
 declare module 'react-native' {

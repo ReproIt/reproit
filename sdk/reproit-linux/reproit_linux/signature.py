@@ -3,7 +3,7 @@
 Byte-identical to the Rust oracle (crates/reproit/src/model/signature.rs), the
 React Native SDK (sdk/reproit-react-native/src/signature.ts), the web SDK, and
 the Linux runner (runners/linux-atspi.py). Spec: docs/signature.md. Proven
-against the 24 golden vectors in signature_vectors.json by
+against the 25 golden vectors in signature_vectors.json by
 tests/test_parity.py.
 
 A signature hashes STRUCTURE (roles + ids + types + icons + tree shape), never

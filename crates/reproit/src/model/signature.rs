@@ -416,7 +416,7 @@ pub fn descriptor(anchor: Option<&str>, root: &Node) -> String {
     //
     // The V: section (Layer 2 value-classes) is appended only when at least one
     // value-bearing node exists; otherwise `value_section` returns "" and the
-    // descriptor is byte-identical to a pre-value-state tree (backward-compatible).
+    // descriptor stays purely structural.
     format!(
         "A:{}\n{}{}",
         anchor.unwrap_or(""),
@@ -570,9 +570,9 @@ mod tests {
         assert_ne!(v_zero, v_pos1);
         // numeric counter 0 vs 5 -> ZERO vs POS1 distinct.
         assert_ne!(by("counter at 0"), by("counter at 5"));
-        // a chrome label with text (no value) is backward-compatible: identical to
-        // the same structure with no value field (the empty-anchor structural form
-        // is exercised here by comparing to a hand-built structural sig).
+        // A chrome label with text (no value) stays structural: identical to the
+        // same structure with no value field. The empty-anchor structural form is
+        // exercised here by comparing to a hand-built structural sig.
         {
             let mut s = Node::new("screen");
             let mut h = Node::new("header");

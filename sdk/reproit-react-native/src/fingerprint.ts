@@ -13,9 +13,8 @@
  */
 
 /**
- * Fingerprint schema version. Bumped to 2 for the byte/script/combining/
- * zero-width/newline/edge-whitespace features below; the cloud reads it to stay
- * backward-compatible with v1 fingerprints (len/charset/emoji/rtl/empty).
+ * Fingerprint schema version for the byte/script/combining/zero-width/newline/
+ * edge-whitespace features below.
  */
 export const FP_VERSION = 2;
 

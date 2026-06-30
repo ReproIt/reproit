@@ -373,8 +373,7 @@ String descriptorFrom(String? anchor, RNode root, Set<String>? excludeKeys) {
 
 /// Build the exact UTF-8 descriptor string that gets hashed, with the full
 /// (uncapped) `V:` section. The `A:` prefix line is always present, even with no
-/// anchor. A tree with no value-bearing nodes is byte-identical to a
-/// pre-value-state tree (backward-compatible).
+/// anchor. A tree with no value-bearing nodes stays purely structural.
 String descriptor(String? anchor, RNode root) =>
     descriptorFrom(anchor, root, null);
 

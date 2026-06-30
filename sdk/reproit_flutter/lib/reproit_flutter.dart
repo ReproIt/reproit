@@ -125,9 +125,8 @@ class _Snapshot {
 /// rules across all five SDKs and host-unit-tested in each. It returns FEATURES
 /// only and NEVER includes the raw string.
 class ReproItFingerprint {
-  /// Fingerprint schema version. Bumped to 2 for the byte/script/combining/
-  /// zero-width/newline/edge-whitespace features below; the cloud reads it to
-  /// stay backward-compatible with v1 fingerprints (len/charset/emoji/rtl/empty).
+  /// Fingerprint schema version for the byte/script/combining/zero-width/
+  /// newline/edge-whitespace features below.
   static const int fpVersion = 2;
 
   /// Code-point count (so "José🎉" -> 5), charset, emoji/RTL/empty flags, plus
@@ -794,16 +793,6 @@ class ReproIt {
   /// advanced use.
   static String signatureOfTree(String? anchor, RNode tree) =>
       signature(anchor, tree);
-
-  /// LEGACY compatibility entry: FNV-1a over sorted, pipe-joined labels. This is
-  /// NOT the structural signature and does NOT match the oracle; it is retained
-  /// only so older callers that hashed a label set keep compiling. New code must
-  /// use [signatureOfTree]. The real signature emitted on edges is structural.
-  @visibleForTesting
-  static String signatureOf(List<String> labels) {
-    final s = (labels.toList()..sort()).join('|');
-    return fnv1a32(s);
-  }
 
   /// PII-safe fingerprint of a single text value (FEATURES, never the value).
   /// Exposed for unit tests and advanced use. See [ReproItFingerprint].

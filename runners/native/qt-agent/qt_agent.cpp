@@ -1,8 +1,7 @@
 // ReproIt Qt IN-PROCESS operability agent (graph-1 ground truth).
 //
-// !!! TOOLCHAIN STATUS: BUILT + RUN + VERIFIED (in a Linux Docker container).
-//     This host (Apple M1, macOS) has no Qt toolchain, so the demo was built and
-//     run headless in Debian with Qt 6.8.2:
+// !!! TOOLCHAIN STATUS: BUILT + RUN + VERIFIED with Qt 6.8.2.
+//     Build the demo on a Linux host with Qt installed:
 //         apt-get install -y build-essential pkg-config qt6-base-dev libgl1-mesa-dev
 //         g++ -std=c++17 $(pkg-config --cflags Qt6Widgets Qt6Gui Qt6Core) \
 //             -DREPROIT_QT_DEMO_MAIN -fPIC qt_agent.cpp \

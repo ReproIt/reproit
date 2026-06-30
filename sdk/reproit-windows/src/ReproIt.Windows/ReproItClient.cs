@@ -307,7 +307,7 @@ namespace ReproIt.Windows
             var fwd = new Forwarder(handler);
             // The event handler signature is (object, T). Bind Forwarder.Handle, which
             // is (object, object); the runtime will adapt T (a reference type) to
-            // object for delegate creation when T is object-compatible. XAML event arg
+            // object for delegate creation when T is a reference type. XAML event arg
             // types are reference types, so this binds for the standard shape.
             MethodInfo handle = typeof(Forwarder).GetMethod(nameof(Forwarder.Handle), BindingFlags.Public | BindingFlags.Instance);
             try

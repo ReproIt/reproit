@@ -1,8 +1,7 @@
 /* ReproIt GTK IN-PROCESS operability agent (graph-1 ground truth).
  *
- * !!! TOOLCHAIN STATUS: BUILT + RUN + VERIFIED (in a Linux Docker container).
- *     This host (Apple M1, macOS) has no GTK toolchain, so the demo was built and
- *     run in Debian with GTK 4.18.6 (compiled unmodified):
+ * !!! TOOLCHAIN STATUS: BUILT + RUN + VERIFIED with GTK 4.18.6.
+ *     Build the demo on a Linux host with GTK installed:
  *         apt-get install -y build-essential pkg-config xvfb libgtk-4-dev
  *         gcc $(pkg-config --cflags gtk4) -DREPROIT_GTK_DEMO_MAIN gtk_agent.c \
  *             $(pkg-config --libs gtk4) -o gtk_agent
@@ -121,7 +120,7 @@ static A11y graph2_a11y(GtkWidget *w) {
     char *label = NULL;
 #if GTK_CHECK_VERSION(4, 10, 0)
     /* 4.10+: read the LABEL accessible property if present. */
-    /* (Left as the widget label fallback below for portability.) */
+    /* (The widget label path below keeps the accessible-name presence check portable.) */
 #endif
     if (GTK_IS_BUTTON(w)) label = (char *)gtk_button_get_label(GTK_BUTTON(w));
     a.name_present = (label != NULL && *label != '\0');

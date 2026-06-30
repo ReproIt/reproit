@@ -309,7 +309,7 @@ object Signature {
 
     /** The `V:` section suffix (docs/signature.md "Value-state"). Empty string
      * when there are NO value-bearing pairs, which keeps the descriptor (and
-     * hash) byte-identical to a pre-value-state tree (backward-compatible). */
+     * hash) purely structural. */
     private fun valueSection(root: Node): String {
         val pairs = valuePairs(root)
         if (pairs.isEmpty()) return ""

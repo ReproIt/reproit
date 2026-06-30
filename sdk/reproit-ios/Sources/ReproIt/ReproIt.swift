@@ -99,7 +99,7 @@ public enum ReproIt {
     /// element of that canonical role). A matched element's displayed value is
     /// folded into the signature as a bounded value-class even when its role is
     /// not in the value-role set (e.g. a score `UILabel`). Pass an empty list to
-    /// clear (the default; fully backward-compatible).
+    /// clear the opt-in selectors.
     public static func valueNodes(_ selectors: [String]) {
         #if canImport(UIKit)
         ReproItCapture.setValueNodeSelectors(selectors)

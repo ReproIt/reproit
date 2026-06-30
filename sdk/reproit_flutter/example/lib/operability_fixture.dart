@@ -24,6 +24,7 @@ class OperabilityFixtureApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: false),
       home: Scaffold(
         body: Center(
           child: Column(

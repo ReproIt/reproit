@@ -363,7 +363,7 @@ public struct ReproItStep: Equatable {
     }
 }
 
-/// An event the SDK emits. JSON shapes are byte-compatible with the web/Flutter
+/// An event the SDK emits. JSON shapes are byte-identical with the web/Flutter
 /// SDKs and the cloud's `POST /v1/events` contract.
 public enum ReproItEvent {
     /// `{kind:"edge", from?, action, to, labels?, t}`

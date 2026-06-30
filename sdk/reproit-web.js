@@ -57,8 +57,8 @@
   };
 
   // Keep only the provided string fields of a developer-supplied build identity
-  // ({version, commit}). Returns null when neither is a non-empty string, so the
-  // back-compat path (no build provided) stamps nothing into the batch context.
+  // ({version, commit}). Returns null when neither is a non-empty string, so no
+  // build object is stamped into the batch context.
   function normalizeBuild(build) {
     if (!build || typeof build !== "object") return null;
     var out = {};
@@ -634,9 +634,8 @@
     return false;
   }
 
-  // Fingerprint schema version. Bumped to 2 for the byte/script/combining/
-  // zero-width/newline/edge-whitespace features below; the cloud reads it to
-  // stay backward-compatible with v1 fingerprints (len/charset/emoji/rtl/empty).
+  // Fingerprint schema version for the byte/script/combining/zero-width/
+  // newline/edge-whitespace features below.
   var FP_VERSION = 2;
 
   // UTF-8 byte length, computed per code point so it's identical across SDKs

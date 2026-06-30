@@ -395,7 +395,7 @@ def signature(anchor, root):
 
 def selector_for(id, role, structural_index):
     """`key:<id>` when a stable id exists, else `role:<role>#<idx>`. The second
-    return value (nokey) is metadata for `map --show`; it does NOT affect the
+    return value (nokey) is metadata for `map show`; it does NOT affect the
     hash."""
     if id is not None:
         return ("key:%s" % id, False)
@@ -487,6 +487,52 @@ def load_fuzz():
             return json.load(f)
     except Exception:
         return {}
+
+
+def edge_key(sig, action):
+    return f"{sig}|{action}"
+
+
+def remember_actions(actions_by_state, sig, actions):
+    known = actions_by_state.setdefault(sig, [])
+    for action in actions:
+        if action not in known:
+            known.append(action)
+
+
+def first_untried_action(actions_by_state, tried, sig):
+    for action in actions_by_state.get(sig, []):
+        if edge_key(sig, action) not in tried:
+            return action
+    return None
+
+
+def has_frontier(actions_by_state, tried):
+    return any(first_untried_action(actions_by_state, tried, sig) for sig in actions_by_state)
+
+
+def remember_edge(graph, from_sig, action, to_sig):
+    edges = graph.setdefault(from_sig, [])
+    edge = (action, to_sig)
+    if edge not in edges:
+        edges.append(edge)
+
+
+def path_to_frontier(graph, actions_by_state, tried, start_sig):
+    if first_untried_action(actions_by_state, tried, start_sig):
+        return []
+    seen = {start_sig}
+    q = [(start_sig, [])]
+    for sig, path in q:
+        for action, to_sig in graph.get(sig, []):
+            if to_sig in seen:
+                continue
+            seen.add(to_sig)
+            next_path = path + [action]
+            if first_untried_action(actions_by_state, tried, to_sig):
+                return next_path
+            q.append((to_sig, next_path))
+    return None
 
 
 class Rng:
@@ -1393,6 +1439,9 @@ def main():
         emit(f"JOURNEY[a] step: fuzz seed={fuzz['seed']}")
 
     seen, tried = set(), set()
+    actions_by_state = {}
+    graph = {}
+    launch_sig = None
 
     def observe():
         snap = snapshot(auto, window, tappable_types, value_selectors, cap)
@@ -1420,11 +1469,17 @@ def main():
         return snap
 
     current = observe()
+    launch_sig = current["sig"]
     stuck = 0
     prefix = fuzz.get("prefix")
     replay = fuzz.get("replay")
     prefix_len = len(prefix) if prefix else 0
-    budget = len(replay) if replay else (int(fuzz.get("budget", ACTION_BUDGET)) + prefix_len)
+    map_mode = not replay and not prefix and not fuzz.get("seed")
+    configured = bool(os.environ.get("REPROIT_FUZZ_CONFIG"))
+    budget = len(replay) if replay else (
+        (10**12 if map_mode and not configured else int(fuzz.get("budget", ACTION_BUDGET)))
+        + prefix_len
+    )
     edge_weights = fuzz.get("edgeWeights", {})
 
     # LEAK sampler (--soak): only in REPLAY mode (the soak tier writes
@@ -1464,7 +1519,16 @@ def main():
                     act = options[k]
                     break
         else:
-            act = next((f"tap:{l}" for l in current["tappables"] if f"{current['sig']}|{l}" not in tried), "back")
+            options = [f"tap:{l}" for l in sorted(current["tappables"])] + ["back"]
+            remember_actions(actions_by_state, current["sig"], options)
+            act = first_untried_action(actions_by_state, tried, current["sig"])
+            if act is None:
+                path = path_to_frontier(graph, actions_by_state, tried, current["sig"])
+                act = path[0] if path else None
+            if act is None and has_frontier(actions_by_state, tried) and current["sig"] != launch_sig:
+                break
+            if act is None:
+                break
 
         if act is None:
             break
@@ -1478,6 +1542,7 @@ def main():
             continue
         if act == "back":
             from_sig = current["sig"]
+            tried.add(edge_key(from_sig, "back"))
             auto.SendKeys("{Esc}")
             time.sleep(0.6)
             # HANG oracle: ask the OS if the window is now hung (IsHungAppWindow).
@@ -1485,6 +1550,7 @@ def main():
             nxt = observe()
             if nxt["sig"] != current["sig"]:
                 emit("EXPLORE:EDGE " + json.dumps({"from": current["sig"], "action": "back", "to": nxt["sig"]}))
+                remember_edge(graph, current["sig"], "back", nxt["sig"])
             # Layer 1 effect detection: an action is effective iff the canonical
             # signature OR the content fingerprint changed. Reset the stall on any
             # effective action (so a value-only change, e.g. a counter tick, is
@@ -1498,7 +1564,7 @@ def main():
             continue
         label = act[len("tap:"):]
         from_sig = current["sig"]
-        tried.add(f"{current['sig']}|{label}")
+        tried.add(edge_key(current["sig"], act))
         node = current["nodes"].get(label)
         if not node or not press(node):
             emit("FUZZ:MISS " + act)
@@ -1514,6 +1580,7 @@ def main():
         nxt = observe()
         if nxt["sig"] != current["sig"]:
             emit("EXPLORE:EDGE " + json.dumps({"from": current["sig"], "action": f"tap:{label}", "to": nxt["sig"]}))
+            remember_edge(graph, current["sig"], f"tap:{label}", nxt["sig"])
         # Layer 1 effect detection: reset the stall whenever the action was
         # effective (structural sig OR content fingerprint moved), so a value-only
         # change keeps exploration alive instead of being treated as a dead key.

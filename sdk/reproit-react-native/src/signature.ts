@@ -292,7 +292,7 @@ export function descriptorOf(anchor: string | null | undefined, root: Node): str
   if (norm) serializeNode(norm, 0, false, tokens);
   // The V: section (Layer 2 value-classes) is appended only when at least one
   // value-bearing node exists; otherwise valueSection returns "" and the
-  // descriptor is byte-identical to a pre-value-state tree (backward-compatible).
+  // descriptor stays purely structural.
   return 'A:' + (anchor == null ? '' : anchor) + '\n' + tokens.join(';') + valueSection(root);
 }
 

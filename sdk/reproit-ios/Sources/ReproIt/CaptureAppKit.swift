@@ -383,7 +383,7 @@ enum ReproItAppKitCapture {
     }
 
     /// Layer-3 opt-in value-node selectors (the macOS analogue of `reproit.yaml`
-    /// `value_nodes:`). Empty by default (fully backward-compatible).
+    /// `value_nodes:`). Empty by default.
     static func setValueNodeSelectors(_ selectors: [String]) {
         valueNodeSelectors = selectors
         scheduleSnapshot()

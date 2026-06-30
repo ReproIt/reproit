@@ -94,7 +94,7 @@ export interface ReproItConfig {
    * from their build pipeline (app version from package.json/Info.plist/gradle,
    * git commit from CI). The cloud reads `context.build.version`/`.commit` to
    * segment bugs by build ("regressed in 1.4.2 / no hits since 1.4.5").
-   * Omitted entirely when not set (back-compat: today's behavior exactly).
+   * Omitted entirely when not set.
    */
   build?: { version?: string; commit?: string };
   /** `POST <endpoint>/v1/events`. If null/undefined, events go only to

@@ -71,31 +71,7 @@ accessibility role lives on the control's **cell**, not the view.
 reader MUST consult the cell for cell-backed controls (`resolvedAXRole` in
 `main.swift`), or it would wrongly flag every standard button as role-less.
 
-### Qt / GTK — built + run + verified in Docker
-
-This host (Apple M1, macOS) has no Qt/GTK toolchain, so both agents were built
-and run in a Linux container, proving the two-graph operability diff the same
-way it was proven for WPF/AppKit. Reproduce:
-
-    docker run --rm -v "$PWD":/repo -w /repo debian:stable-slim bash -c '
-      export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq
-      apt-get install -y -qq build-essential pkg-config xvfb qt6-base-dev libgl1-mesa-dev libgtk-4-dev
-
-      # Qt: build + run HEADLESS via the offscreen platform plugin (realizes the
-      # full QWidget tree with no display).
-      cd runners/native/qt-agent
-      g++ -std=c++17 $(pkg-config --cflags Qt6Widgets Qt6Gui Qt6Core) \
-          -DREPROIT_QT_DEMO_MAIN -fPIC qt_agent.cpp \
-          $(pkg-config --libs Qt6Widgets Qt6Gui Qt6Core) -o /tmp/qt_agent
-      QT_QPA_PLATFORM=offscreen /tmp/qt_agent
-
-      # GTK: build + run under Xvfb (GTK4 needs a display to realize widgets).
-      cd ../gtk-agent
-      gcc $(pkg-config --cflags gtk4) -DREPROIT_GTK_DEMO_MAIN gtk_agent.c \
-          $(pkg-config --libs gtk4) -o /tmp/gtk_agent
-      xvfb-run -a /tmp/gtk_agent
-    '
+### Qt / GTK
 
 Both sources implement the identical design (graph 1 from the live object tree +
 wired signals/gestures, graph 2 from `QAccessibleInterface` / GtkAccessible,

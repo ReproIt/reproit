@@ -21,7 +21,7 @@ namespace ReproIt.Core
     {
         /// <summary>Fingerprint schema version. Bumped to 2 for the byte/script/
         /// combining/zero-width/newline/edge-whitespace features; the cloud reads
-        /// it to stay backward-compatible with v1 fingerprints. Stamp this as
+        /// it to version the emitted fingerprint shape. Stamp this as
         /// `fpVersion` into the emitted on-error context alongside the array.</summary>
         public const int FpVersion = 2;
 

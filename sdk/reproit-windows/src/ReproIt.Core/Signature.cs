@@ -290,7 +290,7 @@ namespace ReproIt.Core
 
         /// <summary>The "V:" section suffix (docs/signature.md "Value-state"). Empty
         /// string when there are NO value-bearing nodes, which keeps the descriptor
-        /// (and hash) byte-identical to a pre-value-state tree (backward-compatible).
+        /// (and hash) purely structural.
         /// Otherwise returns "\nV:" + sorted key=class entries joined by ";".</summary>
         private static string ValueSection(Node root)
         {
