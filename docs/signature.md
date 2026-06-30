@@ -218,10 +218,9 @@ descriptor = "A:" + anchor + "\n" + tokens.join(";") + "\nV:" + v_entries
 
 Transient subtrees are excluded from `V:` too, so body and `V:` stay consistent.
 
-**Backward compatibility (hard requirement).** The `V:` line is emitted only when
-at least one value-bearing node exists, so a tree with none produces the exact
-same descriptor and hash as before this layer existed and every old golden vector
-still passes. (One deliberate interaction: two keyless, structurally identical
+**Conditional value section.** The `V:` line is emitted only when at least one
+value-bearing node exists, so a value-less tree stays a purely structural
+descriptor. (One deliberate interaction: two keyless, structurally identical
 value nodes still collapse to one `*` token in the body, but their two
 value-classes still appear separately in `V:` under distinct
 `role:<role>#<idx>` keys.)

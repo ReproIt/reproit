@@ -25,7 +25,7 @@ of user intent, not pixels.
 
 Selectors resolve against **visible** elements only:
 
-- `tap:label:<text>` , `tap:key:testid:<id>` , `tap:key:<key>`
+- `tap:key:testid:<id>` , `tap:key:<key>` , `tap:role:<role>#<index>`
 - `type:<text>` into the focused field
 - `assert:textPresent:<text>` , `assert:count:<selector>:<n>`
 - `auth:<account>` to run that account's login prelude mid-journey
@@ -46,7 +46,7 @@ Two or more users on **separate devices**, coordinated so they cannot collide.
 
 ## Secrets, never hardcode
 
-- Store creds with `reproit secrets set <key>`.
+- Create account-backed creds with `reproit auth add <account> --strategy <kind>`.
 - Reference them in a step as `secret:<KEY>` (e.g. `type:secret:ALICE_PW`).
   reproit expands the placeholder just before delivery and redacts the value
   from all captured logs. Runners never see raw secrets.

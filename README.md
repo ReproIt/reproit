@@ -1,33 +1,41 @@
 # reproit
 
-**The deterministic UI fuzzer. Find a bug once, reproduce it forever.**
+**Find a UI bug once, reproduce it forever.**
 
 [**reproit.com**](https://reproit.com) · [docs](docs/cli.md)
 
 ![reproit finds a bug and reproduces it every run](docs/demo.gif)
 
-reproit drives your app like a user and finds the bugs your tests never covered,
-then hands back a *replayable* repro: a seed plus an exact action sequence that
-fails the same way every time. AI maps the UI into a state graph; a deterministic
-engine does the finding and the replay. So "cannot reproduce" is gone, and every
-bug you find becomes a permanent CI guard.
+reproit drives your app like a user, finds bugs your tests missed, and gives you
+a replayable repro: the exact steps needed to make the bug happen again. That
+turns "cannot reproduce" into a local command you can run before and after the
+fix.
 
-Three core verbs:
+The small loop is:
 
 ```sh
-reproit map     # build the app's state graph
-reproit sweep   # find what's wrong: scan every screen for visible bugs
-reproit check   # verify repros: pass / fail / flaky / stale
+reproit doctor       # check local setup for this app and platform
+reproit auth add <account> --strategy <kind>  # optional logged-in flows
+reproit scan --record  # audit visible bugs and save clips
+reproit fuzz --all     # find replayable bugs
+reproit check fnd_...  # confirm a finding replays
+reproit keep fnd_...   # save it as a regression guard
+reproit check        # run the saved suite after the fix
 ```
 
-(`reproit fuzz` explores deeper for sequence-dependent bugs: crash, jank, hang.)
+`reproit fuzz` is there when you want deeper sequence bugs: crash, jank, hang,
+and leak.
+
+You do not have to manually run `map` before every hunt. `map` is the graph/debug
+view: it learns screens, shows coverage, and helps explain what the crawler can
+reach. `scan` and `fuzz` can run directly; zero-config URL/TUI targets build the
+map on first run, and configured apps use the same explorer path.
 
 ## Supported platforms
 
-reproit reads whatever surface a framework exposes (accessibility tree, DOM,
-semantics tree, a PTY) and computes the **same structural, locale-invariant
-signature** everywhere, so the graph, repros, and the production SDKs all agree
-byte-for-byte.
+reproit uses the same workflow across web, mobile, desktop, terminal, and
+instrumented native UI. Each platform has a live backend, and the saved repros
+stay portable enough for local runs, CI, and production crash replay.
 
 | Platform | Backend |
 |---|---|
@@ -43,17 +51,10 @@ byte-for-byte.
 
 ## Install
 
-Install script (macOS and Linux): fetches the binary and provisions the web
-runner so `reproit fuzz https://yoursite.com` works with no further setup.
+Install script for macOS and Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ReproIt/reproit/main/install.sh | sh
-```
-
-Or Homebrew:
-
-```sh
-brew install ReproIt/tap/reproit
 ```
 
 Or build from source with Cargo:
@@ -62,37 +63,58 @@ Or build from source with Cargo:
 cargo install --git https://github.com/ReproIt/reproit reproit
 ```
 
-The web fuzzer needs Node.js 18+. The web runner (Playwright + the headless
-browser) auto-provisions on first `reproit fuzz <url>` for every install method,
-so there is no manual `npm install` step.
+The web runner needs Node.js 18+. Playwright and the headless browser are
+provisioned on first web run, so there is no manual `npm install` step.
 
 ## Quickstart
 
 ```sh
 cd <your-app>
-reproit map            # detect the platform, build the graph
-reproit sweep          # scan every screen for visible bugs (fast first pass)
-reproit fuzz           # explore deeper for crash / jank / hang bugs
-reproit check <id>     # confirm a finding replays, before you commit to it
-reproit keep <id>      # like it? save it as a regression guard
-reproit check          # verify the suite (green after you fix it)
+reproit doctor                         # see missing platform setup before the run
+reproit auth add <account> --strategy <kind>  # optional, for logged-in flows
+reproit map                            # optional: learn/debug the screen graph
+reproit scan --record                  # fast visible-bug audit + clips
+reproit fuzz --all                     # find replayable bugs with fnd_... ids
+reproit check fnd_...                  # confirm a finding replays
+reproit keep fnd_...                   # save it as a regression guard
+reproit check                          # verify the suite after the fix
 ```
 
-`sweep` checks every screen for the bugs visible on it (overflow, content, a11y,
-choice-anomaly); `fuzz` explores action sequences for the bugs that only appear
-after the right steps in the right order (crash, jank, hang, leak). Use both.
+Use the same flow for every platform in the table above. The target changes
+(`https://...`, simulator/device, native app, terminal command, or instrumented
+binary), but the loop stays `doctor`, optional `auth`, `scan`, `fuzz`, `check`,
+`keep`, then `check` again after the fix.
 
-A repro is a seed + action sequence, addressed by a content hash, so it's
-identical across machines. `check <id>` replays a finding straight from the fuzz
-artifact, so you can confirm it's a real bug before `keep` writes it into your
-suite. `keep` isn't a git commit, it saves a local, quarantined (non-blocking)
-guard; fix the bug and `check` flips it to PASS and promotes it to required.
+`scan` checks each reachable screen for visible problems like overflow, broken
+content, missing labels, and odd layout choices. `--record` turns boxable scan
+findings into clips. `fuzz` explores longer action sequences and emits the
+replayable `fnd_...` findings you can `check` and `keep`.
+
+A finding is not useful until it replays. `check <id>` proves that the bug still
+happens on your machine. `keep <id>` saves the repro locally as a non-blocking
+guard; once you fix the bug, `check` flips it to PASS and makes it part of the
+required suite.
+
+There are two recording paths on purpose:
+
+- `scan --record` is an audit convenience: after scan finds visible, boxable
+  issues, it saves one short clip per issue into `.reproit/recordings/scan/`.
+- `record <id>` is repro evidence: after `fuzz` prints an `fnd_...` id, or after
+  you keep a repro, it replays that exact bug once and saves the annotated video
+  that `watch <id>` opens later.
+
+`.reproit/` is organized by concept: `map/` is the learned screen graph,
+`runs/` is raw local evidence, `recordings/` is generated video, `tmp/` is
+ignored runner scratch, and `repros/` is the saved regression suite.
 
 ## Commands
 
 ```sh
-reproit map [--show]                  # build/refresh the graph; --show renders it
-reproit sweep [target]                # scan every screen for visible bugs (--record for clips)
+reproit map                           # build/refresh the graph for debug/coverage
+reproit map structural --budget 20    # optional safety cap for unbounded apps
+reproit map show                      # render the existing graph
+reproit doctor                        # check app, platform, runner, and auth setup
+reproit scan [target]                 # scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]                 # explore deeper for sequence bugs (crash/jank/hang)
 reproit check [repro]                 # verify: pass(0) / fail(1) / flaky(2) / stale(3)
 reproit record <id>                   # annotated repro video (--flicker also scans it)
@@ -103,7 +125,7 @@ reproit keep [id] [--as name]         # save a repro into the suite
 reproit repros                        # list saved repros + last status
 reproit watch <id>                    # open a repro's recorded video
 reproit repro simplify|why <id>       # shorten a repro (verified) / localize the failure
-reproit secrets set <k> [v]           # test-login creds for the app under test
+reproit auth add <account> --strategy <kind>  # test-login account + local vault refs
 reproit mcp                           # serve reproit to your coding agent (stdio)
 ```
 

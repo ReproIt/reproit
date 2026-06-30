@@ -73,9 +73,9 @@ dramatic overflows). It is exact-pixel, not a magic heuristic.
 
 `Y` = fires. `Y*` = fires, but coarse (session/process-level, not per-transition):
 leak via process-RSS sampling under `--soak`. `~` = best-effort with a documented
-caveat. `gap` = the platform does not expose the signal (or the oracle is not wired
-for it yet); not emitted (never faked). `n/a` = the bug class cannot exist on that
-surface. `choice` = choice-anomaly; `route` = broken-route.
+caveat. `gap` = the platform does not expose a reliable signal; not emitted
+(never faked). `n/a` = the bug class cannot exist on that surface. `choice` =
+choice-anomaly; `route` = broken-route.
 
 | Backend (driver) | crash | choice | overflow | dead-end | flicker | content-bug | jank | hang | leak | route |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -95,8 +95,8 @@ surface. `choice` = choice-anomaly; `route` = broken-route.
 
 ## Recently closed (and how)
 
-These were gaps that turned out to have a real, deterministic signal that was
-just never wired. Each holds the same false-positive bar as the rest.
+These were gaps that turned out to have a real, deterministic signal available.
+Each holds the same false-positive bar as the rest.
 
 - **jank + hang on Firefox/WebKit** (`Y`): the Long Tasks trace is Chromium-only,
   so a cross-engine `requestAnimationFrame` frame-drop detector now covers the

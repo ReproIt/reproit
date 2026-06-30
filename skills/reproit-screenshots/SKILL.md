@@ -37,7 +37,7 @@ wrong screen, mid-transition, with empty data, in one locale, is worse than none
 3. **Seed real, attractive data.** Empty states and lorem ipsum kill store
    screenshots. Begin with `setup: login(demo)` and a `reset:` prelude that seeds
    realistic content (a few posts, a populated list, a non-zero balance). Store
-   demo creds with `reproit secrets set`; reference accounts under `auth:`.
+   demo creds with `reproit auth add`; reference accounts under `auth:`.
 4. **Name shots to their store slot / meaning.** The name becomes the filename
    AND the per-locale matching key for the verify gate. Use `home`, `search`,
    `detail`, `checkout`, not `screen1`. Keep names in `[A-Za-z0-9_/-]`.

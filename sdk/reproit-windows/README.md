@@ -31,7 +31,7 @@ sdk/reproit-windows/
     Capture.cs                 visual-tree -> canonical Node tree (reflection over both XAML stacks)
     ReproItClient.cs           init, screen anchor, tag helpers, crash handlers, HTTP transport
   test/ReproIt.ParityTests/    cross-platform parity gate (net8.0, references ReproIt.Core only)
-    SignatureParityTest.cs     loads ../../../signature_vectors.json, asserts all 24 vectors
+    SignatureParityTest.cs     loads ../../../signature_vectors.json, asserts all 25 vectors
     EngineTest.cs              wire-shape / context / fingerprint tests
 ```
 
@@ -233,7 +233,7 @@ dotnet build ReproIt.Windows.sln
 ```
 
 The parity test loads `../../signature_vectors.json` (the repo-root golden
-vectors) and asserts all 24 reproduce byte-for-byte, mirroring
+vectors) and asserts all 25 reproduce byte-for-byte, mirroring
 `sdk/reproit-android/src/test/.../SignatureParityTest.kt`,
 `sdk/reproit-ios/Tests/...`, and `sdk/test/signature_test.js`.
 

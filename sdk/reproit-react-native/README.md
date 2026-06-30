@@ -295,7 +295,7 @@ positional index, never derived from the value.
 ## Development
 
 ```sh
-npm install --legacy-peer-deps   # react-native peer dep resolution
+npm install
 npm test         # jest: signature parity + snapshot label rules
 npm run lint     # eslint
 npm run typecheck

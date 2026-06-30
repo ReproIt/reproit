@@ -17,10 +17,13 @@ finding itself.
 
 ## The loop
 
-1. **Map** (once, or when the app changes): `reproit map`. It detects the
-   platform, scaffolds config on first run, and crawls the running app into the
-   structural graph. Skip if a map already exists.
-2. **Sweep** (the default "what's wrong here"): `reproit sweep [target]`. One
+1. **Map** (debug/coverage, not mandatory before every hunt): `reproit map`.
+   It detects the platform, scaffolds config on first run, and crawls the running
+   app into the structural graph. Cycles are expected; the crawler records them
+   and moves to the next frontier. Use `reproit map structural --budget N` only
+   when a crawl needs an explicit safety cap. `scan`/`fuzz` can run directly;
+   zero-config URL/TUI targets auto-build the map on first run.
+2. **Scan** (the default "what's wrong here"): `reproit scan [target]`. One
    coverage crawl that visits every reachable screen once and reports the
    STATE-PRESENT bugs simply visible on each (overflow / broken content / a11y /
    choice-anomaly), one finding per (screen x issue). `target` is a URL (zero-
@@ -44,8 +47,13 @@ finding itself.
    regression guard (quarantined/non-blocking until it next passes, then
    promoted to required). `keep` is not a git commit; it writes a local guard.
 
-For a shareable clip of a confirmed bug, `reproit record <id>` produces an
-annotated video (paced action HUD + a red box on the bug's effect).
+For clips, use the right recorder:
+
+- `reproit scan --record` saves quick audit clips for visible, boxable scan
+  findings into `.reproit/recordings/scan/`.
+- `reproit record <id>` replays one confirmed fuzz/kept repro id and produces
+  the shareable evidence video (paced action HUD + a red box on the bug's
+  effect).
 
 ## Rules
 

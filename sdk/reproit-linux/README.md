@@ -82,7 +82,7 @@ Transient roles (toast/snackbar/spinner/progress/tooltip/badge) and the explicit
 ## Tests
 
 ```
-python3 tests/test_parity.py    # all 24 golden vectors reproduce byte-for-byte
+python3 tests/test_parity.py    # all 25 golden vectors reproduce byte-for-byte
 python3 tests/test_capture.py   # widget-tree -> descriptor mapping (synthetic trees)
 ```
 

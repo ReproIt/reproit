@@ -19,7 +19,7 @@ signature in all three. There is nothing platform-specific to build. The
 electron and tauri **runners** (`runners/electron.mjs`, `runners/tauri.mjs`)
 compute the identical signature, and that equality is gated in
 `runners/signature_test.mjs`. The SDK's own parity gate is
-`sdk/test/signature_test.js`, which asserts all 24 golden vectors in
+`sdk/test/signature_test.js`, which asserts all 25 golden vectors in
 `signature_vectors.json` reproduce exactly.
 
 ## Web
@@ -86,7 +86,7 @@ never raw values. Password and hidden fields are never read.
 
 ```sh
 # from the sdk/ directory
-node test/signature_test.js        # SDK core vs the 24 golden vectors
+node test/signature_test.js        # SDK core vs the 25 golden vectors
 node ../runners/signature_test.mjs # electron + tauri runners vs the same vectors
 ```
 
