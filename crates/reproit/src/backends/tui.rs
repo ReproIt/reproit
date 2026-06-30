@@ -293,6 +293,101 @@ fn ucb_pick(
         .unwrap_or_else(|| "key:Down".to_string())
 }
 
+fn edge_key(sig: &str, action: &str) -> String {
+    format!("{sig}|{action}")
+}
+
+fn ordered_actions(space: &[String], bound: &BTreeSet<String>) -> Vec<String> {
+    space
+        .iter()
+        .filter(|o| bound.contains(*o))
+        .chain(space.iter().filter(|o| !bound.contains(*o)))
+        .cloned()
+        .collect()
+}
+
+fn is_crash_trigger(action: &str) -> bool {
+    matches!(action, "key:CtrlC" | "key:CtrlD")
+}
+
+fn remember_actions(
+    actions_by_state: &mut BTreeMap<String, Vec<String>>,
+    sig: &str,
+    actions: Vec<String>,
+) {
+    let known = actions_by_state.entry(sig.to_string()).or_default();
+    for action in actions {
+        if !known.contains(&action) {
+            known.push(action);
+        }
+    }
+}
+
+fn first_untried_action(
+    actions_by_state: &BTreeMap<String, Vec<String>>,
+    tried: &BTreeSet<String>,
+    sig: &str,
+) -> Option<String> {
+    actions_by_state.get(sig).and_then(|actions| {
+        actions
+            .iter()
+            .find(|action| !tried.contains(&edge_key(sig, action)))
+            .cloned()
+    })
+}
+
+fn has_frontier(
+    actions_by_state: &BTreeMap<String, Vec<String>>,
+    tried: &BTreeSet<String>,
+) -> bool {
+    actions_by_state
+        .keys()
+        .any(|sig| first_untried_action(actions_by_state, tried, sig).is_some())
+}
+
+fn remember_edge(
+    graph: &mut BTreeMap<String, Vec<(String, String)>>,
+    from: &str,
+    action: &str,
+    to: &str,
+) {
+    let edges = graph.entry(from.to_string()).or_default();
+    if !edges.iter().any(|(a, t)| a == action && t == to) {
+        edges.push((action.to_string(), to.to_string()));
+    }
+}
+
+fn path_to_frontier(
+    graph: &BTreeMap<String, Vec<(String, String)>>,
+    actions_by_state: &BTreeMap<String, Vec<String>>,
+    tried: &BTreeSet<String>,
+    from: &str,
+) -> Option<Vec<String>> {
+    if first_untried_action(actions_by_state, tried, from).is_some() {
+        return Some(Vec::new());
+    }
+    let mut seen = BTreeSet::new();
+    let mut q = std::collections::VecDeque::new();
+    seen.insert(from.to_string());
+    q.push_back((from.to_string(), Vec::<String>::new()));
+    while let Some((sig, path)) = q.pop_front() {
+        if let Some(edges) = graph.get(&sig) {
+            for (action, to) in edges {
+                if !seen.insert(to.clone()) {
+                    continue;
+                }
+                let mut next_path = path.clone();
+                next_path.push(action.clone());
+                if first_untried_action(actions_by_state, tried, to).is_some() {
+                    return Some(next_path);
+                }
+                q.push_back((to.clone(), next_path));
+            }
+        }
+    }
+    None
+}
+
 fn emit(s: &str) {
     println!("{s}");
     let _ = std::io::stdout().flush();
@@ -379,6 +474,7 @@ fn shoot(parser: &Arc<Mutex<vt100::Parser>>, raw_name: &str) {
 struct Fuzz {
     seed: u32,
     budget: u32,
+    configured: bool,
     replay: Option<Vec<String>>,
     prefix: Option<Vec<String>>,
     edge_weights: BTreeMap<String, BTreeMap<String, u64>>,
@@ -393,6 +489,7 @@ fn load_fuzz() -> Fuzz {
     let mut f = Fuzz {
         seed: 0,
         budget: ACTION_BUDGET,
+        configured: false,
         replay: None,
         prefix: None,
         edge_weights: BTreeMap::new(),
@@ -407,6 +504,7 @@ fn load_fuzz() -> Fuzz {
     let Ok(j) = serde_json::from_str::<serde_json::Value>(&raw) else {
         return f;
     };
+    f.configured = true;
     if let Some(s) = j.get("seed").and_then(|v| v.as_u64()) {
         f.seed = s as u32;
     }
@@ -1203,6 +1301,8 @@ pub fn run() -> Result<()> {
         .filter(|s| !s.is_empty())
         .context("REPROIT_TUI_CMD (terminal command to drive) required")?;
     let fuzz = load_fuzz();
+    let map_mode =
+        fuzz.seed == 0 && fuzz.replay.is_none() && fuzz.prefix.is_none() && fuzz.seeds.is_empty();
     let key_bytes: BTreeMap<&str, &str> = KEYS.iter().cloned().collect();
     let mut rng = Rng::new(fuzz.seed);
     emit("JOURNEY claimed role=a");
@@ -1222,16 +1322,21 @@ pub fn run() -> Result<()> {
     corpus.extend(fuzz.seeds.iter().cloned());
     let longest_seed = corpus.iter().map(|p| p.len()).max().unwrap_or(0);
     // budget = branch actions + room to replay the longest seed first.
-    let budget = fuzz
-        .replay
-        .as_ref()
-        .map(|r| r.len())
-        .unwrap_or((fuzz.budget as usize) + longest_seed);
+    let budget = fuzz.replay.as_ref().map(|r| r.len()).unwrap_or_else(|| {
+        if map_mode && !fuzz.configured {
+            usize::MAX
+        } else {
+            (fuzz.budget as usize) + longest_seed
+        }
+    });
     // round-robin / least-used seed picker state.
     let mut seed_uses: Vec<u64> = vec![0; corpus.len()];
 
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut tried: BTreeSet<String> = BTreeSet::new();
+    let mut actions_by_state: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut graph: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    let mut launch_sig: Option<String> = None;
     // Live coverage guidance: how many times we've taken each (state, action)
     // THIS run, keyed "sig|key:Name". Feeds the UCB explore term.
     let mut live_visits: BTreeMap<String, u64> = BTreeMap::new();
@@ -1241,7 +1346,7 @@ pub fn run() -> Result<()> {
     let mut state_pulls: BTreeMap<String, u64> = BTreeMap::new();
     let mut announced_space = false;
     // A/B switch: REPROIT_TUI_UNIFORM=1 disables command-awareness (no bound
-    // priority / bonus, full alphabet treated uniformly) so the legacy behavior
+    // priority / bonus, full alphabet treated uniformly) so the uniform baseline
     // can be measured head-to-head under the same seed and budget.
     let uniform = std::env::var("REPROIT_TUI_UNIFORM")
         .map(|v| v == "1")
@@ -1335,7 +1440,18 @@ pub fn run() -> Result<()> {
                 break;
             }
         };
-        std::thread::sleep(Duration::from_millis(if sessions == 1 { 900 } else { 450 }));
+        let launch_settle_ms = if map_mode {
+            if sessions == 1 {
+                450
+            } else {
+                220
+            }
+        } else if sessions == 1 {
+            900
+        } else {
+            450
+        };
+        std::thread::sleep(Duration::from_millis(launch_settle_ms));
         // The target child's pid, for the --soak RSS sampler. The session-start
         // sample (t_ms=0 on the first session) is the soak baseline; per-action
         // samples below extend the RSS-vs-time series.
@@ -1351,6 +1467,9 @@ pub fn run() -> Result<()> {
             }
         }
         let (mut cur_sig, mut cur_fp, _) = emit_state(&parser, &mut seen);
+        if launch_sig.is_none() {
+            launch_sig = Some(cur_sig.clone());
+        }
         // The start/launch state is reachable with NO input, so it can never be
         // a mouse-only state (Signal B).
         keyboard_reached.insert(cur_sig.clone());
@@ -1377,6 +1496,7 @@ pub fn run() -> Result<()> {
         // HANG is emitted at most once per no-progress run (per session) so a
         // long freeze is one finding, not STUCK_FLOOR copies.
         let mut hang_emitted = false;
+        let mut exhausted_this_session = false;
 
         while i < budget && stuck < STUCK_FLOOR {
             // Command-aware action space for THIS screen: the app's bound keys
@@ -1387,7 +1507,27 @@ pub fn run() -> Result<()> {
             let (space, bound_raw) = action_space(&cmdline, &parser);
             // Uniform A/B: empty bound set => no key is prioritized or bonused,
             // so ucb_pick degrades to plain UCB1 over the full flat alphabet.
-            let bound = if uniform { BTreeSet::new() } else { bound_raw };
+            let (space, bound) = if map_mode {
+                // Map mode is graph discovery, not adversarial crash hunting.
+                // Drive the finite command/nav surface the app advertises and the
+                // universal navigation keys, but skip crash triggers and the
+                // unbound alphabet tail. Fuzz mode keeps those.
+                let mapped: Vec<String> = space
+                    .iter()
+                    .filter(|action| bound_raw.contains(*action) && !is_crash_trigger(action))
+                    .cloned()
+                    .collect();
+                let mapped_bound: BTreeSet<String> = mapped.iter().cloned().collect();
+                (mapped, mapped_bound)
+            } else {
+                let bound = if uniform { BTreeSet::new() } else { bound_raw };
+                (space, bound)
+            };
+            remember_actions(
+                &mut actions_by_state,
+                &cur_sig,
+                ordered_actions(&space, &bound),
+            );
             if !announced_space {
                 announced_space = true;
                 let seeded = if corpus.is_empty() {
@@ -1401,15 +1541,21 @@ pub fn run() -> Result<()> {
                     bound.len()
                 ));
             }
-            // Systematic (unseeded) order: sweep bound keys before unbound ones.
+            // Systematic map mode: take an untried action from this state. If the
+            // state is exhausted, follow the known graph to the nearest state with
+            // untried actions. If no frontier is reachable from here but some
+            // frontier still exists globally, relaunch and replay from the start
+            // on the next session. If no frontier exists, mapping is done.
             let systematic = |cur: &str| -> Option<String> {
-                space
-                    .iter()
-                    .filter(|o| bound.contains(*o))
-                    .chain(space.iter().filter(|o| !bound.contains(*o)))
-                    .find(|o| !tried.contains(&format!("{cur}|{o}")))
-                    .cloned()
-                    .or_else(|| Some("key:Down".to_string()))
+                if let Some(action) = first_untried_action(&actions_by_state, &tried, cur) {
+                    return Some(action);
+                }
+                if let Some(path) = path_to_frontier(&graph, &actions_by_state, &tried, cur) {
+                    if let Some(action) = path.first() {
+                        return Some(action.clone());
+                    }
+                }
+                None
             };
             // replay > session seed path (branch-from) > UCB bandit > systematic
             let act: Option<String> = if let Some(r) = &fuzz.replay {
@@ -1449,7 +1595,14 @@ pub fn run() -> Result<()> {
             } else {
                 systematic(&cur_sig)
             };
-            let Some(act) = act else { break 'fuzz };
+            let Some(act) = act else {
+                if has_frontier(&actions_by_state, &tried) && launch_sig.as_ref() != Some(&cur_sig)
+                {
+                    exhausted_this_session = true;
+                    break;
+                }
+                break 'fuzz;
+            };
             // A "shoot:<name>" action is a screenshot point, not a keystroke:
             // render the CURRENT screen to a PNG and print the SHOOT marker, then
             // move on without sending any bytes or running the crash/effect
@@ -1468,8 +1621,8 @@ pub fn run() -> Result<()> {
                 continue;
             }
             emit(&format!("FUZZ:ACT {act}"));
-            tried.insert(format!("{cur_sig}|{act}"));
-            *live_visits.entry(format!("{cur_sig}|{act}")).or_insert(0) += 1;
+            tried.insert(edge_key(&cur_sig, &act));
+            *live_visits.entry(edge_key(&cur_sig, &act)).or_insert(0) += 1;
             *state_pulls.entry(cur_sig.clone()).or_insert(0) += 1;
 
             let key_name = act.strip_prefix("key:").unwrap_or(&act);
@@ -1507,7 +1660,7 @@ pub fn run() -> Result<()> {
                     let _ = w.flush();
                 }
             }
-            std::thread::sleep(Duration::from_millis(260));
+            std::thread::sleep(Duration::from_millis(if map_mode { 120 } else { 260 }));
             i += 1;
             if frames_path.is_some() {
                 let scr = parser.lock().unwrap().screen().contents();
@@ -1581,6 +1734,7 @@ pub fn run() -> Result<()> {
             if sig_changed {
                 let payload = serde_json::json!({ "from": cur_sig, "action": act, "to": next_sig });
                 emit(&format!("EXPLORE:EDGE {payload}"));
+                remember_edge(&mut graph, &cur_sig, &act, &next_sig);
             }
             // A keystroke reaching `next_sig` proves that state is keyboard-
             // operable (feeds Signal B's mouse-only test).
@@ -1673,6 +1827,9 @@ pub fn run() -> Result<()> {
         }
         let _ = child.kill();
         drop(master);
+        if exhausted_this_session {
+            continue;
+        }
     }
 
     // SIGNAL B (mouse-only operability), gated behind REPROIT_TUI_MOUSE=1. Drive
@@ -1779,6 +1936,37 @@ mod tests {
             ucb_pick(&actions, &bound, "sig0", &lv, &ar, &sp, None, 0.5, &mut rng)
         };
         assert_eq!(pick(9), pick(9), "same seed + same state -> same action");
+    }
+
+    #[test]
+    fn path_to_frontier_crosses_cycles_to_untried_state() {
+        let mut actions_by_state = BTreeMap::new();
+        actions_by_state.insert("home".into(), vec!["key:Down".into(), "key:Enter".into()]);
+        actions_by_state.insert(
+            "settings".into(),
+            vec!["key:Esc".into(), "key:Enter".into()],
+        );
+        actions_by_state.insert("help".into(), vec!["key:Esc".into()]);
+
+        let tried = BTreeSet::from([
+            edge_key("home", "key:Down"),
+            edge_key("home", "key:Enter"),
+            edge_key("settings", "key:Esc"),
+        ]);
+        let mut graph = BTreeMap::new();
+        remember_edge(&mut graph, "home", "key:Down", "settings");
+        remember_edge(&mut graph, "settings", "key:Esc", "home");
+        remember_edge(&mut graph, "settings", "key:Enter", "help");
+
+        assert_eq!(
+            path_to_frontier(&graph, &actions_by_state, &tried, "home"),
+            Some(vec!["key:Down".into()]),
+            "home is exhausted, so walk the known cycle to settings"
+        );
+        assert_eq!(
+            first_untried_action(&actions_by_state, &tried, "settings"),
+            Some("key:Enter".into())
+        );
     }
 
     #[test]
