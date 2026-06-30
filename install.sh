@@ -2,8 +2,7 @@
 # reproit installer. Fetches the reproit binary and provisions the web runner so
 # `reproit fuzz https://yoursite.com` works link-and-go, with no env vars and no
 # manual `npm install`. macOS + Linux. (Windows: download the .zip from the
-# Releases page and run install.ps1, or use `cargo install reproit` which
-# self-heals on first run.)
+# Releases page, or use `cargo install reproit` which self-heals on first run.)
 #
 #   curl -fsSL https://reproit.com/install.sh | sh
 #
