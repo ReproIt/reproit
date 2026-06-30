@@ -609,9 +609,9 @@ enum Cmd {
         /// Cloud app id the finding's evidence attaches to (with --cloud).
         #[arg(long)]
         app: Option<String>,
-        /// Finding index in the cloud error list (default 0).
-        #[arg(long, default_value_t = 0)]
-        app_idx: usize,
+        /// Cloud bucket id the finding's evidence attaches to (bkt_...).
+        #[arg(long)]
+        bucket: Option<String>,
         /// Actually POST the PR comment (needs GITHUB_TOKEN + repo + PR);
         /// otherwise the pipeline emits the comment markdown as a dry-run.
         #[arg(long)]
@@ -884,9 +884,9 @@ enum CloudAction {
         /// Cloud base URL (default: $REPROIT_CLOUD_URL)
         #[arg(long)]
         cloud: Option<String>,
-        /// Finding index in the cloud error list (default 0)
-        #[arg(long, default_value_t = 0)]
-        idx: usize,
+        /// Cloud bucket id the finding's evidence attaches to (bkt_...).
+        #[arg(long)]
+        bucket: String,
     },
     /// The IMPACT-RANKED bug list: each bucket's content-addressed id, impact
     /// score + severity, resolution status, count, and message, already sorted
@@ -1929,7 +1929,7 @@ async fn main() -> Result<ExitCode> {
             confirm_on_sim,
             cloud,
             app,
-            app_idx,
+            bucket,
             post_comment,
             soak,
             cycle,
@@ -2110,7 +2110,7 @@ async fn main() -> Result<ExitCode> {
                 confirm_on_sim,
                 cloud,
                 app,
-                app_idx,
+                app_bucket: bucket,
                 post_comment,
                 json: ctx.json,
                 locales,
@@ -2856,7 +2856,7 @@ async fn cloud_cmd(
             journey,
             pr,
             cloud,
-            idx,
+            bucket,
         } => {
             // Submit a job via the existing fuzz cloud-delivery path: set
             // --cloud + --app, post the PR comment when a PR is linked.
@@ -2883,7 +2883,7 @@ async fn cloud_cmd(
                 confirm_on_sim: false,
                 cloud,
                 app: Some(app),
-                app_idx: idx,
+                app_bucket: Some(bucket),
                 post_comment: pr.is_some(),
                 json: false,
                 locales: Vec::new(),

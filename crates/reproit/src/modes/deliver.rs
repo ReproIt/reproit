@@ -6,8 +6,8 @@
 //!   1. `record_repro_clip` annotates the minimized-repro video (sim tier only)
 //!      into an MP4 + GIF via the web runner's annotate.mjs tool (caption bars are
 //!      rendered with headless Chrome since this ffmpeg has no drawtext).
-//!   2. `publish` uploads those artifacts to the cloud evidence endpoint
-//!      (POST /v1/errors/:app/:idx/evidence) and returns the served URLs.
+//!   2. `publish` uploads those artifacts to the cloud bucket evidence endpoint
+//!      (POST /v1/apps/:app/buckets/:bucket/evidence) and returns the served URLs.
 //!   3. `comment` builds the PR-comment markdown (summary, suspected file:line,
 //!      minimized repro, cohort "who it hits", inline GIF, dashboard link) and
 //!      posts it to the GitHub PR (or prints it with --dry-run).
@@ -47,7 +47,7 @@ pub async fn publish(
     cfg: &Config,
     root: &Path,
     app: &str,
-    idx: usize,
+    bucket: &str,
     run: Option<&str>,
     label: Option<String>,
     cloud: Option<String>,
@@ -90,7 +90,7 @@ pub async fn publish(
 
     let c = Cloud::new(cloud, key);
     let stored = c
-        .post_evidence(app, idx, &[mp4.clone(), gif.clone()])
+        .post_evidence(app, bucket, &[mp4.clone(), gif.clone()])
         .await?;
     println!("  uploaded {} artifact(s) to {}", stored.len(), c.base());
     for ev in &stored {
@@ -111,7 +111,7 @@ pub async fn comment(
     cfg: &Config,
     root: &Path,
     app: &str,
-    idx: usize,
+    bucket: &str,
     run: Option<&str>,
     dry_run: bool,
     repo: Option<String>,
@@ -127,15 +127,17 @@ pub async fn comment(
         && run_dir.join("manifest.json").exists();
 
     let c = Cloud::new(cloud, key);
-    input.dashboard_url = Some(dashboard_url(c.base(), app, idx));
+    input.dashboard_url = Some(dashboard_url(c.base(), app, bucket));
 
-    // Cohort: best-effort. The finding's production signature is matched by the
-    // suspected source / message; we look the sig up from the cloud error list.
-    if let Ok(sig) = sig_for_idx(&c, app, idx).await {
-        if let Ok((ds, count)) = c.cohort_for_sig(app, &sig).await {
-            input.cohort = ds;
-            input.cohort_count = count;
-        }
+    // Cohort: best-effort. The bucket package carries the k-anonymized
+    // discriminators and occurrence count, so we never look up a shifting
+    // positional error index.
+    if let Ok(pkg) = c.bucket_package(app, bucket).await {
+        input.cohort = pkg["discriminators"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        input.cohort_count = pkg["count"].as_u64().unwrap_or(0);
     }
 
     // Uploaded-evidence URLs: GET the finding's evidence list (gif + mp4). The
@@ -149,7 +151,7 @@ pub async fn comment(
             format!("{}{}", c.base(), u)
         }
     };
-    if let Ok(evidence) = c.get_evidence(app, idx).await {
+    if let Ok(evidence) = c.get_evidence(app, bucket).await {
         for ev in evidence {
             let Some(url) = ev["url"].as_str() else {
                 continue;
@@ -173,18 +175,6 @@ pub async fn comment(
     let url = gh.post_comment(&md).await?;
     println!("posted comment to {}#{}: {}", gh.repo, gh.pr, url);
     Ok(())
-}
-
-/// Look up the production-error signature at `idx` (so cohort/discriminators can
-/// be fetched). Best-effort: errors out only if the cloud is unreachable.
-async fn sig_for_idx(c: &Cloud, app: &str, idx: usize) -> Result<String> {
-    let errors = c.get(&format!("/v1/errors/{app}")).await?;
-    errors["errors"]
-        .as_array()
-        .and_then(|a| a.get(idx))
-        .and_then(|e| e["sig"].as_str())
-        .map(String::from)
-        .context("no error at idx")
 }
 
 // ---- cloud client ---------------------------------------------------------
@@ -231,12 +221,16 @@ impl Cloud {
         serde_json::from_str(&body).with_context(|| format!("parsing {path}"))
     }
 
-    /// POST one or more evidence files (multipart) to a finding. Returns the
+    pub async fn bucket_package(&self, app: &str, bucket: &str) -> Result<Value> {
+        self.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await
+    }
+
+    /// POST one or more evidence files (multipart) to a bucket. Returns the
     /// stored evidence records (each with `kind`, `key`, `url`).
     pub async fn post_evidence(
         &self,
         app: &str,
-        idx: usize,
+        bucket: &str,
         files: &[PathBuf],
     ) -> Result<Vec<Value>> {
         let mut form = reqwest::multipart::Form::new();
@@ -256,7 +250,7 @@ impl Cloud {
             // evidence kind; the field name itself is not significant.
             form = form.part("file", part);
         }
-        let url = format!("{}/v1/errors/{app}/{idx}/evidence", self.base);
+        let url = format!("{}/v1/apps/{app}/buckets/{bucket}/evidence", self.base);
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
@@ -275,28 +269,12 @@ impl Cloud {
         Ok(v["evidence"].as_array().cloned().unwrap_or_default())
     }
 
-    /// List a finding's already-uploaded evidence (each with `kind` + `url`).
-    pub async fn get_evidence(&self, app: &str, idx: usize) -> Result<Vec<Value>> {
+    /// List a bucket's already-uploaded evidence (each with `kind` + `url`).
+    pub async fn get_evidence(&self, app: &str, bucket: &str) -> Result<Vec<Value>> {
         let v = self
-            .get(&format!("/v1/errors/{app}/{idx}/evidence"))
+            .get(&format!("/v1/apps/{app}/buckets/{bucket}/evidence"))
             .await?;
         Ok(v["evidence"].as_array().cloned().unwrap_or_default())
-    }
-
-    /// Fetch the cohort discriminators for a signature, if the app has cohort
-    /// data. Returns the discriminator list (possibly empty) and the occurrence
-    /// count for that signature.
-    pub async fn cohort_for_sig(&self, app: &str, sig: &str) -> Result<(Vec<Value>, u64)> {
-        let cohorts = self.get(&format!("/v1/errors/{app}/cohorts")).await?;
-        let cluster = cohorts["errors"]
-            .as_array()
-            .and_then(|cs| cs.iter().find(|cl| cl["sig"].as_str() == Some(sig)));
-        let Some(cl) = cluster else {
-            return Ok((Vec::new(), 0));
-        };
-        let ds = cl["discriminators"].as_array().cloned().unwrap_or_default();
-        let count = cl["count"].as_u64().unwrap_or(0);
-        Ok((ds, count))
     }
 }
 
@@ -662,9 +640,9 @@ fn pr_from_event() -> Option<u64> {
         .or_else(|| v["number"].as_u64())
 }
 
-/// Build a dashboard URL for a finding from the cloud base.
-pub fn dashboard_url(cloud_base: &str, app: &str, idx: usize) -> String {
-    format!("{cloud_base}/app/{app}/errors/{idx}")
+/// Build a dashboard URL for a bucket from the cloud base.
+pub fn dashboard_url(cloud_base: &str, app: &str, bucket: &str) -> String {
+    format!("{cloud_base}/app?app={app}&bucket={bucket}")
 }
 
 #[cfg(test)]
@@ -689,7 +667,9 @@ mod tests {
             cohort_count: 3,
             gif_url: Some("https://cloud.reproit.com/v1/blob/bugzoo/0/x.gif".to_string()),
             video_url: Some("https://cloud.reproit.com/v1/blob/bugzoo/0/x.mp4".to_string()),
-            dashboard_url: Some("https://cloud.reproit.com/app/bugzoo/errors/0".to_string()),
+            dashboard_url: Some(
+                "https://cloud.reproit.com/app?app=bugzoo&bucket=bkt_abc".to_string(),
+            ),
             confirmed_on_sim: true,
         };
         let md = render_comment(&input);
@@ -704,9 +684,9 @@ mod tests {
         assert!(md.contains("Seen **3x** in production"));
         assert!(md.contains("`locale=tr`: 100% of affected users (2.67x baseline)"));
         assert!(md.contains("[full repro video](https://cloud.reproit.com/v1/blob/bugzoo/0/x.mp4)"));
-        assert!(
-            md.contains("[evidence + dashboard](https://cloud.reproit.com/app/bugzoo/errors/0)")
-        );
+        assert!(md.contains(
+            "[evidence + dashboard](https://cloud.reproit.com/app?app=bugzoo&bucket=bkt_abc)"
+        ));
     }
 
     #[test]
@@ -764,8 +744,8 @@ mod tests {
     #[test]
     fn dashboard_url_shape() {
         assert_eq!(
-            dashboard_url("https://cloud.reproit.com", "bugzoo", 3),
-            "https://cloud.reproit.com/app/bugzoo/errors/3"
+            dashboard_url("https://cloud.reproit.com", "bugzoo", "bkt_abc"),
+            "https://cloud.reproit.com/app?app=bugzoo&bucket=bkt_abc"
         );
     }
 }

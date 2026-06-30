@@ -66,8 +66,8 @@ pub struct FuzzArgs {
     pub cloud: Option<String>,
     /// Cloud app id the finding's evidence attaches to (required with --cloud).
     pub app: Option<String>,
-    /// Finding index in the cloud error list to attach evidence to.
-    pub app_idx: usize,
+    /// Cloud bucket id the finding's evidence attaches to.
+    pub app_bucket: Option<String>,
     /// Actually POST the PR comment (otherwise the delivery pipeline emits the
     /// markdown as a dry-run). Posting still needs GITHUB_TOKEN + repo + PR.
     pub post_comment: bool,
@@ -1118,14 +1118,16 @@ async fn fuzz_one_locale(
             // + upload the annotated minimized-repro clip, then emit the PR
             // comment (dry-run unless --post-comment with a resolvable GitHub
             // repo/PR/token). Best-effort: a delivery failure never fails fuzz.
-            if let (Some(cloud), Some(app)) = (&args.cloud, &args.app) {
+            if let (Some(cloud), Some(app), Some(bucket)) =
+                (&args.cloud, &args.app, &args.app_bucket)
+            {
                 if let Err(e) = deliver_finding(
                     cfg,
                     root,
                     &deliver_dir,
                     cloud,
                     app,
-                    args.app_idx,
+                    bucket,
                     args.post_comment,
                     confirmed,
                     json,
@@ -1134,10 +1136,10 @@ async fn fuzz_one_locale(
                 {
                     say(json, format!("  deliver: {e}"));
                 }
-            } else if args.cloud.is_some() || args.app.is_some() {
+            } else if args.cloud.is_some() || args.app.is_some() || args.app_bucket.is_some() {
                 say(
                     json,
-                    "  deliver: need BOTH --cloud and --app to deliver; skipping",
+                    "  deliver: need --cloud, --app, and --bucket to deliver; skipping",
                 );
             }
             // Neutralize: a later `reproit run --warm` must not replay this.
@@ -2159,7 +2161,7 @@ async fn deliver_finding(
     run_dir: &Path,
     cloud: &str,
     app: &str,
-    idx: usize,
+    bucket: &str,
     post: bool,
     confirmed: bool,
     json: bool,
@@ -2169,13 +2171,13 @@ async fn deliver_finding(
         .map(|s| s.to_string_lossy().into_owned());
     say(
         json,
-        format!("  deliver: publishing finding to {cloud} (app {app}, idx {idx})"),
+        format!("  deliver: publishing finding to {cloud} (app {app}, bucket {bucket})"),
     );
     crate::deliver::publish(
         cfg,
         root,
         app,
-        idx,
+        bucket,
         run_name.as_deref(),
         None,
         Some(cloud.to_string()),
@@ -2190,7 +2192,7 @@ async fn deliver_finding(
         cfg,
         root,
         app,
-        idx,
+        bucket,
         run_name.as_deref(),
         !post, // dry_run when not explicitly posting
         None,
