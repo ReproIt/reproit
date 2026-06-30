@@ -6,7 +6,7 @@
  * event's context as `context.build = { version, commit }` (only the provided
  * fields). The cloud's bucketing reads
  * `context.build.version`/`.commit` to segment bugs by build ("regressed in
- * 1.4.2 / no hits since 1.4.5"). Back-compat: no `build` -> no `build` key.
+ * 1.4.2 / no hits since 1.4.5"). No `build` config means no `build` key.
  */
 
 // RN is a peer dependency and not installed in the node test env, so stub the
@@ -58,7 +58,7 @@ describe('developer-provided build identity (context.build)', () => {
     expect(body.ctx!.platform).toBe('ios');
   });
 
-  test('init WITHOUT build -> no build key (back-compat, today\'s behavior)', () => {
+  test('init WITHOUT build -> no build key', () => {
     const body = flushOneBatch({ appId: 'b' });
     expect(body.ctx).toBeDefined(); // auto dimensions still present
     expect('build' in (body.ctx as object)).toBe(false);

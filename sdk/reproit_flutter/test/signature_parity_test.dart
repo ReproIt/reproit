@@ -53,12 +53,12 @@ List<_Vector> _loadVectors() {
 }
 
 void main() {
-  test('golden vectors match the canonical oracle (all 24)', () {
+  test('golden vectors match the canonical oracle (all current vectors)', () {
     final vectors = _loadVectors();
-    // 15 structural/anchor vectors + 9 value-state vectors. The whole set must
+    // 15 structural/anchor vectors + 10 value-state/unicode vectors. The whole set must
     // pass byte-for-byte, including every Layer 2 value-state vector.
-    expect(vectors.length, greaterThanOrEqualTo(24),
-        reason: 'need >= 24 vectors, got ${vectors.length}');
+    expect(vectors.length, greaterThanOrEqualTo(25),
+        reason: 'need >= 25 vectors, got ${vectors.length}');
     for (final v in vectors) {
       final got = ReproIt.signatureOfTree(v.anchor, v.tree);
       expect(
@@ -106,8 +106,8 @@ void main() {
     expect(vZero, isNot(vPos1));
     // numeric counter 0 vs 5 -> ZERO vs POS1 distinct.
     expect(by('counter at 0'), isNot(by('counter at 5')));
-    // a chrome label carrying a value is NOT value-bearing: backward-compatible,
-    // identical to the same structure with no value field at all.
+    // A chrome label carrying a value is NOT value-bearing: it stays identical
+    // to the same structure with no value field at all.
     {
       final structural = RNode(role: 'screen', children: [
         RNode(role: 'header', id: 'title'),
@@ -158,8 +158,8 @@ void main() {
     expect(valueClass('١٢٣'), 'NONEMPTY'); // Arabic-Indic digits
   });
 
-  test('V: section is backward-compatible and well-formed', () {
-    // No value -> byte-identical to a pre-value-state descriptor (no V: line).
+  test('V: section is conditional and well-formed', () {
+    // No value -> purely structural descriptor (no V: line).
     expect(descriptor(null, RNode(role: 'textfield', id: 'email')),
         'A:\n0:textfield@email');
     // A chrome node with a value is still not value-bearing: no V: line.

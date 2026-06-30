@@ -39,8 +39,8 @@ Honest status. Only toolchains present in CI can be re-captured automatically.
 | web      | engine motivating-case marker         | NO (documented)| see below |
 | appkit   | built+run Swift agent (macOS)         | NO (documented)| no macOS+a11y agent run in CI |
 | wpf      | built+run .NET agent (Windows VM)     | NO (documented)| no Windows VM in CI |
-| qt       | built+run C++ agent (Linux container) | NO (documented)| Qt/offscreen container not wired in CI yet |
-| gtk      | built+run C agent (Linux/xvfb)        | NO (documented)| GTK4/xvfb container not wired in CI yet |
+| qt       | built+run C++ agent (Linux)           | NO (documented)| Qt/offscreen Linux run not wired in CI yet |
+| gtk      | built+run C agent (Linux/xvfb)        | NO (documented)| GTK4/xvfb run not wired in CI yet |
 
 ### web
 

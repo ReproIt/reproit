@@ -132,16 +132,13 @@ jobs:
   # the golden, failing + naming the platform/field on any drift -- so a stale
   # golden / drifted agent can never go green (the bug we hit: a WPF contract test
   # stayed green while the real marker drifted). See the goldens' README for the
-  # honest live-in-CI vs documented-for-later matrix and the canonicalize+diff tool
+  # host-tooling matrix and the canonicalize+diff tool
   # (crates/reproit/tests/golden/operability/canonicalize-diff.mjs).
   #
-  #   LIVE IN CI:  flutter (this job re-captures via `flutter test` and diffs).
-  #   DOCUMENTED:  web (engine motivating-case marker; the web-runner job has no
-  #                Chromium installed), appkit (needs macOS+a11y), wpf (needs the
-  #                Windows VM), qt (Qt/offscreen container, not wired yet), gtk
-  #                (GTK4/xvfb container, not wired yet). Re-capture steps for these
-  #                live in crates/reproit/tests/golden/operability/README.md and
-  #                are run on the toolchain machine when the agent changes.
+  #   CI recaptures Flutter here via `flutter test` and diffs the marker.
+  #   Web, AppKit, WPF, Qt, and GTK need their browser/OS/toolkit hosts; their
+  #   recapture steps live in crates/reproit/tests/golden/operability/README.md
+  #   and are run on the matching toolchain machine when the agent changes.
   operability-marker-drift:
     runs-on: ubuntu-latest
     steps:

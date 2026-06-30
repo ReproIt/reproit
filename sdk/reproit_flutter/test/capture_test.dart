@@ -64,6 +64,7 @@ class _TwoScreenAppState extends State<_TwoScreenApp> {
     // so the structural signature changes and an edge is emitted. (Two screens
     // that differ only in text would, correctly, hash identically now.)
     return MaterialApp(
+      theme: ThemeData(useMaterial3: false),
       home: Scaffold(
         body: Center(
           child: _b

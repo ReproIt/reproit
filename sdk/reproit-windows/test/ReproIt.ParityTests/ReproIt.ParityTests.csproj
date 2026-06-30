@@ -6,7 +6,7 @@
     so `dotnet test` runs on the plain .NET 8 SDK on macOS / Linux / Windows
     without any WPF / WinUI dependency, exactly like the Android host test runs on
     a plain JVM and the iOS test runs on Foundation. It loads the canonical
-    ../../../signature_vectors.json and asserts all 24 golden vectors byte-for-byte.
+    ../../../signature_vectors.json and asserts all 25 golden vectors byte-for-byte.
   -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>

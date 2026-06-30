@@ -90,7 +90,7 @@ describe('cross-vector relationships the spec promises', () => {
     expect(by('counter at 0')).not.toBe(by('counter at 5'));
   });
 
-  test('value-state: chrome label with text is backward-compatible (no V: section)', () => {
+  test('value-state: chrome label with text stays structural (no V: section)', () => {
     // A header (chrome role) carrying a value is identical to the same structure
     // with no value field: the empty-anchor structural form, hand-built here.
     const s: Node = { role: 'screen', children: [{ role: 'header', id: 'title' }] };

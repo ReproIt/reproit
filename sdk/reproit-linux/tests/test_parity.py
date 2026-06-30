@@ -60,8 +60,8 @@ def main():
     with open(path, "r", encoding="utf-8") as f:
         vectors = json.load(f)
 
-    if len(vectors) != 24:
-        print("FAIL: expected exactly 24 golden vectors, got %d" % len(vectors))
+    if len(vectors) != 25:
+        print("FAIL: expected exactly 25 golden vectors, got %d" % len(vectors))
         return 1
 
     failures = []

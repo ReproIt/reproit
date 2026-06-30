@@ -4,7 +4,7 @@
  * No test framework required: run with `node test/build_test.js` from the sdk/
  * directory. Covers the pure normalizeBuild bucketer and the end-to-end flush:
  * init({ build }) -> the batch carries context.build = { version, commit } (only
- * the provided fields); init without build -> no ctx (back-compat). Mirrors the
+ * the provided fields); init without build -> no ctx. Mirrors the
  * RN SDK's build.test.ts. The cloud reads context.build.version/.commit to
  * segment bugs by build (regressed in / resolved since).
  */
@@ -107,7 +107,7 @@ check("init WITH only-version -> batch.ctx.build has version, no commit", functi
   });
 });
 
-check("init WITHOUT build -> no ctx (back-compat, today's behavior)", function () {
+check("init WITHOUT build -> no ctx", function () {
   withStubs(function (sent) {
     ReproIt.init({ appId: "app", endpoint: "https://ingest.example/v1/events" });
     ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });

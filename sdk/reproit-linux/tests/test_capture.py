@@ -15,7 +15,7 @@ so we exercise the mapping layer two ways:
 
 What is NOT exercised: a real GtkWindow / Qt widget, the AT-SPI bus, signal
 synthesis. Those need a Linux display + a11y stack. The signature itself is
-proven against the 24 golden vectors in test_parity.py.
+proven against the 25 golden vectors in test_parity.py.
 
 Run:
     python3 sdk/reproit-linux/tests/test_capture.py

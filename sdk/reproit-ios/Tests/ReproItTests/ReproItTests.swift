@@ -59,12 +59,12 @@ final class ReproItTests: XCTestCase {
 
     func testGoldenVectorsMatch() throws {
         let vectors = try loadVectors()
-        // The contract ships at least 24 golden vectors (structural + value-state);
+        // The contract ships at least 25 golden vectors (structural + value-state);
         // assert they are present and each reproduces bit-for-bit. Use >= so adding
         // new golden vectors (e.g. the non-ASCII byte-order case) does not require
         // touching this assertion.
         XCTAssertGreaterThanOrEqual(
-            vectors.count, 24, "expected >= 24 vectors, got \(vectors.count)")
+            vectors.count, 25, "expected >= 25 vectors, got \(vectors.count)")
         for v in vectors {
             let got = ReproItSignature.of(anchor: v.anchor, tree: v.tree)
             XCTAssertEqual(
@@ -109,8 +109,8 @@ final class ReproItTests: XCTestCase {
         XCTAssertNotEqual(vZero, vPos1)
         // numeric counter 0 vs 5 -> ZERO vs POS1 distinct.
         XCTAssertNotEqual(by("counter at 0"), by("counter at 5"))
-        // a chrome label with a value is backward-compatible: identical to the
-        // same structure with no value field at all (no V: section emitted).
+        // A chrome label with a value is still structural: identical to the same
+        // structure with no value field at all (no V: section emitted).
         let s = ReproItNode(role: "screen", children: [
             ReproItNode(role: "header", id: "title"),
         ])

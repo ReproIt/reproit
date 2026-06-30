@@ -139,7 +139,7 @@ check("two POS1 values (3 and 7) bucket the same", function () {
   );
 });
 
-check("chrome label with a value is NOT value-bearing (backward-compatible)", function () {
+check("chrome label with a value is NOT value-bearing", function () {
   // The chrome-label vector must hash identically to the same structure with no
   // value at all, proving chrome roles never emit a V: section.
   var withValue = sigByNeedle("chrome label with text");

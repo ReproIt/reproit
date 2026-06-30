@@ -21,7 +21,7 @@ LIVE="$(mktemp)"
 trap 'rm -f "$LIVE"' EXIT
 
 # `flutter test` streams the explorer's stdout through; grab the GROUNDTRUTH line.
-flutter test test/operability_fixture_test.dart 2>&1 | grep -a 'EXPLORE:GROUNDTRUTH' > "$LIVE" || {
+flutter test -r expanded test/operability_fixture_test.dart 2>&1 | grep -a 'EXPLORE:GROUNDTRUTH' > "$LIVE" || {
   echo "capture-flutter: no EXPLORE:GROUNDTRUTH emitted by the flutter agent" >&2
   exit 1
 }
