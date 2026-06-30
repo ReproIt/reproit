@@ -94,7 +94,7 @@ pub async fn soak(cfg: &Config, root: &Path, args: &SoakArgs) -> Result<bool> {
         .flat_map(|_| actions.iter().cloned())
         .collect();
 
-    let cfg_path = root.join(".reproit/fuzz_config.json");
+    let cfg_path = crate::layout::fuzz_config_path(root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
     std::fs::write(&cfg_path, json!({ "replay": replay }).to_string())?;
     let defines = vec![(

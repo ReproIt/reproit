@@ -14,6 +14,7 @@ mod crosscut;
 mod exec;
 mod init;
 mod junit;
+mod layout;
 mod mcp;
 mod skills;
 // backends/, the execution layer: device/runtime drivers + run orchestration.
@@ -88,8 +89,9 @@ mod repro;
 #[path = "model/signature.rs"]
 mod signature;
 
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand, ValueEnum};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -177,7 +179,7 @@ const VERSION: &str = env!("REPROIT_VERSION");
 #[command(
     name = "reproit",
     version = VERSION,
-    about = "Reproducible AI QA: map -> sweep -> check"
+    about = "Reproducible AI QA: scan -> fuzz -> check -> keep"
 )]
 struct Cli {
     /// Path to reproit.yaml (default: search cwd and ancestors)
@@ -220,7 +222,7 @@ fn target_as_url(t: &str) -> Option<String> {
     }
     // A URL never contains whitespace, so a target with a space is a command line
     // (e.g. `less sample.txt`), not a bare host that happens to end in a TLD-like
-    // token -- this is what lets `sweep "lazygit --flag"` reach executable detection
+    // token -- this is what lets `scan "lazygit --flag"` reach executable detection
     // instead of being misread as `https://lazygit --flag`.
     if t.chars().any(char::is_whitespace) {
         return None;
@@ -309,9 +311,9 @@ fn command_on_path(prog: &str) -> bool {
 
 /// A non-URL target that names a runnable TERMINAL executable: an existing
 /// executable file path, or a bare command resolvable on `PATH` (e.g. `lazygit`,
-/// `htop`). Returns the command line to run in a PTY (`reproit sweep <exe>`),
+/// `htop`). Returns the command line to run in a PTY (`reproit scan <exe>`),
 /// args preserved. `None` for anything that isn't clearly an executable, so a
-/// saved alias / journey / map node still resolves the way it does today.
+/// saved alias / journey / map node remains a scoped target.
 fn target_as_executable(t: &str) -> Option<String> {
     let t = t.trim();
     if t.is_empty() {
@@ -328,6 +330,14 @@ fn target_as_executable(t: &str) -> Option<String> {
         command_on_path(prog)
     };
     ok.then(|| t.to_string())
+}
+
+async fn ensure_app_map(ctx: &Ctx, loaded: &config::Loaded, journey: &str) -> Result<()> {
+    if map::appmap_path(&loaded.root).exists() {
+        return Ok(());
+    }
+    ctx.say("  building the app map (first run; re-run is faster)...");
+    map::build_map(&loaded.config, &loaded.root, journey, None, false, None).await
 }
 
 /// SAFETY gate for a zero-config TUI fuzz: it drives a REAL process with REAL
@@ -363,8 +373,9 @@ fn confirm_tui_fuzz(ctx: &Ctx, exe: &str) -> bool {
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Cmd {
-    /// The app map. `map structural` crawls the running app; `map semantic` reads
-    /// the code; `map coverage` diffs them. Bare `map` builds the structural map.
+    /// The app map for coverage/debugging. `map structural` crawls the running
+    /// app; `map semantic` reads the code; `map coverage` diffs them. Bare `map`
+    /// builds the structural map.
     Map {
         #[command(subcommand)]
         action: Option<MapAction>,
@@ -405,12 +416,11 @@ enum Cmd {
         #[arg(long)]
         device: Option<String>,
     },
-    /// Record a repro ONCE with full evidence + an annotated video (paced action
-    /// HUD + the red finding box scoped to the repro's oracle). Was `check
-    /// --record`. `--flicker` also scans the recorded video for transient render
-    /// glitches (a frame that diverges then snaps back).
+    /// Record one replayable repro id ONCE with full evidence + an annotated
+    /// video. Use after `fuzz` prints an fnd_... id or after `keep`; for quick
+    /// visible-issue audit clips, use `scan --record`.
     Record {
-        /// The repro (id or alias) to record.
+        /// The repro to record: pending fnd_..., saved rep_..., or alias.
         repro: String,
         /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
         #[arg(long)]
@@ -433,10 +443,10 @@ enum Cmd {
         #[arg(long)]
         flicker: bool,
     },
-    /// Visual-regression the current capture against the committed baseline
-    /// (per-pixel tolerance + ignore regions). Was `check --visual`. `--update`
-    /// accepts the current capture as the new baseline. What is compared is driven
-    /// by the `visual` section in reproit.yaml.
+    /// Visual-regression the current capture against the committed baseline:
+    /// per-pixel tolerance, ignore regions, and `--update` to accept the current
+    /// capture. What is compared is driven by the `visual` section in
+    /// reproit.yaml.
     Baseline {
         /// Accept the current capture as the new baseline.
         #[arg(long)]
@@ -466,7 +476,7 @@ enum Cmd {
     /// List saved repros under .reproit/repros/
     Repros,
     /// Open a repro's recorded video in your default player. Recordings live
-    /// under .reproit/media/ (gitignored); make one with `record <id>`.
+    /// under .reproit/recordings/repro/ (gitignored); make one with `record <id>`.
     Watch {
         /// The repro to watch (id or alias).
         repro: String,
@@ -491,12 +501,12 @@ enum Cmd {
     },
     /// List the simulators reproit manages (by configured name prefix)
     Devices,
-    /// Sweep the app for the bugs simply VISIBLE on each screen (overflow,
+    /// Scan the app for the bugs simply VISIBLE on each screen (overflow,
     /// content, a11y, choice-anomaly): crawl every reachable screen once and
     /// report one finding per screen+issue. The fast default "what's wrong here".
-    /// Use `fuzz` for the deeper, sequence-dependent bugs (crash, jank, hang).
-    Sweep {
-        /// What to sweep. A URL (https://app.com) runs zero-config against that
+    /// `--record` saves quick audit clips; use `record <id>` for a fuzz repro.
+    Scan {
+        /// What to scan. A URL (https://app.com) runs zero-config against that
         /// deployed app; a terminal EXECUTABLE (e.g. `lazygit`, `htop`, or a path)
         /// runs zero-config in a PTY; any other value scopes the crawl to that
         /// alias/node in a reproit.yaml.
@@ -513,12 +523,14 @@ enum Cmd {
         /// choice-anomaly, and the hang/jank trigger). Web only.
         #[arg(long)]
         record: bool,
-        /// Where the `--record` clips land (default: .reproit/sweep-clips).
+        /// Where the `--record` clips land (default:
+        /// .reproit/recordings/scan/<scan-run>/).
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Find repros using the map (pure; emits a fuzz artifact). All oracles on
-    /// by default. `--soak` runs the leak cycle; `--target` selects engines.
+    /// Find replayable repro ids for deeper sequence bugs. Zero-config URL/TUI
+    /// targets build the map on first run; configured apps use the same explorer.
+    /// All oracles are on by default. `--soak` runs the leak cycle.
     Fuzz {
         /// What to fuzz (optional). A PLAYWRIGHT TEST file
         /// (`reproit fuzz your-test.spec.ts`) is run under trace; reproit replays
@@ -572,8 +584,8 @@ enum Cmd {
         seeds: Option<String>,
         /// Seeds per drive session (batch-seeds-per-session). One install +
         /// launch + connect is amortized across this many seeds, resetting app
-        /// state between them. Default 0 = all `runs` in ONE session. `--batch
-        /// 1` = the legacy one-drive-per-seed behavior (use for the A/B).
+        /// state between them. Default 0 = all `runs` in ONE session. Use
+        /// `--batch 1` for a one-drive-per-seed A/B control.
         #[arg(long, default_value_t = 0)]
         batch: u32,
         /// Print a per-phase wall-clock breakdown (sim ensure, reset, build,
@@ -605,7 +617,7 @@ enum Cmd {
         #[arg(long)]
         post_comment: bool,
         /// Leak oracle: repeat a reversible cycle and watch heap growth per
-        /// cycle (was `soak`). Use with --cycle / --repeats.
+        /// cycle. Use with --cycle / --repeats.
         #[arg(long)]
         soak: bool,
         /// (--soak) semicolon-separated actions, e.g.
@@ -620,7 +632,7 @@ enum Cmd {
         warm: bool,
         /// Target engines/platforms. When set to web engines (e.g.
         /// "chromium,firefox,webkit"), runs the cross-engine differential
-        /// (divergence oracle; was `web-diff`). The first engine is reference.
+        /// (divergence oracle). The first engine is reference.
         #[arg(long)]
         target: Option<String>,
         /// (--target web engines) URL under test (defaults to app.url)
@@ -651,7 +663,7 @@ enum Cmd {
     /// Serve reproit as an MCP server (stdio) for coding agents
     Mcp,
     /// Show the platform support matrix: which UI frameworks map to which
-    /// introspection backend, and what's executable today
+    /// introspection backend and capability source
     Platforms,
     /// Install the bundled coding-agent skills (the reproit playbook) into
     /// .claude/skills, so an agent drives reproit like an expert
@@ -659,12 +671,10 @@ enum Cmd {
         #[command(subcommand)]
         action: SkillsAction,
     },
-    /// Check that required tools are available (folded into `map`; kept for
-    /// MCP and CI use)
-    #[command(hide = true)]
+    /// Diagnose local setup: config, runner deps, app URL, and cloud credentials.
     Doctor,
-    /// Test-login creds for the app under test (encrypted credential vault)
-    Secrets {
+    /// Test-login accounts and secrets for the app under test.
+    Auth {
         #[command(subcommand)]
         action: AuthAction,
     },
@@ -784,6 +794,9 @@ enum MapAction {
         /// Explorer journey name (resolves like any journey target)
         #[arg(long, default_value = "explore")]
         journey: String,
+        /// Optional safety cap: how many actions the crawl may take
+        #[arg(long)]
+        budget: Option<u32>,
         /// Ask the LLM to give states human names (login, meet_feed, ...)
         #[arg(long)]
         label: bool,
@@ -841,8 +854,8 @@ enum MapAction {
 /// Cloud subcommands. Each maps to an existing triage::*/deliver::* handler.
 #[derive(Subcommand)]
 enum CloudAction {
-    /// Authenticate with a cloud/project key (sk_live_..., distinct from
-    /// `secrets`) and VALIDATE it against the cloud. Reads $REPROIT_CLOUD_KEY /
+    /// Authenticate with a cloud/project key (sk_live_..., distinct from the
+    /// app auth vault) and VALIDATE it against the cloud. Reads $REPROIT_CLOUD_KEY /
     /// $REPROIT_CLOUD_URL when not passed.
     Login {
         /// Cloud base URL (default: $REPROIT_CLOUD_URL)
@@ -893,8 +906,8 @@ enum CloudAction {
         key: Option<String>,
     },
     /// The cohort "who's affected" lens: grouped clusters + counts + the user
-    /// discriminators (versions, %), NOT the bucket id. Was `triage find`.
-    /// Hits GET /v1/errors/:app/cohorts.
+    /// discriminators (versions, %), NOT the bucket id. Hits
+    /// GET /v1/errors/:app/cohorts.
     Findings {
         #[arg(long)]
         app: String,
@@ -908,8 +921,8 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Who's affected by a bucket: cohorts, %, versions. Was `triage explain`.
-    /// Hits GET /v1/errors/:app/cohorts.
+    /// Who's affected by a bucket: cohorts, %, versions. Hits
+    /// GET /v1/errors/:app/cohorts.
     BlastRadius {
         #[arg(long)]
         app: String,
@@ -958,7 +971,10 @@ enum CloudAction {
         app: String,
         /// Content-addressed bucket id to pull.
         #[arg(long)]
-        bucket: String,
+        bucket: Option<String>,
+        /// Pull the highest-impact unresolved bucket from `cloud buckets`.
+        #[arg(long, conflicts_with = "bucket")]
+        top: bool,
         /// Local name (alias) for the saved repro, used in `check <name>`.
         #[arg(long = "as", name = "name")]
         as_name: String,
@@ -1019,7 +1035,7 @@ enum CloudAction {
         key: Option<String>,
     },
     /// Match a free-text bug report to a bucket, then explain (+ optional repro).
-    /// Was `triage diagnose`; powers the MCP diagnose entry point.
+    /// Powers the MCP diagnose entry point.
     Diagnose {
         #[arg(long)]
         app: String,
@@ -1034,8 +1050,8 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Raw data out for your own analysis. TODO(phase-b): a real query surface;
-    /// for now routes to the findings list with `--export` semantics.
+    /// Raw data out for your own analysis. Applies the same query filter as
+    /// `findings --export`.
     Query {
         #[arg(long)]
         app: String,
@@ -1070,6 +1086,43 @@ enum JourneyAction {
 
 #[derive(Subcommand)]
 enum AuthAction {
+    /// Create/update a named test account and its local vault refs.
+    Add {
+        /// Account handle, e.g. alice, admin, buyer.
+        account: String,
+        /// How this account logs in.
+        #[arg(long, value_enum)]
+        strategy: AuthStrategyArg,
+        /// Store an email/username in the vault as <account>.email.
+        #[arg(long)]
+        email: Option<String>,
+        /// Store a phone number in the vault as <account>.phone.
+        #[arg(long)]
+        phone: Option<String>,
+        /// Store a username in the vault as <account>.username.
+        #[arg(long)]
+        username: Option<String>,
+        /// Store a password in the vault as <account>.password.
+        #[arg(long)]
+        password: Option<String>,
+        /// Store a fixed/manual OTP in the vault as <account>.otp.
+        #[arg(long)]
+        otp: Option<String>,
+        /// Store a base32 TOTP secret in the vault as <account>.totp.
+        #[arg(long)]
+        totp_secret: Option<String>,
+        /// Store a session blob in the vault as <account>.session.
+        #[arg(long)]
+        session: Option<String>,
+        /// Non-secret backend user id for reset templates.
+        #[arg(long)]
+        user_id: Option<String>,
+        /// Text that should be visible after login succeeds.
+        #[arg(long)]
+        validate_text: Option<String>,
+    },
+    /// Validate a configured account: refs, vault keys, TOTP, and login journey.
+    Doctor { account: String },
     /// Store a secret under a key (reads the value from stdin if --value omitted)
     Set {
         /// Vault key, e.g. alice.password
@@ -1092,13 +1145,38 @@ enum AuthAction {
     Test { account: String },
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum AuthStrategyArg {
+    Password,
+    PasswordOtp,
+    PhoneOtp,
+    EmailLink,
+    OauthTest,
+    Session,
+    Api,
+}
+
+impl AuthStrategyArg {
+    fn config(self) -> config::AuthStrategy {
+        match self {
+            AuthStrategyArg::Password => config::AuthStrategy::Password,
+            AuthStrategyArg::PasswordOtp => config::AuthStrategy::PasswordOtp,
+            AuthStrategyArg::PhoneOtp => config::AuthStrategy::PhoneOtp,
+            AuthStrategyArg::EmailLink => config::AuthStrategy::EmailLink,
+            AuthStrategyArg::OauthTest => config::AuthStrategy::OauthTest,
+            AuthStrategyArg::Session => config::AuthStrategy::Session,
+            AuthStrategyArg::Api => config::AuthStrategy::Api,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
     let ctx = cli.ctx();
     match cli.command {
         Cmd::Doctor => {
-            doctor(cli.config.as_deref()).await?;
+            doctor(cli.config.as_deref(), &ctx).await?;
             Ok(ExitCode::SUCCESS)
         }
         // `map`: build/refresh the graph, or render it with --show. Folds in the
@@ -1107,6 +1185,7 @@ async fn main() -> Result<ExitCode> {
             // Bare `map` builds the structural map (the common case).
             let action = action.unwrap_or(MapAction::Structural {
                 journey: "explore".to_string(),
+                budget: None,
                 label: false,
                 from: None,
                 platform: None,
@@ -1115,6 +1194,7 @@ async fn main() -> Result<ExitCode> {
             match action {
                 MapAction::Structural {
                     journey,
+                    budget,
                     label,
                     from,
                     platform,
@@ -1130,6 +1210,7 @@ async fn main() -> Result<ExitCode> {
                         &loaded.config,
                         &loaded.root,
                         &journey,
+                        budget,
                         label,
                         from.as_deref(),
                     )
@@ -1140,7 +1221,8 @@ async fn main() -> Result<ExitCode> {
                             "command": "map structural",
                             "states": m.states.len(),
                             "transitions": m.transitions.len(),
-                            "map_path": loaded.root.join(".reproit/appmap.json").to_string_lossy(),
+                            "budget": budget,
+                            "map_path": map::appmap_path(&loaded.root).to_string_lossy(),
                         }));
                     }
                     Ok(ExitCode::SUCCESS)
@@ -1154,7 +1236,7 @@ async fn main() -> Result<ExitCode> {
                         Some(p) => p,
                         None => {
                             let loaded = config::load(cli.config.as_deref())?;
-                            loaded.root.join(".reproit/appmap.json")
+                            map::appmap_path(&loaded.root)
                         }
                     };
                     graph::render(&path, &format, out.as_deref())?;
@@ -1268,7 +1350,7 @@ async fn main() -> Result<ExitCode> {
                     obj.insert("highlight".to_string(), serde_json::Value::String(oracle));
                 }
             }
-            let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
+            let cfg_path = layout::fuzz_config_path(&loaded.root);
             std::fs::create_dir_all(cfg_path.parent().unwrap())?;
             std::fs::write(&cfg_path, replay.to_string())?;
             let extra = vec![(
@@ -1313,7 +1395,7 @@ async fn main() -> Result<ExitCode> {
         }
         // `baseline`: the visual oracle. Diff the current capture against the
         // committed baseline (per-pixel tolerance + ignore regions); `--update`
-        // accepts the current capture as the new baseline. Was `check --visual`.
+        // accepts the current capture as the new baseline.
         Cmd::Baseline { update } => {
             let loaded = config::load(cli.config.as_deref())?;
             let Some(vis) = &loaded.config.visual else {
@@ -1469,8 +1551,8 @@ async fn main() -> Result<ExitCode> {
                 }
                 for meta in &metas {
                     let label = match loc {
-                        Some(l) => format!("{} @{l}", repro_label(meta)),
-                        None => repro_label(meta),
+                        Some(l) => format!("{} @{l}", check_label(meta)),
+                        None => check_label(meta),
                     };
                     ctx.say(format!("check {label}"));
                     let (result, run_dir) = check_repro(
@@ -1543,7 +1625,8 @@ async fn main() -> Result<ExitCode> {
                         }
                     ));
                     results.push(serde_json::json!({
-                        "id": meta.id,
+                        "id": public_json_id(meta),
+                        "kind": public_json_kind(meta),
                         "alias": meta.alias,
                         "locale": loc,
                         "outcome": result.outcome.as_str(),
@@ -1570,7 +1653,7 @@ async fn main() -> Result<ExitCode> {
                             }
                             ctx.say(format!(
                                 "  {} fails only in: {}",
-                                repro_label(meta),
+                                check_label(meta),
                                 failed.join(", ")
                             ));
                         }
@@ -1654,13 +1737,14 @@ async fn main() -> Result<ExitCode> {
             if ctx.json {
                 ctx.emit(&serde_json::json!({
                     "command": "simplify",
-                    "repro": meta.id,
+                    "repro": public_json_id(&meta),
+                    "kind": public_json_kind(&meta),
                     "reproduces": reproduces,
                     "verdict": result.outcome.as_str(),
                     "from_actions": current.len(),
                     "to_actions": candidate.len(),
                     "adopted": adopt,
-                    "new_id": adopt.then(|| new_id.clone()),
+                    "new_id": adopt.then(|| repro::display_repro_id(&new_id)),
                     "alias": meta.alias,
                 }));
             } else if adopt {
@@ -1671,23 +1755,23 @@ async fn main() -> Result<ExitCode> {
                     .unwrap_or_default();
                 ctx.say(format!(
                     "  simplified {} ({} actions) -> {} ({} actions){tag}",
-                    meta.id,
+                    public_json_id(&meta),
                     current.len(),
-                    new_id,
+                    repro::display_repro_id(&new_id),
                     candidate.len()
                 ));
             } else if !reproduces {
                 ctx.say(format!(
                     "  candidate did NOT reproduce (verdict: {}); kept {}",
                     result.outcome.as_str(),
-                    meta.id
+                    public_json_id(&meta)
                 ));
             } else {
                 ctx.say(format!(
                     "  candidate reproduces but is not shorter ({} vs {}); kept {}",
                     candidate.len(),
                     current.len(),
-                    meta.id
+                    public_json_id(&meta)
                 ));
             }
             Ok(ExitCode::SUCCESS)
@@ -1703,7 +1787,8 @@ async fn main() -> Result<ExitCode> {
                         // simplify (reproit_simplify) without a second call.
                         let actions = load_repro_actions(&loaded, &m.id).unwrap_or_default();
                         serde_json::json!({
-                            "id": m.id,
+                            "id": repro::display_repro_id(&m.id),
+                            "kind": "repro",
                             "alias": m.alias,
                             "status": m.status.as_str(),
                             "seed": m.seed,
@@ -1727,7 +1812,7 @@ async fn main() -> Result<ExitCode> {
                 for m in &metas {
                     ctx.say(format!(
                         "  {:<14} {:<18} {:<12} {}",
-                        m.id,
+                        repro::display_repro_id(&m.id),
                         m.alias.as_deref().unwrap_or("-"),
                         m.status.as_str(),
                         m.last_result.as_deref().unwrap_or("never"),
@@ -1764,7 +1849,7 @@ async fn main() -> Result<ExitCode> {
             analyze::analyze(&loaded.config, &loaded.root, run.as_deref()).await?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Sweep {
+        Cmd::Scan {
             target_arg,
             budget,
             sim,
@@ -1782,14 +1867,14 @@ async fn main() -> Result<ExitCode> {
                 let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
                 let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
-                if !l.root.join(".reproit/appmap.json").exists() {
-                    ctx.say("  building the app map (first run; re-run is faster)...");
-                    map::build_map(&l.config, &l.root, "explore", false, None).await?;
-                }
+                ensure_app_map(&ctx, &l, "explore").await?;
                 l
             } else {
                 match config::load(cli.config.as_deref()) {
-                    Ok(l) => l,
+                    Ok(l) => {
+                        ensure_app_map(&ctx, &l, "explore").await?;
+                        l
+                    }
                     Err(e) => match target_arg.as_deref().and_then(target_as_executable) {
                         Some(exe) => {
                             if !confirm_tui_fuzz(&ctx, &exe) {
@@ -1797,10 +1882,7 @@ async fn main() -> Result<ExitCode> {
                             }
                             ctx.say(format!("zero-config TUI run against `{exe}`"));
                             let l = config::synthesize_tui(&exe, std::env::current_dir()?)?;
-                            if !l.root.join(".reproit/appmap.json").exists() {
-                                ctx.say("  building the app map (first run; re-run is faster)...");
-                                map::build_map(&l.config, &l.root, "explore", false, None).await?;
-                            }
+                            ensure_app_map(&ctx, &l, "explore").await?;
                             synthesized = true;
                             l
                         }
@@ -1812,7 +1894,7 @@ async fn main() -> Result<ExitCode> {
                 Some(t) if !synthesized => t.clone(),
                 _ => "explore".to_string(),
             };
-            let args = fuzz::SweepArgs {
+            let args = fuzz::ScanArgs {
                 journey,
                 seed: 1,
                 budget,
@@ -1821,9 +1903,9 @@ async fn main() -> Result<ExitCode> {
                 record,
                 out,
             };
-            let completed = fuzz::sweep(&loaded.config, &loaded.root, &args).await?;
+            let completed = fuzz::scan(&loaded.config, &loaded.root, &args).await?;
             // A cut-short crawl (timeout/killed) checked only some screens; exit
-            // non-zero so CI/agents never read an incomplete sweep as a clean pass.
+            // non-zero so CI/agents never read an incomplete scan as a clean pass.
             return Ok(if completed {
                 ExitCode::SUCCESS
             } else {
@@ -1902,24 +1984,26 @@ async fn main() -> Result<ExitCode> {
                     "zero-config web run from Playwright test against {base}"
                 ));
                 let l = config::synthesize_web(&base, &wrd, std::env::current_dir()?)?;
-                if !l.root.join(".reproit/appmap.json").exists() {
-                    ctx.say("  building the app map (first run; re-run is faster)...");
-                    map::build_map(&l.config, &l.root, &journey, false, None).await?;
-                }
+                ensure_app_map(&ctx, &l, &journey).await?;
                 pw_capture = Some(cap);
                 l
             } else if let Some(u) = &target_url {
                 let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
                 let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
-                if !l.root.join(".reproit/appmap.json").exists() {
-                    ctx.say("  building the app map (first run; re-run is faster)...");
-                    map::build_map(&l.config, &l.root, &journey, false, None).await?;
-                }
+                ensure_app_map(&ctx, &l, &journey).await?;
                 l
             } else {
                 match config::load(cli.config.as_deref()) {
-                    Ok(l) => l,
+                    Ok(l) => {
+                        let map_journey = if target_arg.is_some() {
+                            "explore"
+                        } else {
+                            &journey
+                        };
+                        ensure_app_map(&ctx, &l, map_journey).await?;
+                        l
+                    }
                     Err(e) => match target_arg.as_deref().and_then(target_as_executable) {
                         Some(exe) => {
                             if !confirm_tui_fuzz(&ctx, &exe) {
@@ -1927,10 +2011,7 @@ async fn main() -> Result<ExitCode> {
                             }
                             ctx.say(format!("zero-config TUI run against `{exe}`"));
                             let l = config::synthesize_tui(&exe, std::env::current_dir()?)?;
-                            if !l.root.join(".reproit/appmap.json").exists() {
-                                ctx.say("  building the app map (first run; re-run is faster)...");
-                                map::build_map(&l.config, &l.root, &journey, false, None).await?;
-                            }
+                            ensure_app_map(&ctx, &l, &journey).await?;
                             synthesized = true;
                             l
                         }
@@ -1943,7 +2024,7 @@ async fn main() -> Result<ExitCode> {
                 Some(t) if !synthesized => t.clone(),
                 _ => journey,
             };
-            // `--soak`: the leak oracle (was `soak`).
+            // `--soak`: the leak oracle.
             if soak {
                 let cycle = cycle
                     .ok_or_else(|| anyhow::anyhow!("--soak needs --cycle \"tap:A;tap:B;...\""))?;
@@ -2086,7 +2167,8 @@ async fn main() -> Result<ExitCode> {
                     Some(f) => ctx.emit(&serde_json::json!({
                         "command": "fuzz",
                         "found": true,
-                        "id": f.id(),
+                        "id": repro::display_finding_id(&f.id()),
+                        "kind": "finding",
                         "seed": f.seed,
                         "actions": f.actions,
                         "artifact": f.run_dir.to_string_lossy(),
@@ -2117,7 +2199,7 @@ async fn main() -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Secrets { action } => {
+        Cmd::Auth { action } => {
             auth_cmd(cli.config.as_deref(), action)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -2414,7 +2496,7 @@ async fn resolve_check_device(
 /// of finding NEW bugs it re-confirms KNOWN repros per target, and a repro that
 /// fails on one target but passes on another is the divergence.
 ///
-/// Web engines (chromium/firefox/webkit) are the validated runtime case. Mobile
+/// Web engines (chromium/firefox/webkit) are the direct runtime fanout. Mobile
 /// (ios/android) exercises the routing + per-target dispatch + divergence diff,
 /// but a real dual-device check needs two booted devices on the host (infra-
 /// gated); without a device for a target it routes to the config default and
@@ -2504,7 +2586,8 @@ async fn run_check_targets(
                 result.rate()
             ));
             results.push(serde_json::json!({
-                "id": meta.id,
+                "id": repro::display_repro_id(&meta.id),
+                "kind": "repro",
                 "target": label,
                 "outcome": result.outcome.as_str(),
                 "rate": result.rate(),
@@ -2525,7 +2608,7 @@ async fn run_check_targets(
                 .iter()
                 .find(|m| &m.id == id)
                 .map(repro_label)
-                .unwrap_or_else(|| id.clone());
+                .unwrap_or_else(|| repro::display_repro_id(id));
             ctx.say(format!("  {label} fails only on: {}", on.join(", ")));
         }
     }
@@ -2536,7 +2619,11 @@ async fn run_check_targets(
         "exit": worst.exit_code(),
         "divergence": diverging
             .iter()
-            .map(|(id, on)| serde_json::json!({ "id": id, "fails_only_on": on }))
+            .map(|(id, on)| serde_json::json!({
+                "id": repro::display_repro_id(id),
+                "kind": "repro",
+                "fails_only_on": on
+            }))
             .collect::<Vec<_>>(),
     }));
     ctx.say(format!(
@@ -2555,8 +2642,7 @@ async fn run_check_targets(
 ///   - `RunTarget::Engine(e)` (chromium/firefox/webkit) routes through the web
 ///     backend (the WebCdp runner reads `REPROIT_ENGINE`), forcing the web
 ///     platform for the run. `fuzz --target chromium,firefox,webkit` thus runs
-///     the SAME seeded walk on each engine and diffs the findings. This is the
-///     validated runtime case.
+///     the SAME seeded walk on each engine and diffs the findings.
 ///   - `RunTarget::Platform(t)` (ios/android/web) resolves a device from the
 ///     platform's own device list (simctl/adb/flutter) and runs the loop on it.
 ///     For mobile (ios/android) the device-resolution + per-target dispatch +
@@ -2862,11 +2948,13 @@ async fn cloud_cmd(
             // Bucket-first: pull -> check, in one step. Reuses the pull + check
             // code paths so the saved repro carries its fixture.
             let loaded = config::load(config_path)?;
-            triage::reproduce_bucket(&loaded.root, &app, &bucket, &as_name, run, cloud, key).await
+            triage::reproduce_bucket(&loaded.root, &app, &bucket, &as_name, run, json, cloud, key)
+                .await
         }
         CloudAction::Pull {
             app,
             bucket,
+            top,
             as_name,
             cloud,
             key,
@@ -2875,7 +2963,15 @@ async fn cloud_cmd(
             // first-class saved repro under .reproit/repros/, just like `keep`.
             let loaded = config::load(config_path)?;
             let (cloud, key) = cloud_creds(cloud, key);
-            triage::pull(&loaded.root, &app, &bucket, &as_name, cloud, key).await
+            let bucket = match (bucket, top) {
+                (Some(bucket), false) => bucket,
+                (None, true) => triage::top_bucket_id(&app, cloud.clone(), key.clone()).await?,
+                (None, false) => {
+                    anyhow::bail!("missing bucket: pass --bucket <bkt_...> or use --top")
+                }
+                (Some(_), true) => unreachable!("clap conflicts_with prevents --bucket + --top"),
+            };
+            triage::pull(&loaded.root, &app, &bucket, &as_name, json, cloud, key).await
         }
         CloudAction::Triage {
             app,
@@ -2949,9 +3045,38 @@ async fn cloud_cmd(
 /// A human label for a repro in CLI output: `<id> (<alias>)` when an alias is
 /// set, else just the id.
 fn repro_label(m: &repro::Meta) -> String {
+    let id = repro::display_repro_id(&m.id);
     match &m.alias {
-        Some(a) => format!("{} ({a})", m.id),
-        None => m.id.clone(),
+        Some(a) => format!("{id} ({a})"),
+        None => id,
+    }
+}
+
+fn pending_label(id: &str) -> String {
+    repro::display_finding_id(id)
+}
+
+fn check_label(m: &repro::Meta) -> String {
+    if m.created.is_empty() {
+        pending_label(&m.id)
+    } else {
+        repro_label(m)
+    }
+}
+
+fn public_json_id(m: &repro::Meta) -> String {
+    if m.created.is_empty() {
+        repro::display_finding_id(&m.id)
+    } else {
+        repro::display_repro_id(&m.id)
+    }
+}
+
+fn public_json_kind(m: &repro::Meta) -> &'static str {
+    if m.created.is_empty() {
+        "finding"
+    } else {
+        "repro"
     }
 }
 
@@ -2995,6 +3120,7 @@ impl Finding {
 /// finding the last `fuzz` reported, before it is `keep`-ed. Returns the first
 /// dir whose `fuzz.md` repro block hashes to `id`.
 fn find_finding_by_id(loaded: &config::Loaded, id: &str) -> Option<Finding> {
+    let id = repro::raw_finding_id(id)?;
     let base = loaded.root.join(&loaded.config.evidence.out_dir);
     for e in std::fs::read_dir(&base).ok()?.flatten() {
         let p = e.path();
@@ -3118,31 +3244,38 @@ fn is_video(p: &Path) -> bool {
 }
 
 /// Resolve the recording to play for a repro, caching it into the gitignored
-/// per-id media slot so future `watch`es are instant and precise.
+/// per-id recording slot so future `watch`es are instant and precise.
 ///
-/// Lookup order: the per-id media slot (`.reproit/media/<id>.*`) first; else the
-/// newest recording under `.reproit/runs/` (the one you just produced with
-/// `record <id>`), which we then copy into the media slot. Bails with a
-/// how-to if neither exists. `.reproit/media/` is gitignored, so a cached
-/// recording can never be committed by accident.
+/// Lookup order: the per-id recording slot
+/// (`.reproit/recordings/repro/<id>/video.*`) first; else the newest recording
+/// under `.reproit/runs/` (the one you just produced with `record <id>`), which
+/// we then copy into the per-id slot. Bails with a how-to if neither exists.
+/// `.reproit/recordings/` is gitignored, so cached videos can never be committed
+/// by accident.
 fn resolve_repro_video(loaded: &config::Loaded, id_or_alias: &str) -> Result<PathBuf> {
     let root = loaded.root.as_path();
     // Key media by the canonical content-hash id (so an alias and its id share
-    // one cached file); fall back to the raw arg for a pending finding.
-    let id = repro::resolve(root, id_or_alias)
-        .map(|m| m.id)
-        .unwrap_or_else(|| id_or_alias.to_string());
-    let media_dir = root.join(".reproit/media");
+    // one cached file); pending findings use their public `fnd_...` id.
+    let id = if let Some(m) = repro::resolve(root, id_or_alias) {
+        m.id
+    } else if let Some(id) = repro::raw_finding_id(id_or_alias) {
+        id.to_string()
+    } else {
+        anyhow::bail!(
+            "no repro or finding `{id_or_alias}`. Use a saved alias, rep_..., or fnd_..."
+        );
+    };
+    let recording_dir = layout::repro_recording_dir(root, &id);
 
     // 1. Already cached for this id.
-    if let Some(v) = newest_video_in(&media_dir, Some(&id)) {
+    if let Some(v) = newest_video_in(&recording_dir, Some("video")) {
         return Ok(v);
     }
-    // 2. Newest recording from any run; promote it into the per-id media slot.
-    if let Some(src) = newest_video_in(&root.join(".reproit/runs"), None) {
-        std::fs::create_dir_all(&media_dir)?;
+    // 2. Newest recording from any run; promote it into the per-id recording slot.
+    if let Some(src) = newest_video_in(&root.join(&loaded.config.evidence.out_dir), None) {
+        std::fs::create_dir_all(&recording_dir)?;
         let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("webm");
-        let dest = media_dir.join(format!("{id}.{ext}"));
+        let dest = layout::repro_video_path(root, &id, ext);
         std::fs::copy(&src, &dest)
             .map_err(|e| anyhow::anyhow!("caching recording to {}: {e}", dest.display()))?;
         return Ok(dest);
@@ -3317,10 +3450,14 @@ fn keep_repro(
         (Some(old), Some(new)) if old != new => Some((old.clone(), new.to_string())),
         _ => None,
     };
+    let public_id = repro::display_repro_id(&computed);
+    let source_id = repro::display_finding_id(&computed);
     if ctx.json {
         ctx.emit(&serde_json::json!({
             "command": "keep",
-            "id": computed,
+            "id": public_id,
+            "kind": "repro",
+            "source_id": source_id,
             "alias": meta.alias,
             "status": status.as_str(),
             "already_saved": existing.is_some(),
@@ -3332,20 +3469,21 @@ fn keep_repro(
     } else if existing.is_some() {
         match &renamed {
             Some((old, new)) => ctx.say(format!(
-                "  already saved ({computed}); alias {old} -> {new}"
+                "  already saved ({}); alias {old} -> {new}",
+                public_id
             )),
             None => {
-                let label = alias.as_deref().unwrap_or(&computed);
+                let label = alias.as_deref().unwrap_or(&public_id);
                 ctx.say(format!("  already saved as {label} ({})", status.as_str()));
             }
         }
-        ctx.say(format!("  check: reproit check {computed}"));
+        ctx.say(format!("  check: reproit check {public_id}"));
     } else {
-        ctx.say(format!("  kept {} ({})", computed, status.as_str()));
+        ctx.say(format!("  kept {} ({})", public_id, status.as_str()));
         if let Some(a) = &alias {
             ctx.say(format!("  alias: {a}"));
         }
-        ctx.say(format!("  verify: reproit check {computed}"));
+        ctx.say(format!("  verify: reproit check {public_id}"));
     }
     Ok(())
 }
@@ -3538,7 +3676,7 @@ async fn check_repro(
     };
 
     // The fuzz config the explorer reads on each replay.
-    let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
+    let cfg_path = layout::fuzz_config_path(&loaded.root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
     let mut defines = vec![(
         "REPROIT_FUZZ_CONFIG".to_string(),
@@ -3565,8 +3703,8 @@ async fn check_repro(
                      // launches ONCE instead of N cold starts (the agent inner loop's main
                      // latency). The runner brackets each replay with SEED:BEGIN/SEED:END, so we
                      // split the one drive log back into N per-replay segments and classify each
-                     // exactly as before. A single replay (times == 1) keeps the legacy bare-config
-                     // shape, byte-for-byte. This is a pure latency change: same N replays, same
+                     // exactly as before. A single replay (times == 1) keeps the compact
+                     // bare-config shape. This is a pure latency change: same N replays, same
                      // per-replay verdict, same determinism.
     let config = if times <= 1 {
         replay.clone()
@@ -3612,40 +3750,199 @@ async fn check_repro(
     Ok((repro::CheckResult::from_verdicts(&verdicts), last_dir))
 }
 
-/// Print the platform support matrix: every registered UI framework, the
-/// backend it routes to, and whether it runs today.
+/// Print the platform support matrix: every registered UI framework and the
+/// backend it routes to.
 fn print_platforms() {
     println!("Platform support matrix (UI framework -> introspection backend)\n");
-    println!("  {:<16} {:<26} {:<8}", "PLATFORM", "BACKEND", "STATUS");
+    println!("  {:<16} {:<26} CAPABILITY", "PLATFORM", "BACKEND");
     for p in platform::all() {
-        println!(
-            "  {:<16} {:<26} {:<8}",
-            p.id,
-            p.backend.as_str(),
-            p.status.label()
-        );
+        println!("  {:<16} {:<26} {}", p.id, p.backend.as_str(), p.note);
     }
     println!(
-        "\n  live = validated   beta = wired, unvalidated   planned = routed, runner not built\n\
+        "\n  All listed platform IDs are live. Local readiness still depends on \
+         `reproit doctor` and host tooling.\n\
          \n  The point: Qt/GTK/WinUI/Avalonia/wxWidgets share ONE backend per OS\n\
-         (they all publish to the OS accessibility API), Electron/Tauri reuse the\n\
-         web backend, and only immediate-mode GUIs (imgui, clay) need an in-app hook."
+         (they publish to the OS accessibility API), Electron/Tauri reuse the\n\
+         web backend, Appium covers native mobile, TUI uses a PTY, and only\n\
+         immediate-mode GUIs (imgui, clay) need an in-app hook."
     );
 }
 
 /// Resolve the vault path from config (or cwd default when no config is found).
 fn resolve_vault_path(config_path: Option<&std::path::Path>) -> Result<PathBuf> {
     if let Ok(l) = config::load(config_path) {
-        Ok(l.root.join(
-            l.config
-                .auth
-                .vault
-                .clone()
-                .unwrap_or_else(|| ".reproit/secrets.vault".into()),
-        ))
+        Ok(l.config
+            .auth
+            .vault
+            .as_ref()
+            .map(|path| l.root.join(path))
+            .unwrap_or_else(|| layout::secrets_vault_path(&l.root)))
     } else {
-        Ok(std::env::current_dir()?.join(".reproit/secrets.vault"))
+        Ok(layout::secrets_vault_path(&std::env::current_dir()?))
     }
+}
+
+fn resolve_config_path(config_path: Option<&std::path::Path>) -> Result<PathBuf> {
+    if let Some(p) = config_path {
+        return Ok(p.to_path_buf());
+    }
+    let mut dir = std::env::current_dir()?;
+    loop {
+        let p = dir.join("reproit.yaml");
+        if p.exists() {
+            return Ok(p);
+        }
+        if !dir.pop() {
+            anyhow::bail!("no reproit.yaml found; pass --config or run `reproit map` first");
+        }
+    }
+}
+
+fn yaml_str(s: impl Into<String>) -> serde_yaml::Value {
+    serde_yaml::Value::String(s.into())
+}
+
+fn yaml_mapping_mut(v: &mut serde_yaml::Value) -> Result<&mut serde_yaml::Mapping> {
+    match v {
+        serde_yaml::Value::Mapping(m) => Ok(m),
+        _ => anyhow::bail!("reproit.yaml must be a YAML mapping"),
+    }
+}
+
+fn yaml_child_mapping<'a>(
+    parent: &'a mut serde_yaml::Mapping,
+    key: &str,
+) -> Result<&'a mut serde_yaml::Mapping> {
+    let k = yaml_str(key);
+    if !parent.contains_key(&k) {
+        parent.insert(k.clone(), serde_yaml::Value::Mapping(Default::default()));
+    }
+    match parent.get_mut(&k) {
+        Some(serde_yaml::Value::Mapping(m)) => Ok(m),
+        _ => anyhow::bail!("`{key}` in reproit.yaml must be a mapping"),
+    }
+}
+
+fn yaml_child_sequence<'a>(
+    parent: &'a mut serde_yaml::Mapping,
+    key: &str,
+) -> Result<&'a mut Vec<serde_yaml::Value>> {
+    let k = yaml_str(key);
+    if !parent.contains_key(&k) {
+        parent.insert(k.clone(), serde_yaml::Value::Sequence(Vec::new()));
+    }
+    match parent.get_mut(&k) {
+        Some(serde_yaml::Value::Sequence(s)) => Ok(s),
+        _ => anyhow::bail!("`{key}` in reproit.yaml must be a list"),
+    }
+}
+
+fn account_ref(account: &str, field: &str) -> String {
+    format!("{account}.{field}")
+}
+
+fn insert_yaml_opt(map: &mut serde_yaml::Mapping, key: &str, value: Option<String>) {
+    if let Some(value) = value.filter(|s| !s.trim().is_empty()) {
+        map.insert(yaml_str(key), yaml_str(value));
+    }
+}
+
+fn store_secret_opt(
+    vault: &mut auth::Vault,
+    account: &str,
+    field: &str,
+    value: Option<String>,
+) -> Option<String> {
+    let key = account_ref(account, field);
+    if let Some(value) = value.filter(|s| !s.is_empty()) {
+        vault.set(&key, &value);
+    }
+    Some(key)
+}
+
+fn update_account_config(
+    config_path: &Path,
+    account: &str,
+    strategy: config::AuthStrategy,
+    refs: &AuthRefs,
+    user_id: Option<String>,
+    validate_text: Option<String>,
+) -> Result<()> {
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("reading {}", config_path.display()))?;
+    let mut doc: serde_yaml::Value =
+        serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", config_path.display()))?;
+    let root = yaml_mapping_mut(&mut doc)?;
+    let auth = yaml_child_mapping(root, "auth")?;
+    let accounts = yaml_child_sequence(auth, "accounts")?;
+    accounts.retain(|v| {
+        !matches!(
+            v,
+            serde_yaml::Value::Mapping(m)
+                if m.get(yaml_str("name")).and_then(serde_yaml::Value::as_str) == Some(account)
+        )
+    });
+
+    let mut acct = serde_yaml::Mapping::new();
+    acct.insert(yaml_str("name"), yaml_str(account));
+    acct.insert(yaml_str("strategy"), yaml_str(strategy.as_str()));
+    insert_yaml_opt(&mut acct, "userId", user_id);
+    insert_yaml_opt(&mut acct, "usernameRef", refs.username_ref.clone());
+    insert_yaml_opt(&mut acct, "emailRef", refs.email_ref.clone());
+    insert_yaml_opt(&mut acct, "phoneRef", refs.phone_ref.clone());
+    insert_yaml_opt(&mut acct, "passwordRef", refs.password_ref.clone());
+    insert_yaml_opt(&mut acct, "totpRef", refs.totp_ref.clone());
+    insert_yaml_opt(&mut acct, "otpRef", refs.otp_ref.clone());
+    insert_yaml_opt(&mut acct, "storageRef", refs.storage_ref.clone());
+    if let Some(text) = validate_text.filter(|s| !s.trim().is_empty()) {
+        let mut validate = serde_yaml::Mapping::new();
+        validate.insert(yaml_str("text"), yaml_str(text));
+        acct.insert(yaml_str("validate"), serde_yaml::Value::Mapping(validate));
+    }
+    accounts.push(serde_yaml::Value::Mapping(acct));
+
+    std::fs::write(config_path, serde_yaml::to_string(&doc)?)
+        .with_context(|| format!("writing {}", config_path.display()))?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct AuthRefs {
+    username_ref: Option<String>,
+    email_ref: Option<String>,
+    phone_ref: Option<String>,
+    password_ref: Option<String>,
+    totp_ref: Option<String>,
+    otp_ref: Option<String>,
+    storage_ref: Option<String>,
+}
+
+fn default_auth_refs(account: &str, strategy: config::AuthStrategy) -> AuthRefs {
+    let mut refs = AuthRefs::default();
+    match strategy {
+        config::AuthStrategy::Password => {
+            refs.username_ref = Some(account_ref(account, "username"));
+            refs.password_ref = Some(account_ref(account, "password"));
+        }
+        config::AuthStrategy::PasswordOtp => {
+            refs.username_ref = Some(account_ref(account, "username"));
+            refs.password_ref = Some(account_ref(account, "password"));
+            refs.totp_ref = Some(account_ref(account, "totp"));
+        }
+        config::AuthStrategy::PhoneOtp => {
+            refs.phone_ref = Some(account_ref(account, "phone"));
+            refs.otp_ref = Some(account_ref(account, "otp"));
+        }
+        config::AuthStrategy::EmailLink => {
+            refs.email_ref = Some(account_ref(account, "email"));
+        }
+        config::AuthStrategy::OauthTest
+        | config::AuthStrategy::Session
+        | config::AuthStrategy::Api => {
+            refs.storage_ref = Some(account_ref(account, "session"));
+        }
+    }
+    refs
 }
 
 fn journey_cmd(
@@ -3707,6 +4004,90 @@ fn journey_cmd(
 fn auth_cmd(config_path: Option<&std::path::Path>, action: AuthAction) -> Result<()> {
     let vpath = resolve_vault_path(config_path)?;
     match action {
+        AuthAction::Add {
+            account,
+            strategy,
+            email,
+            phone,
+            username,
+            password,
+            otp,
+            totp_secret,
+            session,
+            user_id,
+            validate_text,
+        } => {
+            if account.trim().is_empty() {
+                anyhow::bail!("account name cannot be empty");
+            }
+            let strategy = strategy.config();
+            let config_file = resolve_config_path(config_path)?;
+            let mut refs = default_auth_refs(&account, strategy);
+            let mut vault = auth::Vault::open(&vpath)?;
+
+            if email.is_some() {
+                refs.email_ref = store_secret_opt(&mut vault, &account, "email", email);
+                if matches!(
+                    strategy,
+                    config::AuthStrategy::Password | config::AuthStrategy::PasswordOtp
+                ) && refs.username_ref == Some(account_ref(&account, "username"))
+                {
+                    refs.username_ref = Some(account_ref(&account, "email"));
+                }
+            }
+            if phone.is_some() {
+                refs.phone_ref = store_secret_opt(&mut vault, &account, "phone", phone);
+            }
+            if username.is_some() {
+                refs.username_ref = store_secret_opt(&mut vault, &account, "username", username);
+            }
+            if password.is_some() {
+                refs.password_ref = store_secret_opt(&mut vault, &account, "password", password);
+            }
+            if otp.is_some() {
+                refs.otp_ref = store_secret_opt(&mut vault, &account, "otp", otp);
+            }
+            if let Some(secret) = totp_secret {
+                let Some(code) = auth::totp_now(&secret) else {
+                    anyhow::bail!("not a valid base32 TOTP secret");
+                };
+                let key = account_ref(&account, "totp");
+                vault.set(&key, &secret);
+                refs.totp_ref = Some(key);
+                println!("  TOTP ok (current code {code})");
+            }
+            if session.is_some() {
+                refs.storage_ref = store_secret_opt(&mut vault, &account, "session", session);
+            }
+
+            vault.save()?;
+            update_account_config(
+                &config_file,
+                &account,
+                strategy,
+                &refs,
+                user_id,
+                validate_text,
+            )?;
+            println!(
+                "  account {account} ({}) written to {}",
+                strategy.as_str(),
+                config_file.display()
+            );
+            println!("  vault: {}", vpath.display());
+            println!("  use it in journeys with: setup: login({account})");
+            if matches!(
+                strategy,
+                config::AuthStrategy::Session
+                    | config::AuthStrategy::Api
+                    | config::AuthStrategy::OauthTest
+            ) {
+                println!("  session-style setup can use: setup: auth({account})");
+            }
+        }
+        AuthAction::Doctor { account } => {
+            auth_account_doctor(config_path, &account)?;
+        }
         AuthAction::Set { key, value } => {
             let val = match value {
                 Some(v) => v,
@@ -3794,83 +4175,568 @@ fn auth_cmd(config_path: Option<&std::path::Path>, action: AuthAction) -> Result
     Ok(())
 }
 
-async fn doctor(config_path: Option<&std::path::Path>) -> Result<()> {
-    let mut ok = true;
-    // Platform-specific tool checks. Default to flutter when no config is
-    // present (the common first-run case).
-    let loaded = config::load(config_path).ok();
-    let web = loaded
-        .as_ref()
-        .map(|l| l.config.app.platform == "web-playwright")
-        .unwrap_or(false);
+fn vault_has(vault: &auth::Vault, key: &Option<String>) -> bool {
+    key.as_ref().is_some_and(|k| vault.get(k).is_some())
+}
 
-    let checks: &[(&str, &str)] = if web {
-        &[("node", "web runner (Playwright)")]
-    } else {
-        &[
-            ("xcrun", "simulator control (Xcode command line tools)"),
-            ("ffmpeg", "video compositing"),
-            ("flutter", "driving the app"),
-        ]
-    };
-    for (bin, why) in checks {
-        let found = exec::which(bin).await;
+fn auth_account_doctor(config_path: Option<&std::path::Path>, account: &str) -> Result<()> {
+    let loaded = config::load(config_path)?;
+    let vpath = resolve_vault_path(config_path)?;
+    let acct = loaded
+        .config
+        .auth
+        .accounts
+        .iter()
+        .find(|a| a.name == account)
+        .ok_or_else(|| anyhow::anyhow!("no account named {account} in reproit.yaml"))?;
+    let strategy = acct.strategy.unwrap_or(config::AuthStrategy::Password);
+    let vault = auth::Vault::open(&vpath)?;
+    let login_journey = loaded.root.join("journeys/login.yaml");
+
+    let mut ok = true;
+    let mut check = |name: &str, passed: bool, detail: String| {
+        ok &= passed;
         println!(
-            "  {}  {bin}  ({why})",
-            if found { "ok " } else { "MISSING" }
+            "  {:7} {name}: {detail}",
+            if passed { "ok" } else { "MISSING" }
         );
-        ok &= found;
+    };
+    println!("account {account} ({})", strategy.as_str());
+    check(
+        "vault",
+        vpath.exists(),
+        if vpath.exists() {
+            vpath.display().to_string()
+        } else {
+            format!("{} does not exist yet", vpath.display())
+        },
+    );
+    match strategy {
+        config::AuthStrategy::Password => {
+            check(
+                "identifier",
+                acct.username.is_some()
+                    || vault_has(&vault, &acct.username_ref)
+                    || vault_has(&vault, &acct.email_ref),
+                "usernameRef/emailRef or username".into(),
+            );
+            check(
+                "password",
+                vault_has(&vault, &acct.password_ref),
+                "passwordRef".into(),
+            );
+            check(
+                "login",
+                login_journey.exists(),
+                login_journey.display().to_string(),
+            );
+        }
+        config::AuthStrategy::PasswordOtp => {
+            check(
+                "identifier",
+                acct.username.is_some()
+                    || vault_has(&vault, &acct.username_ref)
+                    || vault_has(&vault, &acct.email_ref),
+                "usernameRef/emailRef or username".into(),
+            );
+            check(
+                "password",
+                vault_has(&vault, &acct.password_ref),
+                "passwordRef".into(),
+            );
+            let totp_ok = acct
+                .totp_ref
+                .as_ref()
+                .and_then(|k| vault.get(k))
+                .and_then(auth::totp_now)
+                .is_some();
+            check(
+                "totp",
+                totp_ok || vault_has(&vault, &acct.otp_ref),
+                "totpRef or otpRef".into(),
+            );
+            check(
+                "login",
+                login_journey.exists(),
+                login_journey.display().to_string(),
+            );
+        }
+        config::AuthStrategy::PhoneOtp => {
+            check(
+                "phone",
+                vault_has(&vault, &acct.phone_ref),
+                "phoneRef".into(),
+            );
+            check(
+                "otp",
+                vault_has(&vault, &acct.otp_ref) || vault_has(&vault, &acct.totp_ref),
+                "otpRef, totpRef, or provider adapter".into(),
+            );
+            check(
+                "login",
+                login_journey.exists(),
+                login_journey.display().to_string(),
+            );
+        }
+        config::AuthStrategy::EmailLink => {
+            check(
+                "email",
+                vault_has(&vault, &acct.email_ref),
+                "emailRef".into(),
+            );
+            check(
+                "login",
+                login_journey.exists(),
+                login_journey.display().to_string(),
+            );
+        }
+        config::AuthStrategy::OauthTest
+        | config::AuthStrategy::Session
+        | config::AuthStrategy::Api => {
+            check(
+                "session",
+                vault_has(&vault, &acct.storage_ref),
+                "storageRef".into(),
+            );
+        }
     }
-    if web {
-        // Playwright + chromium present in the configured web runner dir.
-        if let Some(l) = &loaded {
-            if let Some(dir) = &l.config.app.web_runner_dir {
-                let runner = l.root.join(dir).join("node_modules/playwright");
-                let present = runner.exists();
-                println!(
-                    "  {}  playwright in {} ({})",
-                    if present { "ok " } else { "MISSING" },
-                    dir,
-                    if present {
-                        "installed"
-                    } else {
-                        "run npm install + npx playwright install chromium"
-                    }
-                );
-                ok &= present;
-            }
+    if let Some(validate) = &acct.validate {
+        if let Some(text) = &validate.text {
+            println!("  ok      validate: text `{text}`");
+        } else if let Some(state) = &validate.state {
+            println!("  ok      validate: state `{state}`");
         }
     } else {
-        let sims = exec::run("xcrun", &["simctl", "list", "devices", "booted"]).await;
         println!(
-            "  {}  simctl reachable",
-            if sims.ok() { "ok " } else { "MISSING" }
+            "  warn    validate: add validate.text or validate.state for clearer auth failures"
         );
-        ok &= sims.ok();
+    }
+    if !ok {
+        anyhow::bail!("auth account {account} is not ready");
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct DoctorCheck {
+    name: String,
+    ok: bool,
+    required: bool,
+    detail: String,
+    fix: Option<String>,
+}
+
+fn doctor_push(
+    checks: &mut Vec<DoctorCheck>,
+    name: impl Into<String>,
+    ok: bool,
+    required: bool,
+    detail: impl Into<String>,
+    fix: Option<String>,
+) {
+    checks.push(DoctorCheck {
+        name: name.into(),
+        ok,
+        required,
+        detail: detail.into(),
+        fix,
+    });
+}
+
+fn render_doctor(checks: &[DoctorCheck]) {
+    for c in checks {
+        let status = if c.ok {
+            "ok"
+        } else if c.required {
+            "MISSING"
+        } else {
+            "warn"
+        };
+        println!("  {status:7} {}", c.name);
+        if !c.detail.is_empty() {
+            println!("          {}", c.detail);
+        }
+        if !c.ok {
+            if let Some(fix) = &c.fix {
+                println!("          fix: {fix}");
+            }
+        }
+    }
+}
+
+fn doctor_optional_path(
+    checks: &mut Vec<DoctorCheck>,
+    name: &str,
+    root: &std::path::Path,
+    value: Option<&str>,
+    fix: &str,
+) {
+    let Some(value) = value.filter(|s| !s.trim().is_empty()) else {
+        doctor_push(
+            checks,
+            name,
+            false,
+            false,
+            "not configured",
+            Some(fix.into()),
+        );
+        return;
+    };
+    let path = std::path::Path::new(value);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let exists = resolved.exists() || command_on_path(value);
+    doctor_push(
+        checks,
+        name,
+        exists,
+        false,
+        resolved.display().to_string(),
+        Some(fix.into()),
+    );
+}
+
+async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> {
+    let mut checks = Vec::new();
+    let loaded = match config::load(config_path) {
+        Ok(loaded) => {
+            doctor_push(
+                &mut checks,
+                "config",
+                true,
+                true,
+                format!("loaded project root {}", loaded.root.display()),
+                None,
+            );
+            Some(loaded)
+        }
+        Err(e) => {
+            doctor_push(
+                &mut checks,
+                "config",
+                false,
+                true,
+                e.to_string(),
+                Some("run from a project with reproit.yaml, pass --config, or start with `reproit map --url <url>`".into()),
+            );
+            None
+        }
+    };
+
+    let web = loaded
+        .as_ref()
+        .map(|l| l.config.app.platform == "web")
+        .unwrap_or(false);
+
+    if let Some(l) = &loaded {
+        let platform = platform::resolve(&l.config.app.platform);
+        if let Some(p) = platform {
+            doctor_push(
+                &mut checks,
+                "platform",
+                true,
+                true,
+                format!("{} via {}", p.id, p.backend.as_str()),
+                None,
+            );
+            if let Some(required) = p.backend.required_os() {
+                let host = std::env::consts::OS;
+                doctor_push(
+                    &mut checks,
+                    "host os",
+                    host == required,
+                    false,
+                    format!("host={host}, required={required}"),
+                    Some(format!(
+                        "run this project on {required} or in a matching VM"
+                    )),
+                );
+            }
+        }
+
+        if web {
+            let node_ok = exec::which("node").await;
+            doctor_push(
+                &mut checks,
+                "node",
+                node_ok,
+                true,
+                "required for the Playwright web runner",
+                Some("install Node.js 18+ (`brew install node` on macOS)".into()),
+            );
+            match &l.config.app.url {
+                Some(url) if url.starts_with("http://") || url.starts_with("https://") => {
+                    doctor_push(&mut checks, "app url", true, true, url.clone(), None);
+                }
+                Some(url) => {
+                    doctor_push(
+                        &mut checks,
+                        "app url",
+                        false,
+                        true,
+                        format!("configured value is `{url}`"),
+                        Some("set app.url to an http(s) URL reachable from this machine".into()),
+                    );
+                }
+                None => {
+                    doctor_push(
+                        &mut checks,
+                        "app url",
+                        false,
+                        true,
+                        "app.url is missing",
+                        Some(
+                            "add app.url to reproit.yaml or run with --url where supported".into(),
+                        ),
+                    );
+                }
+            }
+
+            match &l.config.app.web_runner_dir {
+                Some(dir) => {
+                    let runner_dir = l.root.join(dir);
+                    let runner = runner_dir.join("runner.mjs");
+                    let node_modules = runner_dir.join("node_modules");
+                    let playwright = node_modules.join("playwright");
+                    let browsers = runner_dir.join("node_modules/.cache/ms-playwright");
+                    doctor_push(
+                        &mut checks,
+                        "web runner",
+                        runner.exists(),
+                        true,
+                        runner_dir.display().to_string(),
+                        Some("set app.webRunnerDir to reproit-cli/runners/web or install the packaged runner".into()),
+                    );
+                    doctor_push(
+                        &mut checks,
+                        "playwright package",
+                        playwright.exists(),
+                        true,
+                        node_modules.display().to_string(),
+                        Some("run `npm ci` in the web runner directory".into()),
+                    );
+                    doctor_push(
+                        &mut checks,
+                        "playwright browser",
+                        browsers.exists(),
+                        false,
+                        browsers.display().to_string(),
+                        Some(
+                            "run `npx playwright install chromium` in the web runner directory"
+                                .into(),
+                        ),
+                    );
+                }
+                None => {
+                    doctor_push(
+                        &mut checks,
+                        "web runner",
+                        false,
+                        false,
+                        "app.webRunnerDir is not set; reproit will try its self-provisioned runner",
+                        Some("set REPROIT_WEB_RUNNER_DIR for source checkouts if auto-provisioning fails".into()),
+                    );
+                }
+            }
+        } else if let Some(p) = platform {
+            match p.backend {
+                platform::Backend::FlutterDrive => {
+                    for (bin, why) in [
+                        ("xcrun", "simulator control"),
+                        ("ffmpeg", "video/evidence tooling"),
+                        ("flutter", "Flutter app driving"),
+                    ] {
+                        let found = exec::which(bin).await;
+                        doctor_push(
+                            &mut checks,
+                            bin,
+                            found,
+                            true,
+                            why,
+                            Some(format!("install {bin} for Flutter/iOS simulator runs")),
+                        );
+                    }
+                    let sims = exec::run("xcrun", &["simctl", "list", "devices", "booted"]).await;
+                    doctor_push(
+                        &mut checks,
+                        "simctl reachable",
+                        sims.ok(),
+                        true,
+                        "can query booted simulators",
+                        Some("install Xcode command line tools and accept Xcode licenses".into()),
+                    );
+                }
+                platform::Backend::Appium => {
+                    doctor_push(
+                        &mut checks,
+                        "appium url",
+                        l.config.app.appium_url.is_some(),
+                        true,
+                        l.config
+                            .app
+                            .appium_url
+                            .clone()
+                            .unwrap_or_else(|| "missing".into()),
+                        Some("set app.appiumUrl, usually http://127.0.0.1:4723".into()),
+                    );
+                    doctor_push(
+                        &mut checks,
+                        "appium caps",
+                        l.config.app.appium_caps.is_some(),
+                        true,
+                        "desired capabilities present",
+                        Some("set app.appiumCaps for the app or bundle under test".into()),
+                    );
+                }
+                platform::Backend::WebCdp => {
+                    let node_ok = exec::which("node").await;
+                    doctor_push(
+                        &mut checks,
+                        "node",
+                        node_ok,
+                        true,
+                        "required for Electron/Tauri/webview runners",
+                        Some("install Node.js 18+ (`brew install node` on macOS)".into()),
+                    );
+                    doctor_optional_path(
+                        &mut checks,
+                        "executable",
+                        &l.root,
+                        l.config.app.executable.as_deref(),
+                        "set app.executable to the built Electron/Tauri app",
+                    );
+                    doctor_optional_path(
+                        &mut checks,
+                        "runner dir",
+                        &l.root,
+                        l.config.app.runner_dir.as_deref(),
+                        "set app.runnerDir to the directory containing reproit runners",
+                    );
+                }
+                platform::Backend::DesktopAx
+                | platform::Backend::DesktopUia
+                | platform::Backend::DesktopAtspi
+                | platform::Backend::Instrumented
+                | platform::Backend::Tui => {
+                    let target = l.config.app.executable.as_deref().or_else(|| {
+                        (!l.config.app.bundle_id.trim().is_empty())
+                            .then_some(l.config.app.bundle_id.as_str())
+                    });
+                    doctor_optional_path(
+                        &mut checks,
+                        "executable",
+                        &l.root,
+                        target,
+                        "set app.executable (or bundleId on macOS) to the app under test",
+                    );
+                    doctor_optional_path(
+                        &mut checks,
+                        "runner dir",
+                        &l.root,
+                        l.config.app.runner_dir.as_deref(),
+                        "set app.runnerDir to the directory containing reproit runners",
+                    );
+                }
+            }
+        }
     }
 
-    // LLM provider check: advisory only. The runner works without one; the
-    // authoring agent and failure analyzer need it.
-    match config::load(config_path) {
-        Ok(loaded) => match llm::from_spec(&loaded.config.llm.to_spec()) {
+    let persisted = crosscut::load_token(&crosscut::token_path());
+    let cloud_url = std::env::var("REPROIT_CLOUD_URL")
+        .ok()
+        .or_else(|| persisted.as_ref().and_then(|(_, u)| u.clone()));
+    let cloud_key = std::env::var("REPROIT_CLOUD_KEY")
+        .ok()
+        .or_else(|| persisted.as_ref().map(|(t, _)| t.clone()));
+    doctor_push(
+        &mut checks,
+        "cloud url",
+        cloud_url.is_some(),
+        false,
+        cloud_url.unwrap_or_else(|| "not configured".into()),
+        Some("set REPROIT_CLOUD_URL or run `reproit cloud login --key <sk_live_...>`".into()),
+    );
+    doctor_push(
+        &mut checks,
+        "cloud key",
+        cloud_key.is_some(),
+        false,
+        cloud_key
+            .as_ref()
+            .map(|k| format!("configured ({} chars), not printed", k.len()))
+            .unwrap_or_else(|| "not configured".into()),
+        Some("set REPROIT_CLOUD_KEY or run `reproit cloud login --key <sk_live_...>`".into()),
+    );
+    if let Some(l) = &loaded {
+        let app_id = std::env::var("REPROIT_CLOUD_APP").ok();
+        doctor_push(
+            &mut checks,
+            "cloud app",
+            app_id.is_some(),
+            false,
+            app_id.unwrap_or_else(|| {
+                format!("not set; local app platform is {}", l.config.app.platform)
+            }),
+            Some("set REPROIT_CLOUD_APP or pass --app to cloud commands".into()),
+        );
+    }
+
+    match &loaded {
+        Some(loaded) => match llm::from_spec(&loaded.config.llm.to_spec()) {
             Ok(b) => match b.check().await {
-                Ok(()) => println!("  ok   llm: {}", b.name()),
-                Err(e) => println!(
-                    "  warn llm: {} ({e}); runner works, authoring will not",
-                    b.name()
+                Ok(()) => doctor_push(&mut checks, "llm", true, false, b.name(), None),
+                Err(e) => doctor_push(
+                    &mut checks,
+                    "llm",
+                    false,
+                    false,
+                    format!("{}: {e}; runner works, authoring will not", b.name()),
+                    Some("install/configure the selected LLM provider or leave this for runner-only use".into()),
                 ),
             },
-            Err(e) => {
-                println!("  warn llm: {e}");
-            }
+            Err(e) => doctor_push(
+                &mut checks,
+                "llm",
+                false,
+                false,
+                e.to_string(),
+                Some("fix the llm section in reproit.yaml if you use authoring/analyze commands".into()),
+            ),
         },
-        Err(_) => println!("  --   llm: no reproit.yaml found, skipping"),
+        None => doctor_push(
+            &mut checks,
+            "llm",
+            false,
+            false,
+            "no reproit.yaml found, skipping",
+            None,
+        ),
     }
 
+    let ok = checks.iter().all(|c| c.ok || !c.required);
+    if ctx.json {
+        ctx.emit(&serde_json::json!({
+            "command": "doctor",
+            "ok": ok,
+            "checks": checks,
+        }));
+    } else {
+        render_doctor(&checks);
+        println!(
+            "\n{}",
+            if ok {
+                "doctor: required checks passed"
+            } else {
+                "doctor: required checks failed"
+            }
+        );
+    }
     if !ok {
         std::process::exit(1);
     }
-    println!("\nall checks passed");
     Ok(())
 }
 
@@ -4013,7 +4879,7 @@ tap:Login
 tap:Submit
 ```
 
-Replay: write {\"replay\": [...]} to .reproit/fuzz_config.json ...
+Replay: write {\"replay\": [...]} to .reproit/tmp/fuzz_config.json ...
 ";
         let (seed, actions) = parse_fuzz_report(md).expect("parse");
         assert_eq!(seed, 42);
@@ -4044,6 +4910,36 @@ Replay: write {\"replay\": [...]} to .reproit/fuzz_config.json ...
         assert!(m.created.is_empty());
         assert!(m.last_checked.is_none());
         assert_eq!(m.trigger_index, Some(2));
+    }
+
+    #[test]
+    fn prefixed_finding_id_resolves_to_pending_artifact() {
+        let root = std::env::temp_dir().join(format!("reproit-fnd-{}", std::process::id()));
+        let run = root.join(".reproit/runs/run-1");
+        std::fs::create_dir_all(&run).unwrap();
+        let md = "\
+# fuzz finding (seed 42)
+
+## repro (2 actions)
+
+```
+tap:Login
+tap:Submit
+```
+";
+        std::fs::write(run.join("fuzz.md"), md).unwrap();
+        let loaded = config::parse_str(
+            "app:\n  platform: web\n  webRunnerDir: ./runners/web\n  url: http://localhost:3000\n\
+             devices:\n  namePrefix: reproit\n\
+             journeys:\n  dir: journeys\n  driver: explore\n  doneMarkers: [DONE]\n\
+             evidence:\n  outDir: .reproit/runs\n  video: false\n",
+            root.clone(),
+        )
+        .unwrap();
+        let raw = repro::repro_id(42, &["tap:Login", "tap:Submit"]);
+        assert!(find_finding_by_id(&loaded, &raw).is_none());
+        assert!(find_finding_by_id(&loaded, &repro::display_finding_id(&raw)).is_some());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -4134,13 +5030,13 @@ tap:Advanced
     fn only_flutter_sim_runs_offer_the_device_picker() {
         // Only FlutterDrive provisions a sim reproit picks, and only with --sim
         // (its default is the headless flutter test tier).
-        assert!(run_needs_device_pick("flutter-ios-sim", true));
-        assert!(!run_needs_device_pick("flutter-ios-sim", false));
+        assert!(run_needs_device_pick("flutter", true));
+        assert!(!run_needs_device_pick("flutter", false));
         // Every other backend brings its own target (Appium caps, a browser, the
         // host, a PTY), so no reproit picker, even with --sim.
         for p in [
-            "web-playwright",
-            "rn-appium",
+            "web",
+            "react-native",
             "swift-ios",
             "android",
             "winui",

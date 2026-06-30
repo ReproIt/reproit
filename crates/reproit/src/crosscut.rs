@@ -360,12 +360,19 @@ impl Target {
 #[allow(dead_code)]
 /// The device target(s) a project platform can run on, used to filter the
 /// interactive device picker to what the project actually supports. The platform
-/// string ("flutter-ios-sim", "web-playwright", "rn-android", ...) names its
-/// target; a bare mobile framework with no target word covers both phones.
+/// string ("flutter", "web", "react-native", ...) names its target. The
+/// current Flutter backend provisions an iOS simulator; React Native can run on
+/// either phone target through Appium caps.
 /// Desktop/host platforms (winui, electron, ...) yield none, so the picker is
 /// not filtered (those run on the host, not a device).
 pub fn platform_targets(platform: &str) -> Vec<Target> {
     let p = platform.to_ascii_lowercase();
+    if p == "flutter" {
+        return vec![Target::Ios];
+    }
+    if p == "react-native" || p == "rn" {
+        return vec![Target::Ios, Target::Android];
+    }
     let mut out = Vec::new();
     if p.contains("ios") || p.contains("iphone") || p.contains("ipad") {
         out.push(Target::Ios);
@@ -376,8 +383,8 @@ pub fn platform_targets(platform: &str) -> Vec<Target> {
     if p.contains("web") || p.contains("chromium") || p.contains("playwright") {
         out.push(Target::Web);
     }
-    // A mobile framework named with no explicit target word runs on both phones.
-    if out.is_empty() && (p.contains("flutter") || p.contains("react") || p.starts_with("rn")) {
+    // Target-qualified mobile framework ids, if we add them later.
+    if out.is_empty() && (p.contains("react") || p.starts_with("rn")) {
         out.push(Target::Ios);
         out.push(Target::Android);
     }
@@ -435,8 +442,7 @@ impl RunTarget {
 /// loops over, plus any unknown tokens (for a warning). The list routes ONE of
 /// two ways, never mixed:
 ///   - If every token is a web ENGINE (chromium/firefox/webkit), the result is
-///     a list of `Engine` targets: the cross-engine differential. This is the
-///     validated runtime case.
+///     a list of `Engine` targets: the cross-engine differential.
 ///   - Otherwise it is a PLATFORM list (ios/android/web/all), each resolved to
 ///     a device. A bare `web` here means "the web platform" (one run), distinct
 ///     from naming specific engines.
@@ -1009,12 +1015,12 @@ mod tests {
 
     #[test]
     fn platform_targets_cover_every_framework() {
-        assert_eq!(platform_targets("flutter-ios-sim"), vec![Target::Ios]);
-        assert_eq!(platform_targets("web-playwright"), vec![Target::Web]);
+        assert_eq!(platform_targets("flutter"), vec![Target::Ios]);
+        assert_eq!(platform_targets("web"), vec![Target::Web]);
         assert_eq!(platform_targets("swift-ios"), vec![Target::Ios]);
         assert_eq!(platform_targets("android"), vec![Target::Android]);
         assert_eq!(
-            platform_targets("rn-appium"),
+            platform_targets("react-native"),
             vec![Target::Ios, Target::Android]
         );
         // Desktop / host frameworks have no device target (they run on the host).

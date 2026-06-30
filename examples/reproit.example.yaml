@@ -1,5 +1,5 @@
 # Repro It configuration, by example. Copy to <your-repo>/reproit.yaml and
-# adjust for your app. This file shows the flutter-ios-sim shape; per-platform
+# adjust for your app. This file shows the flutter shape; per-platform
 # examples (web, rn, electron, tauri, swift-ios/macos, android, winui, imgui,
 # clay, tui, desktop toolkits) live in examples/configs/.
 #
@@ -8,13 +8,14 @@
 #   ${VAR}              substitute VAR (empty if unset)
 #   ${VAR:-default}     substitute VAR, or `default` if unset/empty
 #   ${VAR:?message}     substitute VAR, or fail to load with `message` (required)
-# e.g. the web-playwright runner dir, under app:
+# e.g. the web runner dir, under app:
 #   app:
 #     webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./runners/web}
 
 app:
-  # Only flutter-ios-sim is implemented today. Android and web adapters later.
-  platform: flutter-ios-sim
+  # Swap this for any id from `reproit platforms`; per-platform examples live in
+  # examples/configs/.
+  platform: flutter
   # Flutter project directory, relative to this file.
   projectDir: frontend
   bundleId: com.example.app
@@ -36,8 +37,8 @@ devices:
   permissions:
     - service: location-always
 
-# Test accounts. Credentials live in the encrypted vault (set them with
-# `reproit secrets set alice.password` / `reproit secrets set-totp alice.totp`);
+# Test accounts. Credentials live in the encrypted vault (start with
+# `reproit auth add alice --strategy password-otp`);
 # only non-secret fields go here. `userId` lets reset clear this account's data
 # by reference (see the reset section), and a multi-actor journey binds an actor
 # to an account by name: `actors: {alice: {login: alice}, bob: {auth: bob}}`.
@@ -60,11 +61,11 @@ auth:
 reset:
   steps:
     - kind: command
-      run: docker compose -f docker-compose.yml exec -T global-redis redis-cli FLUSHALL
+      run: scripts/reset-global-cache
     - kind: command
-      run: docker compose -f docker-compose.yml exec -T region-us-redis redis-cli FLUSHALL
+      run: scripts/reset-region us
     - kind: command
-      run: docker compose -f docker-compose.yml exec -T region-eu-redis redis-cli FLUSHALL
+      run: scripts/reset-region eu
     - kind: http
       method: POST
       url: http://api.example.localhost/dev/clear-seed

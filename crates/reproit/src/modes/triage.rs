@@ -285,9 +285,30 @@ pub async fn buckets(
         }
     }
     println!(
-        "\nPull the top one: reproit cloud pull --app {app} --bucket <id> --as <name>   (then reproit check <name>)"
+        "\nPull the top one: reproit cloud pull --app {app} --top --as next-fix   (then reproit check next-fix)"
     );
     Ok(())
+}
+
+/// Resolve the current top bucket id from the impact-ranked bucket list. This is
+/// intentionally small and shares the same server ordering as `cloud buckets`.
+pub async fn top_bucket_id(
+    app: &str,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<String> {
+    let c = Cloud::new(cloud, key);
+    let v = c.get(&format!("/v1/apps/{app}/buckets")).await?;
+    let items = v["items"]
+        .as_array()
+        .context("cloud buckets response did not include an items array")?;
+    let top = items.first().context(
+        "no buckets available to pull; run `reproit cloud buckets` after production data arrives",
+    )?;
+    let id = top["bucketId"]
+        .as_str()
+        .context("top bucket did not include bucketId")?;
+    Ok(id.to_string())
 }
 
 pub async fn explain(
@@ -431,7 +452,11 @@ pub async fn reproduce(
     // Materialize the deterministic config the runner reads: the action replay
     // plus, when the bug is data-specific, the synthesized fixture (inputs +
     // locale) the explorer types into matching fields during replay.
-    std::fs::create_dir_all(".reproit").ok();
+    let root = std::env::current_dir()?;
+    let cfg_path = crate::layout::fuzz_config_path(&root);
+    if let Some(dir) = cfg_path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
     let mut cfg = serde_json::Map::new();
     cfg.insert("replay".to_string(), serde_json::json!(replay));
     if !fixture.is_empty() {
@@ -442,13 +467,12 @@ pub async fn reproduce(
             }
         }
     }
-    let cfg_path = ".reproit/fuzz_config.json";
     std::fs::write(
-        cfg_path,
+        &cfg_path,
         serde_json::to_string_pretty(&serde_json::Value::Object(cfg))?,
     )
-    .with_context(|| format!("writing {cfg_path}"))?;
-    println!("Deterministic replay written to {cfg_path}:");
+    .with_context(|| format!("writing {}", cfg_path.display()))?;
+    println!("Deterministic replay written to {}:", cfg_path.display());
     if replay.is_empty() {
         println!("  (no navigation actions: data-only reproduction)");
     } else {
@@ -552,12 +576,13 @@ pub async fn reproduce_bucket(
     bucket: &str,
     as_name: &str,
     run: bool,
+    json: bool,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<()> {
     // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
     // (fixture folded in) and prints the save summary + the `check` hint.
-    pull(root, app, bucket, as_name, cloud, key).await?;
+    pull(root, app, bucket, as_name, json, cloud, key).await?;
     if !run {
         return Ok(());
     }
@@ -590,7 +615,7 @@ pub struct PulledRepro {
 /// property-matched fixture (`Fixture::to_config`), spread at the TOP LEVEL so the
 /// web/RN/native runners read them per-seed (they read `inputs` off each seed
 /// config; `check_repro` resolves a top-level `locale` to `REPROIT_LOCALE`). This
-/// is the SAME shape `reproduce` writes into `.reproit/fuzz_config.json`, so a
+/// is the SAME shape `reproduce` writes into `.reproit/tmp/fuzz_config.json`, so a
 /// pulled repro and a `reproduce`d one drive the runner identically.
 pub fn build_replay_json(
     seed: u64,
@@ -613,8 +638,8 @@ pub fn build_replay_json(
     Value::Object(m)
 }
 
-/// Materialize a cloud replay package (the bucket endpoint's JSON, or the legacy
-/// `/repro` shape) into a local saved repro, EXACTLY as `keep` would write one.
+/// Materialize a cloud replay package into a local saved repro, EXACTLY as
+/// `keep` would write one.
 ///
 /// Field mapping (faithful to `keep_repro` in main.rs):
 ///   - `replay`      -> the action sequence (PII-safe `tap:`/`key:`/`type:<sel>=<class>`).
@@ -691,6 +716,7 @@ pub async fn pull(
     app: &str,
     bucket: &str,
     as_name: &str,
+    json: bool,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<()> {
@@ -721,6 +747,26 @@ pub async fn pull(
         .or_else(|| pkg["message"].as_str())
         .map(first_line)
         .unwrap_or("(unknown)");
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "command": "cloud pull",
+                "app": app,
+                "bucket": bucket,
+                "id": repro::display_repro_id(&meta.id),
+                "kind": "repro",
+                "alias": as_name,
+                "status": meta.status.as_str(),
+                "expected": expected,
+                "signature": meta.trigger_sig,
+                "actions": pulled.actions,
+                "fixture": (!pulled.fixture.is_empty()).then(|| pulled.fixture.summary()),
+                "dir": dir.to_string_lossy(),
+            }))?
+        );
+        return Ok(());
+    }
     println!("Pulled {source} from '{app}' as a local repro.");
     println!("  expected:  {expected}");
     if let Some(sig) = &meta.trigger_sig {
@@ -732,7 +778,7 @@ pub async fn pull(
     }
     println!(
         "  saved:     {} ({}, alias {})",
-        meta.id,
+        repro::display_repro_id(&meta.id),
         meta.status.as_str(),
         as_name
     );
@@ -820,7 +866,7 @@ pub async fn triage(
 }
 
 /// `cloud resolution-events`: list recent prod-truth TRANSITIONS the background
-/// sweep recorded (`resolved->regressed`, `resolving->resolved`, ...), newest
+/// pass recorded (`resolved->regressed`, `resolving->resolved`, ...), newest
 /// first. GETs `/v1/apps/:app/resolution-events`.
 ///
 /// Agent use: an autonomous monitor reads this to see what REGRESSED after it

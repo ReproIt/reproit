@@ -3,7 +3,7 @@
 //! deterministic runner ("the acceptance oracle for agents").
 //!
 //! The agent-facing surface mirrors the new CLI (see docs/cli.md, "MCP"): the
-//! deterministic core (map / sweep / fuzz / check / keep / record / repro /
+//! deterministic core (map / scan / fuzz / check / keep / record / repro /
 //! cloud) is exposed; authoring, triage and fixing are NOT tools, the host does
 //! those itself (no bundled LLM). `reproit_context` is the one composite tool:
 //! it assembles the scoped graph + screen list + selectors the agent needs to
@@ -47,9 +47,9 @@ pub fn serve(config: Option<&std::path::Path>) -> anyhow::Result<()> {
                         "protocolVersion": requested,
                         "capabilities": { "tools": {} },
                         "serverInfo": { "name": "reproit", "version": env!("CARGO_PKG_VERSION") },
-                        "instructions": "Deterministic E2E bug oracle. map -> sweep -> check. \
+                        "instructions": "Deterministic E2E bug oracle. scan -> fuzz -> check -> keep. \
                     Call reproit_context(target) to get the scoped graph + screens + selectors, \
-                    then author or fix yourself (no bundled LLM here). reproit_sweep is the default \
+                    then author or fix yourself (no bundled LLM here). reproit_scan is the default \
                     finder (state-present bugs visible on each screen); reproit_fuzz is the deep \
                     search for sequence bugs (crash/jank/hang). reproit_check classifies each \
                     pass/fail/flaky/stale (deterministic, so a green check means you really fixed \
@@ -117,7 +117,7 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_accessibility",
-            "description": "The accessibility audit. Returns reproit's UI-graph-vs-accessibility-graph diff per screen: the ground-truth-operable controls (what a pointer user can actually operate) that the accessibility/keyboard graph is MISSING. Each gap is GROUNDED and deterministic, not a lint guess: it carries the failing element's stable selector, which WCAG dimension(s) it fails -- pointer_only (2.1.1: operable by mouse, not keyboard), no_role (4.1.2: operable, no programmatic role/name), keyboard_unreachable (not in the Tab order), or a screen-level focus_trap -- AND a static source location (file:line) to fix it. Each screen also carries its route and a repro action-path to reach it. This closes the loop: locate the gap by file:line, fix the control, then reproit_check to deterministically confirm the gap closed. Read from the map's operability gaps, so run reproit_map first. `state` scopes to one screen (signature or name); `kind` filters to one dimension.",
+            "description": "The accessibility audit. Returns reproit's UI-graph-vs-accessibility-graph diff per screen: the ground-truth-operable controls (what a pointer user can actually operate) that the accessibility/keyboard graph is MISSING. Each gap is GROUNDED and deterministic, not a lint guess: it carries the failing element's stable selector, which WCAG dimension(s) it fails -- pointer_only (2.1.1: operable by mouse, not keyboard), no_role (4.1.2: operable, no programmatic role/name), keyboard_unreachable (not in the Tab order), or a screen-level focus_trap -- AND a static source location (file:line) to fix it. Each screen also carries its route and a repro action-path to reach it. This closes the loop: locate the gap by file:line, fix the control, then reproit_check to deterministically confirm the gap closed. Requires an existing map with operability gaps; run reproit_map when you need to refresh that data. `state` scopes to one screen (signature or name); `kind` filters to one dimension.",
             "inputSchema": { "type": "object", "properties": {
                 "state": { "type": "string", "description": "Scope to one screen, by signature id or human name. Omit for all screens." },
                 "kind": { "type": "string", "description": "Filter to one dimension: pointer_only | keyboard_unreachable | no_role | focus_trap." }
@@ -129,16 +129,16 @@ fn tool_defs() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "reproit_sweep",
-            "description": "The DEFAULT \"what's wrong on every screen\" finder. One coverage crawl that visits each reachable screen once and reports the STATE-PRESENT bugs simply visible on each (overflow / broken content / a11y unlabeled / choice-anomaly), one finding per (screen x issue) -- grouped by screen, nothing collapsed. Prefer this over reproit_fuzz for \"audit this app / find the visible bugs\": it is deterministic, doesn't permute action sequences, and surfaces every per-screen issue (reproit_fuzz reports one finding per seed and drops most of these). Pass a URL (zero-config, deployed app) or an alias/node to scope. Pair the findings to reproit_keep / reproit_record. Use reproit_fuzz for the DEEPER sequence-dependent bugs (crash/jank/hang). Slow: a real run.",
+            "name": "reproit_scan",
+            "description": "The DEFAULT \"what's wrong on every screen\" finder. One coverage crawl that visits each reachable screen once and reports the STATE-PRESENT bugs simply visible on each (overflow / broken content / a11y unlabeled / choice-anomaly), one finding per (screen x issue) -- grouped by screen, nothing collapsed. Prefer this over reproit_fuzz for \"audit this app / find the visible bugs\": it is deterministic, doesn't permute action sequences, and surfaces every per-screen issue (reproit_fuzz reports one finding per seed and drops most of these). Pass a URL (zero-config, deployed app) or an alias/node to scope. `record=true` saves quick audit clips into .reproit/recordings/scan/. Use reproit_fuzz for the DEEPER sequence-dependent bugs (crash/jank/hang), then reproit_check / reproit_keep / reproit_record on the fnd_... id. Slow: a real run.",
             "inputSchema": { "type": "object", "properties": {
                 "target": { "type": "string", "description": "A URL (https://app.com, zero-config) or an alias/node to scope the crawl to." },
-                "record": { "type": "boolean", "description": "Also save an annotated clip (red box on the bug) per boxable finding, into .reproit/sweep-clips/. Web only." }
+                "record": { "type": "boolean", "description": "Also save an annotated clip (red box on the bug) per boxable finding, into .reproit/recordings/scan/. Web only." }
             } }
         },
         {
             "name": "reproit_fuzz",
-            "description": "The DEEP, sequence-dependent bug search: combinatorially permutes action sequences to provoke bugs that only appear after the right actions in the right order (crash / jank / hang / leak). Hunts over the existing map (run reproit_map first) and returns a DEDUPED unique-bugs work-list grouped by signature, with a canonical (shortest) repro id per bug. For bugs simply VISIBLE on a screen (overflow / content / a11y / choice-anomaly) prefer reproit_sweep -- it is faster and reports every per-screen issue, where fuzz collapses to one finding per seed. Pass an id to reproit_check (confirm), reproit_keep (save), then reproit_simplify to clean the repro. `target` concentrates the hunt on an alias/node; `platform` selects ios|android|web|all (multi -> run all + diff for divergence). Slow: real runs.",
+            "description": "The DEEP, sequence-dependent bug search: combinatorially permutes action sequences to provoke bugs that only appear after the right actions in the right order (crash / jank / hang / leak). Returns a DEDUPED unique-bugs work-list grouped by signature, with a canonical (shortest) fnd_... repro id per bug. Zero-config URL/TUI targets auto-build the map on first run; for configured apps, run reproit_map when you need graph/coverage debugging or aliases. For bugs simply VISIBLE on a screen (overflow / content / a11y / choice-anomaly) prefer reproit_scan -- it is faster and reports every per-screen issue, where fuzz collapses to one finding per seed. Pass an id to reproit_check (confirm), reproit_keep (save), then reproit_record for the annotated evidence video. `target` concentrates the hunt on an alias/node; `platform` selects ios|android|web|all (multi -> run all + diff for divergence). Slow: real runs.",
             "inputSchema": { "type": "object", "properties": {
                 "target": { "type": "string", "description": "Alias/node to concentrate the hunt on (e.g. \"login\")." },
                 "platform": { "type": "string", "description": "ios|android|web|all (comma list -> run all + divergence diff)." }
@@ -153,7 +153,7 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_record",
-            "description": "Record a repro ONCE with full evidence + an annotated video (paced action HUD + a red box scoped to the repro's oracle, marking the bug's effect). `repro` is a saved repro (id/alias) or a pending fuzz finding id. Use it to produce a shareable clip of a confirmed bug. `flicker=true` also scans the recorded video for transient render glitches (a frame that diverges then snaps back). Slow: a real run.",
+            "description": "Record one replayable repro id ONCE with full evidence + an annotated video (paced action HUD + a red box scoped to the repro's oracle, marking the bug's effect). `repro` is a saved repro (id/alias) or a pending fuzz finding id. Use after reproit_fuzz prints an fnd_... id, or after reproit_keep. This is different from reproit_scan(record=true), which saves quick audit clips for visible scan findings. `flicker=true` also scans the recorded video for transient render glitches (a frame that diverges then snaps back). Slow: a real run.",
             "inputSchema": { "type": "object", "properties": {
                 "repro": { "type": "string", "description": "Saved repro id/alias, or a pending finding id from reproit_fuzz." },
                 "flicker": { "type": "boolean", "description": "Also scan the recorded video for intra-run flicker." }
@@ -161,7 +161,7 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_baseline",
-            "description": "The visual-regression oracle: diff the current capture against the committed baseline (per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. `update=true` accepts the current capture as the new baseline (use after an intended UI change). Was `check --visual`.",
+            "description": "The visual-regression oracle: diff the current capture against the committed baseline (per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. `update=true` accepts the current capture as the new baseline after an intended UI change.",
             "inputSchema": { "type": "object", "properties": {
                 "update": { "type": "boolean", "description": "Accept the current capture as the new baseline." }
             } }
@@ -201,7 +201,7 @@ fn tool_defs() -> Value {
         },
         {
             "name": "reproit_journey_save",
-            "description": "Author a scripted journey: write journeys/<name>.yaml from a structured spec, then confirm it with reproit_check <name> (pass/fail/flaky/stale, deterministic). GROUND IT FIRST with reproit_context. Address elements by visible name with tap:label:<text> (works on uninstrumented apps, like Playwright/Appium), or by tap:key:<id> which is the durable upgrade: prefer keys for committed journeys you'll re-run across locales or when a label is ambiguous (two \"OK\" buttons). A journey is a list of `steps`, each EXACTLY ONE of: {\"do\":\"tap:key:testid:add\"} or {\"do\":\"tap:label:Send Code\"} explicit action (or \"back\"); {\"goto\":\"<screen>\"} pathfind the map to a screen; {\"expect\":{...}} assert one of state/text/count: {\"state\":\"<screen>\"} | {\"text\":\"<visible substring>\"} | {\"count\":{\"<finder>\":N}}; {\"fill\":{\"<finder>\":\"<value>\"}} type into fields, where a value of \"secret:password\"/\"secret:username\" is injected from the auth vault (never hardcode credentials). Optional top-level \"setup\":\"login(<account>)\" (drive the login UI first) or \"auth(<account>)\" (restore a saved session, skip the UI). MULTI-USER: to test two+ logged-in users interacting (e.g. one posts, another sees it), add \"actors\" and tag every step with the actor that performs it. \"actors\" is either a bare list [\"alice\",\"bob\"] or a map binding each actor to its login {\"alice\":{\"login\":\"alice\"},\"bob\":{\"auth\":\"bob\"}} (login = drive the UI with that account's vault creds; auth = restore its session). reproit launches one device per actor, runs steps in the listed order across them (so alice's effect is observable to bob), and a `secret:` fill in a step binds to that step's actor account. Multi-actor steps support do/expect(text|count)/fill only (no goto/expect:state). A failed assertion or unreachable step reports STALE, not pass.",
+            "description": "Author a scripted journey: write journeys/<name>.yaml from a structured spec, then confirm it with reproit_check <name> (pass/fail/flaky/stale, deterministic). GROUND IT FIRST with reproit_context. Address actions by structural selectors from the map/context, such as tap:key:testid:add or tap:role:button#0. A journey is a list of `steps`, each EXACTLY ONE of: {\"do\":\"tap:key:testid:add\"} explicit action (or \"back\"); {\"goto\":\"<screen>\"} pathfind the map to a screen; {\"expect\":{...}} assert one of state/text/count: {\"state\":\"<screen>\"} | {\"text\":\"<visible substring>\"} | {\"count\":{\"<finder>\":N}}; {\"fill\":{\"<finder>\":\"<value>\"}} type into fields, where a value of \"secret:password\"/\"secret:username\" is injected from the auth vault (never hardcode credentials). Optional top-level \"setup\":\"login(<account>)\" (drive the login UI first) or \"auth(<account>)\" (restore a saved session, skip the UI). MULTI-USER: to test two+ logged-in users interacting (e.g. one posts, another sees it), add \"actors\" and tag every step with the actor that performs it. \"actors\" is either a bare list [\"alice\",\"bob\"] or a map binding each actor to its login {\"alice\":{\"login\":\"alice\"},\"bob\":{\"auth\":\"bob\"}} (login = drive the UI with that account's vault creds; auth = restore its session). reproit launches one device per actor, runs steps in the listed order across them (so alice's effect is observable to bob), and a `secret:` fill in a step binds to that step's actor account. Multi-actor steps support do/expect(text|count)/fill only (no goto/expect:state). A failed assertion or unreachable step reports STALE, not pass.",
             "inputSchema": { "type": "object", "properties": {
                 "name": { "type": "string", "description": "Journey name (the file stem under journeys/)." },
                 "journey": { "type": "object", "description": "The spec. Single-user: {\"setup\"?: \"login(guest)\", \"steps\": [ {\"do\":...} | {\"goto\":...} | {\"expect\":...} | {\"fill\":...} ]}. Multi-user: {\"actors\": {\"alice\":{\"login\":\"alice\"}, \"bob\":{\"auth\":\"bob\"}}, \"steps\": [ {\"actor\":\"alice\", \"do\":...}, {\"actor\":\"bob\", \"expect\":{\"text\":...}} ]}." }
@@ -398,8 +398,8 @@ fn build_argv(
                 argv.extend(["--target".into(), p]);
             }
         }
-        "reproit_sweep" => {
-            argv.push("sweep".into());
+        "reproit_scan" => {
+            argv.push("scan".into());
             if let Some(t) = s("target") {
                 argv.push(t);
             }
@@ -848,23 +848,23 @@ mod tests {
     }
 
     #[test]
-    fn sweep_record_baseline_tools_are_present() {
+    fn scan_record_baseline_tools_are_present() {
         // The redesigned find/evidence surface is advertised.
         let names = tool_names();
-        for want in ["reproit_sweep", "reproit_record", "reproit_baseline"] {
+        for want in ["reproit_scan", "reproit_record", "reproit_baseline"] {
             assert!(names.contains(&want.to_string()), "missing tool {want}");
         }
     }
 
     #[test]
-    fn sweep_dispatches_with_optional_target() {
-        // Bare sweep -> just the verb (+ the --json global).
-        let bare = argv("reproit_sweep", json!({}));
-        assert_eq!(bare.last().unwrap(), "sweep");
+    fn scan_dispatches_with_optional_target() {
+        // Bare scan -> just the verb (+ the --json global).
+        let bare = argv("reproit_scan", json!({}));
+        assert_eq!(bare.last().unwrap(), "scan");
         assert!(bare.contains(&"--json".to_string()));
         // A target (URL or alias) is forwarded positionally.
-        let scoped = argv("reproit_sweep", json!({ "target": "https://app.com" }));
-        assert!(scoped.windows(2).any(|w| w == ["sweep", "https://app.com"]));
+        let scoped = argv("reproit_scan", json!({ "target": "https://app.com" }));
+        assert!(scoped.windows(2).any(|w| w == ["scan", "https://app.com"]));
     }
 
     #[test]

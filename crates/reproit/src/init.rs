@@ -117,24 +117,24 @@ fn write(path: &Path, content: &str, force: bool) -> Result<()> {
 }
 
 /// The repro suite (`.reproit/repros/`) is committed on purpose: it's the
-/// regression guard. Everything else under `.reproit/` is local-only, ephemeral
-/// run output, recorded videos/screenshots, logs, and the secrets vault, and
-/// must never land in git. Paths are relative to `.reproit/`, so `repros/` stays
-/// tracked while the rest is ignored.
+/// regression guard. Run evidence, recordings, scratch files, logs, and the secrets vault are
+/// local-only and must never land in git. Paths are relative to `.reproit/`, so
+/// `repros/` and `map/` stay trackable while local evidence stays ignored.
 const REPROIT_GITIGNORE: &str = "\
-# The repro suite (repros/) belongs in git: it's your regression guard.
-# Everything else here is local-only and must not be committed.
+# The repro suite (repros/) and learned map (map/) are reviewable project state.
+# Raw runs, recordings, scratch files, and secrets are local-only.
 /runs/
-/media/
+/recordings/
+/tmp/
 *.vault
 *.log
 ";
 
-/// Write `.reproit/.gitignore` so a `git add .` can't sweep up run artifacts,
+/// Write `.reproit/.gitignore` so a `git add .` can't include run artifacts,
 /// recorded media, or the secrets vault. Idempotent and non-destructive: if the
 /// file already exists (a user may have customized it) we leave it untouched.
 fn ensure_gitignore(dir: &Path) -> Result<()> {
-    let path = dir.join(".reproit").join(".gitignore");
+    let path = crate::layout::reproit_dir(dir).join(".gitignore");
     if path.exists() {
         return Ok(());
     }
@@ -307,10 +307,10 @@ fn flutter_config(dir: &Path) -> String {
     FLUTTER_CONFIG.replace("{{BUNDLE}}", &bundle)
 }
 
-const FLUTTER_CONFIG: &str = r#"# reproit config (flutter-ios-sim). See the example in the reproit repo for
+const FLUTTER_CONFIG: &str = r#"# reproit config (flutter). See the example in the reproit repo for
 # the full set of options (reset steps, hooks, visual baselines, llm).
 app:
-  platform: flutter-ios-sim
+  platform: flutter
   projectDir: .
   bundleId: {{BUNDLE}}
   defines: {}
@@ -354,10 +354,10 @@ llm:
   provider: codex-cli
 "#;
 
-const WEB_CONFIG: &str = r#"# reproit config (web-playwright). Drives a browser with Playwright; the
+const WEB_CONFIG: &str = r#"# reproit config (web). Drives a browser with Playwright; the
 # whole map/fuzz/soak/a11y/evidence pipeline is shared with the mobile path.
 app:
-  platform: web-playwright
+  platform: web
   # Path to reproit's web runner directory (run npm install there once).
   webRunnerDir: ../reproit/runners/web
   url: http://localhost:3000      # your dev/staging URL
@@ -393,10 +393,10 @@ llm:
   provider: codex-cli
 "#;
 
-const RN_CONFIG: &str = r#"# reproit config (rn-appium). Drives a React Native app over an Appium
+const RN_CONFIG: &str = r#"# reproit config (react-native). Drives a React Native app over an Appium
 # session; the whole map/fuzz/soak/a11y/evidence pipeline is shared.
 app:
-  platform: rn-appium
+  platform: react-native
   rnRunnerDir: ../reproit/runners/rn   # run npm install there once
   appiumUrl: http://127.0.0.1:4723
   appiumCaps:
@@ -438,7 +438,7 @@ llm:
 
 const ANDROID_CONFIG: &str = r#"# reproit config (android). Drives a native Android app (Jetpack Compose or
 # Android Views) over an Appium UiAutomator2 session. Shares the exact same
-# runner and marker protocol as rn-appium and swift-ios; only the caps differ.
+# runner and marker protocol as react-native and swift-ios; only the caps differ.
 #
 # Jetpack Compose note: UiAutomator2 sees Compose nodes by their text and
 # content-desc, which is what reproit's explorer keys off, so it works without
@@ -511,6 +511,23 @@ mod tests {
         assert!(
             EXPLORER_HEADLESS.contains(PUMP_NEEDLE),
             "explorer_headless.dart pump needle drifted"
+        );
+    }
+
+    #[test]
+    fn generated_reproit_gitignore_keeps_project_state_reviewable() {
+        assert!(REPROIT_GITIGNORE.contains("/runs/"));
+        assert!(REPROIT_GITIGNORE.contains("/recordings/"));
+        assert!(REPROIT_GITIGNORE.contains("/tmp/"));
+        assert!(REPROIT_GITIGNORE.contains("*.vault"));
+        assert!(REPROIT_GITIGNORE.contains("*.log"));
+        assert!(
+            !REPROIT_GITIGNORE.contains("/map/"),
+            "learned map should stay reviewable"
+        );
+        assert!(
+            !REPROIT_GITIGNORE.contains("/repros/"),
+            "saved repro suite should stay reviewable"
         );
     }
 

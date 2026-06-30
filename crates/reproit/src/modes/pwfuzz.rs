@@ -9,7 +9,7 @@
 //! structured JSON action list. This module is the Rust glue: it invokes the
 //! helper, turns the mapped actions into a `from_prefix` (the per-seed prefix the
 //! web runner replays before exploring), pulls the start URL from the test's
-//! first `page.goto`, prints an honest compatibility report (mapped vs skipped),
+//! first `page.goto`, prints an honest capture summary (mapped vs skipped),
 //! and hands off to the EXISTING fuzz pipeline.
 //!
 //! Auth: replaying the login click/fill actions in reproit's OWN runner
@@ -74,7 +74,7 @@ impl Capture {
         self.actions.iter().map(|a| a.action.clone()).collect()
     }
 
-    /// Mapped vs total (mapped + unsupported), for the compatibility report.
+    /// Mapped vs total (mapped + unsupported), for the capture summary.
     pub fn coverage(&self) -> (usize, usize) {
         let mapped = self.actions.len();
         (mapped, mapped + self.unsupported.len())
@@ -155,7 +155,7 @@ pub fn capture(runner_dir: &Path, test_path: &Path, log: &dyn Fn(&str)) -> Resul
     Ok(cap)
 }
 
-/// Print the honest compatibility report (like the maestro importer's): how many
+/// Print the honest capture summary: how many
 /// of the test's actions reproit replayed, how many it skipped and why, plus the
 /// start URL and the auth note. `say` routes lines (stdout, or stderr under --json).
 pub fn report(cap: &Capture, test_path: &Path, say: &dyn Fn(&str)) {

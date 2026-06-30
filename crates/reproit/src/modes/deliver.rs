@@ -486,7 +486,7 @@ pub fn render_comment(input: &CommentInput) -> String {
     md.push_str("### Who it hits\n\n");
     if input.cohort.is_empty() {
         md.push_str(
-            "_No production cohort data for this signature yet (not data-specific, or telemetry not wired)._\n\n",
+            "_No production cohort data for this signature yet (not data-specific, or telemetry unavailable)._\n\n",
         );
     } else {
         if input.cohort_count > 0 {

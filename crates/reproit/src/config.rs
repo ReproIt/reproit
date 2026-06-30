@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +35,7 @@ pub struct Config {
 
 /// Login credentials for journeys, resolved at run time from the encrypted
 /// vault and injected as env (never stored in config or repo). See auth.rs.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AuthCfg {
     /// Encrypted vault path, relative to the config file.
@@ -45,26 +45,72 @@ pub struct AuthCfg {
     pub accounts: Vec<Account>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthStrategy {
+    Password,
+    PasswordOtp,
+    PhoneOtp,
+    EmailLink,
+    OauthTest,
+    Session,
+    Api,
+}
+
+impl AuthStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AuthStrategy::Password => "password",
+            AuthStrategy::PasswordOtp => "password-otp",
+            AuthStrategy::PhoneOtp => "phone-otp",
+            AuthStrategy::EmailLink => "email-link",
+            AuthStrategy::OauthTest => "oauth-test",
+            AuthStrategy::Session => "session",
+            AuthStrategy::Api => "api",
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AuthValidate {
+    pub text: Option<String>,
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Account {
     /// Account handle, e.g. "alice" or "admin"; becomes the env namespace
     /// REPROIT_SECRET_<NAME>_*.
     pub name: String,
+    /// Login mechanism. `login(<account>)` drives the app's login journey with
+    /// these fields; `auth(<account>)` restores a saved session when present.
+    pub strategy: Option<AuthStrategy>,
     /// Non-secret backend user id for this account. Lets reset steps clear this
     /// account's data by reference (`${account.<name>.userId}`) instead of a
     /// hardcoded UUID, so reset stays in sync with the accounts a scenario uses.
     pub user_id: Option<String>,
     /// Non-secret username/email. Use ${ENV} interpolation or put it here.
     pub username: Option<String>,
+    /// Vault keys for account identifiers. Prefer these over plaintext config
+    /// when emails/phones are private.
+    pub username_ref: Option<String>,
+    pub email_ref: Option<String>,
+    pub phone_ref: Option<String>,
     /// Vault key holding this account's password.
     pub password_ref: Option<String>,
     /// Vault key holding a base32 TOTP secret (2FA / one-time codes).
     pub totp_ref: Option<String>,
+    /// Vault key holding a fixed/manual one-time code. Useful for deterministic
+    /// test-mode phone/email OTP before provider adapters are configured.
+    pub otp_ref: Option<String>,
     /// Vault key holding a JSON session blob for the `auth(<account>)` login
     /// bypass: a map the runner restores (e.g. localStorage entries) so the app
     /// boots authenticated without driving the login UI.
     pub storage_ref: Option<String>,
+    /// Optional success signal for auth doctor and generated journey guidance.
+    pub validate: Option<AuthValidate>,
 }
 
 /// Which LLM powers the authoring agent / failure analyzer. Hot-swappable:
@@ -281,7 +327,7 @@ fn default_jank_pct_max() -> f64 {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct App {
-    /// "flutter-ios-sim" or "web-playwright".
+    /// "flutter" or "web".
     pub platform: String,
     /// Flutter project directory, relative to the config file (flutter only).
     #[serde(default)]
@@ -291,10 +337,10 @@ pub struct App {
     /// Defines passed to every run (dart-define for flutter, env for web).
     #[serde(default)]
     pub defines: std::collections::BTreeMap<String, String>,
-    /// web-playwright: directory containing runner.mjs, and the app URL.
+    /// web: directory containing runner.mjs, and the app URL.
     pub web_runner_dir: Option<String>,
     pub url: Option<String>,
-    /// rn-appium: directory containing the RN runner, the Appium server URL,
+    /// react-native: directory containing the RN runner, the Appium server URL,
     /// and the platform/app for the Appium session.
     pub rn_runner_dir: Option<String>,
     pub appium_url: Option<String>,
@@ -460,7 +506,7 @@ pub struct Visual {
 
 /// A store/marketing screenshot tour: a journey whose named SHOOT markers are
 /// driven across locales and devices, verified against the expected screen, and
-/// landed in a fastlane-compatible layout. Modeled on `Visual`; the SHOOT landing
+/// landed in a Fastlane-style layout. Modeled on `Visual`; the SHOOT landing
 /// path is the same machinery, organized per locale/device here.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -528,7 +574,7 @@ fn default_linger_grace_sec() -> u64 {
     90
 }
 fn default_out_dir() -> String {
-    ".reproit/runs".into()
+    crate::layout::default_runs_dir_rel().into()
 }
 fn default_shoot_marker() -> String {
     "SHOOT:".into()
@@ -949,7 +995,7 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
     let wrd = serde_json::to_string(&web_runner_dir.display().to_string())
         .unwrap_or_else(|_| "\"\"".to_string());
     let yaml = format!(
-        "app:\n  platform: web-playwright\n  webRunnerDir: {wrd}\n  url: {url}\n  \
+        "app:\n  platform: web\n  webRunnerDir: {wrd}\n  url: {url}\n  \
          defines: {{}}\ndevices:\n  namePrefix: web\nreset:\n  steps: []\njourneys:\n  \
          dir: integration_test\n  driver: web\n  readyMarker: \"claimed role\"\n  \
          doneMarkers:\n    - All tests passed\n    - Some tests failed\n  \
@@ -961,16 +1007,18 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
     // as a fallback and `load` roots it back at the cwd (the `.reproit` parent).
     // Best-effort: a write failure leaves the run working but non-replayable,
     // exactly as before this was persisted.
-    let dir = loaded.root.join(".reproit");
-    if std::fs::create_dir_all(&dir).is_ok() {
-        let _ = std::fs::write(dir.join("reproit.yaml"), &yaml);
+    let path = crate::layout::config_path(&loaded.root);
+    if let Some(dir) = path.parent() {
+        if std::fs::create_dir_all(dir).is_ok() {
+            let _ = std::fs::write(path, &yaml);
+        }
     }
     Ok(loaded)
 }
 
 /// Zero-config TUI run: synthesize a `platform: tui` config that drives the given
 /// terminal executable in a PTY (the built-in `reproit __tui` runner). The analogue
-/// of [`synthesize_web`] for `reproit sweep <executable>` (e.g. `lazygit`, `htop`).
+/// of [`synthesize_web`] for `reproit scan <executable>` (e.g. `lazygit`, `htop`).
 /// `executable` is the command line run via `sh -c`, so args and PATH resolution
 /// work. Persisted to `.reproit/reproit.yaml` so a follow-up check/keep replays.
 pub fn synthesize_tui(executable: &str, root: PathBuf) -> Result<Loaded> {
@@ -989,9 +1037,11 @@ pub fn synthesize_tui(executable: &str, root: PathBuf) -> Result<Loaded> {
          outDir: .reproit/runs\n  video: false\n",
     );
     let loaded = parse_str(&yaml, root)?;
-    let dir = loaded.root.join(".reproit");
-    if std::fs::create_dir_all(&dir).is_ok() {
-        let _ = std::fs::write(dir.join("reproit.yaml"), &yaml);
+    let path = crate::layout::config_path(&loaded.root);
+    if let Some(dir) = path.parent() {
+        if std::fs::create_dir_all(dir).is_ok() {
+            let _ = std::fs::write(path, &yaml);
+        }
     }
     Ok(loaded)
 }
@@ -1006,7 +1056,7 @@ fn find_config(from: &Path) -> Option<PathBuf> {
         // Fallback: a persisted zero-config `fuzz <url>` run writes its
         // synthesized config here, so a later check/keep/repros finds it.
         // `load` re-roots this at `dir` (not `.reproit/`) so relative paths hold.
-        let synth = dir.join(".reproit").join("reproit.yaml");
+        let synth = crate::layout::config_path(&dir);
         if synth.exists() {
             return Some(synth);
         }
@@ -1018,7 +1068,7 @@ fn find_config(from: &Path) -> Option<PathBuf> {
 
 /// Interpolate environment variables across the whole config (every field, not
 /// just `app.defines`), using the familiar shell parameter-expansion subset:
-///   - `${VAR}`              substitute VAR; empty if unset (back-compat default)
+///   - `${VAR}`              substitute VAR; empty if unset
 ///   - `${VAR:-default}`     substitute VAR, or `default` if unset/empty
 ///   - `${VAR:?message}`     substitute VAR, or fail the load with `message`
 /// `${VAR:?}` forms that resolve to nothing are collected and reported together
@@ -1044,7 +1094,7 @@ fn interpolate_env(raw: &str) -> Result<String> {
                     missing.push(msg);
                     String::new()
                 }),
-                // ${VAR} (back-compat: empty when unset)
+                // ${VAR}: empty when unset.
                 _ => val.unwrap_or_default(),
             }
         })
@@ -1110,7 +1160,7 @@ mod tests {
             proj.clone(),
         )
         .expect("synthesized web config parses + validates");
-        assert_eq!(l.config.app.platform, "web-playwright");
+        assert_eq!(l.config.app.platform, "web");
         assert_eq!(
             l.config.app.url.as_deref(),
             Some("https://app.example.com/x:y")
@@ -1232,7 +1282,7 @@ mod tests {
         let path = dir.join("reproit.yaml");
         std::fs::write(
             &path,
-            "app:\n  platform: web-playwright\n  webRunnerDir: ${RIT_E2E_WRD:-./runners/web}\n\
+            "app:\n  platform: web\n  webRunnerDir: ${RIT_E2E_WRD:-./runners/web}\n\
              devices:\n  namePrefix: x\njourneys:\n  driver: noop\n  doneMarkers: [done]\n",
         )
         .unwrap();

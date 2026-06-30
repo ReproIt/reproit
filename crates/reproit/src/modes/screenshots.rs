@@ -1,5 +1,5 @@
 //! `reproit screenshots`: drive a journey "tour" across locales and devices,
-//! capturing its named SHOOT shots into a fastlane-compatible layout.
+//! capturing its named SHOOT shots into a Fastlane-style layout.
 //!
 //! This is a peer to the visual tour (modes/visual.rs): both reuse the SHOOT
 //! capture machinery (drive.rs parses the runner's `SHOOT:<name>` markers and

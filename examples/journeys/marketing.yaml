@@ -25,14 +25,14 @@
 name: marketing
 # Start from a known, logged-in state so the shots show real content, not an
 # empty/seed screen. `demo` is an account configured under auth: in reproit.yaml;
-# store its creds with `reproit secrets set`.
+# store its creds with `reproit auth add demo --strategy password`.
 setup: login(demo)
 steps:
   - do: shoot:home                 # the landing screen, post-login
-  - do: tap:label:Compose
+  - do: tap:key:testid:compose
   - do: type:key:testid:title Hello from reproit
   - do: shoot:compose              # the compose screen, with content
-  - do: tap:label:Publish
+  - do: tap:key:testid:publish
   - assert: textPresent:Published
   - do: shoot:detail               # the published post
   - do: tap:key:testid:settings

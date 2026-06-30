@@ -18,8 +18,7 @@
 //! same replay machinery to re-walk the map and report drift.
 //!
 //! Addressing contract (every runner must uphold): a selector resolves against
-//! VISIBLE / on-screen elements only. A `key:` is exact; `label:` matches the
-//! visible/semantic label of an on-screen element; `role:<role>#<idx>` and a
+//! VISIBLE / on-screen elements only. A `key:` is exact; `role:<role>#<idx>` and a
 //! positional `#<n>` index ONLY the visible elements of that kind, never one
 //! built-but-offstage (another PageView/IndexedStack/Tab page, a `display:none`
 //! node, a collapsed panel). Visibility can't be resolved host-side, only the
@@ -282,7 +281,7 @@ fn load(root: &Path, name: &str) -> Result<Journey> {
 
 /// Load the committed app map, if one has been built.
 fn load_map(root: &Path) -> Option<AppMap> {
-    let p = root.join(".reproit/appmap.json");
+    let p = crate::map::appmap_path(root);
     serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()
 }
 
@@ -781,7 +780,7 @@ async fn run_scenario(
     if !crate::platform::speaks_barrier(platform) {
         bail!(
             "platform `{platform}` has no multi-actor runner yet; authored multi-user scenarios \
-             currently run on: web-playwright, flutter-ios-sim"
+             currently run on: web, flutter"
         );
     }
     let map = load_map(&loaded.root);
@@ -916,7 +915,7 @@ async fn run_replay_cfg(
     warm: bool,
     sim: bool,
 ) -> Result<(String, bool)> {
-    let cfg_path = loaded.root.join(".reproit/fuzz_config.json");
+    let cfg_path = crate::layout::fuzz_config_path(&loaded.root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
     std::fs::write(&cfg_path, cfg.to_string())?;
     let defines = vec![(
@@ -1139,7 +1138,7 @@ fn short(key: &str) -> &str {
 /// to what the map recorded. This is the "is the map still valid?" check.
 pub async fn verify_map(loaded: &config::Loaded, quiet: bool) -> Result<VerifyReport> {
     let map = load_map(&loaded.root).ok_or_else(|| {
-        anyhow::anyhow!("no map at .reproit/appmap.json; run `reproit map` first")
+        anyhow::anyhow!("no map at .reproit/map/appmap.json; run `reproit map` first")
     })?;
     let edges = map.transitions.len();
     if edges == 0 {
@@ -1607,7 +1606,7 @@ mod tests {
     /// secrets), for exercising `prefix_actions` without a real project.
     fn loaded_at(dir: &Path) -> config::Loaded {
         let cfg: config::Config = serde_yaml::from_str(
-            "app:\n  platform: web-playwright\ndevices:\n  namePrefix: t\njourneys:\n  driver: x\n  doneMarkers: [DONE]\n",
+            "app:\n  platform: web\ndevices:\n  namePrefix: t\njourneys:\n  driver: x\n  doneMarkers: [DONE]\n",
         )
         .unwrap();
         config::Loaded {
@@ -1625,14 +1624,14 @@ mod tests {
         // replays before branching outward.
         std::fs::write(
             dir.join("journeys").join("checkout.yaml"),
-            "steps:\n  - do: tap:label:Buy\n  - fill:\n      key:qty: \"2\"\n  - expect:\n      text: Thanks\n",
+            "steps:\n  - do: tap:key:testid:buy\n  - fill:\n      key:qty: \"2\"\n  - expect:\n      text: Thanks\n",
         )
         .unwrap();
         // Resolves by NAME, like any journey target.
         let by_name = prefix_actions(&loaded_at(&dir), "checkout").unwrap();
         assert_eq!(
             by_name,
-            vec!["tap:label:Buy", "type:key:qty=2", "assert:text=Thanks"]
+            vec!["tap:key:testid:buy", "type:key:qty=2", "assert:text=Thanks"]
         );
         // And by direct PATH (e.g. wherever `reproit import` wrote it).
         let by_path = prefix_actions(
@@ -1651,7 +1650,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("journeys")).unwrap();
         std::fs::write(
             dir.join("journeys").join("chat.yaml"),
-            "actors: [alice, bob]\nsteps:\n  - actor: alice\n    do: tap:label:Send\n",
+            "actors: [alice, bob]\nsteps:\n  - actor: alice\n    do: tap:key:testid:send\n",
         )
         .unwrap();
         let err = prefix_actions(&loaded_at(&dir), "chat")

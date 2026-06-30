@@ -46,7 +46,7 @@ pub struct FuzzArgs {
     /// costly part, so a real path gets us there for free.
     pub seeds_file: Option<String>,
     /// Seeds per drive session. 0 = all `runs` in one session (the big win:
-    /// install/launch/connect amortized once). 1 = legacy one-drive-per-seed.
+    /// install/launch/connect amortized once). 1 = one drive per seed.
     pub batch: u32,
     /// Print the per-phase wall-clock breakdown for each drive session.
     pub profile_timing: bool,
@@ -161,7 +161,7 @@ pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<()> {
     Ok(())
 }
 
-pub struct SweepArgs {
+pub struct ScanArgs {
     pub journey: String,
     pub seed: u64,
     pub budget: u32,
@@ -169,23 +169,24 @@ pub struct SweepArgs {
     pub json: bool,
     /// `--record`: after the crawl, record one annotated clip per boxable finding.
     pub record: bool,
-    /// `--out <dir>`: where the clips land (default `.reproit/sweep-clips`).
+    /// `--out <dir>`: where the clips land (default
+    /// `.reproit/recordings/scan/<scan-run>/`).
     pub out: Option<std::path::PathBuf>,
 }
 
-/// SWEEP: the coverage finder. Where `fuzz` permutes action sequences to provoke
-/// SEQUENCE-dependent bugs (crash/jank/hang), `sweep` does ONE crawl that visits
+/// SCAN: the coverage finder. Where `fuzz` permutes action sequences to provoke
+/// SEQUENCE-dependent bugs (crash/jank/hang), `scan` does ONE crawl that visits
 /// every reachable screen once and reports the STATE-PRESENT bugs simply visible
 /// on each (overflow / content / a11y / choice-anomaly) - one finding per
 /// (screen x issue), no per-seed collapse. The runner already emits these markers
-/// on any walk; sweep is about COLLECTING and reporting them, not new detection.
+/// on any walk; scan is about COLLECTING and reporting them, not new detection.
 /// Returns `true` when the coverage walk COMPLETED (the runner declared done),
 /// `false` when it was cut short (timeout / killed) so its coverage is partial.
 /// The caller turns `false` into a non-zero exit so CI never reads an incomplete
-/// sweep as a clean pass.
-pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> {
+/// scan as a clean pass.
+pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
     let json = args.json;
-    let cfg_path = root.join(".reproit/fuzz_config.json");
+    let cfg_path = crate::layout::fuzz_config_path(root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
     let defines = vec![(
         "REPROIT_FUZZ_CONFIG".to_string(),
@@ -197,7 +198,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
     std::fs::write(&cfg_path, config.to_string())?;
     say(
         json,
-        "sweep: one coverage walk (every reachable screen, checked once)...".to_string(),
+        "scan: one coverage walk (every reachable screen, checked once)...".to_string(),
     );
     let outcome = run_explorer(
         cfg,
@@ -217,8 +218,8 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
     // screen (overflow, content-bug, a11y, choice-anomaly, broken-route, dead-end).
     // The sequence-dependent oracles (crash, jank, hang, leak, flicker) are
     // `fuzz`'s job: a single coverage crawl can trip them flakily, so surfacing
-    // them here contradicted the documented sweep contract and was the main source
-    // of sweep non-determinism. They still land in the run log for `fuzz`.
+    // them here contradicted the documented scan contract and was the main source
+    // of scan non-determinism. They still land in the run log for `fuzz`.
     let findings: Vec<Value> = findings_for_tier(cfg, &outcome.run_dir, args.sim)
         .into_iter()
         .filter(|f| is_state_present(&crate::crosscut::classify(f)))
@@ -295,7 +296,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
                 continue;
             }
         }
-        let detail = sweep_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
+        let detail = scan_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
         by_screen.entry(route).or_default().insert((oracle, detail));
     }
 
@@ -304,7 +305,14 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
     // `--record`: replay each boxable finding's path and save an annotated clip.
     // Done after the report grouping so the clips can be listed alongside it.
     let clips = if args.record {
-        record_sweep_clips(cfg, root, args, &findings, &obs, &cfg_path, &defines).await
+        let clip_input = ScanClipInput {
+            findings: &findings,
+            obs: &obs,
+            scan_run_dir: &outcome.run_dir,
+            cfg_path: &cfg_path,
+            defines: &defines,
+        };
+        record_scan_clips(cfg, root, args, clip_input).await
     } else {
         Vec::new()
     };
@@ -321,7 +329,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
             .collect();
         println!(
             "{}",
-            json!({ "command": "sweep", "complete": completed, "screens_swept": swept, "screens_with_findings": by_screen.len(), "issues": issues, "results": results, "clips": clips })
+            json!({ "command": "scan", "complete": completed, "screens_scanned": swept, "screens_with_findings": by_screen.len(), "issues": issues, "results": results, "clips": clips })
         );
         return Ok(completed);
     }
@@ -329,7 +337,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
     say(
         json,
         format!(
-            "\nsweep: {swept} screen(s) swept; {} with {issues} distinct issue(s)",
+            "\nscan: {swept} screen(s) scanned; {} with {issues} distinct issue(s)",
             by_screen.len(),
         ),
     );
@@ -347,7 +355,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
     if !completed {
         say(
             json,
-            "\nsweep: coverage INCOMPLETE -- the crawl was cut short (timeout/killed), \
+            "\nscan: coverage INCOMPLETE -- the crawl was cut short (timeout/killed), \
              so some screens were not checked. Raise --budget or journeys.timeoutSec \
              to go deeper."
                 .to_string(),
@@ -357,7 +365,7 @@ pub async fn sweep(cfg: &Config, root: &Path, args: &SweepArgs) -> Result<bool> 
 }
 
 /// The STATE-PRESENT oracles: bugs visible on a single screen, which is what
-/// `sweep` reports. Everything else (crash/jank/hang/leak/flicker and the
+/// `scan` reports. Everything else (crash/jank/hang/leak/flicker and the
 /// cross-cutting visual/divergence/i18n classes) is sequence-dependent or a
 /// different mode's job and belongs to `fuzz`/`soak`/`baseline`, not a one-pass
 /// coverage crawl.
@@ -374,7 +382,7 @@ fn is_state_present(oracle: &crate::crosscut::Oracle) -> bool {
     )
 }
 
-/// Record one annotated clip per BOXABLE sweep finding. overflow / content-bug
+/// Record one annotated clip per BOXABLE scan finding. overflow / content-bug
 /// are re-detected by drawFindingBoxes on the loaded screen, so a clip = replay
 /// the crawl's own action path to that screen, then the runner draws the red box
 /// at the end and saves the video. a11y boxes the specific unlabeled control by
@@ -382,33 +390,43 @@ fn is_state_present(oracle: &crate::crosscut::Oracle) -> bool {
 /// dead-end / leak / crash have no single on-screen element to box, so those are
 /// skipped here. Deduped by (route, oracle) -- plus one a11y clip per unique
 /// control across screens -- each taking the shortest path for the cleanest clip.
-async fn record_sweep_clips(
+struct ScanClipInput<'a> {
+    findings: &'a [Value],
+    obs: &'a crate::map::RunObs,
+    scan_run_dir: &'a Path,
+    cfg_path: &'a Path,
+    defines: &'a [(String, String)],
+}
+
+async fn record_scan_clips(
     cfg: &Config,
     root: &Path,
-    args: &SweepArgs,
-    findings: &[Value],
-    obs: &crate::map::RunObs,
-    cfg_path: &Path,
-    defines: &[(String, String)],
+    args: &ScanArgs,
+    input: ScanClipInput<'_>,
 ) -> Vec<Value> {
     let json = args.json;
-    let out = args
-        .out
-        .clone()
-        .unwrap_or_else(|| root.join(".reproit/sweep-clips"));
-    let _ = std::fs::create_dir_all(&out);
+    let out = args.out.clone().unwrap_or_else(|| {
+        let run = input
+            .scan_run_dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("latest");
+        crate::layout::scan_recordings_dir(root, run)
+    });
 
     // Clips navigate by REAL URL (a faithful, hand-followable "open this URL"),
     // not by replaying drifty positional taps, so they need the app's origin.
     let Some(origin) = cfg.app.url.as_deref().and_then(url_origin) else {
         say(
             json,
-            "\nsweep --record: clips need a web URL target; skipped.".to_string(),
+            "\nscan --record: clips need a web URL target; skipped.".to_string(),
         );
         return Vec::new();
     };
     let route_of = |sig: &str| {
-        obs.routes
+        input
+            .obs
+            .routes
             .get(sig)
             .cloned()
             .unwrap_or_else(|| sig.to_string())
@@ -426,7 +444,7 @@ async fn record_sweep_clips(
     // reproduce is dropped rather than shipped with a misleading caption.
     let mut plans: std::collections::BTreeMap<(String, String), Value> =
         std::collections::BTreeMap::new();
-    for f in findings {
+    for f in input.findings {
         let oracle = crate::crosscut::classify(f).as_str().to_string();
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
         let route = route_of(sig);
@@ -440,17 +458,20 @@ async fn record_sweep_clips(
                 // page + link that led to the dead route), so the clip lands on the
                 // right page when several link to the same dead URL. Fall back to a
                 // reverse edge match by destination when `from` wasn't recorded.
-                let recorded = obs
+                let recorded = input
+                    .obs
                     .broken_routes
                     .iter()
                     .find(|(s, _r, _st, _f)| s == sig)
                     .and_then(|(_s, _r, _st, from)| from.as_deref())
                     .map(route_of);
-                let Some(src) = recorded.or_else(|| {
-                    obs.edges
-                        .iter()
-                        .find_map(|(from, _a, to)| (route_of(to) == route).then(|| route_of(from)))
-                }) else {
+                let Some(src) =
+                    recorded.or_else(|| {
+                        input.obs.edges.iter().find_map(|(from, _a, to)| {
+                            (route_of(to) == route).then(|| route_of(from))
+                        })
+                    })
+                else {
                     continue;
                 };
                 json!({ "replay": [], "highlight": oracle, "gotoUrl": format!("{origin}{src}"), "linkHref": route })
@@ -462,7 +483,8 @@ async fn record_sweep_clips(
                 json!({ "replay": [], "highlight": "no-choice-anomaly", "gotoUrl": goto })
             }
             "hang" => {
-                let Some(action) = obs
+                let Some(action) = input
+                    .obs
                     .hangs
                     .keys()
                     .find(|k| k.0.as_str() == sig)
@@ -473,7 +495,8 @@ async fn record_sweep_clips(
                 json!({ "replay": [action], "highlight": oracle, "gotoUrl": goto })
             }
             "jank" => {
-                let Some(action) = obs
+                let Some(action) = input
+                    .obs
                     .janks
                     .keys()
                     .find(|k| k.0.as_str() == sig)
@@ -496,12 +519,12 @@ async fn record_sweep_clips(
     // screen), not seven -- and at most one a11y clip per screen.
     {
         let mut clipped: std::collections::BTreeSet<String> = Default::default();
-        for f in findings {
+        for f in input.findings {
             if !matches!(crate::crosscut::classify(f), crate::crosscut::Oracle::A11y) {
                 continue;
             }
             let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
-            let Some(sels) = obs.unlabeled_els.get(sig) else {
+            let Some(sels) = input.obs.unlabeled_els.get(sig) else {
                 continue;
             };
             let Some(sel) = sels.iter().find(|s| !clipped.contains(*s)) else {
@@ -519,21 +542,21 @@ async fn record_sweep_clips(
     if plans.is_empty() {
         say(
             json,
-            "\nsweep --record: no boxable findings to clip on this run.".to_string(),
+            "\nscan --record: no boxable findings to clip on this run.".to_string(),
         );
         return Vec::new();
     }
     say(
         json,
         format!(
-            "\nsweep --record: recording up to {} clip(s) to {}...",
+            "\nscan --record: recording up to {} clip(s) to {}...",
             plans.len(),
             out.display()
         ),
     );
     let mut clips = Vec::new();
     for ((route, oracle), config) in &plans {
-        if std::fs::write(cfg_path, config.to_string()).is_err() {
+        if std::fs::write(input.cfg_path, config.to_string()).is_err() {
             continue;
         }
         let label = format!("{}__{oracle}", sanitize_route(route));
@@ -543,7 +566,7 @@ async fn record_sweep_clips(
             root,
             &args.journey,
             true,
-            defines,
+            input.defines,
             false,
             args.sim,
             true,
@@ -575,7 +598,7 @@ async fn record_sweep_clips(
                 // a fix rather than silently dropping all of them.
                 say(
                     json,
-                    "\nsweep --record: the web runner is out of date and cannot \
+                    "\nscan --record: the web runner is out of date and cannot \
                      record clips for this version.\n  Refresh it: delete the cached \
                      runner (re-downloaded on next run), or set REPROIT_WEB_RUNNER_DIR \
                      to a matching runner."
@@ -589,6 +612,10 @@ async fn record_sweep_clips(
             continue;
         };
         let dest = out.join(format!("{label}.webm"));
+        if std::fs::create_dir_all(&out).is_err() {
+            say(json, format!("    could not create {}", out.display()));
+            continue;
+        }
         if std::fs::copy(&src, &dest).is_ok() {
             say(json, format!("    saved {}", dest.display()));
             clips.push(json!({
@@ -669,7 +696,7 @@ fn sanitize_route(route: &str) -> String {
     }
 }
 
-/// Print the "also saw N state-present issue(s)" footer pointing at `sweep`.
+/// Print the "also saw N state-present issue(s)" footer pointing at `scan`.
 /// `fuzz` bundles every violation into one per-seed finding and headlines the
 /// crash, so the overflow/content/a11y/choice/broken-route issues it walked past
 /// are otherwise invisible. This surfaces their counts and routes the user to the
@@ -691,7 +718,7 @@ fn state_present_footer(json: bool, sp: &std::collections::BTreeMap<String, Stri
         json,
         format!(
             "\nnote: also saw {} state-present issue(s) on the way ({detail}) -- \
-             run `reproit sweep` to list + clip them.",
+             run `reproit scan` to list + clip them.",
             sp.len()
         ),
     );
@@ -700,7 +727,7 @@ fn state_present_footer(json: bool, sp: &std::collections::BTreeMap<String, Stri
 /// Normalize a finding message into a short, route-stable detail: drop a leading
 /// "state <sig> " (so the same issue under different state sigs collapses) and a
 /// trailing explanatory parenthetical.
-fn sweep_detail(msg: &str) -> String {
+fn scan_detail(msg: &str) -> String {
     let s = msg
         .strip_prefix("state ")
         .and_then(|rest| rest.split_once(' ').map(|(_sig, tail)| tail))
@@ -748,13 +775,13 @@ async fn fuzz_one_locale(
 ) -> Result<std::collections::BTreeSet<String>> {
     let mut found_sigs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     // State-present issues (overflow/content/a11y/choice/broken-route) seen on the
-    // way, deduped by signature -> oracle, for the footer that points at `sweep`.
+    // way, deduped by signature -> oracle, for the footer that points at `scan`.
     let mut state_present: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
     // --all: crash-signature -> (human label, [(repro id, action count, seed)]).
     // Same signature = same bug; the buckets become the unique-bugs summary.
     let mut buckets: BugBuckets = BugBuckets::new();
-    let cfg_path = root.join(".reproit/fuzz_config.json");
+    let cfg_path = crate::layout::fuzz_config_path(root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
     let mut defines = vec![(
         "REPROIT_FUZZ_CONFIG".to_string(),
@@ -768,7 +795,7 @@ async fn fuzz_one_locale(
     }
 
     // Batch size: 0 means "all runs in one drive session" (the default, the
-    // big win). 1 means the legacy one-drive-per-seed path. Clamp to runs.
+    // big win). 1 means one drive per seed. Clamp to runs.
     let batch_size = if args.batch == 0 {
         args.runs.max(1)
     } else {
@@ -814,11 +841,9 @@ async fn fuzz_one_locale(
             })
             .collect();
 
-        // Write the config the explorer reads. A single-seed batch keeps the
-        // exact legacy shape ({"seed":..}), preserving the byte-for-byte
-        // determinism contract and the replay/shrink paths. Multi-seed batches
-        // use {"batch":[...]} which the explorer runs in sequence, resetting
-        // the widget tree between seeds.
+        // Write the config the explorer reads. A single-seed batch uses the
+        // compact {"seed":..} shape; multi-seed batches use {"batch":[...]} and
+        // the explorer resets the widget tree between seeds.
         let config = if plans.len() == 1 {
             plans[0].config.clone()
         } else {
@@ -882,7 +907,7 @@ async fn fuzz_one_locale(
             // to the run as a whole on the first seed that has the manifest).
             // The INVARIANTS oracle: evaluate the built-in + custom invariant
             // set over THIS seed's parsed state graph + exceptions (shared with
-            // findings_for_tier/sweep via findings_from_log). no-exception
+            // findings_for_tier/scan via findings_from_log). no-exception
             // subsumes the old raw-exception oracle, so the exceptions are fed in
             // and folded back when that invariant is disabled. The pooled
             // `escapable` routes keep a dead-end flagged only when no batch's
@@ -922,7 +947,7 @@ async fn fuzz_one_locale(
                 found_sigs.insert(finding_signature(f));
                 // Tally the STATE-PRESENT issues this walk passed (overflow /
                 // content / a11y / choice / broken-route), deduped by signature,
-                // so the report can point them at `sweep` instead of burying them
+                // so the report can point them at `scan` instead of burying them
                 // under the per-seed crash headline.
                 let oracle = crate::crosscut::classify(f).as_str();
                 if matches!(
@@ -981,6 +1006,7 @@ async fn fuzz_one_locale(
             // `check <id>` confirms it replays NOW (before you commit it to the
             // suite), `keep <id>` saves it as a guard.
             let repro_id = crate::repro::repro_id(*seed, &shrunk);
+            let finding_id = crate::repro::display_finding_id(&repro_id);
             // `--all` batches every seed into ONE drive run_dir, so writing each
             // finding's report to that shared dir would overwrite the previous
             // fuzz.md and only the last finding would be resolvable by
@@ -1006,13 +1032,13 @@ async fn fuzz_one_locale(
             if args.all {
                 say(
                     json,
-                    format!("  found ({} action(s)) -> id {repro_id}", shrunk.len()),
+                    format!("  found ({} action(s)) -> id {finding_id}", shrunk.len()),
                 );
             } else {
                 say(
                     json,
                     format!(
-                        "  id {repro_id}   confirm: reproit check {repro_id}   save: reproit keep {repro_id} --as <name>"
+                        "  id {finding_id}   confirm: reproit check {finding_id}   save: reproit keep {finding_id} --as <name>"
                     ),
                 );
             }
@@ -1138,16 +1164,22 @@ async fn fuzz_one_locale(
             // Canonical repro for the bug: the shortest (fewest actions).
             entries.sort_by_key(|(_, n, _)| *n);
             let (id, n, _) = entries[0].clone();
+            let finding_id = crate::repro::display_finding_id(&id);
             let dups = entries.len().saturating_sub(1);
             let also = if dups > 0 {
                 format!("  (+{dups} more path(s) reach the same bug)")
             } else {
                 String::new()
             };
-            say(json, format!("  {id}  {label}  [{n} action(s)]{also}"));
             say(
                 json,
-                format!("    confirm: reproit check {id}   keep: reproit keep {id} --as <name>"),
+                format!("  {finding_id}  {label}  [{n} action(s)]{also}"),
+            );
+            say(
+                json,
+                format!(
+                    "    confirm: reproit check {finding_id}   keep: reproit keep {finding_id} --as <name>"
+                ),
             );
         }
         state_present_footer(json, &state_present);
@@ -1262,8 +1294,8 @@ fn finding_label(f: &Value) -> String {
 }
 
 /// Resolve one seed's walk config from the (pre-batch) map/visits snapshot.
-/// Identical inputs to the legacy per-run computation, just hoisted so a batch
-/// can carry several. `i` is the global run index (for the progress line).
+/// Resolve the same per-run inputs for each seed, hoisted so a batch can carry
+/// several. `i` is the global run index (for the progress line).
 fn plan_seed(
     cfg: &Config,
     root: &Path,
@@ -1354,8 +1386,8 @@ fn plan_seed(
 
 /// Split a batched drive log into per-seed `(seed, log_slice)` pairs by the
 /// `SEED:BEGIN <seed>` ... `SEED:END <seed>` boundary markers the explorer
-/// emits. For a single-seed (legacy) run with no markers, the whole log is
-/// returned under that one seed, so the non-batched path is unchanged.
+/// emits. For a single-seed run with no markers, the whole log is returned
+/// under that one seed.
 fn split_seed_segments(log: &str, plans: &[SeedPlan]) -> Vec<(u64, String)> {
     if plans.len() == 1 {
         return vec![(plans[0].seed, log.to_string())];
@@ -1384,7 +1416,7 @@ fn split_seed_segments(log: &str, plans: &[SeedPlan]) -> Vec<(u64, String)> {
     if let Some((s, buf)) = current.take() {
         out.push((s, buf.join("\n")));
     }
-    // If the markers were absent (e.g. an old vendored explorer), fall back to
+    // If the markers were absent, fall back to
     // attributing the whole log to each planned seed so nothing is dropped.
     if out.is_empty() {
         return plans.iter().map(|p| (p.seed, log.to_string())).collect();
@@ -1396,8 +1428,7 @@ fn split_seed_segments(log: &str, plans: &[SeedPlan]) -> Vec<(u64, String)> {
 /// in order, WITHOUT needing the seed plans (the caller knows how many entries
 /// it wrote). Used by `check` to batch a repro's N repeat-replays into a single
 /// drive (one browser launch) and still read a per-replay verdict. An unmarked
-/// log (legacy single run) returns the whole log as one segment, so the
-/// non-batched path is unchanged.
+/// log returns the whole log as one segment.
 pub(crate) fn split_log_segments(log: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut current: Option<Vec<&str>> = None;
@@ -1707,7 +1738,7 @@ fn reproduces_original(candidate: &[Value], want: &std::collections::BTreeSet<St
 /// through the INVARIANTS oracle (built-in + custom) and folds the app
 /// exceptions back in when `no-exception` is disabled. This is the one place the
 /// invariant evaluation lives; `findings_for_tier` (a whole run dir), the
-/// per-seed fuzz loop (a session segment), and `sweep` all funnel through it,
+/// per-seed fuzz loop (a session segment), and `scan` all funnel through it,
 /// differing only in where the log/exceptions/escapable set come from and how
 /// perf is attributed. `escapable` is the pool of routes any walk could leave
 /// via a forward action, so a dead-end is only flagged when NO evidence escapes
@@ -2052,9 +2083,9 @@ fn write_report(
     shrunk: &[String],
 ) -> Result<()> {
     let mut md = format!("# fuzz finding (seed {seed})\n\n");
-    // Each finding now carries an `invariant` id (the named property it
-    // violates), so the report leads with the invariant summary, then the
-    // detail. Findings with no `invariant` (legacy/raw) fall under "exception".
+    // Each finding carries an `invariant` id (the named property it violates),
+    // so the report leads with the invariant summary, then the detail. Findings
+    // without an invariant fall under "exception".
     let invariant_of = |f: &Value| {
         f.get("invariant")
             .and_then(Value::as_str)
@@ -2102,8 +2133,9 @@ fn write_report(
             md.push_str(&format!("  - `{}`\n", frame.as_str().unwrap_or("")));
         }
     }
+    let finding_id = crate::repro::display_finding_id(&crate::repro::repro_id(seed, shrunk));
     md.push_str(&format!(
-        "\n## repro ({} actions{})\n\n```\n{}\n```\n\nReplay: write {{\"replay\": [...]}} to .reproit/fuzz_config.json and `reproit check explore` (then `reproit record <id>` for an annotated video).\n",
+        "\n## repro ({} actions{})\n\n```\n{}\n```\n\nConfirm: `reproit check {finding_id}`\nSave: `reproit keep {finding_id} --as <name>`\nAfter saving, record an annotated video with `reproit record <alias-or-rep-id>`.\n",
         shrunk.len(),
         if shrunk.len() < trace.len() {
             format!(", shrunk from {}", trace.len())
