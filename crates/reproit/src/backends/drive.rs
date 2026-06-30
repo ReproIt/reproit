@@ -51,7 +51,7 @@ pub struct RunCtx {
     pub device_done_marker: Option<String>,
     pub action_prefix: String,
     pub screenshot_marker: String,
-    /// Platform: "flutter-ios-sim" or "web-playwright". Selects the driver.
+    /// Platform: "flutter" or "web". Selects the driver.
     pub platform: String,
     /// Web runner directory (where runner.mjs lives) and app URL.
     pub web_runner_dir: Option<PathBuf>,
@@ -266,11 +266,11 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             c
         }
         // Web: Playwright node runner, configured by URL.
-        Backend::WebCdp if ctx.platform == "web-playwright" => {
+        Backend::WebCdp if ctx.platform == "web" => {
             let dir = ctx
                 .web_runner_dir
                 .clone()
-                .ok_or_else(|| anyhow::anyhow!("web-playwright needs webRunnerDir in config"))?;
+                .ok_or_else(|| anyhow::anyhow!("web needs webRunnerDir in config"))?;
             let mut c = Command::new("node");
             c.arg(dir.join("runner.mjs"));
             c.env("REPROIT_URL", ctx.web_url.clone().unwrap_or_default());

@@ -290,8 +290,10 @@ fn base32_decode(s: &str) -> Option<Vec<u8>> {
 
 /// Resolve every configured account into env vars for the runner. For each
 /// account `alice` with refs into the vault, emits any of:
-///   REPROIT_SECRET_ALICE_USERNAME, REPROIT_SECRET_ALICE_PASSWORD,
-///   REPROIT_SECRET_ALICE_TOTP   (a fresh 6-digit code, not the seed)
+///   REPROIT_SECRET_ALICE_USERNAME, REPROIT_SECRET_ALICE_EMAIL,
+///   REPROIT_SECRET_ALICE_PHONE, REPROIT_SECRET_ALICE_PASSWORD,
+///   REPROIT_SECRET_ALICE_TOTP   (a fresh 6-digit code, not the seed),
+///   REPROIT_SECRET_ALICE_OTP    (a fixed/manual code from the vault),
 ///   REPROIT_SECRET_ALICE_STORAGE (a JSON session blob for the login bypass)
 /// Missing refs are skipped silently so partial accounts still work. Returns an
 /// empty vec when no auth is configured (the common case), so callers can
@@ -300,17 +302,32 @@ pub fn secret_env(auth: &AuthCfg, root: &Path) -> Result<Vec<(String, String)>> 
     if auth.accounts.is_empty() {
         return Ok(Vec::new());
     }
-    let vault_path = root.join(
-        auth.vault
-            .clone()
-            .unwrap_or_else(|| ".reproit/secrets.vault".into()),
-    );
+    let vault_path = auth
+        .vault
+        .as_ref()
+        .map(|path| root.join(path))
+        .unwrap_or_else(|| crate::layout::secrets_vault_path(root));
     let vault = Vault::open(&vault_path)?;
     let mut out = Vec::new();
     for acct in &auth.accounts {
         let prefix = format!("REPROIT_SECRET_{}", env_ident(&acct.name));
         if let Some(u) = &acct.username {
             out.push((format!("{prefix}_USERNAME"), u.clone()));
+        }
+        if let Some(r) = &acct.username_ref {
+            if let Some(v) = vault.get(r) {
+                out.push((format!("{prefix}_USERNAME"), v.to_string()));
+            }
+        }
+        if let Some(r) = &acct.email_ref {
+            if let Some(v) = vault.get(r) {
+                out.push((format!("{prefix}_EMAIL"), v.to_string()));
+            }
+        }
+        if let Some(r) = &acct.phone_ref {
+            if let Some(v) = vault.get(r) {
+                out.push((format!("{prefix}_PHONE"), v.to_string()));
+            }
         }
         if let Some(r) = &acct.password_ref {
             if let Some(v) = vault.get(r) {
@@ -322,6 +339,11 @@ pub fn secret_env(auth: &AuthCfg, root: &Path) -> Result<Vec<(String, String)>> 
                 if let Some(code) = totp_now(seed) {
                     out.push((format!("{prefix}_TOTP"), code));
                 }
+            }
+        }
+        if let Some(r) = &acct.otp_ref {
+            if let Some(v) = vault.get(r) {
+                out.push((format!("{prefix}_OTP"), v.to_string()));
             }
         }
         if let Some(r) = &acct.storage_ref {

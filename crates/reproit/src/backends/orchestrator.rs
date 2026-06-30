@@ -42,8 +42,8 @@ pub struct RunOpts<'a> {
     /// launch->ready, walk, teardown). Off unless set.
     pub profile_timing: bool,
     /// Record an annotated video for THIS run even when `evidence.video` is off:
-    /// the `record` command and `sweep --record` clip pass need the runner-side
-    /// webm. A plain fuzz/sweep walk leaves this false so the (web/electron/tauri)
+    /// the `record` command and `scan --record` clip pass need the runner-side
+    /// webm. A plain fuzz/scan walk leaves this false so the (web/electron/tauri)
     /// runner doesn't record an unwanted video every run.
     pub record_video: bool,
 }
@@ -95,20 +95,10 @@ pub async fn run_journey(
     let started_at = chrono::Local::now();
     // Per-phase wall-clock instrumentation (printed only with profile_timing).
     let mut timing = PhaseTimer::new(profile_timing);
-    // Resolve the platform to its backend; refuse early (before touching any
-    // device) if its runner is registered but not built yet, with guidance.
+    // Resolve the platform to its backend before touching any device so unknown
+    // ids fail with a direct config error.
     let plat = crate::platform::resolve(&cfg.app.platform)
         .ok_or_else(|| anyhow::anyhow!("unknown platform {}", cfg.app.platform))?;
-    if !plat.status.executable() {
-        anyhow::bail!(
-            "platform '{}' is registered (backend {}, status {}) but its runner is \
-             not built yet.\n  {}",
-            plat.id,
-            plat.backend.as_str(),
-            plat.status.label(),
-            plat.note
-        );
-    }
     if let Some(need) = plat.backend.required_os() {
         if need != std::env::consts::OS {
             anyhow::bail!(
@@ -240,11 +230,10 @@ pub async fn run_journey(
         defines.push(("PROMPT_KIND".to_string(), k.to_string()));
     }
     defines.extend(extra_defines.iter().cloned());
-    // Login secrets resolved from the encrypted vault. They still ride env/defines
-    // for legacy/login-UI use, but the agnostic path is host-side: actions get
-    // their ${REPROIT_SECRET_*} placeholders resolved before delivery, and these
-    // values are also handed to the log capture so the resolved value is redacted
-    // back to its placeholder in evidence (see RunCtx.secrets / auth::redact).
+    // Login secrets resolved from the encrypted vault. Login-UI journeys receive
+    // them via env/defines; host-authored actions get their ${REPROIT_SECRET_*}
+    // placeholders resolved before delivery. The same values are handed to log
+    // capture so resolved secrets are redacted back to placeholders in evidence.
     let secrets = match crate::auth::secret_env(&cfg.auth, root) {
         Ok(s) => s,
         Err(e) => {
@@ -286,7 +275,8 @@ pub async fn run_journey(
         Some(p) => root.join(p),
         None => run_dir.join("screenshots"),
     };
-    std::fs::create_dir_all(&shots_dir)?;
+    // Created lazily by the capture path when a SHOOT marker actually writes a
+    // PNG. Plain check/fuzz runs should not leave empty screenshots dirs behind.
     let ctx = Arc::new(RunCtx {
         root: root.to_path_buf(),
         project_dir,

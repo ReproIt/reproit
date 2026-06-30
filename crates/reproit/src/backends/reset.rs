@@ -92,11 +92,17 @@ mod tests {
     fn acct(name: &str, user_id: Option<&str>) -> Account {
         Account {
             name: name.to_string(),
+            strategy: None,
             user_id: user_id.map(String::from),
             username: None,
+            username_ref: None,
+            email_ref: None,
+            phone_ref: None,
             password_ref: None,
             totp_ref: None,
+            otp_ref: None,
             storage_ref: None,
+            validate: None,
         }
     }
 
