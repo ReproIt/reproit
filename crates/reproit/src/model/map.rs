@@ -1,19 +1,20 @@
 //! The app map as LIVE state: every exploration/fuzz run's EXPLORE records
-//! merge into .reproit/appmap.json (states/transitions union by semantics
-//! signature) and .reproit/visits.json (per-sig visit counts + the start
+//! merge into .reproit/map/appmap.json (states/transitions union by semantics
+//! signature) and .reproit/map/visits.json (per-sig visit counts + the start
 //! state). Frontier fuzzing and author v2 path over this; `reproit map` is
 //! the explicit build/label entry point.
 
 use crate::appmap::{
-    Action, AppMap, OperabilityGap, OperabilityGaps, Reversibility, State, StateSignature,
-    Transition,
+    Action, AppMap, OperabilityGap, OperabilityGaps, Reversibility, State, StateElement,
+    StateSignature, StateText, Transition,
 };
 use crate::config::Config;
+use crate::layout;
 use crate::orchestrator;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// One overflowing/clipped node from `EXPLORE:OVERFLOW`. `kind` is the signal
 /// (`scroll`/`clip`/`spill`); `by` is the CSS-pixel magnitude; `tag` is the
@@ -59,6 +60,12 @@ pub(crate) struct RunObs {
     /// the walk simply never finished exploring (it offered tappables it never
     /// tapped). 0 when the runner does not report elements.
     pub tappables: BTreeMap<String, usize>,
+    /// sig -> actionable elements the runner offered on that state. Labels are
+    /// display-only; `sel` is the replayable structural selector.
+    pub elements: BTreeMap<String, Vec<StateElement>>,
+    /// sig -> observed screen text regions. These are not replay selectors; they
+    /// help importers translate text-based source tests into structural actions.
+    pub texts: BTreeMap<String, Vec<StateText>>,
     /// sig -> the selectors of the UNLABELED tappables on that state (the
     /// `EXPLORE:STATE` elements flagged `unlabeled`). Lets the a11y oracle name
     /// WHICH control lacks a label and recognize a persistent-chrome control (the
@@ -188,11 +195,30 @@ fn gaps_from_groundtruth(json: &Value) -> OperabilityGaps {
     g
 }
 
+fn parse_bounds(v: Option<&Value>) -> Option<[i64; 4]> {
+    let arr = v?.as_array()?;
+    if arr.len() != 4 {
+        return None;
+    }
+    let mut out = [0i64; 4];
+    for (i, value) in arr.iter().enumerate() {
+        out[i] = value
+            .as_i64()
+            .or_else(|| value.as_f64().map(|n| n.round() as i64))?;
+    }
+    if out[2] <= 0 || out[3] <= 0 {
+        return None;
+    }
+    Some(out)
+}
+
 pub(crate) fn parse_run(log: &str) -> RunObs {
     let mut obs = RunObs {
         states: BTreeMap::new(),
         routes: BTreeMap::new(),
         tappables: BTreeMap::new(),
+        elements: BTreeMap::new(),
+        texts: BTreeMap::new(),
         unlabeled_els: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
@@ -229,6 +255,29 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 // Tappable count: how many actionable elements the state offered.
                 if let Some(els) = json.get("elements").and_then(Value::as_array) {
                     obs.tappables.entry(sig.to_string()).or_insert(els.len());
+                    let elements: Vec<StateElement> = els
+                        .iter()
+                        .filter_map(|e| {
+                            let sel = e.get("sel").and_then(Value::as_str)?.to_string();
+                            Some(StateElement {
+                                sel,
+                                role: e
+                                    .get("role")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_string(),
+                                label: e
+                                    .get("label")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_string(),
+                                bounds: parse_bounds(e.get("bounds")),
+                            })
+                        })
+                        .collect();
+                    if !elements.is_empty() {
+                        obs.elements.entry(sig.to_string()).or_insert(elements);
+                    }
                     // Selectors of the UNLABELED tappables (per-element flag), so
                     // the a11y oracle can name the control and dedup persistent
                     // chrome across screens.
@@ -241,6 +290,24 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                         obs.unlabeled_els
                             .entry(sig.to_string())
                             .or_insert(unlabeled_sels);
+                    }
+                }
+                if let Some(texts) = json.get("texts").and_then(Value::as_array) {
+                    let texts: Vec<StateText> = texts
+                        .iter()
+                        .filter_map(|t| {
+                            let text = t.get("text").and_then(Value::as_str)?.trim().to_string();
+                            if text.is_empty() {
+                                return None;
+                            }
+                            Some(StateText {
+                                text,
+                                bounds: parse_bounds(t.get("bounds")),
+                            })
+                        })
+                        .collect();
+                    if !texts.is_empty() {
+                        obs.texts.entry(sig.to_string()).or_insert(texts);
                     }
                 }
                 obs.states.entry(sig.to_string()).or_insert_with(|| {
@@ -419,8 +486,16 @@ fn extract(line: &str, marker: &str) -> Option<Value> {
     serde_json::from_str(line[idx + marker.len()..].trim()).ok()
 }
 
+pub(crate) fn appmap_path(root: &Path) -> PathBuf {
+    layout::appmap_path(root)
+}
+
+fn visits_path(root: &Path) -> PathBuf {
+    layout::visits_path(root)
+}
+
 pub(crate) fn load_map(root: &Path, cfg: &Config) -> AppMap {
-    std::fs::read_to_string(root.join(".reproit/appmap.json"))
+    std::fs::read_to_string(appmap_path(root))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_else(|| AppMap {
@@ -434,7 +509,7 @@ pub(crate) fn load_map(root: &Path, cfg: &Config) -> AppMap {
 }
 
 fn save_map(root: &Path, map: &AppMap) -> Result<()> {
-    let out = root.join(".reproit/appmap.json");
+    let out = appmap_path(root);
     std::fs::create_dir_all(out.parent().unwrap())?;
     std::fs::write(&out, serde_json::to_string_pretty(map)?)?;
     Ok(())
@@ -468,6 +543,16 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                     if let Some(g) = obs.gaps.get(sig) {
                         state.operability_gaps = g.clone();
                     }
+                    if state.elements.is_empty() {
+                        if let Some(elements) = obs.elements.get(sig) {
+                            state.elements = elements.clone();
+                        }
+                    }
+                    if state.texts.is_empty() {
+                        if let Some(texts) = obs.texts.get(sig) {
+                            state.texts = texts.clone();
+                        }
+                    }
                     if state.signature.route.is_none() {
                         if let Some(r) = obs.routes.get(sig) {
                             state.signature.route = Some(r.clone());
@@ -492,6 +577,8 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                             route: obs.routes.get(sig).cloned(),
                         },
                         parameters: vec![],
+                        elements: obs.elements.get(sig).cloned().unwrap_or_default(),
+                        texts: obs.texts.get(sig).cloned().unwrap_or_default(),
                         unlabeled_tappables: *unlabeled,
                         operability_gaps: obs.gaps.get(sig).cloned().unwrap_or_default(),
                     },
@@ -539,9 +626,7 @@ fn parse_metric_unit(json: &Value) -> String {
 
 pub(crate) fn action_str(a: &Action) -> String {
     match a {
-        Action::Tap { finder } => {
-            format!("tap:{}", finder.strip_prefix("label:").unwrap_or(finder))
-        }
+        Action::Tap { finder } => format!("tap:{finder}"),
         Action::Back => "back".to_string(),
         Action::Type { finder, .. } => format!("type:{finder}"),
         Action::Scroll { finder, .. } => format!("scroll:{finder}"),
@@ -556,9 +641,9 @@ pub(crate) fn action_str(a: &Action) -> String {
 /// behind a typed input becomes unreplayable and frontier guidance over the map
 /// is wrong wherever a state is only reachable through typed input.
 fn parse_action(s: &str) -> Action {
-    if let Some(l) = s.strip_prefix("tap:") {
+    if let Some(finder) = s.strip_prefix("tap:") {
         return Action::Tap {
-            finder: format!("label:{l}"),
+            finder: finder.to_string(),
         };
     }
     if let Some(rest) = s.strip_prefix("type:") {
@@ -725,17 +810,16 @@ impl Visits {
 }
 
 pub(crate) fn load_visits(root: &Path) -> Visits {
-    std::fs::read_to_string(root.join(".reproit/visits.json"))
+    std::fs::read_to_string(visits_path(root))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
 fn save_visits(root: &Path, v: &Visits) -> Result<()> {
-    std::fs::write(
-        root.join(".reproit/visits.json"),
-        serde_json::to_string_pretty(v)?,
-    )?;
+    let out = visits_path(root);
+    std::fs::create_dir_all(out.parent().unwrap())?;
+    std::fs::write(out, serde_json::to_string_pretty(v)?)?;
     Ok(())
 }
 
@@ -743,7 +827,7 @@ fn save_visits(root: &Path, v: &Visits) -> Result<()> {
 /// parsed observations. Does no I/O, so callers that must stay pure (notably
 /// `fuzz`, which reports discoveries but never mutates the committed graph) can
 /// accrue cross-seed/cross-batch coverage guidance within a single invocation
-/// without touching `.reproit/appmap.json` / `.reproit/visits.json`.
+/// without touching `.reproit/map/appmap.json` / `.reproit/map/visits.json`.
 pub(crate) fn absorb_run_inmem(map: &mut AppMap, visits: &mut Visits, log: &str) -> RunObs {
     let obs = parse_run(log);
     if obs.states.is_empty() {
@@ -867,6 +951,7 @@ pub async fn build_map(
     cfg: &Config,
     root: &Path,
     journey: &str,
+    budget: Option<u32>,
     label: bool,
     from_run: Option<&Path>,
 ) -> Result<()> {
@@ -874,12 +959,26 @@ pub async fn build_map(
         Some(p) if p.is_absolute() => p.to_path_buf(),
         Some(p) => root.join(p),
         None => {
+            let mut extra_defines: Vec<(String, String)> = Vec::new();
+            if let Some(budget) = budget {
+                let cfg_path = layout::fuzz_config_path(root);
+                std::fs::create_dir_all(cfg_path.parent().unwrap())?;
+                std::fs::write(
+                    &cfg_path,
+                    serde_json::json!({ "seed": 0, "budget": budget }).to_string(),
+                )?;
+                extra_defines.push((
+                    "REPROIT_FUZZ_CONFIG".to_string(),
+                    cfg_path.to_string_lossy().into_owned(),
+                ));
+            }
             let outcome = orchestrator::run_journey(
                 cfg,
                 root,
                 journey,
                 &orchestrator::RunOpts {
                     devices: 1,
+                    extra_defines: &extra_defines,
                     ..Default::default()
                 },
             )
@@ -947,13 +1046,13 @@ pub async fn build_map(
 
     let map = load_map(root, cfg);
     // Progress lines go to STDERR: stdout is reserved for machine output (e.g. a
-    // `--json` sweep/fuzz that auto-builds the map on first run), and these landing
+    // `--json` scan/fuzz that auto-builds the map on first run), and these landing
     // on stdout corrupted the JSON object a piped consumer parses.
     eprintln!(
         "  map: {} states, {} transitions -> {}",
         map.states.len(),
         map.transitions.len(),
-        root.join(".reproit/appmap.json").display()
+        appmap_path(root).display()
     );
     Ok(())
 }
@@ -1067,6 +1166,8 @@ mod tests {
                 semantics_hash: None,
                 route: None,
             },
+            elements: vec![],
+            texts: vec![],
             parameters: vec![],
             unlabeled_tappables: 0,
             operability_gaps: Default::default(),
@@ -1077,7 +1178,7 @@ mod tests {
             from: from.to_string(),
             to: to.to_string(),
             action: Action::Tap {
-                finder: format!("label:{label}"),
+                finder: label.to_string(),
             },
             guards: vec![],
             reversibility: Reversibility::ProposedReversible,
@@ -1425,8 +1526,8 @@ mod tests {
     fn qt_in_process_agent_groundtruth_detects_fake_button_gap() {
         // End-to-end contract proof for the in-process Qt operability agent
         // (runners/native/qt-agent/qt_agent.cpp). This is the VERBATIM
-        // EXPLORE:GROUNDTRUTH line the built+run agent emits in a Linux
-        // container (Debian, Qt 6.8.2, `QT_QPA_PLATFORM=offscreen`) for a window
+        // EXPLORE:GROUNDTRUTH line the built+run agent emits on Linux
+        // (Qt 6.8.2, `QT_QPA_PLATFORM=offscreen`) for a window
         // holding a real QPushButton, a "fake button" (custom QWidget with a
         // mousePressEvent handler and no QAccessible role), and a correctly-built
         // accessible control. Graph 1 (QObject tree + wired signals / custom
@@ -1452,8 +1553,8 @@ mod tests {
     fn gtk_in_process_agent_groundtruth_detects_fake_button_gap() {
         // End-to-end contract proof for the in-process GTK operability agent
         // (runners/native/gtk-agent/gtk_agent.c). This is the VERBATIM
-        // EXPLORE:GROUNDTRUTH line the built+run agent emits in a Linux container
-        // (Debian, GTK 4.18.6, under `xvfb-run`) for a window holding a real
+        // EXPLORE:GROUNDTRUTH line the built+run agent emits on Linux
+        // (GTK 4.18.6, under `xvfb-run`) for a window holding a real
         // GtkButton, a "fake button" (a GtkBox carrying a GtkGestureClick +
         // handler with no button role / not focusable), and a correctly-built
         // accessible GtkButton. Graph 1 (GtkWidget tree + wired signals / click
@@ -1560,5 +1661,60 @@ mod tests {
         // Sorted by name: a before b.
         assert!(joined.find("a-line").unwrap() < joined.find("b-line").unwrap());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn absorb_run_writes_map_files_to_documented_layout() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-map-layout-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let loaded = crate::config::parse_str(
+            "app:\n  platform: web\n  bundleId: test.app\n  webRunnerDir: /tmp/web\n  url: http://localhost:3000\n\
+             devices:\n  namePrefix: test\n\
+             journeys:\n  driver: web\n  doneMarkers:\n    - done\n",
+            root.clone(),
+        )
+        .unwrap();
+
+        absorb_run(
+            &root,
+            &loaded.config,
+            r#"EXPLORE:STATE {"sig":"abc","route":"/home","labels":["Home"],"unlabeled":0,"elements":[{"sel":"key:testid:sign-in","role":"button","label":"Sign in","bounds":[10,20,100,32]}],"texts":[{"text":"Sign in","bounds":[22,28,44,14]}]}"#,
+        )
+        .unwrap();
+
+        assert!(
+            crate::layout::appmap_path(&root).exists(),
+            "app map should be under .reproit/map/"
+        );
+        assert!(
+            crate::layout::visits_path(&root).exists(),
+            "visits should be under .reproit/map/"
+        );
+        assert!(
+            !root.join(".reproit/appmap.json").exists(),
+            "old root app map should not be written"
+        );
+        assert!(
+            !root.join(".reproit/visits.json").exists(),
+            "old root visits should not be written"
+        );
+        let map = load_map(&root, &loaded.config);
+        let state = map.states.values().next().unwrap();
+        assert_eq!(state.elements.len(), 1);
+        assert_eq!(state.elements[0].label, "Sign in");
+        assert_eq!(state.elements[0].sel, "key:testid:sign-in");
+        assert_eq!(state.elements[0].bounds, Some([10, 20, 100, 32]));
+        assert_eq!(state.texts.len(), 1);
+        assert_eq!(state.texts[0].text, "Sign in");
+        assert_eq!(state.texts[0].bounds, Some([22, 28, 44, 14]));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

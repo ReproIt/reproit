@@ -1,6 +1,10 @@
 node_modules/
 dist/
-.reproit/
+.reproit/runs/
+.reproit/recordings/
+.reproit/tmp/
+.reproit/*.vault
+.reproit/*.log
 *.log
 .DS_Store
 .forbidden-terms

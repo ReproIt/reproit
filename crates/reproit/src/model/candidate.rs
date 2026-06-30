@@ -16,6 +16,7 @@
 #![allow(dead_code)]
 
 use crate::appmap::AppMap;
+use crate::layout;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -230,9 +231,9 @@ impl CandidateMap {
     }
 }
 
-/// `.reproit/candidate_map.json`.
+/// `.reproit/map/candidate_map.json`.
 pub fn candidate_path(root: &Path) -> PathBuf {
-    root.join(".reproit/candidate_map.json")
+    layout::candidate_map_path(root)
 }
 
 pub fn load(root: &Path) -> Option<CandidateMap> {
@@ -347,5 +348,36 @@ mod tests {
         let back: CandidateMap = serde_json::from_str(&json).unwrap();
         assert_eq!(back.candidates.len(), 1);
         assert_eq!(back.candidates[0].id, "home");
+    }
+
+    #[test]
+    fn save_writes_candidate_map_to_documented_layout() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-candidate-layout-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let cm = CandidateMap {
+            app: "example".into(),
+            lenses: vec!["routes".into()],
+            candidates: vec![cand("home", Some("/home"), GapReason::None)],
+        };
+        save(&root, &cm).unwrap();
+
+        assert!(
+            crate::layout::candidate_map_path(&root).exists(),
+            "candidate map should be under .reproit/map/"
+        );
+        assert!(
+            !root.join(".reproit/candidate_map.json").exists(),
+            "old root candidate map should not be written"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

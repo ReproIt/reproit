@@ -886,6 +886,8 @@ mod tests {
                 states: s,
                 routes: Default::default(),
                 tappables: Default::default(),
+                elements: Default::default(),
+                texts: Default::default(),
                 unlabeled_els: Default::default(),
                 edges: edges
                     .iter()

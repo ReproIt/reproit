@@ -10,10 +10,38 @@
 //!   3. the four-outcome classification (`classify`) pass/fail/flaky/stale and
 //!      its mapping to the CI exit-code contract.
 
+use crate::layout;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+
+pub const FINDING_PREFIX: &str = "fnd_";
+pub const REPRO_PREFIX: &str = "rep_";
+
+pub fn display_finding_id(id: &str) -> String {
+    prefixed_id(FINDING_PREFIX, id)
+}
+
+pub fn display_repro_id(id: &str) -> String {
+    prefixed_id(REPRO_PREFIX, id)
+}
+
+fn prefixed_id(prefix: &str, id: &str) -> String {
+    if id.starts_with(prefix) {
+        id.to_string()
+    } else {
+        format!("{prefix}{id}")
+    }
+}
+
+pub fn raw_finding_id(id: &str) -> Option<&str> {
+    id.strip_prefix(FINDING_PREFIX)
+}
+
+pub fn raw_repro_id(id: &str) -> Option<&str> {
+    id.strip_prefix(REPRO_PREFIX)
+}
 
 /// A saved repro lands quarantined (reported, non-blocking) and auto-promotes
 /// to required on its first green, unless `keep --strict`.
@@ -120,12 +148,12 @@ pub fn repro_id<S: AsRef<str>>(seed: u64, actions: &[S]) -> String {
 
 /// The committed repro store directory (`.reproit/repros/`).
 pub fn repros_dir(root: &Path) -> PathBuf {
-    root.join(".reproit/repros")
+    layout::repros_dir(root)
 }
 
 /// One saved repro's store directory (`.reproit/repros/<id>/`).
 pub fn repro_dir(root: &Path, id: &str) -> PathBuf {
-    repros_dir(root).join(id)
+    layout::repro_dir(root, id)
 }
 
 /// Load a repro's meta.json by id (the store dir name).
@@ -165,11 +193,12 @@ pub fn list(root: &Path) -> Vec<Meta> {
     out
 }
 
-/// Resolve a repro reference (an id OR an alias) to its meta. Matches an exact
-/// id first, then an exact alias.
+/// Resolve a repro reference (`rep_...` OR an alias) to its meta.
 pub fn resolve(root: &Path, name: &str) -> Option<Meta> {
-    if let Some(m) = load_meta(root, name) {
-        return Some(m);
+    if let Some(id) = raw_repro_id(name) {
+        if let Some(m) = load_meta(root, id) {
+            return Some(m);
+        }
     }
     list(root)
         .into_iter()
@@ -747,6 +776,41 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a.len(), 12);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn public_prefix_helpers_define_public_id_shapes() {
+        let raw = "abcdef123456";
+        assert_eq!(display_finding_id(raw), "fnd_abcdef123456");
+        assert_eq!(display_repro_id(raw), "rep_abcdef123456");
+        assert_eq!(display_finding_id("fnd_abcdef123456"), "fnd_abcdef123456");
+        assert_eq!(display_repro_id("rep_abcdef123456"), "rep_abcdef123456");
+        assert_eq!(raw_finding_id("fnd_abcdef123456"), Some(raw));
+        assert_eq!(raw_repro_id("rep_abcdef123456"), Some(raw));
+        assert_eq!(raw_finding_id(raw), None);
+        assert_eq!(raw_repro_id(raw), None);
+    }
+
+    #[test]
+    fn resolve_accepts_public_repro_ids_and_aliases() {
+        let root = std::env::temp_dir().join(format!("reproit-rep-{}", std::process::id()));
+        let meta = Meta {
+            id: "abcdef123456".to_string(),
+            alias: Some("checkout".to_string()),
+            status: Status::Quarantined,
+            seed: 7,
+            created: "2026-06-27T00:00:00Z".to_string(),
+            last_checked: None,
+            last_result: None,
+            trigger_index: Some(1),
+            trigger_sig: None,
+            oracle: Some("crash".to_string()),
+        };
+        save_meta(&root, &meta).unwrap();
+        assert!(resolve(&root, "abcdef123456").is_none());
+        assert_eq!(resolve(&root, "rep_abcdef123456").unwrap().id, meta.id);
+        assert_eq!(resolve(&root, "checkout").unwrap().id, meta.id);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

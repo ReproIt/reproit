@@ -16,7 +16,7 @@
 //!                   "generate": { "minLen": 312, "charset": "unicode",
 //!                                 "emoji": true, "rtl": false, "empty": false } } ] }
 //!
-//! Output (written into `.reproit/fuzz_config.json`, read by the explorers):
+//! Output (written into `.reproit/tmp/fuzz_config.json`, read by the explorers):
 //!   { "locale": "tr",
 //!     "inputs": [ { "field": "name", "value": "<synthesized>" } ] }
 
