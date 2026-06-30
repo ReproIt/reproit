@@ -12,7 +12,7 @@
 //                 selector = "key:<kind>:<v>" (data-testid/id/name) or
 //                 "role:<role>#<idx>" (aria role + structural index), never text.
 //
-// Invoked by the orchestrator's web-playwright runner with env:
+// Invoked by the orchestrator's web runner with env:
 //   REPROIT_URL          the app URL to explore
 //   REPROIT_VIDEO_DIR    where to save the run video (optional)
 //   REPROIT_FUZZ_CONFIG  path to fuzz config json (seed/budget/replay/prefix)
@@ -97,7 +97,7 @@ export function exceptionIsFirstParty(stack, appOrigin) {
 // ONLY on the throwing frame, so an app that merely loads analytics is unaffected
 // unless the throw is literally inside the vendor script. This is what the origin
 // filter structurally cannot see: it removed the self-hosted `awshome_s_code.js`
-// false crash a docs sweep surfaced without touching a real same-CDN app bundle.
+// false crash a docs scan surfaced without touching a real same-CDN app bundle.
 // Pure + exported for unit testing.
 const TRACKER_SCRIPT_RE =
   /s_code\.js|adobedtm|\bat\.js\b|fbevents\.js|connect\.facebook\.net|googletagmanager|\/gtag(\/|\.js)|gtm\.js|google-analytics\.com|\/ga\.js|\/analytics\.js|ima3\.js|doubleclick\.net|adsbygoogle|hotjar\.com|static\.hotjar|cdn\.mixpanel|cdn\.segment\.com|clarity\.ms|\/clarity\.js|cdn\.optimizely|amplitude\.com|fullstory\.com|quantserve|scorecardresearch|chartbeat|js-agent\.newrelic\.com|nr-data\.net|browser\.sentry-cdn\.com|bugsnag/i;
@@ -784,8 +784,8 @@ const VALUE_CLASS_CAP = 8;
 // selectors from reproit.yaml. We avoid adding a YAML dependency: the block is
 // a simple flat list of strings, so a tiny line parser is enough and keeps the
 // runner dependency-free. Path precedence: REPROIT_CONFIG env, else
-// ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list
-// (value-less behavior, fully backward-compatible).
+// ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list,
+// so value-state is strictly opt-in.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
   if (!p) { const def = resolve(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
@@ -859,7 +859,7 @@ function adversarialFor(n) {
 }
 
 // Property-matched replay (fixture inputs). The fuzz config may carry an
-// `inputs` array, each `{ field | sel, value }`, written by the CLI's
+// `inputs` array, each `{ field, value }`, written by the CLI's
 // crate::fixture::synthesize from the cloud's fixtureSpec: a CONCRETE,
 // property-matched value (a 312-char unicode name, an emoji, an empty / RTL
 // field) reconstructed from production telemetry. When a `type:` action targets
@@ -869,18 +869,16 @@ function adversarialFor(n) {
 // path is as reproducible as the adversarial-class path.
 //
 // Normalize the config's `inputs` into a flat [{field, value}] list. `field`
-// is the field identifier; `sel` is accepted as an alias (some specs name the
-// selector directly). Entries with no usable field key are dropped. Tolerant of
-// a missing/garbage array (returns []), so a config without `inputs` is
-// unaffected.
+// is the field identifier, either a semantic key ("email") or a full structural
+// selector ("key:id:email"). Entries with no usable field key are dropped.
+// Tolerant of a missing/garbage array (returns []), so a config without
+// `inputs` is unaffected.
 function loadInputs(fuzz) {
   const arr = fuzz && Array.isArray(fuzz.inputs) ? fuzz.inputs : [];
   const out = [];
   for (const it of arr) {
     if (!it || typeof it !== 'object') continue;
-    const field = typeof it.field === 'string' && it.field
-      ? it.field
-      : (typeof it.sel === 'string' ? it.sel : '');
+    const field = typeof it.field === 'string' && it.field ? it.field : '';
     if (!field) continue;
     const value = it.value != null ? String(it.value) : '';
     out.push({ field, value });
@@ -938,8 +936,8 @@ function loadFuzz() {
 // runners' batch contract (templates/explorer_headless.dart FuzzCfg.loadBatch,
 // runners/rn, runners/linux-atspi.py load_batch): reproit's multi-seed fuzz
 // writes {"batch":[ <cfg>, ... ]} where each <cfg> is the single-seed shape
-// ({seed, budget, edgeWeights, prefix, replay, ...}). A single-seed (legacy)
-// run writes the bare {"seed":..} object with no "batch" key. Returns
+// ({seed, budget, edgeWeights, prefix, replay, ...}). A single-seed run writes
+// the bare {"seed":..} object with no "batch" key. Returns
 // { seeds, isBatch } where isBatch is true ONLY for the multi-seed shape; the
 // caller wraps each seed in SEED:BEGIN/SEED:END only when isBatch, so the
 // single-seed path stays byte-for-byte identical (no SEED markers).
@@ -949,6 +947,46 @@ function loadBatch() {
     return { seeds: j.batch.map((b) => (b && typeof b === 'object' ? b : {})), isBatch: true };
   }
   return { seeds: [j || {}], isBatch: false };
+}
+
+const FUZZ_CONFIGURED = !!process.env.REPROIT_FUZZ_CONFIG;
+
+function edgeKey(sig, action) { return sig + '|' + action; }
+function rememberActions(actionsByState, sig, actions) {
+  const known = actionsByState.get(sig) || [];
+  for (const action of actions) if (!known.includes(action)) known.push(action);
+  actionsByState.set(sig, known);
+}
+function firstUntriedAction(actionsByState, tried, sig) {
+  for (const action of actionsByState.get(sig) || []) {
+    if (!tried.has(edgeKey(sig, action))) return action;
+  }
+  return null;
+}
+function hasFrontier(actionsByState, tried) {
+  for (const sig of actionsByState.keys()) if (firstUntriedAction(actionsByState, tried, sig)) return true;
+  return false;
+}
+function rememberEdge(graph, from, action, to) {
+  const edges = graph.get(from) || [];
+  if (!edges.some((e) => e.action === action && e.to === to)) edges.push({ action, to });
+  graph.set(from, edges);
+}
+function pathToFrontier(graph, actionsByState, tried, start) {
+  if (firstUntriedAction(actionsByState, tried, start)) return [];
+  const seen = new Set([start]);
+  const q = [{ sig: start, path: [] }];
+  for (let i = 0; i < q.length; i++) {
+    const { sig, path } = q[i];
+    for (const { action, to } of graph.get(sig) || []) {
+      if (seen.has(to)) continue;
+      seen.add(to);
+      const nextPath = path.concat(action);
+      if (firstUntriedAction(actionsByState, tried, to)) return nextPath;
+      q.push({ sig: to, path: nextPath });
+    }
+  }
+  return null;
 }
 
 // xorshift32, identical to explorer.dart so seeds mean the same thing.
@@ -1145,7 +1183,7 @@ export { signatureOf, descriptorOf, valueClass, snapshot, detectOverflow, OVERFL
 // templates/explorer.dart: the signature is a hash of the tag/role tree shape +
 // stable developer identifiers (data-testid, id, name, aria role, input type) +
 // structural position, with ALL user-facing text excluded. Visible text is kept
-// only as a display label for `map --show`, never folded into the hash or into a
+// only as a display label for `map show`, never folded into the hash or into a
 // selector. Elements are addressed by stable selector preference
 // (data-testid > id > name > aria-role + structural index); a tappable lacking
 // any stable id falls back to role+index and is flagged `nokey`.
@@ -1508,6 +1546,15 @@ async function snapshot(page, valueNodeSelectors) {
       if (!hit) return false;
       return hit === el || el.contains(hit);
     };
+    const boundsOf = (el) => {
+      try {
+        const r = el.getBoundingClientRect();
+        if (!r || r.width <= 0 || r.height <= 0) return null;
+        return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+      } catch (_) {
+        return null;
+      }
+    };
     // Pointer-operable but OUTSIDE interactive()'s tappable grammar: a control a
     // pointer user can drive (cursor:pointer, or an ARIA-interactive role /
     // focusable tabindex delegation marker) that interactive() does not take.
@@ -1602,6 +1649,7 @@ async function snapshot(page, valueNodeSelectors) {
           rawTaps.push({
             role, key: keyOf(el),
             label: name ? clipLabel(name) : '',
+            bounds: boundsOf(el),
             unlabeled: isUnlabeled(el),
             external: isExternalLink(el),
             grp: groupOf(el),
@@ -1619,6 +1667,7 @@ async function snapshot(page, valueNodeSelectors) {
             extraTaps.push({
               role, key: k,
               label: name ? clipLabel(name) : '',
+              bounds: boundsOf(el),
               unlabeled: isUnlabeled(el),
             });
           }
@@ -1647,7 +1696,7 @@ async function snapshot(page, valueNodeSelectors) {
       perRole[tn.role] = idx + 1;
       if (tn.unlabeled) unlabeled++;
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected, unlabeled: !!tn.unlabeled };
+      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, bounds: tn.bounds || null, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected, unlabeled: !!tn.unlabeled };
     });
     // Append the keyed pointer-operable extras (keyed selector only; no role
     // index, so nothing above shifts). Dedup against selectors already present
@@ -1658,7 +1707,26 @@ async function snapshot(page, valueNodeSelectors) {
       if (present.has(sel)) continue;
       present.add(sel);
       if (tn.unlabeled) unlabeled++;
-      tappables.push({ sel, role: tn.role, index: -1, key: tn.key, label: tn.label });
+      tappables.push({ sel, role: tn.role, index: -1, key: tn.key, label: tn.label, bounds: tn.bounds || null });
+    }
+
+    const texts = [];
+    const seenTextBoxes = new Set();
+    for (const el of Array.from(document.querySelectorAll('body *'))) {
+      if (!visible(el)) continue;
+      let text = '';
+      for (const c of el.childNodes) {
+        if (c.nodeType === 3) text += c.textContent || '';
+      }
+      text = text.replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const bounds = boundsOf(el);
+      if (!bounds) continue;
+      const key = text + '|' + bounds.join(',');
+      if (seenTextBoxes.has(key)) continue;
+      seenTextBoxes.add(key);
+      texts.push({ text: clipLabel(text), bounds });
+      if (texts.length >= 48) break;
     }
 
     // Anchor: route of the current screen = path + SPA hash route, but NOT the
@@ -1685,7 +1753,7 @@ async function snapshot(page, valueNodeSelectors) {
     // value + keyed-text nodes. Sorted here so it is order-independent.
     textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
 
-    return { tree, anchor, path, labels: [...new Set(labels)], tappables, unlabeled, textNodes };
+    return { tree, anchor, path, labels: [...new Set(labels)], tappables, texts, unlabeled, textNodes };
   }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [], ephemeralIdSrc: EPHEMERAL_ID_RE.source, ephemeralIdFlags: EPHEMERAL_ID_RE.flags, axeNameRules: AXE_NAME_RULES, useAxe: axeReady });
 
   // Hash the canonical Node tree with the host-pure canonical signature, exactly
@@ -2473,24 +2541,6 @@ async function tap(page, sel, opts) {
       if (root) walk(root);
       if (!target) return false;
       return doClick(target);
-    }
-
-    // Label selector: an explicit `label:` prefix or a bare string, resolved by
-    // visible text / aria-label. An ACTION selector only needs to be stable
-    // within the run's locale; the state signature stays structural. Parity with
-    // typing-by-label and Playwright/Appium addressing by visible name. Prefer an
-    // exact accessible-name match on an interactive element, then a contains.
-    {
-      const want = (s.startsWith('label:') ? s.slice('label:'.length) : s).trim().toLowerCase();
-      if (want) {
-        const els = Array.from(
-          document.querySelectorAll('a,button,[role],input,select,textarea,[onclick],[tabindex]')
-        ).filter(visible);
-        const nameOf = (el) =>
-          (el.getAttribute('aria-label') || el.value || el.textContent || '').trim().toLowerCase();
-        const el = els.find((e) => nameOf(e) === want) || els.find((e) => nameOf(e).includes(want));
-        if (el) return doClick(el);
-      }
     }
 
     return false;
@@ -3478,7 +3528,7 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
         oracle: 'no-choice-anomaly',
       }).catch(() => {});
       await page.waitForTimeout(2200);
-      // A sweep clip (`keepBox`) ends on the boxed outlier, so the cleanup that a
+      // A scan clip (`keepBox`) ends on the boxed outlier, so the cleanup that a
       // mid-walk exercise does is skipped; the caller holds + finishes the clip.
       if (!keepBox) {
         await page
@@ -3588,7 +3638,7 @@ async function main() {
   // Ready marker so the orchestrator starts its clock; matches the Dart
   // explorer's claim line.
   log('JOURNEY claimed role=a');
-  // A `sweep --record` clip pins the START url so it lands directly on the
+  // A `scan --record` clip pins the START url so it lands directly on the
   // finding's screen (a faithful, hand-followable "open this URL"), instead of
   // replaying drifty positional taps. Same-origin as APP_URL, so the off-origin
   // guards still hold. Absent for a normal run -> the app's start URL.
@@ -3666,6 +3716,9 @@ async function main() {
   async function runSeed(fuzz) {
     const seenStates = new Set();
     const triedEdges = new Set();
+    const actionsByState = new Map();
+    const graph = new Map();
+    let launchSig = null;
     // Same-origin link targets SEEN during the crawl (pathname -> source state
     // sig), HEAD-probed for dead links at the end. Coverage is bounded, so a dead
     // link the walk never tapped (a footer /download 404) was missed when
@@ -3704,7 +3757,7 @@ async function main() {
         seenStates.add(snap.sig);
         // sig: STRUCTURAL (roles + tree shape + stable developer keys),
         //      locale-invariant.
-        // labels: DISPLAY-ONLY visible text (map --show), never in the sig.
+        // labels: DISPLAY-ONLY visible text (map show), never in the sig.
         // elements: structural selectors for replay; `nokey` flags a tappable
         //           with no stable id (data-testid/id/name) so the map layer can
         //           warn the developer to add one.
@@ -3716,6 +3769,7 @@ async function main() {
           labels: snap.labels.slice(0, 24),
           elements: snap.tappables.slice(0, 24).map((e) => {
             const o = { sel: e.sel, role: e.role, label: e.label };
+            if (e.bounds) o.bounds = e.bounds;
             if (!e.key) o.nokey = true;
             // Flag WHICH elements are unlabeled (not just the count), so the
             // a11y oracle can identify a persistent-chrome control (e.g. a header
@@ -3724,6 +3778,7 @@ async function main() {
             if (e.unlabeled) o.unlabeled = true;
             return o;
           }),
+          texts: (snap.texts || []).slice(0, 48),
           unlabeled: snap.unlabeled,
         }));
         // The structural oracle scans run on the SAME (un-mutated) DOM the
@@ -3792,10 +3847,14 @@ async function main() {
     }
 
     let current = await observe();
+    launchSig = current.sig;
     let stuck = 0;
     const prefix = fuzz.prefix || null;
     const prefixLen = prefix ? prefix.length : 0;
-    const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+    const mapMode = !replay && !prefix && !fuzz.seed;
+    const budget = replay
+      ? replay.length
+      : (((mapMode && !FUZZ_CONFIGURED) ? Number.MAX_SAFE_INTEGER : (fuzz.budget || ACTION_BUDGET)) + prefixLen);
 
     // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
     // sample the web heap once at the start and after every action, so the Rust
@@ -3866,15 +3925,21 @@ async function main() {
       act = options[options.length - 1];
       for (let k = 0; k < options.length; k++) { r -= weights[k]; if (r <= 0) { act = options[k]; break; } }
     } else {
-      act = null;
+      const actions = [];
       for (const el of current.tappables) {
         if (el.external) continue; // never leave the app-under-test's origin
-        // Prefer an untried type edge for text fields (use the plain value in
-        // the non-seeded walk; the seeded walk explores the adversarial set).
-        const edge = el.role === 'textfield' ? 'type:' + el.sel + '=normal' : 'tap:' + el.sel;
-        if (!triedEdges.has(current.sig + '|' + edge)) { act = edge; break; }
+        actions.push(el.role === 'textfield' ? 'type:' + el.sel + '=normal' : 'tap:' + el.sel);
       }
-      act = act || 'back';
+      actions.sort();
+      actions.push('back');
+      rememberActions(actionsByState, current.sig, actions);
+      act = firstUntriedAction(actionsByState, triedEdges, current.sig);
+      if (!act) {
+        const path = pathToFrontier(graph, actionsByState, triedEdges, current.sig);
+        act = path && path.length ? path[0] : null;
+      }
+      if (!act && hasFrontier(actionsByState, triedEdges) && current.sig !== launchSig) break;
+      if (!act) break;
     }
 
     log('FUZZ:ACT ' + act);
@@ -3969,6 +4034,7 @@ async function main() {
     }
     if (act === 'back') {
       const before = current.sig;
+      triedEdges.add(edgeKey(before, 'back'));
       const beforeContent = current.content;
       const origin = new URL(APP_URL).origin;
       await page.goBack({ timeout: 3000 }).catch(() => {});
@@ -3984,6 +4050,7 @@ async function main() {
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
+        rememberEdge(graph, before, 'back', next.sig);
         stuck = 0;
       } else if (next.content !== beforeContent) {
         // Layer-1: the action changed on-screen content without moving the
@@ -4008,7 +4075,7 @@ async function main() {
       const value = fixtureVal != null
         ? fixtureVal
         : (ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId));
-      triedEdges.add(current.sig + '|' + act);
+      triedEdges.add(edgeKey(current.sig, act));
       const before = current.sig;
       const beforeContent = current.content;
       await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {}); // flicker oracle: tag persistent chrome
@@ -4041,6 +4108,7 @@ async function main() {
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, to: next.sig }));
+        rememberEdge(graph, before, 'type:' + sel + '=' + valId, next.sig);
         stuck = 0;
       } else if (next.content !== beforeContent) {
         stuck = 0; // Layer-1: content changed without a structural move; effective.
@@ -4052,7 +4120,7 @@ async function main() {
     // Key MUST match the picker's edge form (`tap:<sel>`, line ~3337); recording
     // the bare `<sel>` left every tap looking perpetually untried, so the
     // deterministic walk kept re-tapping the first control and under-explored.
-    triedEdges.add(current.sig + '|tap:' + sel);
+    triedEdges.add(edgeKey(current.sig, 'tap:' + sel));
     const before = current.sig;
     const beforeContent = current.content;
     // Remember the source page + link before this (possibly navigating) tap, so a
@@ -4114,6 +4182,7 @@ async function main() {
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
+      rememberEdge(graph, before, 'tap:' + sel, next.sig);
       stuck = 0;
     } else if (next.content !== beforeContent) {
       // Layer-1 effect detection: the tap changed displayed content (a calculator
@@ -4245,8 +4314,8 @@ async function main() {
   // ({"batch":[...]}) wrap EACH seed's walk in SEED:BEGIN <seed> ... SEED:END
   // <seed> so the Rust side (fuzz.rs split_seed_segments) attributes coverage,
   // trace, and findings to the right seed; between seeds re-pump a fresh start
-  // screen so each seed begins clean. A single-seed (legacy {"seed":..}) run
-  // emits NO SEED markers, preserving the byte-for-byte single-seed path.
+  // screen so each seed begins clean. A single-seed {"seed":..} run emits NO
+  // SEED markers.
   const { seeds, isBatch } = loadBatch();
   for (let i = 0; i < seeds.length; i++) {
     const fuzz = seeds[i];

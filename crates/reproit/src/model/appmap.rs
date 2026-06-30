@@ -31,6 +31,15 @@ pub struct AppMap {
 pub struct State {
     pub description: String,
     pub signature: StateSignature,
+    /// Actionable elements observed on this state. Labels are display/help text;
+    /// `sel` is the replayable structural selector.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elements: Vec<StateElement>,
+    /// Text regions observed on the screen, from DOM/accessibility text boxes or
+    /// OCR-equivalent runner output. Used to translate imported text taps into
+    /// structural selectors without making text a replay primitive.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub texts: Vec<StateText>,
     /// Parameter names this screen template binds (e.g. "user", "item_id").
     #[serde(default)]
     pub parameters: Vec<String>,
@@ -44,6 +53,24 @@ pub struct State {
     /// `EXPLORE:GROUNDTRUTH` records; see docs/operability-graph.md.
     #[serde(default)]
     pub operability_gaps: OperabilityGaps,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StateElement {
+    pub sel: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub role: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<[i64; 4]>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StateText {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<[i64; 4]>,
 }
 
 /// Per-screen operability/accessibility gap counts (graph 1 minus graph 2).

@@ -33,7 +33,7 @@
 // the sim app, and xctrace cannot attach to an in-sim process); the exact commands
 // tried and why each fails are recorded in the HANG/JANK/LEAK section.
 //
-// Env (set by the orchestrator's rn-appium runner):
+// Env (set by the orchestrator's react-native runner):
 //   REPROIT_APPIUM_URL    Appium server base URL (e.g. http://127.0.0.1:4723)
 //   REPROIT_APPIUM_CAPS   JSON capabilities (platformName, app, deviceName, ...)
 //   REPROIT_FUZZ_CONFIG   seed/budget/replay/prefix json
@@ -66,12 +66,52 @@ function loadFuzz() {
   try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; }
 }
 
+const FUZZ_CONFIGURED = !!process.env.REPROIT_FUZZ_CONFIG;
+
+function edgeKey(sig, action) { return sig + '|' + action; }
+function rememberActions(actionsByState, sig, actions) {
+  const known = actionsByState.get(sig) || [];
+  for (const action of actions) if (!known.includes(action)) known.push(action);
+  actionsByState.set(sig, known);
+}
+function firstUntriedAction(actionsByState, tried, sig) {
+  for (const action of actionsByState.get(sig) || []) {
+    if (!tried.has(edgeKey(sig, action))) return action;
+  }
+  return null;
+}
+function hasFrontier(actionsByState, tried) {
+  for (const sig of actionsByState.keys()) if (firstUntriedAction(actionsByState, tried, sig)) return true;
+  return false;
+}
+function rememberEdge(graph, from, action, to) {
+  const edges = graph.get(from) || [];
+  if (!edges.some((e) => e.action === action && e.to === to)) edges.push({ action, to });
+  graph.set(from, edges);
+}
+function pathToFrontier(graph, actionsByState, tried, start) {
+  if (firstUntriedAction(actionsByState, tried, start)) return [];
+  const seen = new Set([start]);
+  const q = [{ sig: start, path: [] }];
+  for (let i = 0; i < q.length; i++) {
+    const { sig, path } = q[i];
+    for (const { action, to } of graph.get(sig) || []) {
+      if (seen.has(to)) continue;
+      seen.add(to);
+      const nextPath = path.concat(action);
+      if (firstUntriedAction(actionsByState, tried, to)) return nextPath;
+      q.push({ sig: to, path: nextPath });
+    }
+  }
+  return null;
+}
+
 // Layer-3 opt-in (docs/signature.md "Value-state"): read `value_nodes:`
 // selectors from reproit.yaml. We avoid adding a YAML dependency: the block is
 // a simple flat list of strings, so a tiny line parser is enough and keeps the
 // runner dependency-free. Path precedence: REPROIT_CONFIG env, else
-// ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list
-// (value-less behavior, fully backward-compatible). Mirrors runners/web.
+// ./reproit.yaml in the cwd. A missing/unparseable file yields an empty list,
+// so value-state is strictly opt-in. Mirrors runners/web.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
   if (!p) { const def = resolve(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
@@ -865,8 +905,15 @@ function appendNode(xmlEl, out, into, parentRect) {
     const idx = out.perRole[role] || 0;
     out.perRole[role] = idx + 1;
     const sel = id != null ? `key:${id}` : `role:${role}#${idx}`;
-    out.elements.push({ sel, role, label: display, key: id, nokey: id == null });
+    const bounds = rect ? [Math.round(rect.l), Math.round(rect.t), Math.round(rect.r - rect.l), Math.round(rect.b - rect.t)] : null;
+    out.elements.push({ sel, role, label: display, bounds, key: id, nokey: id == null });
     if (!display) out.unlabeled++;
+  }
+  if (name && rect) {
+    out.texts.push({
+      text: clipLabel(name),
+      bounds: [Math.round(rect.l), Math.round(rect.t), Math.round(rect.r - rect.l), Math.round(rect.b - rect.t)],
+    });
   }
 
   // NATIVE-FALLBACK GROUNDTRUTH candidate (graph-1 from graph 2). The fiber probe
@@ -916,7 +963,7 @@ async function snapshot(driver, valueNodeSelectors) {
     if (typeof driver.getCurrentActivity === 'function') activity = await driver.getCurrentActivity();
   } catch { /* iOS / unsupported: anchor stays best-effort */ }
   const out = {
-    labels: [], elements: [], unlabeled: 0, seenLabel: new Set(), perRole: {},
+    labels: [], elements: [], texts: [], unlabeled: 0, seenLabel: new Set(), perRole: {},
     // roleSeen: document-order count of elements per canonical role, used to
     // resolve a Layer-3 role:<role>#<idx> value-node selector.
     roleSeen: {},
@@ -967,6 +1014,7 @@ async function snapshot(driver, valueNodeSelectors) {
     anchor,
     labels: [...new Set(out.labels)],
     elements: out.elements,
+    texts: out.texts.slice(0, 48),
     unlabeled: out.unlabeled,
     nativeCandidates: out.nativeCandidates,
     // Reduced + sorted oracle items (byte-identical shape to the web runner / the
@@ -1495,9 +1543,9 @@ function groundtruthFromFiber(records, nativeIds) {
 async function emitGroundtruth(driver, sig, nativeIds, nativeCandidates) {
   let result = null;
   // Appium exposes the RN JS runtime over `mobile: executeScript` on Hermes /
-  // debug builds. webdriverio surfaces it as executeScript(script, args) or the
-  // legacy execute(script). We try the documented entry points in order and
-  // accept the first that returns our { ok, records } shape.
+  // debug builds. WebdriverIO surfaces it through two execute entry points. We
+  // try both documented call shapes and accept the first that returns our
+  // { ok, records } shape.
   const tryRun = async (fn) => {
     try {
       const r = await fn();
@@ -1603,6 +1651,9 @@ async function main() {
 
   const seenStates = new Set();
   const triedEdges = new Set();
+  const actionsByState = new Map();
+  const graph = new Map();
+  let launchSig = null;
   const pick = rng(fuzz.seed || 0);
 
   // Layer-3 opt-in value-node selectors from reproit.yaml (empty if none).
@@ -1639,7 +1690,7 @@ async function main() {
       seenStates.add(snap.sig);
       // sig: CANONICAL STRUCTURAL signature (anchor + normalized Node tree),
       //      locale-invariant.
-      // labels: DISPLAY-ONLY visible text (map --show), never in the sig.
+      // labels: DISPLAY-ONLY visible text (map show), never in the sig.
       // elements: structural selectors for replay; `nokey` flags a tappable with
       //           no stable id so the map layer can warn the developer.
       log('EXPLORE:STATE ' + JSON.stringify({
@@ -1651,9 +1702,11 @@ async function main() {
         labels: snap.labels.slice(0, 24),
         elements: snap.elements.slice(0, 24).map((e) => {
           const o = { sel: e.sel, role: e.role, label: e.label };
+          if (e.bounds) o.bounds = e.bounds;
           if (e.nokey) o.nokey = true;
           return o;
         }),
+        texts: (snap.texts || []).slice(0, 48),
         unlabeled: snap.unlabeled,
       }));
       // GRAPH 1 vs GRAPH 2: once per newly-seen state, probe the React fiber
@@ -1682,12 +1735,16 @@ async function main() {
   }
 
   let current = await observe();
+  launchSig = current.sig;
   let stuck = 0;
   let crashed = false;
   const prefix = fuzz.prefix || null;
   const replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
-  const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  const mapMode = !replay && !prefix && !fuzz.seed;
+  const budget = replay
+    ? replay.length
+    : (((mapMode && !FUZZ_CONFIGURED) ? Number.MAX_SAFE_INTEGER : (fuzz.budget || ACTION_BUDGET)) + prefixLen);
 
   // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
   // sample memory once at the start and after every action so the Rust soak oracle
@@ -1724,16 +1781,21 @@ async function main() {
       act = options[options.length - 1];
       for (let k = 0; k < options.length; k++) { r -= weights[k]; if (r <= 0) { act = options[k]; break; } }
     } else {
-      act = null;
-      for (const el of current.elements) {
-        if (!triedEdges.has(current.sig + '|' + el.sel)) { act = 'tap:' + el.sel; break; }
+      const actions = current.elements.map((el) => 'tap:' + el.sel).sort().concat(['back']);
+      rememberActions(actionsByState, current.sig, actions);
+      act = firstUntriedAction(actionsByState, triedEdges, current.sig);
+      if (!act) {
+        const path = pathToFrontier(graph, actionsByState, triedEdges, current.sig);
+        act = path && path.length ? path[0] : null;
       }
-      act = act || 'back';
+      if (!act && hasFrontier(actionsByState, triedEdges) && current.sig !== launchSig) break;
+      if (!act) break;
     }
 
     log('FUZZ:ACT ' + act);
     if (act === 'back') {
       const before = current.sig;
+      triedEdges.add(edgeKey(before, 'back'));
       const beforeContent = current.content;
       const tHang0 = Date.now();
       try { await driver.back(); } catch { /* ignore */ }
@@ -1747,6 +1809,7 @@ async function main() {
       const next = await observe();
       if (next.sig !== before) {
         log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
+        rememberEdge(graph, before, 'back', next.sig);
         stuck = 0;
       } else if (next.content !== beforeContent) {
         // Layer-1: the action changed on-screen content without moving the
@@ -1758,7 +1821,7 @@ async function main() {
       continue;
     }
     const sel = act.slice('tap:'.length);
-    triedEdges.add(current.sig + '|' + sel);
+    triedEdges.add(edgeKey(current.sig, 'tap:' + sel));
     const before = current.sig;
     const beforeContent = current.content;
     // JANK: reset the gfxinfo framestats window so the read after this tap counts
@@ -1794,6 +1857,7 @@ async function main() {
     const next = await observe();
     if (next.sig !== before) {
       log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
+      rememberEdge(graph, before, 'tap:' + sel, next.sig);
       stuck = 0;
     } else if (next.content !== beforeContent) {
       // Layer-1 effect detection: the tap changed displayed content (a calculator

@@ -172,9 +172,9 @@ class FuzzCfg {
     );
   }
 
-  /// The list of per-seed configs to run in this session: a single-element
-  /// list for {"seed":..}/{"replay":..} (backward compatible), or the explicit
-  /// list for {"batch":[...]}. Returns one default config if nothing is set.
+  /// The list of per-seed configs to run in this session: a single-element list
+  /// for {"seed":..}/{"replay":..}, or the explicit list for {"batch":[...]}.
+  /// Returns one default config if nothing is set.
   static List<FuzzCfg> loadBatch() {
     if (fuzzConfigPath.isEmpty) return [FuzzCfg()];
     try {
@@ -791,13 +791,20 @@ void visit(SemanticsNode node, void Function(SemanticsData) f) {
 ///   label  the visible (localized) text, DISPLAY-ONLY: shown in map --show,
 ///          never folded into the signature or into `sel`.
 class Tappable {
-  Tappable(this.sel, this.role, this.index, this.key, this.label);
+  Tappable(this.sel, this.role, this.index, this.key, this.label, this.bounds);
   final String sel;
   final String role;
   final int index;
   final String? key;
   final String label;
+  final List<int>? bounds;
   bool get hasKey => key != null;
+}
+
+class ScreenText {
+  ScreenText(this.text, this.bounds);
+  final String text;
+  final List<int>? bounds;
 }
 
 class Snapshot {
@@ -807,6 +814,7 @@ class Snapshot {
     this.sig,
     this.labels,
     this.tappables,
+    this.texts,
     this.unlabeled,
     this.contentFp,
   );
@@ -833,6 +841,10 @@ class Snapshot {
 
   /// Tappable elements, addressed structurally (key, else role+index).
   final List<Tappable> tappables;
+
+  /// Screen text boxes, used only by importers to resolve text-authored tests to
+  /// structural selectors.
+  final List<ScreenText> texts;
 
   /// Tappable nodes with NO semantics label: invisible to screen readers and to
   /// label-driven automation. The a11y fix class's detector.
@@ -863,6 +875,7 @@ Snapshot snapshot(WidgetTester t) => snapshotWith(t, const <String>{});
 Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
   final labels = <String>[];
   final rawTaps = <_TapNode>[]; // tappable nodes in document order
+  final texts = <ScreenText>[];
   // (stable-key, trimmed raw text) over text-bearing nodes -> Layer 1 content fp.
   final textParts = <String>[];
   var unlabeled = 0;
@@ -901,9 +914,8 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
       final idx = perRoleId[role] ?? 0;
       perRoleId[role] = idx + 1;
       final roleIds = keyedIdsByRole[role];
-      final id = (roleIds != null && idx < roleIds.length)
-          ? roleIds[idx]
-          : null;
+      final id =
+          (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
 
       // Layer 2 value-state: a value-role node's displayed value (text field,
       // slider, live region). Layer 3 opt-in: a node matching a `value_nodes:`
@@ -912,7 +924,7 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
       perRoleSel[role] = selIdx + 1;
       final matchesSelector =
           (id != null && valueSelectors.contains('key:$id')) ||
-          valueSelectors.contains('role:$role#$selIdx');
+              valueSelectors.contains('role:$role#$selIdx');
       var value = valueOf(data);
       var valueNode = value != null && valueNodeFlagOf(data);
       if (matchesSelector) {
@@ -924,24 +936,33 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
 
       // Multiline labels (e.g. "Compose\nTab 2 of 3") normalize to first line.
       final label = data.label.trim().split('\n').first.trim();
-      final tappable =
-          data.hasAction(SemanticsAction.tap) &&
+      final rect = _globalRect(n);
+      final bounds = rect.width > 0 && rect.height > 0
+          ? <int>[
+              rect.left.round(),
+              rect.top.round(),
+              rect.width.round(),
+              rect.height.round()
+            ]
+          : null;
+      final tappable = data.hasAction(SemanticsAction.tap) &&
           !data.hasFlag(SemanticsFlag.isTextField);
-      final named =
-          label.isNotEmpty ||
+      final named = label.isNotEmpty ||
           data.tooltip.trim().isNotEmpty ||
           data.value.trim().isNotEmpty;
       if (tappable && !named) unlabeled++;
       if (label.isNotEmpty) labels.add(clipLabel(label));
-      if (tappable) rawTaps.add(_TapNode(role, clipLabel(label)));
+      if (label.isNotEmpty && bounds != null) {
+        texts.add(ScreenText(clipLabel(label), bounds));
+      }
+      if (tappable) rawTaps.add(_TapNode(role, clipLabel(label), bounds));
 
       // Layer 1: text-bearing parts (stable-key + trimmed raw text). The raw
       // value of a value node and the raw label of a text node both count, so a
       // counter whose display value changes registers as content movement even
       // when structure and value-CLASS are unchanged (e.g. 41 -> 42 stays POS2).
-      final stableKey = id != null
-          ? 'key:$id'
-          : 'role:${normalizeRole(role)}#$selIdx';
+      final stableKey =
+          id != null ? 'key:$id' : 'role:${normalizeRole(role)}#$selIdx';
       final rawText = (value ?? '').trim();
       final rawLabel = label;
       if (rawText.isNotEmpty) textParts.add('$stableKey$rawText');
@@ -997,22 +1018,23 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
     final idx = perRole[tn.role] ?? 0;
     perRole[tn.role] = idx + 1;
     final roleKeys = keyedByRole[tn.role];
-    final key = (roleKeys != null && idx < roleKeys.length)
-        ? roleKeys[idx]
-        : null;
+    final key =
+        (roleKeys != null && idx < roleKeys.length) ? roleKeys[idx] : null;
     final sel = key != null ? 'key:$key' : 'role:${tn.role}#$idx';
-    tappables.add(Tappable(sel, tn.role, idx, key, tn.label));
+    tappables.add(Tappable(sel, tn.role, idx, key, tn.label, tn.bounds));
   }
 
   final unique = labels.toSet().toList();
-  return Snapshot(tree, anchor, sig, unique, tappables, unlabeled, contentFp);
+  return Snapshot(
+      tree, anchor, sig, unique, tappables, texts, unlabeled, contentFp);
 }
 
 /// Internal: a tappable semantics node captured during the structural walk.
 class _TapNode {
-  _TapNode(this.role, this.label);
+  _TapNode(this.role, this.label, this.bounds);
   final String role;
   final String label;
+  final List<int>? bounds;
 }
 
 /// Marker emit. `flutter test` sends stdout straight through, so a plain
@@ -1088,7 +1110,8 @@ bool drainException(WidgetTester t, {String? phase}) {
 /// attribution); `point` is its on-screen hit-test centre in SEMANTICS (physical)
 /// space, used to join it to a semantics node.
 class _Operable {
-  _Operable(this.gestureKind, this.role, this.keyString, this.element, this.point);
+  _Operable(
+      this.gestureKind, this.role, this.keyString, this.element, this.point);
   final String gestureKind;
   final String role;
   final String? keyString;
@@ -1447,38 +1470,11 @@ void main() {
       emit('JOURNEY[a] step: locale=$envLocale');
     }
 
-    // Last-resort: resolve a tappable by its (localized) visible text. Kept ONLY
-    // for backward compatibility with old `tap:<label>` replay configs; the
-    // explorer itself never emits label selectors anymore. find.byKey / the
-    // role+index path below are the locale-invariant routes.
-    Finder? findByLabel(String label) {
-      final isClipped =
-          label.length == maxLabelLen &&
-          RegExp(r'#[0-9a-f]{8}$').hasMatch(label);
-      if (isClipped) {
-        final prefix = label.substring(0, label.lastIndexOf('#'));
-        final re = RegExp('^${RegExp.escape(prefix)}');
-        var f = find.bySemanticsLabel(re);
-        if (f.evaluate().isNotEmpty) return f;
-        f = find.textContaining(re);
-        if (f.evaluate().isNotEmpty) return f;
-        return null;
-      }
-      var f = find.bySemanticsLabel(label);
-      if (f.evaluate().isNotEmpty) return f;
-      f = find.bySemanticsLabel(RegExp(RegExp.escape(label)));
-      if (f.evaluate().isNotEmpty) return f;
-      f = find.text(label);
-      if (f.evaluate().isNotEmpty) return f;
-      return null;
-    }
-
     // STRUCTURAL tap: resolve a locale-invariant selector and tap it. Returns
     // true on success.
     //   key:<keyString>   -> find.byKey (replays in ANY locale)
     //   role:<role>#<idx>  -> the idx-th tappable of that role, in document
     //                         order, tapped via the semantics action (no text)
-    //   <anything else>    -> legacy label fallback (find by visible text)
     Future<bool> tapSelector(String sel) async {
       if (sel.startsWith('key:')) {
         final f = find.byKey(keyFromString(sel.substring(4)));
@@ -1507,8 +1503,7 @@ void main() {
             if (target != null) return;
             final d = n.getSemanticsData();
             if (!d.hasFlag(SemanticsFlag.isHidden)) {
-              final tappable =
-                  d.hasAction(SemanticsAction.tap) &&
+              final tappable = d.hasAction(SemanticsAction.tap) &&
                   !d.hasFlag(SemanticsFlag.isTextField);
               if (tappable && roleOf(d) == role) {
                 seen++;
@@ -1531,24 +1526,7 @@ void main() {
           return false;
         }
       }
-      // Label selector: an explicit `label:` prefix, or a bare string (legacy),
-      // resolved by visible/semantic label. An ACTION selector only has to be
-      // stable within the run's locale, so resolving by (localized) label is
-      // fine; the state SIGNATURE stays structural and locale-invariant. This is
-      // parity with fillField (already label-based) and with how Playwright/
-      // Appium address by visible name. Use key:/role: to override when a label
-      // is ambiguous or you want locale-proof selection.
-      final label = sel.startsWith('label:')
-          ? sel.substring('label:'.length)
-          : sel;
-      final f = findByLabel(label);
-      if (f == null) return false;
-      try {
-        await tester.tap(f.first, warnIfMissed: false);
-        return true;
-      } catch (_) {
-        return false;
-      }
+      return false;
     }
 
     Future<bool> goBack(WidgetTester t) async {
@@ -1730,12 +1708,28 @@ void main() {
           // flags a tappable that has no developer key (the map layer can warn).
           emit(
             'EXPLORE:STATE ${jsonEncode({
-              "sig": sig,
-              if (snap.anchor != null) "route": snap.anchor,
-              "labels": snap.labels.take(maxLabelsPerState).toList(),
-              "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"sel": e.sel, "role": e.role, "label": e.label, if (!e.hasKey) "nokey": true}).toList(),
-              "unlabeled": snap.unlabeled,
-            })}',
+                  "sig": sig,
+                  if (snap.anchor != null) "route": snap.anchor,
+                  "labels": snap.labels.take(maxLabelsPerState).toList(),
+                  "elements": snap.tappables
+                      .take(maxLabelsPerState)
+                      .map((e) => {
+                            "sel": e.sel,
+                            "role": e.role,
+                            "label": e.label,
+                            if (e.bounds != null) "bounds": e.bounds,
+                            if (!e.hasKey) "nokey": true
+                          })
+                      .toList(),
+                  "texts": snap.texts
+                      .take(maxLabelsPerState)
+                      .map((t) => {
+                            "text": t.text,
+                            if (t.bounds != null) "bounds": t.bounds
+                          })
+                      .toList(),
+                  "unlabeled": snap.unlabeled,
+                })}',
           );
           // Operability/a11y ground-truth for the SAME sig: graph1 (operable) x
           // graph2 (semantics role/name) + keyboard reachability/activation.
@@ -1776,7 +1770,10 @@ void main() {
           if (await fillField(field, value)) {
             filledFields.add(field);
             emit(
-              'FUZZ:FILL ${jsonEncode({"field": field, "len": value.runes.length})}',
+              'FUZZ:FILL ${jsonEncode({
+                    "field": field,
+                    "len": value.runes.length
+                  })}',
             );
           }
         }
@@ -1832,7 +1829,11 @@ void main() {
           // so a value-state screen (counter/calculator) does not stall the walk.
           if (popped && sigOf(next) != sigOf(current)) {
             emit(
-              'EXPLORE:EDGE ${jsonEncode({"from": sigOf(current), "action": "back", "to": sigOf(next)})}',
+              'EXPLORE:EDGE ${jsonEncode({
+                    "from": sigOf(current),
+                    "action": "back",
+                    "to": sigOf(next)
+                  })}',
             );
           }
           if (popped && effective(current, next)) {
@@ -1879,7 +1880,11 @@ void main() {
         final next = observe();
         if (sigOf(next) != sigOf(current)) {
           emit(
-            'EXPLORE:EDGE ${jsonEncode({"from": sigOf(current), "action": "tap:$sel", "to": sigOf(next)})}',
+            'EXPLORE:EDGE ${jsonEncode({
+                  "from": sigOf(current),
+                  "action": "tap:$sel",
+                  "to": sigOf(next)
+                })}',
           );
         }
         // Layer 1: reset the stall counter on any EFFECTIVE action, even when
@@ -1938,14 +1943,31 @@ void main() {
         if (scenarioSeen.add(snap.sig)) {
           emit(
             'EXPLORE:STATE ${jsonEncode({
-              "sig": snap.sig,
-              if (snap.anchor != null) "route": snap.anchor,
-              "labels": snap.labels.take(maxLabelsPerState).toList(),
-              "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"sel": e.sel, "role": e.role, "label": e.label, if (!e.hasKey) "nokey": true}).toList(),
-              "unlabeled": snap.unlabeled,
-            })}',
+                  "sig": snap.sig,
+                  if (snap.anchor != null) "route": snap.anchor,
+                  "labels": snap.labels.take(maxLabelsPerState).toList(),
+                  "elements": snap.tappables
+                      .take(maxLabelsPerState)
+                      .map((e) => {
+                            "sel": e.sel,
+                            "role": e.role,
+                            "label": e.label,
+                            if (e.bounds != null) "bounds": e.bounds,
+                            if (!e.hasKey) "nokey": true
+                          })
+                      .toList(),
+                  "texts": snap.texts
+                      .take(maxLabelsPerState)
+                      .map((t) => {
+                            "text": t.text,
+                            if (t.bounds != null) "bounds": t.bounds
+                          })
+                      .toList(),
+                  "unlabeled": snap.unlabeled,
+                })}',
           );
-          emit('EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, snap.sig))}');
+          emit(
+              'EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, snap.sig))}');
         }
         return snap.sig;
       }
@@ -1982,8 +2004,7 @@ void main() {
           final value = eq >= 0 ? body.substring(eq + 1) : '';
           var ok = await fillSelector(finder, value);
           if (!ok) {
-            ok =
-                await waitFor(() => countMatching(finder) > 0) &&
+            ok = await waitFor(() => countMatching(finder) > 0) &&
                 await fillSelector(finder, value);
           }
           if (!ok) emit('FUZZ:MISS $role $act');
@@ -2025,7 +2046,11 @@ void main() {
         final isEdge = act == 'back' || act.startsWith('tap:');
         if (isEdge && lastSig != null && newSig != lastSig) {
           emit(
-            'EXPLORE:EDGE ${jsonEncode({"from": lastSig, "action": act == 'back' ? 'back' : act, "to": newSig})}',
+            'EXPLORE:EDGE ${jsonEncode({
+                  "from": lastSig,
+                  "action": act == 'back' ? 'back' : act,
+                  "to": newSig
+                })}',
           );
         }
         lastSig = newSig;
