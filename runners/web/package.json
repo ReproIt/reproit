@@ -7,10 +7,20 @@
     "reproit-web-runner": "runner.mjs"
   },
   "dependencies": {
+    "@a2ui/lit": "0.10.1",
+    "@a2ui/markdown-it": "0.1.0",
+    "@a2ui/react": "0.10.1",
+    "@a2ui/web_core": "0.10.4",
     "@playwright/test": "^1.49.0",
     "axe-core": "^4.12.1",
+    "esbuild": "0.28.1",
     "pixelmatch": "^7.2.0",
     "playwright": "^1.49.0",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "overrides": {
+    "@a2ui/markdown-it": "$@a2ui/markdown-it"
   }
 }

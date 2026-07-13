@@ -57,6 +57,8 @@ mod uia;
 #[path = "backends/vmservice.rs"]
 mod vmservice;
 // modes/, the user-facing commands.
+#[path = "modes/a2ui.rs"]
+mod a2ui;
 #[path = "modes/analyze.rs"]
 mod analyze;
 #[path = "modes/barrier.rs"]
@@ -678,7 +680,8 @@ enum Cmd {
     /// report one finding per screen+issue. The fast default "what's wrong here".
     /// `--record` saves quick audit clips; use `record <id>` for a fuzz repro.
     Scan {
-        /// What to scan. A URL (https://app.com) runs zero-config against that
+        /// What to scan. An A2UI JSON/JSONL stream runs against the official
+        /// React and Lit renderers. A URL (https://app.com) runs zero-config against that
         /// deployed app; a terminal EXECUTABLE (e.g. `lazygit`, `htop`, or a path)
         /// runs zero-config in a PTY; any other value scopes the crawl to that
         /// alias/node in a reproit.yaml.
@@ -710,7 +713,8 @@ enum Cmd {
     /// Stable, objective detectors are on by default. Specialist detectors are
     /// opt-in with `--only`; `--soak` runs the leak cycle.
     Fuzz {
-        /// What to fuzz (optional). A PLAYWRIGHT TEST file
+        /// What to fuzz (optional). An A2UI JSON/JSONL stream is checked across
+        /// the official React and Lit renderers with schema-valid mutations. A PLAYWRIGHT TEST file
         /// (`reproit fuzz your-test.spec.ts`) is run under trace; reproit replays
         /// its actions to reach its deep state, then fuzzes onward for the bugs the
         /// test never covered (you wrote the test; reproit finds the bugs you
@@ -1730,6 +1734,11 @@ async fn main() -> Result<ExitCode> {
             target,
             device,
         } => {
+            if let Some(id) = repro.as_deref() {
+                if let Some(code) = a2ui::try_replay(&ctx, id)? {
+                    return Ok(code);
+                }
+            }
             let loaded = config::load(cli.config.as_deref())?;
             ensure_app_map(&ctx, &loaded, "explore").await?;
             let locales = locale
@@ -2222,6 +2231,14 @@ async fn main() -> Result<ExitCode> {
             out,
             header,
         } => {
+            if let Some(path) = target_arg.as_deref().map(PathBuf::from) {
+                if path.is_file() && a2ui::looks_like_target(&path) {
+                    if record {
+                        anyhow::bail!("A2UI streams produce a minimal JSON reproduction, so `scan --record` does not apply");
+                    }
+                    return a2ui::run_target(&ctx, &path, "scan", 1, 1);
+                }
+            }
             // `--header "Name: value"` (repeatable) -> a JSON object the web runner
             // reads into the browser context's extraHTTPHeaders (clearance / auth /
             // preview tokens). Set before the runner is spawned so it is inherited.
@@ -2333,6 +2350,11 @@ async fn main() -> Result<ExitCode> {
             device,
             target_arg,
         } => {
+            if let Some(path) = target_arg.as_deref().map(PathBuf::from) {
+                if path.is_file() && a2ui::looks_like_target(&path) {
+                    return a2ui::run_target(&ctx, &path, "fuzz", seed, runs);
+                }
+            }
             // The positional TARGET is auto-classified. A URL (https://app.com,
             // or a bare google.com / localhost:3000) points reproit at a deployed
             // app with no reproit.yaml: synthesize a web config rooted at the cwd

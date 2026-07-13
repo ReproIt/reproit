@@ -167,6 +167,18 @@ reproit fuzz https://your-app.example.com
 It builds the map, then finds and reproduces the bugs the generator shipped. Your
 coding agent fixes them; `check` proves the fix. AI builds it, reproit proves it works.
 
+For A2UI-generated interfaces, pass the generated JSON or JSONL stream directly:
+
+```sh
+reproit scan generated-ui.jsonl
+reproit fuzz generated-ui.jsonl
+reproit fnd_...
+```
+
+Reproit validates the official v0.9 basic catalog, runs the stream through the
+official React and Lit renderers, minimizes a failure while preserving its exact
+signature, and stores the result under the same `fnd_...` workflow.
+
 ## Cloud
 
 A worker pool runs the **same `reproit` binary** across shards (one seed/device

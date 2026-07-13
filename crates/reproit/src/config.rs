@@ -828,8 +828,20 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
         include_str!("../../../runners/web/box-overlay.mjs"),
     ),
     (
+        "a2ui-runner.mjs",
+        include_str!("../../../runners/web/a2ui-runner.mjs"),
+    ),
+    (
+        "a2ui-host.jsx",
+        include_str!("../../../runners/web/a2ui-host.jsx"),
+    ),
+    (
         "package.json",
         include_str!("../../../runners/web/package.json"),
+    ),
+    (
+        "package-lock.json",
+        include_str!("../../../runners/web/package-lock.json"),
     ),
 ];
 
@@ -878,6 +890,9 @@ fn find_dev_runner_dir() -> Option<PathBuf> {
 pub fn ensure_web_runner_dir(version: &str, log: &dyn Fn(&str)) -> Result<PathBuf> {
     // Dev/source checkout: used as-is so edits are live without a reinstall.
     if let Some(d) = find_dev_runner_dir() {
+        if ensure_web_runner_dependencies(&d, log)? {
+            ensure_web_browser(&d, log)?;
+        }
         return Ok(d);
     }
     let dir = web_runner_data_dir();
@@ -901,12 +916,49 @@ pub fn ensure_web_runner_dir(version: &str, log: &dyn Fn(&str)) -> Result<PathBu
         }
         log("web runner not found; provisioning it (one-time)...");
         download_and_extract_runner(version, &dir, log)?;
-        ensure_web_browser(&dir, log)?;
     }
     // ALWAYS sync the runner scripts to THIS binary, so a binary update is never
     // paired with a stale runner (the cause of clips silently failing).
     write_embedded_runner(&dir)?;
+    if ensure_web_runner_dependencies(&dir, log)? {
+        ensure_web_browser(&dir, log)?;
+    }
     Ok(dir)
+}
+
+fn ensure_web_runner_dependencies(dir: &Path, log: &dyn Fn(&str)) -> Result<bool> {
+    use sha2::{Digest, Sha256};
+
+    let lock = include_bytes!("../../../runners/web/package-lock.json");
+    let expected: String = Sha256::digest(lock)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let marker = dir.join(".reproit-package-lock.sha256");
+    let current = std::fs::read_to_string(&marker).unwrap_or_default();
+    let required = dir.join("node_modules/@a2ui/web_core").is_dir()
+        && dir.join("node_modules/esbuild").is_dir()
+        && dir.join("node_modules/playwright").is_dir();
+    if required && current.trim() == expected {
+        return Ok(false);
+    }
+
+    log("  syncing web and A2UI runner dependencies (one-time)...");
+    let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let status = std::process::Command::new(npm)
+        .args(["ci", "--omit=dev"])
+        .current_dir(dir)
+        .status()
+        .context("running `npm ci --omit=dev` for the web runner")?;
+    if !status.success() {
+        bail!(
+            "failed to install the web runner dependencies under {}",
+            dir.display()
+        );
+    }
+    std::fs::write(&marker, format!("{expected}\n"))
+        .with_context(|| format!("writing dependency marker {}", marker.display()))?;
+    Ok(true)
 }
 
 /// Release asset URL for `asset`. A clean release version (e.g. "0.1.2") pins the

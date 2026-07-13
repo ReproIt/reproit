@@ -103,6 +103,7 @@ nothing collapsed.
 reproit scan https://app.com  # zero-config: scan a deployed app, no setup
 reproit scan                  # scan the whole app (uses ./reproit.yaml)
 reproit scan login            # scope the crawl to one alias/node
+reproit scan ui.jsonl         # validate and render an A2UI v0.9 stream
 reproit scan --record         # also save an annotated clip per boxable finding
 ```
 
@@ -133,6 +134,7 @@ reproit fuzz                  # hunt the whole app (uses ./reproit.yaml)
 reproit fuzz login            # concentrate on one screen or flow
 reproit fuzz https://app.com  # zero-config: point at a deployed app, no setup
 reproit fuzz google.com       # a bare host works too (scheme is auto-added)
+reproit fuzz ui.jsonl         # schema-valid A2UI mutations across React and Lit
 reproit fuzz --all            # don't stop at the first bug; return every unique bug
 ```
 
@@ -140,6 +142,12 @@ The positional target is auto-detected: a URL (with or without a scheme, e.g.
 `google.com` or `localhost:3000`) runs zero-config against that deployed app (it
 synthesizes a web setup, builds the map, and fuzzes, no `reproit.yaml` needed);
 anything else is treated as an alias to scope the hunt to.
+
+An A2UI v0.9 JSON or JSONL target is detected structurally. Reproit validates it
+against the official basic-catalog schemas, runs the official React and Lit
+renderers, and applies only schema-valid stream mutations. Every finding stores
+the smallest message stream that still produces the exact same signature, so
+`reproit fnd_...` replays without an A2UI checkout or a separate command.
 
 By default it stops at the first finding so you can fix it before hunting more.
 `--all` keeps going and groups duplicates (the same crash reached by different

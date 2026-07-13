@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .reproit/runs/
+.reproit/findings/
 .reproit/recordings/
 .reproit/tmp/
 .reproit/*.vault
@@ -18,6 +19,7 @@ dist/
 # The lockfiles ARE committed: a determinism tool must pin Playwright et al so
 # CI/release install the exact versions (npm ci), not whatever floats today.
 runners/web/node_modules/
+runners/web/.reproit-package-lock.sha256
 runners/rn/node_modules/
 .appium-home/
 examples/imgui-headless/demo
