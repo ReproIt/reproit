@@ -1,0 +1,26 @@
+{
+  "name": "Minimal labeled text field",
+  "messages": [
+    {
+      "version": "v0.9",
+      "createSurface": {
+        "surfaceId": "discovered-lit-text-field-label",
+        "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+      }
+    },
+    {
+      "version": "v0.9",
+      "updateComponents": {
+        "surfaceId": "discovered-lit-text-field-label",
+        "components": [
+          {
+            "id": "root",
+            "component": "TextField",
+            "label": "Account",
+            "value": ""
+          }
+        ]
+      }
+    }
+  ]
+}

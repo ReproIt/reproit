@@ -31,8 +31,44 @@ function requiredString(value, name) {
   return value;
 }
 
+function cloneJson(value, path = '$', seen = new Set()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError(`${path} must contain only finite JSON numbers`);
+    return value;
+  }
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object') throw new TypeError(`${path} contains a non-JSON ${typeof value} value`);
+  if (seen.has(value)) throw new TypeError(`${path} contains a cycle`);
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null && !Array.isArray(value)) {
+    throw new TypeError(`${path} contains a non-JSON object`);
+  }
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const result = [];
+      for (let index = 0; index < value.length; index++) {
+        if (!Object.hasOwn(value, index)) throw new TypeError(`${path}[${index}] is a sparse array entry`);
+        const item = value[index];
+        if (item === undefined) throw new TypeError(`${path}[${index}] is undefined`);
+        result.push(cloneJson(item, `${path}[${index}]`, seen));
+      }
+      return result;
+    }
+    const result = {};
+    for (const key of Object.keys(value)) {
+      if (value[key] === undefined) throw new TypeError(`${path}.${key} is undefined`);
+      result[key] = cloneJson(value[key], `${path}.${key}`, seen);
+    }
+    return result;
+  } finally {
+    seen.delete(value);
+  }
+}
+
 function clone(value) {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  return value === undefined ? undefined : cloneJson(value);
 }
 
 function pointerParts(path) {
@@ -91,6 +127,11 @@ export function capture({protocolVersion, protocolDocument, catalog, stream, ren
   requiredString(renderer.platform, 'renderer.platform');
   const identity = oracleIdentity(oracle);
   if (oracle.identity && oracle.identity !== identity) throw new Error('oracle.identity does not match its structural descriptor');
+  const normalizedObservation = observation ? clone(observation) : undefined;
+  if (normalizedObservation?.oracleIdentity && normalizedObservation.oracleIdentity !== identity) {
+    throw new Error('observation.oracleIdentity does not match the capture oracle');
+  }
+  if (normalizedObservation) normalizedObservation.oracleIdentity = identity;
   const ordered = stream.map((message, index) => ({sequence: index, message: clone(message)}));
   const catalogHash = sha256(catalog.document);
   const protocolHash = sha256(protocolDocument);
@@ -109,7 +150,7 @@ export function capture({protocolVersion, protocolDocument, catalog, stream, ren
     actions: clone(actions),
     agent: clone(agent),
     oracle: {...clone(oracle), identity},
-    observation: observation ? clone(observation) : undefined,
+    observation: normalizedObservation,
   };
   capsule.evidenceSha256 = sha256({
     protocolSha256: capsule.protocolSha256,
@@ -120,6 +161,7 @@ export function capture({protocolVersion, protocolDocument, catalog, stream, ren
     actions: capsule.actions,
     agent: capsule.agent,
     oracleIdentity: capsule.oracle.identity,
+    observation: capsule.observation,
   });
   return capsule;
 }
@@ -145,8 +187,12 @@ export function validateCapture(capsule) {
     actions: capsule?.actions,
     agent: capsule?.agent,
     oracleIdentity: capsule?.oracle?.identity,
+    observation: capsule?.observation,
   });
   if (capsule?.evidenceSha256 !== evidenceSha256) errors.push('capture evidence hash mismatch');
+  if (capsule?.observation && capsule.observation.oracleIdentity !== capsule?.oracle?.identity) {
+    errors.push('observation oracle identity mismatch');
+  }
   for (const [index, item] of (capsule?.stream || []).entries()) {
     if (item.sequence !== index) errors.push(`stream sequence is not contiguous at index ${index}`);
   }
@@ -307,7 +353,6 @@ export function shrink(capsule) {
         actions: capsule.actions,
         oracle: capsule.oracle,
         agent: capsule.agent,
-        observation: capsule.observation,
       });
       const result = replay(candidate);
       replays++;
@@ -333,7 +378,6 @@ export function shrink(capsule) {
     actions: capsule.actions,
     oracle: capsule.oracle,
     agent: capsule.agent,
-    observation: capsule.observation,
   });
   return {capsule: minimized, originalMessages: capsule.stream.length, minimizedMessages: stream.length, replays, oracleIdentity: identity};
 }

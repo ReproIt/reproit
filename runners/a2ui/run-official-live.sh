@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-pin=96abfdc60de0657c6322028d10c1cc7bc25c237c
+pin="${A2UI_EXPECTED_COMMIT:-96abfdc60de0657c6322028d10c1cc7bc25c237c}"
 owned=
 if [[ -n "${A2UI_CHECKOUT:-}" ]]; then
   checkout="$A2UI_CHECKOUT"
@@ -42,4 +42,5 @@ for url in http://127.0.0.1:4311 http://127.0.0.1:4312; do
   [[ -n "$ready" ]] || { echo "renderer did not start: $url" >&2; exit 1; }
 done
 
-node "$root/runners/a2ui/live-renderer-harness.mjs" "$checkout" http://127.0.0.1:4311 http://127.0.0.1:4312
+harness="${A2UI_HARNESS:-$root/runners/a2ui/live-renderer-harness.mjs}"
+node "$harness" "$checkout" http://127.0.0.1:4311 http://127.0.0.1:4312

@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {capture, oracleIdentity, parseJsonl, rendererMatrix, replay, sha256, shrink} from './adapter.mjs';
+import {capture, oracleIdentity, parseJsonl, rendererMatrix, replay, sha256, shrink, validateCapture} from './adapter.mjs';
 
 const CATALOG_ID = 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json';
 const protocolDocument = {$id: 'https://a2ui.org/specification/v0_9/server_to_client.json', oneOf: ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface']};
@@ -26,7 +26,8 @@ function failingCapture(overrides = {}) {
   return capture({
     protocolVersion: 'v0.9', protocolDocument, catalog, stream,
     renderer: overrides.renderer || renderer,
-    clientDataSnapshots: [{sequence: 3, surfaceId: 'main', data: {checkout: {total: 99}}}],
+    clientDataSnapshots: overrides.clientDataSnapshots
+      ?? [{sequence: 3, surfaceId: 'main', data: {checkout: {total: 99}}}],
     actions: [{sequence: 4, surfaceId: 'main', action: {name: 'submit', context: {total: 99}}, clientData: {checkout: {total: 99}}}],
     oracle: {kind: 'data-model-value', surfaceId: 'main', path: '/checkout/total', expected: 100},
     agent: overrides.agent || {inputSha256: sha256('checkout prompt')},
@@ -79,6 +80,15 @@ test('ddmin removes irrelevant messages only while the exact failing oracle surv
   assert.equal(result.actual, 99);
 });
 
+test('shrink never carries a renderer observation onto an unrendered minimized stream', () => {
+  const capsule = failingCapture({observation: {status: 'fail', structuralSha256: sha256('original renderer tree')}});
+  const minimized = shrink(capsule).capsule;
+  assert.equal(minimized.observation, undefined);
+  const matrix = rendererMatrix([minimized]);
+  assert.equal(matrix.runs[0].observation.structuralSha256, matrix.runs[0].result.stateSha256);
+  assert.notEqual(matrix.runs[0].observation.structuralSha256, sha256('original renderer tree'));
+});
+
 test('renderer matrix separates protocol invalidity', () => {
   const invalid = failingCapture();
   invalid.stream[0].message.createSurface.catalogId = 'wrong';
@@ -114,4 +124,27 @@ test('renderer matrix separates agent nondeterminism for the same input', () => 
   const matrix = rendererMatrix([first, second]);
   assert.equal(matrix.agentNondeterminism.length, 1);
   assert.equal(matrix.agentNondeterminism[0].streamSha256.length, 2);
+});
+
+test('renderer observations are integrity-bound to the exact oracle', () => {
+  const capsule = failingCapture({observation: {status: 'fail', structuralSha256: sha256('tree')}});
+  assert.equal(capsule.observation.oracleIdentity, capsule.oracle.identity);
+  capsule.observation.status = 'pass';
+  assert.match(validateCapture(capsule).join('\n'), /capture evidence hash mismatch/);
+});
+
+test('capture rejects a renderer observation for a different oracle', () => {
+  assert.throws(
+    () => failingCapture({observation: {status: 'fail', oracleIdentity: 'a2ui:wrong', structuralSha256: sha256('tree')}}),
+    /observation.oracleIdentity does not match/,
+  );
+});
+
+test('capture rejects sparse arrays instead of normalizing holes', () => {
+  const sparse = [];
+  sparse.length = 1;
+  assert.throws(
+    () => failingCapture({clientDataSnapshots: sparse}),
+    /sparse array entry/,
+  );
 });

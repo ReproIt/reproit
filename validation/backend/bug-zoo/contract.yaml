@@ -1,0 +1,21 @@
+enabled: true
+operations:
+  - id: get_model_a_model_get
+    authority: declared
+    successStatuses: [200]
+    output:
+      kind: object
+      required: [name, model_b]
+      additional: false
+      properties:
+        name:
+          kind: string
+        description:
+          kind: string
+        model_b:
+          kind: object
+          required: [username]
+          additional: false
+          properties:
+            username:
+              kind: string

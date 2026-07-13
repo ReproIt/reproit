@@ -1,0 +1,25 @@
+{
+  "name": "Minimal duplicate accessible purpose with distinct actions",
+  "messages": [
+    {
+      "version": "v0.9",
+      "createSurface": {
+        "surfaceId": "issue-1410",
+        "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+      }
+    },
+    {
+      "version": "v0.9",
+      "updateComponents": {
+        "surfaceId": "issue-1410",
+        "components": [
+          {"id": "root", "component": "Column", "children": ["first", "second"]},
+          {"id": "first", "component": "Button", "child": "first-label", "action": {"event": {"name": "book", "context": {"restaurant": "one"}}}},
+          {"id": "first-label", "component": "Text", "text": "Book Now"},
+          {"id": "second", "component": "Button", "child": "second-label", "action": {"event": {"name": "book", "context": {"restaurant": "two"}}}},
+          {"id": "second-label", "component": "Text", "text": "Book Now"}
+        ]
+      }
+    }
+  ]
+}

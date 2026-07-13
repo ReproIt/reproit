@@ -108,6 +108,17 @@ jobs:
         run: node --test
       - name: Backend browser to service transport gate
         run: node --test ../../validation/backend/sdk-node.test.mjs ../../validation/backend/web-e2e.test.mjs
+      - name: Prepare the pinned official A2UI validator and corpus
+        run: |
+          git clone --filter=blob:none https://github.com/a2ui-project/a2ui.git "$RUNNER_TEMP/a2ui"
+          git -C "$RUNNER_TEMP/a2ui" checkout --detach 96abfdc60de0657c6322028d10c1cc7bc25c237c
+          cd "$RUNNER_TEMP/a2ui"
+          corepack yarn install --immutable
+          corepack yarn workspace @a2ui/web_core build
+      - name: A2UI capture, preflight, ADK adapter, and repair gates
+        env:
+          A2UI_CHECKOUT: ${{ runner.temp }}/a2ui
+        run: node --test ../a2ui/*.test.mjs
 
   # The byte-for-byte signature promise: every SDK and runner must reproduce the
   # 24 golden vectors in signature_vectors.json exactly, same as the Rust oracle

@@ -1,0 +1,55 @@
+[
+  {
+    "kind": "status-update",
+    "status": {
+      "message": {
+        "parts": [
+          {"kind": "text", "text": "Here is the result."},
+          {
+            "kind": "data",
+            "data": {
+              "version": "v0.9",
+              "createSurface": {
+                "surfaceId": "main",
+                "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+              }
+            },
+            "metadata": {"mimeType": "application/json+a2ui"}
+          }
+        ]
+      }
+    }
+  },
+  {
+    "kind": "status-update",
+    "status": {
+      "message": {
+        "parts": [
+          {
+            "kind": "data",
+            "data": {
+              "version": "v0.9",
+              "createSurface": {
+                "surfaceId": "main",
+                "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+              }
+            },
+            "metadata": {"mimeType": "application/json+a2ui"}
+          },
+          {
+            "kind": "data",
+            "data": {
+              "version": "v0.9",
+              "updateDataModel": {
+                "surfaceId": "main",
+                "path": "/total",
+                "value": 100
+              }
+            },
+            "mimeType": "application/a2ui+json"
+          }
+        ]
+      }
+    }
+  }
+]
