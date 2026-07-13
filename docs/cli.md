@@ -237,6 +237,36 @@ Multi-user flows (one user posts, another sees it) are supported: add an `actors
 block and tag each step with its actor. reproit runs one device per actor and
 coordinates them in order. See `reproit journey list` and `reproit journey create`.
 
+### Structural contracts
+
+Contracts express app-specific facts without matching English copy or writing
+runner code. Put them at the top level of `reproit.yaml` for scan and fuzz, or
+inside a journey for that flow. Reproit evaluates them over normalized actions,
+actors, states, routes, visible text, oracle signals, network statuses, response
+shapes, and counts from every runner.
+
+```yaml
+contracts:
+  - id: peer-sees-message
+    when:
+      actor: alice
+      action: tap:key:testid:send
+    must:
+      eventually:
+        condition:
+          all:
+            - is: { actor: bob }
+            - is: { text: Message delivered }
+        withinSteps: 8
+```
+
+Formulas support `is`, `always`, `eventually`, `next`, `implies`, `all`, `any`,
+and `not`. The default `scope` is `trace`; use `scope: state` only when each
+single observation can prove or disprove the property. Contract action keys are
+fed back into exploration as hints. A discovered violation receives a stable
+fingerprint, exact replay confirmation, structural evidence, and shrink
+protection, so minimization cannot silently replace it with a different bug.
+
 ### Fuzz from a journey
 
 Reaching a deep screen is the expensive part of fuzzing. `reproit fuzz --from

@@ -1,0 +1,22 @@
+journey: multi-actor-message
+actors: [alice, bob]
+steps:
+  - actor: alice
+    do: tap:key:testid:send
+  - actor: bob
+    expect:
+      text: Message delivered
+contracts:
+  - id: peer-observes-sent-message
+    when:
+      actor: alice
+      action: tap:key:testid:send
+    must:
+      eventually:
+        condition:
+          all:
+            - is:
+                actor: bob
+            - is:
+                text: Message delivered
+        withinSteps: 8

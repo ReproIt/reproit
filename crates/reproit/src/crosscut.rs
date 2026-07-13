@@ -171,6 +171,9 @@ pub enum Oracle {
     /// has a state hook. Distinct from the CLI-config `custom` regex rules,
     /// which are declarative predicates written in a reproit config file.
     Invariant,
+    /// User-declared structural state or temporal property evaluated over the
+    /// normalized cross-platform observation trace.
+    Contract,
     /// Rotation-stability: a metamorphic relation across a device-orientation
     /// transform. The explorer rotates the surface (portrait <-> landscape /
     /// split-screen), lets it reflow, then rotates BACK to the original
@@ -263,6 +266,7 @@ impl Oracle {
         Oracle::BrokenAsset,
         Oracle::ZoomReflow,
         Oracle::Invariant,
+        Oracle::Contract,
         Oracle::Rotation,
         Oracle::BackgroundRestore,
         Oracle::ScrollRoundTrip,
@@ -292,6 +296,7 @@ impl Oracle {
             Oracle::BrokenAsset => "broken-asset",
             Oracle::ZoomReflow => "zoom-reflow",
             Oracle::Invariant => "invariant",
+            Oracle::Contract => "contract",
             Oracle::Rotation => "rotation",
             Oracle::BackgroundRestore => "background-restore",
             Oracle::ScrollRoundTrip => "scroll-round-trip",
@@ -328,6 +333,7 @@ impl Oracle {
             "invariant" | "assertion" | "app-invariant" | "custom-invariant" => {
                 Some(Oracle::Invariant)
             }
+            "contract" | "temporal-contract" | "property" => Some(Oracle::Contract),
             "rotation" | "rotate" | "orientation" | "split-screen" => Some(Oracle::Rotation),
             "background-restore" | "background" | "bg-restore" | "lifecycle" | "backgrounded" => {
                 Some(Oracle::BackgroundRestore)
@@ -351,6 +357,9 @@ impl Oracle {
 /// already exists (modes/fuzz.rs, model/invariants.rs); this is the single
 /// mapping from that taxonomy to the user-facing oracle categories.
 pub fn classify(finding: &Value) -> Oracle {
+    if finding.get("oracle").and_then(Value::as_str) == Some("contract") {
+        return Oracle::Contract;
+    }
     let invariant = finding
         .get("invariant")
         .and_then(Value::as_str)
@@ -404,6 +413,7 @@ pub fn classify(finding: &Value) -> Oracle {
         // regex rules emit kind INVARIANT; bucket both here (previously they
         // fell through to Crash).
         "INVARIANT" => Oracle::Invariant,
+        "TEMPORAL-CONTRACT" => Oracle::Contract,
         "ROTATION" => Oracle::Rotation,
         "BGRESTORE" => Oracle::BackgroundRestore,
         "SCROLLROUNDTRIP" => Oracle::ScrollRoundTrip,
@@ -491,6 +501,7 @@ impl OracleFilter {
             Oracle::BrokenRoute,
             Oracle::BlankScreen,
             Oracle::BrokenAsset,
+            Oracle::Contract,
         ]
         .into_iter()
         .map(Oracle::as_str)

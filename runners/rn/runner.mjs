@@ -2877,6 +2877,12 @@ async function main() {
   async function observe() {
     const snap = await snapshot(driver, valueNodeSelectors, safeAreaInsets);
     snap.sig = effectiveSig(snap);
+    log('FUZZ:OBS ' + JSON.stringify({
+      sig: snap.sig,
+      ...(snap.anchor ? { route: snap.anchor } : {}),
+      labels: snap.labels.slice(0, 24),
+      elements: snap.elements.slice(0, 24).map((e) => ({ role: e.role })),
+    }));
     if (!seenStates.has(snap.sig)) {
       seenStates.add(snap.sig);
       // sig: CANONICAL STRUCTURAL signature (anchor + normalized Node tree),
@@ -3121,7 +3127,8 @@ async function main() {
       const sels = current.elements.map((e) => e.sel).sort();
       const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
       const options = sels.map((s) => 'tap:' + s).concat(['back']);
-      const weights = options.map((o) => 1 / (1 + (ew[o] || 0)));
+      const contractActions = new Set(fuzz.contractActions || []);
+      const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
       const total = weights.reduce((a, b) => a + b, 0);
       let r = (pick(1 << 20) / (1 << 20)) * total;
       act = options[options.length - 1];

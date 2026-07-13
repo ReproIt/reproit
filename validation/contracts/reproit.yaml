@@ -1,0 +1,19 @@
+app:
+  platform: web
+  webRunnerDir: ../../runners/web
+  url: http://127.0.0.1:4178/app.html
+devices:
+  namePrefix: ContractValidation
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]
+contracts:
+  - id: sent-message-becomes-visible
+    when:
+      action: tap:key:testid:send
+    must:
+      eventually:
+        condition:
+          is:
+            text: Message delivered
+        withinSteps: 2

@@ -2204,6 +2204,12 @@ async function main() {
     await drainErrors(browser);
     const snap = await snapshot(browser, valueNodeSelectors);
     snap.sig = effectiveSig(snap);
+    log('FUZZ:OBS ' + JSON.stringify({
+      sig: snap.sig,
+      ...(snap.anchor ? { route: snap.anchor } : {}),
+      labels: snap.labels.slice(0, 24),
+      elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
+    }));
     if (!seen.has(snap.sig)) {
       seen.add(snap.sig);
       // sig: STRUCTURAL (roles + tree shape + stable developer keys),
@@ -2528,7 +2534,8 @@ async function main() {
       const taps = current.tappables.map((e) => e.sel).sort();
       const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
       const options = taps.map((s) => 'tap:' + s).concat(['back']);
-      const weights = options.map((o) => 1 / (1 + (ew[o] || 0)));
+      const contractActions = new Set(fuzz.contractActions || []);
+      const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
       const total = weights.reduce((x, y) => x + y, 0);
       let r = (pick(1 << 20) / (1 << 20)) * total;
       act = options[options.length - 1];

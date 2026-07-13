@@ -63,6 +63,10 @@ pub struct Journey {
     pub actors: ActorList,
     #[serde(default)]
     pub steps: Vec<Step>,
+    /// Journey-local temporal properties. These use the same structural
+    /// contract language as top-level fuzz and scan contracts.
+    #[serde(default)]
+    pub contracts: Vec<crate::contracts::ContractSpec>,
     /// Execution tier override. Scripted journeys default to the SIM tier (real
     /// simulator + real backend + determinism/permission pinning), because they
     /// are E2E by nature: login needs the network, multi-actor needs N sims, and
@@ -747,6 +751,15 @@ fn classify_run(log: &str, drive_passed: bool) -> repro::RunVerdict {
     repro::RunVerdict::Green
 }
 
+fn journey_contract_violations(
+    journey: &Journey,
+    log: &str,
+    actors: &[String],
+) -> Vec<crate::contracts::ContractViolation> {
+    let observations = crate::observation::from_runner_log(log, actors);
+    crate::contracts::evaluate_all(&journey.contracts, &observations)
+}
+
 /// Run a journey `times` times and aggregate to pass/fail/flaky/stale. Replays
 /// the journey's actions through the same execution tier `check` uses for repros.
 pub async fn run(
@@ -781,9 +794,20 @@ pub async fn run(
     let mut verdicts = Vec::new();
     for i in 1..=total {
         let (log, passed) = run_replay(loaded, &actions, i > 1, sim).await?;
-        let verdict = classify_run(&log, passed);
+        let violations = journey_contract_violations(&j, &log, &[]);
+        let verdict = if violations.is_empty() {
+            classify_run(&log, passed)
+        } else {
+            repro::RunVerdict::Broke
+        };
         if !quiet {
             println!("  run {i}/{total}: {}", verdict.as_str());
+            for violation in &violations {
+                println!(
+                    "    contract {} failed at observation {} ({})",
+                    violation.contract_id, violation.boundary_index, violation.fingerprint
+                );
+            }
         }
         verdicts.push(verdict);
     }
@@ -1041,6 +1065,10 @@ async fn run_scenario(
         drop(conductor); // stop the barrier server
         let log = read_device_logs(&outcome.run_dir, n);
         let mut verdict = classify_run(&log, outcome.passed);
+        let violations = journey_contract_violations(j, &log, &actors);
+        if !violations.is_empty() {
+            verdict = repro::RunVerdict::Broke;
+        }
         // If the script never ran to completion (a device died, or got stuck
         // before its turn), that's not a clean pass: the journey couldn't replay.
         if verdict == repro::RunVerdict::Green && !completed {
@@ -1073,6 +1101,12 @@ async fn run_scenario(
         }
         if !quiet {
             println!("  run {i}/{total}: {}", verdict.as_str());
+            for violation in &violations {
+                println!(
+                    "    contract {} failed at observation {} ({})",
+                    violation.contract_id, violation.boundary_index, violation.fingerprint
+                );
+            }
         }
         verdicts.push(verdict);
     }

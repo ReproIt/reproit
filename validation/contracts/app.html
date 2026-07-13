@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Contract validation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Messages</h1>
+      <button id="send" data-testid="send" type="button">Send message</button>
+      <p id="status" role="status">Ready</p>
+    </main>
+    <script>
+      document.querySelector('#send').addEventListener('click', () => {
+        document.querySelector('#status').textContent = 'Queued';
+      });
+    </script>
+  </body>
+</html>

@@ -900,6 +900,18 @@ export function parseNetworkBody(raw, contentType = '') {
   // bodies require an explicit future project policy and capability.
   return `<reproit:body:length=${Buffer.byteLength(String(raw), 'utf8')}>`;
 }
+
+export function responseShape(value) {
+  if (Array.isArray(value)) {
+    const shapes = [...new Set(value.slice(0, 16).map(responseShape))].sort();
+    return `[${shapes.join('|')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${key}:${responseShape(value[key])}`).join(',')}}`;
+  }
+  if (value === null) return 'null';
+  return typeof value;
+}
 function appendNetworkFact(fact) {
   if (!NETWORK_FILE) return;
   try { appendFileSync(NETWORK_FILE, JSON.stringify(fact) + '\n', { encoding: 'utf8', mode: 0o600 }); } catch (_) {}
@@ -4069,6 +4081,10 @@ async function main() {
     try {
       const req = resp.request();
       const resourceType = req.resourceType();
+      const responseUrl = new URL(resp.url());
+      if (responseUrl.origin === APP_ORIGIN) {
+        log('FUZZ:NETWORK ' + JSON.stringify({ status: resp.status(), url: responseUrl.pathname }));
+      }
       if (resourceType === 'stylesheet' || resourceType === 'script') {
         const sequence = ++criticalResourceSequence;
         const url = new URL(resp.url());
@@ -4117,6 +4133,13 @@ async function main() {
           status: resp.status(), responseHeaders: redactNetworkHeaders(headers), responseBody: body,
           required: true,
         });
+        if (/json/i.test(contentType)) {
+          log('FUZZ:NETWORK ' + JSON.stringify({
+            status: resp.status(),
+            url: new URL(resp.url()).pathname,
+            responseShape: responseShape(body),
+          }));
+        }
       }
       if (req.frame() !== page.mainFrame() || req.resourceType() !== 'document') return;
       const u = new URL(resp.url());
@@ -4359,9 +4382,14 @@ async function main() {
     async function observe() {
       const snap = await snapshot(page, valueNodeSelectors);
       snap.sig = effectiveSig(snap);
-      // In replay, emit the current state after every action so a journey's
-      // `expect: state` can verify the path positionally (explore dedups
-      // EXPLORE:STATE, which loses revisited / per-step states).
+      // Temporal contracts need every observation, including revisits and text
+      // changes that deliberately do not alter the structural map signature.
+      log('FUZZ:OBS ' + JSON.stringify({
+        sig: snap.sig,
+        ...(snap.anchor ? { route: snap.anchor } : {}),
+        labels: snap.labels.slice(0, 24),
+        elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
+      }));
       if (replay) log('FUZZ:STATE ' + snap.sig);
       if (!seenStates.has(snap.sig)) {
         seenStates.add(snap.sig);
@@ -4809,7 +4837,8 @@ async function main() {
       });
       const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
       const options = taps.map((s) => 'tap:' + s).concat(typeOpts).concat(['back']);
-      const weights = options.map((o) => 1 / (1 + (ew[o] || 0)));
+      const contractActions = new Set(fuzz.contractActions || []);
+      const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
       const total = weights.reduce((a, b) => a + b, 0);
       let r = (pick(1 << 20) / (1 << 20)) * total;
       act = options[options.length - 1];
@@ -4971,6 +5000,7 @@ async function main() {
       triedEdges.add(edgeKey(current.sig, act));
       const before = current.sig;
       const beforeContent = current.content;
+      await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {});
       await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
       const perfBeforeType = await readLayoutCounters(gtCdp); // jank: machine-invariant forced-layout baseline
       const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
@@ -4982,6 +5012,16 @@ async function main() {
       // to run and for `pageerror` to fire, so a deterministic crash isn't
       // missed. The fuzz walk stays fast.
       await page.waitForTimeout(replay ? 1100 : 700);
+      const typeChurn = await page
+        .evaluate(churnedAnchors, ANCHOR_SEL)
+        .catch(() => null);
+      if (typeChurn && typeChurn.length) {
+        log('EXPLORE:RERENDER ' + JSON.stringify({
+          from: before,
+          action: 'type:' + sel + '=' + valId,
+          churned: typeChurn,
+        }));
+      }
       // Typing + Enter can navigate (e.g. a search form submitting to another
       // origin). Stay on the app-under-test: drop off-origin destinations.
       if (await recoverIfOffOrigin()) { if (typePix) await typePix.stop(); stuck++; current = await observe(); continue; }
@@ -5017,6 +5057,7 @@ async function main() {
     const before = current.sig;
     const beforeContent = current.content;
     const beforeAnchor = current.anchor;
+    await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {});
     // Remember the source page + link before this (possibly navigating) tap, so a
     // broken-route landed on next is attributed to exactly here, not reverse-matched.
     lastNav = { from: before, action: 'tap:' + sel };
@@ -5074,6 +5115,16 @@ async function main() {
     // Replays settle longer than the fuzz walk (see the type branch): a
     // deterministic crash must have time to throw + flush `pageerror` under load.
     await page.waitForTimeout(replay ? 1100 : 700);
+    const tapChurn = await page
+      .evaluate(churnedAnchors, ANCHOR_SEL)
+      .catch(() => null);
+    if (tapChurn && tapChurn.length) {
+      log('EXPLORE:RERENDER ' + JSON.stringify({
+        from: before,
+        action: 'tap:' + sel,
+        churned: tapChurn,
+      }));
+    }
     // DUPLICATE-SUBMIT verdict: group the captured window's first-party non-GET
     // requests by (method, url); the same pair firing twice or more while the
     // URL never changed is the bug (the handler has no double-activation

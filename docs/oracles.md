@@ -33,6 +33,7 @@ suites, but they do not create noisy default findings.
 | crash | exception block | an uncaught exception / signal |
 | choice-anomaly | `EXPLORE:CHOICEBUG` | one option of a multi-choice component (ARIA tab/radio group, button-cluster picker, or native `<select>`) shifts the global layout when its siblings do not (Web / Electron / Tauri) |
 | permission-walk | `EXPLORE:PERMISSIONWALK` | a permission-denial screen with no way forward |
+| contract | `contracts` in `reproit.yaml` | a declared structural state or temporal property failed |
 | flicker | `EXPLORE:FLICKER` | a transient presented frame that diverges then resolves |
 | content-bug | `EXPLORE:CONTENTBUG` | `[object Object]`, `undefined`, `{{unrendered}}`, NaN on screen |
 | jank | `EXPLORE:JANK` / sim frame manifest | a transition that drops frames |

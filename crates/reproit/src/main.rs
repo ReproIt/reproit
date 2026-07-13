@@ -10,6 +10,8 @@
 mod auth;
 mod capsule;
 mod config;
+#[path = "model/contracts.rs"]
+mod contracts;
 mod crashreporter;
 mod crosscut;
 mod exec;
@@ -17,6 +19,8 @@ mod init;
 mod junit;
 mod layout;
 mod mcp;
+#[path = "model/observation.rs"]
+mod observation;
 mod skills;
 // backends/, the execution layer: device/runtime drivers + run orchestration.
 // (#[path] keeps the module path flat, `crate::tui`, `crate::drive`, ..., so
@@ -3743,7 +3747,11 @@ impl Finding {
 /// finding the last `fuzz` reported, before it is `keep`-ed. Returns the first
 /// dir whose `fuzz.md` repro block hashes to `id`.
 fn find_finding_by_id(loaded: &config::Loaded, id: &str) -> Option<Finding> {
-    let id = repro::raw_finding_id(id)?;
+    // Direct `reproit fnd_...` syntax is normalized into the internal raw id
+    // before command dispatch. Explicit `check fnd_...` still arrives prefixed.
+    // Accept both forms at this internal lookup boundary.
+    let id = repro::raw_finding_id(id)
+        .or_else(|| (id.len() == 12 && id.chars().all(|c| c.is_ascii_hexdigit())).then_some(id))?;
     let durable = loaded.root.join(".reproit/findings").join(id);
     if let Some(finding) = finding_from_report_dir(&durable, id) {
         return Some(finding);
@@ -3818,7 +3826,8 @@ fn parse_fuzz_finding_id(md: &str) -> Option<String> {
 
 /// Parse a `fuzz.md` report into (seed, repro actions). The report header is
 /// `# fuzz finding (seed N)` and the repro block is the fenced code under a
-/// `## repro (...)` heading (one action per line). Pure, so it is unit-tested.
+/// `## confirmed repro (...)` heading (one action per line). Pure, so it is
+/// unit-tested.
 fn parse_fuzz_report(md: &str) -> Option<(u64, Vec<String>)> {
     let seed = md.lines().find_map(|l| {
         let i = l.find("(seed ")? + "(seed ".len();
@@ -3826,12 +3835,13 @@ fn parse_fuzz_report(md: &str) -> Option<(u64, Vec<String>)> {
         let end = rest.find(')')?;
         rest[..end].trim().parse::<u64>().ok()
     })?;
-    // The repro block: the first ``` fence that follows the `## repro` heading.
+    // The repro block: the first fence after the report writer's confirmed
+    // repro heading.
     let mut in_repro_section = false;
     let mut in_fence = false;
     let mut actions = Vec::new();
     for line in md.lines() {
-        if line.starts_with("## repro") {
+        if line.starts_with("## confirmed repro") {
             in_repro_section = true;
             continue;
         }
@@ -4119,6 +4129,13 @@ fn keep_repro(
     if let Ok(id) = std::fs::read_to_string(finding_capsule) {
         std::fs::write(dir.join("capsule-id"), id)?;
     }
+    let finding_contract = root
+        .join(".reproit/findings")
+        .join(&computed)
+        .join("contract.json");
+    if finding_contract.exists() {
+        std::fs::copy(finding_contract, dir.join("contract.json"))?;
+    }
 
     // Status: a fresh keep lands quarantined (or required with --strict); a
     // RE-keep preserves the existing status, so re-running keep never demotes a
@@ -4361,6 +4378,16 @@ async fn check_repro(
         None => crashreporter::CrashReporterGuard::engage_inert(),
     };
     let dir = repro::repro_dir(&loaded.root, id);
+    let frozen_contract = crate::contracts::FrozenContractGuard::load(&dir.join("contract.json"))
+        .or_else(|| {
+            crate::contracts::FrozenContractGuard::load(
+                &loaded
+                    .root
+                    .join(".reproit/findings")
+                    .join(id)
+                    .join("contract.json"),
+            )
+        });
     // Replay source: a KEPT repro's store (replay.json + meta trigger) when it
     // exists, else a PENDING fuzz finding by id read straight from the artifact,
     // so `check <id>` can confirm a finding BEFORE it is `keep`-ed. For the
@@ -4505,7 +4532,13 @@ async fn check_repro(
         // reproduce?), not just the drive's PASS/FAIL completion. For
         // graph-invariant repros a drive can complete (PASS) while the finding
         // does NOT reproduce (clean), so raw PASS/FAIL is misleading alone.
-        let verdict = repro::verdict_from_log_with_trigger(seg, outcome.passed, &trigger);
+        let mut verdict = repro::verdict_from_log_with_trigger(seg, outcome.passed, &trigger);
+        if let Some(guard) = &frozen_contract {
+            let observations = crate::observation::from_runner_log(seg, &[]);
+            if guard.reproduces(&observations) {
+                verdict = repro::RunVerdict::Broke;
+            }
+        }
         if !quiet {
             println!("  run {}/{}: {}", i + 1, segments.len(), verdict.as_str());
         }
@@ -5719,7 +5752,7 @@ mod tests {
 
 - `no-exception` **EXCEPTION CAUGHT BY WIDGETS LIBRARY**: boom
 
-## repro (2 actions, shrunk from 7)
+## confirmed repro (2 actions, shrunk from 7)
 
 ```
 tap:Login
@@ -5761,14 +5794,14 @@ Replay: write {\"replay\": [...]} to .reproit/tmp/fuzz_config.json ...
     }
 
     #[test]
-    fn prefixed_finding_id_resolves_to_pending_artifact() {
+    fn public_and_internal_finding_ids_resolve_to_pending_artifact() {
         let root = std::env::temp_dir().join(format!("reproit-fnd-{}", std::process::id()));
         let run = root.join(".reproit/runs/run-1");
         std::fs::create_dir_all(&run).unwrap();
         let md = "\
 # fuzz finding (seed 42)
 
-## repro (2 actions)
+## confirmed repro (2 actions)
 
 ```
 tap:Login
@@ -5785,7 +5818,7 @@ tap:Submit
         )
         .unwrap();
         let raw = repro::repro_id(42, &["tap:Login", "tap:Submit"]);
-        assert!(find_finding_by_id(&loaded, &raw).is_none());
+        assert!(find_finding_by_id(&loaded, &raw).is_some());
         assert!(find_finding_by_id(&loaded, &repro::display_finding_id(&raw)).is_some());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -5798,7 +5831,7 @@ tap:Submit
         std::fs::create_dir_all(&durable).unwrap();
         std::fs::write(
             durable.join("fuzz.md"),
-            "# fuzz finding (seed 77)\n\n## repro (1 actions)\n\n```\ntap:key:save\n```\n",
+            "# fuzz finding (seed 77)\n\n## confirmed repro (1 actions)\n\n```\ntap:key:save\n```\n",
         )
         .unwrap();
         let loaded = config::parse_str(
@@ -5835,7 +5868,7 @@ tap:Submit
 
 - `no-occluded-control` **OCCLUSION**: state advanced has an occluded control
 
-## repro (1 actions)
+## confirmed repro (1 actions)
 
 ```
 tap:Advanced
@@ -5933,7 +5966,7 @@ tap:Advanced
 
     #[test]
     fn parse_fuzz_report_handles_empty_repro_block() {
-        let md = "# fuzz finding (seed 5)\n\n## repro (0 actions)\n\n```\n```\n";
+        let md = "# fuzz finding (seed 5)\n\n## confirmed repro (0 actions)\n\n```\n```\n";
         let (seed, actions) = parse_fuzz_report(md).expect("parse");
         assert_eq!(seed, 5);
         assert!(actions.is_empty());

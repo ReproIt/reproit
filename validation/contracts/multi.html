@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Multi-actor contract validation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Shared room</h1>
+      <button data-testid="send" type="button">Send message</button>
+      <p id="status" role="status">Waiting</p>
+    </main>
+    <script>
+      const status = document.querySelector('#status');
+      document.querySelector('[data-testid=send]').addEventListener('click', async () => {
+        await fetch('/send', { method: 'POST' });
+      });
+      async function refresh() {
+        const state = await fetch('/state').then((response) => response.json());
+        status.textContent = state.delivered ? 'Message delivered' : 'Waiting';
+      }
+      setInterval(refresh, 100);
+      refresh();
+    </script>
+  </body>
+</html>

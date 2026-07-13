@@ -1328,6 +1328,11 @@ fn observe_scenario(
     // window's UIA tree is unavailable), so the ground truth those oracles need
     // cannot be produced here.
     let snap = snapshot(automation, window, value_selectors, cap);
+    let observation_labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
+    emit(&format!(
+        "FUZZ:OBS {}",
+        serde_json::json!({ "sig": snap.sig, "labels": observation_labels, "elements": snap.elements })
+    ));
     if seen.insert(snap.sig.clone()) {
         let labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
         emit(&format!(
@@ -1643,6 +1648,12 @@ pub fn run() -> Result<()> {
                       seen: &mut BTreeSet<String>|
      -> Snapshot {
         let snap = snapshot(automation, window, &value_selectors, cap);
+        let observation_labels: Vec<&String> =
+            snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
+        emit(&format!(
+            "FUZZ:OBS {}",
+            serde_json::json!({ "sig": snap.sig, "labels": observation_labels, "elements": snap.elements })
+        ));
         if seen.insert(snap.sig.clone()) {
             let labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
             emit(&format!(

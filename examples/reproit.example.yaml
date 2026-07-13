@@ -146,6 +146,25 @@ visual:
 gate:
   runs: 5
 
+# Optional app-specific properties. These are structural, portable across
+# runners, and evaluated by scan, fuzz, journey replay, confirmation, and shrink.
+# Use `scope: state` for a property visible in one observation. Trace is the
+# default for sequence and multi-actor properties.
+contracts:
+  - id: sent-message-becomes-visible
+    when:
+      actor: alice
+      action: tap:key:testid:send
+    must:
+      eventually:
+        condition:
+          all:
+            - is:
+                actor: bob
+            - is:
+                text: Message delivered
+        withinSteps: 5
+
 # Which LLM powers the authoring agent and failure analyzer. Hot-swappable;
 # the deterministic runner never touches it.
 #   codex-cli   `codex exec`  (OpenAI, ChatGPT subscription billing)

@@ -1474,6 +1474,11 @@ func runScenarioActor(
     // reaches (often only reachable with a peer acting) still land in the map.
     func observeScenario() -> Snapshot {
         let snap = snapshot(appEl, valueNodeSelectors)
+        emitJSON("FUZZ:OBS", [
+            "sig": snap.sig,
+            "labels": Array(snap.labels.prefix(maxLabelsPerState)),
+            "elements": snap.elements,
+        ])
         if seen.insert(snap.sig).inserted {
             emitJSON("EXPLORE:STATE", [
                 "sig": snap.sig,
@@ -1803,6 +1808,11 @@ let invariantScrape = InvariantScrape(invariantMarkerPath)
 func observe() -> Snapshot {
     var snap = snapshot(appEl, valueNodeSelectors)
     snap.sig = effectiveSig(snap)
+    emitJSON("FUZZ:OBS", [
+        "sig": snap.sig,
+        "labels": Array(snap.labels.prefix(maxLabelsPerState)),
+        "elements": snap.elements,
+    ])
     if seen.insert(snap.sig).inserted {
         emitJSON("EXPLORE:STATE", [
             "sig": snap.sig,

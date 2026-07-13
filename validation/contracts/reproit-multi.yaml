@@ -1,0 +1,18 @@
+app:
+  platform: web
+  webRunnerDir: ../../runners/web
+  url: http://127.0.0.1:4178/multi.html
+devices:
+  namePrefix: ContractMultiValidation
+reset:
+  steps:
+    - kind: http
+      method: POST
+      url: http://127.0.0.1:4178/reset
+      required: true
+journeys:
+  dir: journeys
+  driver: ""
+  doneMarkers: ["All tests passed"]
+gate:
+  runs: 1

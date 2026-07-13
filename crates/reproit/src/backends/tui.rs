@@ -1829,6 +1829,8 @@ fn barrier_hit(base: &str, method: &str, path: &str) -> Result<String> {
 /// often only reachable with a peer acting, still land in the map).
 fn observe_scenario(parser: &Arc<Mutex<vt100::Parser>>, seen: &mut BTreeSet<String>) -> String {
     let (sig, _fp, labels) = snapshot(parser);
+    let observation = serde_json::json!({ "sig": sig, "labels": labels, "elements": structural_input_elements() });
+    emit(&format!("FUZZ:OBS {observation}"));
     if seen.insert(sig.clone()) {
         let payload = serde_json::json!({ "sig": sig, "labels": labels, "elements": structural_input_elements() });
         emit(&format!("EXPLORE:STATE {payload}"));
@@ -2147,6 +2149,8 @@ pub fn run() -> Result<()> {
      -> (String, String, bool) {
         let (sig, fp, labels) = snapshot(parser);
         let grid = grid_of(parser);
+        let observation = serde_json::json!({ "sig": sig, "labels": labels, "elements": structural_input_elements() });
+        emit(&format!("FUZZ:OBS {observation}"));
         let is_new = seen.insert(sig.clone());
         if is_new {
             let payload = serde_json::json!({ "sig": sig, "labels": labels, "elements": structural_input_elements() });

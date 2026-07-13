@@ -19,13 +19,35 @@
 # (EXPLORE:EDGE), and (4) finish cleanly with the crash oracle silent
 # (JOURNEY DONE, "All tests passed") while the app stays in the foreground.
 #
-# Needs: node, a running Appium server with the uiautomator2 driver, a booted
-# Android emulator/device with the fixture APK installed (build + install:
-#   ./gradlew :app:assembleDebug   &&   adb install -r app/.../app-debug.apk ).
+# Needs: node, a running Appium server with the uiautomator2 driver, the Android
+# SDK, and a booted emulator or device. The gate builds and installs its fixture.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG="${1:-$(mktemp)}"
+ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+ADB="${ADB:-$ANDROID_HOME/platform-tools/adb}"
+UDID="${REPROIT_ANDROID_UDID:-${ANDROID_SERIAL:-}}"
+
+if [[ ! -x "$ADB" ]]; then
+  ADB="$(command -v adb || true)"
+fi
+[[ -n "$ADB" && -x "$ADB" ]] || {
+  echo "compose-appium-smoke: adb was not found" >&2
+  exit 1
+}
+
+if [[ -z "$UDID" ]]; then
+  UDID="$($ADB devices | awk 'NR > 1 && $2 == "device" { print $1; exit }')"
+fi
+[[ -n "$UDID" ]] || {
+  echo "compose-appium-smoke: no booted Android device was found" >&2
+  exit 1
+}
+
+adb_device() {
+  "$ADB" -s "$UDID" "$@"
+}
 
 APPIUM_URL="${REPROIT_APPIUM_URL:-http://127.0.0.1:4723}"
 export REPROIT_APPIUM_URL="$APPIUM_URL"
@@ -39,25 +61,23 @@ curl -sf "$APPIUM_URL/status" > /dev/null || {
   exit 1
 }
 
-# Deterministic device state: suppress system error dialogs and launch the
-# fixture Activity explicitly via adb, so the walk starts from a known screen.
-# We deliberately DO NOT pin appium:appPackage (same reasoning as
-# appium-android-smoke.sh): the explorer's frontier walk includes a BACK press,
-# and pressing BACK from the Compose root Activity exits to the launcher (normal
-# Android behavior). With a pinned package the crash oracle would (correctly, for
-# what it saw) read that as the app leaving the foreground; with no pin it has no
-# target and correctly stays silent, while the structural signature + key-tap +
-# EXPLORE:EDGE path this smoke proves is unaffected.
-if command -v adb > /dev/null; then
-  adb shell settings put global hide_error_dialogs 1 || true
-  adb shell setprop debug.reproit.capsule __reproit_none__ || true
-  adb shell am force-stop com.reproit.composefixture || true
-  adb shell input keyevent KEYCODE_HOME || true
-  adb shell am start -n com.reproit.composefixture/.MainActivity || true
-  sleep 3
-fi
+# Deterministic device state: build and install the fixture, suppress system
+# error dialogs, and launch its Activity explicitly so the walk starts from a
+# known screen. Pinning the package, Activity, and device prevents a false pass
+# against an unrelated foreground app.
+(
+  cd "$ROOT/examples/compose-fixture"
+  ANDROID_HOME="$ANDROID_HOME" ./gradlew --no-daemon :app:assembleDebug
+)
+adb_device install -r "$ROOT/examples/compose-fixture/app/build/outputs/apk/debug/app-debug.apk"
+adb_device shell settings put global hide_error_dialogs 1 || true
+adb_device shell setprop debug.reproit.capsule __reproit_none__ || true
+adb_device shell am force-stop com.reproit.composefixture
+adb_device shell input keyevent KEYCODE_HOME
+adb_device shell am start -W -n com.reproit.composefixture/.MainActivity
+sleep 3
 
-export REPROIT_APPIUM_CAPS='{"platformName":"Android","appium:automationName":"UiAutomator2","appium:noReset":true,"appium:newCommandTimeout":600,"appium:adbExecTimeout":120000}'
+export REPROIT_APPIUM_CAPS="{\"platformName\":\"Android\",\"appium:automationName\":\"UiAutomator2\",\"appium:udid\":\"$UDID\",\"appium:appPackage\":\"com.reproit.composefixture\",\"appium:appActivity\":\".MainActivity\",\"appium:noReset\":true,\"appium:newCommandTimeout\":600,\"appium:adbExecTimeout\":120000}"
 
 FUZZ="$(mktemp)"
 trap 'rm -f "$FUZZ"' EXIT

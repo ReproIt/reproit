@@ -116,6 +116,7 @@ class FuzzCfg {
     this.replay,
     this.prefix,
     this.edgeWeights = const {},
+    this.contractActions = const [],
     this.inputs = const [],
     this.locale,
   });
@@ -140,6 +141,7 @@ class FuzzCfg {
   /// weights each candidate edge by 1/(1+count): inverse-visit-count action
   /// scoring. A fixed snapshot, so replays stay deterministic.
   final Map<String, Map<String, int>> edgeWeights;
+  final List<String> contractActions;
 
   static FuzzCfg fromJson(Map<String, dynamic> j) {
     final ewRaw = (j['edgeWeights'] as Map?) ?? {};
@@ -162,6 +164,7 @@ class FuzzCfg {
       replay: (j['replay'] as List?)?.cast<String>(),
       prefix: (j['prefix'] as List?)?.cast<String>(),
       edgeWeights: ew,
+      contractActions: (j['contractActions'] as List?)?.cast<String>() ?? const [],
       inputs: inputs,
       locale: j['locale'] as String?,
     );
@@ -2449,6 +2452,9 @@ void main() {
       Future<Snapshot> observe() async {
         final snap = snapshotWith(tester, valueSelectors);
         final sig = effectiveSigOf(snap);
+        debugPrint(
+          'FUZZ:OBS ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "labels": snap.labels.take(maxLabelsPerState).toList(), "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"role": e.role}).toList()})}',
+        );
         if (seenStates.add(sig)) {
           // sig: STRUCTURAL + value-state (roles + shape + keys + V: classes),
           // locale-invariant. labels: DISPLAY-ONLY visible text (map --show),
@@ -2695,7 +2701,9 @@ void main() {
           final taps = current.tappables.map((e) => e.sel).toList()..sort();
           final ew = fuzz.edgeWeights[sigOf(current)] ?? const {};
           final options = [...taps.map((s) => 'tap:$s'), 'back'];
-          final weights = options.map((o) => 1.0 / (1 + (ew[o] ?? 0))).toList();
+          final weights = options
+              .map((o) => (fuzz.contractActions.contains(o) ? 4.0 : 1.0) / (1 + (ew[o] ?? 0)))
+              .toList();
           final total = weights.fold<double>(0, (a, b) => a + b);
           var r = (rng.next(1 << 20) / (1 << 20)) * total;
           act = options.last;
@@ -2836,6 +2844,9 @@ void main() {
       final scenarioSeen = <String>{};
       String observeScenario() {
         final snap = snapshot(tester);
+        debugPrint(
+          'FUZZ:OBS ${jsonEncode({"sig": snap.sig, if (snap.anchor != null) "route": snap.anchor, "labels": snap.labels.take(maxLabelsPerState).toList(), "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"role": e.role}).toList()})}',
+        );
         if (scenarioSeen.add(snap.sig)) {
           debugPrint(
             'EXPLORE:STATE ${jsonEncode({

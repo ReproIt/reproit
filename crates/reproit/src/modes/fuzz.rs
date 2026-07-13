@@ -241,6 +241,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
     let findings: Vec<Value> = findings_for_tier(cfg, &outcome.run_dir, args.sim)
         .into_iter()
         .filter(|f| {
+            if f.get("oracle").and_then(Value::as_str) == Some("contract") {
+                return f.get("scope").and_then(Value::as_str) == Some("state");
+            }
             let oracle = crate::crosscut::classify(f);
             is_state_present(&oracle) && crate::crosscut::OracleFilter::stable().allows(oracle)
         })
@@ -1260,6 +1263,17 @@ async fn fuzz_one_locale(
             let exceptions = exceptions_in_log(seg_log);
             let mut findings =
                 findings_from_log(cfg, seg_log, exceptions, args.sim, escapable.clone());
+            let contract_observations = crate::observation::from_runner_log(seg_log, &[]);
+            let contract_violations =
+                crate::contracts::evaluate_all(&cfg.contracts, &contract_observations);
+            let _ = crate::contracts::write_evidence(
+                &outcome
+                    .run_dir
+                    .join(format!("contract-evidence-{seed}.json")),
+                &cfg.contracts,
+                &contract_observations,
+                &contract_violations,
+            );
             // Perf is session-wide (one frame stream); attribute it once. The
             // sim manifest's per-device jank is the authoritative no-jank signal;
             // headless has a fake clock so this is empty there (sim-only).
@@ -1443,6 +1457,16 @@ async fn fuzz_one_locale(
             };
             write_report(&report_dir, &repro_id, *seed, &findings, &trace, &shrunk)?;
             persist_finding_report(root, &repro_id, &report_dir)?;
+            if let Some(guard) =
+                crate::contracts::FrozenContractGuard::from_findings(&cfg.contracts, &findings)
+            {
+                guard.save(
+                    &root
+                        .join(".reproit/findings")
+                        .join(&repro_id)
+                        .join("contract.json"),
+                )?;
+            }
             if let Some(primary) = primary_finding(&findings) {
                 let capsule =
                     persist_causal_capsule(cfg, root, &outcome.run_dir, primary, &shrunk, *seed)?;
@@ -2186,7 +2210,13 @@ fn plan_seed(
         );
     }
 
-    let mut config = json!({ "seed": seed, "budget": budget, "edgeWeights": edge_weights });
+    let contract_actions = crate::contracts::action_hints(&cfg.contracts);
+    let mut config = json!({
+        "seed": seed,
+        "budget": budget,
+        "edgeWeights": edge_weights,
+        "contractActions": contract_actions,
+    });
     if let Some(p) = prefix {
         config["prefix"] = json!(p);
     }
@@ -2200,7 +2230,7 @@ fn plan_seed(
             _ => eprintln!("warning: --seeds {path} not readable as a JSON array; ignoring"),
         }
     }
-    let _ = (cfg, root); // reserved for future per-seed file resolution
+    let _ = root; // reserved for future per-seed file resolution
     SeedPlan { seed, config }
 }
 
@@ -2554,6 +2584,12 @@ fn findings_from_log(
     if !cfg.invariants.no_exception {
         f.extend(exceptions);
     }
+    let observations = crate::observation::from_runner_log(log, &[]);
+    f.extend(
+        crate::contracts::evaluate_all(&cfg.contracts, &observations)
+            .iter()
+            .map(crate::contracts::finding),
+    );
     f
 }
 
@@ -2566,6 +2602,15 @@ fn findings_from_log(
 /// sim-only, surfaced separately via perf_findings.
 fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
     let log = std::fs::read_to_string(run_dir.join("drive-a.log")).unwrap_or_default();
+    let contract_observations = crate::observation::from_runner_log(&log, &[]);
+    let contract_violations =
+        crate::contracts::evaluate_all(&cfg.contracts, &contract_observations);
+    let _ = crate::contracts::write_evidence(
+        &run_dir.join("contract-evidence.json"),
+        &cfg.contracts,
+        &contract_observations,
+        &contract_violations,
+    );
     let exceptions = if sim {
         app_exceptions(run_dir)
     } else {

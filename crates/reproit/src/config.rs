@@ -31,6 +31,9 @@ pub struct Config {
     /// declared here.
     #[serde(default)]
     pub invariants: InvariantsCfg,
+    /// Portable temporal properties evaluated over normalized runner events.
+    #[serde(default)]
+    pub contracts: Vec<crate::contracts::ContractSpec>,
 }
 
 /// Login credentials for journeys, resolved at run time from the encrypted
