@@ -1,0 +1,129 @@
+# reproit GitHub Action (composite).
+#
+# Add reproit to CI in five lines: on a pull request it fuzzes your app, and on
+# a finding it uploads a minimized, annotated repro to the cloud and posts the
+# PR comment (summary, suspected file:line, cohort, inline clip, dashboard
+# link). Consumers reference it as `uses: reproit/reproit@v1`.
+#
+#   - uses: reproit/reproit@v1
+#     with:
+#       app: http://localhost:3000
+#       bucket: web-pr
+#       api-key: ${{ secrets.REPROIT_CLOUD_KEY }}
+#
+# Composite (not Docker) so it is fast and runs on any hosted or self-hosted
+# runner. It installs a RELEASED reproit binary (no cargo build) via the repo's
+# install.sh, so onboarding is seconds, not a from-source compile.
+#
+# Relationship to .github/workflows/reproit-pr.yml: that file is a `workflow_call`
+# reusable workflow that builds reproit FROM SOURCE on macOS with an iOS
+# simulator (the dogfood / video-recording tier). This action is the
+# released-binary, runner-agnostic onboarding tier. They are kept separate on
+# purpose; see action.README.md.
+
+name: "reproit"
+description: "Fuzz your app on every PR; auto-upload a minimized repro and post the PR comment on a finding."
+author: "reproit"
+
+branding:
+  icon: "zap"
+  color: "purple"
+
+inputs:
+  app:
+    description: "What to fuzz: a URL (http://localhost:3000) or a build dir. Zero-config; no reproit.yaml needed."
+    required: true
+  bucket:
+    description: "Cloud bucket the finding's evidence is published to (e.g. web-pr)."
+    required: true
+  api-key:
+    description: "reproit cloud API key. Pass a secret, e.g. ${{ secrets.REPROIT_CLOUD_KEY }}."
+    required: true
+  cloud-url:
+    description: "reproit cloud base URL."
+    required: false
+    default: "https://cloud.reproit.com"
+  journey:
+    description: "Explorer journey to drive."
+    required: false
+    default: "explore"
+  runs:
+    description: "Number of fuzz seeds to try."
+    required: false
+    default: "20"
+  version:
+    description: "reproit release to install (e.g. v0.1.88), or 'latest'."
+    required: false
+    default: "latest"
+  only:
+    description: "Restrict to these oracle categories (comma list: crash,jank,leak,visual,divergence,a11y,graph). Empty = all on."
+    required: false
+    default: ""
+  no:
+    description: "Exclude these oracle categories (comma list). Applied after `only`."
+    required: false
+    default: ""
+  record:
+    description: "On a finding, confirm and record the minimized repro on the simulator tier. Needs a runner with a simulator (macOS)."
+    required: false
+    default: "false"
+  cloud-app:
+    description: "Cloud app id to attach evidence to. Optional; only needed on CLI versions that still require it alongside the bucket."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install reproit (released binary)
+      shell: bash
+      run: |
+        set -euo pipefail
+        export REPROIT_BIN_DIR="$HOME/.local/bin"
+        if [ "${{ inputs.version }}" != "latest" ]; then
+          export REPROIT_VERSION="${{ inputs.version }}"
+        fi
+        # install.sh fetches the pinned release binary + the web runner bundle
+        # (no cargo build). It is the same installer end users curl|sh.
+        sh "${{ github.action_path }}/install.sh"
+        echo "$REPROIT_BIN_DIR" >> "$GITHUB_PATH"
+
+    - name: Install web runner browser deps
+      # Only for web targets (a URL): fetch chromium + its system libraries so
+      # the headless runner can drive/annotate on a clean CI image.
+      if: ${{ startsWith(inputs.app, 'http://') || startsWith(inputs.app, 'https://') }}
+      shell: bash
+      run: bash "${{ github.action_path }}/.github/scripts/reproit-action-web-deps.sh"
+
+    - name: Fuzz and deliver
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        REPROIT_CLOUD_URL: ${{ inputs.cloud-url }}
+        REPROIT_CLOUD_KEY: ${{ inputs.api-key }}
+      run: |
+        set -euo pipefail
+        # Mirrors reproit-pr.yml's invocation. `app` is the fuzz TARGET (passed
+        # positionally, zero-config), evidence is published by --bucket, and
+        # --post-comment POSTs the PR comment (github.token + the pull_request
+        # event supply repo + PR + auth). A delivery failure never fails the run.
+        args=( fuzz "${{ inputs.app }}"
+          --journey "${{ inputs.journey }}"
+          --runs "${{ inputs.runs }}"
+          --shrink
+          --cloud "${{ inputs.cloud-url }}"
+          --bucket "${{ inputs.bucket }}"
+          --post-comment )
+        if [ -n "${{ inputs.cloud-app }}" ]; then
+          args+=( --app "${{ inputs.cloud-app }}" )
+        fi
+        if [ -n "${{ inputs.only }}" ]; then
+          args+=( --only "${{ inputs.only }}" )
+        fi
+        if [ -n "${{ inputs.no }}" ]; then
+          args+=( --no "${{ inputs.no }}" )
+        fi
+        if [ "${{ inputs.record }}" = "true" ]; then
+          args+=( --confirm-on-sim )
+        fi
+        reproit "${args[@]}"

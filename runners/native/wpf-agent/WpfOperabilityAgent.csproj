@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A standalone, in-process WPF operability agent: it proves reproit's
+    two-graph operability diff on WPF without wiring the full reproit driver.
+
+    On the WPF UI thread it builds a tiny visual tree (a real Button + a "fake
+    button" Border/TextBlock with a mouse handler and no Button role), then:
+      graph 1 (ground truth): VisualTreeHelper / LogicalTreeHelper + handler
+               reflection (operable by pointer/keyboard at the toolkit level),
+      graph 2 (accessibility): UIElementAutomationPeer.CreatePeerForElement,
+               GetAutomationControlType / GetName / IsKeyboardFocusable /
+               GetPattern(Invoke).
+    The two graphs are JOINED by object identity (the peer is created FROM the
+    element). It emits one EXPLORE:GROUNDTRUTH marker line that reproit's
+    crates/reproit/src/model/map.rs parses into operability gaps.
+
+    net8.0-windows + UseWPF so System.Windows.* and the WPF AutomationPeers are
+    available. WinExe is deliberately NOT used: this is a console-style emitter
+    that drives its own STA Dispatcher so it can run over a non-interactive SSH
+    session (or under an interactive scheduled task) and print the marker to
+    stdout. ReproIt.Core is referenced only for the canonical FNV-1a signature,
+    so the emitted `sig` is computed exactly like every other reproit SDK.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>WpfOperabilityAgent</AssemblyName>
+    <RootNamespace>ReproIt.WpfAgent</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\sdk\reproit-windows\src\ReproIt.Core\ReproIt.Core.csproj" />
+  </ItemGroup>
+
+</Project>

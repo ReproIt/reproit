@@ -1,0 +1,39 @@
+# A screenshot "tour": an ordinary reproit journey whose `do: shoot:<name>` steps
+# name the store/marketing screenshots to capture. Journeys are platform-agnostic
+# (the same tour runs on web, Flutter, mobile, desktop, ...), so one file covers
+# every surface and every locale.
+#
+# Run it (capture mode: the shoot: steps take pictures):
+#   reproit screenshots marketing --locale en,de,ar --device "iPhone 16 Pro Max"
+#
+# Run the SAME journey under `check` to verify behavior with NO pictures
+# (shoot: is inert outside capture mode, so a regression run pays no screenshot
+# cost):
+#   reproit check marketing
+#
+# Each shoot:<name> writes <name>.png into the journey-led layout (see
+# docs/cli.md "screenshots"): screenshots/<journey>[/<platform>][/<locale>]/<device>/.
+#
+# Pair it with a `screenshots:` block in reproit.yaml:
+#   screenshots:
+#     tour: marketing
+#     out: screenshots
+#     locales: [en, de, ar, ja]
+#     devices: ["iPhone 16 Pro Max", "iPad Pro 13"]
+#     verifySignature: true        # fail if a locale skipped a screen
+
+name: marketing
+# Start from a known, logged-in state so the shots show real content, not an
+# empty/seed screen. `demo` is an account configured under auth: in reproit.yaml;
+# store its creds with `reproit auth add demo --strategy password`.
+setup: login(demo)
+steps:
+  - do: shoot:home                 # the landing screen, post-login
+  - do: tap:key:testid:compose
+  - do: type:key:testid:title Hello from reproit
+  - do: shoot:compose              # the compose screen, with content
+  - do: tap:key:testid:publish
+  - assert: textPresent:Published
+  - do: shoot:detail               # the published post
+  - do: tap:key:testid:settings
+  - do: shoot:settings             # the settings screen

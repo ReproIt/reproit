@@ -1,0 +1,598 @@
+[
+  {
+    "anchor": null,
+    "description": "RULE: empty screen. A bare screen node with no children and no anchor. Proves the A: prefix line is always present even with an empty anchor and an empty body.",
+    "expected_sig": "34fa65ea",
+    "tree": {
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/login",
+    "description": "RULE: basic login. header + textfield(email) + textfield(password) + button, all with stable ids and a route anchor. The canonical realistic screen all other collision vectors mutate.",
+    "expected_sig": "cae5a9d5",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "email",
+          "role": "textfield",
+          "type": "email"
+        },
+        {
+          "id": "password",
+          "role": "textfield",
+          "type": "password"
+        },
+        {
+          "id": "submit",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/login",
+    "description": "RULE: locale-invariance (text excluded). Structurally identical to the basic login with identical ids; Node has no text field, so an English vs Japanese render of the same screen is literally the same tree and MUST hash identically to the basic-login vector.",
+    "expected_sig": "cae5a9d5",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "email",
+          "role": "textfield",
+          "type": "email"
+        },
+        {
+          "id": "password",
+          "role": "textfield",
+          "type": "password"
+        },
+        {
+          "id": "submit",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/login",
+    "description": "RULE: transient-drop (spinner). The basic login plus a trailing spinner/progress node. The spinner is dropped, so this MUST hash identically to the basic-login vector (a loading state is the same node as the loaded state).",
+    "expected_sig": "cae5a9d5",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "email",
+          "role": "textfield",
+          "type": "email"
+        },
+        {
+          "id": "password",
+          "role": "textfield",
+          "type": "password"
+        },
+        {
+          "id": "submit",
+          "role": "button"
+        },
+        {
+          "role": "spinner"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/login",
+    "description": "RULE: transient-drop (snackbar + transient error banner). The basic login plus a snackbar and a transient-flagged error group (with a child that also goes away). Both are dropped, so this MUST hash identically to the basic-login vector (error showing == error hidden).",
+    "expected_sig": "cae5a9d5",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "email",
+          "role": "textfield",
+          "type": "email"
+        },
+        {
+          "children": [
+            {
+              "role": "text"
+            }
+          ],
+          "role": "group",
+          "transient": true
+        },
+        {
+          "id": "password",
+          "role": "textfield",
+          "type": "password"
+        },
+        {
+          "id": "submit",
+          "role": "button"
+        },
+        {
+          "children": [
+            {
+              "role": "text"
+            },
+            {
+              "role": "button"
+            }
+          ],
+          "role": "snackbar"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/feed",
+    "description": "RULE: repeated-collapse (3 items). A list with 3 identical listitem subtrees collapses to one *-marked token with the count dropped.",
+    "expected_sig": "8793941c",
+    "tree": {
+      "children": [
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        },
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        },
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        }
+      ],
+      "role": "list"
+    }
+  },
+  {
+    "anchor": "/feed",
+    "description": "RULE: repeated-collapse (5 items, count dropped). Same list as the 3-item vector but with 5 identical listitems. Because the count is dropped on collapse, this MUST hash identically to the 3-item vector (the dynamic-content explosion is gone).",
+    "expected_sig": "8793941c",
+    "tree": {
+      "children": [
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        },
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        },
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        },
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        },
+        {
+          "children": [
+            {
+              "role": "image"
+            },
+            {
+              "role": "text"
+            }
+          ],
+          "role": "listitem"
+        }
+      ],
+      "role": "list"
+    }
+  },
+  {
+    "anchor": "/login",
+    "description": "RULE: collision-fix via input type. Same skeleton as the basic login but the second textfield is type=text instead of type=password. The input type is a discriminator, so this MUST differ from the basic-login vector.",
+    "expected_sig": "228f6b63",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "email",
+          "role": "textfield",
+          "type": "email"
+        },
+        {
+          "id": "password",
+          "role": "textfield",
+          "type": "text"
+        },
+        {
+          "id": "submit",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/login",
+    "description": "RULE: collision-fix via icon. Same skeleton as the basic login but the submit button carries an icon. The icon is a discriminator, so this MUST differ from the basic-login vector.",
+    "expected_sig": "d3d9482f",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "email",
+          "role": "textfield",
+          "type": "email"
+        },
+        {
+          "id": "password",
+          "role": "textfield",
+          "type": "password"
+        },
+        {
+          "icon": "e5cd",
+          "id": "submit",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/settings",
+    "description": "ANCHOR: same route + same structure -> same. Settings screen with a header + a switch row, route /settings. Pairs with the next vector to prove route is part of identity.",
+    "expected_sig": "f62301bb",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "notifications",
+          "role": "switch"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/profile",
+    "description": "ANCHOR: different route + same structure -> different. Byte-identical structure to the /settings vector but route /profile. Proves the Settings-vs-Profile collision is resolved by the anchor prefix (MUST differ from the /settings vector).",
+    "expected_sig": "36825249",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "notifications",
+          "role": "switch"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/settings",
+    "description": "ANCHOR: same route + different structure -> different. Route /settings (same as the /settings vector) but the structure is a wizard step 2 (a different child set). Proves a multi-step flow at one route splits into distinct nodes (MUST differ from the /settings vector).",
+    "expected_sig": "9ce65f1b",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header"
+        },
+        {
+          "id": "name",
+          "role": "textfield",
+          "type": "text"
+        },
+        {
+          "id": "next",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/item/:id",
+    "description": "ANCHOR: parameterized route (item 42). Route template /item/:id rendered for id 42, with a detail structure. The anchor stores the TEMPLATE, not the id. Pairs with the next vector.",
+    "expected_sig": "6c562c77",
+    "tree": {
+      "children": [
+        {
+          "id": "hero",
+          "role": "image"
+        },
+        {
+          "id": "name",
+          "role": "header"
+        },
+        {
+          "id": "buy",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/item/:id",
+    "description": "ANCHOR: parameterized route (item 99) -> same template, same node. Same route template /item/:id (the concrete id is NOT in the anchor) and same structure as the item-42 vector. MUST hash identically to the item-42 vector (one node for any id).",
+    "expected_sig": "6c562c77",
+    "tree": {
+      "children": [
+        {
+          "id": "hero",
+          "role": "image"
+        },
+        {
+          "id": "name",
+          "role": "header"
+        },
+        {
+          "id": "buy",
+          "role": "button"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": null,
+    "description": "RULE: unknown role normalizes to node + non-consecutive identical siblings are NOT collapsed. A group containing button, an unknown 'carousel' role (-> node), then button again: the two buttons are not adjacent so no *-marker appears, and the carousel serializes as node.",
+    "expected_sig": "0a747964",
+    "tree": {
+      "children": [
+        {
+          "id": "a",
+          "role": "button"
+        },
+        {
+          "role": "carousel"
+        },
+        {
+          "id": "b",
+          "role": "button"
+        }
+      ],
+      "role": "group"
+    }
+  },
+  {
+    "anchor": "/form",
+    "description": "VALUE: empty value-class. A textfield value node with an empty value -> V:key:amount=EMPTY. Pairs with the ZERO and POS1 vectors to prove the value-class folds into the canonical signature for value-role nodes.",
+    "expected_sig": "295b0231",
+    "tree": {
+      "children": [
+        {
+          "id": "amount",
+          "role": "textfield",
+          "value": ""
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/form",
+    "description": "VALUE: zero value-class. Same textfield as the EMPTY vector but value '0' -> V:key:amount=ZERO. MUST differ from the EMPTY and POS1 vectors (three distinct states).",
+    "expected_sig": "1bdbac42",
+    "tree": {
+      "children": [
+        {
+          "id": "amount",
+          "role": "textfield",
+          "value": "0"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/form",
+    "description": "VALUE: POS1 value-class. Same textfield as the EMPTY vector but value '3' (a single-digit positive) -> V:key:amount=POS1. MUST differ from the EMPTY and ZERO vectors.",
+    "expected_sig": "093cd391",
+    "tree": {
+      "children": [
+        {
+          "id": "amount",
+          "role": "textfield",
+          "value": "3"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/counter",
+    "description": "VALUE: numeric counter at 0. A status value node (status is a value-role; not in the structural vocabulary, so the body token is node) with value '0' -> V:key:count=ZERO. Pairs with the counter-at-5 vector.",
+    "expected_sig": "1bb94c41",
+    "tree": {
+      "children": [
+        {
+          "id": "count",
+          "role": "status",
+          "value": "0"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/counter",
+    "description": "VALUE: numeric counter at 5. Same status node as the counter-at-0 vector but value '5' -> V:key:count=POS1. MUST differ from the counter-at-0 vector (ZERO vs POS1).",
+    "expected_sig": "2517a50a",
+    "tree": {
+      "children": [
+        {
+          "id": "count",
+          "role": "status",
+          "value": "5"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/home",
+    "description": "VALUE: chrome label with text is NOT value-bearing. A header (chrome role) carrying a value field; chrome roles never enter the V: section, so this hashes IDENTICALLY to the same tree with no value at all (backward-compatible, no V: section emitted).",
+    "expected_sig": "c9416741",
+    "tree": {
+      "children": [
+        {
+          "id": "title",
+          "role": "header",
+          "value": "Welcome"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/form",
+    "description": "VALUE: grouped/locale number is locale-safe -> NONEMPTY. A textfield value '1,234' uses a grouping separator; the oracle does NOT guess locale formats, so it classifies to NONEMPTY (not POSL) -> V:key:amount=NONEMPTY. MUST differ from the period-decimal numeric vectors.",
+    "expected_sig": "a605e0f0",
+    "tree": {
+      "children": [
+        {
+          "id": "amount",
+          "role": "textfield",
+          "value": "1,234"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/counter",
+    "description": "VALUE: two different POS1 values bucket the same (3). A status node with value '3'. Pairs with the value-'7' vector: both fall in the POS1 bucket so they MUST hash identically (the value-class is bounded, not the raw value).",
+    "expected_sig": "2517a50a",
+    "tree": {
+      "children": [
+        {
+          "id": "count",
+          "role": "status",
+          "value": "3"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/counter",
+    "description": "VALUE: two different POS1 values bucket the same (7). A status node with value '7'. MUST hash identically to the value-'3' POS1 vector (both bucket to POS1).",
+    "expected_sig": "2517a50a",
+    "tree": {
+      "children": [
+        {
+          "id": "count",
+          "role": "status",
+          "value": "7"
+        }
+      ],
+      "role": "screen"
+    }
+  },
+  {
+    "anchor": "/café",
+    "description": "UNICODE: non-ASCII descriptor + V: byte-order sort. A non-ASCII anchor (/café), a header whose id is non-ASCII (café), a button with an astral/emoji icon (❤), and two value-bearing status nodes whose ids are an astral emoji (🎉, key:🎉=POS1) and a high-BMP CJK-compat glyph (豈, key:豈=ZERO). Guards two cross-platform bugs at once: the hash MUST fold UTF-8 BYTES (not UTF-16 code units), and the V: section MUST sort by UTF-8 byte order (key:豈 lead byte 0xEF sorts BEFORE key:🎉 lead byte 0xF0), the opposite of a UTF-16-unit sort (where the astral lead 0xD83C sorts before 0xF900). All-ASCII vectors miss both; this expected_sig is the canonical value from the Rust oracle.",
+    "expected_sig": "234cd190",
+    "tree": {
+      "children": [
+        {
+          "id": "café",
+          "role": "header"
+        },
+        {
+          "icon": "❤",
+          "id": "submit",
+          "role": "button"
+        },
+        {
+          "id": "🎉",
+          "role": "status",
+          "value": "5"
+        },
+        {
+          "id": "豈",
+          "role": "status",
+          "value": "0"
+        }
+      ],
+      "role": "screen"
+    }
+  }
+]

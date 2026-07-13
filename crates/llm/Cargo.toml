@@ -1,0 +1,17 @@
+[package]
+name = "llm"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Provider-agnostic LLM seam: hot-swappable backends (codex-cli, claude-cli, claude-api, openai-api)"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1.89"
+futures-util = "0.3.32"
+reqwest = { workspace = true, features = ["stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2.0.18"
+tokio = { workspace = true }

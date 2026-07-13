@@ -1,0 +1,13 @@
+# Native iOS (UIKit/SwiftUI) via XCUITest through Appium.
+app:
+  platform: swift-ios
+  appiumUrl: ${APPIUM_URL:-http://127.0.0.1:4723}
+  appiumCaps:
+    platformName: iOS
+    "appium:automationName": XCUITest
+    "appium:bundleId": ${APP_BUNDLE_ID:-com.example.app}
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

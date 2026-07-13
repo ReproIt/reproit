@@ -1,0 +1,44 @@
+node_modules/
+dist/
+.reproit/runs/
+.reproit/recordings/
+.reproit/tmp/
+.reproit/*.vault
+.reproit/*.log
+*.log
+.DS_Store
+.forbidden-terms
+
+
+# Added by cargo
+
+/target
+
+# web/rn runner deps (playwright + browsers ~90MB; appium client + home).
+# The lockfiles ARE committed: a determinism tool must pin Playwright et al so
+# CI/release install the exact versions (npm ci), not whatever floats today.
+runners/web/node_modules/
+runners/rn/node_modules/
+.appium-home/
+examples/imgui-headless/demo
+.hegel/
+
+# Python caches (desktop runner parity tests)
+__pycache__/
+*.pyc
+
+# Flutter / Swift / Android / Gradle build output (SDKs, demos)
+build/
+.build/
+.dart_tool/
+.swiftpm/
+.gradle/
+Pods/
+*.iml
+# Flutter example-fixture generated files (from `flutter pub get`)
+.flutter-plugins-dependencies
+sdk/reproit_flutter/example/pubspec.lock
+
+# Claude Code local state
+.claude/
+runners/node_modules

@@ -1,0 +1,13 @@
+# Native Android (Jetpack Compose / Views) via Appium UiAutomator2.
+app:
+  platform: android
+  appiumUrl: ${APPIUM_URL:-http://127.0.0.1:4723}
+  appiumCaps:
+    platformName: Android
+    "appium:automationName": UiAutomator2
+    "appium:app": ${APP_PATH:-./app-debug.apk}
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

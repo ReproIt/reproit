@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="AvaloniaFixture.MainWindow"
+        Width="360" Height="260"
+        Title="ReproIt Avalonia Fixture">
+  <StackPanel Margin="24" Spacing="16">
+    <TextBlock x:Name="StatusLabel"
+               AutomationProperties.AutomationId="statusLabel"
+               Text="Status: OFF"/>
+    <Button x:Name="ToggleButton"
+            AutomationProperties.AutomationId="toggleButton"
+            Content="Toggle"
+            Click="OnToggle"/>
+    <!-- Revealed by Toggle: a structural change (extra controls appear) so an
+         external UIA driver sees a new screen signature and emits EXPLORE:EDGE,
+         not just a text-only mutation the structural signature ignores. -->
+    <StackPanel x:Name="DetailPanel"
+                AutomationProperties.AutomationId="detailPanel"
+                IsVisible="False"
+                Spacing="8">
+      <TextBlock x:Name="DetailLabel"
+                 AutomationProperties.AutomationId="detailLabel"
+                 Text="Detail panel revealed"/>
+      <Button x:Name="ResetButton"
+              AutomationProperties.AutomationId="resetButton"
+              Content="Reset"
+              Click="OnReset"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

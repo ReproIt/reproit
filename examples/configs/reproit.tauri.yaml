@@ -1,0 +1,10 @@
+# Tauri desktop app: system webview driven over WebDriver (tauri-driver).
+app:
+  platform: tauri
+  executable: ${APP_EXECUTABLE:-./src-tauri/target/release/my-app}
+  runnerDir: ${REPROIT_RUNNERS:-./runners}               # holds tauri.mjs
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

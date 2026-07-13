@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>demo app</title></head>
+<body>
+  <nav>
+    <button id="home">Home</button>
+    <button id="settings">Settings</button>
+    <button id="about">About</button>
+  </nav>
+  <div id="screen"></div>
+  <button id="crash">Do risky thing</button>
+
+  <script src="../reproit-web.js"></script>
+  <script>
+    window.__ev = [];
+    ReproIt.init({ appId: "demo", onEvent: function (e) { window.__ev.push(e); }, debounceMs: 60, flushMs: 999999 });
+
+    var screen = document.getElementById("screen");
+    function render(name) {
+      if (name === "Home") screen.innerHTML = "<h1>Home</h1><button>Compose</button><button>Inbox</button>";
+      if (name === "Settings") screen.innerHTML = "<h1>Settings</h1><button>Toggle Sound</button><button>Account</button>";
+      if (name === "About") screen.innerHTML = "<h1>About</h1><p>v1.0</p><button>License</button>";
+    }
+    document.getElementById("home").onclick = function () { render("Home"); };
+    document.getElementById("settings").onclick = function () { render("Settings"); };
+    document.getElementById("about").onclick = function () { render("About"); };
+    document.getElementById("crash").onclick = function () { var x = null; x.boom(); }; // uncaught TypeError
+    render("Home");
+  </script>
+</body></html>

@@ -1,0 +1,13 @@
+buildscript {
+  repositories { google(); mavenCentral() }
+}
+apply plugin: 'com.android.library'
+
+android {
+  namespace 'com.reproit.reactnative'
+  compileSdkVersion 34
+  defaultConfig { minSdkVersion 21; targetSdkVersion 34 }
+}
+
+repositories { google(); mavenCentral() }
+dependencies { implementation 'com.facebook.react:react-native:+' }

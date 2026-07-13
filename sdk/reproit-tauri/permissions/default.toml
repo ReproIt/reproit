@@ -1,0 +1,3 @@
+[default]
+description = "Allows the Reproit bootstrap transport to read its action clock and record redacted exchanges."
+permissions = ["allow-action-index", "allow-record-exchange"]

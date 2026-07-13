@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Windows in-app binding: WPF (System.Windows) and WinUI 3
+    (Microsoft.UI.Xaml). Targets net8.0-windows. It does NOT hard-reference WPF
+    or WinUI: the visual-tree walk, AutomationProperties reads, event wiring, and
+    crash handlers are all reflection-driven over whichever XAML stack the host
+    app already references, so this one assembly serves both without forcing the
+    consumer onto a framework it does not use. All canonical / deterministic logic
+    lives in the cross-platform ReproIt.Core project referenced below.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>ReproIt.Windows</AssemblyName>
+    <RootNamespace>ReproIt.Windows</RootNamespace>
+    <Description>ReproIt production telemetry for native Windows (WPF + WinUI 3).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ReproIt.Core\ReproIt.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,50 @@
+# reproit journey template. Two examples: a single-actor flow and a multi-user
+# flow. Delete whichever you do not need. Save/validate with `reproit journey`,
+# run with `reproit check <name>`.
+
+# --------------------------------------------------------------------------
+# Single actor: log in as guest, create an item, assert it appears.
+# --------------------------------------------------------------------------
+name: add_item_smoke
+setup: login(guest)
+steps:
+  - do: tap:key:testid:add
+  - do: type:Buy milk
+  - do: tap:key:testid:save
+  - assert: textPresent:Buy milk
+  - assert: count:key:testid:list-row:1
+
+# --------------------------------------------------------------------------
+# Multi-user: alice posts, bob sees it on a separate device. Roles are
+# assigned atomically and join-barriered; each step names its speaker and
+# blocks until its turn, so ordering is deterministic (no sleeps).
+# --------------------------------------------------------------------------
+---
+name: presence_two_user
+# Bind each actor to a login prelude. A bare list `[alice, bob]` also works
+# if the account names match the logins. For stored session/API accounts, use
+# `{ auth: alice }` instead of `{ login: alice }`.
+actors:
+  alice: { login: alice }
+  bob: { login: bob }
+
+# Optional: put both accounts in a known state first. Reset steps can template
+# account fields. Store creds with `reproit auth add`, reference as secret:.
+reset:
+  - clear_posts: ${account.alice.userId}
+  - clear_posts: ${account.bob.userId}
+
+scenarios:
+  - speaker: alice
+    do: tap:key:testid:compose
+  - speaker: alice
+    do: type:hello from alice
+  - speaker: alice
+    do: tap:key:testid:post
+  # bob's step blocks at the barrier until alice's post completes.
+  - speaker: bob
+    assert: textPresent:hello from alice
+  - speaker: bob
+    do: tap:key:testid:like
+  - speaker: alice
+    assert: textPresent:1 like

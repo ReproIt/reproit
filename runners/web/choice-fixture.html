@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>choice-anomaly fixture</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  header { height: 48px; background: #222; color: #fff; }
+  main { padding: 16px; }
+  /* A wide overlay that one choice reveals, forcing the PAGE to scroll
+     horizontally (a global-layout shift the rest of the page suffers). */
+  #spiller { width: 4000px; height: 8px; background: #c00; display: none; }
+  footer { height: 40px; background: #eee; }
+  select { font-size: 16px; padding: 4px; }
+</style>
+</head>
+<body>
+<header><h1>App</h1></header>
+<main>
+  <!-- BUGGY native <select>: choosing "broken" reveals a 4000px-wide overlay
+       that pushes the document into horizontal overflow (a global shift); every
+       other option leaves the page unchanged. The differential oracle must flag
+       exactly the "broken" option as the outlier. -->
+  <label for="lang">Language
+    <select id="lang">
+      <option value="js">JavaScript</option>
+      <option value="py">Python</option>
+      <option value="go">Go</option>
+      <option value="broken">Broken</option>
+      <option value="rs">Rust</option>
+    </select>
+  </label>
+
+  <!-- CLEAN native <select>: every option behaves identically (no global shift),
+       so the oracle must stay SILENT on it (uniform choices -> nothing). -->
+  <label for="size">Size
+    <select id="size">
+      <option value="s">Small</option>
+      <option value="m">Medium</option>
+      <option value="l">Large</option>
+      <option value="xl">X-Large</option>
+    </select>
+  </label>
+
+  <div id="spiller"></div>
+</main>
+<footer>footer</footer>
+
+<script>
+  // The buggy picker: only "broken" reveals the wide overlay.
+  document.getElementById('lang').addEventListener('change', (e) => {
+    document.getElementById('spiller').style.display = e.target.value === 'broken' ? 'block' : 'none';
+  });
+  // The clean picker: no layout effect at all.
+  document.getElementById('size').addEventListener('change', () => {});
+</script>
+</body>
+</html>

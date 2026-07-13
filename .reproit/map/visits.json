@@ -1,0 +1,16 @@
+{
+  "start": "adb37755",
+  "counts": {
+    "0c30e654": 1,
+    "17ba0b77": 1,
+    "9280da70": 1,
+    "adb37755": 1
+  },
+  "edge_counts": {
+    "0c30e654|tap:role:link#0": 1,
+    "17ba0b77|back": 2,
+    "9280da70|type:role:textfield#0=normal": 1,
+    "adb37755|tap:role:link#0": 1,
+    "adb37755|type:role:textfield#0=normal": 1
+  }
+}

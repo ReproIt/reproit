@@ -1,0 +1,588 @@
+{
+  "app": "",
+  "version": 1,
+  "states": {
+    "s_0c30e654": {
+      "description": "a11y structural bug fixture, nested interactive link, Name, dupe",
+      "signature": {
+        "screenshot_phash": null,
+        "semantics_hash": "0c30e654",
+        "route": "/a11y-bug.html"
+      },
+      "elements": [
+        {
+          "sel": "role:button#0",
+          "role": "button",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "role:link#0",
+          "role": "link",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "sel": "role:textfield#0",
+          "role": "textfield",
+          "bounds": [
+            46,
+            98,
+            153,
+            21
+          ]
+        },
+        {
+          "sel": "role:node#0",
+          "role": "node",
+          "label": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "key:id:ok",
+          "role": "button",
+          "label": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "texts": [
+        {
+          "text": "a11y structural bug fixture",
+          "bounds": [
+            8,
+            21,
+            1264,
+            37
+          ]
+        },
+        {
+          "text": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "text": "Name",
+          "bounds": [
+            8,
+            99,
+            38,
+            18
+          ]
+        },
+        {
+          "text": "dupe",
+          "bounds": [
+            199,
+            99,
+            31,
+            18
+          ]
+        },
+        {
+          "text": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "text": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "parameters": [],
+      "unlabeled_tappables": 0,
+      "operability_gaps": {
+        "pointer_only": 0,
+        "keyboard_unreachable": 0,
+        "no_role": 0,
+        "focus_trap": false
+      }
+    },
+    "s_17ba0b77": {
+      "description": "a11y structural bug fixture, nested interactive link, Name, dupe",
+      "signature": {
+        "screenshot_phash": null,
+        "semantics_hash": "17ba0b77",
+        "route": "/a11y-bug.html#x"
+      },
+      "elements": [
+        {
+          "sel": "role:button#0",
+          "role": "button",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "role:link#0",
+          "role": "link",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "sel": "role:textfield#0",
+          "role": "textfield",
+          "bounds": [
+            46,
+            98,
+            153,
+            21
+          ]
+        },
+        {
+          "sel": "role:node#0",
+          "role": "node",
+          "label": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "key:id:ok",
+          "role": "button",
+          "label": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "texts": [
+        {
+          "text": "a11y structural bug fixture",
+          "bounds": [
+            8,
+            21,
+            1264,
+            37
+          ]
+        },
+        {
+          "text": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "text": "Name",
+          "bounds": [
+            8,
+            99,
+            38,
+            18
+          ]
+        },
+        {
+          "text": "dupe",
+          "bounds": [
+            199,
+            99,
+            31,
+            18
+          ]
+        },
+        {
+          "text": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "text": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "parameters": [],
+      "unlabeled_tappables": 0,
+      "operability_gaps": {
+        "pointer_only": 0,
+        "keyboard_unreachable": 0,
+        "no_role": 0,
+        "focus_trap": false
+      }
+    },
+    "s_9280da70": {
+      "description": "a11y structural bug fixture, nested interactive link, Name, dupe",
+      "signature": {
+        "screenshot_phash": null,
+        "semantics_hash": "9280da70",
+        "route": "/a11y-bug.html#x"
+      },
+      "elements": [
+        {
+          "sel": "role:button#0",
+          "role": "button",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "role:link#0",
+          "role": "link",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "sel": "role:textfield#0",
+          "role": "textfield",
+          "bounds": [
+            46,
+            98,
+            153,
+            21
+          ]
+        },
+        {
+          "sel": "role:node#0",
+          "role": "node",
+          "label": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "key:id:ok",
+          "role": "button",
+          "label": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "texts": [
+        {
+          "text": "a11y structural bug fixture",
+          "bounds": [
+            8,
+            21,
+            1264,
+            37
+          ]
+        },
+        {
+          "text": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "text": "Name",
+          "bounds": [
+            8,
+            99,
+            38,
+            18
+          ]
+        },
+        {
+          "text": "dupe",
+          "bounds": [
+            199,
+            99,
+            31,
+            18
+          ]
+        },
+        {
+          "text": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "text": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "parameters": [],
+      "unlabeled_tappables": 0,
+      "operability_gaps": {
+        "pointer_only": 0,
+        "keyboard_unreachable": 0,
+        "no_role": 0,
+        "focus_trap": false
+      }
+    },
+    "s_adb37755": {
+      "description": "a11y structural bug fixture, nested interactive link, Name, dupe",
+      "signature": {
+        "screenshot_phash": null,
+        "semantics_hash": "adb37755",
+        "route": "/a11y-bug.html"
+      },
+      "elements": [
+        {
+          "sel": "role:button#0",
+          "role": "button",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "role:link#0",
+          "role": "link",
+          "label": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "sel": "role:textfield#0",
+          "role": "textfield",
+          "bounds": [
+            46,
+            98,
+            153,
+            21
+          ]
+        },
+        {
+          "sel": "role:node#0",
+          "role": "node",
+          "label": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "sel": "key:id:ok",
+          "role": "button",
+          "label": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "texts": [
+        {
+          "text": "a11y structural bug fixture",
+          "bounds": [
+            8,
+            21,
+            1264,
+            37
+          ]
+        },
+        {
+          "text": "nested interactive link",
+          "bounds": [
+            8,
+            80,
+            141,
+            18
+          ]
+        },
+        {
+          "text": "Name",
+          "bounds": [
+            8,
+            99,
+            38,
+            18
+          ]
+        },
+        {
+          "text": "dupe",
+          "bounds": [
+            199,
+            99,
+            31,
+            18
+          ]
+        },
+        {
+          "text": "positive tabindex control",
+          "bounds": [
+            8,
+            119,
+            1264,
+            18
+          ]
+        },
+        {
+          "text": "Fine button",
+          "bounds": [
+            8,
+            137,
+            83,
+            21
+          ]
+        }
+      ],
+      "parameters": [],
+      "unlabeled_tappables": 0,
+      "operability_gaps": {
+        "pointer_only": 0,
+        "keyboard_unreachable": 0,
+        "no_role": 0,
+        "focus_trap": false
+      }
+    }
+  },
+  "transitions": [
+    {
+      "from": "s_adb37755",
+      "to": "s_9280da70",
+      "action": {
+        "kind": "tap",
+        "finder": "role:link#0"
+      },
+      "guards": [],
+      "reversibility": "proposed_reversible",
+      "expected": null
+    },
+    {
+      "from": "s_9280da70",
+      "to": "s_17ba0b77",
+      "action": {
+        "kind": "type",
+        "finder": "role:textfield#0",
+        "text": "normal"
+      },
+      "guards": [],
+      "reversibility": "proposed_reversible",
+      "expected": null
+    },
+    {
+      "from": "s_17ba0b77",
+      "to": "s_0c30e654",
+      "action": {
+        "kind": "back"
+      },
+      "guards": [],
+      "reversibility": "proposed_reversible",
+      "expected": null
+    },
+    {
+      "from": "s_0c30e654",
+      "to": "s_17ba0b77",
+      "action": {
+        "kind": "tap",
+        "finder": "role:link#0"
+      },
+      "guards": [],
+      "reversibility": "proposed_reversible",
+      "expected": null
+    },
+    {
+      "from": "s_17ba0b77",
+      "to": "s_0c30e654",
+      "action": {
+        "kind": "back"
+      },
+      "guards": [],
+      "reversibility": "proposed_reversible",
+      "expected": null
+    },
+    {
+      "from": "s_adb37755",
+      "to": "s_0c30e654",
+      "action": {
+        "kind": "type",
+        "finder": "role:textfield#0",
+        "text": "normal"
+      },
+      "guards": [],
+      "reversibility": "proposed_reversible",
+      "expected": null
+    }
+  ],
+  "invariants": [],
+  "interrupts": []
+}

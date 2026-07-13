@@ -1,0 +1,20 @@
+name: reproit_flutter_example
+description: Operability/groundtruth validation fixture for the ReproIt Flutter SDK emitter.
+publish_to: none
+version: 0.0.1
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+dependencies:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  # The SDK under test: the app-invariant dogfood drives the real ReproIt.invariant
+  # registry + evaluate + file-append path (invariant_fixture_test.dart).
+  reproit_flutter:
+    path: ../
+flutter:

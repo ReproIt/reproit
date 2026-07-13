@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "platforms": {
+    "flutter": ["validation/backends/run-flutter-drive.sh"],
+    "web": ["validation/backends/run-web-cdp.sh", "validation/backends/run-web-engines.sh"],
+    "react-native": ["validation/backends/run-react-native-android.sh"],
+    "electron": ["validation/backends/run-electron.sh"],
+    "tauri": ["validation/backends/run-tauri.sh"],
+    "swift-ios": [".github/scripts/appium-ios-swiftui-smoke.sh"],
+    "android": ["examples/compose-fixture/compose-appium-smoke.sh"],
+    "swift-macos": ["validation/backends/run-macos-ax.sh"],
+    "winui": ["validation/backends/run-windows-desktop-remote.sh"],
+    "imgui": ["validation/backends/run-instrumented.sh"],
+    "clay": ["validation/backends/run-instrumented.sh"],
+    "tui": ["validation/backends/run-tui.sh"],
+    "qt": ["examples/qt-fixture/qt-atspi-e2e.sh"],
+    "gtk": [".github/scripts/atspi-scenario-e2e.sh"],
+    "avalonia": ["validation/backends/run-windows-desktop-remote.sh"],
+    "wxwidgets": ["examples/qt-fixture/qt-atspi-e2e.sh"]
+  }
+}

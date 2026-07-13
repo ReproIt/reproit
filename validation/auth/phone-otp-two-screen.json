@@ -1,0 +1,10 @@
+{
+  "description": "phone number followed by a separate OTP screen",
+  "expected": [
+    "fill phone",
+    "continue",
+    "fill otp",
+    "verify",
+    "clean authenticated-state confirmation"
+  ]
+}

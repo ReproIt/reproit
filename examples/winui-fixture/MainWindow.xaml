@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="WinUiFixture.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="ReproIt WinUI Fixture">
+    <StackPanel Margin="24" Spacing="16" HorizontalAlignment="Left" VerticalAlignment="Top">
+        <TextBlock x:Name="StatusLabel"
+                   AutomationProperties.AutomationId="statusLabel"
+                   Text="Status: OFF" />
+        <Button x:Name="ToggleButton"
+                AutomationProperties.AutomationId="toggleButton"
+                Content="Toggle"
+                Click="OnToggle" />
+        <!-- Revealed by Toggle: a structural change (extra controls appear) so an
+             external UIA driver sees a new screen signature and emits EXPLORE:EDGE,
+             not just a text-only mutation the structural signature ignores. -->
+        <StackPanel x:Name="DetailPanel"
+                    AutomationProperties.AutomationId="detailPanel"
+                    Visibility="Collapsed"
+                    Spacing="8">
+            <TextBlock x:Name="DetailLabel"
+                       AutomationProperties.AutomationId="detailLabel"
+                       Text="Detail panel revealed" />
+            <Button x:Name="ResetButton"
+                    AutomationProperties.AutomationId="resetButton"
+                    Content="Reset"
+                    Click="OnReset" />
+        </StackPanel>
+    </StackPanel>
+</Window>

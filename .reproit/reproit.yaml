@@ -1,0 +1,22 @@
+app:
+  platform: web
+  webRunnerDir: "runners/web"
+  url: "http://localhost:8066/meta-bug.html"
+  defines: {}
+devices:
+  namePrefix: web
+reset:
+  steps: []
+journeys:
+  dir: integration_test
+  driver: web
+  readyMarker: "claimed role"
+  doneMarkers:
+    - All tests passed
+    - Some tests failed
+  deviceDoneMarker: "JOURNEY DONE"
+  actionPrefix: "JOURNEY"
+  timeoutSec: 300
+evidence:
+  outDir: .reproit/runs
+  video: false

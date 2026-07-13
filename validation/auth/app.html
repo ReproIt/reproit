@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<title>Structural auth validation</title>
+<main>
+  <section id="phone">
+    <label><span id="phone-label"></span>
+      <input data-testid="phone" type="tel" autocomplete="tel">
+    </label>
+    <button data-testid="continue" id="continue"></button>
+  </section>
+  <section id="otp" hidden>
+    <label><span id="otp-label"></span>
+      <input data-testid="otp" inputmode="numeric" autocomplete="one-time-code">
+    </label>
+    <button data-testid="verify" id="verify"></button>
+  </section>
+  <section id="home" hidden><h1 id="home-label"></h1></section>
+</main>
+<script>
+  const ru = new URLSearchParams(location.search).get('locale') === 'ru';
+  document.documentElement.lang = ru ? 'ru' : 'es';
+  phoneLabel = ru ? 'Номер телефона' : 'Número de teléfono';
+  otpLabel = ru ? 'Код подтверждения' : 'Código de verificación';
+  continueLabel = ru ? 'Продолжить' : 'Continuar';
+  verifyLabel = ru ? 'Подтвердить' : 'Verificar';
+  homeLabel = ru ? 'Вход выполнен' : 'Sesión iniciada';
+  document.getElementById('phone-label').textContent = phoneLabel;
+  document.getElementById('otp-label').textContent = otpLabel;
+  document.getElementById('continue').textContent = continueLabel;
+  document.getElementById('verify').textContent = verifyLabel;
+  document.getElementById('home-label').textContent = homeLabel;
+  document.getElementById('continue').onclick = () => {
+    document.getElementById('phone').hidden = true;
+    document.getElementById('otp').hidden = false;
+  };
+  document.getElementById('verify').onclick = () => {
+    document.getElementById('otp').hidden = true;
+    document.getElementById('home').hidden = false;
+  };
+</script>
+</html>

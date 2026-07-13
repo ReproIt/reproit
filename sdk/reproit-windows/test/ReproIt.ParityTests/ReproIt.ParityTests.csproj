@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The cross-platform parity gate. It references ONLY ReproIt.Core (the
+    signature core + the dependency-free JSON reader), NOT the Windows binding,
+    so `dotnet test` runs on the plain .NET 8 SDK on macOS / Linux / Windows
+    without any WPF / WinUI dependency, exactly like the Android host test runs on
+    a plain JVM and the iOS test runs on Foundation. It loads the canonical
+    ../../../signature_vectors.json and asserts all 25 golden vectors byte-for-byte.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ReproIt.ParityTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ReproIt.Core\ReproIt.Core.csproj" />
+    <Compile Include="..\..\src\ReproIt.Windows\CausalHandler.cs" Link="CausalHandler.cs" />
+  </ItemGroup>
+
+  <!--
+    Copy the canonical golden vectors next to the test assembly so the test
+    finds them via the current directory no matter where `dotnet test` sets the
+    working directory (the test host CWD is the bin output dir, which is too deep
+    for a relative walk up to the repo root). Repo root is four levels up.
+  -->
+  <ItemGroup>
+    <None Include="..\..\..\..\signature_vectors.json">
+      <Link>signature_vectors.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

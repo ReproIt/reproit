@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-action-index"
+description = "Enables the action_index command without any pre-configured scope."
+commands.allow = ["action_index"]
+
+[[permission]]
+identifier = "deny-action-index"
+description = "Denies the action_index command without any pre-configured scope."
+commands.deny = ["action_index"]

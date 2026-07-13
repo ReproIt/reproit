@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Reproit Electron Fixture</title></head>
+  <body>
+    <button data-testid="toggle" type="button">Toggle</button>
+    <section data-testid="detail" hidden>Detail revealed</section>
+    <script>
+      document.querySelector('[data-testid="toggle"]').addEventListener('click', () => {
+        document.querySelector('[data-testid="detail"]').hidden = false;
+      });
+    </script>
+  </body>
+</html>

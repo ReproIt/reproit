@@ -1,0 +1,11 @@
+# Clay: immediate-mode layout lib; needs the in-app reproit hook
+# (reproit_clay.h) compiled into the executable.
+app:
+  platform: clay
+  executable: ${APP_EXECUTABLE:-./build/my-clay-app}
+  runnerDir: ${REPROIT_RUNNERS:-./runners}
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

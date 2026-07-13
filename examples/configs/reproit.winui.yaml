@@ -1,0 +1,10 @@
+# WinUI / WPF read through Windows UI Automation.
+app:
+  platform: winui
+  executable: ${APP_EXECUTABLE:-./bin/Release/MyApp.exe}
+  runnerDir: ${REPROIT_RUNNERS:-./runners}               # holds windows-uia.py
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

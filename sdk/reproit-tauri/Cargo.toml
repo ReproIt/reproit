@@ -1,0 +1,16 @@
+[package]
+name = "tauri-plugin-reproit"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ReproIt/reproit"
+links = "tauri-plugin-reproit"
+
+[dependencies]
+serde_json = "1"
+tauri = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[workspace]

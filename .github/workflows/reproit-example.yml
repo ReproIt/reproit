@@ -1,0 +1,41 @@
+# EXAMPLE consumer workflow. Copy this into your own repo at
+# .github/workflows/reproit.yml and set `bucket` + the REPROIT_CLOUD_KEY secret.
+# On every PR it starts your app, then reproit fuzzes it and, on a finding,
+# uploads a minimized repro and posts the PR comment.
+#
+# It lives here (in the reproit repo) so it is a runnable reference, not just
+# prose. It does not run on this repo's own PRs.
+
+name: reproit-example
+
+on:
+  workflow_dispatch: {}
+  # In your repo, trigger on PRs instead:
+  # pull_request:
+
+# reproit posts the PR comment with the default token; it needs write access.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  reproit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Start your app so reproit has something to fuzz. Replace with your own
+      # dev-server command; here we background it and wait for the port.
+      - name: Start the app
+        run: |
+          npm ci
+          npm run start &
+          npx --yes wait-on http://localhost:3000
+
+      # The five lines that add reproit to CI. Copy this step into your repo:
+      - uses: reproit/reproit@v1
+        with:
+          app: http://localhost:3000
+          bucket: web-pr
+          api-key: ${{ secrets.REPROIT_CLOUD_KEY }}

@@ -1,0 +1,10 @@
+# Any terminal UI / CLI (vim, lazygit, k9s, ...) driven in a PTY.
+app:
+  platform: tui
+  executable: ${APP_CMD:-./my-cli}    # the command to run inside the PTY
+  runnerDir: ${REPROIT_RUNNERS:-./runners}
+devices:
+  namePrefix: Example
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]

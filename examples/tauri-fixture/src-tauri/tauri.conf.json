@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Reproit Tauri Fixture",
+  "version": "0.1.0",
+  "identifier": "dev.reproit.tauri-fixture",
+  "build": { "frontendDist": "../dist" },
+  "app": {
+    "windows": [
+      { "title": "Reproit Tauri Fixture", "width": 420, "height": 320 }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false }
+}

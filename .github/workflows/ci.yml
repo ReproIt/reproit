@@ -1,0 +1,482 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust (stable + clippy + rustfmt)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+      # The Linux desktop runner (`reproit __atspi`) links the official AT-SPI C
+      # library. On this ubuntu runner the target_os="linux" module compiles, so
+      # the dev package (which pulls libglib2.0-dev) must be present at link time;
+      # the shipped binary dynamically links libatspi.so.0.
+      - name: Install AT-SPI dev library (for the Linux desktop runner)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Format check
+        run: cargo fmt --all --check
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build
+        run: cargo build --workspace --locked
+      - name: Test (incl. determinism replay)
+        run: cargo test --workspace --locked
+
+  # The Windows desktop runner (`reproit __uia`, cfg(windows)) only compiles on
+  # a Windows host, so the ubuntu `rust` job above never touches uia.rs. Compile
+  # it natively here so a Windows-only break is caught on every push, not first
+  # at release time (windows-rs is pure Rust; aws-lc-sys builds fine here since
+  # the Windows SDK headers are present, unlike a macOS cross-compile).
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust (stable + clippy)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-cargo-
+      - name: Clippy the Windows UIA runner (warnings are errors)
+        run: cargo clippy -p reproit --all-targets --locked -- -D warnings
+      # Windows-on-ARM ships as a release binary (aarch64-pc-windows-msvc), so
+      # type-check the UIA runner for that target too. `cargo check` does not link,
+      # so it needs only `rustup target add` (no ARM64 linker libs) and stays cheap,
+      # catching an arch-specific break before the release job tries to build it.
+      - name: Check the Windows ARM64 target (no link)
+        run: |
+          rustup target add aarch64-pc-windows-msvc
+          cargo check -p reproit --locked --target aarch64-pc-windows-msvc
+
+  web-runner:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runners/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Install deps
+        run: npm ci
+      - name: Install the Chromium the runner drives
+        # The browser-backed tests (drawFindingBoxes, detectOverflow, the a11y/
+        # trigger tagging) test the REAL runner behaviour, so CI installs the
+        # pinned Chromium and runs them -- they used to skip here, which left the
+        # runner logic untested. The version is fixed by the committed lockfile,
+        # so this is deterministic.
+        run: npx playwright install --with-deps chromium
+      - name: Syntax-check the runner + harnesses
+        run: |
+          node --check runner.mjs
+          node --check differential.mjs
+          node --check jank.mjs
+          node --check jank-oracle.mjs
+          node --check flicker-oracle.mjs
+      - name: Unit-test the detectors + browser-backed runner behaviour
+        run: node --test
+
+  # The byte-for-byte signature promise: every SDK and runner must reproduce the
+  # 24 golden vectors in signature_vectors.json exactly, same as the Rust oracle
+  # (crates/reproit/src/model/signature.rs::tests::golden_vectors_match). These
+  # jobs are what KEEP that promise true; without them, an SDK could drift
+  # silently. Each step mirrors a parity test that already lives in the repo.
+  signature-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Web SDK parity (reproit-web.js; also the Electron/Tauri SDK)
+        working-directory: sdk
+        run: node test/signature_test.js
+      - name: Web SDK build identity (context.build stamping)
+        working-directory: sdk
+        run: node test/build_test.js
+      - name: Web SDK input fingerprint (privacy-preserving value metadata)
+        working-directory: sdk
+        run: node test/fingerprint_test.js
+      - name: SDK action contract (replay stays structural, labels display-only)
+        working-directory: sdk
+        run: node test/action_contract_test.js
+      - name: SDK oracle contract (error events carry the crash oracle tag)
+        working-directory: sdk
+        run: node test/oracle_contract_test.js
+      - name: Electron + Tauri runner parity
+        run: node runners/signature_test.mjs
+      # The Windows + Linux desktop runners are now in-process Rust (backends/
+      # uia.rs, backends/atspi.rs) that REUSE the canonical signature oracle
+      # directly, so they cannot drift from it: the former python3
+      # runners/test_signature.py parity gate is obsolete and its coverage now
+      # lives in crates/reproit/src/model/signature.rs::tests (golden vectors +
+      # the value-state plumbing tests), run by the `rust` job above.
+      - name: ImGui + Clay C signature-core parity
+        run: |
+          clang -std=c11 -Wall -Wextra -o /tmp/test_signature runners/test_signature.c
+          /tmp/test_signature
+      - name: Linux native SDK parity (pure-stdlib core, no GTK needed)
+        run: |
+          python3 sdk/reproit-linux/tests/test_parity.py
+          python3 sdk/reproit-linux/tests/test_capture.py
+
+  react-native-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit-react-native
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Install deps
+        run: npm ci
+      - name: Parity + unit tests (jest)
+        run: npm test
+
+  flutter-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit_flutter
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - name: Signature parity (flutter test)
+        run: flutter test
+
+  # Marker-drift guard: each platform's "verbatim" EXPLORE:GROUNDTRUTH golden
+  # (crates/reproit/tests/golden/operability/<platform>.json) is the SINGLE source
+  # of truth the engine contract tests read (crates/reproit/src/model/map.rs,
+  # gaps_from_golden). This job re-runs the REAL agent, canonicalizes the live
+  # marker (JSON-parse, sort keys, DROP the volatile `sig`), and DIFFs it against
+  # the golden, failing + naming the platform/field on any drift -- so a stale
+  # golden / drifted agent can never go green (the bug we hit: a WPF contract test
+  # stayed green while the real marker drifted). See the goldens' README for the
+  # host-tooling matrix and the canonicalize+diff tool
+  # (crates/reproit/tests/golden/operability/canonicalize-diff.mjs).
+  #
+  #   CI recaptures Flutter here via `flutter test` and diffs the marker.
+  #   AppKit, WPF, Qt, and GTK are recaptured live in the operability-golden-*
+  #   jobs below (macOS runner, Windows runner, and Linux offscreen/xvfb).
+  #   Web is the one platform still documented for manual re-capture; the
+  #   step below states why.
+  operability-marker-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Flutter operability marker -- live capture vs golden (sig dropped)
+        run: bash crates/reproit/tests/golden/operability/capture-flutter.sh
+      - name: Web marker; documented manual re-capture (the only one left)
+        run: |
+          echo "web: SKIPPED (manual). The web golden (web.json) is the engine's"
+          echo "motivating-case marker, not a verbatim capture of a single web fixture,"
+          echo "so there is no fixture to re-run mechanically; re-capture needs a human"
+          echo "to drive runners/web/runner.mjs's snapshot + groundtruth emitter against"
+          echo "a chosen fixture under real Chromium."
+          echo "appkit/wpf/qt/gtk are recaptured LIVE by the operability-golden-* jobs."
+          echo "Steps: crates/reproit/tests/golden/operability/README.md"
+          echo "Diff a captured marker with: node crates/reproit/tests/golden/operability/canonicalize-diff.mjs <platform> <file>"
+
+  # Live re-capture-and-diff for the four desktop operability goldens that used
+  # to be "manual re-capture only". Each job builds + runs the REAL in-process
+  # agent on a runner that has the toolchain, then diffs the emitted
+  # EXPLORE:GROUNDTRUTH marker against the committed golden with the sig
+  # dropped (crates/reproit/tests/golden/operability/capture-<platform>.sh).
+  # Any drift fails the job and names the platform + changed field.
+  operability-golden-appkit:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - name: AppKit operability marker -- live capture vs golden (sig dropped)
+        # The agent is headless by construction: it builds and walks the view
+        # tree without entering the run loop or touching the window server.
+        run: bash crates/reproit/tests/golden/operability/capture-appkit.sh
+
+  operability-golden-wpf:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: WPF operability marker -- live capture vs golden (sig dropped)
+        # The agent drives its own STA Dispatcher instead of a WPF Application,
+        # so it needs no visible window; the Windows runner's desktop session
+        # satisfies WPF's remaining platform requirements.
+        shell: bash
+        run: bash crates/reproit/tests/golden/operability/capture-wpf.sh
+
+  operability-golden-qt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Qt 6 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config qt6-base-dev libgl1-mesa-dev
+      - name: Qt operability marker -- live capture vs golden (sig dropped)
+        # Runs under Qt's offscreen platform plugin: no display needed.
+        run: bash crates/reproit/tests/golden/operability/capture-qt.sh
+
+  operability-golden-gtk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install GTK 4 toolchain + xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev xvfb
+      - name: GTK operability marker -- live capture vs golden (sig dropped)
+        # GTK4 needs a display to realize widgets; xvfb-run provides a virtual one.
+        run: bash crates/reproit/tests/golden/operability/capture-gtk.sh
+
+  # RUNTIME smoke for the Appium-backed mobile platforms (rn-appium / android /
+  # swift-ios). Everything above only proves signature parity for these; this
+  # job boots a real Android emulator, starts a real Appium server, and drives
+  # the PRODUCTION runner the orchestrator spawns for the Appium backend
+  # (runners/rn/runner.mjs) against the image's preinstalled Settings app.
+  # It PROVES: UiAutomator2 session creation, page-source capture reduced to a
+  # canonical structural signature (EXPLORE:STATE), a structural-selector tap
+  # that provably changes app state (EXPLORE:EDGE), and a clean finish.
+  # It DOES NOT prove: the Rust orchestrator spawn path, the RN fiber probe
+  # (Settings is not an RN app), or iOS/XCUITest. Single API level, no matrix.
+  appium-android-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Enable KVM group perms (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install runner deps (webdriverio, pinned by the lockfile)
+        working-directory: runners/rn
+        run: npm ci
+      - name: Device-free runner tests (oracle reducers + conductor client)
+        # Runs before the emulator boots: the oracle reducer tests are pure,
+        # and scenario.test.mjs contract-tests the multi-actor conductor
+        # client against a stub barrier + mocked session (the live smoke below
+        # is single-actor and never exercises the conductor protocol).
+        working-directory: runners/rn
+        run: node --test
+      - name: Install Appium + UiAutomator2 driver
+        run: |
+          npm install -g appium
+          appium driver install uiautomator2
+      - name: Boot emulator, start Appium, run the smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
+            bash .github/scripts/appium-android-smoke.sh appium-smoke.log
+      - name: Appium server log (on failure)
+        if: failure()
+        run: |
+          tail -n 300 appium-server.log || true
+
+  # RUNTIME smoke for the Appium backend's XCUITest half: the iOS counterpart
+  # of appium-android-smoke. Boots a real iPhone simulator (preinstalled on the
+  # macOS runner image), starts a real Appium server, and drives the SAME
+  # production runner (runners/rn/runner.mjs) against the tiny purpose-built
+  # fixture app in examples/ios-smoke-fixture (built in-job with swiftc against
+  # the simulator SDK; NOT the preinstalled Settings app, whose a11y tree is
+  # iOS-version/boot-timing dependent and surfaced ZERO tappable elements on
+  # the macos-15 runner). It PROVES: XCUITest session creation (including the
+  # WebDriverAgent build), app install + launch by pinned bundleId, iOS
+  # page-source capture reduced to a canonical structural signature with a
+  # non-empty elements list (EXPLORE:STATE), a structural-selector tap that
+  # provably changes app state (EXPLORE:EDGE), and a clean finish with the
+  # crash oracle ACTIVE (bundleId pinned) and silent.
+  # It DOES NOT prove: the Rust orchestrator spawn path, the RN fiber probe
+  # (the fixture is not an RN app), the multi-actor conductor protocol (covered
+  # device-free by scenario.test.mjs in the android job), or multi-simulator
+  # scenarios. Single simulator, no matrix.
+  appium-ios-smoke:
+    runs-on: macos-15
+    timeout-minutes: 45
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Install runner deps (webdriverio, pinned by the lockfile)
+        working-directory: runners/rn
+        run: npm ci
+      - name: Install Appium + XCUITest driver
+        run: |
+          npm install -g appium
+          appium driver install xcuitest
+      - name: Start Appium, boot a simulator, run the smoke
+        # The smoke script builds the fixture app (swiftc, seconds), resolves +
+        # boots the first available iPhone simulator itself (macOS runner
+        # images ship several), and installs the fixture on it; only the
+        # Appium server is started here.
+        run: |
+          appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
+          bash .github/scripts/appium-ios-smoke.sh appium-ios-smoke.log
+      - name: Appium server log (on failure)
+        if: failure()
+        run: |
+          tail -n 300 appium-server.log || true
+
+  # RUNTIME smoke for the Appium backend against a REAL SwiftUI app: identical
+  # to appium-ios-smoke except the fixture is written with the modern SwiftUI
+  # @main App lifecycle (examples/ios-swiftui-fixture) instead of UIKit. The
+  # site marquee claims SwiftUI, and UIKit and SwiftUI publish DIFFERENT
+  # accessibility trees for the "same" screen (SwiftUI synthesizes its element
+  # hierarchy from the View graph), so a UIKit pass does not by itself prove the
+  # runner canonicalizes a SwiftUI tree into a non-empty structural elements
+  # list with resolvable key:<accessibilityIdentifier> selectors. This job
+  # proves it does. Same production runner, same assertion pass, same crash
+  # oracle; the ONLY variable under test is UIKit vs SwiftUI. It DOES NOT prove
+  # anything appium-ios-smoke does not already (see its header); it adds SwiftUI
+  # coverage specifically. Single simulator, no matrix.
+  appium-ios-swiftui-smoke:
+    runs-on: macos-15
+    timeout-minutes: 45
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Install runner deps (webdriverio, pinned by the lockfile)
+        working-directory: runners/rn
+        run: npm ci
+      - name: Install Appium + XCUITest driver
+        run: |
+          npm install -g appium
+          appium driver install xcuitest
+      - name: Start Appium, boot a simulator, run the smoke
+        # The smoke script builds the fixture app (swiftc, seconds), resolves +
+        # boots the first available iPhone simulator itself (macOS runner
+        # images ship several), and installs the fixture on it; only the
+        # Appium server is started here.
+        run: |
+          appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
+          bash .github/scripts/appium-ios-swiftui-smoke.sh appium-ios-swiftui-smoke.log
+      - name: Appium server log (on failure)
+        if: failure()
+        run: |
+          tail -n 300 appium-server.log || true
+
+  android-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Kotlin compiler
+        run: |
+          curl -sSLO https://github.com/JetBrains/kotlin/releases/download/v2.0.20/kotlin-compiler-2.0.20.zip
+          unzip -q kotlin-compiler-2.0.20.zip -d "$HOME/kotlin"
+          echo "$HOME/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      - name: Android SDK signature parity (host JVM, no Android SDK)
+        run: sh sdk/reproit-android/run_host_test.sh
+
+  apple-sdk:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: iOS + macOS SDK signature parity (swift test)
+        run: swift test --package-path sdk/reproit-ios
+
+  # TUI SDKs. The signature is a separate namespace pinned to the repo-root
+  # tui_signature_vectors.json (not signature_vectors.json). The Rust TUI SDK is
+  # a workspace member, so the `rust` job above already builds/tests it; the Go,
+  # TS, and Python ports each get a job here.
+  tui-go-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit-tui-go
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: sdk/reproit-tui-go/go.mod
+      - name: Go TUI SDK signature parity (matches crates/.../backends/tui.rs)
+        run: go test ./...
+
+  tui-ts-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/reproit-tui-ts
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: TS TUI SDK signature parity (node type-strips TS natively; no install)
+        run: node --test test/parity.test.ts
+
+  tui-py-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Python TUI SDK signature parity (pure stdlib)
+        run: python3 sdk/reproit-tui-py/tests/test_parity.py
+
+  windows-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: Windows SDK signature parity (.NET core lib; no WPF/WinUI needed)
+        run: dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj

@@ -1,0 +1,73 @@
+[package]
+name = "reproit"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+description = "Reproducible AI QA: deterministic multi-device test orchestration with evidence capture"
+
+[dependencies]
+anyhow = { workspace = true }
+llm = { path = "../llm" }
+chrono = "0.4.45"
+clap = { version = "4.6.1", features = ["derive"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+regex = { workspace = true }
+# `multipart` (on top of the workspace defaults) for evidence uploads to the
+# cloud's POST /v1/errors/:app/:idx/evidence endpoint.
+reqwest = { workspace = true, features = ["multipart"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.32"
+tokio = { workspace = true }
+# auth vault + TOTP. getrandom is the OS CSPRNG primitive for salt/nonce/keyfile
+# bytes (rand 0.10 dropped rand::rngs::OsRng; getrandom is the canonical source).
+aes-gcm = "0.10.3"
+# Argon2id KDF for passphrase-derived vault keys (REPROIT_VAULT_KEY). A single
+# SHA256 is fine for the random keyfile but brute-forceable for a human secret.
+# Pinned to 0.5 to match the cloud crate's argon2 version.
+argon2 = "0.5"
+getrandom = "0.3"
+hmac = "0.13.0"
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+# tui backend: drive terminal apps in a PTY, parse the screen with a VT emulator
+portable-pty = "0.9.0"
+vt100 = "0.16.2"
+# canonical TUI screen signature, shared byte-for-byte with the production TUI SDKs
+reproit-tui-sig = { path = "../tui-sig" }
+
+# Windows desktop runner (`reproit __uia`): the OFFICIAL Microsoft windows-rs
+# projection of the UI Automation COM API (IUIAutomation / IUIAutomationElement /
+# patterns), plus the Win32 surfaces the runner needs (Com init, process/window
+# handles, IsHungAppWindow for HANG, psapi working-set for --soak, GDI +
+# PrintWindow for SHOOT, SendInput for Esc). Target-gated so a macOS/Linux build
+# pulls none of it.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
+] }
+
+# NOTE: the Linux desktop runner (`reproit __atspi`) needs NO Rust crate: it
+# binds the OFFICIAL AT-SPI C library (libatspi.so.0) directly via hand-declared
+# `#[link(name = "atspi"/"gobject-2.0"/"glib-2.0")]` FFI in backends/atspi.rs, so
+# there is no `[target.'cfg(target_os = "linux")'.dependencies]` stanza. The dev
+# package that provides the link-time .so (libatspi2.0-dev, which pulls glib) is
+# installed in CI/release for the Linux build; the shipped binary dynamically
+# links libatspi.so.0, present wherever AT-SPI is drivable.
+
+[dev-dependencies]
+# Property-based testing.
+hegeltest = "0.21.2"
