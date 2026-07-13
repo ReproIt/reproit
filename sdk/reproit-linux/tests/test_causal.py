@@ -4,10 +4,17 @@ import os
 import tempfile
 import urllib.request
 
-from reproit_linux.causal import install_causal_urllib
+from reproit_linux.causal import _redact, install_causal_urllib
 
 
 def main():
+    safe = _redact({
+        "apiKey": "raw-api", "publishable-key": "raw-pub", "private_key": "raw-private",
+        "access.key": "raw-access", "signing key": "raw-signing",
+        "keyboardLayout": "dvorak", "key": "ordinary",
+    })
+    assert safe["keyboardLayout"] == "dvorak" and safe["key"] == "ordinary"
+    assert not any(raw in json.dumps(safe) for raw in ["raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing"])
     with tempfile.TemporaryDirectory() as directory:
         capsule = os.path.join(directory, "capsule.json")
         action = os.path.join(directory, "action.txt")

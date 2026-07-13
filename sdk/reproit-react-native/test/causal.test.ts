@@ -42,9 +42,13 @@ describe('causal fetch transport', () => {
   });
 
   test('redaction is structural and deterministic', () => {
-    expect(redactCausal({ phone: '123', nested: { ok: 1 } })).toEqual({
-      phone: '<reproit:string:length=3>', nested: { ok: 1 },
+    const redacted = redactCausal({ phone: '123', apiKey: 'raw-api', 'publishable-key': 'raw-pub', private_key: 'raw-private',
+      'access.key': 'raw-access', 'signing key': 'raw-signing', keyboardLayout: 'dvorak', key: 'ordinary', nested: { ok: 1 } });
+    expect(redacted).toEqual({
+      'access.key': '<reproit:string:length=10>', apiKey: '<reproit:string:length=7>', key: 'ordinary', keyboardLayout: 'dvorak', nested: { ok: 1 },
+      phone: '<reproit:string:length=3>', private_key: '<reproit:string:length=11>', 'publishable-key': '<reproit:string:length=7>', 'signing key': '<reproit:string:length=11>',
     });
+    expect(JSON.stringify(redacted)).not.toMatch(/raw-(api|pub|private|access|signing)/);
   });
 
   test('loads the Appium-injected capsule through the autolinked native module', () => {

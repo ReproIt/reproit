@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 final RegExp _secret = RegExp(
-  r'password|passwd|secret|token|authorization|cookie|email|phone',
+  r'password|passwd|secret|token|authorization|cookie|email|phone|api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|access[-_. ]?key|signing[-_. ]?key',
   caseSensitive: false,
 );
 

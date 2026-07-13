@@ -1,15 +1,15 @@
 type AnyMap = Record<string, any>;
-const SECRET = /password|passwd|secret|token|authorization|cookie|email|phone/i;
+const SECRET = /password|passwd|secret|token|authorization|cookie|email|phone|api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|access[-_. ]?key|signing[-_. ]?key/i;
 
-function redact(value: any): any {
-  if (Array.isArray(value)) return value.map(redact);
+export function redactCausal(value: any): any {
+  if (Array.isArray(value)) return value.map(redactCausal);
   if (value && typeof value === "object") {
     const out: AnyMap = {};
     for (const key of Object.keys(value).sort()) {
       const child = value[key];
       out[key] = SECRET.test(key)
         ? `<reproit:${typeof child === "string" ? `string:length=${[...child].length}` : typeof child}>`
-        : redact(child);
+        : redactCausal(child);
     }
     return out;
   }
@@ -78,11 +78,11 @@ export function installCausalFetch(excludePrefix?: string | null): () => void {
     let responseBody: any;
     try {
       responseBody = /json/i.test(response.headers.get("content-type") || "")
-        ? redact(await response.clone().json()) : "<reproit:body>";
+        ? redactCausal(await response.clone().json()) : "<reproit:body>";
     } catch { responseBody = "<reproit:invalid-json>"; }
     let requestBody: any;
     if (typeof init.body === "string") {
-      try { requestBody = redact(JSON.parse(init.body)); }
+      try { requestBody = redactCausal(JSON.parse(init.body)); }
       catch { requestBody = `<reproit:body:length=${init.body.length}>`; }
     }
     const headers: AnyMap = {};

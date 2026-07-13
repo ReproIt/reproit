@@ -884,15 +884,33 @@ function log(line) {
   process.stdout.write(line + '\n');
 }
 
-const SECRET_FIELD_RE = /password|passwd|secret|token|authorization|cookie|email|phone/i;
+const SECRET_FIELD_NAMES = [
+  'password', 'passwd', 'secret', 'token', 'authorization', 'cookie', 'email', 'phone',
+  'apikey', 'publishablekey', 'privatekey', 'accesskey', 'signingkey', 'idempotencykey',
+];
+function secretFieldName(name) {
+  const canonical = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SECRET_FIELD_NAMES.some((part) => canonical.includes(part));
+}
+function redactedMetadata(value) {
+  let type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  if (type === 'object') type = 'object';
+  const length = type === 'string' ? [...value].length : type === 'array' ? value.length : undefined;
+  return { $reproit: { redacted: true, type, ...(length == null ? {} : { length }) } };
+}
+function isRedactedMetadata(value) {
+  const meta = value && typeof value === 'object' && value.$reproit;
+  return meta && meta.redacted === true && typeof meta.type === 'string';
+}
 export function redactNetworkValue(value) {
+  if (isRedactedMetadata(value)) return value;
   if (Array.isArray(value)) return value.map(redactNetworkValue);
   if (value && typeof value === 'object') {
     const out = {};
     for (const key of Object.keys(value).sort()) {
       const child = value[key];
-      out[key] = SECRET_FIELD_RE.test(key)
-        ? `<reproit:${typeof child === 'string' ? `string:length=${[...child].length}` : typeof child}>`
+      out[key] = secretFieldName(key)
+        ? redactedMetadata(child)
         : redactNetworkValue(child);
     }
     return out;
@@ -904,7 +922,7 @@ export function redactNetworkHeaders(headers) {
   for (const key of Object.keys(headers || {}).sort()) {
     out[key] = key.toLowerCase() === 'x-reproit-events'
       ? '<reproit:backend-events>'
-      : SECRET_FIELD_RE.test(key) ? '<reproit:secret>' : String(headers[key]);
+      : secretFieldName(key) ? '<reproit:secret>' : String(headers[key]);
   }
   return out;
 }

@@ -1,0 +1,68 @@
+enabled: true
+origins: []
+schemas:
+  - validation/backend/cloud-openapi.yaml
+operations:
+  - id: cloudCreateProject
+    authority: declared
+    tenantIsolated: true
+    promisedEffects:
+      - kind: write
+        resource: projects
+        atLeast: 1
+        atMost: 1
+      - kind: write
+        resource: api-keys
+        atLeast: 2
+        atMost: 2
+  - id: cloudIngestEvents
+    authority: declared
+    idempotent: true
+    tenantIsolated: true
+  - id: cloudRecordReplay
+    authority: declared
+    tenantIsolated: true
+    promisedEffects:
+      - kind: write
+        resource: replay-results
+        atLeast: 1
+        atMost: 1
+programs:
+  - language: rust
+    build: reproit-cloud-local
+    functions:
+      - id: auth::create_project
+        name: create_project
+        source: ../reproit-cloud/src/auth/mod.rs
+        operation: cloudCreateProject
+        calls:
+          - tenant::create_project
+          - control::create_api_key
+        effects:
+          - kind: write
+            resource: projects
+          - kind: write
+            resource: api-keys
+        authority: inferred
+      - id: ingest::post_events
+        name: post_events
+        source: ../reproit-cloud/src/ingest/mod.rs
+        operation: cloudIngestEvents
+        calls:
+          - tenant::ingest_batch
+        effects:
+          - kind: write
+            resource: edges
+          - kind: write
+            resource: errors
+        authority: inferred
+      - id: ingest::post_replay_results
+        name: post_replay_results
+        source: ../reproit-cloud/src/ingest/mod.rs
+        operation: cloudRecordReplay
+        calls:
+          - tenant::add_replay_result
+        effects:
+          - kind: write
+            resource: replay-results
+        authority: inferred

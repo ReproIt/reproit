@@ -25,10 +25,14 @@ void main() {
     final lines = <String>[];
     await runZoned(
       () async {
-        final client = ReproItCausalClient(actionIndex: () => 1, inner: _FakeClient());
+        final client =
+            ReproItCausalClient(actionIndex: () => 1, inner: _FakeClient());
         final response = await client.post(
           Uri.parse('https://app.test/feed'),
-          headers: {'authorization': 'Bearer raw', 'content-type': 'application/json'},
+          headers: {
+            'authorization': 'Bearer raw',
+            'content-type': 'application/json'
+          },
           body: jsonEncode({'token': 'raw', 'query': 'ok'}),
         );
         expect(response.statusCode, 200);
@@ -37,24 +41,36 @@ void main() {
         print: (_, __, ___, line) => lines.add(line),
       ),
     );
-    final marker = lines.firstWhere((line) => line.startsWith('REPROIT:EXCHANGE '));
+    final marker =
+        lines.firstWhere((line) => line.startsWith('REPROIT:EXCHANGE '));
     final exchange = jsonDecode(marker.substring('REPROIT:EXCHANGE '.length));
     expect(exchange['requestHeaders']['authorization'], '<reproit:secret>');
     expect(exchange['requestBody']['token'], '<reproit:string:length=3>');
-    expect(exchange['responseBody']['profile']['email'], '<reproit:string:length=13>');
+    expect(exchange['responseBody']['profile']['email'],
+        '<reproit:string:length=13>');
   });
 
   test('replay matches exactly and blocks a missing request', () async {
     final replay = <Map<String, dynamic>>[
       {
-        'id': 'a-0-0', 'actor': 'a', 'actionIndex': 0, 'ordinal': 0,
-        'protocol': 'https', 'method': 'GET', 'url': 'https://app.test/config',
-        'status': 200, 'responseHeaders': {'content-type': 'application/json'},
-        'responseBody': {'enabled': true}, 'required': true,
+        'id': 'a-0-0',
+        'actor': 'a',
+        'actionIndex': 0,
+        'ordinal': 0,
+        'protocol': 'https',
+        'method': 'GET',
+        'url': 'https://app.test/config',
+        'status': 200,
+        'responseHeaders': {'content-type': 'application/json'},
+        'responseBody': {'enabled': true},
+        'required': true,
       }
     ];
     final client = ReproItCausalClient(actionIndex: () => 0, replay: replay);
-    expect(jsonDecode((await client.get(Uri.parse('https://app.test/config'))).body), {'enabled': true});
+    expect(
+        jsonDecode(
+            (await client.get(Uri.parse('https://app.test/config'))).body),
+        {'enabled': true});
     expect(
       () => client.get(Uri.parse('https://app.test/other')),
       throwsA(isA<StateError>()),
@@ -62,9 +78,29 @@ void main() {
   });
 
   test('redaction is structural', () {
-    expect(redactCausal({'phone': '123', 'nested': {'ok': 1}}), {
+    final safe = redactCausal({
+      'phone': '123',
+      'apiKey': 'raw-api',
+      'publishable-key': 'raw-pub',
+      'private_key': 'raw-private',
+      'access.key': 'raw-access',
+      'signing key': 'raw-signing',
+      'keyboardLayout': 'dvorak',
+      'key': 'ordinary',
+      'nested': {'ok': 1}
+    });
+    expect(safe, {
+      'access.key': '<reproit:string:length=10>',
+      'apiKey': '<reproit:string:length=7>',
+      'key': 'ordinary',
+      'keyboardLayout': 'dvorak',
       'nested': {'ok': 1},
       'phone': '<reproit:string:length=3>',
+      'private_key': '<reproit:string:length=11>',
+      'publishable-key': '<reproit:string:length=7>',
+      'signing key': '<reproit:string:length=11>',
     });
+    expect(jsonEncode(safe),
+        isNot(contains(RegExp(r'raw-(api|pub|private|access|signing)'))));
   });
 }

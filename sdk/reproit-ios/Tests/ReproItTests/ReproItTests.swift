@@ -1050,4 +1050,18 @@ final class ReproItTests: XCTestCase {
         wait(for: [miss], timeout: 2)
         session.invalidateAndCancel()
     }
+
+    func testCausalExplicitSecretKeysDoNotHideOrdinaryKeys() throws {
+        let safe = ReproItCausalURLProtocol.redact([
+            "apiKey": "raw-api", "publishable-key": "raw-pub", "private_key": "raw-private",
+            "access.key": "raw-access", "signing key": "raw-signing",
+            "keyboardLayout": "dvorak", "key": "ordinary",
+        ]) as! [String: Any]
+        XCTAssertEqual(safe["keyboardLayout"] as? String, "dvorak")
+        XCTAssertEqual(safe["key"] as? String, "ordinary")
+        let encoded = String(decoding: try JSONSerialization.data(withJSONObject: safe), as: UTF8.self)
+        for raw in ["raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing"] {
+            XCTAssertFalse(encoded.contains(raw), "raw secret survived: \(raw)")
+        }
+    }
 }

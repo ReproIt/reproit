@@ -1,0 +1,30 @@
+{
+  "file": [
+    {
+      "package": "dogfood.v1",
+      "messageType": [
+        { "name": "GetRequest", "field": [] },
+        {
+          "name": "Counter",
+          "field": [
+            { "name": "total", "type": "TYPE_INT64" },
+            { "name": "unsignedTotal", "type": "TYPE_UINT64" },
+            { "name": "samples", "type": "TYPE_SINT64", "label": "LABEL_REPEATED" }
+          ]
+        }
+      ],
+      "service": [
+        {
+          "name": "Counters",
+          "method": [
+            {
+              "name": "Get",
+              "inputType": ".dogfood.v1.GetRequest",
+              "outputType": ".dogfood.v1.Counter"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

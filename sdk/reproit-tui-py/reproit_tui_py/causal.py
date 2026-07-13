@@ -7,7 +7,12 @@ import re
 import urllib.request
 import urllib.parse
 
-_SECRET = re.compile(r"password|passwd|secret|token|authorization|cookie|email|phone", re.I)
+_SECRET = re.compile(
+    r"password|passwd|secret|token|authorization|cookie|email|phone|"
+    r"api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|"
+    r"access[-_. ]?key|signing[-_. ]?key",
+    re.I,
+)
 
 
 def _redact(value):

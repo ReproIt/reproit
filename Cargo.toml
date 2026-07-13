@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/llm", "crates/reproit", "crates/tui-sig", "sdk/reproit-tui-rs"]
+members = ["crates/llm", "crates/reproit", "crates/tui-sig", "sdk/reproit-backend-rs", "sdk/reproit-tui-rs"]
 
 [workspace.package]
 license = "Apache-2.0"

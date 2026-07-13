@@ -192,7 +192,11 @@ impl CausalTransport {
 }
 
 fn secret_rs(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
+    let key: String = key
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|ch| !matches!(ch, '-' | '_' | '.' | ' '))
+        .collect();
     [
         "password",
         "passwd",
@@ -202,6 +206,11 @@ fn secret_rs(key: &str) -> bool {
         "cookie",
         "email",
         "phone",
+        "apikey",
+        "publishablekey",
+        "privatekey",
+        "accesskey",
+        "signingkey",
     ]
     .iter()
     .any(|needle| key.contains(needle))
@@ -734,5 +743,26 @@ mod tests {
             std::env::remove_var(key);
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn explicit_secret_keys_redact_without_hiding_ordinary_keys() {
+        let safe = redact_rs(serde_json::json!({
+            "apiKey":"raw-api", "publishable-key":"raw-pub", "private_key":"raw-private",
+            "access.key":"raw-access", "signing key":"raw-signing",
+            "keyboardLayout":"dvorak", "key":"ordinary"
+        }));
+        assert_eq!(safe["keyboardLayout"], "dvorak");
+        assert_eq!(safe["key"], "ordinary");
+        let encoded = safe.to_string();
+        for raw in [
+            "raw-api",
+            "raw-pub",
+            "raw-private",
+            "raw-access",
+            "raw-signing",
+        ] {
+            assert!(!encoded.contains(raw), "raw secret survived: {raw}");
+        }
     }
 }

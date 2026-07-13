@@ -21,7 +21,7 @@ namespace ReproIt.Windows
     public sealed class ReproItCausalHandler : DelegatingHandler
     {
         private static readonly Regex Secret = new Regex(
-            "password|passwd|secret|token|authorization|cookie|email|phone",
+            "password|passwd|secret|token|authorization|cookie|email|phone|api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|access[-_. ]?key|signing[-_. ]?key",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private readonly object _gate = new object();
         private readonly string _networkPath = Environment.GetEnvironmentVariable("REPROIT_NETWORK_FILE");

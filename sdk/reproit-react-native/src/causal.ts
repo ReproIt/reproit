@@ -18,7 +18,7 @@ export function nativeCausalCapsule(): { exchanges?: CausalExchange[] } | undefi
   } catch { return undefined; }
 }
 
-const SECRET = /password|passwd|secret|token|authorization|cookie|email|phone/i;
+const SECRET = /password|passwd|secret|token|authorization|cookie|email|phone|api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|access[-_. ]?key|signing[-_. ]?key/i;
 
 function canonicalUrl(raw: string): string {
   try {

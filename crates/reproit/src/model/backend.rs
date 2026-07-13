@@ -58,6 +58,9 @@ impl BackendConfig {
                     if declared.output.is_none() {
                         declared.output = imported.output;
                     }
+                    declared
+                        .outputs_by_status
+                        .extend(imported.outputs_by_status);
                     declared.success_statuses.extend(imported.success_statuses);
                     declared.success_statuses.sort_unstable();
                     declared.success_statuses.dedup();
@@ -94,6 +97,8 @@ pub struct OperationContract {
     pub input: Option<ValueDomain>,
     #[serde(default)]
     pub output: Option<ValueDomain>,
+    #[serde(default)]
+    pub outputs_by_status: BTreeMap<u16, ValueDomain>,
     #[serde(default)]
     pub success_statuses: Vec<u16>,
     #[serde(default)]
@@ -186,6 +191,12 @@ pub enum ValueDomain {
         #[serde(default)]
         max: Option<i64>,
     },
+    /// Canonical ProtoJSON represents 64-bit integer families as decimal
+    /// strings. Safe-range JSON integers are also accepted for native adapters;
+    /// imprecise IEEE-754-sized numeric evidence is not.
+    ProtoInteger64 {
+        signed: bool,
+    },
     Number,
     String {
         #[serde(default)]
@@ -219,6 +230,9 @@ pub enum ValueDomain {
     OneOf {
         variants: Vec<ValueDomain>,
     },
+    GraphqlAbstract {
+        variants: BTreeMap<String, ValueDomain>,
+    },
     Literal {
         value: Value,
     },
@@ -233,6 +247,9 @@ fn default_true() -> bool {
 
 impl ValueDomain {
     pub fn mismatch(&self, value: &Value, path: &str) -> Option<String> {
+        if let Some(metadata) = redacted_metadata(value) {
+            return self.redacted_mismatch(metadata, path);
+        }
         match self {
             Self::Any => None,
             Self::Null => (!value.is_null()).then(|| format!("{path} must be null")),
@@ -257,6 +274,32 @@ impl ValueDomain {
                 } else {
                     Some(format!("{path} must be an integer"))
                 }
+            }
+            Self::ProtoInteger64 { signed } => {
+                const MAX_SAFE: u64 = 9_007_199_254_740_991;
+                let canonical = |text: &str, signed: bool| {
+                    let digits = text.strip_prefix('-').unwrap_or(text);
+                    !digits.is_empty()
+                        && digits.bytes().all(|byte| byte.is_ascii_digit())
+                        && (digits == "0" || !digits.starts_with('0'))
+                        && (!text.starts_with('-') || (signed && digits != "0"))
+                };
+                let valid = if let Some(text) = value.as_str() {
+                    canonical(text, *signed)
+                        && if *signed {
+                            text.parse::<i64>().is_ok()
+                        } else {
+                            text.parse::<u64>().is_ok()
+                        }
+                } else if *signed {
+                    value
+                        .as_i64()
+                        .is_some_and(|number| number.unsigned_abs() <= MAX_SAFE)
+                        || value.as_u64().is_some_and(|number| number <= MAX_SAFE)
+                } else {
+                    value.as_u64().is_some_and(|number| number <= MAX_SAFE)
+                };
+                (!valid).then(|| format!("{path} must be an exact 64-bit ProtoJSON integer"))
             }
             Self::Number => (!value.is_number()).then(|| format!("{path} must be a number")),
             Self::String {
@@ -348,6 +391,12 @@ impl ValueDomain {
                 .iter()
                 .all(|variant| variant.mismatch(value, path).is_some())
                 .then(|| format!("{path} does not match any allowed variant")),
+            Self::GraphqlAbstract { variants } => {
+                let kind = value.get("__typename").and_then(Value::as_str)?;
+                variants
+                    .get(kind)
+                    .and_then(|variant| variant.mismatch(value, path))
+            }
             Self::Literal { value: expected } => {
                 (value != expected).then(|| format!("{path} does not equal its declared literal"))
             }
@@ -355,6 +404,91 @@ impl ValueDomain {
                 .then(|| format!("{path} must be a resource identifier")),
         }
     }
+
+    fn redacted_mismatch(&self, metadata: RedactedMetadata, path: &str) -> Option<String> {
+        let wrong_type = |expected: &str| {
+            (metadata.kind != expected).then(|| format!("{path} must be {expected}"))
+        };
+        match self {
+            Self::Any => None,
+            Self::Null => wrong_type("null"),
+            Self::Boolean => wrong_type("boolean"),
+            Self::Integer { .. } => wrong_type("integer"),
+            Self::ProtoInteger64 { .. } => (!matches!(metadata.kind, "string" | "integer"))
+                .then(|| format!("{path} must be an exact 64-bit ProtoJSON integer")),
+            Self::Number => (!matches!(metadata.kind, "integer" | "number"))
+                .then(|| format!("{path} must be a number")),
+            Self::String {
+                min_length,
+                max_length,
+                ..
+            } => {
+                if let Some(reason) = wrong_type("string") {
+                    return Some(reason);
+                }
+                if min_length.is_some_and(|minimum| metadata.length.is_none_or(|n| n < minimum)) {
+                    Some(format!("{path} is shorter than its minimum"))
+                } else if max_length
+                    .is_some_and(|maximum| metadata.length.is_none_or(|n| n > maximum))
+                {
+                    Some(format!("{path} is longer than its maximum"))
+                } else {
+                    // Pattern, enum, and format require content. A redacted value
+                    // proves its type and length only, never those constraints.
+                    None
+                }
+            }
+            Self::Array {
+                min_items,
+                max_items,
+                ..
+            } => {
+                if let Some(reason) = wrong_type("array") {
+                    return Some(reason);
+                }
+                if min_items.is_some_and(|minimum| metadata.length.is_none_or(|n| n < minimum)) {
+                    Some(format!("{path} has too few items"))
+                } else if max_items
+                    .is_some_and(|maximum| metadata.length.is_none_or(|n| n > maximum))
+                {
+                    Some(format!("{path} has too many items"))
+                } else {
+                    None
+                }
+            }
+            Self::Object { .. } => wrong_type("object"),
+            Self::OneOf { variants } => variants
+                .iter()
+                .all(|variant| variant.redacted_mismatch(metadata, path).is_some())
+                .then(|| format!("{path} does not match any allowed variant")),
+            Self::GraphqlAbstract { .. } => wrong_type("object"),
+            // The literal value and a resource's exact identity are intentionally
+            // unavailable after redaction. Retain only safe type evidence.
+            Self::Literal { .. } => None,
+            Self::Resource { .. } => (!matches!(metadata.kind, "string" | "integer" | "number"))
+                .then(|| format!("{path} must be a resource identifier")),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RedactedMetadata<'a> {
+    kind: &'a str,
+    length: Option<usize>,
+}
+
+fn redacted_metadata(value: &Value) -> Option<RedactedMetadata<'_>> {
+    let metadata = value.get("$reproit")?.as_object()?;
+    if metadata.get("redacted").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    Some(RedactedMetadata {
+        kind: metadata.get("type")?.as_str()?,
+        length: metadata
+            .get("length")
+            .and_then(Value::as_u64)
+            .map(|length| length as usize),
+    })
 }
 
 fn matches_format(format: &str, value: &str) -> bool {
@@ -423,8 +557,22 @@ pub struct BackendEvent {
     pub tenant: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
+    /// GraphQL response keys selected by this exact invocation. `schemaPath`
+    /// uses schema field names while `responsePath` uses aliases as returned.
+    /// Empty for non-GraphQL operations and for adapters without parser proof.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selections: Vec<GraphqlSelection>,
     #[serde(flatten)]
     pub event: BackendEventKind,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GraphqlSelection {
+    pub schema_path: String,
+    pub response_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_condition: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -655,6 +803,26 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
         let Some(returned) = &invocation.returned else {
             continue;
         };
+        if returned.success
+            && !contract.success_statuses.is_empty()
+            && returned
+                .status
+                .is_none_or(|status| !contract.success_statuses.contains(&status))
+        {
+            violations.push(violation(
+                contract,
+                returned.event,
+                "response-status",
+                format!(
+                    "operation reported successful status {} outside its declared success statuses {:?}",
+                    returned
+                        .status
+                        .map_or_else(|| "missing".into(), |status| status.to_string()),
+                    contract.success_statuses
+                ),
+            ));
+            continue;
+        }
         if !contract.is_success(returned) {
             continue;
         }
@@ -668,12 +836,25 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
                 ));
             }
         }
-        if let Some(domain) = &contract.output {
+        let output_domain = returned
+            .status
+            .and_then(|status| contract.outputs_by_status.get(&status))
+            .or(contract.output.as_ref());
+        if let Some(domain) = output_domain {
             if let Some(reason) = domain.mismatch(returned.output, "$output") {
                 violations.push(violation(
                     contract,
                     returned.event,
                     "response-shape",
+                    reason,
+                ));
+            } else if let Some(reason) =
+                selection_mismatch(domain, returned.output, &returned.event.selections)
+            {
+                violations.push(violation(
+                    contract,
+                    returned.event,
+                    "response-selection",
                     reason,
                 ));
             }
@@ -754,6 +935,165 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
     violations.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
     violations.dedup_by(|a, b| a.fingerprint == b.fingerprint);
     violations
+}
+
+fn selection_mismatch(
+    domain: &ValueDomain,
+    output: &Value,
+    selections: &[GraphqlSelection],
+) -> Option<String> {
+    for selection in selections {
+        let schema = normalized_selection_path(&selection.schema_path)?;
+        let response = normalized_selection_path(&selection.response_path)?;
+        if schema.len() != response.len() {
+            continue;
+        }
+        if let Some(reason) = selected_path_mismatch(
+            domain,
+            output,
+            &schema,
+            &response,
+            "$output",
+            selection.type_condition.as_deref(),
+        ) {
+            return Some(reason);
+        }
+    }
+    None
+}
+
+fn normalized_selection_path(path: &str) -> Option<Vec<(String, bool)>> {
+    let name = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").ok()?;
+    let mut out = Vec::new();
+    for raw in path.split('.') {
+        let (raw, array) = raw
+            .strip_suffix("[]")
+            .map_or((raw, false), |field| (field, true));
+        if !name.is_match(raw) {
+            return None;
+        }
+        out.push((raw.to_string(), array));
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn selected_path_mismatch(
+    domain: &ValueDomain,
+    value: &Value,
+    schema: &[(String, bool)],
+    response: &[(String, bool)],
+    path: &str,
+    type_condition: Option<&str>,
+) -> Option<String> {
+    if value.is_null() && domain.mismatch(value, path).is_none() {
+        return None;
+    }
+    if let Some(condition) = type_condition {
+        if graphql_abstract_has_variant(domain, condition)
+            && value.get("__typename").and_then(Value::as_str) != Some(condition)
+        {
+            // A conditional fragment only promises fields for the matching
+            // concrete object. Missing or different runtime type evidence is
+            // not enough to make a hard selected-field claim.
+            return None;
+        }
+    }
+    let domain = concrete_domain(domain, value)?;
+    if let ValueDomain::Array { items, .. } = domain {
+        let values = value.as_array()?;
+        return values.iter().enumerate().find_map(|(index, item)| {
+            selected_path_mismatch(
+                items,
+                item,
+                schema,
+                response,
+                &format!("{path}[{index}]"),
+                type_condition,
+            )
+        });
+    }
+    let ValueDomain::Object { properties, .. } = domain else {
+        return None;
+    };
+    let ((schema_name, schema_array), schema_rest) = schema.split_first()?;
+    let ((response_name, response_array), response_rest) = response.split_first()?;
+    if schema_array != response_array {
+        return None;
+    }
+    let field_domain = properties.get(schema_name)?;
+    let object = value.as_object()?;
+    let Some(field_value) = object.get(response_name) else {
+        return Some(format!(
+            "{path}.{response_name} was selected by the GraphQL operation but is absent"
+        ));
+    };
+    let field_path = format!("{path}.{response_name}");
+    if *schema_array {
+        let array_domain = concrete_domain(field_domain, field_value)?;
+        let ValueDomain::Array { items, .. } = array_domain else {
+            return field_domain.mismatch(field_value, &field_path);
+        };
+        let Some(values) = field_value.as_array() else {
+            return field_domain.mismatch(field_value, &field_path);
+        };
+        if schema_rest.is_empty() {
+            return field_domain.mismatch(field_value, &field_path);
+        }
+        return values.iter().enumerate().find_map(|(index, item)| {
+            selected_path_mismatch(
+                items,
+                item,
+                schema_rest,
+                response_rest,
+                &format!("{field_path}[{index}]"),
+                type_condition,
+            )
+        });
+    }
+    if schema_rest.is_empty() {
+        field_domain.mismatch(field_value, &field_path)
+    } else {
+        selected_path_mismatch(
+            field_domain,
+            field_value,
+            schema_rest,
+            response_rest,
+            &field_path,
+            type_condition,
+        )
+    }
+}
+
+fn graphql_abstract_has_variant(domain: &ValueDomain, condition: &str) -> bool {
+    match domain {
+        ValueDomain::OneOf { variants } => variants
+            .iter()
+            .any(|variant| graphql_abstract_has_variant(variant, condition)),
+        ValueDomain::GraphqlAbstract { variants } => variants.contains_key(condition),
+        _ => false,
+    }
+}
+
+fn concrete_domain<'a>(domain: &'a ValueDomain, value: &Value) -> Option<&'a ValueDomain> {
+    match domain {
+        ValueDomain::OneOf { variants } => variants
+            .iter()
+            .find(|variant| {
+                !matches!(variant, ValueDomain::Null) && variant.mismatch(value, "$value").is_none()
+            })
+            .or_else(|| {
+                variants
+                    .iter()
+                    .find(|variant| !matches!(variant, ValueDomain::Null))
+            })
+            .and_then(|variant| concrete_domain(variant, value)),
+        ValueDomain::GraphqlAbstract { variants } => value
+            .get("__typename")
+            .and_then(Value::as_str)
+            .and_then(|kind| variants.get(kind))
+            .and_then(|variant| concrete_domain(variant, value)),
+        _ => Some(domain),
+    }
 }
 
 /// A correct idempotent retry commonly returns the original success without
@@ -1275,11 +1615,13 @@ pub fn import_openapi(document: &Value) -> Vec<OperationContract> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("{} {}", method.to_ascii_uppercase(), path));
-            let input = operation
-                .pointer("/requestBody/content/application~1json/schema")
-                .and_then(|schema| schema_domain(schema, document));
+            let body = operation
+                .pointer("/requestBody/content")
+                .and_then(Value::as_object)
+                .and_then(|content| safe_content_domain(content, document, false));
+            let input = openapi_input(path_item, operation, body, document);
             let mut success_statuses = Vec::new();
-            let mut output = None;
+            let mut outputs_by_status = BTreeMap::new();
             if let Some(responses) = operation.get("responses").and_then(Value::as_object) {
                 for (status, response) in responses {
                     let Some(code) = status.parse::<u16>().ok() else {
@@ -1287,19 +1629,29 @@ pub fn import_openapi(document: &Value) -> Vec<OperationContract> {
                     };
                     if (200..400).contains(&code) {
                         success_statuses.push(code);
-                        if output.is_none() {
-                            output = response
-                                .pointer("/content/application~1json/schema")
-                                .and_then(|schema| schema_domain(schema, document));
+                        if let Some(domain) = response
+                            .get("content")
+                            .and_then(Value::as_object)
+                            .and_then(|content| safe_content_domain(content, document, true))
+                        {
+                            outputs_by_status.insert(code, domain);
                         }
                     }
                 }
             }
+            let output = match outputs_by_status.len() {
+                0 => None,
+                1 => outputs_by_status.values().next().cloned(),
+                _ => Some(ValueDomain::OneOf {
+                    variants: outputs_by_status.values().cloned().collect(),
+                }),
+            };
             operations.push(OperationContract {
                 id,
                 authority: Authority::Schema,
                 input,
                 output,
+                outputs_by_status,
                 success_statuses,
                 read_only: matches!(method.as_str(), "get" | "head" | "options"),
                 idempotent: matches!(
@@ -1312,6 +1664,145 @@ pub fn import_openapi(document: &Value) -> Vec<OperationContract> {
         }
     }
     operations
+}
+
+/// Import only encodings whose decoded value is structurally unambiguous.
+/// JSON (including vendor `+json`) carries the complete JSON domain. Plain text
+/// is safe only for a string schema, and form-urlencoded is safe only for an
+/// object schema. XML, multipart, and binary bodies remain guidance-free until
+/// an adapter can prove their decoded structure.
+fn safe_content_domain(
+    content: &serde_json::Map<String, Value>,
+    document: &Value,
+    response: bool,
+) -> Option<ValueDomain> {
+    let mut domains = Vec::new();
+    for (media_type, media) in content {
+        let media_type = media_type
+            .split(';')
+            .next()
+            .unwrap_or(media_type)
+            .trim()
+            .to_ascii_lowercase();
+        let Some(domain) = media
+            .get("schema")
+            .and_then(|schema| schema_domain(schema, document))
+        else {
+            continue;
+        };
+        let safe = media_type == "application/json"
+            || media_type.ends_with("+json")
+            || (media_type == "text/plain" && matches!(&domain, ValueDomain::String { .. }))
+            || (!response
+                && media_type == "application/x-www-form-urlencoded"
+                && matches!(&domain, ValueDomain::Object { .. }));
+        if safe {
+            domains.push(domain);
+        }
+    }
+    match domains.len() {
+        0 => None,
+        1 => domains.pop(),
+        _ => Some(ValueDomain::OneOf { variants: domains }),
+    }
+}
+
+fn openapi_input(
+    path_item: &Value,
+    operation: &Value,
+    body: Option<ValueDomain>,
+    document: &Value,
+) -> Option<ValueDomain> {
+    let mut groups = BTreeMap::<String, ValueDomain>::new();
+    let mut required_groups = BTreeSet::new();
+    let parameters = path_item
+        .get("parameters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .chain(
+            operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        );
+    let mut fields = BTreeMap::<String, (BTreeMap<String, ValueDomain>, BTreeSet<String>)>::new();
+    for raw in parameters {
+        let parameter = resolve_local_ref(raw, document).unwrap_or(raw);
+        let Some(location) = parameter.get("in").and_then(Value::as_str) else {
+            continue;
+        };
+        // Cookie values are secrets by default. Object/deepObject serialization
+        // is not canonical across clients, so neither can be exact evidence.
+        if !matches!(location, "path" | "query" | "header")
+            || parameter.get("content").is_some()
+            || parameter.get("style").and_then(Value::as_str) == Some("deepObject")
+        {
+            continue;
+        }
+        let Some(name) = parameter.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(domain) = parameter
+            .get("schema")
+            .and_then(|schema| schema_domain(schema, document))
+        else {
+            continue;
+        };
+        if matches!(&domain, ValueDomain::Object { .. }) {
+            continue;
+        }
+        let group = match location {
+            "path" => "path",
+            "query" => "query",
+            _ => "headers",
+        };
+        let normalized = if location == "header" {
+            name.to_ascii_lowercase()
+        } else {
+            name.to_string()
+        };
+        let entry = fields.entry(group.into()).or_default();
+        entry.0.insert(normalized.clone(), domain);
+        if location == "path" || parameter.get("required").and_then(Value::as_bool) == Some(true) {
+            entry.1.insert(normalized);
+            required_groups.insert(group.into());
+        }
+    }
+    for (group, (properties, required)) in fields {
+        groups.insert(
+            group,
+            ValueDomain::Object {
+                required,
+                properties,
+                additional: true,
+            },
+        );
+    }
+    if groups.is_empty() {
+        return body;
+    }
+    if let Some(body) = body {
+        groups.insert("body".into(), body);
+        if operation
+            .pointer("/requestBody/required")
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            required_groups.insert("body".into());
+        }
+    }
+    Some(ValueDomain::Object {
+        required: required_groups,
+        properties: groups,
+        additional: false,
+    })
+}
+
+fn resolve_local_ref<'a>(value: &'a Value, document: &'a Value) -> Option<&'a Value> {
+    let reference = value.get("$ref")?.as_str()?.strip_prefix('#')?;
+    document.pointer(reference)
 }
 
 fn import_graphql(document: &Value) -> Vec<OperationContract> {
@@ -1366,8 +1857,12 @@ fn import_graphql(document: &Value) -> Vec<OperationContract> {
                 .flatten()
                 .filter_map(|argument| {
                     let name = argument.get("name")?.as_str()?.to_string();
-                    let domain =
-                        graphql_domain(argument.get("type")?, &types, &mut BTreeSet::new())?;
+                    let domain = graphql_domain(
+                        argument.get("type")?,
+                        &types,
+                        &mut BTreeSet::new(),
+                        GraphqlDomainContext::Input,
+                    )?;
                     Some((name, domain, graphql_non_null(argument.get("type")?)))
                 })
                 .collect::<Vec<_>>();
@@ -1387,9 +1882,15 @@ fn import_graphql(document: &Value) -> Vec<OperationContract> {
                 id: id.to_string(),
                 authority: Authority::Schema,
                 input,
-                output: field
-                    .get("type")
-                    .and_then(|value| graphql_domain(value, &types, &mut BTreeSet::new())),
+                output: field.get("type").and_then(|value| {
+                    graphql_domain(
+                        value,
+                        &types,
+                        &mut BTreeSet::new(),
+                        GraphqlDomainContext::Output,
+                    )
+                }),
+                outputs_by_status: BTreeMap::new(),
                 success_statuses: Vec::new(),
                 read_only,
                 idempotent: read_only,
@@ -1405,23 +1906,46 @@ fn graphql_non_null(reference: &Value) -> bool {
     reference.get("kind").and_then(Value::as_str) == Some("NON_NULL")
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GraphqlDomainContext {
+    Input,
+    Output,
+}
+
 fn graphql_domain(
     reference: &Value,
     types: &BTreeMap<&str, &Value>,
     visiting: &mut BTreeSet<String>,
+    context: GraphqlDomainContext,
 ) -> Option<ValueDomain> {
     let kind = reference.get("kind").and_then(Value::as_str)?;
-    if matches!(kind, "NON_NULL" | "LIST") {
-        let inner = graphql_domain(reference.get("ofType")?, types, visiting)?;
-        return Some(if kind == "LIST" {
-            ValueDomain::Array {
-                items: Box::new(inner),
-                min_items: None,
-                max_items: None,
-                unique: false,
-            }
-        } else {
-            inner
+    if kind == "NON_NULL" {
+        return graphql_non_null_domain(reference.get("ofType")?, types, visiting, context);
+    }
+    let domain = graphql_non_null_domain(reference, types, visiting, context)?;
+    Some(ValueDomain::OneOf {
+        variants: vec![ValueDomain::Null, domain],
+    })
+}
+
+fn graphql_non_null_domain(
+    reference: &Value,
+    types: &BTreeMap<&str, &Value>,
+    visiting: &mut BTreeSet<String>,
+    context: GraphqlDomainContext,
+) -> Option<ValueDomain> {
+    let kind = reference.get("kind").and_then(Value::as_str)?;
+    if kind == "LIST" {
+        return Some(ValueDomain::Array {
+            items: Box::new(graphql_domain(
+                reference.get("ofType")?,
+                types,
+                visiting,
+                context,
+            )?),
+            min_items: None,
+            max_items: None,
+            unique: false,
         });
     }
     let name = reference
@@ -1462,6 +1986,22 @@ fn graphql_domain(
                 .map(str::to_string)
                 .collect(),
         }),
+        "INTERFACE" | "UNION" if context == GraphqlDomainContext::Output => {
+            let definition = types.get(name)?;
+            let variants = definition
+                .get("possibleTypes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|possible| {
+                    let possible_name = possible.get("name")?.as_str()?.to_string();
+                    let reference = json!({"kind":"OBJECT","name":possible_name});
+                    let domain = graphql_non_null_domain(&reference, types, visiting, context)?;
+                    Some((possible_name, domain))
+                })
+                .collect::<BTreeMap<_, _>>();
+            Some(ValueDomain::GraphqlAbstract { variants })
+        }
         "OBJECT" | "INPUT_OBJECT" => {
             if !visiting.insert(name.to_string()) {
                 return Some(ValueDomain::Any);
@@ -1487,15 +2027,27 @@ fn graphql_domain(
                 .into_iter()
                 .filter_map(|field| {
                     let field_name = field.get("name")?.as_str()?.to_string();
-                    let domain = graphql_domain(field.get("type")?, types, visiting)?;
+                    let domain = graphql_domain(field.get("type")?, types, visiting, context)?;
                     Some((field_name, domain))
                 })
                 .collect();
             visiting.remove(name);
             Some(ValueDomain::Object {
-                required,
+                // A GraphQL response contains only the client's selection set.
+                // Introspection describes the complete object type, not the
+                // fields selected by this invocation, so requiring every
+                // NON_NULL schema field would reject valid partial responses.
+                // Keep validating selected fields, but leave presence open
+                // until runtime evidence carries a normalized selection set.
+                required: if context == GraphqlDomainContext::Input {
+                    required
+                } else {
+                    BTreeSet::new()
+                },
                 properties,
-                additional: false,
+                // `__typename` is always selectable but is not part of the
+                // ordinary field list returned by introspection.
+                additional: context == GraphqlDomainContext::Output,
             })
         }
         _ => Some(ValueDomain::Any),
@@ -1572,6 +2124,7 @@ fn import_protobuf_descriptor(document: &Value) -> Vec<OperationContract> {
                     authority: Authority::Schema,
                     input,
                     output,
+                    outputs_by_status: BTreeMap::new(),
                     success_statuses: Vec::new(),
                     read_only: false,
                     idempotent: false,
@@ -1610,12 +2163,16 @@ fn protobuf_message_domain(
         let mut domain = match kind {
             "TYPE_BOOL" => ValueDomain::Boolean,
             "TYPE_DOUBLE" | "TYPE_FLOAT" => ValueDomain::Number,
-            "TYPE_INT32" | "TYPE_INT64" | "TYPE_UINT32" | "TYPE_UINT64" | "TYPE_SINT32"
-            | "TYPE_SINT64" | "TYPE_FIXED32" | "TYPE_FIXED64" | "TYPE_SFIXED32"
-            | "TYPE_SFIXED64" => ValueDomain::Integer {
-                min: None,
-                max: None,
-            },
+            "TYPE_INT32" | "TYPE_UINT32" | "TYPE_SINT32" | "TYPE_FIXED32" | "TYPE_SFIXED32" => {
+                ValueDomain::Integer {
+                    min: None,
+                    max: None,
+                }
+            }
+            "TYPE_INT64" | "TYPE_SINT64" | "TYPE_SFIXED64" => {
+                ValueDomain::ProtoInteger64 { signed: true }
+            }
+            "TYPE_UINT64" | "TYPE_FIXED64" => ValueDomain::ProtoInteger64 { signed: false },
             "TYPE_MESSAGE" => field
                 .get("typeName")
                 .or_else(|| field.get("type_name"))
@@ -1800,6 +2357,7 @@ mod tests {
             actor: Some("alice".into()),
             tenant: Some("tenant-a".into()),
             idempotency_key: None,
+            selections: Vec::new(),
             event: kind,
         }
     }
@@ -1823,6 +2381,7 @@ mod tests {
                 )]),
                 additional: true,
             }),
+            outputs_by_status: BTreeMap::new(),
             success_statuses: vec![201],
             read_only: false,
             idempotent: false,
@@ -1912,7 +2471,10 @@ mod tests {
                 "createMessage",
                 BackendEventKind::Return {
                     output: Value::Null,
-                    status: Some(201),
+                    // Even a status outside this inferred operation's imported
+                    // shape is guidance only; inferred facts never become hard
+                    // response-status findings.
+                    status: Some(200),
                     success: true,
                     effects_complete: true,
                 },
@@ -1940,6 +2502,74 @@ mod tests {
             .as_ref()
             .unwrap()
             .mismatch(&json!({}), "$output")
+            .is_some());
+    }
+
+    #[test]
+    fn openapi_imports_exact_parameters_and_only_safe_media() {
+        let document = json!({
+            "openapi":"3.1.0",
+            "paths":{"/projects/{project}/export":{"post":{
+                "operationId":"exportProject",
+                "parameters":[
+                    {"in":"path","name":"project","required":true,"schema":{"type":"string"}},
+                    {"in":"query","name":"limit","required":true,"schema":{"type":"integer","minimum":1}},
+                    {"in":"header","name":"X-Mode","schema":{"type":"string","enum":["safe"]}},
+                    {"in":"cookie","name":"session","required":true,"schema":{"type":"string"}},
+                    {"in":"query","name":"filter","style":"deepObject","schema":{"type":"object","properties":{"x":{"type":"string"}}}}
+                ],
+                "requestBody":{"required":true,"content":{
+                    "application/vnd.reproit+json":{"schema":{"type":"object","required":["format"],"properties":{"format":{"type":"string"}}}},
+                    "application/xml":{"schema":{"type":"object","required":["unsafe"],"properties":{"unsafe":{"type":"string"}}}}
+                }},
+                "responses":{"200":{"content":{
+                    "text/plain":{"schema":{"type":"string"}},
+                    "application/octet-stream":{"schema":{"type":"string"}}
+                }}}
+            }}}
+        });
+        let operation = import_openapi(&document).pop().unwrap();
+        let input = operation.input.unwrap();
+        assert!(input
+            .mismatch(
+                &json!({
+                    "path":{"project":"p1"},
+                    "query":{"limit":1},
+                    "headers":{"x-mode":"safe"},
+                    "body":{"format":"text"}
+                }),
+                "$input"
+            )
+            .is_none());
+        assert!(input
+            .mismatch(
+                &json!({
+                    "path":{}, "query":{"limit":1}, "body":{"format":"text"}
+                }),
+                "$input"
+            )
+            .is_some());
+        assert!(operation
+            .output
+            .unwrap()
+            .mismatch(&json!("ok"), "$output")
+            .is_none());
+    }
+
+    #[test]
+    fn openapi_response_shapes_are_bound_to_the_observed_status() {
+        let document = json!({"openapi":"3.1.0","paths":{"/items":{"post":{
+            "operationId":"createItem","responses":{
+                "200":{"content":{"application/json":{"schema":{"type":"object","required":["existing"],"properties":{"existing":{"type":"boolean"}}}}}},
+                "201":{"content":{"application/json":{"schema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}}}}
+            }
+        }}}});
+        let operation = import_openapi(&document).pop().unwrap();
+        assert!(operation.outputs_by_status[&200]
+            .mismatch(&json!({"existing":true}), "$output")
+            .is_none());
+        assert!(operation.outputs_by_status[&201]
+            .mismatch(&json!({"existing":true}), "$output")
             .is_some());
     }
 
@@ -1980,6 +2610,110 @@ mod tests {
     }
 
     #[test]
+    fn graphql_output_contract_respects_selection_sets_without_losing_type_checks() {
+        // Reduced from the open-source Countries GraphQL API. Both Country
+        // fields are NON_NULL in the schema, but selecting only `code` is a
+        // complete and valid GraphQL response. Until traces carry a normalized
+        // selection set, absence of an unselected field cannot be a finding.
+        let document = json!({"data":{"__schema":{
+            "queryType":{"name":"Query"},
+            "types":[
+                {"kind":"OBJECT","name":"Query","fields":[{
+                    "name":"country",
+                    "args":[{"name":"code","type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String"}}}],
+                    "type":{"kind":"OBJECT","name":"Country"}
+                }]},
+                {"kind":"OBJECT","name":"Country","fields":[
+                    {"name":"code","type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String"}}},
+                    {"name":"awsRegion","type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String"}}}
+                ]}
+            ]
+        }}});
+        let operations = import_service_schema(&document);
+        let country = operations
+            .iter()
+            .find(|operation| operation.id == "country")
+            .unwrap();
+        let input = country.input.as_ref().unwrap();
+        assert!(input.mismatch(&json!({"code":"US"}), "$input").is_none());
+        assert!(input.mismatch(&json!({}), "$input").is_some());
+
+        let output = country.output.as_ref().unwrap();
+        assert!(output.mismatch(&json!({"code":"US"}), "$output").is_none());
+        assert!(output.mismatch(&Value::Null, "$output").is_none());
+        assert_eq!(
+            output.mismatch(&json!({"code": 7}), "$output"),
+            Some("$output does not match any allowed variant".into())
+        );
+        let selected = [GraphqlSelection {
+            schema_path: "awsRegion".into(),
+            response_path: "region".into(),
+            type_condition: None,
+        }];
+        assert!(selection_mismatch(output, &json!({"code":"US"}), &selected)
+            .unwrap()
+            .contains("region was selected"));
+        assert!(selection_mismatch(
+            output,
+            &json!({"code":"US","region":"us-east-2"}),
+            &selected,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn graphql_union_selection_applies_only_to_the_exact_runtime_type() {
+        let document = json!({"data":{"__schema":{
+            "queryType":{"name":"Query"},
+            "types":[
+                {"kind":"OBJECT","name":"Query","fields":[{"name":"search","args":[],"type":{"kind":"UNION","name":"SearchResult"}}]},
+                {"kind":"UNION","name":"SearchResult","possibleTypes":[{"kind":"OBJECT","name":"Human"},{"kind":"OBJECT","name":"Bot"}]},
+                {"kind":"OBJECT","name":"Human","fields":[{"name":"handle","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"String"}}}]},
+                {"kind":"OBJECT","name":"Bot","fields":[{"name":"id","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"ID"}}}]}
+            ]
+        }}});
+        let operation = import_graphql(&document).pop().unwrap();
+        let output = operation.output.unwrap();
+        let selected = [GraphqlSelection {
+            schema_path: "handle".into(),
+            response_path: "name".into(),
+            type_condition: Some("Human".into()),
+        }];
+        assert!(
+            selection_mismatch(&output, &json!({"__typename":"Bot","id":"b1"}), &selected,)
+                .is_none()
+        );
+        assert!(
+            selection_mismatch(&output, &json!({"__typename":"Human"}), &selected,)
+                .unwrap()
+                .contains("name was selected")
+        );
+        assert!(selection_mismatch(
+            &output,
+            &json!({"__typename":"Human","name":"ada"}),
+            &selected,
+        )
+        .is_none());
+
+        let list = ValueDomain::Array {
+            items: Box::new(output.clone()),
+            min_items: None,
+            max_items: None,
+            unique: false,
+        };
+        assert!(selection_mismatch(
+            &list,
+            &json!([
+                {"__typename":"Bot","id":"b1"},
+                {"__typename":"Human","name":7}
+            ]),
+            &selected,
+        )
+        .unwrap()
+        .contains("$output[1].name"));
+    }
+
+    #[test]
     fn imports_protobuf_descriptor_json_as_grpc_operations() {
         let document = json!({"file":[{
             "package":"chat.v1",
@@ -1998,6 +2732,55 @@ mod tests {
             .unwrap()
             .mismatch(&json!({"id":"m1","tags":["a"]}), "$output")
             .is_none());
+    }
+
+    #[test]
+    fn protobuf_64_bit_domains_follow_exact_protojson_encoding() {
+        let signed = ValueDomain::ProtoInteger64 { signed: true };
+        let unsigned = ValueDomain::ProtoInteger64 { signed: false };
+        for value in [
+            json!("-9223372036854775808"),
+            json!("9223372036854775807"),
+            json!(0),
+            json!(9_007_199_254_740_991_i64),
+        ] {
+            assert!(signed.mismatch(&value, "$value").is_none(), "{value}");
+        }
+        for value in [
+            json!("0"),
+            json!("18446744073709551615"),
+            json!(9_007_199_254_740_991_u64),
+        ] {
+            assert!(unsigned.mismatch(&value, "$value").is_none(), "{value}");
+        }
+        for value in [
+            json!("01"),
+            json!("-0"),
+            json!("1.0"),
+            json!("9223372036854775808"),
+            json!(9_007_199_254_740_992_u64),
+        ] {
+            assert!(signed.mismatch(&value, "$value").is_some(), "{value}");
+        }
+        for value in [
+            json!("-1"),
+            json!("18446744073709551616"),
+            json!("0x10"),
+            json!(9_007_199_254_740_992_u64),
+        ] {
+            assert!(unsigned.mismatch(&value, "$value").is_some(), "{value}");
+        }
+
+        let repeated = ValueDomain::Array {
+            items: Box::new(unsigned),
+            min_items: None,
+            max_items: None,
+            unique: false,
+        };
+        assert!(repeated
+            .mismatch(&json!(["0", "18446744073709551615"]), "$values")
+            .is_none());
+        assert!(repeated.mismatch(&json!(["0", "-1"]), "$values").is_some());
     }
 
     #[test]
@@ -2425,6 +3208,29 @@ mod tests {
     }
 
     #[test]
+    fn redacted_metadata_preserves_type_and_length_without_content_claims() {
+        let secret = json!({"$reproit":{"redacted":true,"type":"string","length":8}});
+        let domain = ValueDomain::String {
+            min_length: Some(8),
+            max_length: Some(12),
+            pattern: Some("^visible-content$".into()),
+            format: Some("email".into()),
+            variants: vec!["visible-content".into()],
+        };
+        assert!(domain.mismatch(&secret, "$secret").is_none());
+        let short = json!({"$reproit":{"redacted":true,"type":"string","length":2}});
+        assert_eq!(
+            domain.mismatch(&short, "$secret"),
+            Some("$secret is shorter than its minimum".into())
+        );
+        let wrong = json!({"$reproit":{"redacted":true,"type":"boolean"}});
+        assert_eq!(
+            domain.mismatch(&wrong, "$secret"),
+            Some("$secret must be string".into())
+        );
+    }
+
+    #[test]
     fn marker_parser_is_structural_and_ignores_malformed_noise() {
         let log = concat!(
             "unrelated output\n",
@@ -2484,6 +3290,78 @@ mod tests {
                 include_str!("../../../../validation/backend/broken-duplicate.ndjson"),
                 "excess-effect",
                 4,
+            ),
+        ] {
+            let violations = evaluate(&config, &parse_events(log));
+            assert_eq!(
+                violations.len(),
+                1,
+                "expected {expected}, got {violations:?}"
+            );
+            assert_eq!(violations[0].oracle, expected);
+            assert_eq!(violations[0].action_index, action);
+        }
+    }
+
+    #[test]
+    fn reproit_cloud_schema_and_trace_contracts_catch_json_drift() {
+        let mut config: BackendConfig = serde_yaml::from_str(include_str!(
+            "../../../../validation/backend/cloud-contract.yaml"
+        ))
+        .unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        config.load_schemas(&root).unwrap();
+
+        assert_eq!(config.operations.len(), 5);
+        let project = config
+            .operations
+            .iter()
+            .find(|operation| operation.id == "cloudCreateProject")
+            .unwrap();
+        assert_eq!(project.authority, Authority::Declared);
+        assert_eq!(project.success_statuses, [201]);
+        assert!(project.input.is_some());
+        assert!(project.output.is_some());
+        assert!(project.tenant_isolated);
+
+        let clean = evaluate(
+            &config,
+            &parse_events(include_str!(
+                "../../../../validation/backend/cloud-clean.ndjson"
+            )),
+        );
+        assert!(clean.is_empty(), "cloud clean trace produced {clean:?}");
+        let live_signup = evaluate(
+            &config,
+            &parse_events(include_str!(
+                "../../../../validation/backend/cloud-live-signup-clean.ndjson"
+            )),
+        );
+        assert!(
+            live_signup.is_empty(),
+            "live Cloud signup trace produced {live_signup:?}"
+        );
+
+        for (log, expected, action) in [
+            (
+                include_str!("../../../../validation/backend/cloud-broken-shape.ndjson"),
+                "response-shape",
+                8,
+            ),
+            (
+                include_str!("../../../../validation/backend/cloud-broken-input.ndjson"),
+                "accepted-invalid-input",
+                9,
+            ),
+            (
+                include_str!("../../../../validation/backend/cloud-broken-status.ndjson"),
+                "response-status",
+                10,
+            ),
+            (
+                include_str!("../../../../validation/backend/cloud-live-signup-broken.ndjson"),
+                "response-shape",
+                3,
             ),
         ] {
             let violations = evaluate(&config, &parse_events(log));

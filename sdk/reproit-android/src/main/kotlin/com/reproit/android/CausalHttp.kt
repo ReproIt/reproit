@@ -127,14 +127,28 @@ class CausalHttp {
         return (found as? Number)?.toInt() ?: found?.toString()?.toIntOrNull() ?: 0
     }
 
-    private fun secret(key: String) = listOf("password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone").any { key.contains(it, true) }
-    private fun redactHeaders(headers: Map<String, String>) = headers.mapValues { (key, value) -> if (secret(key)) "<reproit:secret>" else value }
-    private fun redact(value: Any?): Any? = when (value) {
-        is List<*> -> value.map(::redact)
-        is Map<*, *> -> value.entries.associate { (key, child) -> key.toString() to if (secret(key.toString())) typed(child) else redact(child) }
+    private fun redactHeaders(headers: Map<String, String>) = headers.mapValues { (key, value) -> if (causalSecretField(key)) "<reproit:secret>" else value }
+    private fun redact(value: Any?): Any? = redactCausalValue(value)
+    private fun bodyValue(body: ByteArray?, headers: Map<String, String>): Any? {
+        if (body == null || body.isEmpty()) return null
+        val json = headers.entries.any { it.key.equals("content-type", true) && it.value.contains("json", true) }
+        if (!json) return "<reproit:body:length=${body.size}>"
+        return try { redact(Json.decode(body.toString(Charsets.UTF_8))) } catch (_: Throwable) { "<reproit:invalid-json>" }
+    }
+}
+
+internal fun causalSecretField(key: String): Boolean {
+    val compact = key.lowercase(Locale.ROOT).filterNot { it == '-' || it == '_' || it == '.' || it == ' ' }
+    return listOf("password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone", "apikey", "publishablekey", "privatekey", "accesskey", "signingkey").any(compact::contains)
+}
+
+internal fun redactCausalValue(value: Any?): Any? = when (value) {
+        is List<*> -> value.map(::redactCausalValue)
+        is Map<*, *> -> value.entries.associate { (key, child) -> key.toString() to if (causalSecretField(key.toString())) causalTypedValue(child) else redactCausalValue(child) }
         else -> value
     }
-    private fun typed(value: Any?): String = when (value) {
+
+private fun causalTypedValue(value: Any?): String = when (value) {
         null -> "<reproit:null>"
         is String -> "<reproit:string:length=${value.codePointCount(0, value.length)}>"
         is Boolean -> "<reproit:boolean>"
@@ -143,10 +157,3 @@ class CausalHttp {
         is Map<*, *> -> "<reproit:object:keys=${value.size}>"
         else -> "<reproit:unknown>"
     }
-    private fun bodyValue(body: ByteArray?, headers: Map<String, String>): Any? {
-        if (body == null || body.isEmpty()) return null
-        val json = headers.entries.any { it.key.equals("content-type", true) && it.value.contains("json", true) }
-        if (!json) return "<reproit:body:length=${body.size}>"
-        return try { redact(Json.decode(body.toString(Charsets.UTF_8))) } catch (_: Throwable) { "<reproit:invalid-json>" }
-    }
-}

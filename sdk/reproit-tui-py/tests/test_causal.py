@@ -4,7 +4,17 @@ import os
 import tempfile
 import urllib.request
 
-from reproit_tui_py.causal import install_causal_urllib
+from reproit_tui_py.causal import _redact, install_causal_urllib
+
+
+def test_explicit_secret_keys_redact_without_hiding_ordinary_keys():
+    safe = _redact({
+        "apiKey": "raw-api", "publishable-key": "raw-pub", "private_key": "raw-private",
+        "access.key": "raw-access", "signing key": "raw-signing",
+        "keyboardLayout": "dvorak", "key": "ordinary",
+    })
+    assert safe["keyboardLayout"] == "dvorak" and safe["key"] == "ordinary"
+    assert not any(raw in json.dumps(safe) for raw in ["raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing"])
 
 
 class FakeResponse:

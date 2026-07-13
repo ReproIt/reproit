@@ -7,15 +7,29 @@ import { createHash } from 'node:crypto';
 
 let sequence = 0;
 
-const SECRET = /password|passwd|secret|token|authorization|cookie|email|phone|idempotency.?key/i;
+const SECRET_NAMES = [
+  'password', 'passwd', 'secret', 'token', 'authorization', 'cookie', 'email', 'phone',
+  'apikey', 'publishablekey', 'privatekey', 'accesskey', 'signingkey', 'idempotencykey',
+];
+const secretField = (name) => {
+  const canonical = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return SECRET_NAMES.some((part) => canonical.includes(part));
+};
+
+function redactedMetadata(value) {
+  let type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  if (type === 'object') type = 'object';
+  const length = type === 'string' ? [...value].length : type === 'array' ? value.length : undefined;
+  return { $reproit: { redacted: true, type, ...(length == null ? {} : { length }) } };
+}
 
 function redact(value) {
   if (Array.isArray(value)) return value.map(redact);
   if (!value || typeof value !== 'object') return value;
   const out = {};
   for (const [key, child] of Object.entries(value)) {
-    out[key] = SECRET.test(key)
-      ? `<reproit:${typeof child === 'string' ? `string:length=${[...child].length}` : typeof child}>`
+    out[key] = secretField(key)
+      ? redactedMetadata(child)
       : redact(child);
   }
   return out;
@@ -32,6 +46,32 @@ function identity(value) {
   return `sha256:${createHash('sha256').update(String(value)).digest('hex').slice(0, 24)}`;
 }
 
+function normalizeSelections(value) {
+  if (!Array.isArray(value)) return [];
+  const path = /^[A-Za-z_][A-Za-z0-9_]*(?:\[\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)*$/;
+  return value.slice(0, 256).flatMap((selection) => {
+    const schemaPath = String(selection?.schemaPath || '');
+    const responsePath = String(selection?.responsePath || '');
+    const typeCondition = selection?.typeCondition == null ? '' : String(selection.typeCondition);
+    return path.test(schemaPath) && path.test(responsePath)
+      && (!typeCondition || /^[A-Za-z_][A-Za-z0-9_]*$/.test(typeCondition))
+      ? [{ schemaPath, responsePath, ...(typeCondition ? { typeCondition } : {}) }]
+      : [];
+  });
+}
+
+export function backendHttpInput({ body, path = {}, query = {}, headers = {} } = {}) {
+  const sorted = (value, lower = false) => Object.fromEntries(Object.entries(value || {})
+    .map(([key, child]) => [lower ? key.toLowerCase() : key, child])
+    .sort(([a], [b]) => a.localeCompare(b)));
+  return {
+    ...(body === undefined ? {} : { body }),
+    ...(Object.keys(path).length ? { path: sorted(path) } : {}),
+    ...(Object.keys(query).length ? { query: sorted(query) } : {}),
+    ...(Object.keys(headers).length ? { headers: sorted(headers, true) } : {}),
+  };
+}
+
 export function beginBackendTrace(requestHeaders, options) {
   const traceId = header(requestHeaders, 'x-reproit-trace');
   if (!traceId) return null;
@@ -40,6 +80,7 @@ export function beginBackendTrace(requestHeaders, options) {
   const operation = String(options.operation || '').slice(0, 256);
   if (!operation) throw new Error('backend operation is required');
   const spanId = String(options.spanId || `${traceId}:${operation}`).slice(0, 128);
+  const selections = normalizeSelections(options.selections);
   const common = {
     traceId,
     spanId,
@@ -48,6 +89,7 @@ export function beginBackendTrace(requestHeaders, options) {
     ...(actor ? { actor } : {}),
     ...(options.tenant ? { tenant: String(options.tenant) } : {}),
     ...(options.idempotencyKey ? { idempotencyKey: identity(options.idempotencyKey) } : {}),
+    ...(selections.length ? { selections } : {}),
   };
   const events = [{ sequence: ++sequence, ...common, kind: 'start', input: redact(options.input ?? null) }];
   let returned = false;

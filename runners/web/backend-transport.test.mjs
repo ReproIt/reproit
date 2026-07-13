@@ -5,6 +5,7 @@ import {
   decodeBackendEventHeader,
   encodeBackendEventHeader,
   redactNetworkHeaders,
+  redactNetworkValue,
 } from './runner.mjs';
 
 test('correlation is first party, deterministic, and structural', () => {
@@ -66,4 +67,21 @@ test('backend evidence header is never copied into a network capsule', () => {
     'content-type': 'application/json',
     'x-reproit-events': '<reproit:backend-events>',
   });
+});
+
+test('API credential field variants are redacted without hiding harmless key names', () => {
+  const secretFields = {
+    apiKey: 'sk_live_secret',
+    publishable_key: 'pk_live_secret',
+    'private-key': 'private-secret',
+    'access key': 'access-secret',
+    signingKey: 'signing-secret',
+    monkey: 'harmless',
+  };
+  const redacted = redactNetworkValue(secretFields);
+  for (const field of ['apiKey', 'publishable_key', 'private-key', 'access key', 'signingKey']) {
+    assert.equal(redacted[field].$reproit.redacted, true);
+  }
+  assert.equal(redacted.monkey, 'harmless');
+  assert.equal(JSON.stringify(redacted).includes('_secret'), false);
 });

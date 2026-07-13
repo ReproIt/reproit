@@ -3,7 +3,19 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installCausalFetch } from "../causal.ts";
+import { installCausalFetch, redactCausal } from "../causal.ts";
+
+test("explicit key-shaped secrets redact without hiding ordinary keys", () => {
+  const safe = redactCausal({ apiKey: "raw-api", "publishable-key": "raw-pub", private_key: "raw-private",
+    "access.key": "raw-access", "signing key": "raw-signing", keyboardLayout: "dvorak", key: "ordinary" });
+  assert.equal(safe.apiKey, "<reproit:string:length=7>");
+  assert.equal(safe["publishable-key"], "<reproit:string:length=7>");
+  assert.equal(safe.private_key, "<reproit:string:length=11>");
+  assert.equal(safe["access.key"], "<reproit:string:length=10>");
+  assert.equal(safe["signing key"], "<reproit:string:length=11>");
+  assert.equal(safe.keyboardLayout, "dvorak"); assert.equal(safe.key, "ordinary");
+  assert.doesNotMatch(JSON.stringify(safe), /raw-(api|pub|private|access|signing)/);
+});
 
 test("TUI fetch capture uses side files and never the rendered PTY", async () => {
   const dir = mkdtempSync(join(tmpdir(), "reproit-tui-cap-"));

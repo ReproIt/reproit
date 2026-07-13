@@ -5,7 +5,7 @@ const __reproitUsed = new Set();
 let __reproitPriorAction = -1;
 let __reproitOrdinal = 0;
 const __reproitOriginalFetch = window.fetch.bind(window);
-const __reproitSecret = /password|passwd|secret|token|authorization|cookie|email|phone/i;
+const __reproitSecret = /password|passwd|secret|token|authorization|cookie|email|phone|api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|access[-_. ]?key|signing[-_. ]?key/i;
 const __reproitInvoke = (command, args) => window.__TAURI_INTERNALS__.invoke(`plugin:reproit|${command}`, args || {});
 const __reproitRedact = (value) => {
   if (Array.isArray(value)) return value.map(__reproitRedact);

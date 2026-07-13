@@ -41,7 +41,8 @@ type causalRoundTripper struct {
 
 func secretKey(key string) bool {
 	k := strings.ToLower(key)
-	for _, s := range []string{"password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone"} {
+	k = strings.NewReplacer("-", "", "_", "", ".", "", " ", "").Replace(k)
+	for _, s := range []string{"password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone", "apikey", "publishablekey", "privatekey", "accesskey", "signingkey"} {
 		if strings.Contains(k, s) {
 			return true
 		}

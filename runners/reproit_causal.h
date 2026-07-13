@@ -40,10 +40,10 @@ static unsigned reproit_causal_ordinal = 0;
 static char* reproit_causal_capsule = NULL;
 
 static bool reproit_causal_secret(const char* key, size_t n) {
-    static const char* names[] = {"password","passwd","secret","token","authorization","cookie","email","phone"};
+    static const char* names[] = {"password","passwd","secret","token","authorization","cookie","email","phone","apikey","publishablekey","privatekey","accesskey","signingkey"};
     char lower[128]; if (n >= sizeof lower) n = sizeof lower - 1;
-    for (size_t i=0;i<n;i++) lower[i]=(char)tolower((unsigned char)key[i]);
-    lower[n]=0;
+    size_t w=0; for (size_t i=0;i<n;i++) { char c=(char)tolower((unsigned char)key[i]); if(c!='-'&&c!='_'&&c!='.'&&c!=' ') lower[w++]=c; }
+    lower[w]=0;
     for (size_t i=0;i<sizeof names/sizeof names[0];i++) if (strstr(lower,names[i])) return true;
     return false;
 }

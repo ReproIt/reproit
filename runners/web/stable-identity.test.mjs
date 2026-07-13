@@ -6,7 +6,13 @@ import { snapshot, gtCollect, redactNetworkValue, redactNetworkHeaders } from '.
 test('causal network capture redacts recursively before persistence', () => {
   assert.deepEqual(
     redactNetworkValue({ profile: { email: 'a@example.com', name: 'Ada' }, token: 'raw' }),
-    { profile: { email: '<reproit:string:length=13>', name: 'Ada' }, token: '<reproit:string:length=3>' },
+    {
+      profile: {
+        email: { $reproit: { redacted: true, type: 'string', length: 13 } },
+        name: 'Ada',
+      },
+      token: { $reproit: { redacted: true, type: 'string', length: 3 } },
+    },
   );
   assert.deepEqual(
     redactNetworkHeaders({ authorization: 'Bearer raw', 'content-type': 'application/json' }),

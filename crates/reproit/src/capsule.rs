@@ -695,15 +695,23 @@ pub(crate) fn redact_value(
 }
 
 fn typed_placeholder(value: &Value) -> Value {
-    let kind = match value {
-        Value::Null => "null".into(),
-        Value::Bool(_) => "boolean".into(),
-        Value::Number(_) => "number".into(),
-        Value::String(s) => format!("string:length={}", s.chars().count()),
-        Value::Array(a) => format!("array:length={}", a.len()),
-        Value::Object(o) => format!("object:keys={}", o.len()),
+    if value.pointer("/$reproit/redacted").and_then(Value::as_bool) == Some(true) {
+        return value.clone();
+    }
+    let (kind, length) = match value {
+        Value::Null => ("null", None),
+        Value::Bool(_) => ("boolean", None),
+        Value::Number(number) if number.is_i64() || number.is_u64() => ("integer", None),
+        Value::Number(_) => ("number", None),
+        Value::String(value) => ("string", Some(value.chars().count())),
+        Value::Array(value) => ("array", Some(value.len())),
+        Value::Object(_) => ("object", None),
     };
-    Value::String(format!("<reproit:{kind}>"))
+    serde_json::json!({"$reproit": {
+        "redacted": true,
+        "type": kind,
+        "length": length,
+    }})
 }
 
 #[cfg(test)]
@@ -1021,6 +1029,7 @@ mod tests {
             actor: Some("a".into()),
             tenant: Some("team".into()),
             idempotency_key: Some("payment-retry-secret".into()),
+            selections: Vec::new(),
             event: crate::backend::BackendEventKind::Start {
                 input: json!({"profile":{"email":"a@example.com"}}),
             },
@@ -1032,13 +1041,16 @@ mod tests {
         );
         assert_eq!(
             c.exchanges[0].request_body.as_ref().unwrap()["profile"]["email"],
-            "<reproit:string:length=13>"
+            json!({"$reproit":{"redacted":true,"type":"string","length":13}})
         );
         assert!(c.redactions.contains(&"$request.profile.email".into()));
         let crate::backend::BackendEventKind::Start { input } = &c.backend_events[0].event else {
             panic!("expected start event");
         };
-        assert_eq!(input["profile"]["email"], "<reproit:string:length=13>");
+        assert_eq!(
+            input["profile"]["email"],
+            json!({"$reproit":{"redacted":true,"type":"string","length":13}})
+        );
         assert!(c
             .redactions
             .contains(&"$backend.input.profile.email".into()));

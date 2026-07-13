@@ -117,9 +117,10 @@ final class ReproItCausalURLProtocol: URLProtocol {
 
     override func stopLoading() { loadingTask?.cancel() }
 
-    private static func secret(_ key: String) -> Bool {
-        let key = key.lowercased()
-        return ["password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone"].contains { key.contains($0) }
+    static func secret(_ key: String) -> Bool {
+        let key = key.lowercased().filter { !"-_. ".contains($0) }
+        return ["password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone",
+                "apikey", "publishablekey", "privatekey", "accesskey", "signingkey"].contains { key.contains($0) }
     }
     private static func appendExchange(_ line: String) {
         guard let path = ProcessInfo.processInfo.environment["REPROIT_NETWORK_FILE"] else { return }
@@ -160,7 +161,7 @@ final class ReproItCausalURLProtocol: URLProtocol {
            let value = try? JSONSerialization.jsonObject(with: data) { return redact(value) }
         return "<reproit:body:length=\(data.count)>"
     }
-    private static func redact(_ value: Any) -> Any {
+    static func redact(_ value: Any) -> Any {
         if let values = value as? [Any] { return values.map(redact) }
         if let map = value as? [String: Any] {
             var result: [String: Any] = [:]

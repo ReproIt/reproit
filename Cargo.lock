@@ -1762,6 +1762,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reproit-backend"
+version = "0.0.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "reproit-tui-sdk"
 version = "0.1.0"
 dependencies = [

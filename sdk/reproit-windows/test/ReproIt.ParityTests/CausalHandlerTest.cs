@@ -46,7 +46,7 @@ namespace ReproIt.ParityTests
                 {
                     var request = new HttpRequestMessage(HttpMethod.Post, "https://api.test/send");
                     request.Headers.TryAddWithoutValidation("Authorization", "raw");
-                    request.Content = new StringContent("{\"token\":\"raw\",\"kind\":\"message\"}", Encoding.UTF8, "application/json");
+                    request.Content = new StringContent("{\"token\":\"raw\",\"apiKey\":\"raw-api\",\"publishable-key\":\"raw-pub\",\"private_key\":\"raw-private\",\"access.key\":\"raw-access\",\"signing key\":\"raw-signing\",\"keyboardLayout\":\"dvorak\",\"key\":\"ordinary\",\"kind\":\"message\"}", Encoding.UTF8, "application/json");
                     Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(request)).StatusCode);
                 }
                 string captured = File.ReadAllText(network);
@@ -54,8 +54,13 @@ namespace ReproIt.ParityTests
                 {
                     Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestHeaders").GetProperty("Authorization").GetString());
                     Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestBody").GetProperty("token").GetString());
+                    foreach (string name in new[] { "apiKey", "publishable-key", "private_key", "access.key", "signing key" })
+                        Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestBody").GetProperty(name).GetString());
+                    Assert.Equal("dvorak", document.RootElement.GetProperty("requestBody").GetProperty("keyboardLayout").GetString());
+                    Assert.Equal("ordinary", document.RootElement.GetProperty("requestBody").GetProperty("key").GetString());
                 }
                 Assert.DoesNotContain("a@b.c", captured);
+                foreach (string raw in new[] { "raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing" }) Assert.DoesNotContain(raw, captured);
 
                 string capsule = Path.Combine(dir, "capsule.json");
                 File.WriteAllText(capsule, "{\"exchanges\":[{\"id\":\"a-1-0\",\"actor\":\"a\",\"actionIndex\":1,\"ordinal\":0,\"protocol\":\"https\",\"method\":\"GET\",\"url\":\"https://api.test/config?a=1&b=2\",\"status\":200,\"responseHeaders\":{\"content-type\":\"application/json\"},\"responseBody\":{\"enabled\":true},\"required\":true}]}");

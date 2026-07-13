@@ -28,11 +28,15 @@ test('document-start transport captures redacted JSON', async () => {
   }));
   await window.fetch('https://api.test/send', {
     method: 'POST', headers: { authorization: 'raw', 'content-type': 'application/json' },
-    body: JSON.stringify({ token: 'raw', kind: 'message' }),
+    body: JSON.stringify({ token: 'raw', apiKey: 'raw-api', 'publishable-key': 'raw-pub', private_key: 'raw-private',
+      'access.key': 'raw-access', 'signing key': 'raw-signing', keyboardLayout: 'dvorak', key: 'ordinary', kind: 'message' }),
   });
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].requestHeaders.authorization, '<reproit:secret>');
   assert.equal(recorded[0].requestBody.token, '<reproit:string:length=3>');
+  for (const name of ['apiKey', 'publishable-key', 'private_key', 'access.key', 'signing key']) assert.match(recorded[0].requestBody[name], /^<reproit:string:length=/);
+  assert.equal(recorded[0].requestBody.keyboardLayout, 'dvorak'); assert.equal(recorded[0].requestBody.key, 'ordinary');
+  assert.doesNotMatch(JSON.stringify(recorded[0]), /raw-(api|pub|private|access|signing)/);
   assert.equal(recorded[0].responseBody.email, '<reproit:string:length=5>');
 });
 
