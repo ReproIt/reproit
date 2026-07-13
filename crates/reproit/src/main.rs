@@ -455,18 +455,18 @@ fn confirm_tui_fuzz(ctx: &Ctx, exe: &str) -> bool {
     matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-fn auth_prompt(label: &str, secret: bool) -> Result<String> {
+fn auth_prompt(label: &str, _secret: bool) -> Result<String> {
     use std::io::Write;
     print!("  {label}: ");
     std::io::stdout().flush()?;
     #[cfg(unix)]
-    if secret {
+    if _secret {
         let _ = std::process::Command::new("stty").arg("-echo").status();
     }
     let mut value = String::new();
     std::io::stdin().read_line(&mut value)?;
     #[cfg(unix)]
-    if secret {
+    if _secret {
         let _ = std::process::Command::new("stty").arg("echo").status();
         println!();
     }
