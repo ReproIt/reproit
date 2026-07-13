@@ -30,14 +30,14 @@ finding itself.
    jank / hang / leak) that only appear after the right actions in the right
    order. Each finding prints a content-hash id. All oracles run by default
    (see `references/oracles.md`).
-3. **Reproduce before touching code**: `reproit check <id>`. Exit codes:
+3. **Reproduce before touching code**: `reproit <id>`. Exit codes:
    `0` pass, `1` fail, `2` flaky, `3` stale. Never start fixing a finding you
    have not confirmed reproduces. If it is flaky (2), the bug is a race or a
    visual flicker, treat the flake itself as the bug, do not retry until green.
 4. **Localize**: `reproit repro why <id>` ranks suspect files by Ochiai fault
    localization. Open the top-ranked file first. See `references/why.md`.
 5. **Fix** the code.
-6. **Prove**: re-run `reproit check <id>`. `0` means the fix holds. Re-run twice
+6. **Prove**: re-run `reproit <id>`. `0` means the fix holds. Re-run twice
    if it was originally flaky, to confirm the flake is gone.
 7. **Guard**: `reproit keep <id> [--as name]` saves it as a permanent
    regression guard (quarantined/non-blocking until it next passes, then

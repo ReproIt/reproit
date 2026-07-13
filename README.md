@@ -18,8 +18,8 @@ reproit init           # detect the app and create the smallest working setup
 reproit doctor         # check local setup for this app and platform
 reproit auth <account> --email ... --password ...  # configure + verify once
 reproit fuzz --all     # find deeper, confirmed interaction bugs
-reproit check fnd_...  # confirm a finding replays
-reproit guard fnd_...  # save it as a regression guard
+reproit fnd_...        # reproduce that finding
+reproit keep fnd_...   # keep it as a regression guard
 reproit check          # run the saved suite after the fix
 ```
 
@@ -76,22 +76,22 @@ reproit doctor                         # see missing platform setup before the r
 reproit auth <account> --email ... --password ...  # optional logged-in flows
 reproit scan --record                  # fast visible-bug audit + clips
 reproit fuzz --all                     # find confirmed bugs with fnd_... ids
-reproit check fnd_...                  # confirm a finding replays
-reproit guard fnd_...                  # save it as a regression guard
+reproit fnd_...                        # reproduce that finding
+reproit keep fnd_...                   # keep it as a regression guard
 reproit check                          # verify the suite after the fix
 ```
 
 Use the same flow for every platform in the table above. The target changes
 (`https://...`, simulator/device, native app, terminal command, or instrumented
-binary), but the loop stays `doctor`, optional `auth`, `scan`, `fuzz`, `check`,
-`keep`, then `check` again after the fix.
+binary), but the loop stays `doctor`, optional `auth`, `scan`, `fuzz`, direct
+bug id, `keep`, then `check` again after the fix.
 
 `scan` checks each reachable screen for visible problems like overflow, broken
 content, missing labels, and odd layout choices. `--record` turns boxable scan
 findings into clips. `fuzz` explores longer action sequences and emits the
-replayable `fnd_...` findings you can `check` and `keep`.
+replayable `fnd_...` findings you can run directly and `keep`.
 
-A finding is not useful until it replays. `check <id>` proves that the bug still
+A finding is not useful until it replays. `reproit <id>` proves that the bug still
 happens on your machine. `keep <id>` saves the repro locally as a non-blocking
 guard; once you fix the bug, `check` flips it to PASS and makes it part of the
 required suite.
@@ -114,15 +114,15 @@ ignored runner scratch, and `repros/` is the saved regression suite.
 reproit doctor                        # check app, platform, runner, and auth setup
 reproit scan [target]                 # scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]                 # find deeper interaction bugs
-reproit check [repro]                 # verify: pass(0) / fail(1) / flaky(2) / stale(3)
+reproit <fnd_|rep_|bkt_...>           # reproduce one bug
+reproit check                         # verify the whole saved suite
 reproit record <id>                   # annotated repro video (--flicker also scans it)
 reproit baseline [--update]           # visual-regression diff vs the committed baseline
 reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices
 reproit import maestro <flow.yaml>    # convert a Maestro flow into a reproit journey
-reproit guard [id] [--as name]        # save a repro into the suite
+reproit keep [id] [--as name]         # keep a repro in the suite
 reproit repros                        # list saved repros + last status
 reproit bugs [query]                  # impact-ranked confirmed production bugs
-reproit pull <bkt_...>                # production bug -> verified local repro
 reproit debug map show                # advanced: inspect the internal app model
 reproit triage <bkt_...> fixed        # record the fix intent
 reproit watch <id>                    # open a repro's recorded video
@@ -136,8 +136,7 @@ Cloud golden path (production bug -> local repro -> triaged fix):
 ```sh
 reproit cloud setup --app app_... --key sk_live_...  # once
 reproit bugs
-reproit pull bkt_... --as checkout-crash
-# pull downloads and verifies locally by default
+reproit bkt_...
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit cloud resolution-events --app app_...
 ```
@@ -173,8 +172,8 @@ coding agent fixes them; `check` proves the fix. AI builds it, reproit proves it
 A worker pool runs the **same `reproit` binary** across shards (one seed/device
 each): orchestration, fleet, and storage around the CLI, not a reimplementation.
 The headline use case is a **production crash reproduced on your machine**: the
-SDK reports the real session and `reproit cloud pull --bucket bkt_... --as <name>`
-then `reproit check <name>` replays it locally. Self-hosted or managed.
+SDK reports the real session and `reproit bkt_...` reproduces it locally.
+Self-hosted or managed.
 
 The SDK captures the *structure* of a session, not user data: input values and
 personal data never leave your app (an error attaches only PII-safe derived

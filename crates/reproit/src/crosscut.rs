@@ -889,7 +889,7 @@ pub fn save_token(path: &std::path::Path, token: &str, url: &str) -> anyhow::Res
 }
 
 /// Persist cloud credentials plus the currently selected project. Keeping the
-/// app beside the validated token makes `reproit bugs` and `reproit pull bkt_...`
+/// app beside the validated token makes `reproit bugs` and direct `reproit bkt_...`
 /// truly argument-free after setup. Older token files remain readable.
 pub fn save_cloud_profile(
     path: &std::path::Path,

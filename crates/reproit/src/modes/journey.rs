@@ -1358,7 +1358,7 @@ fn persist_multi_finding(
             "seed": seed,
             "generatedSteps": suffix.len(),
             "capsuleId": capsule_id,
-            "run": format!("reproit run {id}"),
+            "run": format!("reproit check {id}"),
         }))?,
     )?;
     std::fs::write(dir.join("capsule-id"), capsule_id)?;

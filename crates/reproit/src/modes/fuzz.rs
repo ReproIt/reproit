@@ -1508,7 +1508,7 @@ async fn fuzz_one_locale(
                 say(
                     json,
                     format!(
-                        "  confirmed bug {finding_id}   reproduce: reproit check {finding_id}   guard: reproit guard {finding_id} --as <name>"
+                        "  confirmed bug {finding_id}   reproduce: reproit {finding_id}   keep: reproit keep {finding_id} --as <name>"
                     ),
                 );
             }
@@ -1612,7 +1612,7 @@ async fn fuzz_one_locale(
                     "  deliver: need --cloud, --app, and --bucket to deliver; skipping",
                 );
             }
-            // Neutralize: a later `reproit run --warm` must not replay this.
+            // Neutralize: a later warm replay must not reuse this fuzz state.
             let _ = std::fs::write(&cfg_path, "{}");
             // Default: one finding per invocation (shrinking is expensive; fix it
             // before hunting more). With --all, keep going to collect every bug.
@@ -1655,7 +1655,7 @@ async fn fuzz_one_locale(
             say(
                 json,
                 format!(
-                    "    reproduce: reproit check {finding_id}   guard: reproit guard {finding_id} --as <name>"
+                    "    reproduce: reproit {finding_id}   keep: reproit keep {finding_id} --as <name>"
                 ),
             );
         }
@@ -1684,7 +1684,7 @@ async fn fuzz_one_locale(
             args.budget
         ),
     );
-    // Neutralize: a later `reproit run --warm` must not replay fuzz state.
+    // Neutralize: a later warm replay must not reuse fuzz state.
     let _ = std::fs::write(&cfg_path, "{}");
     if !complete || seeds_run < args.runs {
         say(
@@ -2958,7 +2958,7 @@ fn write_report(
     }
     let finding_id = crate::repro::display_finding_id(finding_raw_id);
     md.push_str(&format!(
-        "\n## confirmed repro ({} actions{})\n\n```\n{}\n```\n\nReproduce: `reproit check {finding_id}`\nGuard: `reproit guard {finding_id} --as <name>`\nAfter saving, record an annotated video with `reproit record <alias-or-rep-id>`.\n",
+        "\n## confirmed repro ({} actions{})\n\n```\n{}\n```\n\nReproduce: `reproit {finding_id}`\nKeep: `reproit keep {finding_id} --as <name>`\nAfter keeping, record an annotated video with `reproit record <alias-or-rep-id>`.\n",
         shrunk.len(),
         if shrunk.len() < trace.len() {
             format!(", shrunk from {}", trace.len())

@@ -212,6 +212,42 @@ struct Cli {
     command: Cmd,
 }
 
+/// Turn a bug id into the command that already owns its execution semantics.
+///
+/// `reproit` is itself the verb ("reproduce it"), so the public fast path is
+/// deliberately `reproit <id>`, not `reproit check <id>` or the redundant
+/// `reproit reproduce <id>`. Production buckets pull + replay; local findings
+/// and saved repros use the deterministic check path. The explicit verbs stay
+/// available for scripts and for `check`'s whole-suite form.
+fn expand_direct_bug_arg(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    let mut index = 1;
+    while let Some(arg) = args.get(index).and_then(|arg| arg.to_str()) {
+        match arg {
+            "--json" | "--quiet" | "--yes" => index += 1,
+            "--config" => index += 2,
+            _ if arg.starts_with("--config=") => index += 1,
+            _ => break,
+        }
+    }
+    let Some(first) = args.get(index).and_then(|arg| arg.to_str()) else {
+        return args;
+    };
+    let command = if first.starts_with("bkt_") {
+        Some(("__replay-bucket", None))
+    } else if first.starts_with("fnd_") || first.starts_with("rep_") {
+        Some(("check", Some("--repro-id")))
+    } else {
+        None
+    };
+    if let Some((command, internal_arg)) = command {
+        args.insert(index, command.into());
+        if let Some(internal_arg) = internal_arg {
+            args.insert(index + 1, internal_arg.into());
+        }
+    }
+    args
+}
+
 impl Cli {
     fn ctx(&self) -> Ctx {
         Ctx {
@@ -463,12 +499,12 @@ enum Cmd {
         #[command(subcommand)]
         action: DebugAction,
     },
-    /// Run saved repros and classify each: pass (0) / fail (1) / flaky (2) /
-    /// stale (3). With no name, runs the whole suite and exits with the worst.
+    /// Run the saved regression suite and classify each: pass (0) / fail (1) /
+    /// flaky (2) / stale (3). To reproduce one bug, run `reproit <id>`.
     /// (Annotated video is `record`; the visual oracle is `baseline`.)
-    #[command(alias = "run")]
     Check {
-        /// Repro/journey name. Empty = run the whole saved suite.
+        /// Internal direct-id route. Users run `reproit <id>`.
+        #[arg(long = "repro-id", hide = true)]
         repro: Option<String>,
         /// Number of concurrent devices (multi-actor)
         #[arg(long, default_value_t = 1)]
@@ -536,15 +572,14 @@ enum Cmd {
         #[arg(long)]
         update: bool,
     },
-    /// Save a repro from the latest fuzz run into the committed suite. The
+    /// Keep a repro from the latest fuzz run in the committed suite. The
     /// store dir is the repro's CONTENT HASH (.reproit/repros/<id>/), stable
     /// across machines and self-deduping. `--as` assigns a human alias.
-    #[command(alias = "save", alias = "guard")]
     Keep {
         /// Finding id (dirname) from the latest fuzz run. Uses the sole finding
         /// if omitted, else lists choices.
         id: Option<String>,
-        /// Human alias for the kept repro (used in `check <alias>`)
+        /// Optional human label for the kept repro.
         #[arg(long = "as", name = "name")]
         as_name: Option<String>,
         /// Land the repro `required` (blocking) immediately instead of
@@ -572,10 +607,9 @@ enum Cmd {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Turn a production bug into a local repro, then verify it immediately.
-    /// Uses $REPROIT_CLOUD_APP after `reproit cloud setup`, so the common path is
-    /// one command: `reproit pull bkt_...`.
-    Pull {
+    /// Internal route for the direct `reproit bkt_...` form.
+    #[command(name = "__replay-bucket", hide = true)]
+    ReplayBucket {
         /// Production bucket/finding id (bkt_...).
         issue: String,
         /// Cloud app id (default: $REPROIT_CLOUD_APP).
@@ -842,8 +876,10 @@ enum Cmd {
         #[arg(long)]
         no_discover: bool,
     },
-    /// Author and list scripted journeys (declarative YAML paths). Running a
-    /// journey is `check <name>`; this manages the files, for MCP/agent authoring.
+    /// Run and manage scripted journeys (declarative YAML paths).
+    #[command(
+        after_help = "Run:     reproit journey <name>\nCreate:  reproit journey create <name>\nList:    reproit journey list"
+    )]
     Journey {
         #[command(subcommand)]
         action: JourneyAction,
@@ -896,7 +932,6 @@ enum Cmd {
         action: CloudAction,
     },
     /// Sign in to Reproit Cloud and persist the validated project key locally.
-    /// `reproit cloud login` remains available for compatibility.
     Login {
         /// Cloud base URL (default: https://cloud.reproit.com).
         #[arg(long)]
@@ -1049,6 +1084,7 @@ enum CloudAction {
     /// Authenticate with a cloud/project key (sk_live_..., distinct from the
     /// app auth vault) and VALIDATE it against the cloud. Reads $REPROIT_CLOUD_KEY /
     /// $REPROIT_CLOUD_URL when not passed.
+    #[command(name = "__login", hide = true)]
     Login {
         /// Cloud base URL (default: $REPROIT_CLOUD_URL)
         #[arg(long)]
@@ -1113,8 +1149,8 @@ enum CloudAction {
     },
     /// The IMPACT-RANKED bug list: each bucket's content-addressed id, impact
     /// score + severity, resolution status, count, and message, already sorted
-    /// by impact. This is the loop's STARTING point: the ONLY command that
-    /// surfaces the `bucketId` that `pull`/`triage`/`timeline` take via
+    /// by impact. This is the loop's STARTING point: the command that surfaces
+    /// the `bucketId` that direct reproduction, `triage`, and `timeline` use via
     /// `--bucket`. Hits GET /v1/apps/:app/buckets. Distinct from `findings` (the
     /// cohort "who's affected" lens, which has no bucket id).
     Buckets {
@@ -1161,18 +1197,16 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Pull a real user session and replay it locally: `pull` then `check`, in one
-    /// step. Bucket-first: name a content-addressed `--bucket <bkt_...>` and a
-    /// local `--as <name>`; it saves the repro (the SAME shape `keep`/`pull`
-    /// write, fixture included) and, with `--run`, verifies it locally.
-    Reproduce {
+    /// Private CI callback used by the generated dispatch workflow.
+    #[command(name = "__replay-dispatch", hide = true)]
+    ReplayDispatch {
         #[arg(long)]
         app: String,
         /// Content-addressed bucket id to reproduce. With `--as`, does pull -> check.
         #[arg(long)]
         bucket: String,
         /// Local name (alias) for the saved repro, used in `check <name>`.
-        #[arg(long = "as", name = "reproduce_as")]
+        #[arg(long = "as", name = "replay_as")]
         as_name: String,
         /// Actually execute the replay (otherwise just write/save the repro).
         #[arg(long)]
@@ -1186,7 +1220,10 @@ enum CloudAction {
         #[arg(long)]
         key: Option<String>,
     },
-    /// EXPLICITLY download a cloud bug as a first-class LOCAL repro. The ONE
+    /// Internal materialization route used by integrations. Direct bucket ids
+    /// are the public interface.
+    #[command(name = "__pull", hide = true)]
+    /// Download a cloud bug as a first-class LOCAL repro. The ONE
     /// cloud boundary in the check loop: fetches the bucket's replay package and
     /// writes it as a saved repro under `.reproit/repros/` named `--as <name>`,
     /// the SAME on-disk shape `keep` produces. Afterwards `reproit check <name>`
@@ -1294,13 +1331,16 @@ enum CloudAction {
 
 #[derive(Subcommand)]
 enum JourneyAction {
+    /// Run a journey by name (`reproit journey <name>`).
+    #[command(external_subcommand)]
+    Run(Vec<String>),
     /// List saved journeys with a one-line summary of each.
     List,
     /// Create or overwrite a journey from a JSON spec, e.g.
     /// {"setup":"login(guest)","steps":[{"do":"tap:key:testid:add"}]}.
     /// Validates the structure (and against the map if one exists) before
     /// writing journeys/<name>.yaml. Reads the spec from stdin if --spec omitted.
-    Save {
+    Create {
         /// Journey name (the file stem under journeys/).
         name: String,
         /// The journey as a JSON object: {"setup"?, "steps":[...]}.
@@ -1402,7 +1442,7 @@ impl AuthStrategyArg {
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(expand_direct_bug_arg(std::env::args_os().collect()));
     let ctx = cli.ctx();
     match cli.command {
         Cmd::Init { platform, force } => {
@@ -1786,7 +1826,7 @@ async fn main() -> Result<ExitCode> {
                             return Ok(ExitCode::SUCCESS);
                         }
                         anyhow::bail!(
-                            "no repros to check. Find some with `reproit fuzz`, then `reproit guard`."
+                            "no repros to check. Find some with `reproit fuzz`, then `reproit keep`."
                         );
                     }
                     all
@@ -2065,7 +2105,7 @@ async fn main() -> Result<ExitCode> {
                 return Ok(ExitCode::SUCCESS);
             }
             if metas.is_empty() {
-                ctx.say("no saved repros. Find some with `reproit fuzz`, then `reproit guard`.");
+                ctx.say("no saved repros. Find some with `reproit fuzz`, then `reproit keep`.");
             } else {
                 ctx.say(format!(
                     "  {:<14} {:<18} {:<12} {}",
@@ -2094,7 +2134,7 @@ async fn main() -> Result<ExitCode> {
             triage::buckets(&app, query.as_deref(), ctx.json, cloud, key).await?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Pull {
+        Cmd::ReplayBucket {
             issue,
             app,
             as_name,
@@ -2673,9 +2713,41 @@ async fn main() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Journey { action } => {
-            if matches!(&action, JourneyAction::Save { .. }) {
+            if matches!(
+                &action,
+                JourneyAction::Create { .. } | JourneyAction::Run(_)
+            ) {
                 let loaded = config::load(cli.config.as_deref())?;
                 ensure_app_map(&ctx, &loaded, "explore").await?;
+            }
+            if let JourneyAction::Run(args) = &action {
+                let [name] = args.as_slice() else {
+                    anyhow::bail!("usage: reproit journey <name>");
+                };
+                let loaded = config::load(cli.config.as_deref())?;
+                let result = journey::run(
+                    &loaded,
+                    name,
+                    loaded.config.gate.runs.max(1),
+                    ctx.json || ctx.quiet,
+                )
+                .await?;
+                if ctx.json {
+                    ctx.emit(&serde_json::json!({
+                        "command": "journey",
+                        "journey": name,
+                        "outcome": result.outcome.as_str(),
+                        "rate": result.rate(),
+                        "exit": result.outcome.exit_code(),
+                    }));
+                } else {
+                    ctx.say(format!(
+                        "\njourney: {} ({})  {name}",
+                        result.outcome.as_str().to_uppercase(),
+                        result.rate()
+                    ));
+                }
+                return Ok(ExitCode::from(result.outcome.exit_code()));
             }
             journey_cmd(cli.config.as_deref(), action, &ctx)?;
             Ok(ExitCode::SUCCESS)
@@ -2753,7 +2825,9 @@ async fn main() -> Result<ExitCode> {
                         }));
                     } else {
                         eprintln!("cloud: {e}");
-                        eprintln!("  (is the cloud reachable? check REPROIT_CLOUD_URL / `reproit cloud login`)");
+                        eprintln!(
+                            "  (is the cloud reachable? check REPROIT_CLOUD_URL / `reproit login`)"
+                        );
                     }
                     Ok(exit_with(Exit::Regression))
                 }
@@ -3019,7 +3093,7 @@ async fn run_check_targets(
         None => repro::list(&loaded.root),
     };
     if metas.is_empty() {
-        anyhow::bail!("no repros to check. Find some with `reproit fuzz`, then `reproit guard`.");
+        anyhow::bail!("no repros to check. Find some with `reproit fuzz`, then `reproit keep`.");
     }
     let all_devices = enumerate_devices().await;
     let mut worst = repro::Outcome::Pass;
@@ -3471,7 +3545,7 @@ async fn cloud_cmd(
                 triage::explain(&app, bucket.as_deref(), sig.as_deref(), cloud, key).await
             }
         }
-        CloudAction::Reproduce {
+        CloudAction::ReplayDispatch {
             app,
             bucket,
             as_name,
@@ -4139,13 +4213,13 @@ fn keep_repro(
                 ctx.say(format!("  already saved as {label} ({})", status.as_str()));
             }
         }
-        ctx.say(format!("  check: reproit check {public_id}"));
+        ctx.say(format!("  reproduce: reproit {public_id}"));
     } else {
         ctx.say(format!("  kept {} ({})", public_id, status.as_str()));
         if let Some(a) = &alias {
             ctx.say(format!("  alias: {a}"));
         }
-        ctx.say(format!("  verify: reproit check {public_id}"));
+        ctx.say(format!("  verify: reproit {public_id}"));
     }
     Ok(())
 }
@@ -4646,12 +4720,13 @@ fn journey_cmd(
 ) -> Result<()> {
     let loaded = config::load(config_path)?;
     match action {
+        JourneyAction::Run(_) => unreachable!("journey runs are handled asynchronously"),
         JourneyAction::List => {
             let journeys = journey::list(&loaded.root)?;
             if ctx.json {
                 ctx.emit(&serde_json::json!({ "journeys": journeys }));
             } else if journeys.is_empty() {
-                ctx.say("no journeys yet (author one with `reproit journey save`)");
+                ctx.say("no journeys yet (author one with `reproit journey create`)");
             } else {
                 for j in &journeys {
                     match &j.error {
@@ -4668,7 +4743,7 @@ fn journey_cmd(
                 }
             }
         }
-        JourneyAction::Save { name, spec } => {
+        JourneyAction::Create { name, spec } => {
             let spec = match spec {
                 Some(s) => s,
                 None => {
@@ -4684,11 +4759,11 @@ fn journey_cmd(
                 ctx.emit(&serde_json::json!({
                     "saved": name,
                     "path": rel.to_string_lossy(),
-                    "next": format!("reproit check {name}"),
+                    "next": format!("reproit journey {name}"),
                 }));
             } else {
                 ctx.say(format!("  saved {}", rel.display()));
-                ctx.say(format!("  run it: reproit check {name}"));
+                ctx.say(format!("  run it: reproit journey {name}"));
             }
         }
     }
@@ -5429,7 +5504,7 @@ async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> 
         cloud_url.is_some(),
         false,
         cloud_url.unwrap_or_else(|| "not configured".into()),
-        Some("set REPROIT_CLOUD_URL or run `reproit cloud login --key <sk_live_...>`".into()),
+        Some("set REPROIT_CLOUD_URL or run `reproit login --key <sk_live_...>`".into()),
     );
     doctor_push(
         &mut checks,
@@ -5440,7 +5515,7 @@ async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> 
             .as_ref()
             .map(|k| format!("configured ({} chars), not printed", k.len()))
             .unwrap_or_else(|| "not configured".into()),
-        Some("set REPROIT_CLOUD_KEY or run `reproit cloud login --key <sk_live_...>`".into()),
+        Some("set REPROIT_CLOUD_KEY or run `reproit login --key <sk_live_...>`".into()),
     );
     if let Some(l) = &loaded {
         let app_id = std::env::var("REPROIT_CLOUD_APP").ok();
@@ -5921,6 +5996,58 @@ tap:Advanced
         }
         // Unknown platform: no prompt.
         assert!(!run_needs_device_pick("cobol-tui", false));
+    }
+
+    #[test]
+    fn direct_bug_ids_expand_to_their_existing_execution_paths() {
+        let expand = |args: &[&str]| {
+            expand_direct_bug_arg(args.iter().map(std::ffi::OsString::from).collect())
+                .into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            expand(&["reproit", "bkt_deadbeef0001"]),
+            ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
+        );
+        assert_eq!(
+            expand(&["reproit", "fnd_deadbeef0001"]),
+            ["reproit", "check", "--repro-id", "fnd_deadbeef0001"]
+        );
+        assert_eq!(
+            expand(&["reproit", "rep_deadbeef0001"]),
+            ["reproit", "check", "--repro-id", "rep_deadbeef0001"]
+        );
+        assert_eq!(
+            expand(&["reproit", "--json", "bkt_deadbeef0001"]),
+            ["reproit", "--json", "__replay-bucket", "bkt_deadbeef0001"]
+        );
+        assert_eq!(expand(&["reproit", "scan"]), ["reproit", "scan"]);
+    }
+
+    #[test]
+    fn removed_compatibility_commands_are_not_parseable() {
+        for args in [
+            vec!["reproit", "run"],
+            vec!["reproit", "guard"],
+            vec!["reproit", "save"],
+            vec!["reproit", "pull", "bkt_deadbeef0001"],
+            vec!["reproit", "check", "fnd_deadbeef0001"],
+            vec!["reproit", "check", "checkout"],
+            vec!["reproit", "cloud", "login"],
+            vec!["reproit", "cloud", "pull"],
+            vec!["reproit", "cloud", "reproduce"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+
+        let cli = Cli::try_parse_from(["reproit", "journey", "checkout"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Journey {
+                action: JourneyAction::Run(args)
+            } if args == ["checkout"]
+        ));
     }
 
     #[test]

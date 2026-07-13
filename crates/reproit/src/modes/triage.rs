@@ -253,7 +253,7 @@ jobs:
           APP="${{ github.event.client_payload.app || github.event.inputs.app }}"
           BUCKET="${{ github.event.client_payload.bucket || github.event.inputs.bucket }}"
           RUN_ID="${{ github.event.client_payload.runId }}"
-          ~/.local/bin/reproit cloud reproduce \
+          ~/.local/bin/reproit cloud __replay-dispatch \
             --app "$APP" \
             --bucket "$BUCKET" \
             --as "$BUCKET" \
@@ -703,9 +703,7 @@ pub async fn buckets(
             println!("  (no buckets match the query)");
         }
     }
-    println!(
-        "\nPull the top one: reproit cloud pull --app {app} --top --as next-fix   (then reproit check next-fix)"
-    );
+    println!("\nReproduce a bucket: reproit <bkt_...>");
     Ok(())
 }
 
@@ -808,9 +806,7 @@ pub async fn explain(
         }
     );
 
-    println!(
-        "\nReproduce: reproit cloud reproduce --app {app} --bucket {bucket} --as <name> --run"
-    );
+    println!("\nReproduce: reproit {bucket}");
     Ok(())
 }
 
@@ -847,16 +843,15 @@ pub(crate) fn classify_repro(outcome: Option<&str>, exit_code: Option<i32>) -> R
     }
 }
 
-/// Spawn `reproit check <target> --json`, read its deterministic verdict, print
+/// Spawn the private single-repro route, read its deterministic verdict, print
 /// a human reproduction summary, and return the classification (so callers can
 /// report it back to the cloud). Used by `reproduce_bucket`, where `<target>` is
 /// the just-pulled repro's alias.
 fn run_check_and_classify(target: &str, context_hint: Option<&Value>) -> Result<ReproVerdict> {
     println!("\nRunning the replay ({target})...");
     let exe = std::env::current_exe()?;
-    // `check` has no `--warm` flag; a plain check replays the saved repro.
     let out = std::process::Command::new(exe)
-        .args(["check", target, "--json"])
+        .args(["check", "--repro-id", target, "--json"])
         .output()
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);
@@ -1436,7 +1431,7 @@ pub async fn diagnose(
     explain(app, Some(bucket), None, cloud.clone(), key.clone()).await?;
     if run {
         println!(
-            "\n`cloud diagnose --run` now resolves the bucket only. Pull and run it with:\n  reproit cloud reproduce --app {app} --bucket {bucket} --as <name> --run"
+            "\n`cloud diagnose --run` resolved the bucket. Reproduce it with:\n  reproit {bucket}"
         );
     }
     Ok(())

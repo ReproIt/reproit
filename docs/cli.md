@@ -43,12 +43,12 @@ reproit scan --record         # audit visible bugs and save clips
 # -> 6 issues across 4 screens.  Next: reproit fuzz --all
 
 reproit fuzz --all            # hunt for confirmed, replayable bugs
-# -> 3 repros found.  id fnd_a3f2c1b8e0d5   confirm: reproit check fnd_a3f2c1b8e0d5
+# -> 3 repros found.  id fnd_a3f2c1b8e0d5   reproduce: reproit fnd_a3f2c1b8e0d5
 
-reproit check fnd_a3f2c1b8e0d5    # does that finding really reproduce?
+reproit fnd_a3f2c1b8e0d5          # reproduce that finding
 # -> fail (3/3).  real bug, reproduced every run
 
-reproit guard fnd_a3f2c1b8e0d5 --as login-crash  # save it as a guard
+reproit keep fnd_a3f2c1b8e0d5 --as login-crash   # keep it as a guard
 # -> saved (quarantined). Verify after the fix: reproit check
 
 # ...you (or your agent) fix the bug...
@@ -149,9 +149,10 @@ gets over MCP.
 Findings live in a throwaway artifact (gitignored). Nothing is added to your
 committed graph or suite until you choose to `keep` it.
 
-### `check`: verify a bug
+### Reproduce one bug; check the suite
 
-`reproit check` replays a repro and tells you exactly what happened:
+Run `reproit <id>` for one bug. `reproit check` runs the whole saved suite. Both
+classify the replay the same way:
 
 | Outcome | Meaning | Exit code |
 |---|---|---|
@@ -161,7 +162,7 @@ committed graph or suite until you choose to `keep` it.
 | **stale** | the targeted element is gone (the UI changed), couldn't replay | 3 |
 
 ```sh
-reproit check rep_a3f2c1b8e0d5    # check one saved repro (or a pending fnd_... finding)
+reproit rep_a3f2c1b8e0d5          # reproduce one saved repro (fnd_... works too)
 reproit check                 # run your whole saved suite
 reproit record <id>           # produce an annotated video of the bug
 ```
@@ -182,7 +183,7 @@ contract.
 ### `keep`: turn a bug into a permanent guard
 
 ```sh
-reproit guard fnd_a3f2c1b8e0d5 --as login-crash
+reproit keep fnd_a3f2c1b8e0d5 --as login-crash
 ```
 
 `keep` saves a repro into your committed suite (`.reproit/repros/`). It is not a
@@ -216,7 +217,7 @@ ids) -> `check <id>` (confirm it's real) -> `keep` (guard it) -> `check`
 ### Journeys (scripted paths)
 
 A *journey* is a short, declarative script through your app, stored as
-`journeys/<name>.yaml` and run with `reproit check <name>`. Use journeys to pin
+`journeys/<name>.yaml` and run with `reproit journey <name>`. Use journeys to pin
 important flows (login, checkout) and to give `fuzz` a deep starting point.
 
 Each step is one of: `do:` (an action), `goto:` (pathfind to a screen),
@@ -234,7 +235,7 @@ steps:
 
 Multi-user flows (one user posts, another sees it) are supported: add an `actors`
 block and tag each step with its actor. reproit runs one device per actor and
-coordinates them in order. See `reproit journey list` and `reproit journey save`.
+coordinates them in order. See `reproit journey list` and `reproit journey create`.
 
 ### Fuzz from a journey
 
@@ -248,7 +249,7 @@ checkpoint, then generates actor-aware interleavings using safe outgoing
 transitions from each actor's structural state. A candidate is replayed from a
 fresh checkpoint and minimized without deleting checkpoint steps. Confirmed
 repros are written as `journeys/multi-<id>.yaml`, so the handoff is one command:
-`reproit run multi-<id>`.
+`reproit journey multi-<id>`.
 
 ### Import existing tests
 
@@ -345,14 +346,12 @@ Full tool list in the [reference](#mcp-tools).
 The same `reproit` binary runs on a fleet for the broad, parallel outer loop:
 fuzzing on every PR, and ingesting production crashes. The headline use case is
 reproducing a **real production crash on your own machine**: the SDK reports the
-session, and `reproit cloud pull --bucket <bkt_...> --as <name>` saves it as a
-local repro you can `check`.
+session, and `reproit <bkt_...>` saves and reproduces it locally.
 
 ```sh
 reproit cloud setup --app app_... --key sk_live_...    # once: validate, bind, verify
 reproit bugs                                             # impact-ranked bucket ids
-reproit pull bkt_... --as next-fix                       # pull + verify locally
-reproit check next-fix
+reproit bkt_...                                          # reproduce locally
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit cloud resolution-events --app app_...
 ```
@@ -370,8 +369,9 @@ history. Every cloud view is backed by exportable raw data.
 reproit                       help: the scan -> fuzz -> check -> keep story
 reproit scan [target]         scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]         find deeper interaction bugs
-reproit check [repro|journey] verify: pass(0) / fail(1) / flaky(2) / stale(3)
-reproit guard [id] [--as name] save a repro into your suite
+reproit <fnd_|rep_|bkt_...>    reproduce one bug
+reproit check                  verify the whole saved suite
+reproit keep [id] [--as name] keep a repro in your suite
 reproit record <id>           annotated video of a repro (--flicker also scans it)
 reproit baseline [--update]   visual-regression diff vs the committed baseline
 reproit repros                list saved repros + last status
@@ -497,15 +497,12 @@ status=fixed --fixed-in-build X (record the fix intent) -> watch
 reproit login                       cloud/project key, sk_live_...
 reproit cloud setup --app <app>     one-time repo + SDK + CI wiring and live verification
 reproit bugs [query]                impact-ranked confirmed production bugs
-reproit pull <bucket>               pull and verify locally
+reproit <bkt_...>                   pull and verify locally
 reproit triage <bucket> <status>    update lifecycle state
 reproit cloud fuzz [--pr N]         fuzz locally, store confirmed result in Cloud
 reproit cloud buckets --app <app>    impact-ranked bucket ids
 reproit cloud findings --app <app>   cohorts and user discriminators
 reproit cloud blast-radius --app <app> --bucket <id>   who's affected
-reproit cloud reproduce --app <app> --bucket <id> --as <name> --run
-reproit cloud pull --app <app> --bucket <id> --as <name>
-reproit cloud pull --app <app> --top --as <name>
 reproit cloud triage --app <app> --bucket <id> [--status <s> --fixed-in-build <v> --assignee <id>]
 reproit cloud resolution-events --app <app>
 reproit cloud timeline --app <app> --bucket <id>

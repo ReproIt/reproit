@@ -13,7 +13,7 @@ description: >-
 A **tour** is an ordinary reproit journey whose `do: shoot:<name>` steps name the
 screenshots to capture. The same file is two things at once:
 
-- `reproit check <tour>` runs the steps to verify behavior; `shoot:` is **inert**
+- `reproit journey <tour>` runs the steps to verify behavior; `shoot:` is **inert**
   (navigate-only, no pictures, no overhead).
 - `reproit screenshots <tour>` runs the same steps in **capture mode**: each
   `shoot:<name>` writes `<name>.png`, fanned across locales and devices.
@@ -61,7 +61,7 @@ reproit screenshots marketing \
   --locale en,de,ar,ja \
   --device "iPhone 16 Pro Max,iPad Pro 13" \
   --out screenshots
-reproit check marketing          # dry-run the navigation, no pictures
+reproit journey marketing        # dry-run the navigation, no pictures
 ```
 
 Config (`reproit.yaml`):

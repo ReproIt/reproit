@@ -8,9 +8,9 @@ Users do not manage capsules directly:
 
 ```sh
 reproit fuzz
-reproit pull BUG
-reproit run BUG
-reproit guard BUG
+reproit bkt_...
+reproit fnd_...
+reproit keep fnd_...
 ```
 
 ## Trust lifecycle

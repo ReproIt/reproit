@@ -11,7 +11,7 @@ description: >-
 # Authoring a reproit journey
 
 A journey is a declarative path: a `setup` (usually a login) plus ordered
-`steps`. Running a journey is `reproit check <name>`; the `reproit journey`
+`steps`. Running a journey is `reproit journey <name>`; the `reproit journey`
 command manages the files. Unlike `fuzz` (which explores), a journey asserts a
 **specific** scripted flow, including flows that need more than one user.
 
@@ -63,6 +63,6 @@ Two or more users on **separate devices**, coordinated so they cannot collide.
 
 1. Write/adapt the YAML from the template.
 2. Save/validate it via `reproit journey` (manages the files).
-3. Run it: `reproit check <name>`. Exit `0` pass, `1` fail, `2` flaky.
+3. Run it: `reproit journey <name>`. Exit `0` pass, `1` fail, `2` flaky.
 4. A flaky multi-user journey usually means a missing barrier/ordering, make
    the cross-actor dependency explicit rather than adding waits.
