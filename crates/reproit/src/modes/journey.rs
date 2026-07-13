@@ -602,7 +602,7 @@ pub async fn fuzz_multi_checkpoint(
     // Reconstruct each actor's graph position after the authored checkpoint.
     // Exact from-state matches win; if the checkpoint entered the map through a
     // business-specific edge, its structurally matching action still anchors the
-    // destination. This is guidance only—the live runner remains authoritative.
+    // destination. This is guidance only. The live runner remains authoritative.
     let entry =
         entry_state(&map).ok_or_else(|| anyhow::anyhow!("the app map has no entry state"))?;
     let mut checkpoint_states: BTreeMap<String, String> =

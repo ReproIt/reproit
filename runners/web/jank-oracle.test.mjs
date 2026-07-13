@@ -14,7 +14,7 @@ test('smooth constant-velocity motion scores near zero', () => {
 });
 
 test('stall-then-jump motion scores high', () => {
-  // stall for two frames, then jump 30 — classic dropped-frame catch-up.
+  // stall for two frames, then jump 30. This is classic dropped-frame catch-up.
   const janky = [];
   for (let k = 0; k < 7; k++) {
     janky.push(k * 30, k * 30, k * 30);

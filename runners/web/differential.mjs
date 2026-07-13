@@ -125,7 +125,7 @@ function visualDiff(aPath, bPath, outPath) {
   const total = width * height;
   // Mean per-pixel difference magnitude (0..255). Unlike pixelmatch's
   // thresholded count, this is sensitive to BROAD, SMOOTH, low-contrast
-  // divergence — a mis-rendered gradient / animation layer, which is exactly
+  // divergence, a mis-rendered gradient or animation layer, which is exactly
   // the cross-engine bug pixelmatch's AA-aware threshold throws away. A few
   // sharp text-edge pixels barely move this; a whole gradient rendering
   // differently moves it a lot.
@@ -147,7 +147,7 @@ async function main() {
     try { replay = JSON.parse(readFileSync(cfgPath, 'utf8')).replay || []; } catch {}
   }
   emit('JOURNEY claimed role=a');
-  emit(`JOURNEY[a] step: cross-engine differential — ${ENGINES.join(', ')} @ ${URL} (${HEADLESS ? 'headless' : 'headed+GPU'})`);
+  emit(`JOURNEY[a] step: cross-engine differential: ${ENGINES.join(', ')} @ ${URL} (${HEADLESS ? 'headless' : 'headed+GPU'})`);
 
   const results = [];
   for (const e of ENGINES) {
@@ -240,7 +240,7 @@ h1{font-weight:400}h1 b{color:#ffb000}a{color:#ffb000}
 table{border-collapse:collapse}td,th{border:1px solid #2a2722;padding:4px;vertical-align:top}
 img{width:300px;display:block}.lbl{color:#a89e8a;margin-bottom:3px}small{color:#a89e8a}</style>
 <h1>repro it<b>_</b> · cross-engine differential</h1>
-<p>${report.url} — reference <b>${report.reference}</b> — ${report.headless ? 'headless' : 'headed+GPU'} — diff ignores font anti-aliasing</p>
+<p>${report.url}. Reference: <b>${report.reference}</b>. ${report.headless ? 'headless' : 'headed+GPU'}. Diff ignores font anti-aliasing.</p>
 <table>${head}${rows}</table>`;
   writeFileSync(path, html);
 }

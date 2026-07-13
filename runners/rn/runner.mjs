@@ -113,7 +113,7 @@ function loadFuzz() {
 // then and the Rust core (fuzz.rs split_log_segments) can split the one drive log
 // back into one segment per replay. WITHOUT this the runner read the {batch:..}
 // object as a single fuzz config whose `replay`/`seed` were undefined, silently
-// fell into a fresh EXPLORE walk, and never replayed the stored actions — so a
+// fell into a fresh EXPLORE walk, and never replayed the stored actions. As a result, a
 // real crash repro re-confirmed as clean (PASS). See the replay branch in main().
 function loadBatch() {
   const j = loadFuzz();
@@ -542,7 +542,7 @@ function idOfEl(get) {
 // namespace (android:id/navigationBarBackground, android:id/statusBarBackground,
 // and framework decor generally), as opposed to app content in the app package's
 // namespace (com.example.app:id/...). The OS draws these to the device insets /
-// screen edges, so their frame legitimately spills past the app content box — an
+// screen edges, so their frame legitimately spills past the app content box. An
 // overflow marker on them is pure noise about system UI the developer neither
 // owns nor can fix. Excluded from OVERFLOW candidacy, mirroring the Windows
 // caption-chrome exclusion. `idOfEl` strips the namespace, so we read the RAW
@@ -1710,8 +1710,8 @@ async function mobileShell(driver, command, args) {
 //
 //  The native fuzzer drives the app and cannot call the app's own predicates, so
 //  the RN / iOS / Android SDKs evaluate their OWN registered invariants on each
-//  settled state and — only when they detect the fuzzer (REPROIT_FUZZ env on iOS,
-//  the debug.reproit.fuzz prop on Android, a stable global on RN) — log a marker
+//  settled state and, only when they detect the fuzzer (REPROIT_FUZZ env on iOS,
+//  the debug.reproit.fuzz prop on Android, a stable global on RN), log a marker
 //  on the platform diagnostic channel (console.log -> logcat/syslog, os_log /
 //  NSLog, android.util.Log):
 //      REPROIT_INVARIANT {"sig":"","items":[{"id":"...","message":"..."}]}
@@ -1840,8 +1840,8 @@ const JANK_BUCKET = JANK_PCT_FLOOR; // coarse, well-separated detail for the mar
 // zero-work Activity transition drops tens of percent of frames purely from the
 // software compositor, so the absolute floor false-positives on trivial screens.
 // We therefore raise the effective floor by the DEVICE BASELINE (frame jank of a
-// representative cheap render, measured once at launch) plus a margin, and — when
-// a software renderer is detected — clamp it up to a near-total-drop floor so
+// representative cheap render, measured once at launch) plus a margin. When
+// a software renderer is detected, clamp it up to a near-total-drop floor so
 // only a genuine main-thread stall (which drops nearly EVERY frame) still fires.
 // On real hardware the baseline is ~0 and no software floor applies, so the
 // behavior is unchanged (>= 30% still fires); a planted long-task jank storm sits
@@ -1853,7 +1853,7 @@ const JANK_SOFTWARE_FLOOR = 80;     // under a software GPU, only a near-total f
 // per-transition verdict so both key off the SAME number.
 function jankyPctFromGfxinfo(text) {
   if (!text) return null;
-  // "Janky frames: 42 (35.00%)" — read the count and the percentage.
+  // "Janky frames: 42 (35.00%)". Read the count and the percentage.
   const m = text.match(/Janky frames:\s*(\d+)\s*\(([\d.]+)%\)/);
   if (!m) return null;
   const count = parseInt(m[1], 10);

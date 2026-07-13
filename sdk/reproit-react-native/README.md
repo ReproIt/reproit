@@ -271,7 +271,7 @@ this self-check off a stable global that your reproit E2E build sets in its app
 entry (mirrors how the web SDK keys off `navigator.webdriver`):
 
 ```ts
-// index.reproit.js — the entry your reproit CI build bundles
+// index.reproit.js: the entry your reproit CI build bundles
 global.__reproit_fuzz = true;
 import './index';
 ```

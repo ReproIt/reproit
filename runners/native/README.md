@@ -41,21 +41,21 @@ other runners.
 | GTK (C) | `gtk-agent/gtk_agent.c` | absent on host; built in Docker (Debian, GTK 4.18.6) | YES | YES | YES |
 | WPF (.NET) | `wpf-agent/Program.cs` | dotnet 8.0.422 on the QEMU Windows 11 VM | YES | YES | YES |
 
-### AppKit — built + run + verified
+### AppKit: built, run, and verified
 
     ./appkit-agent/build-and-run.sh          # swiftc -O main.swift && run, headless
 
 Builds a window IN-PROCESS (no window server interaction; never enters the run
 loop) with three controls and walks them:
 
-- **realButton** — a real `NSButton` (target-action). Operable AND full a11y
+- **realButton**: a real `NSButton` (target-action). Operable AND full a11y
   (button role, focusable, in tab order, keyboard-activatable) -> **OK**.
-- **fakeButton** — a custom `NSView` (`FakeButton`) with an `NSClickGesture`
+- **fakeButton**: a custom `NSView` (`FakeButton`) with an `NSClickGesture`
   recognizer + handler and NO accessibility role. Operable in graph 1 but
   `rolePresent:false`, `inTabOrder:false`, `keyboardActivatable:false` ->
   **GAP(NO_ROLE, KEYBOARD_UNREACHABLE, POINTER_ONLY)**. This is the motivating
   finding: an external AX runner cannot see it as a button at all.
-- **goodCustom** — a custom `NSView` that DOES adopt `.button` role + is
+- **goodCustom**: a custom `NSView` that DOES adopt `.button` role + is
   focusable + keyboard-activatable -> **OK** (proves the agent does not
   false-positive on every custom view).
 
@@ -90,7 +90,7 @@ rolePresent:false` = `GAP(NO_ROLE, KEYBOARD_UNREACHABLE, POINTER_ONLY)`; the rea
 GtkButton and the good button are clean. GTK4 additionally surfaces the
 application window's built-in click gesture (`role:group#0`, a focusless operable
 element, so also keyboard-unreachable/pointer-only) and the buttons' inner
-GtkLabel children (`operable:false`, never gaps) — artifacts of GTK4's
+GtkLabel children (`operable:false`, never gaps), which are artifacts of GTK4's
 widget/scene model, not false positives on the controls.
 
 **Minimal source fixes made to compile against Qt 6.8 (design intact):**
@@ -107,7 +107,7 @@ Both captured `EXPLORE:GROUNDTRUTH` lines are embedded VERBATIM in
 `crates/reproit/src/model/map.rs` as engine contract tests
 (`qt_in_process_agent_groundtruth_detects_fake_button_gap`,
 `gtk_in_process_agent_groundtruth_detects_fake_button_gap`) and asserted to parse
-to the expected gap counts — the same proof pattern as the AppKit and WPF tests.
+to the expected gap counts. This uses the same proof pattern as the AppKit and WPF tests.
 
 ## Windows: canonical backend vs. hand-maintained ports
 

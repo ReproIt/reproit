@@ -11,11 +11,11 @@
 //   A) transform-sampling (runs anywhere, incl. headless): sample the element's
 //      computed transform via rAF. Catches ANIMATION-CLOCK jank. It does NOT
 //      see pure compositor-presentation stutter (the main thread can be smooth
-//      while the GPU drops composited frames) — same blind spot as a plain rAF
+//      while the GPU drops composited frames), which is the same blind spot as a plain rAF
 //      probe, stated honestly.
 //   B) presented-frame capture (the faithful one): record the real window at
 //      60fps and track the element visually. This MUST run on an ISOLATED
-//      DISPLAY (CI runner / headless VM / Xvfb), NEVER the user's desktop —
+//      DISPLAY (CI runner / headless VM / Xvfb), NEVER the user's desktop.
 //      capturing/moving real windows there is unsafe (it once grabbed the
 //      user's own browser). Mode B is gated behind REPROIT_JANK_DISPLAY=isolated.
 //
@@ -77,7 +77,7 @@ async function main() {
 
   if (!isolated) {
     console.error(
-      'NOTE: mode A (transform sampling) — catches animation-clock jank, NOT compositor presentation stutter.',
+      'NOTE: mode A (transform sampling) catches animation-clock jank, NOT compositor presentation stutter.',
     );
     console.error(
       'For the faithful detector run on an ISOLATED display (CI/Xvfb) with REPROIT_JANK_DISPLAY=isolated.',

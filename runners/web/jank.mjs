@@ -44,7 +44,7 @@ function summarize(iv) {
   return { frames: iv.length, fps, medMs: med, p95Ms: p95, maxMs: max, dropped, dropPct: (100 * dropped) / iv.length, jerk: sd / mean };
 }
 
-console.log(`JOURNEY[a] step: jank probe — ${ENGINES.join(', ')} @ ${URL}`);
+console.log(`JOURNEY[a] step: jank probe: ${ENGINES.join(', ')} @ ${URL}`);
 const rows = [];
 for (const e of ENGINES) {
   if (!BY[e]) { console.log(`  skip ${e}`); continue; }
@@ -70,7 +70,7 @@ if (ok.length >= 2) {
   for (const r of ok) {
     if (r.e === best.e) continue;
     if (r.s.dropPct > best.s.dropPct + 5 || r.s.p95Ms > best.s.p95Ms * 2) {
-      console.log(`  ⚠ ${r.e}: ${r.s.dropPct.toFixed(1)}% dropped vs ${best.s.dropPct.toFixed(1)}% — janky relative to ${best.e}`);
+      console.log(`  ⚠ ${r.e}: ${r.s.dropPct.toFixed(1)}% dropped vs ${best.s.dropPct.toFixed(1)}%, janky relative to ${best.e}`);
       flagged = true;
     }
   }

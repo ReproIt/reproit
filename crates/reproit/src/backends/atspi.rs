@@ -11,7 +11,7 @@
 //! no denial sweep.
 //!
 //! This is an in-process port of the former runners/linux-atspi.py. It binds the
-//! OFFICIAL AT-SPI C library (libatspi.so.0 — the exact library the Python `gi` /
+//! OFFICIAL AT-SPI C library (libatspi.so.0, the exact library the Python `gi` /
 //! `Atspi` binding wrapped) directly via hand-declared `#[link]` FFI, and REUSES
 //! the canonical signature core (crate::signature) instead of re-implementing it,
 //! so there is exactly one signature oracle in the binary. Localized name/text
