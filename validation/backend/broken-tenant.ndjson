@@ -1,0 +1,4 @@
+REPROIT:BACKEND {"sequence":1,"traceId":"broken-tenant","spanId":"create","actionIndex":3,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"start","input":{"body":"hello"}}
+REPROIT:BACKEND {"sequence":2,"traceId":"broken-tenant","spanId":"create","actionIndex":3,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"effect","effect":"write","resource":"messages","key":"m1","effectTenant":"team-b","after":{"id":"m1"}}
+REPROIT:BACKEND {"sequence":3,"traceId":"broken-tenant","spanId":"create","actionIndex":3,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"effect","effect":"emit","event":"MessageCreated","payload":{"id":"m1"}}
+REPROIT:BACKEND {"sequence":4,"traceId":"broken-tenant","spanId":"create","actionIndex":3,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"return","status":201,"success":true,"effectsComplete":true,"output":{"id":"123e4567-e89b-12d3-a456-426614174000","body":"hello"}}

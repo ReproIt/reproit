@@ -120,6 +120,12 @@ pub struct Capsule {
     pub actions: Vec<Action>,
     #[serde(default)]
     pub exchanges: Vec<Exchange>,
+    /// Structural backend observations are evidence and oracle input. A
+    /// hermetic web capsule retains their redacted trace-bound envelope in the
+    /// matching HTTP response, then routes it through the same validator during
+    /// replay. It never applies the recorded mutation to a real datastore.
+    #[serde(default)]
+    pub backend_events: Vec<crate::backend::BackendEvent>,
     pub finding: FindingIdentity,
     #[serde(default)]
     pub redactions: Vec<String>,
@@ -136,6 +142,7 @@ impl Capsule {
             capabilities: BTreeMap::new(),
             actions: Vec::new(),
             exchanges: Vec::new(),
+            backend_events: Vec::new(),
             finding,
             redactions: Vec::new(),
         }
@@ -162,6 +169,9 @@ impl Capsule {
         // network-free path are indistinguishable, allowing a live-backend replay
         // to masquerade as a hermetic reproduction.
         let mut required = BTreeSet::from(["ui_actions", "http"]);
+        if self.finding.oracle == "backend-contract" {
+            required.insert("backend_effects");
+        }
         for exchange in self.exchanges.iter().filter(|e| e.required) {
             required.insert(match exchange.protocol.as_str() {
                 "ws" | "wss" => "websocket",
@@ -191,6 +201,9 @@ impl Capsule {
         // what proves a newly introduced/unexpected request will become a
         // CAPSULE:MISS instead of reaching live infrastructure.
         let mut required = BTreeSet::from(["http_replay"]);
+        if self.finding.oracle == "backend-contract" {
+            required.insert("backend_effects_replay");
+        }
         for exchange in self.exchanges.iter().filter(|e| e.required) {
             required.insert(match exchange.protocol.as_str() {
                 "ws" | "wss" => "websocket_replay",
@@ -315,6 +328,61 @@ impl Capsule {
                     detail: Some("runner emitted no causal HTTP exchanges".into()),
                 });
         }
+        Ok(count)
+    }
+
+    pub fn ingest_backend_files(&mut self, run_dir: &Path) -> Result<usize> {
+        let mut encoded = BTreeSet::new();
+        let mut events = Vec::new();
+        for entry in std::fs::read_dir(run_dir)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let path = entry.path();
+            let parsed = if name.starts_with("backend-") && name.ends_with(".jsonl") {
+                let raw = std::fs::read_to_string(&path)?;
+                let mut parsed = Vec::new();
+                for (line_no, line) in raw.lines().enumerate() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    parsed.push(
+                        serde_json::from_str::<crate::backend::BackendEvent>(line).with_context(
+                            || format!("parsing {} line {}", path.display(), line_no + 1),
+                        )?,
+                    );
+                }
+                parsed
+            } else if name.starts_with("drive-") && name.ends_with(".log") {
+                crate::backend::parse_events(&std::fs::read_to_string(&path)?)
+            } else {
+                Vec::new()
+            };
+            for event in parsed {
+                let bytes = serde_json::to_vec(&event)?;
+                if encoded.insert(bytes) {
+                    events.push(event);
+                }
+            }
+        }
+        events.sort_by_key(|event| event.sequence);
+        let count = events.len();
+        self.backend_events = events;
+        self.capabilities.insert(
+            "backend_effects".into(),
+            Capability {
+                status: if count > 0 {
+                    CaptureStatus::Captured
+                } else {
+                    CaptureStatus::Unavailable
+                },
+                detail: Some(if count > 0 {
+                    format!("{count} structural backend event(s)")
+                } else {
+                    "runner emitted no structural backend events".into()
+                }),
+            },
+        );
         Ok(count)
     }
 
@@ -510,6 +578,8 @@ impl Default for RedactionPolicy {
                 "set-cookie",
                 "email",
                 "phone",
+                "idempotencykey",
+                "idempotency_key",
             ]
             .into_iter()
             .map(str::to_string)
@@ -531,8 +601,41 @@ pub fn redact_capsule(capsule: &mut Capsule, policy: &RedactionPolicy) {
     for exchange in &mut capsule.exchanges {
         redact_exchange(exchange, policy, &mut capsule.redactions);
     }
+    for event in &mut capsule.backend_events {
+        redact_backend_event(event, policy, &mut capsule.redactions);
+    }
     capsule.redactions.sort();
     capsule.redactions.dedup();
+}
+
+pub(crate) fn redact_backend_event(
+    event: &mut crate::backend::BackendEvent,
+    policy: &RedactionPolicy,
+    manifest: &mut Vec<String>,
+) {
+    let identity = event.idempotency_key.take().map(|key| {
+        if key.strip_prefix("sha256:").is_some_and(|digest| {
+            digest.len() == 24 && digest.chars().all(|c| c.is_ascii_hexdigit())
+        }) {
+            return key;
+        }
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(key.as_bytes());
+        format!(
+            "sha256:{}",
+            digest[..12]
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        )
+    });
+    if let Ok(mut value) = serde_json::to_value(&*event) {
+        redact_value(&mut value, policy, "$backend", manifest);
+        if let Ok(redacted) = serde_json::from_value(value) {
+            *event = redacted;
+        }
+    }
+    event.idempotency_key = identity;
 }
 
 pub fn redact_exchange(
@@ -564,7 +667,7 @@ fn redact_headers(
     }
 }
 
-fn redact_value(
+pub(crate) fn redact_value(
     value: &mut Value,
     policy: &RedactionPolicy,
     path: &str,
@@ -676,7 +779,8 @@ pub fn json_reductions(value: &Value) -> Vec<Value> {
 
 /// Greedy joint minimization. `reproduces` must perform a clean replay and
 /// return true only for the exact original finding identity. Action removal also
-/// removes its causal exchanges and reindexes later actions atomically.
+/// removes its causal exchanges and backend events, then reindexes later
+/// causal inputs atomically.
 #[cfg(test)]
 pub fn minimize_exact<F>(capsule: &Capsule, mut reproduces: F) -> Result<Capsule>
 where
@@ -694,6 +798,9 @@ where
         candidate
             .exchanges
             .retain(|exchange| exchange.action_index != removed_index);
+        candidate
+            .backend_events
+            .retain(|event| event.action_index != removed_index);
         for action in &mut candidate.actions {
             if action.index > removed_index {
                 action.index -= 1;
@@ -702,6 +809,11 @@ where
         for exchange in &mut candidate.exchanges {
             if exchange.action_index > removed_index {
                 exchange.action_index -= 1;
+            }
+        }
+        for event in &mut candidate.backend_events {
+            if event.action_index > removed_index {
+                event.action_index -= 1;
             }
         }
         if !candidate.actions.is_empty() && reproduces(&candidate) {
@@ -899,6 +1011,20 @@ mod tests {
             response_body: None,
             required: true,
         });
+        c.backend_events.push(crate::backend::BackendEvent {
+            sequence: 1,
+            trace_id: "trace".into(),
+            span_id: "span".into(),
+            action_index: 0,
+            parent_span_id: None,
+            operation: "createUser".into(),
+            actor: Some("a".into()),
+            tenant: Some("team".into()),
+            idempotency_key: Some("payment-retry-secret".into()),
+            event: crate::backend::BackendEventKind::Start {
+                input: json!({"profile":{"email":"a@example.com"}}),
+            },
+        });
         redact_capsule(&mut c, &RedactionPolicy::default());
         assert_eq!(
             c.exchanges[0].request_headers["Authorization"],
@@ -909,6 +1035,43 @@ mod tests {
             "<reproit:string:length=13>"
         );
         assert!(c.redactions.contains(&"$request.profile.email".into()));
+        let crate::backend::BackendEventKind::Start { input } = &c.backend_events[0].event else {
+            panic!("expected start event");
+        };
+        assert_eq!(input["profile"]["email"], "<reproit:string:length=13>");
+        assert!(c
+            .redactions
+            .contains(&"$backend.input.profile.email".into()));
+        assert_eq!(
+            c.backend_events[0].idempotency_key.as_deref(),
+            Some("sha256:c5f7b22400db7ee6d27dfbf7")
+        );
+    }
+
+    #[test]
+    fn backend_findings_require_structural_replay_capability() {
+        let mut backend = finding();
+        backend.oracle = "backend-contract".into();
+        let mut capsule = Capsule::new("app", backend);
+        capsule.capabilities.insert(
+            "http_replay".into(),
+            Capability {
+                status: CaptureStatus::Captured,
+                detail: None,
+            },
+        );
+        assert_eq!(
+            capsule.missing_required_replay_capabilities(),
+            vec!["backend_effects_replay"]
+        );
+        capsule.capabilities.insert(
+            "backend_effects_replay".into(),
+            Capability {
+                status: CaptureStatus::Captured,
+                detail: None,
+            },
+        );
+        assert!(capsule.missing_required_replay_capabilities().is_empty());
     }
 
     #[test]

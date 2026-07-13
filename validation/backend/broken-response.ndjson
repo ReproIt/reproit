@@ -1,0 +1,4 @@
+REPROIT:BACKEND {"sequence":1,"traceId":"broken-response","spanId":"create","actionIndex":2,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"start","input":{"body":"hello"}}
+REPROIT:BACKEND {"sequence":2,"traceId":"broken-response","spanId":"create","actionIndex":2,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"effect","effect":"write","resource":"messages","key":"m1","effectTenant":"team-a","after":{"id":"m1"}}
+REPROIT:BACKEND {"sequence":3,"traceId":"broken-response","spanId":"create","actionIndex":2,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"effect","effect":"emit","event":"MessageCreated","payload":{"id":"m1"}}
+REPROIT:BACKEND {"sequence":4,"traceId":"broken-response","spanId":"create","actionIndex":2,"operation":"createMessage","actor":"alice","tenant":"team-a","kind":"return","status":201,"success":true,"effectsComplete":true,"output":{"identifier":"m1"}}

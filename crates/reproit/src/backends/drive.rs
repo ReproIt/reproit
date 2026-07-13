@@ -35,6 +35,10 @@ pub struct RunCtx {
     /// true for an `evidence.video` run or a record/clip pass, false for a plain
     /// walk (no stray video, honest `"video": null` manifest).
     pub wants_video: bool,
+    /// Enables the experimental structural backend transport. False means the
+    /// runner sends no correlation headers and inspects no backend evidence.
+    pub backend_enabled: bool,
+    pub backend_origins: Vec<String>,
     /// Drive in profile mode (AOT). Perf evidence is only representative
     /// here; debug (JIT) numbers overstate jank.
     pub profile: bool,
@@ -251,6 +255,12 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
         // in ordinary production launches while still installing before app
         // bootstrap during a Reproit run.
         c.env("REPROIT_CAUSAL", "1");
+        if ctx.backend_enabled {
+            c.env("REPROIT_BACKEND", "1");
+            if let Ok(origins) = serde_json::to_string(&ctx.backend_origins) {
+                c.env("REPROIT_BACKEND_ORIGINS", origins);
+            }
+        }
         // Framework-neutral causal input side channel. Runners that can observe
         // application networking append already-redacted facts here; unsupported
         // backends leave it empty and capability gating prevents confirmation.
@@ -511,7 +521,33 @@ async fn handle_line(
     // Redact any resolved secret value back to its placeholder before it lands
     // in the captured log, so a vault secret never persists in evidence even
     // though the runner typed the real value.
-    let line = crate::auth::redact(line, &ctx.secrets);
+    let mut line = crate::auth::redact(line, &ctx.secrets);
+    // Backend instrumentation may observe request and response bodies. Redact
+    // sensitive structural fields before either the drive log or the evidence
+    // sidecar is written. Malformed markers remain ordinary diagnostic text
+    // and can never become oracle input.
+    if let Some(pos) = line.find(crate::backend::EVENT_MARKER) {
+        let raw = line[pos + crate::backend::EVENT_MARKER.len()..].trim();
+        if let Ok(mut event) = serde_json::from_str::<crate::backend::BackendEvent>(raw) {
+            let mut manifest = Vec::new();
+            crate::capsule::redact_backend_event(
+                &mut event,
+                &crate::capsule::RedactionPolicy::default(),
+                &mut manifest,
+            );
+            if let Ok(json) = serde_json::to_string(&event) {
+                line = format!("{}{}{}", &line[..pos], crate::backend::EVENT_MARKER, json);
+                let path = ctx.run_dir.join(format!("backend-{label}.jsonl"));
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    let _ = writeln!(file, "{json}");
+                }
+            }
+        }
+    }
     let line = line.as_str();
     if line.contains("FUZZ:ACT ") {
         let index = {

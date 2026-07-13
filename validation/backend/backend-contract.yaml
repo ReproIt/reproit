@@ -1,0 +1,47 @@
+enabled: true
+origins: []
+schemas:
+  - validation/backend/openapi.yaml
+operations:
+  - id: createMessage
+    authority: declared
+    tenantIsolated: true
+    idempotent: true
+    promisedEffects:
+      - kind: write
+        resource: messages
+        atLeast: 1
+        atMost: 1
+      - kind: emit
+        event: MessageCreated
+        atLeast: 1
+        atMost: 1
+programs:
+  - language: rust
+    build: fixture
+    functions:
+      - id: handlers::create_message
+        name: create_message
+        source: src/handlers.rs:42
+        operation: createMessage
+        inputs:
+          - name: body
+            domain:
+              kind: string
+              minLength: 1
+              maxLength: 4000
+        output:
+          kind: resource
+          resource: message
+        calls:
+          - repository::insert_message
+        effects:
+          - kind: write
+            resource: messages
+          - kind: emit
+            event: MessageCreated
+        requires:
+          - actor.member_of(room)
+        ensures:
+          - message.exists
+        authority: inferred

@@ -67,6 +67,8 @@ jobs:
           restore-keys: windows-cargo-
       - name: Clippy the Windows UIA runner (warnings are errors)
         run: cargo clippy -p reproit --all-targets --locked -- -D warnings
+      - name: Backend structural contracts on native Windows
+        run: cargo test -p reproit "backend::" --locked
       # Windows-on-ARM ships as a release binary (aarch64-pc-windows-msvc), so
       # type-check the UIA runner for that target too. `cargo check` does not link,
       # so it needs only `rustup target add` (no ARM64 linker libs) and stays cheap,
@@ -104,6 +106,8 @@ jobs:
           node --check flicker-oracle.mjs
       - name: Unit-test the detectors + browser-backed runner behaviour
         run: node --test
+      - name: Backend browser to service transport gate
+        run: node --test ../../validation/backend/sdk-node.test.mjs ../../validation/backend/web-e2e.test.mjs
 
   # The byte-for-byte signature promise: every SDK and runner must reproduce the
   # 24 golden vectors in signature_vectors.json exactly, same as the Rust oracle
@@ -431,8 +435,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Install Rust for the native backend gate
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
       - name: iOS + macOS SDK signature parity (swift test)
         run: swift test --package-path sdk/reproit-ios
+      - name: Backend structural contracts on native macOS
+        run: cargo test -p reproit "backend::" --locked
 
   # TUI SDKs. The signature is a separate namespace pinned to the repo-root
   # tui_signature_vectors.json (not signature_vectors.json). The Rust TUI SDK is

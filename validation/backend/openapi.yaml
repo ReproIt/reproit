@@ -1,0 +1,38 @@
+openapi: 3.1.0
+info:
+  title: Backend contract fixture
+  version: 0.0.0
+paths:
+  /messages:
+    post:
+      operationId: createMessage
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+components:
+  schemas:
+    Message:
+      type: object
+      required: [id, body]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        body:
+          type: string

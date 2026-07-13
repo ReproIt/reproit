@@ -34,6 +34,11 @@ pub struct Config {
     /// Portable temporal properties evaluated over normalized runner events.
     #[serde(default)]
     pub contracts: Vec<crate::contracts::ContractSpec>,
+    /// Experimental backend structural analysis. This is intentionally absent
+    /// from public documentation until its cross-language validation gate is
+    /// complete.
+    #[serde(default)]
+    pub backend: crate::backend::BackendConfig,
 }
 
 /// Login credentials for journeys, resolved at run time from the encrypted
@@ -741,7 +746,7 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
 /// `load` (from a file) and the zero-config `--url` synthesizer.
 pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     let raw = interpolate_env(raw)?;
-    let config: Config = serde_yaml::from_str(&raw)?;
+    let mut config: Config = serde_yaml::from_str(&raw)?;
     if crate::platform::resolve(&config.app.platform).is_none() {
         bail!(
             "unsupported platform {:?}; known: {}",
@@ -752,6 +757,7 @@ pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     if config.journeys.done_markers.is_empty() {
         bail!("journeys.doneMarkers must not be empty");
     }
+    config.backend.load_schemas(&root)?;
     Ok(Loaded { config, root })
 }
 

@@ -1467,6 +1467,16 @@ async fn fuzz_one_locale(
                         .join("contract.json"),
                 )?;
             }
+            if let Some(guard) =
+                crate::backend::FrozenBackendGuard::from_findings(&cfg.backend, &findings)
+            {
+                guard.save(
+                    &root
+                        .join(".reproit/findings")
+                        .join(&repro_id)
+                        .join("backend-contract.json"),
+                )?;
+            }
             if let Some(primary) = primary_finding(&findings) {
                 let capsule =
                     persist_causal_capsule(cfg, root, &outcome.run_dir, primary, &shrunk, *seed)?;
@@ -1849,12 +1859,16 @@ fn persist_causal_capsule(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let boundary = ["endpoint", "url", "request", "event"]
+    let boundary = ["operation", "endpoint", "url", "request", "event"]
         .iter()
         .find_map(|key| finding.get(*key).and_then(Value::as_str))
         .map(str::to_string);
     let identity = crate::capsule::FindingIdentity {
-        oracle: crate::crosscut::classify(finding).as_str().to_string(),
+        oracle: if finding.get("oracle").and_then(Value::as_str) == Some("backend-contract") {
+            "backend-contract".into()
+        } else {
+            crate::crosscut::classify(finding).as_str().to_string()
+        },
         invariant: first(&["invariant"]),
         kind: first(&["kind"]),
         frame,
@@ -1936,6 +1950,7 @@ fn persist_causal_capsule(
         })
         .collect();
     capsule.ingest_network_files(run_dir)?;
+    capsule.ingest_backend_files(run_dir)?;
     crate::capsule::redact_capsule(&mut capsule, &crate::capsule::RedactionPolicy::default());
     capsule.finalize_id()?;
     if !capsule.confirmable() {
@@ -2590,6 +2605,12 @@ fn findings_from_log(
             .iter()
             .map(crate::contracts::finding),
     );
+    let backend_events = crate::backend::parse_events(log);
+    f.extend(
+        crate::backend::evaluate(&cfg.backend, &backend_events)
+            .iter()
+            .map(crate::backend::finding),
+    );
     f
 }
 
@@ -2610,6 +2631,14 @@ fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
         &cfg.contracts,
         &contract_observations,
         &contract_violations,
+    );
+    let backend_events = crate::backend::parse_events(&log);
+    let backend_violations = crate::backend::evaluate(&cfg.backend, &backend_events);
+    let _ = crate::backend::write_evidence(
+        &run_dir.join("backend-evidence.json"),
+        &cfg.backend,
+        &backend_events,
+        &backend_violations,
     );
     let exceptions = if sim {
         app_exceptions(run_dir)

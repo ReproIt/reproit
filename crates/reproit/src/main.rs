@@ -8,6 +8,8 @@
 
 // Top-level: CLI entry, config, and cross-cutting infra.
 mod auth;
+#[path = "model/backend.rs"]
+mod backend;
 mod capsule;
 mod config;
 #[path = "model/contracts.rs"]
@@ -4136,6 +4138,13 @@ fn keep_repro(
     if finding_contract.exists() {
         std::fs::copy(finding_contract, dir.join("contract.json"))?;
     }
+    let finding_backend_contract = root
+        .join(".reproit/findings")
+        .join(&computed)
+        .join("backend-contract.json");
+    if finding_backend_contract.exists() {
+        std::fs::copy(finding_backend_contract, dir.join("backend-contract.json"))?;
+    }
 
     // Status: a fresh keep lands quarantined (or required with --strict); a
     // RE-keep preserves the existing status, so re-running keep never demotes a
@@ -4388,6 +4397,18 @@ async fn check_repro(
                     .join("contract.json"),
             )
         });
+    let frozen_backend = crate::backend::FrozenBackendGuard::load(
+        &dir.join("backend-contract.json"),
+    )
+    .or_else(|| {
+        crate::backend::FrozenBackendGuard::load(
+            &loaded
+                .root
+                .join(".reproit/findings")
+                .join(id)
+                .join("backend-contract.json"),
+        )
+    });
     // Replay source: a KEPT repro's store (replay.json + meta trigger) when it
     // exists, else a PENDING fuzz finding by id read straight from the artifact,
     // so `check <id>` can confirm a finding BEFORE it is `keep`-ed. For the
@@ -4538,6 +4559,12 @@ async fn check_repro(
             if guard.reproduces(&observations) {
                 verdict = repro::RunVerdict::Broke;
             }
+        }
+        if frozen_backend
+            .as_ref()
+            .is_some_and(|guard| guard.reproduces(seg))
+        {
+            verdict = repro::RunVerdict::Broke;
         }
         if !quiet {
             println!("  run {}/{}: {}", i + 1, segments.len(), verdict.as_str());

@@ -357,7 +357,10 @@ impl Oracle {
 /// already exists (modes/fuzz.rs, model/invariants.rs); this is the single
 /// mapping from that taxonomy to the user-facing oracle categories.
 pub fn classify(finding: &Value) -> Oracle {
-    if finding.get("oracle").and_then(Value::as_str) == Some("contract") {
+    if matches!(
+        finding.get("oracle").and_then(Value::as_str),
+        Some("contract" | "backend-contract")
+    ) {
         return Oracle::Contract;
     }
     let invariant = finding
@@ -1032,6 +1035,10 @@ mod tests {
         );
         assert_eq!(classify(&json!({ "invariant": "no-jank" })), Oracle::Jank);
         assert_eq!(classify(&json!({ "invariant": "no-leak" })), Oracle::Leak);
+        assert_eq!(
+            classify(&json!({ "oracle": "backend-contract", "kind": "response-shape" })),
+            Oracle::Contract
+        );
         // Listener leak folds into the Leak oracle (invariant id AND kind).
         assert_eq!(
             classify(&json!({ "invariant": "no-listener-leak" })),

@@ -28,6 +28,7 @@ import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import {
   gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth, DEFAULT_GRID,
 } from './probe.mjs';
@@ -50,10 +51,24 @@ const APP_ORIGIN = (() => { try { return new URL(APP_URL).origin; } catch (e) { 
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
 const NETWORK_FILE = process.env.REPROIT_NETWORK_FILE || undefined;
 const NETWORK_ACTOR = process.env.REPROIT_DEVICE || 'a';
+const BACKEND_ENABLED = process.env.REPROIT_BACKEND === '1';
+const BACKEND_ORIGINS = (() => {
+  try {
+    const values = JSON.parse(process.env.REPROIT_BACKEND_ORIGINS || '[]');
+    const normalized = [APP_ORIGIN, ...(Array.isArray(values) ? values : [])]
+      .map((value) => { try {
+        const url = new URL(value);
+        return /^https?:$/.test(url.protocol) ? url.origin : null;
+      } catch (_) { return null; } })
+      .filter(Boolean);
+    return new Set(normalized);
+  } catch (_) { return new Set([APP_ORIGIN].filter(Boolean)); }
+})();
 // 0 is the immutable bootstrap phase; user actions are 1-based. This keeps
 // initial API/config traffic hermetic without conflating it with the first tap.
 let causalActionIndex = 0;
 let causalOrdinal = 0;
+let backendRequestOrdinal = 0;
 
 // First-party check for the exception oracle: an uncaught error is the app's
 // bug only if its stack touches the app's own origin. Errors thrown ENTIRELY
@@ -887,7 +902,9 @@ export function redactNetworkValue(value) {
 export function redactNetworkHeaders(headers) {
   const out = {};
   for (const key of Object.keys(headers || {}).sort()) {
-    out[key] = SECRET_FIELD_RE.test(key) ? '<reproit:secret>' : String(headers[key]);
+    out[key] = key.toLowerCase() === 'x-reproit-events'
+      ? '<reproit:backend-events>'
+      : SECRET_FIELD_RE.test(key) ? '<reproit:secret>' : String(headers[key]);
   }
   return out;
 }
@@ -915,6 +932,72 @@ export function responseShape(value) {
 function appendNetworkFact(fact) {
   if (!NETWORK_FILE) return;
   try { appendFileSync(NETWORK_FILE, JSON.stringify(fact) + '\n', { encoding: 'utf8', mode: 0o600 }); } catch (_) {}
+}
+
+export function backendCorrelationHeaders(url, actionIndex, ordinal, trustedOrigins = APP_ORIGIN, actor = NETWORK_ACTOR) {
+  let origin;
+  try { origin = new URL(url).origin; } catch (_) { return null; }
+  const allowed = trustedOrigins instanceof Set
+    ? trustedOrigins
+    : new Set(Array.isArray(trustedOrigins) ? trustedOrigins : [trustedOrigins]);
+  if (!allowed.has(origin)) return null;
+  const safeActor = String(actor).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 32) || 'a';
+  const traceId = `rpt-${safeActor}-${Math.max(0, actionIndex)}-${Math.max(0, ordinal)}`;
+  return {
+    'x-reproit-trace': traceId,
+    'x-reproit-actor': safeActor,
+    'x-reproit-action': String(Math.max(0, actionIndex)),
+  };
+}
+
+export function decodeBackendEventHeader(encoded, expectedTrace, actionIndex, actor) {
+  if (!encoded || typeof encoded !== 'string' || encoded.length > 65536) return [];
+  try {
+    const value = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    if (!Array.isArray(value) || value.length > 256) return [];
+    return value.filter((event) => event && typeof event === 'object' &&
+      Number.isSafeInteger(event.sequence) && event.sequence >= 0 &&
+      typeof event.traceId === 'string' && event.traceId === expectedTrace &&
+      typeof event.spanId === 'string' && event.spanId.length > 0 && event.spanId.length <= 128 &&
+      typeof event.operation === 'string' && event.operation.length > 0 && event.operation.length <= 256 &&
+      ['start', 'return', 'effect'].includes(event.kind))
+      .map((event) => {
+        const rawIdentity = event.idempotencyKey == null ? undefined : String(event.idempotencyKey);
+        const identity = rawIdentity == null ? undefined :
+          /^sha256:[0-9a-f]{24}$/i.test(rawIdentity) ? rawIdentity.toLowerCase() :
+            `sha256:${createHash('sha256').update(rawIdentity).digest('hex').slice(0, 24)}`;
+        const safe = redactNetworkValue({
+          ...event,
+          actionIndex: Math.max(0, Number(actionIndex) || 0),
+          actor: String(actor || 'a'),
+        });
+        if (identity) safe.idempotencyKey = identity;
+        return safe;
+      });
+  } catch (_) { return []; }
+}
+
+export function encodeBackendEventHeader(events) {
+  if (!Array.isArray(events) || events.length === 0 || events.length > 256) return null;
+  const encoded = Buffer.from(JSON.stringify(events), 'utf8').toString('base64url');
+  return encoded.length <= 60000 ? encoded : null;
+}
+
+export async function installBackendCorrelation(context, enabled = BACKEND_ENABLED, options = {}) {
+  if (!enabled) return;
+  const trustedOrigins = options.trustedOrigins ||
+    (options.appOrigin ? new Set([options.appOrigin]) : BACKEND_ORIGINS);
+  const actor = options.actor || NETWORK_ACTOR;
+  const currentAction = options.actionIndex || (() => causalActionIndex);
+  await context.route('**/*', async (route) => {
+    const req = route.request();
+    if (!['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) return route.fallback();
+    const correlation = backendCorrelationHeaders(
+      req.url(), currentAction(), backendRequestOrdinal++, trustedOrigins, actor,
+    );
+    if (!correlation) return route.fallback();
+    return route.fallback({ headers: { ...req.headers(), ...correlation } });
+  });
 }
 
 function canonicalNetworkUrl(raw) {
@@ -4021,6 +4104,9 @@ async function main() {
   if (LOCALE) console.log(`JOURNEY[a] step: locale=${LOCALE}`);
   const context = await browser.newContext(contextOpts);
   await installCapsuleReplay(context);
+  // Registered after capsule replay so Playwright's LIFO route chain adds
+  // correlation first, then falls back into the hermetic capsule fulfiller.
+  await installBackendCorrelation(context);
   await installWebSocketCausal(context);
   const page = await context.newPage();
   // CDP session for ground-truth operability (DOMDebugger.getEventListeners):
@@ -4082,6 +4168,31 @@ async function main() {
       const req = resp.request();
       const resourceType = req.resourceType();
       const responseUrl = new URL(resp.url());
+      let responseHeaders;
+      let backendEvents = [];
+      let backendReplayHeader = null;
+      if (BACKEND_ENABLED && BACKEND_ORIGINS.has(responseUrl.origin) &&
+          ['xhr', 'fetch', 'eventsource'].includes(resourceType)) {
+        responseHeaders = await resp.allHeaders().catch(() => ({}));
+        const requestHeaders = req.headers();
+        const traceId = requestHeaders['x-reproit-trace'];
+        const encoded = responseHeaders['x-reproit-events'];
+        if (traceId && encoded) {
+          backendEvents = decodeBackendEventHeader(
+            encoded,
+            traceId,
+            requestHeaders['x-reproit-action'],
+            requestHeaders['x-reproit-actor'],
+          );
+          for (const event of backendEvents) log('REPROIT:BACKEND ' + JSON.stringify(event));
+          if (backendEvents.length > 0) {
+            backendReplayHeader = encodeBackendEventHeader(backendEvents);
+            log(backendReplayHeader
+              ? 'REPROIT:CAPABILITIES {"backend_effects":{"status":"captured","detail":"trace-bound structural service events"},"backend_effects_replay":{"status":"captured","detail":"redacted events retained in hermetic HTTP response"}}'
+              : 'REPROIT:CAPABILITIES {"backend_effects":{"status":"captured","detail":"trace-bound structural service events"},"backend_effects_replay":{"status":"unsupported","detail":"event envelope exceeds the safe replay limit"}}');
+          }
+        }
+      }
       if (responseUrl.origin === APP_ORIGIN) {
         log('FUZZ:NETWORK ' + JSON.stringify({ status: resp.status(), url: responseUrl.pathname }));
       }
@@ -4110,7 +4221,7 @@ async function main() {
       }
       const causal = causalRequests.get(req);
       if (causal && NETWORK_FILE) {
-        const headers = await resp.allHeaders().catch(() => ({}));
+        const headers = responseHeaders || await resp.allHeaders().catch(() => ({}));
         const contentType = headers['content-type'] || '';
         let body;
         if (/text\/event-stream/i.test(contentType)) {
@@ -4125,12 +4236,16 @@ async function main() {
           const len = headers['content-length'];
           body = len ? `<reproit:body:length=${len}>` : undefined;
         }
+        const safeResponseHeaders = redactNetworkHeaders(headers);
+        if (backendReplayHeader) {
+          safeResponseHeaders['x-reproit-events'] = backendReplayHeader;
+        }
         appendNetworkFact({
           version: 1, type: 'exchange', id: causal.id, actor: NETWORK_ACTOR,
           actionIndex: Math.max(causal.actionIndex, 0), ordinal: causal.ordinal,
           protocol: /text\/event-stream/i.test(contentType) ? 'sse' : new URL(resp.url()).protocol.replace(':', ''), method: req.method(), url: resp.url(),
           requestHeaders: causal.headers, requestBody: causal.body,
-          status: resp.status(), responseHeaders: redactNetworkHeaders(headers), responseBody: body,
+          status: resp.status(), responseHeaders: safeResponseHeaders, responseBody: body,
           required: true,
         });
         if (/json/i.test(contentType)) {

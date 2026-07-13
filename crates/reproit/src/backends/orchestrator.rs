@@ -303,6 +303,8 @@ pub async fn run_journey(
         // actually wanted: an evidence video, or a record/clip pass. Otherwise a
         // plain walk left a stray video on disk and a misleading manifest.
         wants_video: cfg.evidence.video || record_video,
+        backend_enabled: cfg.backend.enabled,
+        backend_origins: cfg.backend.origins.clone(),
         defines,
         secrets,
         ready_marker: cfg.journeys.ready_marker.clone(),
