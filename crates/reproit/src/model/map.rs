@@ -567,9 +567,9 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
                 }
             }
         } else if let Some(json) = extract(line, "EXPLORE:BROKENASSET ") {
-            // Dead subresources rendered in a state: an img that completed with
-            // no pixels, a FontFace whose load errored, or rendered tofu (a
-            // visible U+FFFD). Keyed by signature (last write wins); each item is
+            // Dead critical subresources in a state: visibly broken images,
+            // rendered tofu, and failed or MIME-blocked same-origin stylesheets
+            // and application scripts. Keyed by signature (last write wins); each item is
             // `(key, reason, detail)`. Only non-empty item lists are recorded
             // (the runner is silent when every asset is healthy).
             if let (Some(sig), Some(items)) = (

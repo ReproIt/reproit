@@ -35,7 +35,8 @@ import { transientDivergence } from './flicker-oracle.mjs';
 import {
   occlusionScan, confirmOcclusions, securityScan,
   dupSubmitEligible, focusLossArm, focusLossCheck,
-  blankScreenScan, brokenAssetScan, zoomTappableKeys, zoomReflowScan,
+  blankScreenScan, brokenAssetScan, installCriticalResourceObserver,
+  criticalResourceScan, zoomTappableKeys, zoomReflowScan,
   scrollRoundTripScan,
   installListenerLeakCounter, listenerLeakSample,
 } from './hygiene-oracles.mjs';
@@ -4061,10 +4062,36 @@ async function main() {
   // locale-invariant, and a 4xx/5xx is never an intended screen, so this is
   // false-positive-free. Same-origin only (off-site links are handled elsewhere).
   const navStatus = {};
+  const criticalResourceFacts = new Map();
+  let criticalResourceSequence = 0;
   const causalRequests = new WeakMap();
   page.on('response', async (resp) => {
     try {
       const req = resp.request();
+      const resourceType = req.resourceType();
+      if (resourceType === 'stylesheet' || resourceType === 'script') {
+        const sequence = ++criticalResourceSequence;
+        const url = new URL(resp.url());
+        url.hash = '';
+        if (url.origin === APP_ORIGIN) {
+          criticalResourceFacts.set(url.href, {
+            url: url.href,
+            status: resp.status(),
+            contentType: '',
+            resourceType,
+            optional: resourceType === 'script' && exceptionThrownInTracker(url.href),
+            sequence,
+          });
+          const headers = await resp.allHeaders().catch(() => ({}));
+          if (criticalResourceFacts.get(url.href)?.sequence === sequence) {
+            criticalResourceFacts.set(url.href, {
+              ...criticalResourceFacts.get(url.href),
+              url: url.href,
+              contentType: headers['content-type'] || '',
+            });
+          }
+        }
+      }
       const causal = causalRequests.get(req);
       if (causal && NETWORK_FILE) {
         const headers = await resp.allHeaders().catch(() => ({}));
@@ -4096,6 +4123,27 @@ async function main() {
       if (u.origin !== APP_ORIGIN) return;
       navStatus[normalizePathname(u.pathname)] = resp.status();
     } catch (e) { /* ignore */ }
+  });
+  page.on('requestfailed', (req) => {
+    try {
+      const resourceType = req.resourceType();
+      if (resourceType !== 'stylesheet' && resourceType !== 'script') return;
+      const failure = (req.failure() && req.failure().errorText) || 'request failed';
+      const cancelled = /(ERR_ABORTED|NS_BINDING_ABORTED|cancelled|canceled)/i.test(failure);
+      const url = new URL(req.url());
+      url.hash = '';
+      if (url.origin !== APP_ORIGIN) return;
+      const sequence = ++criticalResourceSequence;
+      criticalResourceFacts.set(url.href, {
+        ...(criticalResourceFacts.get(url.href) || {}),
+        url: url.href,
+        failure,
+        cancelled,
+        resourceType,
+        optional: resourceType === 'script' && exceptionThrownInTracker(url.href),
+        sequence,
+      });
+    } catch (_) {}
   });
 
   // DUPLICATE-SUBMIT probe support, OPT-IN per run via REPROIT_DUPSUBMIT=1:
@@ -4150,6 +4198,7 @@ async function main() {
   // (the precise Long Tasks path is kept), but installing it everywhere keeps the
   // page setup uniform.
   await installFrameObserver(page);
+  await page.addInitScript(installCriticalResourceObserver);
   // LISTENER-LEAK counter (opt-in): wrap add/removeEventListener as an INIT
   // script so it is installed before any page script on every document and its
   // tally survives client-side navigations (the leak surface). Must precede the
@@ -4438,14 +4487,15 @@ async function main() {
         if (invViolations && invViolations.length) {
           log('EXPLORE:INVARIANT ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: invViolations }));
         }
-        // BROKEN-ASSET: dead subresources rendered in this state -- an img that
-        // completed with no pixels, a FontFace whose load errored, rendered
-        // tofu (a visible U+FFFD). Pure DOM/resource status facts; running
-        // after the settle wait means loads have resolved, so a still-loading
-        // asset never false-positives. Silent when every asset is healthy.
+        // BROKEN-ASSET: visible dead images/tofu plus same-origin critical CSS
+        // and application scripts that failed or were browser-rejected. The
+        // settled DOM is correlated with response/error facts, so optional or
+        // unreferenced requests never become findings.
         const assets = await page.evaluate(brokenAssetScan, [...INJECTED_VALUES]).catch(() => null);
-        if (assets && assets.length) {
-          log('EXPLORE:BROKENASSET ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: assets }));
+        const criticalAssets = await page.evaluate(criticalResourceScan, [...criticalResourceFacts.values()]).catch(() => null);
+        const brokenAssets = [...(assets || []), ...(criticalAssets || [])].slice(0, 20);
+        if (brokenAssets.length) {
+          log('EXPLORE:BROKENASSET ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: brokenAssets }));
         }
         if (!PROBE) {
           // SCROLL ROUND-TRIP: scroll the primary list away and back and flag

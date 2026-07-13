@@ -8,14 +8,210 @@
 // Browser-backed (brokenAssetScan reads live DOM/resource status). Run `node --test`.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { chromium } from 'playwright';
-import { brokenAssetScan } from './hygiene-oracles.mjs';
+import { chromium, firefox, webkit } from 'playwright';
+import {
+  brokenAssetScan, installCriticalResourceObserver, criticalResourceScan,
+} from './hygiene-oracles.mjs';
 
 // The exact adversarial injection payload the fuzzer types (runner.mjs ADVERSARIAL).
 const INJECT = '"><img src=x onerror=alert(1)>{{7*7}}';
+const browserType = { chromium, firefox, webkit }[process.env.REPROIT_TEST_BROWSER || 'chromium'];
+if (!browserType) throw new Error(`unknown REPROIT_TEST_BROWSER: ${process.env.REPROIT_TEST_BROWSER}`);
+
+async function criticalFacts(page) {
+  const facts = new Map();
+  let sequence = 0;
+  page.on('response', async (resp) => {
+    const type = resp.request().resourceType();
+    if (type !== 'stylesheet' && type !== 'script') return;
+    const observed = ++sequence;
+    facts.set(resp.url(), { url: resp.url(), status: resp.status(), contentType: '', resourceType: type, optional: /\/analytics\.js/.test(resp.url()), sequence: observed });
+    const headers = await resp.allHeaders().catch(() => ({}));
+    if (facts.get(resp.url())?.sequence !== observed) return;
+    facts.set(resp.url(), { ...facts.get(resp.url()), contentType: headers['content-type'] || '' });
+  });
+  page.on('requestfailed', (req) => {
+    const type = req.resourceType();
+    if (type !== 'stylesheet' && type !== 'script') return;
+    const failure = req.failure()?.errorText || 'request failed';
+    const cancelled = /(ERR_ABORTED|NS_BINDING_ABORTED|cancelled|canceled)/i.test(failure);
+    const observed = ++sequence;
+    facts.set(req.url(), { ...(facts.get(req.url()) || {}), url: req.url(), failure, cancelled, resourceType: type, sequence: observed });
+  });
+  await page.addInitScript(installCriticalResourceObserver);
+  return facts;
+}
+
+async function waitForFacts(page, facts, count) {
+  for (let i = 0; i < 50 && facts.size < count; i++) await page.waitForTimeout(20);
+  assert.ok(facts.size >= count, `expected ${count} critical resource facts, got ${facts.size}`);
+  for (let i = 0; i < 50 && [...facts.values()].some((fact) => !fact.contentType && !fact.failure); i++) await page.waitForTimeout(20);
+}
+
+test('missing CSS and MIME-blocked JavaScript are critical broken assets', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    const facts = await criticalFacts(page);
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/missing.css') return route.fulfill({ status: 404, contentType: 'text/css', body: '' });
+      if (path === '/wrong-mime.js') return route.fulfill({ status: 200, contentType: 'text/html', headers: { 'X-Content-Type-Options': 'nosniff' }, body: '<!doctype html>' });
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><link id="theme" rel="stylesheet" href="/missing.css"><script id="app" src="/wrong-mime.js" defer></script><h1>Styled app</h1>',
+      });
+    });
+    await page.goto('http://asset.test/');
+    await waitForFacts(page, facts, 2);
+    const out = await page.evaluate(criticalResourceScan, [...facts.values()]);
+    assert.ok(out.some((item) => item.key === 'key:id:theme' && item.reason === 'stylesheet-http' && /status=404/.test(item.detail)), JSON.stringify(out));
+    assert.ok(out.some((item) => item.key === 'key:id:app'
+      && ((item.reason === 'script-mime' && /content-type=text\/html/.test(item.detail))
+        || (item.reason === 'script-request' && /NS_ERROR_CORRUPTED_CONTENT/.test(item.detail)))), JSON.stringify(out));
+  } finally {
+    await browser.close();
+  }
+});
+
+test('nested CSS imports and JavaScript modules identify the exact failed dependency', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    const facts = await criticalFacts(page);
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/app.css') return route.fulfill({ status: 200, contentType: 'text/css', body: '@import "/theme.css"; body{color:black}' });
+      if (path === '/theme.css') return route.fulfill({ status: 404, contentType: 'text/css', body: '' });
+      if (path === '/app.js') return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'import "./checkout.js";' });
+      if (path === '/checkout.js') return route.fulfill({ status: 404, contentType: 'application/javascript', body: '' });
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><link id="theme-root" rel="stylesheet" href="/app.css"><script id="app-root" type="module" src="/app.js"></script><h1>Dependencies</h1>',
+      });
+    });
+    await page.goto('http://asset.test/');
+    await waitForFacts(page, facts, 4);
+    const out = await page.evaluate(criticalResourceScan, [...facts.values()]);
+    assert.ok(out.some((item) => item.reason === 'stylesheet-import-http' && /\/theme\.css/.test(item.detail) && /root=http:\/\/asset\.test\/app\.css/.test(item.detail)), JSON.stringify(out));
+    assert.ok(out.some((item) => item.reason === 'module-dependency-http' && /\/checkout\.js/.test(item.detail) && /root=http:\/\/asset\.test\/app\.js/.test(item.detail) && /parent=unavailable/.test(item.detail)), JSON.stringify(out));
+    assert.ok(!out.some((item) => /app\.(css|js) status=200/.test(item.detail)), JSON.stringify(out));
+  } finally {
+    await browser.close();
+  }
+});
+
+test('multiple failed module roots never receive a guessed dependency parent', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    const facts = await criticalFacts(page);
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/one.js') return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'import "./one-child.js";' });
+      if (path === '/two.js') return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'import "./two-child.js";' });
+      if (path.endsWith('-child.js')) return route.fulfill({ status: 404, contentType: 'application/javascript', body: '' });
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><script id="one" type="module" src="/one.js"></script><script id="two" type="module" src="/two.js"></script>',
+      });
+    });
+    await page.goto('http://asset.test/');
+    await waitForFacts(page, facts, 4);
+    const out = await page.evaluate(criticalResourceScan, [...facts.values()]);
+    const dependencies = out.filter((item) => item.reason === 'module-dependency-http');
+    assert.equal(dependencies.length, 2, JSON.stringify(out));
+    assert.ok(dependencies.every((item) => /parent=unavailable/.test(item.detail) && !/root=/.test(item.detail)), JSON.stringify(out));
+  } finally {
+    await browser.close();
+  }
+});
+
+test('healthy, third-party, and inactive resources stay silent', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    const facts = await criticalFacts(page);
+    await page.route('**/*', (route) => {
+      const req = route.request();
+      const path = new URL(req.url()).pathname;
+      if (path === '/app.css') return route.fulfill({ status: 200, contentType: 'text/css', body: 'h1{color:green}' });
+      if (path === '/app.js') return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.ready=true' });
+      if (path === '/print.css') return route.fulfill({ status: 404, contentType: 'text/css', body: '' });
+      if (path === '/alternate.css') return route.fulfill({ status: 404, contentType: 'text/css', body: '' });
+      if (path === '/analytics.js') return route.fulfill({ status: 404, contentType: 'application/javascript', body: '' });
+      if (new URL(req.url()).hostname === 'analytics.test') return route.fulfill({ status: 404, body: '' });
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><link rel="stylesheet" href="/app.css"><link rel="stylesheet" media="print" href="/print.css"><link rel="alternate stylesheet" title="Other" href="/alternate.css"><script src="/app.js"></script><script src="/analytics.js"></script><script src="https://analytics.test/tracker.js"></script><h1>Healthy</h1>',
+      });
+    });
+    await page.goto('http://asset.test/');
+    await waitForFacts(page, facts, 6);
+    assert.deepEqual(await page.evaluate(criticalResourceScan, [...facts.values()]), []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('a successful same-URL retry clears an earlier transient load error', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    const facts = await criticalFacts(page);
+    let attempts = 0;
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/retry.js') {
+        attempts++;
+        return attempts === 1
+          ? route.fulfill({ status: 503, contentType: 'application/javascript', body: '' })
+          : route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.retryLoaded=true' });
+      }
+      return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><h1>Retry</h1>' });
+    });
+    await page.goto('http://asset.test/');
+    await page.evaluate(async () => {
+      const load = () => new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = '/retry.js';
+        script.onload = script.onerror = resolve;
+        document.head.appendChild(script);
+      });
+      await load();
+      await load();
+    });
+    await waitForFacts(page, facts, 1);
+    assert.equal(attempts, 2);
+    assert.deepEqual(await page.evaluate(criticalResourceScan, [...facts.values()]), []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('an intentionally cancelled critical request never falls through to load failure', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(installCriticalResourceObserver);
+    await page.route('**/*', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><script id="cancelled" src="/cancelled.js"></script>' }));
+    await page.goto('http://asset.test/');
+    await page.evaluate(() => document.getElementById('cancelled').dispatchEvent(new Event('error')));
+    const out = await page.evaluate(criticalResourceScan, [{
+      url: 'http://asset.test/cancelled.js', failure: 'net::ERR_ABORTED', cancelled: true,
+    }]);
+    assert.deepEqual(out, []);
+  } finally {
+    await browser.close();
+  }
+});
 
 test('favicon/chrome icons are excluded; a genuine dead <img> still fires', async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   try {
     const page = await browser.newPage();
     // Every image request 404s, so each <img> ends up complete with naturalWidth 0.
@@ -41,7 +237,7 @@ test('favicon/chrome icons are excluded; a genuine dead <img> still fires', asyn
 });
 
 test('a fuzzer-injected <img> is excluded by provenance; a real one is not', async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   try {
     const page = await browser.newPage();
     await page.route('**/*', (route) => {
@@ -72,7 +268,7 @@ test('a fuzzer-injected <img> is excluded by provenance; a real one is not', asy
 });
 
 test('fuzzer-typed tofu is excluded; genuine encoding tofu still fires', async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   try {
     const page = await browser.newPage();
     await page.setContent(`
@@ -91,7 +287,7 @@ test('fuzzer-typed tofu is excluded; genuine encoding tofu still fires', async (
 });
 
 test('an off-screen / hidden / zero-size broken img is NOT flagged (Next.js /_next/image residual)', async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   try {
     const page = await browser.newPage();
     await page.route('**/*', (route) => {
@@ -118,7 +314,7 @@ test('an off-screen / hidden / zero-size broken img is NOT flagged (Next.js /_ne
 });
 
 test('a webfont whose FontFace errored but text renders fine is NOT flagged (no font-status path)', async () => {
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   try {
     const page = await browser.newPage();
     // A @font-face pointing at a missing file: FontFace.status becomes 'error', but

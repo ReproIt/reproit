@@ -149,11 +149,9 @@ pub enum Oracle {
     /// (a failed SPA mount, a render error swallowed before paint). Structural
     /// DOM emptiness, not a pixel check, so it is deterministic (web only).
     BlankScreen,
-    /// Broken asset: a dead subresource rendered in the state -- an `img` that
-    /// finished loading with no pixels (complete && naturalWidth === 0), a
-    /// FontFace whose load errored, or rendered tofu (a visible U+FFFD
-    /// replacement character from an encoding failure). Pure DOM/resource
-    /// status facts, deterministic and false-positive-free (web only).
+    /// Broken asset: a dead or browser-rejected critical subresource in the state.
+    /// Includes visible dead images/tofu and same-origin stylesheet or application
+    /// script failures. Deterministic browser/DOM facts (web only).
     BrokenAsset,
     /// Zoom reflow: a route that breaks at 200% zoom (WCAG 1.4.10 Reflow,
     /// EAA-mandatory). The runner re-renders the route at half the viewport's

@@ -296,8 +296,6 @@ export function blankScreenScan() {
 //           naturalWidth === 0) and a non-empty src -- a wrong path, a 404, or
 //           a corrupt file. A still-loading img has complete === false, so it
 //           never false-positives mid-load.
-//   - font: a FontFace whose load errored (status === 'error') -- a missing or
-//           corrupt font file the page actually tried to use.
 //   - tofu: a VISIBLE text node containing U+FFFD, the replacement character an
 //           encoding failure renders as tofu. Only rendered text counts
 //           (script/style text and hidden nodes are skipped).
@@ -371,6 +369,171 @@ export function brokenAssetScan(injectedValues) {
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) continue;
     push(el.id ? 'key:id:' + el.id : 'tag:' + el.tagName.toLowerCase(), 'tofu', text.trim().slice(0, 60));
+  }
+  return out;
+}
+
+// CRITICAL RESOURCE observer + scan. The observer runs before page scripts and
+// records browser-confirmed load errors for DOM-referenced stylesheets/scripts.
+// The settled scan correlates those errors with Playwright response facts, so a
+// document returning 200 cannot hide a missing or MIME-blocked render dependency.
+// Same-origin only; inactive media stylesheets and non-executable script data
+// blocks are excluded. This deliberately ignores prefetch/preload, analytics on
+// third-party origins, and intentionally aborted requests.
+export function installCriticalResourceObserver() {
+  if (window.__reproitCriticalResourceObserver) return;
+  window.__reproitCriticalResourceObserver = true;
+  window.__reproitCriticalResourceFailed = new WeakSet();
+  window.__reproitCriticalResourceLoaded = new WeakSet();
+  const bindLoad = (el) => {
+    if (!el || el.nodeType !== 1 || el.__reproitCriticalBound) return;
+    const tag = (el.tagName || '').toLowerCase();
+    const critical = (tag === 'script' && el.src)
+      || (tag === 'link' && (el.rel || '').toLowerCase().split(/\s+/).includes('stylesheet'));
+    if (!critical) return;
+    el.__reproitCriticalBound = true;
+    el.addEventListener('load', () => window.__reproitCriticalResourceLoaded.add(el), { once: true });
+  };
+  new MutationObserver((records) => {
+    for (const record of records) for (const node of record.addedNodes) {
+      bindLoad(node);
+      if (node && node.querySelectorAll) for (const el of node.querySelectorAll('script[src], link[rel~="stylesheet"][href]')) bindLoad(el);
+    }
+  }).observe(document, { childList: true, subtree: true });
+  const record = (event) => {
+    const el = event && event.target;
+    if (!el || el.nodeType !== 1) return;
+    const tag = (el.tagName || '').toLowerCase();
+    const isCss = tag === 'link' && (el.rel || '').toLowerCase().split(/\s+/).includes('stylesheet');
+    const isScript = tag === 'script' && !!el.src;
+    if (!isCss && !isScript) return;
+    const url = isCss ? el.href : el.src;
+    if (!url) return;
+    if (event.type === 'error') window.__reproitCriticalResourceFailed.add(el);
+    if (event.type === 'load') window.__reproitCriticalResourceLoaded.add(el);
+  };
+  addEventListener('error', record, true);
+}
+
+export function criticalResourceScan(networkFacts) {
+  const out = [];
+  const origin = location.origin;
+  const norm = (value) => {
+    try { const u = new URL(value, location.href); u.hash = ''; return u.href; } catch (_) { return ''; }
+  };
+  const facts = new Map();
+  for (const fact of (Array.isArray(networkFacts) ? networkFacts : [])) {
+    const url = norm(fact && fact.url);
+    if (url) facts.set(url, fact);
+  }
+  const failedElements = window.__reproitCriticalResourceFailed || new WeakSet();
+  const loadedElements = window.__reproitCriticalResourceLoaded || new WeakSet();
+  const loadedSheets = new Set(Array.from(document.styleSheets || []).map((sheet) => norm(sheet.href)).filter(Boolean));
+  const refs = [];
+  for (const link of document.querySelectorAll('link[href]')) {
+    const rel = (link.rel || '').toLowerCase().split(/\s+/);
+    if (!rel.includes('stylesheet') || rel.includes('alternate') || link.disabled) continue;
+    const media = link.media || '';
+    if (media && media.toLowerCase() !== 'all' && !matchMedia(media).matches) continue;
+    const url = norm(link.href);
+    try { if (!url || new URL(url).origin !== origin) continue; } catch (_) { continue; }
+    refs.push({ type: 'stylesheet', url, key: link.id ? 'key:id:' + link.id : 'tag:link', element: link });
+  }
+  for (const script of document.querySelectorAll('script[src]')) {
+    const type = (script.getAttribute('type') || '').trim().toLowerCase();
+    if (type && type !== 'module' && !/(java|ecma)script/.test(type)) continue;
+    const url = norm(script.src);
+    try { if (!url || new URL(url).origin !== origin) continue; } catch (_) { continue; }
+    refs.push({ type: 'script', url, key: script.id ? 'key:id:' + script.id : 'tag:script', element: script });
+  }
+  // CSSOM exposes the import graph on every engine. Walk same-origin active
+  // stylesheets recursively so a failed @import is attributed to the exact URL,
+  // not merely to the healthy parent <link> that referenced it.
+  const seenSheets = new Set();
+  const walkImports = (sheet, rootKey, parentUrl) => {
+    if (!sheet || seenSheets.has(sheet)) return;
+    seenSheets.add(sheet);
+    let rules;
+    try { rules = sheet.cssRules; } catch (_) { return; }
+    for (const rule of Array.from(rules || [])) {
+      if (rule.type !== 3 || !rule.href) continue; // CSSRule.IMPORT_RULE
+      const media = rule.media && rule.media.mediaText || '';
+      if (media && media.toLowerCase() !== 'all' && !matchMedia(media).matches) continue;
+      const url = norm(rule.href);
+      try { if (!url || new URL(url).origin !== origin) continue; } catch (_) { continue; }
+      refs.push({ type: 'stylesheet', url, key: rootKey, parent: parentUrl, imported: true, element: null });
+      walkImports(rule.styleSheet, rootKey, url);
+    }
+  };
+  for (const link of document.querySelectorAll('link[href]')) {
+    const rel = (link.rel || '').toLowerCase().split(/\s+/);
+    if (!rel.includes('stylesheet') || rel.includes('alternate') || link.disabled) continue;
+    const media = link.media || '';
+    if (media && media.toLowerCase() !== 'all' && !matchMedia(media).matches) continue;
+    const href = norm(link.href);
+    const sheet = Array.from(document.styleSheets || []).find((candidate) => norm(candidate.href) === href);
+    walkImports(sheet, link.id ? 'key:id:' + link.id : 'tag:link', href);
+  }
+  // The DOM has no standard JavaScript module-graph API. A root module's error
+  // event plus a hard failed same-origin script request proves the dependency
+  // chain broke, but the portable browser APIs do not expose the direct
+  // initiator edge. Report the exact failed URL on every engine. Associate it
+  // with a root only when exactly one root failed; otherwise say unavailable
+  // instead of guessing.
+  const directUrls = new Set(refs.map((ref) => ref.url));
+  const rejectedRoots = refs.filter((ref) => ref.type === 'script' && ref.element && failedElements.has(ref.element));
+  if (rejectedRoots.length) {
+    const root = rejectedRoots.length === 1 ? rejectedRoots[0] : null;
+    for (const fact of facts.values()) {
+      const url = norm(fact && fact.url);
+      const hardFailure = fact && (fact.status === 404 || fact.status === 410 || fact.status >= 500
+        || (fact.failure && !fact.cancelled));
+      if (!url || directUrls.has(url) || fact.resourceType !== 'script' || fact.optional || !hardFailure) continue;
+      try { if (new URL(url).origin !== origin) continue; } catch (_) { continue; }
+      refs.push({ type: 'script', url, key: root ? root.key : 'tag:script', parent: root && root.url, dependency: true, element: null });
+      directUrls.add(url);
+    }
+  }
+  const seen = new Set();
+  const add = (ref, reason, fact) => {
+    const id = ref.type + '|' + ref.url;
+    if (seen.has(id) || out.length >= 20) return;
+    seen.add(id);
+    const detail = [ref.url, ref.parent ? 'root=' + ref.parent : '', ref.dependency ? 'parent=unavailable' : '', fact && fact.status != null ? 'status=' + fact.status : '', fact && fact.contentType ? 'content-type=' + fact.contentType : '', fact && fact.failure ? 'failure=' + fact.failure : ''].filter(Boolean).join(' ');
+    out.push({ key: ref.key, reason, detail: detail.slice(0, 240) });
+  };
+  for (const ref of refs) {
+    const fact = facts.get(ref.url);
+    if (fact && fact.optional) continue;
+    const sameUrlLoaded = refs.some((other) => other.url === ref.url && loadedElements.has(other.element));
+    const browserRejected = failedElements.has(ref.element) && !sameUrlLoaded;
+    if (fact && (fact.status === 404 || fact.status === 410 || fact.status >= 500)) {
+      add(ref, ref.imported ? 'stylesheet-import-http' : (ref.dependency ? 'module-dependency-http' : ref.type + '-http'), fact);
+      continue;
+    }
+    if (fact && fact.failure && !/(ERR_ABORTED|NS_BINDING_ABORTED|cancelled|canceled)/i.test(fact.failure)) {
+      add(ref, ref.imported ? 'stylesheet-import-request' : (ref.dependency ? 'module-dependency-request' : ref.type + '-request'), fact);
+      continue;
+    }
+    const mime = String(fact && fact.contentType || '').split(';')[0].trim().toLowerCase();
+    if (ref.type === 'stylesheet' && mime && mime !== 'text/css' && (browserRejected || !loadedSheets.has(ref.url))) {
+      add(ref, 'stylesheet-mime', fact);
+      continue;
+    }
+    const jsMime = /^(text|application)\/(x-)?(java|ecma)script$/.test(mime) || mime === 'application/node';
+    if (ref.type === 'script' && mime && !jsMime && browserRejected) {
+      add(ref, 'script-mime', fact);
+      continue;
+    }
+    if (fact && fact.cancelled) continue;
+    const exactChildFailure = refs.some((child) => {
+      if (child.parent !== ref.url || (!child.imported && !child.dependency)) return false;
+      const childFact = facts.get(child.url);
+      return childFact && (childFact.status === 404 || childFact.status === 410 || childFact.status >= 500
+        || (childFact.failure && !childFact.cancelled));
+    });
+    if (browserRejected && exactChildFailure) continue;
+    if (browserRejected) add(ref, ref.type + '-load', fact);
   }
   return out;
 }

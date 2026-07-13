@@ -196,10 +196,9 @@ pub struct InvariantsCfg {
     /// (`EXPLORE:BLANKSCREEN`), checked only after the settle wait.
     #[serde(default = "default_true")]
     pub no_blank_screen: bool,
-    /// Broken asset: a dead subresource rendered in a state -- an img that
-    /// completed with no pixels, a FontFace whose load errored, or rendered tofu
-    /// (a visible U+FFFD). Pure DOM/resource status facts from the web runner
-    /// (`EXPLORE:BROKENASSET`).
+    /// Broken asset: a dead or browser-rejected critical subresource in a state.
+    /// Includes visible dead images/tofu and same-origin stylesheet or application
+    /// script failures. Emitted by the web runner as `EXPLORE:BROKENASSET`.
     #[serde(default = "default_true")]
     pub no_broken_asset: bool,
     /// Zoom reflow: a route that breaks at 200% zoom (WCAG 1.4.10 Reflow). The

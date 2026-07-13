@@ -311,13 +311,11 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // no-broken-asset: dead subresources rendered in a state -- an img that
-    // finished loading with no pixels (complete && naturalWidth === 0), a
-    // FontFace whose load errored, or rendered tofu (a visible U+FFFD
-    // replacement character, the encoding-failure glyph). All three are pure
-    // DOM/resource status facts read from the live page, no pixels or network
-    // timing in the verdict, so they re-confirm on replay. The web runner emits
-    // EXPLORE:BROKENASSET per state; empty for runners/states with healthy
+    // no-broken-asset: dead critical subresources in a state -- a visibly broken
+    // image, rendered tofu, or a failed/MIME-blocked same-origin stylesheet or
+    // application script. These are DOM facts correlated with browser-confirmed
+    // resource outcomes, without timing thresholds, so they re-confirm on replay.
+    // The web runner emits EXPLORE:BROKENASSET per state; empty for healthy
     // assets, so a clean app reports nothing.
     if cfg.no_broken_asset {
         for (sig, items) in &obs.obs.broken_assets {
@@ -334,7 +332,7 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
                 "no-broken-asset",
                 "BROKENASSET",
                 format!(
-                    "state {sig} renders {} dead asset(s): {detail}; a broken image, a failed font load, or a U+FFFD tofu character reached the screen",
+                    "state {sig} has {} broken critical asset(s): {detail}; a visible image/encoding asset or required stylesheet/application script failed",
                     items.len()
                 ),
                 Some(sig),
@@ -1888,8 +1886,8 @@ mod tests {
 
     #[test]
     fn no_broken_asset_flags_dead_subresources() {
-        // A state with a dead img + errored font + rendered tofu fires once,
-        // carrying all three reasons in the detail; a clean state stays silent.
+        // A state with visible and critical network asset failures fires once,
+        // carrying the reasons in the detail; a clean state stays silent.
         let mut o = obs_with(
             &[("home", &["Go"]), ("shop", &["Shop"])],
             &[("home", "tap:Go", "shop")],
@@ -1904,9 +1902,9 @@ mod tests {
                     "missing.png".to_string(),
                 ),
                 (
-                    "font:BrokeFont".to_string(),
-                    "font".to_string(),
-                    "BrokeFont".to_string(),
+                    "tag:link".to_string(),
+                    "stylesheet-http".to_string(),
+                    "https://app.test/app.css status=404 content-type=text/css".to_string(),
                 ),
                 (
                     "key:id:desc".to_string(),
@@ -1929,9 +1927,9 @@ mod tests {
         assert_eq!(v["kind"], "BROKENASSET");
         // Essentials before any parenthesis: count + per-item reason detail.
         let msg = v["message"].as_str().unwrap();
-        assert!(msg.contains("3 dead asset(s)"), "message: {msg}");
+        assert!(msg.contains("3 broken critical asset(s)"), "message: {msg}");
         assert!(msg.contains("[img] missing.png"), "message: {msg}");
-        assert!(msg.contains("[font] BrokeFont"), "message: {msg}");
+        assert!(msg.contains("[stylesheet-http]"), "message: {msg}");
         // The finding classifies to its own oracle, never falling back to crash.
         assert_eq!(
             crate::crosscut::classify(v),
