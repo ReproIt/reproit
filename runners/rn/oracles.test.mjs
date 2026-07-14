@@ -14,10 +14,21 @@ import {
   snapshot, loadBatch,
   parseInvariantMarker, scrapeInvariants, invariantEmitted,
   wakelocksFromDumpsysPower, keepScreenOnFromDumpsys, wakelockLeakStep, wakelockItem,
+  confirmedAppExit,
 } from './runner.mjs';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+test('crash oracle requires a sustained foreground exit', async () => {
+  const driver = (states) => ({
+    queryAppState: async () => states.shift(),
+  });
+  assert.strictEqual(await confirmedAppExit(driver([3, 4]), 'app', 0), false);
+  assert.strictEqual(await confirmedAppExit(driver([3, 3]), 'app', 0), true);
+  assert.strictEqual(await confirmedAppExit(driver([4]), 'app', 0), false);
+  assert.strictEqual(await confirmedAppExit({}, 'app', 0), false);
+});
 
 // ---- CONTENT-BUG classifier (byte-identical rule to the web runner) ---------
 test('content-bug: the ground-truth artifacts are flagged', () => {

@@ -4624,11 +4624,12 @@ fleet:
 
     #[test]
     fn imports_raw_proto_with_nested_messages() {
-        let root = std::env::temp_dir().join(format!(
-            "reproit-proto-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("reproit-proto-{}-{}", std::process::id(), nonce));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("service.proto");
         std::fs::write(

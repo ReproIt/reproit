@@ -13,7 +13,7 @@ for runtime, devices in j.get("devices", {}).items():
     for d in devices:
         if d.get("state") == "Booted" and d.get("isAvailable", True):
             print(d["udid"]); raise SystemExit
-') }"
+')}"
 if [[ -z "$UDID" ]]; then
   echo "FlutterDrive gate needs a booted iOS simulator (or REPROIT_IOS_UDID)" >&2
   exit 2

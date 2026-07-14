@@ -1371,6 +1371,21 @@ function emitCrash(action) {
   log('════════');
 }
 
+export async function confirmedAppExit(driver, target, settleMs = 250) {
+  if (!target || typeof driver.queryAppState !== 'function') return false;
+  try {
+    const first = await driver.queryAppState(target);
+    if (typeof first !== 'number' || first >= 4) return false;
+    if (settleMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+    }
+    const second = await driver.queryAppState(target);
+    return typeof second === 'number' && second < 4;
+  } catch {
+    return false;
+  }
+}
+
 // Conservatively decide whether the target app has left the foreground.
 async function appCrashed(driver) {
   const target = targetAppId();
@@ -1382,13 +1397,7 @@ async function appCrashed(driver) {
       if (pkg && pkg !== wantPkg) return true;
     }
   } catch { /* probe unavailable; try queryAppState */ }
-  try {
-    if (typeof driver.queryAppState === 'function') {
-      const state = await driver.queryAppState(target);
-      if (typeof state === 'number' && state < 4) return true;
-    }
-  } catch { /* probe unavailable: stay silent */ }
-  return false;
+  return confirmedAppExit(driver, target);
 }
 
 // Re-pump a fresh starting screen BETWEEN batch seeds so each replay begins from
