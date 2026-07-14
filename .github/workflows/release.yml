@@ -87,7 +87,10 @@ jobs:
           sudo apt-get install -y libatspi2.0-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-${{ matrix.target }}
+          # The OS image is part of the key because aws-lc contains native C
+          # objects. Reusing an Ubuntu 24 cache on Ubuntu 22 links references to
+          # newer glibc symbols and defeats the compatibility build.
+          key: release-${{ matrix.os }}-${{ matrix.target }}
       - name: Build
         run: cargo build --release --locked -p reproit --target ${{ matrix.target }}
       - name: Package
