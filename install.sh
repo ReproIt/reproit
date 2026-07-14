@@ -69,6 +69,39 @@ verify_sha256() {
 have curl || die "curl is required"
 have tar  || die "tar is required"
 
+have_linux_atspi() {
+  for p in /usr/lib/libatspi.so.0 /usr/lib64/libatspi.so.0 /usr/lib/*/libatspi.so.0; do
+    [ -e "$p" ] && return 0
+  done
+  return 1
+}
+
+install_linux_atspi() {
+  have_linux_atspi && return 0
+  say "installing the Linux accessibility runtime..."
+  if [ "$(id -u)" -eq 0 ]; then
+    as_root=""
+  elif have sudo; then
+    as_root="sudo"
+  else
+    die "libatspi.so.0 is required; install your distribution's AT-SPI runtime package, then retry"
+  fi
+
+  if have apt-get; then
+    $as_root apt-get update -qq
+    $as_root apt-get install -y libatspi2.0-0
+  elif have dnf; then
+    $as_root dnf install -y at-spi2-core
+  elif have yum; then
+    $as_root yum install -y at-spi2-core
+  elif have pacman; then
+    $as_root pacman -Sy --needed --noconfirm at-spi2-core
+  else
+    die "libatspi.so.0 is required; install your distribution's AT-SPI runtime package, then retry"
+  fi
+  have_linux_atspi || die "the AT-SPI runtime was installed but libatspi.so.0 is still unavailable"
+}
+
 # --- target triple from OS/arch (matches the release build matrix) -----------
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -83,7 +116,8 @@ case "$os" in
     case "$arch" in
       x86_64) target="x86_64-unknown-linux-gnu" ;;
       *) die "unsupported Linux arch: $arch (try: cargo install reproit)" ;;
-    esac ;;
+    esac
+    install_linux_atspi ;;
   *) die "unsupported OS: $os (Windows: run install.ps1 from this repo instead)" ;;
 esac
 
