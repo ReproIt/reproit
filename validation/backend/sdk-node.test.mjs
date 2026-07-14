@@ -25,6 +25,8 @@ test('trace emits redacted, correlated structural evidence', () => {
     'x-reproit-trace': 'rpt-a-1-0',
     'x-reproit-actor': 'a',
     'x-reproit-action': '1',
+    'x-reproit-build': 'build-a',
+    'x-reproit-config-contract': 'contract-a',
   }, {
     operation: 'createMessage',
     tenant: 'team-a',
@@ -46,6 +48,8 @@ test('trace emits redacted, correlated structural evidence', () => {
   assert.equal(events.length, 3);
   assert.equal(events[0].traceId, 'rpt-a-1-0');
   assert.equal(events[0].actionIndex, 1);
+  assert.equal(events[0].build, 'build-a');
+  assert.equal(events[0].configContract, 'contract-a');
   assert.deepEqual(events[0].input.email, {
     $reproit: { redacted: true, type: 'string', length: 18 },
   });

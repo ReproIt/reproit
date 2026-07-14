@@ -65,6 +65,16 @@ Build the current pre-release from source:
 cargo install --git https://github.com/ReproIt/reproit --locked reproit
 ```
 
+Once installed, update explicitly with:
+
+```sh
+reproit update
+```
+
+ReproIt checks for a newer release without delaying commands and shows a cached
+notice at most once per day. It never replaces the CLI without this command.
+Set `REPROIT_NO_UPDATE_CHECK=1` to disable the check. Checks are disabled in CI.
+
 The web runner needs Node.js 18+. Playwright and the headless browser are
 provisioned on first web run, so there is no manual `npm install` step.
 
@@ -156,16 +166,18 @@ Cross-cutting flags on `fuzz`/`check`:
 then fuzz *from* it. Reaching a valid deep state is the costly part, so an
 imported flow becomes a launchpad for the bugs it never covered.
 
-## Works on AI-built apps
+## Web apps
 
-Point reproit at a deployed Lovable / v0 / Bolt / Replit app, no config, just the URL:
+Point reproit at a running web app. A URL initializes the UI workflow by default:
 
 ```sh
-reproit fuzz https://your-app.example.com
+reproit init https://your-app.example.com
+reproit scan
+reproit fuzz
 ```
 
-It builds the map, then finds and reproduces the bugs the generator shipped. Your
-coding agent fixes them; `check` proves the fix. AI builds it, reproit proves it works.
+`scan` checks the current UI. `fuzz` explores deeper interactions and saves every
+confirmed finding for exact replay with `reproit fnd_...`.
 
 For A2UI-generated interfaces, pass the generated JSON or JSONL stream directly:
 

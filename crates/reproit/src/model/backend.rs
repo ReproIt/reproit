@@ -5,9 +5,9 @@
 //! or schema-owned contracts paired with a concrete runtime witness can produce
 //! a finding.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -31,6 +31,223 @@ pub struct BackendConfig {
     /// here. They guide generation and slicing but never create findings alone.
     #[serde(default)]
     pub programs: Vec<ProgramSummary>,
+    /// Business invariants are opt-in. They are evaluated only against a
+    /// successful runtime witness, so inferred code facts never become alerts.
+    #[serde(default)]
+    pub invariants: Vec<BackendInvariant>,
+    #[serde(default)]
+    pub fleet: FleetInvariant,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub struct FleetInvariant {
+    #[serde(default)]
+    pub same_build: bool,
+    #[serde(default)]
+    pub same_config_contract: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum BackendInvariant {
+    Range {
+        operation: String,
+        path: String,
+        #[serde(default)]
+        min: Option<f64>,
+        #[serde(default)]
+        max: Option<f64>,
+    },
+    EqualsInput {
+        operation: String,
+        output_path: String,
+        input_path: String,
+    },
+    Unique {
+        operation: String,
+        path: String,
+    },
+    Idempotent {
+        operation: String,
+    },
+    Conserved {
+        operation: String,
+        left_path: String,
+        right_path: String,
+    },
+    Bounded {
+        operation: String,
+        value_path: String,
+        limit_path: String,
+    },
+    Transition {
+        operation: String,
+        path: String,
+        from: String,
+        to: Vec<String>,
+    },
+}
+
+impl<'de> Deserialize<'de> for BackendInvariant {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("an invariant must be a mapping"))?;
+        let field = |name: &str| {
+            object
+                .get(name)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| D::Error::custom(format!("invariant needs {name}")))
+        };
+        if let Some(kind) = object.get("kind").and_then(Value::as_str) {
+            let operation = || field("operation");
+            return match kind {
+                "range" => Ok(Self::Range {
+                    operation: operation()?,
+                    path: field("path")?,
+                    min: object.get("min").and_then(Value::as_f64),
+                    max: object.get("max").and_then(Value::as_f64),
+                }),
+                "equals-input" => Ok(Self::EqualsInput {
+                    operation: operation()?,
+                    output_path: field("outputPath")?,
+                    input_path: field("inputPath")?,
+                }),
+                "unique" => Ok(Self::Unique {
+                    operation: operation()?,
+                    path: field("path")?,
+                }),
+                "idempotent" => Ok(Self::Idempotent {
+                    operation: operation()?,
+                }),
+                "conserved" => Ok(Self::Conserved {
+                    operation: operation()?,
+                    left_path: field("leftPath")?,
+                    right_path: field("rightPath")?,
+                }),
+                "bounded" => Ok(Self::Bounded {
+                    operation: operation()?,
+                    value_path: field("valuePath")?,
+                    limit_path: field("limitPath")?,
+                }),
+                "transition" => Ok(Self::Transition {
+                    operation: operation()?,
+                    path: field("path")?,
+                    from: field("from")?,
+                    to: object
+                        .get("to")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect(),
+                }),
+                _ => Err(D::Error::custom(format!("unknown invariant {kind}"))),
+            };
+        }
+        let rules = object
+            .iter()
+            .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.into())))
+            .collect::<BTreeMap<String, String>>();
+        if rules.len() != 1 {
+            return Err(D::Error::custom(
+                "an invariant must contain exactly one rule",
+            ));
+        }
+        let (kind, expression) = rules.into_iter().next().expect("checked length");
+        let path = |value: &str| {
+            format!(
+                "$.{}",
+                value
+                    .trim()
+                    .trim_start_matches("$.")
+                    .trim_start_matches('.')
+            )
+        };
+        let pair = |operator: &str| {
+            expression
+                .split_once(operator)
+                .map(|(left, right)| (path(left), path(right)))
+                .ok_or_else(|| D::Error::custom(format!("{kind} must contain {operator}")))
+        };
+        match kind.as_str() {
+            "range" => {
+                let (field, maximum) = expression
+                    .split_once("<=")
+                    .ok_or_else(|| D::Error::custom("range must contain <="))?;
+                Ok(Self::Range {
+                    operation: "*".into(),
+                    path: path(field),
+                    min: None,
+                    max: Some(
+                        maximum
+                            .trim()
+                            .parse()
+                            .map_err(|_| D::Error::custom("range maximum must be numeric"))?,
+                    ),
+                })
+            }
+            "equals-input" => {
+                let (output_path, input_path) = pair("==")?;
+                Ok(Self::EqualsInput {
+                    operation: "*".into(),
+                    output_path,
+                    input_path,
+                })
+            }
+            "unique" => Ok(Self::Unique {
+                operation: "*".into(),
+                path: path(&expression),
+            }),
+            "idempotent" => Ok(Self::Idempotent {
+                operation: expression.trim().into(),
+            }),
+            "conserved" => {
+                let (left_path, right_path) = pair("==")?;
+                Ok(Self::Conserved {
+                    operation: "*".into(),
+                    left_path,
+                    right_path,
+                })
+            }
+            "bounded" => {
+                let (value_path, limit_path) = pair("<=")?;
+                Ok(Self::Bounded {
+                    operation: "*".into(),
+                    value_path,
+                    limit_path,
+                })
+            }
+            "transition" => {
+                let (from, targets) = expression
+                    .split_once("->")
+                    .ok_or_else(|| D::Error::custom("transition must contain ->"))?;
+                Ok(Self::Transition {
+                    operation: "*".into(),
+                    path: "*".into(),
+                    from: from.trim().into(),
+                    to: targets
+                        .split('|')
+                        .map(|value| value.trim().into())
+                        .collect(),
+                })
+            }
+            _ => Err(D::Error::custom(format!("unknown invariant {kind}"))),
+        }
+    }
 }
 
 impl BackendConfig {
@@ -40,14 +257,7 @@ impl BackendConfig {
         }
         for relative in self.schemas.clone() {
             let path = root.join(&relative);
-            let raw = std::fs::read_to_string(&path)
-                .with_context(|| format!("reading backend schema {}", path.display()))?;
-            let document: Value = match path.extension().and_then(|v| v.to_str()) {
-                Some("yaml" | "yml") => serde_yaml::from_str(&raw)
-                    .with_context(|| format!("parsing backend schema {}", path.display()))?,
-                _ => serde_json::from_str(&raw)
-                    .with_context(|| format!("parsing backend schema {}", path.display()))?,
-            };
+            let document = load_service_document(&path)?;
             for imported in import_service_schema(&document) {
                 if let Some(declared) = self.operations.iter_mut().find(|operation| {
                     operation.id == imported.id && operation.authority == Authority::Declared
@@ -75,6 +285,367 @@ impl BackendConfig {
         self.operations
             .retain(|operation| seen.insert((operation.id.clone(), operation.authority)));
         Ok(())
+    }
+}
+
+/// Load a JSON/YAML service schema and inline every local file or JSON-pointer
+/// reference before import. Remote references stay explicit failures so a
+/// supposedly hermetic scan never changes meaning with the network. Recursive
+/// edges become an unconstrained schema at the cycle while their surrounding
+/// object shape remains available to the contract importer.
+pub fn load_service_document(path: &Path) -> Result<Value> {
+    let path = path
+        .canonicalize()
+        .with_context(|| format!("resolving backend schema {}", path.display()))?;
+    let document = read_schema_document(&path)?;
+    resolve_schema_refs(&document, &document, &path, &mut BTreeSet::new(), 0)
+}
+
+fn read_schema_document(path: &Path) -> Result<Value> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("reading backend schema {}", path.display()))?;
+    match path.extension().and_then(|value| value.to_str()) {
+        Some("proto") => {
+            let parent = path.parent().unwrap_or_else(|| Path::new("."));
+            let descriptor = protox::compile([path], [parent])?;
+            Ok(protobuf_descriptor_value(descriptor))
+        }
+        Some("graphql" | "gql") => graphql_sdl_document(&raw)
+            .with_context(|| format!("parsing GraphQL SDL {}", path.display())),
+        Some("yaml" | "yml") => serde_yaml::from_str(&raw)
+            .with_context(|| format!("parsing backend schema {}", path.display())),
+        _ => serde_json::from_str(&raw)
+            .with_context(|| format!("parsing backend schema {}", path.display())),
+    }
+}
+
+fn graphql_sdl_document(raw: &str) -> Result<Value> {
+    use graphql_parser::schema::{Definition, Type, TypeDefinition};
+    let document = graphql_parser::schema::parse_schema::<String>(raw)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let mut kinds = BTreeMap::<String, &'static str>::new();
+    for definition in &document.definitions {
+        if let Definition::TypeDefinition(definition) = definition {
+            let (name, kind) = match definition {
+                TypeDefinition::Scalar(value) => (&value.name, "SCALAR"),
+                TypeDefinition::Object(value) => (&value.name, "OBJECT"),
+                TypeDefinition::Interface(value) => (&value.name, "INTERFACE"),
+                TypeDefinition::Union(value) => (&value.name, "UNION"),
+                TypeDefinition::Enum(value) => (&value.name, "ENUM"),
+                TypeDefinition::InputObject(value) => (&value.name, "INPUT_OBJECT"),
+            };
+            kinds.insert(name.clone(), kind);
+        }
+    }
+    let type_ref = |ty: &Type<'_, String>| graphql_sdl_type_ref(ty, &kinds);
+    let mut types = Vec::new();
+    let mut query = None;
+    let mut mutation = None;
+    let mut subscription = None;
+    let mut implementations = BTreeMap::<String, Vec<String>>::new();
+    for definition in &document.definitions {
+        match definition {
+            Definition::SchemaDefinition(schema) => {
+                query = schema.query.clone();
+                mutation = schema.mutation.clone();
+                subscription = schema.subscription.clone();
+            }
+            Definition::TypeDefinition(TypeDefinition::Object(object)) => {
+                for interface in &object.implements_interfaces {
+                    implementations
+                        .entry(interface.clone())
+                        .or_default()
+                        .push(object.name.clone());
+                }
+                let fields = object
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        json!({
+                            "name": field.name,
+                            "args": field.arguments.iter().map(|argument| json!({
+                                "name": argument.name,
+                                "type": type_ref(&argument.value_type),
+                            })).collect::<Vec<_>>(),
+                            "type": type_ref(&field.field_type),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                types.push(json!({"kind":"OBJECT","name":object.name,"fields":fields}));
+            }
+            Definition::TypeDefinition(TypeDefinition::Interface(interface)) => {
+                let fields = interface
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        json!({
+                            "name": field.name,
+                            "args": field.arguments.iter().map(|argument| json!({
+                                "name": argument.name,
+                                "type": type_ref(&argument.value_type),
+                            })).collect::<Vec<_>>(),
+                            "type": type_ref(&field.field_type),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                types.push(json!({"kind":"INTERFACE","name":interface.name,"fields":fields}));
+            }
+            Definition::TypeDefinition(TypeDefinition::InputObject(object)) => {
+                let fields = object
+                    .fields
+                    .iter()
+                    .map(|field| json!({"name":field.name,"type":type_ref(&field.value_type)}))
+                    .collect::<Vec<_>>();
+                types.push(json!({"kind":"INPUT_OBJECT","name":object.name,"inputFields":fields}));
+            }
+            Definition::TypeDefinition(TypeDefinition::Enum(enumeration)) => {
+                types.push(json!({
+                    "kind":"ENUM",
+                    "name":enumeration.name,
+                    "enumValues":enumeration.values.iter().map(|value| json!({"name":value.name})).collect::<Vec<_>>()
+                }));
+            }
+            Definition::TypeDefinition(TypeDefinition::Union(union)) => {
+                types.push(json!({
+                    "kind":"UNION",
+                    "name":union.name,
+                    "possibleTypes":union.types.iter().map(|name| json!({"name":name})).collect::<Vec<_>>()
+                }));
+            }
+            Definition::TypeDefinition(TypeDefinition::Scalar(scalar)) => {
+                types.push(json!({"kind":"SCALAR","name":scalar.name}));
+            }
+            _ => {}
+        }
+    }
+    for value in &mut types {
+        if value.get("kind").and_then(Value::as_str) == Some("INTERFACE") {
+            if let Some(name) = value.get("name").and_then(Value::as_str) {
+                value["possibleTypes"] = Value::Array(
+                    implementations
+                        .get(name)
+                        .into_iter()
+                        .flatten()
+                        .map(|name| json!({"name":name}))
+                        .collect(),
+                );
+            }
+        }
+    }
+    let has_type = |name: &str| {
+        types
+            .iter()
+            .any(|value| value.get("name").and_then(Value::as_str) == Some(name))
+    };
+    query = query.or_else(|| has_type("Query").then(|| "Query".into()));
+    mutation = mutation.or_else(|| has_type("Mutation").then(|| "Mutation".into()));
+    subscription = subscription.or_else(|| has_type("Subscription").then(|| "Subscription".into()));
+    Ok(json!({"data":{"__schema":{
+        "queryType": query.map(|name| json!({"name":name})),
+        "mutationType": mutation.map(|name| json!({"name":name})),
+        "subscriptionType": subscription.map(|name| json!({"name":name})),
+        "types": types,
+    }}}))
+}
+
+fn graphql_sdl_type_ref(
+    ty: &graphql_parser::schema::Type<'_, String>,
+    kinds: &BTreeMap<String, &'static str>,
+) -> Value {
+    use graphql_parser::schema::Type;
+    match ty {
+        Type::NamedType(name) => json!({
+            "kind":kinds.get(name).copied().unwrap_or_else(|| graphql_named_kind(name)),
+            "name":name,
+            "ofType":null
+        }),
+        Type::ListType(inner) => {
+            json!({"kind":"LIST","name":null,"ofType":graphql_sdl_type_ref(inner, kinds)})
+        }
+        Type::NonNullType(inner) => {
+            json!({"kind":"NON_NULL","name":null,"ofType":graphql_sdl_type_ref(inner, kinds)})
+        }
+    }
+}
+
+fn graphql_named_kind(name: &str) -> &'static str {
+    if matches!(name, "Int" | "Float" | "String" | "Boolean" | "ID") {
+        "SCALAR"
+    } else {
+        "OBJECT"
+    }
+}
+
+fn protobuf_descriptor_value(set: prost_types::FileDescriptorSet) -> Value {
+    Value::Object(Map::from_iter([(
+        "file".into(),
+        Value::Array(
+            set.file
+                .into_iter()
+                .map(|file| {
+                    json!({
+                        "package": file.package.unwrap_or_default(),
+                        "messageType": file.message_type.into_iter().map(protobuf_message_value).collect::<Vec<_>>(),
+                        "service": file.service.into_iter().map(|service| json!({
+                            "name": service.name.unwrap_or_default(),
+                            "method": service.method.into_iter().map(|method| json!({
+                                "name": method.name.unwrap_or_default(),
+                                "inputType": method.input_type.unwrap_or_default(),
+                                "outputType": method.output_type.unwrap_or_default(),
+                                "clientStreaming": method.client_streaming.unwrap_or(false),
+                                "serverStreaming": method.server_streaming.unwrap_or(false),
+                            })).collect::<Vec<_>>(),
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect(),
+        ),
+    )]))
+}
+
+fn protobuf_message_value(message: prost_types::DescriptorProto) -> Value {
+    json!({
+        "name": message.name.unwrap_or_default(),
+        "field": message.field.into_iter().map(|field| json!({
+            "name": field.name.unwrap_or_default(),
+            "number": field.number.unwrap_or_default(),
+            "label": protobuf_label(field.label.unwrap_or_default()),
+            "type": protobuf_type(field.r#type.unwrap_or_default()),
+            "typeName": field.type_name.unwrap_or_default(),
+        })).collect::<Vec<_>>(),
+        "nestedType": message.nested_type.into_iter().map(protobuf_message_value).collect::<Vec<_>>(),
+    })
+}
+
+fn protobuf_type(value: i32) -> &'static str {
+    use prost_types::field_descriptor_proto::Type;
+    match Type::try_from(value).ok() {
+        Some(Type::Double) => "TYPE_DOUBLE",
+        Some(Type::Float) => "TYPE_FLOAT",
+        Some(Type::Int64) => "TYPE_INT64",
+        Some(Type::Uint64) => "TYPE_UINT64",
+        Some(Type::Int32) => "TYPE_INT32",
+        Some(Type::Fixed64) => "TYPE_FIXED64",
+        Some(Type::Fixed32) => "TYPE_FIXED32",
+        Some(Type::Bool) => "TYPE_BOOL",
+        Some(Type::String) => "TYPE_STRING",
+        Some(Type::Group) => "TYPE_GROUP",
+        Some(Type::Message) => "TYPE_MESSAGE",
+        Some(Type::Bytes) => "TYPE_BYTES",
+        Some(Type::Uint32) => "TYPE_UINT32",
+        Some(Type::Enum) => "TYPE_ENUM",
+        Some(Type::Sfixed32) => "TYPE_SFIXED32",
+        Some(Type::Sfixed64) => "TYPE_SFIXED64",
+        Some(Type::Sint32) => "TYPE_SINT32",
+        Some(Type::Sint64) => "TYPE_SINT64",
+        None => "TYPE_UNSPECIFIED",
+    }
+}
+
+fn protobuf_label(value: i32) -> &'static str {
+    use prost_types::field_descriptor_proto::Label;
+    match Label::try_from(value).ok() {
+        Some(Label::Optional) => "LABEL_OPTIONAL",
+        Some(Label::Required) => "LABEL_REQUIRED",
+        Some(Label::Repeated) => "LABEL_REPEATED",
+        None => "LABEL_OPTIONAL",
+    }
+}
+
+fn resolve_schema_refs(
+    value: &Value,
+    document: &Value,
+    document_path: &Path,
+    visiting: &mut BTreeSet<String>,
+    depth: usize,
+) -> Result<Value> {
+    if depth > 128 {
+        bail!(
+            "backend schema reference depth exceeded 128 at {}",
+            document_path.display()
+        );
+    }
+    if let Some(reference) = value.get("$ref").and_then(Value::as_str) {
+        if reference.starts_with("http://") || reference.starts_with("https://") {
+            bail!(
+                "remote backend schema reference {reference:?} is not hermetic; download and pin it locally"
+            );
+        }
+        let (file, fragment) = reference.split_once('#').unwrap_or((reference, ""));
+        let (target_path, target_document) = if file.is_empty() {
+            (document_path.to_path_buf(), document.clone())
+        } else {
+            let target_path = document_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(file)
+                .canonicalize()
+                .with_context(|| {
+                    format!(
+                        "resolving backend schema reference {reference:?} from {}",
+                        document_path.display()
+                    )
+                })?;
+            let target_document = read_schema_document(&target_path)?;
+            (target_path, target_document)
+        };
+        let pointer = if fragment.is_empty() {
+            "".to_string()
+        } else if fragment.starts_with('/') {
+            fragment.to_string()
+        } else {
+            bail!("backend schema reference fragments must be JSON pointers: {reference}");
+        };
+        let identity = format!("{}#{pointer}", target_path.display());
+        if !visiting.insert(identity.clone()) {
+            return Ok(json!({}));
+        }
+        let target = if pointer.is_empty() {
+            &target_document
+        } else {
+            target_document.pointer(&pointer).with_context(|| {
+                format!(
+                    "backend schema reference {reference:?} points outside {}",
+                    target_path.display()
+                )
+            })?
+        };
+        let mut resolved =
+            resolve_schema_refs(target, &target_document, &target_path, visiting, depth + 1)?;
+        visiting.remove(&identity);
+        if let (Some(resolved), Some(siblings)) = (resolved.as_object_mut(), value.as_object()) {
+            for (name, sibling) in siblings {
+                if name != "$ref" {
+                    resolved.insert(
+                        name.clone(),
+                        resolve_schema_refs(sibling, document, document_path, visiting, depth + 1)?,
+                    );
+                }
+            }
+        }
+        return Ok(resolved);
+    }
+    match value {
+        Value::Object(object) => Ok(Value::Object(
+            object
+                .iter()
+                .map(|(name, value)| {
+                    Ok((
+                        name.clone(),
+                        resolve_schema_refs(value, document, document_path, visiting, depth + 1)?,
+                    ))
+                })
+                .collect::<Result<Map<String, Value>>>()?,
+        )),
+        Value::Array(values) => Ok(Value::Array(
+            values
+                .iter()
+                .map(|value| {
+                    resolve_schema_refs(value, document, document_path, visiting, depth + 1)
+                })
+                .collect::<Result<Vec<_>>>()?,
+        )),
+        _ => Ok(value.clone()),
     }
 }
 
@@ -552,6 +1123,10 @@ pub struct BackendEvent {
     pub parent_span_id: Option<String>,
     pub operation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_contract: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant: Option<String>,
@@ -669,6 +1244,8 @@ impl FrozenBackendGuard {
             schemas: Vec::new(),
             operations: self.operations.clone(),
             programs: Vec::new(),
+            invariants: Vec::new(),
+            fleet: FleetInvariant::default(),
         };
         evaluate(&config, &parse_events(log))
             .iter()
@@ -859,6 +1436,7 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
                 ));
             }
         }
+        evaluate_authored_invariants(config, contract, start, returned, &mut violations);
         if contract.read_only {
             if let Some(effect) = invocation
                 .effects
@@ -931,10 +1509,192 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
             }
         }
     }
-    evaluate_idempotency(&contracts, &invocations, &mut violations);
+    evaluate_idempotency(config, &contracts, &invocations, &mut violations);
+    evaluate_fleet(config, &contracts, events, &mut violations);
     violations.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
     violations.dedup_by(|a, b| a.fingerprint == b.fingerprint);
     violations
+}
+
+fn evaluate_authored_invariants(
+    config: &BackendConfig,
+    contract: &OperationContract,
+    start: &BackendEvent,
+    returned: &ReturnEvent<'_>,
+    violations: &mut Vec<BackendViolation>,
+) {
+    let input = match &start.event {
+        BackendEventKind::Start { input } => input,
+        _ => return,
+    };
+    for invariant in &config.invariants {
+        let (operation, reason) = match invariant {
+            BackendInvariant::Range {
+                operation,
+                path,
+                min,
+                max,
+            } => {
+                let reason = json_path(returned.output, path).and_then(|value| {
+                    let value = value.as_f64()?;
+                    (min.is_some_and(|minimum| value < minimum)
+                        || max.is_some_and(|maximum| value > maximum))
+                    .then(|| format!("output {path} value {value} is outside the authored range"))
+                });
+                (operation, reason)
+            }
+            BackendInvariant::EqualsInput {
+                operation,
+                output_path,
+                input_path,
+            } => {
+                let output = json_path(returned.output, output_path);
+                let input = json_path(input, input_path);
+                let reason = (output.is_some() && input.is_some() && output != input)
+                    .then(|| format!("output {output_path} does not equal input {input_path}"));
+                (operation, reason)
+            }
+            BackendInvariant::Unique { operation, path } => {
+                let values = json_path_values(returned.output, path);
+                let unique = values
+                    .iter()
+                    .map(|value| canonical_json(value))
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                let reason = (values.len() > 1 && unique != values.len())
+                    .then(|| format!("output {path} contains duplicate values"));
+                (operation, reason)
+            }
+            BackendInvariant::Idempotent { operation } => (operation, None),
+            BackendInvariant::Conserved {
+                operation,
+                left_path,
+                right_path,
+            } => {
+                let left = json_path(returned.output, left_path).and_then(Value::as_f64);
+                let right = json_path(returned.output, right_path).and_then(Value::as_f64);
+                let reason = left
+                    .zip(right)
+                    .and_then(|(left, right)| {
+                        ((left - right).abs() > f64::EPSILON).then(|| {
+                            format!("{left_path} value {left} is not conserved with {right_path} value {right}")
+                        })
+                    });
+                (operation, reason)
+            }
+            BackendInvariant::Bounded {
+                operation,
+                value_path,
+                limit_path,
+            } => {
+                let value = json_path(returned.output, value_path).and_then(Value::as_f64);
+                let limit = json_path(returned.output, limit_path).and_then(Value::as_f64);
+                let reason = value.zip(limit).and_then(|(value, limit)| {
+                    (value > limit).then(|| {
+                        format!("{value_path} value {value} exceeds {limit_path} value {limit}")
+                    })
+                });
+                (operation, reason)
+            }
+            BackendInvariant::Transition {
+                operation,
+                path,
+                from,
+                to,
+            } => {
+                let (before, after) = if path == "*" {
+                    paired_transition(input, returned.output, from)
+                        .map(|after| (Some(from.as_str()), Some(after)))
+                        .unwrap_or((None, None))
+                } else {
+                    (
+                        json_path(input, path).and_then(Value::as_str),
+                        json_path(returned.output, path).and_then(Value::as_str),
+                    )
+                };
+                let reason = (before == Some(from.as_str()))
+                    .then_some(after)
+                    .flatten()
+                    .and_then(|after| {
+                        (!to.iter().any(|allowed| allowed == after)).then(|| {
+                            format!("transition {from} -> {after} is outside the authored targets {to:?}")
+                        })
+                    });
+                (operation, reason)
+            }
+        };
+        if operation == "*" || operation == &contract.id {
+            if let Some(reason) = reason {
+                violations.push(violation(
+                    contract,
+                    returned.event,
+                    "authored-invariant",
+                    reason,
+                ));
+            }
+        }
+    }
+}
+
+fn paired_transition<'a>(input: &Value, output: &'a Value, from: &str) -> Option<&'a str> {
+    match (input, output) {
+        (Value::String(before), Value::String(after)) if before == from => Some(after),
+        (Value::Object(before), Value::Object(after)) => before.iter().find_map(|(key, value)| {
+            after
+                .get(key)
+                .and_then(|next| paired_transition(value, next, from))
+        }),
+        (Value::Array(before), Value::Array(after)) => before
+            .iter()
+            .zip(after)
+            .find_map(|(value, next)| paired_transition(value, next, from)),
+        _ => None,
+    }
+}
+
+fn json_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    if path.is_empty() || path == "$" {
+        return Some(value);
+    }
+    path.trim_start_matches('$')
+        .trim_start_matches('.')
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .try_fold(value, |current, part| current.get(part))
+}
+
+fn json_path_values<'a>(value: &'a Value, path: &str) -> Vec<&'a Value> {
+    let parts = path
+        .trim_start_matches('$')
+        .trim_start_matches('.')
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    fn descend<'a>(value: &'a Value, parts: &[&str], values: &mut Vec<&'a Value>) {
+        if parts.is_empty() {
+            match value {
+                Value::Array(items) => values.extend(items),
+                _ => values.push(value),
+            }
+            return;
+        }
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    descend(item, parts, values);
+                }
+            }
+            Value::Object(object) => {
+                if let Some(next) = object.get(parts[0]) {
+                    descend(next, &parts[1..], values);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut values = Vec::new();
+    descend(value, &parts, &mut values);
+    values
 }
 
 fn selection_mismatch(
@@ -1140,6 +1900,7 @@ fn effect_matches(effect: &EffectEvent<'_>, pattern: &EffectPattern) -> bool {
 }
 
 fn evaluate_idempotency(
+    config: &BackendConfig,
     contracts: &BTreeMap<&str, &OperationContract>,
     invocations: &BTreeMap<(String, String), Invocation<'_>>,
     violations: &mut Vec<BackendViolation>,
@@ -1153,9 +1914,13 @@ fn evaluate_idempotency(
         let Some(key) = start.idempotency_key.as_ref() else {
             continue;
         };
-        if contracts
-            .get(start.operation.as_str())
-            .is_some_and(|contract| contract.idempotent)
+        let authored = config.invariants.iter().any(|invariant| {
+            matches!(invariant, BackendInvariant::Idempotent { operation } if operation == &start.operation)
+        });
+        if authored
+            || contracts
+                .get(start.operation.as_str())
+                .is_some_and(|contract| contract.idempotent)
         {
             groups
                 .entry((
@@ -1211,6 +1976,63 @@ fn evaluate_idempotency(
                 "idempotency",
                 "repeating the same idempotency key changed the response or repeated a persistent effect".into(),
             ));
+        }
+    }
+}
+
+fn evaluate_fleet(
+    config: &BackendConfig,
+    contracts: &BTreeMap<&str, &OperationContract>,
+    events: &[BackendEvent],
+    violations: &mut Vec<BackendViolation>,
+) {
+    evaluate_fleet_dimension(
+        config.fleet.same_build,
+        "build",
+        events,
+        contracts,
+        violations,
+        |event| event.build.as_deref(),
+    );
+    evaluate_fleet_dimension(
+        config.fleet.same_config_contract,
+        "config contract",
+        events,
+        contracts,
+        violations,
+        |event| event.config_contract.as_deref(),
+    );
+}
+
+fn evaluate_fleet_dimension<'a>(
+    enabled: bool,
+    label: &str,
+    events: &'a [BackendEvent],
+    contracts: &BTreeMap<&str, &OperationContract>,
+    violations: &mut Vec<BackendViolation>,
+    value: impl Fn(&'a BackendEvent) -> Option<&'a str>,
+) {
+    if !enabled {
+        return;
+    }
+    let mut first = None;
+    for event in events {
+        let Some(current) = value(event) else {
+            continue;
+        };
+        match first {
+            None => first = Some(current),
+            Some(expected) if expected != current => {
+                if let Some(contract) = contracts.get(event.operation.as_str()) {
+                    violations.push(violation(
+                        contract,
+                        event,
+                        "fleet-consistency",
+                        format!("fleet mixed {label} {expected:?} with {current:?}"),
+                    ));
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -2072,9 +2894,7 @@ fn import_protobuf_descriptor(document: &Value) -> Vec<OperationContract> {
             .into_iter()
             .flatten()
         {
-            if let Some(name) = message.get("name").and_then(Value::as_str) {
-                messages.insert(format!(".{package}.{name}"), message);
-            }
+            collect_protobuf_messages(package, "", message, &mut messages);
         }
     }
     let mut operations = Vec::new();
@@ -2135,6 +2955,37 @@ fn import_protobuf_descriptor(document: &Value) -> Vec<OperationContract> {
         }
     }
     operations
+}
+
+fn collect_protobuf_messages<'a>(
+    package: &str,
+    parent: &str,
+    message: &'a Value,
+    messages: &mut BTreeMap<String, &'a Value>,
+) {
+    let Some(name) = message.get("name").and_then(Value::as_str) else {
+        return;
+    };
+    let local = if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}.{name}")
+    };
+    let qualified = if package.is_empty() {
+        format!(".{local}")
+    } else {
+        format!(".{package}.{local}")
+    };
+    messages.insert(qualified, message);
+    for nested in message
+        .get("nestedType")
+        .or_else(|| message.get("nested_type"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        collect_protobuf_messages(package, &local, nested, messages);
+    }
 }
 
 fn protobuf_message_domain(
@@ -2207,17 +3058,30 @@ fn protobuf_message_domain(
 }
 
 fn schema_domain(schema: &Value, document: &Value) -> Option<ValueDomain> {
+    schema_domain_inner(schema, document, &mut BTreeSet::new())
+}
+
+fn schema_domain_inner(
+    schema: &Value,
+    document: &Value,
+    visiting_refs: &mut BTreeSet<String>,
+) -> Option<ValueDomain> {
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
         let pointer = reference.strip_prefix('#')?;
-        return document
+        if !visiting_refs.insert(pointer.to_string()) {
+            return Some(ValueDomain::Any);
+        }
+        let domain = document
             .pointer(pointer)
-            .and_then(|schema| schema_domain(schema, document));
+            .and_then(|schema| schema_domain_inner(schema, document, visiting_refs));
+        visiting_refs.remove(pointer);
+        return domain;
     }
     if let Some(one_of) = schema.get("oneOf").and_then(Value::as_array) {
         return Some(ValueDomain::OneOf {
             variants: one_of
                 .iter()
-                .filter_map(|value| schema_domain(value, document))
+                .filter_map(|value| schema_domain_inner(value, document, visiting_refs))
                 .collect(),
         });
     }
@@ -2264,7 +3128,7 @@ fn schema_domain(schema: &Value, document: &Value) -> Option<ValueDomain> {
             items: Box::new(
                 schema
                     .get("items")
-                    .and_then(|value| schema_domain(value, document))
+                    .and_then(|value| schema_domain_inner(value, document, visiting_refs))
                     .unwrap_or(ValueDomain::Any),
             ),
             min_items: schema
@@ -2295,7 +3159,8 @@ fn schema_domain(schema: &Value, document: &Value) -> Option<ValueDomain> {
                 .into_iter()
                 .flatten()
                 .filter_map(|(name, value)| {
-                    schema_domain(value, document).map(|domain| (name.clone(), domain))
+                    schema_domain_inner(value, document, visiting_refs)
+                        .map(|domain| (name.clone(), domain))
                 })
                 .collect(),
             additional: schema
@@ -2354,6 +3219,8 @@ mod tests {
             action_index: 1,
             parent_span_id: None,
             operation: operation.into(),
+            build: None,
+            config_contract: None,
             actor: Some("alice".into()),
             tenant: Some("tenant-a".into()),
             idempotency_key: None,
@@ -2404,6 +3271,8 @@ mod tests {
             schemas: vec![],
             operations: vec![contract()],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let events = vec![
             event(
@@ -2457,6 +3326,8 @@ mod tests {
             schemas: vec![],
             operations: vec![inferred],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let events = vec![
             event(
@@ -2474,7 +3345,7 @@ mod tests {
                     // Even a status outside this inferred operation's imported
                     // shape is guidance only; inferred facts never become hard
                     // response-status findings.
-                    status: Some(200),
+                    status: Some(201),
                     success: true,
                     effects_complete: true,
                 },
@@ -2574,6 +3445,102 @@ mod tests {
     }
 
     #[test]
+    fn openapi_recursive_references_are_bounded_without_losing_outer_shape() {
+        let document = json!({
+            "openapi":"3.1.0",
+            "paths":{
+                "/nodes":{"get":{"operationId":"getNodes","responses":{"200":{"content":{
+                    "application/json":{"schema":{"$ref":"#/components/schemas/Node"}}
+                }}}}}
+            },
+            "components":{"schemas":{
+                "Node":{"type":"object","required":["name"],"properties":{
+                    "name":{"type":"string"},
+                    "parent":{"$ref":"#/components/schemas/Node"},
+                    "children":{"type":"array","items":{"$ref":"#/components/schemas/Node"}}
+                }}
+            }}
+        });
+        let operation = import_openapi(&document).pop().unwrap();
+        let output = operation.output.unwrap();
+        assert!(output
+            .mismatch(
+                &json!({"name":"root","parent":null,"children":[]}),
+                "$output"
+            )
+            .is_none());
+        assert_eq!(
+            output.mismatch(&json!({"parent":null,"children":[]}), "$output"),
+            Some("$output.name is required".into())
+        );
+    }
+
+    #[test]
+    fn loads_multifile_openapi_references_hermetically() {
+        let root =
+            std::env::temp_dir().join(format!("reproit-backend-multifile-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("schemas")).unwrap();
+        std::fs::write(
+            root.join("openapi.yaml"),
+            r#"openapi: 3.1.0
+paths:
+  /users/{id}:
+    get:
+      operationId: getUser
+      parameters:
+        - $ref: schemas/parameters.yaml#/Id
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: schemas/user.yaml#/User
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("schemas/parameters.yaml"),
+            r#"Id:
+  name: id
+  in: path
+  required: true
+  schema: { type: string }
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("schemas/user.yaml"),
+            r#"User:
+  type: object
+  required: [id, name]
+  properties:
+    id: { type: string }
+    name: { type: string }
+"#,
+        )
+        .unwrap();
+        let document = load_service_document(&root.join("openapi.yaml")).unwrap();
+        let operation = import_openapi(&document).pop().unwrap();
+        assert_eq!(
+            operation
+                .input
+                .as_ref()
+                .unwrap()
+                .mismatch(&json!({"path":{"id":"u1"}}), "$input"),
+            None
+        );
+        assert_eq!(
+            operation
+                .output
+                .as_ref()
+                .unwrap()
+                .mismatch(&json!({"id":"u1"}), "$output"),
+            Some("$output.name is required".into())
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn imports_graphql_introspection_without_localized_names() {
         let document = json!({"data":{"__schema":{
             "queryType":{"name":"Query"},
@@ -2607,6 +3574,23 @@ mod tests {
             .unwrap()
             .mismatch(&json!({}), "$input")
             .is_some());
+    }
+
+    #[test]
+    fn imports_raw_graphql_sdl_without_a_framework_adapter() {
+        let document = graphql_sdl_document(
+            r#"
+              type Query { account(id: ID!): Account }
+              type Account { id: ID!, exposure: Float!, limit: Float! }
+            "#,
+        )
+        .unwrap();
+        let operations = import_service_schema(&document);
+        assert_eq!(operations.len(), 1);
+        assert_eq!(operations[0].id, "account");
+        assert!(operations[0].read_only);
+        assert!(operations[0].input.is_some());
+        assert!(operations[0].output.is_some());
     }
 
     #[test]
@@ -2791,6 +3775,8 @@ mod tests {
             schemas: vec![],
             operations: vec![contract()],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         config.programs.push(ProgramSummary {
             language: "rust".into(),
@@ -2880,6 +3866,8 @@ mod tests {
             schemas: vec![],
             operations: vec![read],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let events = vec![
             event(
@@ -2929,6 +3917,8 @@ mod tests {
             schemas: vec![],
             operations: vec![contract()],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let events = vec![
             event(
@@ -2962,6 +3952,8 @@ mod tests {
             schemas: vec![],
             operations: vec![create],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let events = vec![
             event(
@@ -3029,6 +4021,8 @@ mod tests {
             schemas: vec![],
             operations: vec![create],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let invocation = |sequence, span: &str, key: &str| {
             let mut start = event(
@@ -3087,6 +4081,8 @@ mod tests {
             schemas: vec![],
             operations: vec![create],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let mut first = event(
             1,
@@ -3170,6 +4166,8 @@ mod tests {
             schemas: vec![],
             operations: vec![create],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let events = vec![
             event(
@@ -3383,6 +4381,8 @@ mod tests {
             schemas: vec![],
             operations: vec![contract()],
             programs: vec![],
+            invariants: vec![],
+            fleet: FleetInvariant::default(),
         };
         let original = vec![
             event(
@@ -3435,5 +4435,227 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(guard.reproduces(&log));
+    }
+
+    #[test]
+    fn authored_invariants_require_a_successful_runtime_witness() {
+        let mut config = BackendConfig {
+            enabled: true,
+            operations: vec![contract()],
+            invariants: vec![BackendInvariant::Range {
+                operation: "createMessage".into(),
+                path: "$.balance".into(),
+                min: Some(0.0),
+                max: None,
+            }],
+            ..BackendConfig::default()
+        };
+        config.operations[0].output = None;
+        let events = vec![
+            event(
+                1,
+                "range",
+                "createMessage",
+                BackendEventKind::Start { input: json!({}) },
+            ),
+            event(
+                2,
+                "range",
+                "createMessage",
+                BackendEventKind::Return {
+                    output: json!({"balance": -1}),
+                    status: Some(201),
+                    success: true,
+                    effects_complete: false,
+                },
+            ),
+        ];
+        let violations = evaluate(&config, &events);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].oracle, "authored-invariant");
+
+        config.invariants.clear();
+        assert!(evaluate(&config, &events).is_empty());
+    }
+
+    #[test]
+    fn financial_transition_and_fleet_invariants_are_structural() {
+        let mut operation = contract();
+        operation.output = None;
+        let config = BackendConfig {
+            enabled: true,
+            operations: vec![operation],
+            invariants: vec![
+                BackendInvariant::Conserved {
+                    operation: "createMessage".into(),
+                    left_path: "$.ledger.debits".into(),
+                    right_path: "$.ledger.credits".into(),
+                },
+                BackendInvariant::Bounded {
+                    operation: "createMessage".into(),
+                    value_path: "$.account.exposure".into(),
+                    limit_path: "$.account.limit".into(),
+                },
+                BackendInvariant::Transition {
+                    operation: "createMessage".into(),
+                    path: "$.status".into(),
+                    from: "pending".into(),
+                    to: vec!["accepted".into(), "rejected".into()],
+                },
+            ],
+            fleet: FleetInvariant {
+                same_build: true,
+                same_config_contract: true,
+            },
+            ..BackendConfig::default()
+        };
+        let mut start = event(
+            1,
+            "finance",
+            "createMessage",
+            BackendEventKind::Start {
+                input: json!({"status":"pending"}),
+            },
+        );
+        start.build = Some("build-a".into());
+        start.config_contract = Some("contract-a".into());
+        let mut returned = event(
+            2,
+            "finance",
+            "createMessage",
+            BackendEventKind::Return {
+                output: json!({
+                    "status":"cancelled",
+                    "ledger":{"debits":10,"credits":9},
+                    "account":{"exposure":11,"limit":10}
+                }),
+                status: Some(201),
+                success: true,
+                effects_complete: false,
+            },
+        );
+        returned.build = Some("build-b".into());
+        returned.config_contract = Some("contract-b".into());
+        let violations = evaluate(&config, &[start, returned]);
+        assert_eq!(
+            violations
+                .iter()
+                .filter(|violation| violation.oracle == "authored-invariant")
+                .count(),
+            3
+        );
+        assert_eq!(
+            violations
+                .iter()
+                .filter(|violation| violation.oracle == "fleet-consistency")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn declarative_backend_invariant_yaml_is_language_independent() {
+        let config: BackendConfig = serde_yaml::from_str(
+            r#"
+enabled: true
+invariants:
+  - unique: order.id
+  - idempotent: submitOrder
+  - conserved: ledger.debits == ledger.credits
+  - bounded: account.exposure <= account.limit
+  - transition: pending -> accepted | rejected
+fleet:
+  same_build: true
+  same_config_contract: true
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.invariants.len(), 5);
+        assert!(config.fleet.same_build);
+        assert!(config.fleet.same_config_contract);
+        assert!(matches!(
+            &config.invariants[2],
+            BackendInvariant::Conserved { left_path, right_path, .. }
+                if left_path == "$.ledger.debits" && right_path == "$.ledger.credits"
+        ));
+        for invariant in &config.invariants {
+            let encoded = serde_json::to_value(invariant).unwrap();
+            let decoded: BackendInvariant = serde_json::from_value(encoded).unwrap();
+            assert_eq!(&decoded, invariant);
+        }
+    }
+
+    #[test]
+    fn unique_invariant_walks_arrays_structurally() {
+        let mut operation = contract();
+        operation.output = None;
+        let config = BackendConfig {
+            enabled: true,
+            operations: vec![operation],
+            invariants: vec![BackendInvariant::Unique {
+                operation: "createMessage".into(),
+                path: "$.orders.id".into(),
+            }],
+            ..BackendConfig::default()
+        };
+        let events = vec![
+            event(
+                1,
+                "unique",
+                "createMessage",
+                BackendEventKind::Start { input: json!({}) },
+            ),
+            event(
+                2,
+                "unique",
+                "createMessage",
+                BackendEventKind::Return {
+                    output: json!({"orders":[{"id":"same"},{"id":"same"}]}),
+                    status: Some(201),
+                    success: true,
+                    effects_complete: false,
+                },
+            ),
+        ];
+        let violations = evaluate(&config, &events);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].oracle, "authored-invariant");
+    }
+
+    #[test]
+    fn imports_raw_proto_with_nested_messages() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-proto-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("service.proto");
+        std::fs::write(
+            &path,
+            r#"syntax = "proto3";
+package reproit.validation;
+message Envelope {
+  message Payload { string name = 1; }
+  Payload payload = 1;
+}
+message Reply { string value = 1; }
+service Nested { rpc Send(Envelope) returns (Reply); }
+"#,
+        )
+        .unwrap();
+        let document = load_service_document(&path).unwrap();
+        let operations = import_service_schema(&document);
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(operations.len(), 1);
+        assert_eq!(operations[0].id, "reproit.validation.Nested/Send");
+        let input = operations[0].input.as_ref().unwrap();
+        let ValueDomain::Object { properties, .. } = input else {
+            panic!("expected message object");
+        };
+        assert!(matches!(
+            properties.get("payload"),
+            Some(ValueDomain::Object { .. })
+        ));
     }
 }

@@ -18,9 +18,47 @@ pub fn looks_like_target(path: &Path) -> bool {
     let messages = parse_messages_for_detection(&text);
     !messages.is_empty()
         && messages.iter().all(Value::is_object)
-        && messages
-            .iter()
-            .any(|message| OPERATIONS.iter().any(|key| message.get(key).is_some()))
+        && messages.iter().any(looks_like_a2ui_message)
+}
+
+fn looks_like_a2ui_message(message: &Value) -> bool {
+    if OPERATIONS.iter().any(|key| message.get(key).is_some()) {
+        return true;
+    }
+
+    let version_is_a2ui = message
+        .get("version")
+        .and_then(Value::as_str)
+        .is_some_and(|version| version.starts_with("v0."));
+    version_is_a2ui && contains_a2ui_shape(message)
+}
+
+fn contains_a2ui_shape(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, child)| {
+            let normalized = key
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>();
+            let structural_key = normalized.contains("surface")
+                || normalized.starts_with("component")
+                || normalized.contains("datamodel")
+                || normalized.contains("catalog")
+                || [
+                    "createsurface",
+                    "updatecomponents",
+                    "updatedatamodel",
+                    "deletesurface",
+                ]
+                .iter()
+                .any(|operation| normalized.starts_with(operation));
+            structural_key || contains_a2ui_shape(child)
+        }),
+        Value::Array(values) => values.iter().any(contains_a2ui_shape),
+        Value::String(text) => text.contains("a2ui.org") || text.contains("a2ui.dev"),
+        _ => false,
+    }
 }
 
 fn parse_messages_for_detection(text: &str) -> Vec<Value> {
@@ -64,6 +102,12 @@ pub fn run_target(
         .output()
         .context("running the A2UI renderer harness")?;
     if !matches!(output.status.code(), Some(0 | 1)) {
+        bail!(
+            "A2UI runner failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    if output.stdout.is_empty() {
         bail!(
             "A2UI runner failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
@@ -198,6 +242,12 @@ pub fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
+    if output.stdout.is_empty() {
+        bail!(
+            "A2UI replay failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
     let report: Value =
         serde_json::from_slice(&output.stdout).context("A2UI replay returned invalid JSON")?;
     let reproduced = report
@@ -252,6 +302,49 @@ mod tests {
         let ordinary = dir.join("ordinary.json");
         std::fs::write(&ordinary, r#"{"name":"not A2UI"}"#).unwrap();
         assert!(!looks_like_target(&ordinary));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn detects_malformed_but_intended_a2ui_without_claiming_ordinary_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "reproit-a2ui-tolerant-detect-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text) in [
+            (
+                "misspelled-operation.json",
+                r#"[{"version":"v0.9","create_surface":{"surfaceId":"x"}}]"#,
+            ),
+            (
+                "misspelled-payload.json",
+                r#"[{"version":"v0.9","updateComponents":{"surfaceId":"x","componentz":[]}}]"#,
+            ),
+            (
+                "message-envelope.json",
+                r#"{"messages":[{"version":"v0.9","surfaceId":"x","components":[]}]}"#,
+            ),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            assert!(looks_like_target(&path), "{name}");
+        }
+
+        for (name, text) in [
+            (
+                "business-version.json",
+                r#"[{"version":"1.0","components":[{"name":"billing"}]}]"#,
+            ),
+            (
+                "unrelated-draft.json",
+                r#"[{"version":"v0.9","records":[{"name":"ordinary"}]}]"#,
+            ),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            assert!(!looks_like_target(&path), "{name}");
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 }

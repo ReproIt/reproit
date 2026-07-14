@@ -1,0 +1,4 @@
+backend:
+  enabled: true
+  schemas:
+    - headless-openapi.yaml

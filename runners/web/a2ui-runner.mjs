@@ -7,10 +7,50 @@ import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
 import {chromium} from 'playwright';
 import {A2uiMessageListSchema, BASIC_COMPONENTS} from '@a2ui/web_core/v0_9';
+import {zodToJsonSchema} from 'zod-to-json-schema';
 
 const CATALOG_ID = 'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json';
 const MESSAGE_KEYS = ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface'];
+const INPUT_COMPONENTS = new Set(['TextField', 'CheckBox', 'ChoicePicker', 'Slider', 'DateTimeInput']);
 const here = dirname(fileURLToPath(import.meta.url));
+
+const componentSchemas = new Map(BASIC_COMPONENTS.map(api => [api.name, api.schema]));
+const messageListJsonSchema = zodToJsonSchema(A2uiMessageListSchema);
+const messageJsonSchemas = new Map((messageListJsonSchema.items?.anyOf ?? []).flatMap(schema => {
+  const operation = MESSAGE_KEYS.find(key => schema.properties?.[key]);
+  return operation ? [[operation, schema]] : [];
+}));
+const componentJsonSchemas = new Map(BASIC_COMPONENTS.map(api => {
+  const properties = zodToJsonSchema(api.schema);
+  return [api.name, {
+    ...properties,
+    properties: {
+      id: {type: 'string', description: 'Stable component ID.'},
+      component: {const: api.name},
+      ...(properties.properties ?? {}),
+    },
+    required: [...new Set(['id', 'component', ...(properties.required ?? [])])],
+    additionalProperties: false,
+  }];
+}));
+
+export const A2UI_REPAIR_CONTRACT = Object.freeze({
+  protocolVersion: 'v0.9',
+  catalogId: CATALOG_ID,
+  allowedComponents: BASIC_COMPONENTS.map(api => api.name),
+  streamRules: [
+    'Return a JSON array of complete A2UI messages.',
+    'Every message must use version v0.9 and contain exactly one operation.',
+    'Component properties belong directly on the component object.',
+    'Referenced children are component IDs, never inline component objects.',
+    'Preserve IDs and unrelated messages unless the finding requires changing them.',
+  ],
+  prohibitedProperties: ['ariaLabel', 'componentProperties'],
+  validation: {
+    command: 'reproit --json scan <stream.json>',
+    success: 'exit code 0 with an empty findings array',
+  },
+});
 
 function canonical(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -69,7 +109,6 @@ export function validateMessages(messages) {
       reason: issue.message,
     })));
   }
-  const componentSchemas = new Map(BASIC_COMPONENTS.map(api => [api.name, api.schema]));
   for (const [messageIndex, message] of messages.entries()) {
     if (!message || typeof message !== 'object' || Array.isArray(message)) continue;
     const keys = MESSAGE_KEYS.filter(key => Object.hasOwn(message, key));
@@ -78,7 +117,9 @@ export function validateMessages(messages) {
     if (message.createSurface?.catalogId !== undefined && message.createSurface.catalogId !== CATALOG_ID) {
       errors.push({kind: 'protocol-invalid', path: `${messageIndex}.createSurface.catalogId`, reason: 'automatic scan supports the official v0.9 basic catalog'});
     }
-    for (const [componentIndex, component] of (message.updateComponents?.components ?? []).entries()) {
+    const components = message.updateComponents?.components;
+    if (!Array.isArray(components)) continue;
+    for (const [componentIndex, component] of components.entries()) {
       const schema = componentSchemas.get(component.component);
       const path = `${messageIndex}.updateComponents.components.${componentIndex}`;
       if (!schema) {
@@ -95,8 +136,189 @@ export function validateMessages(messages) {
   return errors;
 }
 
+function componentRecords(messages, predicate = () => true) {
+  const records = [];
+  for (const [messageIndex, message] of messages.entries()) {
+    const components = message?.updateComponents?.components;
+    if (!Array.isArray(components)) continue;
+    for (const [componentIndex, component] of components.entries()) {
+      if (!component || typeof component !== 'object' || !predicate(component)) continue;
+      records.push({
+        path: `${messageIndex}.updateComponents.components.${componentIndex}`,
+        messageIndex,
+        componentIndex,
+        id: component.id,
+        type: component.component,
+        value: component,
+      });
+    }
+  }
+  return records;
+}
+
+function recordForPath(messages, path) {
+  const match = /^(\d+)\.updateComponents\.components\.(\d+)(?:\.|$)/.exec(path ?? '');
+  if (!match) return undefined;
+  const messageIndex = Number(match[1]);
+  const componentIndex = Number(match[2]);
+  const value = messages[messageIndex]?.updateComponents?.components?.[componentIndex];
+  if (!value || typeof value !== 'object') return undefined;
+  return {
+    path: `${messageIndex}.updateComponents.components.${componentIndex}`,
+    messageIndex,
+    componentIndex,
+    id: value.id,
+    type: value.component,
+    value,
+  };
+}
+
+function schemaContext(record) {
+  const schema = componentJsonSchemas.get(record?.type);
+  if (!schema) return undefined;
+  return {
+    path: record.path,
+    id: record.id,
+    type: record.type,
+    allowedProperties: Object.keys(schema.properties ?? {}),
+    requiredProperties: schema.required ?? [],
+    schema,
+  };
+}
+
+function messageContextForPath(messages, path) {
+  const match = /^(\d+)(?:\.([^\.]+))?/.exec(path ?? '');
+  if (!match) return undefined;
+  const index = Number(match[1]);
+  const value = messages[index];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const operation = MESSAGE_KEYS.find(key => Object.hasOwn(value, key));
+  const schema = messageJsonSchemas.get(operation);
+  const operationSchema = schema?.properties?.[operation];
+  return {
+    path: String(index),
+    operation,
+    operationPath: operation ? `${index}.${operation}` : String(index),
+    allowedProperties: Object.keys(schema?.properties ?? {}),
+    requiredProperties: schema?.required ?? [],
+    operationAllowedProperties: Object.keys(operationSchema?.properties ?? {}),
+    operationRequiredProperties: operationSchema?.required ?? [],
+    schema,
+  };
+}
+
+function legacyWrappedComponent(record) {
+  const wrapped = record?.value?.component;
+  if (!wrapped || typeof wrapped !== 'object' || Array.isArray(wrapped)) return undefined;
+  const entries = Object.entries(wrapped);
+  if (entries.length !== 1) return undefined;
+  const [type, properties] = entries[0];
+  if (!componentSchemas.has(type) || !properties || typeof properties !== 'object' || Array.isArray(properties)) return undefined;
+  const value = {id: record.id, component: type, ...structuredClone(properties)};
+  return {
+    detectedShape: 'legacy-wrapped-component',
+    originalType: type,
+    replacement: value,
+    normalizedRecord: {...record, type, value},
+  };
+}
+
+function protocolRepairContext(messages, item) {
+  const record = recordForPath(messages, item.path);
+  const legacy = legacyWrappedComponent(record);
+  const component = schemaContext(legacy?.normalizedRecord ?? record);
+  const message = messageContextForPath(messages, item.path);
+  return {
+    objective: legacy
+      ? 'Convert this legacy wrapped component to the flat A2UI v0.9 basic-catalog component shape.'
+      : 'Make the smallest schema-valid edit that removes this exact finding.',
+    repairability: 'message-edit',
+    editScope: component?.path ?? message?.operationPath ?? item.path,
+    component,
+    message,
+    detectedShape: legacy?.detectedShape,
+    validPatchExamples: legacy ? [{
+      path: record.path,
+      operation: 'replace-component',
+      value: legacy.replacement,
+    }] : component ? [{
+      path: component.path,
+      operation: 'replace-component',
+      valueMustMatch: 'repairContext.component.schema',
+    }] : message?.operation ? [{
+      path: message.operationPath,
+      operation: 'replace-operation',
+      valueMustMatch: 'the operation schema referenced by repairContext.message.schemaRef',
+    }] : [],
+    revalidateAfterEdit: true,
+  };
+}
+
+function accessibilityRepairContext(messages, item) {
+  const records = item.kind === 'unlabeled-button'
+    ? componentRecords(messages, component => component.component === 'Button')
+    : componentRecords(messages, component => INPUT_COMPONENTS.has(component.component));
+  const observationIndex = item.inputIndex ?? item.buttonIndex ?? 0;
+  const selected = records[observationIndex] ?? records[0];
+  const rendererOwnedTextField = item.kind === 'unlabeled-input'
+    && item.renderer === 'lit'
+    && selected?.type === 'TextField';
+  if (rendererOwnedTextField) {
+    return {
+      objective: 'Preserve this schema-valid stream and repair or upgrade the Lit renderer.',
+      repairability: 'renderer-change-required',
+      owner: '@a2ui/lit',
+      editScope: 'renderer implementation, not the A2UI message stream',
+      component: schemaContext(selected),
+      candidateComponents: records.map(record => ({path: record.path, id: record.id, type: record.type})),
+      validPatchExamples: [],
+      notes: [
+        'The official label and accessibility.label properties are schema-valid but do not give this Lit-rendered TextField an accessible name.',
+        'Do not invent ariaLabel or another message property.',
+        'A message-only repair has not been verified. Keep the minimized reproduction for the renderer fix.',
+      ],
+      revalidateAfterEdit: true,
+    };
+  }
+  return {
+    objective: 'Give the rendered control an accessible name using the official basic-catalog accessibility object.',
+    repairability: 'message-edit',
+    editScope: selected?.path ?? 'the corresponding visible control component',
+    component: schemaContext(selected),
+    candidateComponents: records.map(record => ({path: record.path, id: record.id, type: record.type})),
+    validPatchExamples: selected ? [{
+      path: selected.path,
+      operation: 'merge-component-properties',
+      value: {accessibility: {label: 'Descriptive accessible name'}},
+    }] : [],
+    notes: [
+      'Use accessibility.label. Do not invent ariaLabel.',
+      'Keep the visible label or child component unless the requested UI requires changing it.',
+    ],
+    revalidateAfterEdit: true,
+  };
+}
+
+function attachRepairContext(messages, item) {
+  if (item.kind === 'protocol-invalid') {
+    return {...item, repairContext: protocolRepairContext(messages, item)};
+  }
+  if (item.kind === 'unlabeled-input' || item.kind === 'unlabeled-button') {
+    return {...item, repairContext: accessibilityRepairContext(messages, item)};
+  }
+  return {...item, repairContext: {
+    objective: 'Preserve the minimized reproduction while removing this exact renderer finding.',
+    repairability: 'unknown',
+    editScope: 'minimalMessages',
+    revalidateAfterEdit: true,
+  }};
+}
+
 function validationReport(messages) {
-  return validateMessages(messages).map(item => finding(item.kind, 'protocol', item.reason, {path: item.path}));
+  return validateMessages(messages).map(item => attachRepairContext(
+    messages,
+    finding(item.kind, 'protocol', item.reason, {path: item.path}),
+  ));
 }
 
 function minimizeInvalidMessages(original, signature) {
@@ -345,9 +567,9 @@ async function run(config) {
     });
     if (config.command === 'replay') {
       const reproduced = findings.some(item => item.signature === (config.expect ?? expected?.signature));
-      return {format: 'reproit-a2ui-replay', reproduced, expected, findings, observations: {}};
+      return {format: 'reproit-a2ui-replay', reproduced, expected, repairContract: A2UI_REPAIR_CONTRACT, findings, observations: {}};
     }
-    return {format: 'reproit-a2ui-run', command: config.command, target: basename(config.target), messagesSha256: sha256(messages), messages, findings, observations: {}};
+    return {format: 'reproit-a2ui-run', command: config.command, target: basename(config.target), messagesSha256: sha256(messages), messages, repairContract: A2UI_REPAIR_CONTRACT, findings, observations: {}};
   }
   const temporary = await mkdtemp(join(tmpdir(), 'reproit-a2ui-runner-'));
   let browser;
@@ -355,7 +577,7 @@ async function run(config) {
     const bundle = await bundleHost(temporary);
     browser = await chromium.launch({headless: true});
     const baseline = await scanStream(browser, bundle, messages);
-    const findings = baseline.findings.map(item => ({...item, reproductionMessages: messages}));
+    const findings = baseline.findings.map(item => ({...attachRepairContext(messages, item), reproductionMessages: messages}));
     const variants = [];
     if (config.command === 'fuzz') {
       for (const variant of fuzzVariants(messages, config.seed, config.runs)) {
@@ -370,14 +592,16 @@ async function run(config) {
           }
         }
         for (const item of result.findings) {
-          if (!findings.some(existing => existing.signature === item.signature)) findings.push({...item, reproductionMessages: variant.messages});
+          if (!findings.some(existing => existing.signature === item.signature)) {
+            findings.push({...attachRepairContext(variant.messages, item), reproductionMessages: variant.messages});
+          }
         }
         variants.push({name: variant.name, messagesSha256: sha256(variant.messages), observations: result.observations});
       }
     }
     if (config.command === 'replay') {
       const reproduced = findings.some(item => item.signature === (config.expect ?? expected?.signature));
-      return {format: 'reproit-a2ui-replay', reproduced, expected, findings, observations: baseline.observations};
+      return {format: 'reproit-a2ui-replay', reproduced, expected, repairContract: A2UI_REPAIR_CONTRACT, findings, observations: baseline.observations};
     }
     const minimizedFindings = [];
     for (const item of findings) {
@@ -385,7 +609,7 @@ async function run(config) {
       const minimized = await minimizeMessages(browser, bundle, reproductionMessages, item.signature);
       minimizedFindings.push({...publicFinding, minimalMessages: minimized.messages, shrinkAttempts: minimized.attempts});
     }
-    return {format: 'reproit-a2ui-run', command: config.command, target: basename(config.target), seed: config.seed, runs: config.command === 'fuzz' ? config.runs : 0, messagesSha256: sha256(messages), messages, findings: minimizedFindings, observations: baseline.observations, variants};
+    return {format: 'reproit-a2ui-run', command: config.command, target: basename(config.target), seed: config.seed, runs: config.command === 'fuzz' ? config.runs : 0, messagesSha256: sha256(messages), messages, repairContract: A2UI_REPAIR_CONTRACT, findings: minimizedFindings, observations: baseline.observations, variants};
   } finally {
     await browser?.close();
     await rm(temporary, {recursive: true, force: true});

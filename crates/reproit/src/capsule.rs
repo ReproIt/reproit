@@ -132,6 +132,10 @@ pub struct Capsule {
 }
 
 impl Capsule {
+    fn is_backend_finding(&self) -> bool {
+        self.finding.oracle == "backend-contract" || self.finding.invariant.starts_with("backend:")
+    }
+
     pub fn new(app: impl Into<String>, finding: FindingIdentity) -> Self {
         Self {
             version: CAPSULE_VERSION,
@@ -169,7 +173,7 @@ impl Capsule {
         // network-free path are indistinguishable, allowing a live-backend replay
         // to masquerade as a hermetic reproduction.
         let mut required = BTreeSet::from(["ui_actions", "http"]);
-        if self.finding.oracle == "backend-contract" {
+        if self.is_backend_finding() {
             required.insert("backend_effects");
         }
         for exchange in self.exchanges.iter().filter(|e| e.required) {
@@ -191,8 +195,10 @@ impl Capsule {
     }
 
     pub fn confirmable(&self) -> bool {
+        let bootstrap_backend_finding =
+            self.is_backend_finding() && !self.backend_events.is_empty();
         self.version == CAPSULE_VERSION
-            && !self.actions.is_empty()
+            && (!self.actions.is_empty() || bootstrap_backend_finding)
             && self.missing_required_capabilities().is_empty()
     }
 
@@ -201,7 +207,7 @@ impl Capsule {
         // what proves a newly introduced/unexpected request will become a
         // CAPSULE:MISS instead of reaching live infrastructure.
         let mut required = BTreeSet::from(["http_replay"]);
-        if self.finding.oracle == "backend-contract" {
+        if self.is_backend_finding() {
             required.insert("backend_effects_replay");
         }
         for exchange in self.exchanges.iter().filter(|e| e.required) {
@@ -1002,6 +1008,47 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_backend_finding_is_confirmable_without_ui_actions() {
+        let mut c = Capsule::new(
+            "app",
+            FindingIdentity {
+                oracle: "contract".into(),
+                invariant: "backend:response-shape".into(),
+                kind: "response-shape".into(),
+                frame: "getAccount".into(),
+                trigger: "bootstrap".into(),
+                boundary: None,
+            },
+        );
+        c.backend_events.push(crate::backend::BackendEvent {
+            sequence: 1,
+            trace_id: "trace".into(),
+            span_id: "span".into(),
+            action_index: 0,
+            parent_span_id: None,
+            operation: "getAccount".into(),
+            build: None,
+            config_contract: None,
+            actor: None,
+            tenant: None,
+            idempotency_key: None,
+            selections: Vec::new(),
+            event: crate::backend::BackendEventKind::Start { input: Value::Null },
+        });
+        for name in ["ui_actions", "http", "backend_effects"] {
+            c.capabilities.insert(
+                name.into(),
+                Capability {
+                    status: CaptureStatus::Captured,
+                    detail: None,
+                },
+            );
+        }
+        assert!(c.actions.is_empty());
+        assert!(c.confirmable());
+    }
+
+    #[test]
     fn redaction_is_recursive_typed_and_manifested() {
         let mut c = Capsule::new("app", finding());
         c.exchanges.push(Exchange {
@@ -1026,6 +1073,8 @@ mod tests {
             action_index: 0,
             parent_span_id: None,
             operation: "createUser".into(),
+            build: None,
+            config_contract: None,
             actor: Some("a".into()),
             tenant: Some("team".into()),
             idempotency_key: Some("payment-retry-secret".into()),

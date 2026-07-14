@@ -1,0 +1,9 @@
+backend:
+  enabled: true
+  schemas: [finance-openapi.yaml]
+  invariants:
+    - conserved: ledger.debits == ledger.credits
+    - bounded: account.exposure <= account.limit
+  fleet:
+    same_build: true
+    same_config_contract: true

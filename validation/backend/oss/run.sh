@@ -102,6 +102,12 @@ post_graphql http://127.0.0.1:18788/graphql 'query { nullableNode { __typename }
 jq -e '.data.nullableNode == null' "$WORK/graphql-null.json" >/dev/null
 post_graphql http://127.0.0.1:18788/graphql 'query { explode }' "$WORK/graphql-error.json"
 jq -e '.data.explode == null and (.errors|length == 1)' "$WORK/graphql-error.json" >/dev/null
+REPROIT_BACKEND_URL=http://127.0.0.1:18788/graphql \
+  cargo run --quiet -p reproit -- --json scan \
+  "$REPROIT_OSS_TMP/graphql-shapes-introspection.json" >"$WORK/graphql-headless-scan.json"
+jq -e '.complete == true and .exercised == 4 and (.findings | length) == 0' \
+  "$WORK/graphql-headless-scan.json" >/dev/null
+echo "CLEAN graphql-shapes public headless scan operations=4"
 
 GRPC="$WORK/grpc-go"
 git clone -q https://github.com/grpc/grpc-go.git "$GRPC"
@@ -113,6 +119,13 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 (cd "$GRPC/examples" && go run "$ROOT/validation/backend/oss/grpc-dogfood.go")
+REPROIT_BACKEND_URL=http://127.0.0.1:50051 \
+  cargo run --quiet -p reproit -- --json fuzz \
+  "$GRPC/examples/helloworld/helloworld/helloworld.proto" --runs 1 \
+  >"$WORK/grpc-headless-fuzz.json"
+jq -e '.complete == true and .exercised == 1 and (.findings | length) == 0' \
+  "$WORK/grpc-headless-fuzz.json" >/dev/null
+echo "CLEAN grpc-go public headless fuzz operations=1"
 cp "$ROOT/validation/backend/oss/grpc-int64-descriptor.json" "$REPROIT_OSS_TMP/grpc-int64-descriptor.json"
 
 cargo run --quiet --manifest-path "$ROOT/validation/backend/oss/Cargo.toml"

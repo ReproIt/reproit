@@ -1,0 +1,28 @@
+openapi: 3.1.0
+info: {title: Finance fixture, version: 1.0.0}
+servers: [{url: http://127.0.0.1:19877}]
+paths:
+  /finance:
+    get:
+      operationId: getFinance
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [account, ledger, status]
+                properties:
+                  account:
+                    type: object
+                    required: [exposure, limit]
+                    properties:
+                      exposure: {type: number}
+                      limit: {type: number}
+                  ledger:
+                    type: object
+                    required: [debits, credits]
+                    properties:
+                      debits: {type: number}
+                      credits: {type: number}
+                  status: {type: string}

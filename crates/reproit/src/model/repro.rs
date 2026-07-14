@@ -460,6 +460,8 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     let mut performed_before_first_miss = 0usize;
     let mut saw_miss = false;
     let mut saw_trigger_sig = false;
+    let mut pending_action = false;
+    let mut pending_payload = "";
     let want_sig = trigger.sig.as_deref();
     for line in log.lines() {
         if let Some(sig) = want_sig {
@@ -476,11 +478,31 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
             }
         }
         if line.contains("FUZZ:MISS ") {
+            let missed = line
+                .split_once("FUZZ:MISS ")
+                .map(|(_, payload)| payload.trim())
+                .unwrap_or("");
+            if pending_action && missed != pending_payload {
+                performed_before_first_miss += 1;
+            }
             saw_miss = true;
             break;
         }
         if line.contains("FUZZ:ACT ") {
+            // FUZZ:ACT is an attempt marker. A following FUZZ:MISS means that
+            // exact action was not performed. Commit the previous attempt only
+            // after progress or the next attempt proves it completed.
+            if pending_action {
+                performed_before_first_miss += 1;
+            }
+            pending_action = true;
+            pending_payload = line
+                .split_once("FUZZ:ACT ")
+                .map(|(_, payload)| payload.trim())
+                .unwrap_or("");
+        } else if pending_action && line.contains("EXPLORE:STATE ") {
             performed_before_first_miss += 1;
+            pending_action = false;
         }
     }
 
@@ -1033,6 +1055,16 @@ JOURNEY DONE
         );
         assert_eq!(classify(&[RunVerdict::CouldNotReplay; 3]), Outcome::Stale);
         assert_eq!(Outcome::Stale.exit_code(), 3);
+    }
+
+    #[test]
+    fn attempted_action_that_misses_does_not_reach_trigger() {
+        let trigger = trig(1);
+        let log = "FUZZ:ACT tap:key:load\nFUZZ:MISS tap:key:load\nJOURNEY DONE\n";
+        assert_eq!(
+            verdict_from_log_with_trigger(log, true, &trigger),
+            RunVerdict::CouldNotReplay
+        );
     }
 
     #[test]

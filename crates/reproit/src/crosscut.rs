@@ -501,6 +501,7 @@ impl OracleFilter {
             Oracle::Crash,
             Oracle::ContentBug,
             Oracle::Hang,
+            Oracle::ChoiceAnomaly,
             Oracle::BrokenRoute,
             Oracle::BlankScreen,
             Oracle::BrokenAsset,
@@ -1214,6 +1215,7 @@ mod tests {
             Oracle::Crash,
             Oracle::ContentBug,
             Oracle::Hang,
+            Oracle::ChoiceAnomaly,
             Oracle::BrokenRoute,
             Oracle::BlankScreen,
             Oracle::BrokenAsset,
@@ -1221,7 +1223,6 @@ mod tests {
             assert!(f.allows(oracle), "stable default missing {oracle:?}");
         }
         for oracle in [
-            Oracle::ChoiceAnomaly,
             Oracle::FocusLoss,
             Oracle::Security,
             Oracle::Jank,

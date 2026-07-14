@@ -24,6 +24,7 @@ mod mcp;
 #[path = "model/observation.rs"]
 mod observation;
 mod skills;
+mod update;
 // backends/, the execution layer: device/runtime drivers + run orchestration.
 // (#[path] keeps the module path flat, `crate::tui`, `crate::drive`, ..., so
 // the folder grouping is purely organizational and changes no call sites.)
@@ -61,6 +62,8 @@ mod vmservice;
 mod a2ui;
 #[path = "modes/analyze.rs"]
 mod analyze;
+#[path = "modes/backend_headless.rs"]
+mod backend_headless;
 #[path = "modes/barrier.rs"]
 mod barrier;
 #[path = "modes/deliver.rs"]
@@ -188,6 +191,10 @@ impl Ctx {
                 serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into())
             );
         }
+    }
+
+    pub(crate) fn confirmed(&self) -> bool {
+        self.yes
     }
 }
 
@@ -494,12 +501,21 @@ enum Cmd {
     /// Detect the current app and create the smallest working reproit setup.
     /// After initialization, use `reproit scan` or `reproit fuzz`.
     Init {
-        /// Platform override: flutter | web | rn | android.
+        /// Running web app to initialize. A URL always selects the web UI workflow.
+        #[arg(value_name = "URL")]
+        target: Option<String>,
+        /// Platform override: flutter | web | rn | android | backend.
         #[arg(long)]
         platform: Option<String>,
         /// Replace existing generated scaffold files.
         #[arg(long)]
         force: bool,
+    },
+    /// Check for or install the latest ReproIt CLI release.
+    Update {
+        /// Report whether an update is available without installing it.
+        #[arg(long)]
+        check: bool,
     },
     /// Advanced diagnostics. Normal scan/fuzz/check workflows maintain their
     /// internal app model automatically.
@@ -962,6 +978,9 @@ enum Cmd {
     /// (internal) Linux AT-SPI runner; spawned by the desktop-atspi backend
     #[command(name = "__atspi", hide = true)]
     AtspiRun,
+    /// Refresh the release cache without delaying the calling command.
+    #[command(name = "__update-check", hide = true)]
+    UpdateCheck,
 }
 
 #[derive(Subcommand)]
@@ -1454,9 +1473,38 @@ impl AuthStrategyArg {
 async fn main() -> Result<ExitCode> {
     let cli = Cli::parse_from(expand_direct_bug_arg(std::env::args_os().collect()));
     let ctx = cli.ctx();
+    if !matches!(&cli.command, Cmd::Update { .. } | Cmd::UpdateCheck) {
+        update::notice_and_schedule(VERSION, cli.quiet, cli.json);
+    }
     match cli.command {
-        Cmd::Init { platform, force } => {
-            init::init(&std::env::current_dir()?, platform.as_deref(), force)?;
+        Cmd::Init {
+            target,
+            platform,
+            force,
+        } => {
+            let root = std::env::current_dir()?;
+            if let Some(target) = target {
+                if platform.as_deref().is_some_and(|value| value != "web") {
+                    anyhow::bail!(
+                        "a URL initializes the web UI workflow; remove --platform or use --platform web"
+                    );
+                }
+                let url = target_as_url(&target).ok_or_else(|| {
+                    anyhow::anyhow!("init target must be a web URL, got {target:?}")
+                })?;
+                let runner = config::ensure_web_runner_dir(VERSION, &|message| ctx.say(message))?;
+                init::init_web_url(&root, &url, &runner, force)?;
+            } else {
+                init::init(&root, platform.as_deref(), force)?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Update { check } => {
+            update::run(VERSION, check).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::UpdateCheck => {
+            let _ = update::refresh_cache(VERSION).await;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Doctor => {
@@ -1735,6 +1783,9 @@ async fn main() -> Result<ExitCode> {
             device,
         } => {
             if let Some(id) = repro.as_deref() {
+                if let Some(code) = backend_headless::try_replay(&ctx, id).await? {
+                    return Ok(code);
+                }
                 if let Some(code) = a2ui::try_replay(&ctx, id)? {
                     return Ok(code);
                 }
@@ -2231,6 +2282,11 @@ async fn main() -> Result<ExitCode> {
             out,
             header,
         } => {
+            let configured_backend = if target_arg.is_none() {
+                backend_config_target(cli.config.as_deref())?
+            } else {
+                None
+            };
             if let Some(path) = target_arg.as_deref().map(PathBuf::from) {
                 if path.is_file() && a2ui::looks_like_target(&path) {
                     if record {
@@ -2260,6 +2316,24 @@ async fn main() -> Result<ExitCode> {
                     "REPROIT_EXTRA_HEADERS",
                     serde_json::Value::Object(map).to_string(),
                 );
+            }
+            if let Some(path) = target_arg.as_deref().map(PathBuf::from) {
+                if path.is_file() && backend_headless::looks_like_schema(&path) {
+                    if record {
+                        anyhow::bail!(
+                            "backend streams produce a structural reproduction, so `scan --record` does not apply"
+                        );
+                    }
+                    return backend_headless::run_target(&ctx, &path, "scan", 1, 1).await;
+                }
+            } else if let Some((path, config)) = configured_backend {
+                if record {
+                    anyhow::bail!(
+                        "backend streams produce a structural reproduction, so `scan --record` does not apply"
+                    );
+                }
+                return backend_headless::run_configured_target(&ctx, &path, "scan", 1, 1, config)
+                    .await;
             }
             // Zero-config targets: a URL synthesizes a web config; a bare terminal
             // EXECUTABLE (when there's no project config) synthesizes a TUI/PTY
@@ -2308,10 +2382,11 @@ async fn main() -> Result<ExitCode> {
                 record,
                 out,
             };
-            let completed = fuzz::scan(&loaded.config, &loaded.root, &args).await?;
+            let summary = fuzz::scan(&loaded.config, &loaded.root, &args).await?;
             // A cut-short crawl (timeout/killed) checked only some screens; exit
             // non-zero so CI/agents never read an incomplete scan as a clean pass.
-            return Ok(if completed {
+            // Confirmed scan findings are also regressions, matching A2UI scan.
+            return Ok(if summary.complete && summary.issues == 0 {
                 ExitCode::SUCCESS
             } else {
                 exit_with(Exit::Regression)
@@ -2350,10 +2425,23 @@ async fn main() -> Result<ExitCode> {
             device,
             target_arg,
         } => {
+            let configured_backend = if target_arg.is_none() {
+                backend_config_target(cli.config.as_deref())?
+            } else {
+                None
+            };
             if let Some(path) = target_arg.as_deref().map(PathBuf::from) {
                 if path.is_file() && a2ui::looks_like_target(&path) {
                     return a2ui::run_target(&ctx, &path, "fuzz", seed, runs);
                 }
+                if path.is_file() && backend_headless::looks_like_schema(&path) {
+                    return backend_headless::run_target(&ctx, &path, "fuzz", seed, runs).await;
+                }
+            } else if let Some((path, config)) = configured_backend {
+                return backend_headless::run_configured_target(
+                    &ctx, &path, "fuzz", seed, runs, config,
+                )
+                .await;
             }
             // The positional TARGET is auto-classified. A URL (https://app.com,
             // or a bare google.com / localhost:3000) points reproit at a deployed
@@ -4648,6 +4736,47 @@ fn resolve_config_path(config_path: Option<&std::path::Path>) -> Result<PathBuf>
     }
 }
 
+fn backend_config_target(
+    config_path: Option<&Path>,
+) -> Result<Option<(PathBuf, backend::BackendConfig)>> {
+    let path = match config_path {
+        Some(path) if path.is_file() => path.to_path_buf(),
+        Some(path) => anyhow::bail!("config file {} does not exist", path.display()),
+        None => {
+            let mut directory = std::env::current_dir()?;
+            loop {
+                let candidate = directory.join("reproit.yaml");
+                if candidate.is_file() {
+                    break candidate;
+                }
+                if !directory.pop() {
+                    return Ok(None);
+                }
+            }
+        }
+    };
+    let document: serde_yaml::Value = serde_yaml::from_slice(&std::fs::read(&path)?)?;
+    if document.get("app").is_some() {
+        return Ok(None);
+    }
+    let Some(backend) = document.get("backend") else {
+        return Ok(None);
+    };
+    let config: backend::BackendConfig = serde_yaml::from_value(backend.clone())?;
+    if !config.enabled {
+        return Ok(None);
+    }
+    let schema = config
+        .schemas
+        .first()
+        .context("backend.enabled is true but backend.schemas is empty")?;
+    let target = path.parent().unwrap_or_else(|| Path::new(".")).join(schema);
+    if !target.is_file() {
+        anyhow::bail!("backend schema {} does not exist", target.display());
+    }
+    Ok(Some((target, config)))
+}
+
 fn yaml_str(s: impl Into<String>) -> serde_yaml::Value {
     serde_yaml::Value::String(s.into())
 }
@@ -5254,6 +5383,32 @@ fn doctor_push(
     });
 }
 
+fn playwright_browser_cache_dirs(runner_dir: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(explicit) = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH") {
+        candidates.push(PathBuf::from(explicit));
+    }
+    candidates.push(runner_dir.join("node_modules/.cache/ms-playwright"));
+    if cfg!(windows) {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local).join("ms-playwright"));
+        }
+    } else if cfg!(target_os = "macos") {
+        if let Some(home) = std::env::var_os("HOME") {
+            candidates.push(PathBuf::from(home).join("Library/Caches/ms-playwright"));
+        }
+    } else if let Some(cache) = std::env::var_os("XDG_CACHE_HOME") {
+        candidates.push(PathBuf::from(cache).join("ms-playwright"));
+    } else if let Some(home) = std::env::var_os("HOME") {
+        candidates.push(PathBuf::from(home).join(".cache/ms-playwright"));
+    }
+    candidates
+}
+
+fn populated_directory(path: &Path) -> bool {
+    path.is_dir() && std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
+}
+
 fn render_doctor(checks: &[DoctorCheck]) {
     for c in checks {
         let status = if c.ok {
@@ -5430,7 +5585,10 @@ async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> 
                     let runner = runner_dir.join("runner.mjs");
                     let node_modules = runner_dir.join("node_modules");
                     let playwright = node_modules.join("playwright");
-                    let browsers = runner_dir.join("node_modules/.cache/ms-playwright");
+                    let browser_candidates = playwright_browser_cache_dirs(&runner_dir);
+                    let browser = browser_candidates
+                        .iter()
+                        .find(|path| populated_directory(path));
                     doctor_push(
                         &mut checks,
                         "web runner",
@@ -5450,9 +5608,12 @@ async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> 
                     doctor_push(
                         &mut checks,
                         "playwright browser",
-                        browsers.exists(),
+                        browser.is_some(),
                         false,
-                        browsers.display().to_string(),
+                        browser
+                            .unwrap_or(&browser_candidates[0])
+                            .display()
+                            .to_string(),
                         Some(
                             "run `npx playwright install chromium` in the web runner directory"
                                 .into(),

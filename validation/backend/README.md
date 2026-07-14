@@ -11,13 +11,14 @@ attributed to the exact fuzz seed. A `backend-*.jsonl` file in the run directory
 is also retained in the encrypted capsule as supporting evidence.
 
 For web applications, enabling backend contracts makes the runner add
-`x-reproit-trace`, `x-reproit-actor`, and `x-reproit-action` to first-party API
+`x-reproit-trace`, `x-reproit-actor`, `x-reproit-action`, and optional bounded
+`x-reproit-build` and `x-reproit-config-contract` identities to first-party API
 requests. Instrumented services return a base64url JSON event array in
 `x-reproit-events`. The runner accepts only events bound to the exact request
 trace. `sdk-node.mjs` is the zero-dependency reference adapter used by this gate.
 It remains internal until the backend product passes the full release gate.
 Sibling API hosts must be listed in `backend.origins`; no correlation header is
-sent to any other origin. Those API hosts must allow the three request headers
+sent to any other origin. Those API hosts must allow the correlation headers
 through their CORS policy. The response evidence header is read by the browser
 driver, so application JavaScript does not need access to it.
 
@@ -66,6 +67,55 @@ The minimum invocation is:
 {"sequence":2,"traceId":"trace-a","spanId":"span-a","operation":"createMessage","actor":"alice","tenant":"team-a","kind":"effect","effect":"write","resource":"messages","key":"m1","effectTenant":"team-a","after":{"id":"m1"}}
 {"sequence":3,"traceId":"trace-a","spanId":"span-a","operation":"createMessage","actor":"alice","tenant":"team-a","kind":"return","status":201,"success":true,"effectsComplete":true,"output":{"id":"m1"}}
 ```
+
+`cli-e2e/run.sh` boots a disposable instrumented HTTP fixture and runs the real
+`reproit scan` command. The gate requires the CLI to report the schema-backed
+response violation and exit with regression status. This keeps the public scan
+path, not only the model evaluator, covered end to end.
+
+An OpenAPI file is also a direct CLI target. `reproit scan openapi.yaml` calls
+read-only GET operations without launching a browser. `reproit fuzz
+openapi.yaml` orders creates before reads, harvests structural resource IDs,
+and feeds those values into later operations. Confirmed findings save their
+setup requests and failing request together, so `reproit fnd_...` can rebuild
+the state it needs. Set `REPROIT_BACKEND_RESET_URL` to a same-origin disposable
+reset endpoint when replay requires a clean service. Remote mutating fuzzing
+requires `--yes`; scan never performs mutations.
+
+Local multi-file OpenAPI references are resolved hermetically. Remote
+references are rejected until pinned locally. Authored backend invariants can
+enforce numeric output ranges, equality between input and output paths, and
+unique output collections. They remain silent unless a successful runtime
+witness exists, and removing the authored invariant removes the oracle.
+
+Backend-only projects need no UI scaffold. `reproit init` detects a conventional
+OpenAPI, GraphQL introspection, or protobuf descriptor filename and writes the
+smallest backend-only `reproit.yaml`. Bare `reproit scan` and `reproit fuzz`
+then resolve that schema automatically. Framework names are never part of the
+runtime contract.
+
+Financial and deployment invariants use structural paths and values:
+
+```yaml
+backend:
+  enabled: true
+  schemas: [openapi.yaml]
+  invariants:
+    - unique: order.id
+    - idempotent: submitOrder
+    - conserved: ledger.debits == ledger.credits
+    - bounded: account.exposure <= account.limit
+    - transition: pending -> accepted | rejected
+  fleet:
+    same_build: true
+    same_config_contract: true
+```
+
+`REPROIT_BUILD` and `REPROIT_CONFIG_CONTRACT` attach bounded deployment
+identities to correlated events. Fleet rules report only when one captured
+evidence set contains conflicting declared identities. Values such as account
+contents, credentials, email addresses, and tokens remain structurally
+redacted.
 
 `effectsComplete` may be true only when the adapter observed every effect in
 the operation. Missing-effect contracts are silent without that proof. Positive

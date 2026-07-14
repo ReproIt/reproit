@@ -77,6 +77,8 @@ export function beginBackendTrace(requestHeaders, options) {
   if (!traceId) return null;
   const actor = header(requestHeaders, 'x-reproit-actor') || undefined;
   const actionIndex = Number(header(requestHeaders, 'x-reproit-action')) || 0;
+  const build = header(requestHeaders, 'x-reproit-build') || undefined;
+  const configContract = header(requestHeaders, 'x-reproit-config-contract') || undefined;
   const operation = String(options.operation || '').slice(0, 256);
   if (!operation) throw new Error('backend operation is required');
   const spanId = String(options.spanId || `${traceId}:${operation}`).slice(0, 128);
@@ -86,6 +88,8 @@ export function beginBackendTrace(requestHeaders, options) {
     spanId,
     actionIndex,
     operation,
+    ...(build ? { build: String(build).slice(0, 128) } : {}),
+    ...(configContract ? { configContract: String(configContract).slice(0, 128) } : {}),
     ...(actor ? { actor } : {}),
     ...(options.tenant ? { tenant: String(options.tenant) } : {}),
     ...(options.idempotencyKey ? { idempotencyKey: identity(options.idempotencyKey) } : {}),

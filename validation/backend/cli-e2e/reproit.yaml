@@ -1,0 +1,12 @@
+app:
+  platform: web
+  webRunnerDir: ../../../runners/web
+  url: http://127.0.0.1:19877
+devices:
+  namePrefix: BackendCliValidation
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]
+backend:
+  enabled: true
+  schemas: [openapi.yaml]

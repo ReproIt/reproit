@@ -1,0 +1,44 @@
+openapi: 3.1.0
+info:
+  title: Reproit stateful backend fuzz gate
+  version: 1.0.0
+paths:
+  /stateful-users:
+    post:
+      operationId: createStatefulUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string }
+  /stateful-users/{id}:
+    get:
+      operationId: getStatefulUser
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id: { type: string }
+                  name: { type: string }

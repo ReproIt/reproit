@@ -4,6 +4,7 @@ dist/
 .reproit/findings/
 .reproit/recordings/
 .reproit/tmp/
+.reproit/tools/
 .reproit/*.vault
 .reproit/*.log
 *.log

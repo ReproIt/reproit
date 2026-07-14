@@ -98,7 +98,7 @@ test('classifyChoiceOutlier: needs >= 3 valid options', () => {
   assert.strictEqual(classifyChoiceOutlier([0, 100]), null);
 });
 
-test('choiceAnomalyInPage fires on the buggy <select>, is silent on the clean one, and restores values', async () => {
+test('choiceAnomalyInPage fires on one odd choice, stays silent on uniform and varied-content pickers, and restores values', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -106,6 +106,7 @@ test('choiceAnomalyInPage fires on the buggy <select>, is silent on the clean on
 
     const origLang = await page.evaluate(() => document.getElementById('lang').value);
     const origSize = await page.evaluate(() => document.getElementById('size').value);
+    const origVaried = await page.evaluate(() => document.getElementById('varied').value);
 
     const findings = await page.evaluate(choiceAnomalyInPage, {
       settleMs: 80, ratio: CHOICE_OUTLIER_RATIO, minMag: CHOICE_MIN_MAGNITUDE, choiceRoles: CHOICE_ROLES,
@@ -120,16 +121,17 @@ test('choiceAnomalyInPage fires on the buggy <select>, is silent on the clean on
       `expected the Broken option to be the outlier, got ${JSON.stringify(selectFindings[0])}`);
     assert.ok(selectFindings[0].magnitude >= CHOICE_MIN_MAGNITUDE);
 
-    // SILENT: the clean <select> (id=size) must not appear -- its options are
-    // uniform, so the differential oracle flags nothing for it. (The single
-    // finding above already implies this, but assert it explicitly.)
-    // There is no second select finding, so nothing more to check.
+    // SILENT: the uniform `size` picker and intentionally varied `varied`
+    // picker must not appear. Several large panes are not one odd choice.
+    assert.strictEqual(selectFindings.length, 1);
 
     // NON-DESTRUCTIVE: both selects are restored to their original values.
     const afterLang = await page.evaluate(() => document.getElementById('lang').value);
     const afterSize = await page.evaluate(() => document.getElementById('size').value);
+    const afterVaried = await page.evaluate(() => document.getElementById('varied').value);
     assert.strictEqual(afterLang, origLang, 'buggy <select> not restored');
     assert.strictEqual(afterSize, origSize, 'clean <select> not restored');
+    assert.strictEqual(afterVaried, origVaried, 'varied <select> not restored');
 
     // And the page is no longer in horizontal overflow (the overlay was hidden
     // again when the value was restored).

@@ -52,6 +52,8 @@ const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
 const NETWORK_FILE = process.env.REPROIT_NETWORK_FILE || undefined;
 const NETWORK_ACTOR = process.env.REPROIT_DEVICE || 'a';
 const BACKEND_ENABLED = process.env.REPROIT_BACKEND === '1';
+const BACKEND_BUILD = String(process.env.REPROIT_BUILD || '').slice(0, 128);
+const BACKEND_CONFIG_CONTRACT = String(process.env.REPROIT_CONFIG_CONTRACT || '').slice(0, 128);
 const BACKEND_ORIGINS = (() => {
   try {
     const values = JSON.parse(process.env.REPROIT_BACKEND_ORIGINS || '[]');
@@ -965,6 +967,8 @@ export function backendCorrelationHeaders(url, actionIndex, ordinal, trustedOrig
     'x-reproit-trace': traceId,
     'x-reproit-actor': safeActor,
     'x-reproit-action': String(Math.max(0, actionIndex)),
+    ...(BACKEND_BUILD ? { 'x-reproit-build': BACKEND_BUILD } : {}),
+    ...(BACKEND_CONFIG_CONTRACT ? { 'x-reproit-config-contract': BACKEND_CONFIG_CONTRACT } : {}),
   };
 }
 
@@ -3935,13 +3939,21 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
       return r.mag >= CHOICE_OUTLIER_RATIO * Math.max(siblingMedFor(r), 1);
     })
     .sort((a, b) => b.mag - a.mag);
+  // This oracle promises an odd ONE out. If several options differ from the
+  // ordinary pack, the component is showing legitimately different-sized
+  // content rather than one broken choice. Reporting every large pane here
+  // produced false findings on documentation language/sample pickers.
+  if (candidates.length !== 1) {
+    if (group.role === 'select' && group.selectSel) {
+      await setSelectValue(page, group.selectSel, group.orig);
+    }
+    return false;
+  }
   // CAUSAL CONFIRMATION: the first pass attributes; only a controlled A/B
-  // re-toggle PROVES ownership. For EACH candidate: park the group on the
+  // re-toggle PROVES ownership. Park the group on the
   // medoid (the typical layout), settle, then select the candidate, settle --
   // the candidate owns a bug only if the deviation FOLLOWS it in this isolated
-  // pair. Every candidate that confirms is reported (a picker can have more
-  // than one odd-one-out option, each with its own real magnitude); the clip
-  // boxes the largest. This is what stops a slow async shift from convicting
+  // pair. This is what stops a slow async shift from convicting
   // an innocent neighbor, and it doubles as the reproducibility check the
   // recorded clip relies on.
   const confirmed = [];

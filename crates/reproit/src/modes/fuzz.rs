@@ -198,11 +198,15 @@ pub struct ScanArgs {
 /// (screen x issue), no per-seed collapse. The stable default keeps heuristic
 /// detectors out of normal results. The runner already emits these markers
 /// on any walk; scan is about COLLECTING and reporting them, not new detection.
-/// Returns `true` when the coverage walk COMPLETED (the runner declared done),
-/// `false` when it was cut short (timeout / killed) so its coverage is partial.
-/// The caller turns `false` into a non-zero exit so CI never reads an incomplete
-/// scan as a clean pass.
-pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
+/// Returns coverage completeness and the confirmed issue count. The caller exits
+/// non-zero for either partial coverage or findings so CI cannot read either as a
+/// clean pass.
+pub struct ScanSummary {
+    pub complete: bool,
+    pub issues: usize,
+}
+
+pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSummary> {
     let json = args.json;
     let cfg_path = crate::layout::fuzz_config_path(root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
@@ -241,6 +245,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
     let findings: Vec<Value> = findings_for_tier(cfg, &outcome.run_dir, args.sim)
         .into_iter()
         .filter(|f| {
+            if f.get("oracle").and_then(Value::as_str) == Some("backend-contract") {
+                return true;
+            }
             if f.get("oracle").and_then(Value::as_str) == Some("contract") {
                 return f.get("scope").and_then(Value::as_str) == Some("state");
             }
@@ -270,7 +277,10 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
         } else {
             say(json, format!("\nscan: UNSCANNABLE -- {diag}"));
         }
-        return Ok(completed);
+        return Ok(ScanSummary {
+            complete: completed,
+            issues: 0,
+        });
     }
     let obs = crate::map::parse_run(&log);
     // Distinct screens actually crawled (routes when the runner emits them, else
@@ -300,9 +310,19 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
             .unwrap_or_else(|| sig.to_string())
     };
     for f in &findings {
-        let oracle = crate::crosscut::classify(f).as_str().to_string();
+        let raw_oracle = f.get("oracle").and_then(Value::as_str);
+        let oracle = if raw_oracle == Some("backend-contract") {
+            "backend-contract".to_string()
+        } else {
+            crate::crosscut::classify(f).as_str().to_string()
+        };
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("-");
-        let route = route_of(sig);
+        let route = f
+            .get("operation")
+            .and_then(Value::as_str)
+            .filter(|_| raw_oracle == Some("backend-contract"))
+            .map(|operation| format!("backend:{operation}"))
+            .unwrap_or_else(|| route_of(sig));
         let detail = scan_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
         by_screen.entry(route).or_default().insert((oracle, detail));
     }
@@ -338,7 +358,10 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
             "{}",
             json!({ "command": "scan", "complete": completed, "screens_scanned": swept, "screens_with_findings": by_screen.len(), "issues": issues, "results": results, "clips": clips })
         );
-        return Ok(completed);
+        return Ok(ScanSummary {
+            complete: completed,
+            issues,
+        });
     }
 
     let summary = if issues == 0 {
@@ -370,7 +393,10 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<bool> {
                 .to_string(),
         );
     }
-    Ok(completed)
+    Ok(ScanSummary {
+        complete: completed,
+        issues,
+    })
 }
 
 /// The STATE-PRESENT oracles: bugs visible on a single screen, which is what

@@ -19,12 +19,13 @@ const IMPORT_NEEDLE: &str =
 /// must call `t.pumpWidget`.
 const PUMP_NEEDLE: &str = "    // await t.pumpWidget(const YourApp());";
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Platform {
     Flutter,
     Web,
     Rn,
     Android,
+    Backend,
 }
 
 pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
@@ -33,12 +34,13 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         Some("web") => Platform::Web,
         Some("rn") | Some("react-native") => Platform::Rn,
         Some("android") => Platform::Android,
+        Some("backend") => Platform::Backend,
         Some(other) => {
-            bail!("unknown platform {other:?} (expected flutter, web, rn, or android)")
+            bail!("unknown platform {other:?} (expected flutter, web, rn, android, or backend)")
         }
         None => detect(dir).ok_or_else(|| {
             anyhow::anyhow!(
-                "could not detect platform (no pubspec.yaml or index.html); pass --platform flutter|web"
+                "could not detect a supported UI project or backend schema; pass --platform explicitly"
             )
         })?,
     };
@@ -52,6 +54,7 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         Platform::Web => init_web(dir, force)?,
         Platform::Rn => write(&cfg_path, RN_CONFIG, force)?,
         Platform::Android => write(&cfg_path, ANDROID_CONFIG, force)?,
+        Platform::Backend => init_backend(dir, &cfg_path, force)?,
     }
     ensure_gitignore(dir)?;
     println!("\n  reproit initialized.");
@@ -86,12 +89,19 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
             println!("  3. boot an AVD (emulator -avd <name>); start an Appium server");
             println!("  4. reproit fuzz");
         }
+        Platform::Backend => {
+            println!("  1. start a disposable local or staging service");
+            println!("  2. reproit scan   # read-only contract checks");
+            println!("     reproit fuzz   # stateful interaction bugs");
+        }
     }
     Ok(())
 }
 
 fn detect(dir: &Path) -> Option<Platform> {
-    if dir.join("pubspec.yaml").exists() {
+    if detect_backend_schema(dir).is_some() {
+        Some(Platform::Backend)
+    } else if dir.join("pubspec.yaml").exists() {
         Some(Platform::Flutter)
     } else if dir.join("package.json").exists() {
         let pkg = std::fs::read_to_string(dir.join("package.json")).unwrap_or_default();
@@ -105,6 +115,53 @@ fn detect(dir: &Path) -> Option<Platform> {
     } else {
         None
     }
+}
+
+fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<()> {
+    let schema = detect_backend_schema(dir).ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not find an OpenAPI, GraphQL introspection, or protobuf descriptor schema"
+        )
+    })?;
+    let relative = schema
+        .strip_prefix(dir)
+        .unwrap_or(&schema)
+        .to_string_lossy();
+    let relative = serde_json::to_string(relative.as_ref())?;
+    let content = format!(
+        "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: true\n  schemas:\n    - {relative}\n"
+    );
+    write(config, &content, force)
+}
+
+fn detect_backend_schema(dir: &Path) -> Option<std::path::PathBuf> {
+    const NAMES: &[&str] = &[
+        "openapi.yaml",
+        "openapi.yml",
+        "openapi.json",
+        "swagger.yaml",
+        "swagger.yml",
+        "swagger.json",
+        "schema.graphql.json",
+        "graphql-schema.json",
+        "schema.graphql",
+        "schema.gql",
+        "descriptor.json",
+        "protobuf-descriptor.json",
+    ];
+    NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+        .or_else(|| {
+            let mut protos = std::fs::read_dir(dir)
+                .ok()?
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("proto"))
+                .collect::<Vec<_>>();
+            protos.sort();
+            protos.into_iter().next()
+        })
 }
 
 fn write(path: &Path, content: &str, force: bool) -> Result<()> {
@@ -262,8 +319,36 @@ pub fn ensure_integration_test_dep(project_dir: &Path) -> Result<()> {
 }
 
 fn init_web(dir: &Path, force: bool) -> Result<()> {
-    write(&dir.join("reproit.yaml"), WEB_CONFIG, force)?;
+    write(&dir.join("reproit.yaml"), &web_config(None, None)?, force)?;
     Ok(())
+}
+
+/// Persist the zero-config URL workflow so later bare `scan` and `fuzz` calls
+/// target the same web application.
+pub fn init_web_url(dir: &Path, url: &str, runner: &Path, force: bool) -> Result<()> {
+    let config = dir.join("reproit.yaml");
+    if config.exists() && !force {
+        bail!("reproit.yaml already exists (use --force to overwrite)");
+    }
+    write(&config, &web_config(Some(url), Some(runner))?, force)?;
+    ensure_gitignore(dir)?;
+    println!("\n  reproit initialized for {url}.");
+    println!("  1. reproit doctor");
+    println!("  2. reproit scan   # visible issues");
+    println!("     reproit fuzz   # deeper interaction bugs");
+    Ok(())
+}
+
+fn web_config(url: Option<&str>, runner: Option<&Path>) -> Result<String> {
+    let url = serde_json::to_string(url.unwrap_or("http://localhost:3000"))?;
+    let runner = serde_json::to_string(
+        &runner
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "../reproit/runners/web".into()),
+    )?;
+    Ok(WEB_CONFIG
+        .replace("{{URL}}", &url)
+        .replace("{{WEB_RUNNER_DIR}}", &runner))
 }
 
 /// Best-effort: find the package name (pubspec) and the runApp widget in
@@ -365,8 +450,8 @@ const WEB_CONFIG: &str = r#"# reproit config (web). Drives a browser with Playwr
 app:
   platform: web
   # Path to reproit's web runner directory (run npm install there once).
-  webRunnerDir: ../reproit/runners/web
-  url: http://localhost:3000      # your dev/staging URL
+  webRunnerDir: {{WEB_RUNNER_DIR}}
+  url: {{URL}}      # your dev/staging URL
   defines: {}
 
 devices:
@@ -384,11 +469,11 @@ journeys:
     - Some tests failed
   deviceDoneMarker: "JOURNEY DONE"
   actionPrefix: "JOURNEY"
-  timeoutSec: 180
+  timeoutSec: 300
 
 evidence:
   outDir: .reproit/runs
-  video: true
+  video: false
   composite: false
   screenshotMarker: "SHOOT:"
 
@@ -498,6 +583,19 @@ llm:
 mod tests {
     use super::*;
 
+    fn temporary_project(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "reproit-init-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
     #[test]
     fn the_app_specific_needles_exist_in_both_explorer_templates() {
         // If a template changes its wording, init's literal replace silently
@@ -518,6 +616,37 @@ mod tests {
             EXPLORER_HEADLESS.contains(PUMP_NEEDLE),
             "explorer_headless.dart pump needle drifted"
         );
+    }
+
+    #[test]
+    fn backend_schema_wins_over_framework_files_and_needs_no_ui_config() {
+        let project = temporary_project("backend");
+        std::fs::write(project.join("package.json"), "{}").unwrap();
+        std::fs::write(project.join("openapi.yaml"), "openapi: 3.1.0\npaths: {}\n").unwrap();
+        assert_eq!(detect(&project), Some(Platform::Backend));
+        init(&project, None, false).unwrap();
+        let config = std::fs::read_to_string(project.join("reproit.yaml")).unwrap();
+        assert!(config.contains("backend:\n  enabled: true"));
+        assert!(config.contains("openapi.yaml"));
+        assert!(!config.contains("app:"));
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn web_url_init_persists_the_exact_target_for_bare_commands() {
+        let project = temporary_project("web-url");
+        init_web_url(
+            &project,
+            "https://app.example.com/path?preview=one&mode=two",
+            Path::new("/tmp/reproit web runner"),
+            false,
+        )
+        .unwrap();
+        let config = std::fs::read_to_string(project.join("reproit.yaml")).unwrap();
+        assert!(config.contains("url: \"https://app.example.com/path?preview=one&mode=two\""));
+        assert!(config.contains("webRunnerDir: \"/tmp/reproit web runner\""));
+        assert!(project.join(".reproit/.gitignore").is_file());
+        std::fs::remove_dir_all(project).unwrap();
     }
 
     #[test]

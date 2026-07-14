@@ -21,6 +21,8 @@ pub struct TraceContext {
     pub trace_id: String,
     pub actor: Option<String>,
     pub action_index: u32,
+    pub build: Option<String>,
+    pub config_contract: Option<String>,
 }
 
 impl TraceContext {
@@ -30,10 +32,15 @@ impl TraceContext {
         let action_index = get("x-reproit-action")
             .and_then(|value| value.parse().ok())
             .unwrap_or(0);
+        let build = get("x-reproit-build").and_then(|value| bounded(value, 128));
+        let config_contract =
+            get("x-reproit-config-contract").and_then(|value| bounded(value, 128));
         Some(Self {
             trace_id,
             actor,
             action_index,
+            build,
+            config_contract,
         })
     }
 }
@@ -155,6 +162,12 @@ impl BackendTrace {
         ]);
         if let Some(actor) = context.actor {
             common.insert("actor".into(), Value::String(actor));
+        }
+        if let Some(build) = context.build {
+            common.insert("build".into(), Value::String(build));
+        }
+        if let Some(config_contract) = context.config_contract {
+            common.insert("configContract".into(), Value::String(config_contract));
         }
         if let Some(tenant) = tenant.and_then(|value| bounded(value, 128)) {
             common.insert("tenant".into(), Value::String(tenant));
@@ -373,6 +386,8 @@ mod tests {
             "x-reproit-trace" => Some("trace-a".into()),
             "x-reproit-actor" => Some("alice".into()),
             "x-reproit-action" => Some("7".into()),
+            "x-reproit-build" => Some("build-a".into()),
+            "x-reproit-config-contract" => Some("contract-a".into()),
             _ => None,
         })
         .unwrap();
@@ -414,6 +429,8 @@ mod tests {
             .unwrap();
         assert!(trace.header().unwrap().len() < MAX_HEADER_BYTES);
         assert_eq!(trace.events()[0]["actionIndex"], 7);
+        assert_eq!(trace.events()[0]["build"], "build-a");
+        assert_eq!(trace.events()[0]["configContract"], "contract-a");
         assert_eq!(
             trace.events()[0]["input"]["password"]["$reproit"]["length"],
             8

@@ -43,7 +43,22 @@
     </select>
   </label>
 
+  <!-- CLEAN varied-content picker: several options intentionally produce
+       different pane widths. There is no single odd choice, so the oracle must
+       stay silent even though several options cross the magnitude floor. -->
+  <label for="varied">Preview
+    <select id="varied">
+      <option value="a">A</option>
+      <option value="b">B</option>
+      <option value="c">C</option>
+      <option value="wide">Wide</option>
+      <option value="wider">Wider</option>
+      <option value="widest">Widest</option>
+    </select>
+  </label>
+
   <div id="spiller"></div>
+  <div id="varied-pane"></div>
 </main>
 <footer>footer</footer>
 
@@ -54,6 +69,10 @@
   });
   // The clean picker: no layout effect at all.
   document.getElementById('size').addEventListener('change', () => {});
+  document.getElementById('varied').addEventListener('change', (e) => {
+    const widths = { a: 0, b: 0, c: 0, wide: 1800, wider: 2400, widest: 3000 };
+    document.getElementById('varied-pane').style.width = `${widths[e.target.value]}px`;
+  });
 </script>
 </body>
 </html>

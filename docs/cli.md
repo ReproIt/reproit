@@ -423,6 +423,7 @@ reproit auth <account>        configure, discover, and verify a test login
 reproit mcp                   serve reproit to your coding agent (stdio)
 reproit cloud ...             fleet + production telemetry (see Cloud)
 reproit platforms             UI-framework -> backend matrix
+reproit update                verify and install the latest CLI release
 reproit debug map ...         advanced internal-model diagnostics
 ```
 

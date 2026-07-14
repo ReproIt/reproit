@@ -442,10 +442,17 @@ export async function choiceAnomalyInPage(arg) {
     const candIdx = validIdx
       .filter((i) => i !== medoidI && mag[i] >= MIN_MAG && mag[i] >= RATIO * Math.max(sibMed(i), 1))
       .sort((a, b) => mag[b] - mag[a]);
+    // The contract is exactly one odd option. Several candidates mean the
+    // component intentionally swaps differently sized content, so it is not a
+    // choice anomaly.
+    if (candIdx.length !== 1) {
+      try { comp.restore(); } catch (_) {}
+      await sleep(50);
+      continue;
+    }
     // CAUSAL CONFIRMATION: park the group on the medoid, settle, then select
     // the candidate, settle -- the candidate owns a bug only if the deviation
-    // FOLLOWS it in this isolated A/B pair. EVERY candidate that confirms is
-    // reported (a picker can have more than one odd-one-out option).
+    // FOLLOWS it in this isolated A/B pair.
     const hits = [];
     for (const ci of candIdx) {
       try {

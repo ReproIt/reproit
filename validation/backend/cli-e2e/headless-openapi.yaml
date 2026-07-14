@@ -1,0 +1,17 @@
+openapi: 3.1.0
+info:
+  title: Reproit headless backend CLI gate
+  version: 1.0.0
+paths:
+  /headless-message:
+    get:
+      operationId: readMessage
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string }

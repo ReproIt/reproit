@@ -20,6 +20,12 @@ reqwest = { workspace = true, features = ["multipart"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9"
+graphql-parser = "0.4"
+flate2 = "1"
+tar = "0.4"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+protox = "0.9.1"
+prost-types = "0.14"
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
 tokio = { workspace = true }
