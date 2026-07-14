@@ -115,7 +115,7 @@ jobs:
           else
             shasum -a 256 "$FILE" > "$FILE.sha256"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: reproit-${{ matrix.target }}
           path: |
@@ -142,7 +142,7 @@ jobs:
             -czf "$GITHUB_WORKSPACE/reproit-web-runner.tar.gz" .
           cd "$GITHUB_WORKSPACE"
           sha256sum reproit-web-runner.tar.gz > reproit-web-runner.tar.gz.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: reproit-web-runner
           path: |
@@ -153,7 +153,7 @@ jobs:
     needs: [validate, build, web-runner]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
