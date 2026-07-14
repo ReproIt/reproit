@@ -59,7 +59,19 @@ platform ids are checked against that evidence manifest in the Rust test suite.
 
 ## Install
 
-Build the current pre-release from source:
+macOS and Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ReproIt/reproit/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/ReproIt/reproit/main/install.ps1 | iex
+```
+
+Or build from source:
 
 ```sh
 cargo install --git https://github.com/ReproIt/reproit --locked reproit
