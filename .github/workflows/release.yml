@@ -1,0 +1,170 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, with or without the v prefix
+        required: true
+        default: 0.1.0
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${REQUESTED_VERSION#v}"
+          TAG="v${VERSION}"
+          MANIFEST_VERSION=$(sed -n 's/^version = "\([0-9][0-9.]*\)"/\1/p' crates/reproit/Cargo.toml | head -1)
+          test "$VERSION" = "$MANIFEST_VERSION" || {
+            echo "requested $VERSION but crates/reproit/Cargo.toml contains $MANIFEST_VERSION" >&2
+            exit 1
+          }
+          git rev-parse "$TAG" >/dev/null 2>&1 && {
+            echo "$TAG already exists" >&2
+            exit 1
+          }
+          gh release view "$TAG" >/dev/null 2>&1 && {
+            echo "release $TAG already exists" >&2
+            exit 1
+          }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-14
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Stamp the release tag locally
+        shell: bash
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: git tag "$TAG" "$GITHUB_SHA"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add ${{ matrix.target }}
+      - name: Install AT-SPI development library
+        if: contains(matrix.target, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked -p reproit --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          ARCHIVE="reproit-${TAG}-${TARGET}"
+          cd "target/${TARGET}/release"
+          if [[ "$TARGET" == *windows* ]]; then
+            7z a "../../../${ARCHIVE}.zip" reproit.exe >/dev/null
+            FILE="${ARCHIVE}.zip"
+          else
+            tar -czf "../../../${ARCHIVE}.tar.gz" reproit
+            FILE="${ARCHIVE}.tar.gz"
+          fi
+          cd "$GITHUB_WORKSPACE"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$FILE" > "$FILE.sha256"
+          else
+            shasum -a 256 "$FILE" > "$FILE.sha256"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reproit-${{ matrix.target }}
+          path: |
+            reproit-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.tar.gz
+            reproit-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.tar.gz.sha256
+            reproit-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.zip
+            reproit-${{ needs.validate.outputs.tag }}-${{ matrix.target }}.zip.sha256
+          if-no-files-found: ignore
+
+  web-runner:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Package the pinned web runner
+        run: |
+          set -euo pipefail
+          cd runners/web
+          npm ci --omit=dev --no-audit --no-fund
+          tar --exclude='*.test.mjs' --exclude='*-fixture.html' \
+            -czf "$GITHUB_WORKSPACE/reproit-web-runner.tar.gz" .
+          cd "$GITHUB_WORKSPACE"
+          sha256sum reproit-web-runner.tar.gz > reproit-web-runner.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reproit-web-runner
+          path: |
+            reproit-web-runner.tar.gz
+            reproit-web-runner.tar.gz.sha256
+
+  publish:
+    needs: [validate, build, web-runner]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify the release payload
+        run: |
+          set -euo pipefail
+          find dist -maxdepth 1 -type f -printf '%f\n' | sort
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "ReproIt ${TAG#v}" \
+            --generate-notes \
+            --latest
