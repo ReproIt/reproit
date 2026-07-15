@@ -387,7 +387,8 @@ reproducing a **real production crash on your own machine**: the SDK reports the
 session, and `reproit <bkt_...>` saves and reproduces it locally.
 
 ```sh
-reproit cloud setup --app app_... --key sk_live_...    # once: validate, bind, verify
+reproit login --app app_...                            # once: enter the project key
+reproit cloud setup --app app_...                      # optional CI + SDK wiring
 reproit bugs                                             # impact-ranked bucket ids
 reproit bkt_...                                          # reproduce locally
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
@@ -533,8 +534,8 @@ status=fixed --fixed-in-build X (record the fix intent) -> watch
 ## Cloud commands
 
 ```
-reproit login                       cloud/project key, sk_live_...
-reproit cloud setup --app <app>     one-time repo + SDK + CI wiring and live verification
+reproit login --app <app>           select a project; hosted Cloud is assumed
+reproit cloud setup --app <app>     optional repo + SDK + CI wiring and live verification
 reproit bugs [query]                impact-ranked confirmed production bugs
 reproit <bkt_...>                   pull and verify locally
 reproit triage <bucket> <status>    update lifecycle state

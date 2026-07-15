@@ -957,12 +957,13 @@ enum Cmd {
         #[command(subcommand)]
         action: CloudAction,
     },
-    /// Sign in to Reproit Cloud and persist the validated project key locally.
+    /// Sign in to ReproIt Cloud. Hosted Cloud is assumed; --cloud is only for
+    /// a self-hosted deployment. The project key is prompted for when omitted.
     Login {
         /// Cloud base URL (default: https://cloud.reproit.com).
         #[arg(long)]
         cloud: Option<String>,
-        /// Project key, sk_live_... (default: $REPROIT_CLOUD_KEY).
+        /// Project key, sk_live_... (default: $REPROIT_CLOUD_KEY, then a secure prompt).
         #[arg(long)]
         key: Option<String>,
         /// Optional app id used to validate project access.
@@ -1516,6 +1517,7 @@ async fn main() -> Result<ExitCode> {
                 cli.config.as_deref(),
                 CloudAction::Login { cloud, key, app },
                 ctx.json,
+                ctx.yes,
             )
             .await
             {
@@ -2930,7 +2932,7 @@ async fn main() -> Result<ExitCode> {
             // Cloud commands talk to a remote; an unreachable/erroring cloud is
             // a clean, non-panicking failure with a one-line message (the full
             // chain stays available under --json for scripts).
-            match cloud_cmd(cli.config.as_deref(), action, ctx.json).await {
+            match cloud_cmd(cli.config.as_deref(), action, ctx.json, ctx.yes).await {
                 Ok(()) => Ok(ExitCode::SUCCESS),
                 Err(e) => {
                     if ctx.json {
@@ -3502,17 +3504,26 @@ async fn cloud_cmd(
     config_path: Option<&std::path::Path>,
     action: CloudAction,
     json: bool,
+    yes: bool,
 ) -> Result<()> {
     match action {
         CloudAction::Login { cloud, key, app } => {
             let url = cloud
                 .or_else(|| std::env::var("REPROIT_CLOUD_URL").ok())
                 .unwrap_or_else(|| "https://cloud.reproit.com".into());
-            // Key precedence: --key > REPROIT_CLOUD_KEY (project key).
-            let token = key.or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok());
+            // Hosted Cloud is the zero-config path. Keys can still be injected
+            // for CI, but an interactive developer should only need
+            // `reproit login --app <app>` and the secure prompt.
+            let token = key
+                .or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok())
+                .or_else(|| {
+                    (!json && !yes && std::io::IsTerminal::is_terminal(&std::io::stdin()))
+                        .then(|| auth_prompt("Project key", true).ok())
+                        .flatten()
+                });
             let Some(token) = token else {
                 anyhow::bail!(
-                    "no cloud key: pass --key or set REPROIT_CLOUD_KEY (the sk_live_... project key from the cloud dashboard)"
+                    "no cloud key: run interactively to enter the project key, pass --key, or set REPROIT_CLOUD_KEY"
                 );
             };
             // Validate BEFORE persisting: a login that stores an unusable key is a
@@ -3523,7 +3534,7 @@ async fn cloud_cmd(
             match triage::validate_login(&url, &token, app.as_deref()).await {
                 Ok(desc) => {
                     let path = crosscut::token_path();
-                    crosscut::save_token(&path, &token, &url)?;
+                    crosscut::save_cloud_profile(&path, &token, &url, app.as_deref())?;
                     println!("cloud url:     {url}");
                     println!(
                         "cloud key:     stored ({} chars) in {}",
@@ -3531,10 +3542,13 @@ async fn cloud_cmd(
                         path.display()
                     );
                     println!("validated:     ok ({desc})");
+                    if let Some(app) = &app {
+                        println!("project:       {app} selected");
+                    }
                     Ok(())
                 }
                 Err(e) => anyhow::bail!(
-                    "login failed and no credential was stored: {e}. Reproit only saves a key after the cloud verifies it"
+                    "login failed and no credential was stored: {e}. ReproIt only saves a key after the cloud verifies it"
                 ),
             }
         }
@@ -6290,6 +6304,19 @@ tap:Advanced
             Cmd::Journey {
                 action: JourneyAction::Run(args)
             } if args == ["checkout"]
+        ));
+    }
+
+    #[test]
+    fn hosted_login_needs_only_the_project_name() {
+        let cli = Cli::try_parse_from(["reproit", "login", "--app", "acme-store"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Login {
+                cloud: None,
+                key: None,
+                app: Some(app),
+            } if app == "acme-store"
         ));
     }
 

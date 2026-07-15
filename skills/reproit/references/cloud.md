@@ -4,8 +4,8 @@ The headline cloud use case: a real user session crashed in production, the SDK
 captured it, and you replay it **locally and deterministically**.
 
 ```sh
-reproit login
-reproit cloud buckets --app <app>      # browse what production reported
+reproit login --app <app>
+reproit bugs                            # browse what production reported
 reproit <bkt>
 ```
 

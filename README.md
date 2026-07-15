@@ -156,7 +156,8 @@ reproit mcp                           # serve reproit to your coding agent (stdi
 Cloud golden path (production bug -> local repro -> triaged fix):
 
 ```sh
-reproit cloud setup --app app_... --key sk_live_...  # once
+reproit login --app app_...                          # once: enter the project key
+reproit cloud setup --app app_...                    # optional CI + SDK wiring
 reproit bugs
 reproit bkt_...
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
