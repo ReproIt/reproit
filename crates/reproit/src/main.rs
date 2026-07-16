@@ -957,13 +957,13 @@ enum Cmd {
         #[command(subcommand)]
         action: CloudAction,
     },
-    /// Sign in to ReproIt Cloud. Hosted Cloud is assumed; --cloud is only for
-    /// a self-hosted deployment. The project key is prompted for when omitted.
+    /// Sign in to ReproIt Cloud in your browser, then discover and select a project.
+    /// Hosted Cloud is assumed; --cloud is only for a self-hosted deployment.
     Login {
         /// Cloud base URL (default: https://cloud.reproit.com).
         #[arg(long)]
         cloud: Option<String>,
-        /// Project key, sk_live_... (default: $REPROIT_CLOUD_KEY, then a secure prompt).
+        /// Account/project key for noninteractive CI (default: $REPROIT_CLOUD_KEY).
         #[arg(long)]
         key: Option<String>,
         /// Optional app id used to validate project access.
@@ -3496,6 +3496,40 @@ fn cloud_app_id(app: Option<String>) -> Result<String> {
         })
 }
 
+fn choose_cloud_project(
+    projects: &[triage::CloudProject],
+    requested: Option<&str>,
+    interactive: bool,
+) -> Result<Option<String>> {
+    if let Some(want) = requested {
+        let matches: Vec<_> = projects
+            .iter()
+            .filter(|p| p.app_id == want || p.name.eq_ignore_ascii_case(want))
+            .collect();
+        return match matches.as_slice() {
+            [project] => Ok(Some(project.app_id.clone())),
+            [] => anyhow::bail!("project `{want}` is not in this organization"),
+            _ => anyhow::bail!("project name `{want}` is ambiguous; use its app id"),
+        };
+    }
+    match projects {
+        [] => Ok(None),
+        [project] => Ok(Some(project.app_id.clone())),
+        many if interactive => {
+            println!("Projects:");
+            for (index, project) in many.iter().enumerate() {
+                println!("  {}. {} ({})", index + 1, project.name, project.app_id);
+            }
+            let answer = auth_prompt("Select project number", false)?;
+            let index: usize = answer.trim().parse().context("enter a project number")?;
+            many.get(index.saturating_sub(1))
+                .map(|project| Some(project.app_id.clone()))
+                .context("project number is out of range")
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Dispatch the `cloud` subcommands onto the existing triage::*/deliver::*
 /// handlers. `login` persists the cloud/project key; every other command resolves
 /// the key via `cloud_creds` and uses it as a bearer. Network failures surface as
@@ -3511,21 +3545,29 @@ async fn cloud_cmd(
             let url = cloud
                 .or_else(|| std::env::var("REPROIT_CLOUD_URL").ok())
                 .unwrap_or_else(|| "https://cloud.reproit.com".into());
-            // Hosted Cloud is the zero-config path. Keys can still be injected
-            // for CI, but an interactive developer should only need
-            // `reproit login --app <app>` and the secure prompt.
-            let token = key
-                .or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok())
-                .or_else(|| {
-                    (!json && !yes && std::io::IsTerminal::is_terminal(&std::io::stdin()))
-                        .then(|| auth_prompt("Project key", true).ok())
-                        .flatten()
-                });
-            let Some(token) = token else {
-                anyhow::bail!(
-                    "no cloud key: run interactively to enter the project key, pass --key, or set REPROIT_CLOUD_KEY"
-                );
-            };
+            // Explicit/env keys remain available for CI. Interactive developers
+            // use the browser device flow and receive an account token plus the
+            // projects in their active organization.
+            let injected = key.or_else(|| std::env::var("REPROIT_CLOUD_KEY").ok());
+            if injected.is_none() {
+                if json {
+                    anyhow::bail!("browser login is interactive; omit --json or pass --key for CI");
+                }
+                let grant = triage::device_login(&url, true).await?;
+                let interactive = std::io::IsTerminal::is_terminal(&std::io::stdin()) && !yes;
+                let selected = choose_cloud_project(&grant.projects, app.as_deref(), interactive)?;
+                let path = crosscut::token_path();
+                crosscut::save_cloud_profile(&path, &grant.token, &url, selected.as_deref())?;
+                println!("Signed in to organization {}.", grant.org_id);
+                println!("Token stored in {}.", path.display());
+                match selected {
+                    Some(project) => println!("Project selected: {project}"),
+                    None if grant.projects.is_empty() => println!("No projects yet. Create one in Cloud."),
+                    None => println!("No project selected. Run `reproit login --app <app-id>` to select one."),
+                }
+                return Ok(());
+            }
+            let token = injected.unwrap();
             // Validate BEFORE persisting: a login that stores an unusable key is a
             // worse failure mode than failing loudly now. With --app, validate
             // against the app's buckets; otherwise against /v1/me. A 401/403 fails
@@ -6308,7 +6350,7 @@ tap:Advanced
     }
 
     #[test]
-    fn hosted_login_needs_only_the_project_name() {
+    fn hosted_login_needs_no_key_and_can_optionally_name_a_project() {
         let cli = Cli::try_parse_from(["reproit", "login", "--app", "acme-store"]).unwrap();
         assert!(matches!(
             cli.command,
@@ -6318,6 +6360,23 @@ tap:Advanced
                 app: Some(app),
             } if app == "acme-store"
         ));
+    }
+
+    #[test]
+    fn account_login_selects_one_project_and_resolves_names() {
+        let projects = vec![
+            triage::CloudProject { name: "Store".into(), app_id: "store-1".into() },
+            triage::CloudProject { name: "Docs".into(), app_id: "docs-2".into() },
+        ];
+        assert_eq!(
+            choose_cloud_project(&projects[..1], None, false).unwrap().as_deref(),
+            Some("store-1")
+        );
+        assert_eq!(
+            choose_cloud_project(&projects, Some("Docs"), false).unwrap().as_deref(),
+            Some("docs-2")
+        );
+        assert!(choose_cloud_project(&projects, Some("missing"), false).is_err());
     }
 
     #[test]

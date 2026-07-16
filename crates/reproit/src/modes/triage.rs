@@ -21,6 +21,90 @@ use std::process::{Command, Stdio};
 
 use crate::repro;
 
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct CloudProject {
+    pub name: String,
+    #[serde(rename = "appId")]
+    pub app_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DeviceLogin {
+    pub token: String,
+    #[serde(rename = "orgId")]
+    pub org_id: i64,
+    #[serde(default)]
+    pub projects: Vec<CloudProject>,
+}
+
+fn open_browser(url: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(url).status();
+    #[cfg(target_os = "windows")]
+    let result = Command::new("cmd").args(["/C", "start", "", url]).status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(url).status();
+    result.map(|status| status.success()).unwrap_or(false)
+}
+
+/// GitHub CLI style device login: start a short-lived grant, open the browser,
+/// then poll until the signed-in user approves it. The returned account token is
+/// org-scoped and includes the projects visible in that organization.
+pub async fn device_login(base: &str, show_progress: bool) -> Result<DeviceLogin> {
+    let base = base.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let start = client
+        .post(format!("{base}/auth/cli/device"))
+        .json(&serde_json::json!({ "client": "reproit-cli" }))
+        .send()
+        .await
+        .with_context(|| format!("starting browser login at {base}"))?;
+    if !start.status().is_success() {
+        anyhow::bail!("could not start browser login: {}", start.status());
+    }
+    let grant: Value = start.json().await.context("reading browser login grant")?;
+    let device = grant["deviceCode"].as_str().context("cloud omitted deviceCode")?;
+    let user_code = grant["userCode"].as_str().context("cloud omitted userCode")?;
+    let url = grant["verificationUriComplete"]
+        .as_str()
+        .or_else(|| grant["verificationUri"].as_str())
+        .context("cloud omitted verificationUri")?;
+    let interval = grant["interval"].as_u64().unwrap_or(2).max(1);
+    let expires = grant["expiresIn"].as_u64().unwrap_or(600);
+    if show_progress {
+        println!("Open this URL to authorize ReproIt:");
+        println!("  {url}");
+        println!("Code: {user_code}");
+    }
+    if !open_browser(url) && show_progress {
+        println!("Your browser could not be opened automatically. Open the URL above.");
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(expires);
+    loop {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!("browser authorization expired; run `reproit login` again");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+        let response = client
+            .post(format!("{base}/auth/cli/token"))
+            .json(&serde_json::json!({ "code": device }))
+            .send()
+            .await
+            .context("waiting for browser authorization")?;
+        if response.status().as_u16() == 202 {
+            continue;
+        }
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("browser authorization failed ({status}): {}", body.trim());
+        }
+        return response.json().await.context("reading authorized account token");
+    }
+}
+
 struct Cloud {
     base: String,
     key: Option<String>,
@@ -187,7 +271,10 @@ pub async fn validate_login(base: &str, key: &str, app: Option<&str>) -> Result<
                 .as_i64()
                 .map(|n| n.to_string())
                 .or_else(|| body["orgId"].as_str().map(String::from));
-            let projects = body["projects"].as_u64();
+            let projects = body["projectCount"]
+                .as_u64()
+                .or_else(|| body["projects"].as_array().map(|items| items.len() as u64))
+                .or_else(|| body["projects"].as_u64());
             match (org, projects) {
                 (Some(o), Some(p)) => Ok(format!("key accepted (org {o}, {p} projects)")),
                 (Some(o), None) => Ok(format!("key accepted (org {o})")),
