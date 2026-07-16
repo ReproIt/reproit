@@ -94,14 +94,33 @@ xcrun simctl bootstatus "$UDID" -b
 xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2> /dev/null || true
 xcrun simctl install "$UDID" "$APP_PATH"
 
+# Pin the selected simulator's actual runtime in the W3C capabilities. Leaving
+# platformVersion undefined makes recent XCUITest drivers probe both simulator
+# and real-device paths during session negotiation and emits an invalid-version
+# warning. The UDID is authoritative, so derive the version from the matching
+# CoreSimulator runtime instead of guessing from the runner image.
+IOS_VERSION="$(xcrun simctl list devices -j | python3 -c '
+import json, sys
+udid = sys.argv[1]
+for runtime, devices in json.load(sys.stdin).get("devices", {}).items():
+    if any(device.get("udid") == udid for device in devices):
+        print(runtime.rsplit("iOS-", 1)[-1].replace("-", "."))
+        break
+' "$UDID")"
+if [ -z "$IOS_VERSION" ]; then
+  echo "appium-ios-smoke: could not resolve iOS version for simulator $UDID" >&2
+  exit 1
+fi
+echo "appium-ios-smoke: simulator runtime iOS $IOS_VERSION"
+
 # Pinned bundleId (see header): XCUITest launches the fixture and the crash
 # oracle watches it stay foreground. The first session builds WebDriverAgent
 # from source, which dominates the runtime; the generous wdaLaunchTimeout
 # covers a cold CI runner, and the client-side connect timeout must outlive the
 # whole WDA build + retries or webdriverio aborts POST /session at its 120s
 # default (exactly what the first CI run did).
-export REPROIT_APPIUM_CONNECT_TIMEOUT_MS=600000
-export REPROIT_APPIUM_CAPS="{\"platformName\":\"iOS\",\"appium:automationName\":\"XCUITest\",\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\",\"appium:noReset\":true,\"appium:newCommandTimeout\":600,\"appium:wdaLaunchTimeout\":300000,\"appium:wdaStartupRetries\":2}"
+export REPROIT_APPIUM_CONNECT_TIMEOUT_MS=1200000
+export REPROIT_APPIUM_CAPS="{\"platformName\":\"iOS\",\"appium:automationName\":\"XCUITest\",\"appium:platformVersion\":\"$IOS_VERSION\",\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\",\"appium:noReset\":true,\"appium:newCommandTimeout\":600,\"appium:wdaLaunchTimeout\":300000,\"appium:wdaStartupRetries\":2}"
 
 # A small map-mode budget keeps the walk to a handful of taps.
 FUZZ="$(mktemp)"

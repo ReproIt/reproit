@@ -2711,7 +2711,12 @@ async function main() {
   // auto-grant (Appium would otherwise pre-approve everything), so the app takes
   // its denied branch; the explicit denial below forces the "not allowed" state.
   const denyPermission = process.env.REPROIT_DENY_PERMISSION || '';
-  const caps = { 'appium:autoGrantPermissions': !denyPermission, ...CAPS };
+  const caps = { ...CAPS };
+  // autoGrantPermissions belongs to UiAutomator2. Sending it to XCUITest is not
+  // harmless: recent drivers warn that the capability is unrecognized while
+  // negotiating an already expensive WDA session. Keep platform capabilities
+  // structurally separated and let iOS receive only XCUITest options.
+  if (isAndroid()) caps['appium:autoGrantPermissions'] = !denyPermission;
   const androidCausalStaged = stageAndroidCausalBeforeLaunch(caps);
   const androidPackage = caps['appium:appPackage'] || caps.appPackage;
   // A remote farm normally does not expose adb to the runner. In replay mode,

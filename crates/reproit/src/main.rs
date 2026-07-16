@@ -6314,12 +6314,7 @@ tap:Advanced
             ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
         );
         assert_eq!(
-            expand(&[
-                "reproit",
-                "bkt_deadbeef0001",
-                "--app",
-                "acme-store"
-            ]),
+            expand(&["reproit", "bkt_deadbeef0001", "--app", "acme-store"]),
             [
                 "reproit",
                 "__replay-bucket",
