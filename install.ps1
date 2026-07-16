@@ -7,6 +7,9 @@
 # Honors:
 #   REPROIT_BIN_DIR   where reproit.exe lands   (default %LOCALAPPDATA%\Programs\reproit)
 #   REPROIT_VERSION   tag to install, e.g. v0.1.2   (default: latest)
+# Internal release gate:
+#   REPROIT_RELEASE_BASE          asset base URL instead of GitHub Releases
+#   REPROIT_SKIP_BROWSER_INSTALL  skip Playwright's browser download
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -60,6 +63,9 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 # --- resolve the release tag -------------------------------------------------
 $Tag = $env:REPROIT_VERSION
 if (-not $Tag) {
+    if ($env:REPROIT_RELEASE_BASE) {
+        Fail 'REPROIT_VERSION is required with REPROIT_RELEASE_BASE'
+    }
     Say 'resolving the latest release...'
     try {
         $Tag = (Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing).tag_name
@@ -70,7 +76,7 @@ if (-not $Tag) {
 }
 Say "installing reproit $Tag ($Target)"
 
-$Dl = "https://github.com/$Repo/releases/download/$Tag"
+$Dl = if ($env:REPROIT_RELEASE_BASE) { $env:REPROIT_RELEASE_BASE.TrimEnd('/') } else { "https://github.com/$Repo/releases/download/$Tag" }
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("reproit-install-" + [System.IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 
@@ -118,7 +124,9 @@ try {
     # --- one-time headless browser fetch (skipped if Node is absent) ---------
     $node = Get-Command node -ErrorAction SilentlyContinue
     $cli = Join-Path $WebDir 'node_modules\playwright\cli.js'
-    if ($node -and (Test-Path $cli)) {
+    if ($env:REPROIT_SKIP_BROWSER_INSTALL) {
+        Say '  skipping browser fetch for release validation'
+    } elseif ($node -and (Test-Path $cli)) {
         Say '  fetching the headless browser (chromium, one-time)...'
         & $node.Source $cli install chromium
         if ($LASTEXITCODE -ne 0) { Say '  (browser fetch failed; it will retry on first fuzz)' }

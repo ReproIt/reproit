@@ -9,6 +9,9 @@
 # Honors:
 #   REPROIT_BIN_DIR   where the `reproit` binary lands     (default ~/.local/bin)
 #   REPROIT_VERSION   tag to install, e.g. v0.1.2          (default: latest)
+# Internal release gate:
+#   REPROIT_RELEASE_BASE          asset base URL instead of GitHub Releases
+#   REPROIT_SKIP_BROWSER_INSTALL  skip Playwright's browser download
 set -eu
 
 REPO="ReproIt/reproit"
@@ -133,6 +136,8 @@ web_dir="$data_base/reproit/web"
 # --- resolve the release tag -------------------------------------------------
 tag="${REPROIT_VERSION:-}"
 if [ -z "$tag" ]; then
+  [ -z "${REPROIT_RELEASE_BASE:-}" ] \
+    || die "REPROIT_VERSION is required with REPROIT_RELEASE_BASE"
   say "resolving the latest release..."
   api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
     || die "could not reach the GitHub API to resolve the latest release (network problem or rate limit); retry, or pin a tag with REPROIT_VERSION=vX.Y.Z"
@@ -145,7 +150,11 @@ say "installing reproit $tag ($target)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-dl="https://github.com/$REPO/releases/download/$tag"
+if [ -n "${REPROIT_RELEASE_BASE:-}" ]; then
+  dl="${REPROIT_RELEASE_BASE%/}"
+else
+  dl="https://github.com/$REPO/releases/download/$tag"
+fi
 
 # --- the binary --------------------------------------------------------------
 bin_asset="reproit-$tag-$target.tar.gz"
@@ -175,7 +184,9 @@ tar -xzf "$tmp/web.tar.gz" -C "$web_dir" || die "could not extract $runner_asset
 say "  installed web runner -> $web_dir"
 
 # --- one-time headless browser fetch (skipped if Node is absent) -------------
-if have node; then
+if [ -n "${REPROIT_SKIP_BROWSER_INSTALL:-}" ]; then
+  say "  skipping browser fetch for release validation"
+elif have node; then
   cli="$web_dir/node_modules/playwright/cli.js"
   if [ -f "$cli" ]; then
     say "  fetching the headless browser (chromium, one-time)..."

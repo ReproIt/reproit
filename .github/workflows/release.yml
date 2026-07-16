@@ -7,6 +7,11 @@ on:
         description: Version to release, with or without the v prefix
         required: true
         default: 0.1.0
+      publish:
+        description: Publish the validated artifacts as a GitHub release
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -149,8 +154,82 @@ jobs:
             reproit-web-runner.tar.gz
             reproit-web-runner.tar.gz.sha256
 
-  publish:
+  install-smoke:
     needs: [validate, build, web-runner]
+    name: install smoke ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            shell: sh
+          - os: macos-14
+            target: aarch64-apple-darwin
+            shell: sh
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            shell: pwsh
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Serve release candidate assets
+        shell: bash
+        run: |
+          python -m http.server 18780 --bind 127.0.0.1 --directory dist > "$RUNNER_TEMP/reproit-assets.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/reproit-assets.pid"
+          for _ in {1..50}; do
+            curl -fsS http://127.0.0.1:18780/ >/dev/null && exit 0
+            sleep .1
+          done
+          cat "$RUNNER_TEMP/reproit-assets.log"
+          exit 1
+      - name: Install into a clean Unix home
+        if: matrix.shell == 'sh'
+        shell: bash
+        env:
+          REPROIT_VERSION: ${{ needs.validate.outputs.tag }}
+          REPROIT_RELEASE_BASE: http://127.0.0.1:18780
+          REPROIT_SKIP_BROWSER_INSTALL: "1"
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/reproit-home"
+          export REPROIT_BIN_DIR="$HOME/bin"
+          mkdir -p "$HOME"
+          sh install.sh
+          "$REPROIT_BIN_DIR/reproit" --version
+          "$REPROIT_BIN_DIR/reproit" --help | grep -q 'reproit scan'
+          test -f "$HOME/.local/share/reproit/web/package.json" \
+            || test -f "$HOME/Library/Application Support/reproit/web/package.json"
+      - name: Install into a clean Windows profile
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        env:
+          REPROIT_VERSION: ${{ needs.validate.outputs.tag }}
+          REPROIT_RELEASE_BASE: http://127.0.0.1:18780
+          REPROIT_SKIP_BROWSER_INSTALL: "1"
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'reproit-localappdata'
+          $env:REPROIT_BIN_DIR = Join-Path $env:RUNNER_TEMP 'reproit-bin'
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
+          & ./install.ps1
+          & (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --version
+          $help = & (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --help
+          if ($help -notmatch 'reproit scan') { throw 'installed CLI help is incomplete' }
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'reproit\web\package.json'))) {
+            throw 'web runner bundle was not installed'
+          }
+
+  publish:
+    if: inputs.publish
+    needs: [validate, build, web-runner, install-smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

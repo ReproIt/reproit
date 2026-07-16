@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Release gate for the product promise: a production SDK event becomes a real,
-# locally executable repro through the public CLI. Requires a disposable cloud
-# project/key; it never sends user data and uses a unique contract-only crash.
+# locally executable repro through the current public CLI. Requires a disposable
+# cloud project/key; it never sends user data and uses a unique contract-only
+# crash. The temporary HOME proves this does not depend on a developer's saved
+# login or existing ReproIt state.
 set -euo pipefail
 
 BASE="${REPROIT_CLOUD_URL:?set REPROIT_CLOUD_URL}"
@@ -51,7 +53,8 @@ done
 
 export HOME="$WORK/home"
 cd "$WORK"
-"$BIN" cloud setup --app "$APP" --key "$KEY" --cloud "$BASE" --no-workflow
+export REPROIT_CLOUD_URL="$BASE"
+export REPROIT_CLOUD_KEY="$KEY"
 
 # This is the exact PII-safe SDK wire shape. It describes the real action path;
 # the local fixture independently proves that path still triggers the same crash.
@@ -72,7 +75,8 @@ curl -fsS -X POST "$BASE/v1/events" \
     }]
   }' > "$WORK/ingest.json"
 
-"$BIN" --json bugs contract-gate > "$WORK/bugs.json"
+curl -fsS "$BASE/v1/apps/$APP/buckets" \
+  -H "authorization: Bearer $KEY" > "$WORK/bugs.json"
 BUCKET="$(python3 - "$WORK/bugs.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
@@ -82,7 +86,30 @@ PY
 )"
 [[ "$BUCKET" == bkt_* ]] || { echo "contract bucket not found" >&2; cat "$WORK/bugs.json"; exit 1; }
 
-"$BIN" pull "$BUCKET" --as cloud-contract --no-run
-"$BIN" check cloud-contract
+"$BIN" "$BUCKET" > "$WORK/replay.log"
+grep -q 'REPRODUCED:' "$WORK/replay.log" || {
+  echo "bucket command did not confirm the production failure" >&2
+  cat "$WORK/replay.log" >&2
+  exit 1
+}
 
-echo "production loop passed: SDK event -> bucket -> pull -> real local reproduction"
+# A confirmed bug is intentionally a failing regression check. Assert the
+# machine-readable outcome and exit contract instead of treating exit 1 as a
+# harness failure.
+set +e
+"$BIN" --json check "$BUCKET" > "$WORK/check.json"
+CHECK_EXIT=$?
+set -e
+[[ "$CHECK_EXIT" -eq 1 ]] || {
+  echo "expected reproduced regression exit 1, got $CHECK_EXIT" >&2
+  cat "$WORK/check.json" >&2
+  exit 1
+}
+python3 - "$WORK/check.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+if d.get("outcome") != "fail":
+    raise SystemExit(f"expected outcome=fail, got {d!r}")
+PY
+
+echo "production loop passed: SDK event -> bucket -> reproit bkt -> deterministic local reproduction"
