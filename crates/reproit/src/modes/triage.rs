@@ -65,8 +65,12 @@ pub async fn device_login(base: &str, show_progress: bool) -> Result<DeviceLogin
         anyhow::bail!("could not start browser login: {}", start.status());
     }
     let grant: Value = start.json().await.context("reading browser login grant")?;
-    let device = grant["deviceCode"].as_str().context("cloud omitted deviceCode")?;
-    let user_code = grant["userCode"].as_str().context("cloud omitted userCode")?;
+    let device = grant["deviceCode"]
+        .as_str()
+        .context("cloud omitted deviceCode")?;
+    let user_code = grant["userCode"]
+        .as_str()
+        .context("cloud omitted userCode")?;
     let url = grant["verificationUriComplete"]
         .as_str()
         .or_else(|| grant["verificationUri"].as_str())
@@ -101,7 +105,10 @@ pub async fn device_login(base: &str, show_progress: bool) -> Result<DeviceLogin
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("browser authorization failed ({status}): {}", body.trim());
         }
-        return response.json().await.context("reading authorized account token");
+        return response
+            .json()
+            .await
+            .context("reading authorized account token");
     }
 }
 
