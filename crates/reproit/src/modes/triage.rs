@@ -400,7 +400,15 @@ jobs:
       - name: Replay committed production repros
         id: replay
         continue-on-error: true
-        run: ~/.local/bin/reproit check --strict --runs 3
+        run: |
+          set +e
+          OUTPUT="$(~/.local/bin/reproit check --strict --runs 3 2>&1)"
+          CODE=$?
+          printf '%s\n' "$OUTPUT"
+          if printf '%s\n' "$OUTPUT" | grep -q '^check:'; then
+            touch /tmp/reproit-check-complete
+          fi
+          exit "$CODE"
 
       - name: Report candidate fix evidence to Cloud
         if: always()
@@ -421,8 +429,10 @@ jobs:
           if not key:
               print("Cloud reporting skipped: REPROIT_CLOUD_KEY is unavailable")
               raise SystemExit(0)
+          if not pathlib.Path("/tmp/reproit-check-complete").is_file():
+              raise SystemExit("Cloud reporting refused: replay verification did not complete")
 
-          base = os.environ.get("REPROIT_CLOUD_URL", "").strip() or "https://cloud.reproit.com"
+          base = os.environ.get("REPROIT_CLOUD_URL", "").strip() or "https://ingest.reproit.com"
           default_app = os.environ["REPROIT_APP_ID"]
           commit = os.environ["REPROIT_FIXED_COMMIT"]
           reported = 0
