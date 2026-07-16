@@ -164,6 +164,20 @@ reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit resolution-events
 ```
 
+`reproit login` can run from any directory. It stores an account credential and
+lets bucket ids resolve across every project you can access. Run `reproit
+bkt_...` or `reproit record bkt_...` inside that app's source checkout so the
+downloaded production actions can execute against its local runner and current
+code. From another directory, pass `--config /path/to/app/reproit.yaml`.
+
+Cloud does not upload or clone source code. Web, Flutter, iOS, Android, and
+desktop replays all use the same rule: the local config owns the build command,
+runtime, simulator or device, and auth. Cloud supplies the confirmed production
+actions, failure signature, safe fixture properties, and replay capsule when
+one exists. A bucket replay executes those actions directly; it does not
+download a source tree or a second app graph. Scan and fuzz maintain the local
+app model automatically for discovery.
+
 Cross-cutting flags on `fuzz`/`check`:
 
 ```sh

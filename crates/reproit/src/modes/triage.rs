@@ -959,11 +959,19 @@ pub(crate) fn classify_repro(outcome: Option<&str>, exit_code: Option<i32>) -> R
 /// a human reproduction summary, and return the classification (so callers can
 /// report it back to the cloud). Used by `reproduce_bucket`, where `<target>` is
 /// the just-pulled repro's alias.
-fn run_check_and_classify(target: &str, context_hint: Option<&Value>) -> Result<ReproVerdict> {
+fn run_check_and_classify(
+    root: &std::path::Path,
+    target: &str,
+    context_hint: Option<&Value>,
+) -> Result<ReproVerdict> {
     println!("\nRunning the replay ({target})...");
     let exe = std::env::current_exe()?;
     let out = std::process::Command::new(exe)
         .args(["check", "--repro-id", target, "--json"])
+        // Reproduction may have been launched from any directory with
+        // `--config /path/to/app/reproit.yaml`. Run the private check from the
+        // loaded app root so it resolves that same config and local artifacts.
+        .current_dir(root)
         .output()
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);
@@ -1051,7 +1059,7 @@ pub async fn reproduce_bucket(
     // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
     // (fixture folded in) and prints the save summary + the `check` hint.
     pull(root, app, bucket, as_name, json, cloud.clone(), key.clone()).await?;
-    report_reproduction(app, bucket, as_name, run, run_id, cloud, key).await
+    report_reproduction(root, app, bucket, as_name, run, run_id, cloud, key).await
 }
 
 /// Resolve a production bucket across the projects visible to the signed-in
@@ -1069,10 +1077,12 @@ pub async fn reproduce_bucket_global(
     key: Option<String>,
 ) -> Result<()> {
     let app = pull_global(root, bucket, as_name, json, cloud.clone(), key.clone()).await?;
-    report_reproduction(&app, bucket, as_name, run, run_id, cloud, key).await
+    report_reproduction(root, &app, bucket, as_name, run, run_id, cloud, key).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn report_reproduction(
+    root: &std::path::Path,
     app: &str,
     bucket: &str,
     as_name: &str,
@@ -1086,7 +1096,7 @@ async fn report_reproduction(
     }
     // Reuse the standard local verification by alias; no context hint (the pulled
     // repro carries its own fixture, so a CLEAN verdict is a genuine no-repro).
-    let verdict = run_check_and_classify(as_name, None)?;
+    let verdict = run_check_and_classify(root, as_name, None)?;
     let status = match verdict {
         ReproVerdict::Reproduced => "reproduced",
         ReproVerdict::Clean => "clean",

@@ -1683,7 +1683,9 @@ async fn main() -> Result<ExitCode> {
             profile,
             flicker,
         } => {
-            let loaded = config::load(cli.config.as_deref())?;
+            let loaded = config::load(cli.config.as_deref()).with_context(|| {
+                "recording a production bug needs the app source checkout. Run this inside the app repository after `reproit init`, or pass `--config /path/to/reproit.yaml`"
+            })?;
             if repro.starts_with("bkt_") && repro::resolve(&loaded.root, &repro).is_none() {
                 let (cloud, key) = cloud_creds(None, None);
                 triage::pull_global(&loaded.root, &repro, &repro, ctx.json, cloud, key).await?;
@@ -2206,7 +2208,9 @@ async fn main() -> Result<ExitCode> {
         } => {
             let alias = as_name.unwrap_or_else(|| issue.clone());
             let (cloud, key) = cloud_creds(cloud, key);
-            let loaded = config::load(cli.config.as_deref())?;
+            let loaded = config::load(cli.config.as_deref()).with_context(|| {
+                "replaying a production bug needs the app source checkout. Run this inside the app repository after `reproit init`, or pass `--config /path/to/reproit.yaml`"
+            })?;
             triage::reproduce_bucket_global(
                 &loaded.root,
                 &issue,
