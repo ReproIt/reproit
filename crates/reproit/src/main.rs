@@ -4726,15 +4726,24 @@ async fn check_repro(
     )
     .await?;
     let full_log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+    let replay_batch_completed_cleanly = full_log
+        .lines()
+        .any(|line| line.trim() == "All tests passed");
     // One segment per replay (the whole log for the single-run path).
     let segments = fuzz::split_log_segments(&full_log);
     let mut verdicts = Vec::new();
     for (i, seg) in segments.iter().enumerate() {
+        // The web runner can finish every replay and print its clean terminal
+        // verdict before a lingering browser resource makes the outer process
+        // miss its shutdown deadline. Trust the completed replay segment over
+        // that later process-cleanup failure. A real app exception still wins
+        // inside the classifier below.
+        let segment_passed = outcome.passed || replay_batch_completed_cleanly;
         // Surface each replay's REPRO verdict (did the original finding
         // reproduce?), not just the drive's PASS/FAIL completion. For
         // graph-invariant repros a drive can complete (PASS) while the finding
         // does NOT reproduce (clean), so raw PASS/FAIL is misleading alone.
-        let mut verdict = repro::verdict_from_log_with_trigger(seg, outcome.passed, &trigger);
+        let mut verdict = repro::verdict_from_log_with_trigger(seg, segment_passed, &trigger);
         if let Some(guard) = &frozen_contract {
             let observations = crate::observation::from_runner_log(seg, &[]);
             if guard.reproduces(&observations) {
