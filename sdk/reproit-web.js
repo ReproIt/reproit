@@ -1221,7 +1221,18 @@
     _errorPath: function () {
       var path = this._path.slice();
       if (this._pending) {
-        var step = { sig: this._cur, action: this._pending.action };
+        // A user can click before the debounced initial observation runs. In
+        // that case `_cur` is still null even though the DOM already has a
+        // perfectly usable structural signature. Capture it synchronously so
+        // Cloud never has to discard the crash-triggering action.
+        var sig = this._cur;
+        if (!sig && this._cfg) {
+          try {
+            sig = snapshot(this._cfg).sig;
+            this._cur = sig;
+          } catch (e) {}
+        }
+        var step = { sig: sig || "?", action: this._pending.action };
         if (!this._cfg.redactLabels && this._pending.label) step.label = this._pending.label;
         path.push(step);
       }

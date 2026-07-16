@@ -611,16 +611,24 @@ pub async fn setup(
         .or_else(|| gh_auth_token(gh));
     match &repo {
         Some(r) => {
-            let mut body = serde_json::json!({ "dispatchRepo": r });
+            let mut body = serde_json::json!({
+                "provider": "github",
+                "repo": r,
+                "dispatchRepo": r,
+            });
             if let Some(t) = &dispatch_token {
                 body["dispatchToken"] = serde_json::json!(t);
+                // The authenticated GitHub token can also file and maintain the
+                // bucket's linked issue. One setup command should configure the
+                // whole lifecycle, not dispatch while silently omitting tickets.
+                body["token"] = serde_json::json!(t);
             }
             let c = Cloud::new(cloud.clone(), Some(project_key.clone()));
             c.put(&format!("/v1/apps/{app}/integrations"), &body)
                 .await
                 .with_context(|| format!("binding {r} for hosted reproduction"))?;
             if dispatch_token.is_some() {
-                println!("  dispatch: bound {r} (dispatch token set)");
+                println!("  github:   bound {r} (dispatch and linked issues enabled)");
             } else {
                 println!(
                     "  dispatch: bound {r} (no token yet: pass --dispatch-token <PAT> or set \

@@ -48,6 +48,38 @@ try {
     'tap:key:testid:cart',
   ]);
   console.log('PASS: click-driven navigation preserves the triggering structural action');
+
+  const earlyPage = await browser.newPage();
+  await earlyPage.setContent(`<!doctype html><body>
+    <button data-testid="crash">Checkout</button>
+    <script>
+      document.querySelector('[data-testid="crash"]').addEventListener('click', () => {
+        throw new Error('early checkout crash');
+      });
+    </script>
+  </body>`);
+  await earlyPage.addScriptTag({ path: sdk });
+  await earlyPage.evaluate(() => {
+    window.__events = [];
+    window.ReproIt.init({
+      appId: 'early-crash-contract',
+      reportAutomation: true,
+      debounceMs: 1_000,
+      flushMs: 60_000,
+      onEvent: (event) => window.__events.push(event),
+    });
+  });
+  await earlyPage.getByTestId('crash').click();
+  const crash = await earlyPage.evaluate(() =>
+    window.__events.find((event) => event.kind === 'error')
+  );
+  assert.ok(crash, 'the synchronous click crash must be captured');
+  assert.equal(crash.path.length, 1);
+  assert.equal(crash.path[0].action, 'tap:key:testid:crash');
+  assert.equal(typeof crash.path[0].sig, 'string');
+  assert.ok(crash.path[0].sig.length > 0);
+  await earlyPage.close();
+  console.log('PASS: an early synchronous crash retains an executable structural path');
 } finally {
   await browser.close();
 }
