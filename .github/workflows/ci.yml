@@ -147,6 +147,10 @@ jobs:
       - name: SDK oracle contract (error events carry the crash oracle tag)
         working-directory: sdk
         run: node test/oracle_contract_test.js
+      - name: Web SDK performance and privacy ceiling
+        env:
+          REPROIT_WEB_BENCH_OUT: ${{ runner.temp }}/reproit-sdk-benchmark.json
+        run: node validation/cloud/sdk-performance.js
       - name: Electron + Tauri runner parity
         run: node runners/signature_test.mjs
       # The Windows + Linux desktop runners are now in-process Rust (backends/
