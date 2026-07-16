@@ -4,7 +4,8 @@
  * No test framework required: run with `node test/build_test.js` from the sdk/
  * directory. Covers the pure normalizeBuild bucketer and the end-to-end flush:
  * init({ build }) -> the batch carries context.build = { version, commit } (only
- * the provided fields); init without build -> no ctx. Mirrors the
+ * the provided fields); init without build still carries safe environment
+ * context. Mirrors the
  * RN SDK's build.test.ts. The cloud reads context.build.version/.commit to
  * segment bugs by build (regressed in / resolved since).
  */
@@ -94,7 +95,8 @@ check("init WITH build -> batch.ctx.build = { version, commit }", function () {
     ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
-    assert.deepStrictEqual(sent[0].ctx, { build: { version: "1.4.2", commit: "abc123" } });
+    assert.deepStrictEqual(sent[0].ctx.build, { version: "1.4.2", commit: "abc123" });
+    assert.strictEqual(sent[0].ctx.platform, "web");
   });
 });
 
@@ -103,17 +105,18 @@ check("init WITH only-version -> batch.ctx.build has version, no commit", functi
     ReproIt.init({ appId: "app", endpoint: "https://ingest.example/v1/events", build: { version: "9.9.9" } });
     ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });
     ReproIt._flush();
-    assert.deepStrictEqual(sent[0].ctx, { build: { version: "9.9.9" } });
+    assert.deepStrictEqual(sent[0].ctx.build, { version: "9.9.9" });
   });
 });
 
-check("init WITHOUT build -> no ctx", function () {
+check("init WITHOUT build -> safe environment context, no build", function () {
   withStubs(function (sent) {
     ReproIt.init({ appId: "app", endpoint: "https://ingest.example/v1/events" });
     ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
-    assert.strictEqual(sent[0].ctx, undefined);
+    assert.strictEqual(sent[0].ctx.platform, "web");
+    assert.strictEqual(sent[0].ctx.build, undefined);
   });
 });
 

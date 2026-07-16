@@ -138,6 +138,9 @@ jobs:
       - name: Web SDK build identity (context.build stamping)
         working-directory: sdk
         run: node test/build_test.js
+      - name: Web SDK environment context (bounded and PII-safe)
+        working-directory: sdk
+        run: node test/environment_context_test.js
       - name: Web SDK input fingerprint (privacy-preserving value metadata)
         working-directory: sdk
         run: node test/fingerprint_test.js

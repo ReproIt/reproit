@@ -56,6 +56,7 @@
     debounceMs: 350, // settle window after an interaction before snapshotting
     valueNodes: [], // Layer-3 opt-in selectors marking EXTRA value-bearing nodes
     build: null, // developer-provided { version, commit }; stamped as context.build
+    context: null, // optional bounded, PII-safe session context stamped on every event
   };
 
   // Keep only the provided string fields of a developer-supplied build identity
@@ -67,6 +68,52 @@
     if (typeof build.version === "string" && build.version.length) out.version = build.version;
     if (typeof build.commit === "string" && build.commit.length) out.commit = build.commit;
     return out.version || out.commit ? out : null;
+  }
+
+  function environmentContext() {
+    var nav = typeof navigator !== "undefined" ? navigator : {};
+    var win = typeof window !== "undefined" ? window : {};
+    var doc = typeof document !== "undefined" ? document : {};
+    var root = doc.documentElement || {};
+    var ua = nav.userAgent || "";
+    var browser = "Other";
+    var browserMajor = "";
+    var match;
+    if ((match = ua.match(/Edg\/(\d+)/))) {
+      browser = "Edge"; browserMajor = match[1];
+    } else if ((match = ua.match(/Firefox\/(\d+)/))) {
+      browser = "Firefox"; browserMajor = match[1];
+    } else if ((match = ua.match(/(?:Chrome|CriOS)\/(\d+)/))) {
+      browser = "Chrome"; browserMajor = match[1];
+    } else if ((match = ua.match(/Version\/(\d+).+Safari/))) {
+      browser = "Safari"; browserMajor = match[1];
+    }
+
+    var os = "Other";
+    if (/Windows NT/.test(ua)) os = "Windows";
+    else if (/Android/.test(ua)) os = "Android";
+    else if (/iPhone|iPad|iPod/.test(ua)) os = "iOS";
+    else if (/Mac OS X/.test(ua)) os = "macOS";
+    else if (/Linux/.test(ua)) os = "Linux";
+
+    var width = Math.round(win.innerWidth || root.clientWidth || 0);
+    var height = Math.round(win.innerHeight || root.clientHeight || 0);
+    var device = /Mobi|Android|iPhone|iPod/.test(ua)
+      ? "mobile"
+      : (/iPad/.test(ua) || (width > 0 && width < 1024) ? "tablet" : "desktop");
+    return {
+      platform: "web",
+      browser: browser,
+      browserMajor: browserMajor || undefined,
+      os: os,
+      device: device,
+      locale: nav.language || undefined,
+      viewport: {
+        width: width,
+        height: height,
+        dpr: Number((win.devicePixelRatio || 1).toFixed(2)),
+      },
+    };
   }
 
   // Layer-3 opt-in (docs/signature.md "Value-state"): a list of selectors that
@@ -1204,9 +1251,13 @@
     _flush: function (useBeacon) {
       if (!this._buf.length) return;
       var batch = { appId: this._cfg.appId, sentAt: Date.now(), events: this._buf };
+      batch.ctx = environmentContext();
+      if (this._cfg.context && typeof this._cfg.context === "object" && !Array.isArray(this._cfg.context)) {
+        batch.ctx = Object.assign(batch.ctx, this._cfg.context);
+      }
       // Stamp the developer-provided build identity as context.build (only the
       // provided fields); omitted entirely when no build was supplied.
-      if (this._build) batch.ctx = { build: this._build };
+      if (this._build) batch.ctx.build = this._build;
       this._buf = [];
       var cfg = this._cfg;
       if (!cfg.endpoint) {
@@ -1239,6 +1290,7 @@
   // noise the SDK must NOT report, so the crash oracle stays zero/low-FP.
   ReproIt.isCrashNoise = isCrashNoise;
   ReproIt.structuralMessage = structuralMessage;
+  ReproIt.environmentContext = environmentContext;
 
   // Expose the CANONICAL signature core (load-bearing, parity-tested against
   // signature_vectors.json + the Rust oracle). signatureOf/descriptorOf take a
