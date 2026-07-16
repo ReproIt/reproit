@@ -30,6 +30,12 @@ public struct ReproItConfig {
     /// Bearer token sent as `Authorization: Bearer <apiKey>` when set.
     public var apiKey: String?
 
+    /// User-visible application version stamped into `ctx.build.version`.
+    public var buildVersion: String?
+
+    /// Source revision stamped into `ctx.build.commit`.
+    public var buildCommit: String?
+
     /// Dev hook / custom transport; called for every event in addition to (or
     /// instead of, when ``endpoint`` is nil) the HTTP sink.
     public var onEvent: ((ReproItEvent) -> Void)?
@@ -72,6 +78,8 @@ public struct ReproItConfig {
         appId: String,
         endpoint: String? = nil,
         apiKey: String? = nil,
+        buildVersion: String? = nil,
+        buildCommit: String? = nil,
         onEvent: ((ReproItEvent) -> Void)? = nil,
         sampleRate: Double = 1.0,
         maxLabels: Int = 24,
@@ -85,6 +93,8 @@ public struct ReproItConfig {
         self.appId = appId
         self.endpoint = endpoint
         self.apiKey = apiKey
+        self.buildVersion = buildVersion
+        self.buildCommit = buildCommit
         self.onEvent = onEvent
         self.sampleRate = sampleRate
         self.maxLabels = maxLabels

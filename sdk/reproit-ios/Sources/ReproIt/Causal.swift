@@ -1,6 +1,6 @@
 import Foundation
 
-/// Foundation URL loading adapter used only under a Reproit run. It captures
+/// Foundation URL loading adapter used only under a ReproIt run. It captures
 /// through URLProtocol, logs the universal redacted exchange marker, and serves
 /// exact capsule responses without touching the live backend.
 final class ReproItCausalURLProtocol: URLProtocol {

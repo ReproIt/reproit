@@ -8,11 +8,24 @@ version = "0.1.0"
 description = "ReproIt production telemetry SDK for native Linux GUI apps (GTK / Qt)."
 readme = "README.md"
 requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "ReproIt, Inc." }]
+keywords = ["testing", "observability", "crash-reporting", "gtk", "qt"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+]
 # No hard dependency: the signature core + reporter are pure stdlib. The live
 # capture uses GObject-Introspection bindings (PyGObject for GTK ATK, the Atspi
 # typelib for Qt / bus), which a GTK/Qt app already provides; declared as an
 # optional extra so `pip install reproit-linux` stays dependency-free.
 dependencies = []
+
+[project.urls]
+Homepage = "https://reproit.com"
+Repository = "https://github.com/ReproIt/reproit"
+Issues = "https://github.com/ReproIt/reproit/issues"
 
 [project.optional-dependencies]
 capture = ["PyGObject>=3.42"]

@@ -34,8 +34,8 @@ import kotlin.random.Random
  *         super.onCreate()
  *         ReproIt.init(this, ReproItConfig(
  *             appId = "example",
- *             endpoint = "https://ingest.reproit.example",
- *             apiKey = "sk_...",
+ *             endpoint = "https://ingest.reproit.com",
+ *             apiKey = "pk_live_...",
  *         ))
  *     }
  * }
@@ -46,7 +46,7 @@ import kotlin.random.Random
  * binding (lifecycle, view-tree walk, taps, errors, HTTP).
  */
 object ReproIt {
-    /** Dependency-free HTTP client that captures/replays only during Reproit runs. */
+    /** Dependency-free HTTP client that captures/replays only during ReproIt runs. */
     @JvmField
     val causalHttp = CausalHttp()
     private var engine: Engine? = null
@@ -479,6 +479,7 @@ object ReproIt {
     /** The current value of a view that exposes an accessibility `RangeInfo`
      * (a slider / progress / seekbar), formatted locale-independently, or null
      * when no range is present. */
+    @Suppress("DEPRECATION")
     private fun rangeValue(view: View): String? {
         val info = try {
             android.view.accessibility.AccessibilityNodeInfo.obtain().also {
@@ -604,6 +605,7 @@ object ReproIt {
     /** Read a canonical role from the view's AccessibilityNodeInfo className /
      * roleDescription where one is exposed (covers Compose semantics, which do
      * not surface as concrete widget classes). Returns null when none maps. */
+    @Suppress("DEPRECATION")
     private fun a11yRole(view: View): String? {
         val info = try {
             android.view.accessibility.AccessibilityNodeInfo.obtain().also {

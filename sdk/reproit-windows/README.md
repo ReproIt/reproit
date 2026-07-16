@@ -16,24 +16,30 @@ external Windows runner (`runners/windows-uia.py`) drives the same app over UI
 Automation and computes the identical signature, so an in-app crash buckets to
 the same node a fuzz finding hits.
 
-## Quickstart (two lines)
+## Quickstart
 
-One line to add the package, one line to start. `ReproItClient.Start(this)`
-needs no configuration: it runs only in a Debug build and is a no-op in Release,
-derives the app id from your assembly name, and attaches to the Window you pass.
+Until the NuGet package is published, add the Windows SDK project from a public
+repository checkout:
 
 ```sh
-dotnet add package ReproIt.Windows
+git submodule add https://github.com/ReproIt/reproit vendor/reproit
+dotnet add reference vendor/reproit/sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj
 ```
 
 ```csharp
-// App.OnStartup or the main window constructor (`this` is the Window)
-ReproItClient.Start(this); // Debug builds only; no-op in Release
+ReproItClient.Init(new ReproItConfig("app_...")
+{
+    Endpoint = "https://ingest.reproit.com",
+    ApiKey = "pk_live_...",
+    BuildVersion = "1.4.2",
+    BuildCommit = "abc123",
+});
+ReproItClient.Attach(this);
 ```
 
-To run in a Release build, or to point at your ingest endpoint and override any
-field, use `ReproItClient.Init(new ReproItConfig(...))` + `ReproItClient.Attach(this)`
-as shown under [How it works](#how-it-works).
+Call this from `App.OnStartup` or the main window constructor. Explicit
+configuration runs in Release builds. `ReproItClient.Start(this)` remains a
+Debug-only convenience.
 
 ## Project layout
 
@@ -112,8 +118,10 @@ public partial class MainWindow : Window
         InitializeComponent();
         ReproItClient.Init(new ReproItConfig("example")
         {
-            Endpoint = "https://ingest.reproit.example",
-            ApiKey = "sk_...",
+            Endpoint = "https://ingest.reproit.com",
+            ApiKey = "pk_live_...",
+            BuildVersion = "1.4.2",
+            BuildCommit = "abc123",
             SampleRate = 1.0,      // fraction of sessions to record
             RedactLabels = false,  // true = send signatures only, no label text
         });

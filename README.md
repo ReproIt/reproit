@@ -2,7 +2,7 @@
 
 **Find a UI bug once, reproduce it forever.**
 
-[**reproit.com**](https://reproit.com) · [docs](docs/cli.md)
+[**reproit.com**](https://reproit.com) · [CLI guide](docs/cli.md) · [production SDKs](sdk/README.md)
 
 ![reproit finds a bug and reproduces it every run](docs/demo.gif)
 
@@ -28,7 +28,7 @@ deeper action sequences. Its default detectors have direct replay predicates: cr
 content, hang, broken route, blank screen, and broken asset. Specialist and
 experimental detectors remain available explicitly with `--only`.
 
-Reproit maintains its internal screen graph automatically. Before a command
+ReproIt maintains its internal screen graph automatically. Before a command
 uses it, reproit fingerprints the actual source, configuration, lockfiles, and
 CLI version; changed inputs trigger a refresh. Git revision and dirty state are
 stored as provenance, but uncommitted work is handled correctly too.
@@ -217,7 +217,7 @@ reproit fuzz generated-ui.jsonl
 reproit fnd_...
 ```
 
-Reproit validates the official v0.9 basic catalog, runs the stream through the
+ReproIt validates the official v0.9 basic catalog, runs the stream through the
 official React and Lit renderers, minimizes a failure while preserving its exact
 signature, and stores the result under the same `fnd_...` workflow.
 
@@ -232,6 +232,11 @@ Self-hosted or managed.
 The SDK captures the *structure* of a session, not user data: input values and
 personal data never leave your app (an error attaches only PII-safe derived
 features). Details: [docs/data-handling.md](docs/data-handling.md).
+
+Choose a production integration and follow its working install command in the
+[SDK guide](sdk/README.md). Client applications use a write-only `pk_live_...`
+project key and the full `https://ingest.reproit.com/v1/events` endpoint. Secret
+`sk_live_...` keys stay in the CLI, CI, or trusted server code.
 
 ## MCP
 

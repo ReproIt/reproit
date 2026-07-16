@@ -14,7 +14,7 @@ namespace ReproIt.Windows
 {
     /// <summary>
     /// Causal HTTP adapter for WPF/WinUI applications. Construct it only through
-    /// <see cref="ReproItClient.CreateHttpClient"/>. Outside a Reproit run it is
+    /// <see cref="ReproItClient.CreateHttpClient"/>. Outside a ReproIt run it is
     /// a transparent handler; during capture it writes redacted exchanges, and
     /// during replay every unmatched request fails without reaching the network.
     /// </summary>

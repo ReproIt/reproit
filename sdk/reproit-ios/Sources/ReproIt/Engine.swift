@@ -38,6 +38,10 @@ public final class ReproItEngine {
     public init(config: ReproItConfig, session: URLSession = .shared) {
         self.cfg = config
         self.session = session
+        var build: [String: String] = [:]
+        if let version = config.buildVersion, !version.isEmpty { build["version"] = version }
+        if let commit = config.buildCommit, !commit.isEmpty { build["commit"] = commit }
+        if !build.isEmpty { context["build"] = build }
     }
 
     /// The configuration this engine was started with.

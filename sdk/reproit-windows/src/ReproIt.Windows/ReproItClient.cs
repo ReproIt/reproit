@@ -17,8 +17,8 @@
 //
 //   ReproItClient.Init(new ReproItConfig("example")
 //   {
-//       Endpoint = "https://ingest.reproit.example",
-//       ApiKey = "sk_...",
+//       Endpoint = "https://ingest.reproit.com",
+//       ApiKey = "pk_live_...",
 //   });
 //   ReproItClient.Attach(this); // `this` is the Window
 //
@@ -191,7 +191,7 @@ namespace ReproIt.Windows
         }
 
         /// <summary>Create an HttpClient that automatically participates in a
-        /// Reproit causal run and behaves like a normal client otherwise.</summary>
+        /// ReproIt causal run and behaves like a normal client otherwise.</summary>
         public static HttpClient CreateHttpClient(HttpMessageHandler innerHandler = null)
         {
             return new HttpClient(new ReproItCausalHandler(innerHandler));

@@ -2,7 +2,7 @@
  * reproit-web, production telemetry SDK (v0)
  *
  * Drop this into a production web app and it emits the SAME marker protocol the
- * Repro It runner uses, but driven by REAL users instead of the fuzzer. Each
+ * ReproIt runner uses, but driven by REAL users instead of the fuzzer. Each
  * screen a user lands on is hashed to a state signature; each navigation is an
  * edge. The result is a live usage graph that aligns 1:1 with your test app
  * map, because the signature function here is byte-identical to the runner's.
@@ -22,7 +22,7 @@
  *
  * Usage (script tag):
  *   <script src="reproit-web.js"></script>
- *   <script>ReproIt.init({ appId: "myapp", endpoint: "https://ingest.reproit.com/v1/events", key: "sk_live_..." })</script>
+ *   <script>ReproIt.init({ appId: "app_...", endpoint: "https://ingest.reproit.com/v1/events", key: "pk_live_..." })</script>
  *
  * Or as a module:  import "./reproit-web.js"; ReproIt.init({...})
  *
@@ -44,7 +44,7 @@
   var DEFAULTS = {
     appId: "app",
     endpoint: null, // POST target; if null, events go to opts.onEvent / console
-    key: null, // project API key (sk_live_...); sent as `Authorization: Bearer`
+    key: null, // write-only project key (pk_live_...); sent as `Authorization: Bearer`
     reportAutomation: false, // report webdriver-driven sessions (test rigs opt in)
     onEvent: null, // callback(event), dev hook / custom transport
     sampleRate: 1.0, // fraction of sessions that report (0..1)

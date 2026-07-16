@@ -168,6 +168,11 @@ jobs:
         run: |
           python3 sdk/reproit-linux/tests/test_parity.py
           python3 sdk/reproit-linux/tests/test_capture.py
+          python3 sdk/reproit-linux/tests/test_context.py
+      - name: Linux SDK package builds with its license and metadata
+        run: |
+          python3 -m pip install --disable-pip-version-check build
+          python3 -m build sdk/reproit-linux
 
   react-native-sdk:
     runs-on: ubuntu-latest
@@ -183,6 +188,11 @@ jobs:
         run: npm ci
       - name: Parity + unit tests (jest)
         run: npm test
+      - name: Build, typecheck, and validate the publish archive
+        run: |
+          npm run build
+          npm run typecheck
+          npm pack --dry-run
 
   flutter-sdk:
     runs-on: ubuntu-latest
@@ -197,6 +207,10 @@ jobs:
       - run: flutter pub get
       - name: Signature parity (flutter test)
         run: flutter test
+      - name: Analyze and validate the pub.dev archive
+        run: |
+          flutter analyze lib test
+          flutter pub publish --dry-run
 
   # Marker-drift guard: each platform's "verbatim" EXPLORE:GROUNDTRUTH golden
   # (crates/reproit/tests/golden/operability/<platform>.json) is the SINGLE source
@@ -439,6 +453,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14"
       - name: Install Kotlin compiler
         run: |
           curl -sSLO https://github.com/JetBrains/kotlin/releases/download/v2.0.20/kotlin-compiler-2.0.20.zip
@@ -446,6 +463,8 @@ jobs:
           echo "$HOME/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
       - name: Android SDK signature parity (host JVM, no Android SDK)
         run: sh sdk/reproit-android/run_host_test.sh
+      - name: Build the Android archive and validate its Maven publication
+        run: gradle -p sdk/reproit-android publishToMavenLocal
 
   apple-sdk:
     runs-on: macos-latest
@@ -506,3 +525,7 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Windows SDK signature parity (.NET core lib; no WPF/WinUI needed)
         run: dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj
+      - name: Validate the NuGet packages
+        run: |
+          dotnet pack sdk/reproit-windows/src/ReproIt.Core/ReproIt.Core.csproj --configuration Release --output /tmp/reproit-nuget
+          dotnet pack sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj --configuration Release --output /tmp/reproit-nuget

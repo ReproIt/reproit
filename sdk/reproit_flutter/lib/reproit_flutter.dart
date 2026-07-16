@@ -1,3 +1,8 @@
+// Flutter keeps these semantics APIs for compatibility with older supported
+// releases. Newer releases deprecate them before a single replacement works
+// across the full SDK version range.
+// ignore_for_file: deprecated_member_use
+
 /// ReproIt production telemetry for Flutter.
 ///
 /// Emits the SAME state-graph and error events from real users that the reproit
@@ -11,8 +16,8 @@
 ///   WidgetsFlutterBinding.ensureInitialized();
 ///   ReproIt.init(const ReproItConfig(
 ///     appId: 'example',
-///     endpoint: 'https://ingest.reproit.example',
-///     apiKey: 'sk_...',
+///     endpoint: 'https://ingest.reproit.com',
+///     apiKey: 'pk_live_...',
 ///   ));
 ///   runApp(const MyApp());
 /// }
@@ -72,6 +77,12 @@ class ReproItConfig {
   /// Bearer token sent as `Authorization: Bearer <apiKey>` when set.
   final String? apiKey;
 
+  /// User-visible application version stamped into `ctx.build.version`.
+  final String? buildVersion;
+
+  /// Source revision stamped into `ctx.build.commit`.
+  final String? buildCommit;
+
   /// Dev hook / custom transport; called for every event in addition to (or
   /// instead of, when [endpoint] is null) the HTTP sink.
   final void Function(Map<String, dynamic> event)? onEvent;
@@ -101,6 +112,8 @@ class ReproItConfig {
     required this.appId,
     this.endpoint,
     this.apiKey,
+    this.buildVersion,
+    this.buildCommit,
     this.onEvent,
     this.sampleRate = 1.0,
     this.maxLabels = 24,
@@ -396,7 +409,7 @@ class ReproIt {
     inst._start();
   }
 
-  /// Initialize Reproit and install automatic `package:http` causal
+  /// Initialize ReproIt and install automatic `package:http` causal
   /// capture/fail-closed replay for every default Client created in [body].
   static R run<R>(ReproItConfig config, R Function() body) {
     init(config);
@@ -556,6 +569,14 @@ class ReproIt {
       'tz': DateTime.now().timeZoneName,
       'textScale': d.textScaleFactor,
       'release': kReleaseMode,
+      if ((_cfg.buildVersion ?? '').isNotEmpty ||
+          (_cfg.buildCommit ?? '').isNotEmpty)
+        'build': <String, String>{
+          if ((_cfg.buildVersion ?? '').isNotEmpty)
+            'version': _cfg.buildVersion!,
+          if ((_cfg.buildCommit ?? '').isNotEmpty)
+            'commit': _cfg.buildCommit!,
+        },
     });
     // Force the semantics tree on even with no a11y service attached; this is
     // what lets us read the same tree the test runner sees.
@@ -625,11 +646,6 @@ class ReproIt {
 
   static bool _isTappable(SemanticsData d) =>
       d.hasAction(SemanticsAction.tap) && !d.hasFlag(SemanticsFlag.isTextField);
-
-  static bool _isNamed(SemanticsData d) =>
-      _labelOf(d).isNotEmpty ||
-      d.tooltip.trim().isNotEmpty ||
-      d.value.trim().isNotEmpty;
 
   /// Clip a label to maxLabelLen, byte-identical to the runners' clipLabel:
   /// names <= maxLen are unchanged; longer names become the first (maxLen - 9)

@@ -19,31 +19,42 @@ state signature, same event shapes, same `{appId, sentAt, events}` batch POST to
 `<endpoint>/v1/events`, so web, Flutter, and iOS telemetry land in one cloud
 graph.
 
-## Quickstart (two lines)
+## Quickstart
 
-One line to add the package, one line to start. `ReproIt.start()` needs no
-configuration: it runs only in a `DEBUG` build and is a no-op in release, and it
-derives the app id from your bundle identifier.
+Until the Swift package has a dedicated distribution repository, add this public
+repository as a source checkout and reference the package directory locally:
 
 ```swift
-// Package.swift: .package(url: "https://github.com/reproit/reproit-ios", from: "0.1.0")
+// Package.swift
+.package(path: "Vendor/reproit/sdk/reproit-ios")
 ```
 
 ```swift
 import ReproIt
 
-ReproIt.start() // DEBUG only; no-op in release
+ReproIt.start(ReproItConfig(
+    appId: "app_...",
+    endpoint: "https://ingest.reproit.com",
+    apiKey: "pk_live_...",
+    buildVersion: "1.4.2",
+    buildCommit: "abc123"
+))
 ```
 
-Call it once at launch (the `AppDelegate` / SwiftUI `App` init below). To run in
-a release build, or to point at your ingest endpoint and override any field, use
-`ReproIt.start(ReproItConfig(...))` as shown under [Usage](#usage-one-call).
+Call it once at launch. An explicit configuration runs in release builds. The
+no-argument `ReproIt.start()` remains a debug-only local convenience.
 
 ## Install
 
-Swift Package Manager. In Xcode: *File > Add Package Dependencies* and point at
-this directory (or its git URL), then add the `ReproIt` library to your app
-target. Or in a `Package.swift`:
+Check out the public monorepo once, then use Swift Package Manager. In Xcode,
+choose *File > Add Package Dependencies*, select
+`Vendor/reproit/sdk/reproit-ios`, and add the `ReproIt` library to the app target.
+
+```sh
+git submodule add https://github.com/ReproIt/reproit Vendor/reproit
+```
+
+Or in `Package.swift`:
 
 ```swift
 .package(path: "../sdk/reproit-ios"),
@@ -64,8 +75,10 @@ func application(_ app: UIApplication,
                 didFinishLaunchingWithOptions opts: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
     ReproIt.start(ReproItConfig(
         appId: "example",
-        endpoint: "https://ingest.reproit.example",
-        apiKey: "sk_...",
+        endpoint: "https://ingest.reproit.com",
+        apiKey: "pk_live_...",
+        buildVersion: "1.4.2",
+        buildCommit: "abc123",
         sampleRate: 1.0,     // fraction of sessions to record
         redactLabels: false  // true = send signatures only, no label text
     ))
@@ -80,8 +93,10 @@ SwiftUI (`App`):
 struct MyApp: App {
     init() {
         ReproIt.start(ReproItConfig(appId: "example",
-                                    endpoint: "https://ingest.reproit.example",
-                                    apiKey: "sk_..."))
+                                    endpoint: "https://ingest.reproit.com",
+                                    apiKey: "pk_live_...",
+                                    buildVersion: "1.4.2",
+                                    buildCommit: "abc123"))
     }
     var body: some Scene { WindowGroup { ContentView() } }
 }
@@ -95,8 +110,10 @@ import ReproIt
 func applicationDidFinishLaunching(_ notification: Notification) {
     ReproIt.start(ReproItConfig(
         appId: "example",
-        endpoint: "https://ingest.reproit.example",
-        apiKey: "sk_...",
+        endpoint: "https://ingest.reproit.com",
+        apiKey: "pk_live_...",
+        buildVersion: "1.4.2",
+        buildCommit: "abc123",
         catchSignals: true)) // opt-in fatal-signal capture (see below)
 }
 ```

@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "description": "ReproIt production telemetry SDK for React Native: emits the same state-graph + error events as the reproit test runners, so production data aligns 1:1 with test data.",
   "license": "Apache-2.0",
-  "author": "Repro It, Inc.",
+  "author": "ReproIt, Inc.",
+  "homepage": "https://reproit.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReproIt/reproit.git",
+    "directory": "sdk/reproit-react-native"
+  },
+  "bugs": {
+    "url": "https://github.com/ReproIt/reproit/issues"
+  },
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,7 +23,8 @@
     "ios",
     "reproit-react-native.podspec",
     "react-native.config.js",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "sideEffects": false,
   "scripts": {

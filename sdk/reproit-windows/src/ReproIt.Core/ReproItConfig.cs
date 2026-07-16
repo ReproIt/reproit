@@ -18,6 +18,12 @@ namespace ReproIt.Core
         /// <summary>Bearer token sent as "Authorization: Bearer &lt;apiKey&gt;" when set.</summary>
         public string ApiKey { get; set; }
 
+        /// <summary>User-visible application version stamped into ctx.build.version.</summary>
+        public string BuildVersion { get; set; }
+
+        /// <summary>Source revision stamped into ctx.build.commit.</summary>
+        public string BuildCommit { get; set; }
+
         /// <summary>Dev hook / custom transport; called for every event in addition to
         /// (or instead of, when Endpoint is null) the HTTP sink. The dictionary is the
         /// event exactly as it will be serialized.</summary>

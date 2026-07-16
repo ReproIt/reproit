@@ -9,7 +9,7 @@ description = "Production telemetry SDK for Python terminal-UI apps (Textual / R
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
-authors = [{ name = "Repro It" }]
+authors = [{ name = "ReproIt, Inc." }]
 keywords = ["tui", "textual", "rich", "urwid", "prompt_toolkit", "telemetry", "observability", "crash-reporting", "reproit"]
 classifiers = [
   "Programming Language :: Python :: 3",

@@ -13,33 +13,47 @@ shapes, same `/v1/events` batch endpoint, so all platforms land in one cloud
 graph. The signature is the canonical contract in `docs/signature.md`, proven
 byte-for-byte against `signature_vectors.json` (see `src/test/`).
 
-## Quickstart (two lines)
+## Quickstart
 
-One line in `build.gradle.kts` to add the dependency, one line in your
-`Application` to start. `ReproIt.start(this)` needs no configuration: it runs
-only in a debuggable build (release builds clear `android:debuggable`) and is a
-no-op otherwise, and it derives the app id from your package name.
+Until the Maven package is published, use the Android library directly from the
+public repository:
+
+```sh
+git submodule add https://github.com/ReproIt/reproit vendor/reproit
+```
+
+```kotlin
+// settings.gradle.kts
+include(":reproit-android")
+project(":reproit-android").projectDir = file("vendor/reproit/sdk/reproit-android")
+```
 
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("com.reproit:reproit-android:0.1.0")
+    implementation(project(":reproit-android"))
 }
 ```
 
 ```kotlin
 // Application.onCreate
-ReproIt.start(this) // debuggable builds only; no-op in release
+ReproIt.init(
+    this,
+    ReproItConfig(
+        appId = "app_...",
+        endpoint = "https://ingest.reproit.com",
+        apiKey = "pk_live_...",
+        buildVersion = "1.4.2",
+        buildCommit = "abc123",
+    ),
+)
 ```
 
-To run in a release build, or to point at your ingest endpoint and override any
-field, use `ReproIt.init(this, ReproItConfig(...))` as shown under [Usage](#usage).
+An explicit configuration runs in release builds. The no-argument
+`ReproIt.start(this)` remains a debuggable-build convenience.
 
-**Build-plugin distribution:** the mechanism for one-line enablement is the
-Gradle dependency above plus the single `ReproIt.start(this)` call. A Gradle
-plugin (`id("com.reproit")`) that auto-registers the SDK in debug variants is the
-intended packaging, but is not published yet; the two lines above are the
-supported path today.
+The reserved Maven coordinate is `com.reproit:reproit-android`. Do not use it
+until it is published. The source checkout above is the supported 0.1 path.
 
 ## How it works
 
@@ -90,8 +104,10 @@ class App : Application() {
             this,
             ReproItConfig(
                 appId = "example",
-                endpoint = "https://ingest.reproit.example",
-                apiKey = "sk_...",
+                endpoint = "https://ingest.reproit.com",
+                apiKey = "pk_live_...",
+                buildVersion = "1.4.2",
+                buildCommit = "abc123",
                 sampleRate = 1.0,      // fraction of sessions to record
                 redactLabels = false,  // true = send signatures only, no label text
             ),

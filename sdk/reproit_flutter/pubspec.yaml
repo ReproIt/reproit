@@ -1,7 +1,14 @@
 name: reproit_flutter
-description: ReproIt production telemetry SDK for Flutter. Emits the same state-graph and error events from real users as the reproit test runners, so a prod "cannot reproduce" becomes a deterministic replay.
+description: ReproIt production telemetry for Flutter. Capture structural UI paths so production bugs replay as deterministic tests.
 version: 0.1.0
-publish_to: none
+homepage: https://reproit.com
+repository: https://github.com/ReproIt/reproit/tree/main/sdk/reproit_flutter
+issue_tracker: https://github.com/ReproIt/reproit/issues
+topics:
+  - testing
+  - observability
+  - crash-reporting
+  - flutter
 environment:
   sdk: ">=3.0.0 <4.0.0"
   flutter: ">=3.10.0"

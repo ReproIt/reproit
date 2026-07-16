@@ -134,6 +134,19 @@ namespace ReproIt.Core
             _now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             _transport = transport ?? (_ => true);
             _log = log;
+            var build = new Dictionary<string, object>();
+            if (!string.IsNullOrWhiteSpace(cfg.BuildVersion))
+            {
+                build["version"] = cfg.BuildVersion;
+            }
+            if (!string.IsNullOrWhiteSpace(cfg.BuildCommit))
+            {
+                build["commit"] = cfg.BuildCommit;
+            }
+            if (build.Count > 0)
+            {
+                _context["build"] = build;
+            }
         }
 
         public int QueueSize

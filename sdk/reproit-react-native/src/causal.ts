@@ -110,7 +110,7 @@ export function installCausalFetch(options: {
     return response;
   }) as typeof fetch;
   // Direct XMLHttpRequest is common in React Native dependencies. During a
-  // Reproit run, translate it through the guarded fetch path so those requests
+  // ReproIt run, translate it through the guarded fetch path so those requests
   // cannot bypass capture or escape to live network during replay.
   if (originalXhr) {
     class ReproItXMLHttpRequest {
@@ -119,7 +119,7 @@ export function installCausalFetch(options: {
       onerror: ((event: Event) => void) | null = null; onloadend: ((event: Event) => void) | null = null;
       private method = 'GET'; private url = ''; private headers: Record<string, string> = {};
       private responseHeaders = new Headers(); private aborted = false; private listeners = new Map<string, EventListener[]>();
-      open(method: string, url: string, async = true): void { if (!async) throw new Error('Reproit causal replay does not permit synchronous XMLHttpRequest'); this.method = method.toUpperCase(); this.url = url; this.readyState = 1; this.fire('readystatechange'); }
+      open(method: string, url: string, async = true): void { if (!async) throw new Error('ReproIt causal replay does not permit synchronous XMLHttpRequest'); this.method = method.toUpperCase(); this.url = url; this.readyState = 1; this.fire('readystatechange'); }
       setRequestHeader(key: string, value: string): void { this.headers[key] = value; }
       addEventListener(kind: string, fn: EventListener): void { this.listeners.set(kind, [...(this.listeners.get(kind) || []), fn]); }
       removeEventListener(kind: string, fn: EventListener): void { this.listeners.set(kind, (this.listeners.get(kind) || []).filter((item) => item !== fn)); }

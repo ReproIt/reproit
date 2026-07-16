@@ -76,7 +76,8 @@ class Reporter:
     BATCH_FLUSH_AT = 50
 
     def __init__(self, app_id, endpoint=None, api_key=None, on_event=None,
-                 flush_ms=5000, path_cap=60, redact_labels=False):
+                 flush_ms=5000, path_cap=60, redact_labels=False,
+                 build_version=None, build_commit=None):
         if not app_id:
             raise ValueError("Reporter: app_id is required")
         self.app_id = app_id
@@ -92,6 +93,13 @@ class Reporter:
         self._path = []          # the graph trail: list of {sig, action}
         self._cur = None         # current state signature
         self._ctx = auto_context()
+        build = {}
+        if build_version:
+            build["version"] = str(build_version)
+        if build_commit:
+            build["commit"] = str(build_commit)
+        if build:
+            self._ctx["build"] = build
         self._flush_timer = None
         self._on = True
         self._causal_restore = install_causal_urllib(endpoint)

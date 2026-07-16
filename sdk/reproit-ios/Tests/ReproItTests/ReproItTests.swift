@@ -603,6 +603,14 @@ final class ReproItTests: XCTestCase {
         XCTAssertNotNil(ctx["tz"] as? String)
     }
 
+    func testConfiguredBuildIdentityIsAddedToContext() {
+        let engine = ReproItEngine(config: ReproItConfig(
+            appId: "t", buildVersion: "1.4.2", buildCommit: "abc123"))
+        let build = engine.currentContext["build"] as? [String: String]
+        XCTAssertEqual(build?["version"], "1.4.2")
+        XCTAssertEqual(build?["commit"], "abc123")
+    }
+
     func testIdentifyHashesUserIdAndMergesContext() {
         let engine = ReproItEngine(config: ReproItConfig(appId: "t"))
         let raw = "user@example.com"

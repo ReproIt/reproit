@@ -69,6 +69,13 @@ class Engine(
      */
     private val context = LinkedHashMap<String, Any?>()
 
+    init {
+        val build = LinkedHashMap<String, String>()
+        cfg.buildVersion?.takeIf { it.isNotBlank() }?.let { build["version"] = it }
+        cfg.buildCommit?.takeIf { it.isNotBlank() }?.let { build["commit"] = it }
+        if (build.isNotEmpty()) context["build"] = build
+    }
+
     val queueSize: Int get() = synchronized(queue) { queue.size }
     fun currentSignature(): String? = currentSig
 

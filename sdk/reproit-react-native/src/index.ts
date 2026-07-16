@@ -15,8 +15,8 @@
  * Usage (one init call in your app entry):
  *
  *   import { ReproIt } from 'reproit-react-native';
- *   ReproIt.init({ appId: 'example', endpoint: 'https://ingest.reproit.example',
- *                  apiKey: 'sk_...' });
+ *   ReproIt.init({ appId: 'example', endpoint: 'https://ingest.reproit.com',
+ *                  apiKey: 'pk_live_...' });
  *
  * Optionally wrap your tree to capture taps + label nav transitions:
  *

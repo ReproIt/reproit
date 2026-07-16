@@ -479,6 +479,21 @@ class SignatureParityTest {
     }
 
     @Test
+    fun configuredBuildIdentityIsAddedToContext() {
+        val engine = Engine(
+            ReproItConfig(
+                appId = "example",
+                buildVersion = "1.4.2",
+                buildCommit = "abc123",
+            ),
+        )
+        @Suppress("UNCHECKED_CAST")
+        val build = engine.context()["build"] as Map<String, String>
+        assertEquals("1.4.2", build["version"])
+        assertEquals("abc123", build["commit"])
+    }
+
+    @Test
     fun batchEnvelopeOmitsCtxWhenEmpty() {
         val engine = Engine(ReproItConfig(appId = "example"), now = { 1_717_939_200_123L })
         val body = engine.buildBatch(emptyList())

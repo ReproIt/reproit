@@ -10,29 +10,37 @@ It mirrors the web SDK (`sdk/reproit-web.js`): same FNV-1a state signature, same
 event shapes, same `/v1/events` batch endpoint, so web and Flutter telemetry
 land in one cloud graph.
 
-## Quickstart (two lines)
+## Quickstart
 
-One line in `pubspec.yaml` to add the dependency, one line in `main` to start.
-`ReproIt.start()` needs no configuration: it runs only in a debug/profile build
-and is a no-op in release, and it uses a sensible default app id.
+Until the pub.dev package is published, use Flutter's supported git-subdirectory
+dependency:
 
 ```yaml
 # pubspec.yaml
 dependencies:
-  reproit_flutter: ^0.1.0
+  reproit_flutter:
+    git:
+      url: https://github.com/ReproIt/reproit.git
+      path: sdk/reproit_flutter
+      ref: main
 ```
 
 ```dart
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  ReproIt.start(); // debug/profile only; no-op in release
+  ReproIt.init(const ReproItConfig(
+    appId: 'app_...',
+    endpoint: 'https://ingest.reproit.com',
+    apiKey: 'pk_live_...',
+    buildVersion: '1.4.2',
+    buildCommit: 'abc123',
+  ));
   runApp(const MyApp());
 }
 ```
 
-Pass `appId:` to name the app, or use `ReproIt.init(ReproItConfig(...))` (below)
-to point at your ingest endpoint and override any field, or to run in release
-(`ReproIt.start(enableInRelease: true)`).
+An explicit configuration runs in release builds. `ReproIt.start()` remains a
+debug/profile convenience unless `enableInRelease: true` is passed.
 
 ## How it works
 
@@ -58,8 +66,10 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   ReproIt.init(const ReproItConfig(
     appId: 'example',
-    endpoint: 'https://ingest.reproit.example',
-    apiKey: 'sk_...',
+    endpoint: 'https://ingest.reproit.com',
+    apiKey: 'pk_live_...',
+    buildVersion: '1.4.2',
+    buildCommit: 'abc123',
     sampleRate: 1.0,      // fraction of sessions to record
     redactLabels: false,  // true = send signatures only, no label text
   ));
@@ -86,7 +96,7 @@ ReproIt.init(ReproItConfig(appId: 'example', onEvent: (e) => print(e)));
 ## Causal HTTP reproduction
 
 Use `ReproIt.run` at app entry to make `package:http` traffic automatically
-capturable and replayable under Reproit while remaining inert in production:
+capturable and replayable under ReproIt while remaining inert in production:
 
 ```dart
 void main() => ReproIt.run(

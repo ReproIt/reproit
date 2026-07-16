@@ -6,7 +6,12 @@ void main() {
   tearDown(ReproIt.dispose);
 
   testWidgets('captures auto dimensions and a hashed uid', (tester) async {
-    ReproIt.init(const ReproItConfig(appId: 'ctx', onEvent: _noop));
+    ReproIt.init(const ReproItConfig(
+      appId: 'ctx',
+      onEvent: _noop,
+      buildVersion: '1.4.2',
+      buildCommit: 'abc123',
+    ));
 
     final ctx = ReproIt.context;
     // tier-1 auto dimensions (zero-PII, web-safe)
@@ -14,6 +19,7 @@ void main() {
     expect(ctx.containsKey('locale'), isTrue);
     expect(ctx.containsKey('tz'), isTrue);
     expect(ctx['release'], isA<bool>());
+    expect(ctx['build'], {'version': '1.4.2', 'commit': 'abc123'});
 
     // identify hashes the raw id (never stored in the clear) and is stable
     ReproIt.identify('user@example.com', context: {'role': 'admin'});

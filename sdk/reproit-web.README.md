@@ -10,29 +10,51 @@ runner's, so a production session aligns 1:1 with your test app map and a
 production error ships with the exact graph path that led to it (a deterministic
 repro instead of a "cannot reproduce" ticket).
 
-## Quickstart (one line)
+## Quickstart
 
-Drop in the file and start with a single call. No configuration required:
-`start()` derives the app id from the page host and reports to `onEvent` / the
-console until you point it at an endpoint.
+Vendor the source file from the public repository, then initialize it with the
+project values shown by ReproIt Cloud:
+
+```sh
+mkdir -p src/vendor
+curl -fsSLo src/vendor/reproit-web.js \
+  https://raw.githubusercontent.com/ReproIt/reproit/main/sdk/reproit-web.js
+```
 
 ```html
-<script src="reproit-web.js"></script>
-<script>ReproIt.start()</script>
+<script src="/src/vendor/reproit-web.js"></script>
+<script>
+  ReproIt.start({
+    appId: "app_...",
+    endpoint: "https://ingest.reproit.com/v1/events",
+    key: "pk_live_...",
+    build: { version: "1.4.2", commit: "abc123" }
+  })
+</script>
 ```
 
 Or as a module:
 
 ```js
-import "./reproit-web.js";
-ReproIt.start();
+import "./vendor/reproit-web.js";
+
+ReproIt.start({
+  appId: "app_...",
+  endpoint: "https://ingest.reproit.com/v1/events",
+  key: "pk_live_...",
+  build: { version: "1.4.2", commit: "abc123" },
+});
 ```
 
-Point it at your ingest endpoint by passing options through the same call (any
-`init` option works here):
+The endpoint is the exact POST target and must end in `/v1/events`. The
+`pk_live_...` key is write-only and safe to ship in client code. Never put an
+`sk_live_...` key in a web application.
+
+For local inspection without Cloud, omit `endpoint` and `key`. Events go to
+`onEvent` or the console:
 
 ```js
-ReproIt.start({ endpoint: "https://ingest.reproit.com/v1/events", key: "sk_live_..." });
+ReproIt.start({ onEvent: console.log });
 ```
 
 `ReproIt.init(opts)` (below) stays the full, explicit entry point; `start()` is
@@ -53,17 +75,25 @@ compute the identical signature, and that equality is gated in
 ## Web
 
 ```html
-<script src="reproit-web.js"></script>
+<script src="/src/vendor/reproit-web.js"></script>
 <script>
-  ReproIt.init({ appId: "myapp", endpoint: "https://ingest.reproit.com/v1/events" })
+  ReproIt.init({
+    appId: "app_...",
+    endpoint: "https://ingest.reproit.com/v1/events",
+    key: "pk_live_..."
+  })
 </script>
 ```
 
 Or as a module:
 
 ```js
-import "./reproit-web.js";
-ReproIt.init({ appId: "myapp", endpoint: "https://ingest.reproit.com/v1/events" });
+import "./vendor/reproit-web.js";
+ReproIt.init({
+  appId: "app_...",
+  endpoint: "https://ingest.reproit.com/v1/events",
+  key: "pk_live_..."
+});
 ```
 
 ## Electron
@@ -73,8 +103,12 @@ page. Do not load it in the main process (there is no DOM there).
 
 ```js
 // renderer entry (e.g. renderer.js), or a <script> in your renderer HTML
-import "./reproit-web.js";
-ReproIt.init({ appId: "myapp-desktop", endpoint: "https://ingest.reproit.com/v1/events" });
+import "./vendor/reproit-web.js";
+ReproIt.init({
+  appId: "app_...",
+  endpoint: "https://ingest.reproit.com/v1/events",
+  key: "pk_live_..."
+});
 ```
 
 ## Tauri
@@ -83,8 +117,12 @@ Import it from your frontend bundle like any other web dependency. It runs in
 the WebView, so the DOM walk and signatures behave exactly as on the web.
 
 ```js
-import "./reproit-web.js";
-ReproIt.init({ appId: "myapp-tauri", endpoint: "https://ingest.reproit.com/v1/events" });
+import "./vendor/reproit-web.js";
+ReproIt.init({
+  appId: "app_...",
+  endpoint: "https://ingest.reproit.com/v1/events",
+  key: "pk_live_..."
+});
 ```
 
 ## Build tagging
@@ -94,8 +132,9 @@ stop alerting once a later build no longer hits it):
 
 ```js
 ReproIt.init({
-  appId: "myapp",
+  appId: "app_...",
   endpoint: "https://ingest.reproit.com/v1/events",
+  key: "pk_live_...",
   build: { version: "1.4.2", commit: "abc123" }, // app version + git commit from CI
 });
 ```

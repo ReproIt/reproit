@@ -18,6 +18,19 @@
     <RootNamespace>ReproIt.Core</RootNamespace>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Description>ReproIt canonical structural-signature core and reporting engine (cross-platform, no Windows dependency).</Description>
+    <PackageId>ReproIt.Core</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>ReproIt, Inc.</Authors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://reproit.com</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ReproIt/reproit</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>testing;observability;ui;reproduction</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>

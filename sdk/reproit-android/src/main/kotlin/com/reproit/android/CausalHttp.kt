@@ -7,6 +7,7 @@ import java.net.URL
 import java.util.Locale
 
 /** A dependency-free causal HTTP client for native Android applications. */
+@Suppress("UNCHECKED_CAST")
 class CausalHttp {
     data class Response(val status: Int, val headers: Map<String, String>, val body: ByteArray)
 
@@ -24,7 +25,6 @@ class CausalHttp {
 
     init {
         exchanges = try {
-            @Suppress("UNCHECKED_CAST")
             val root = Json.decode(File(capsulePath!!).readText()) as Map<String, Any?>
             root["exchanges"] as? List<Map<String, Any?>> ?: emptyList()
         } catch (_: Throwable) {

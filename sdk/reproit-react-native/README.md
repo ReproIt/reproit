@@ -12,39 +12,45 @@ It mirrors the web SDK (`sdk/reproit-web.js`) and the Flutter SDK
 `{appId, sentAt, events}` batch POSTed to `<endpoint>/v1/events`, so web,
 Flutter and React Native telemetry land in one cloud graph.
 
-## Quickstart (two lines)
+## Quickstart
 
-One line to install, one line to start. `ReproIt.start()` needs no
-configuration: it runs only in a debug/dev build (`__DEV__`) and is a no-op in
-release, and it derives a default app id.
+Until the npm package is published, install the package directory from a public
+repository checkout:
 
 ```sh
-npm install reproit-react-native   # or: yarn add reproit-react-native
+git submodule add https://github.com/ReproIt/reproit vendor/reproit
+npm install ./vendor/reproit/sdk/reproit-react-native
 ```
 
 ```ts
 import { ReproIt } from 'reproit-react-native';
-ReproIt.start(); // debug/dev only; no-op in release
+ReproIt.init({
+  appId: 'app_...',
+  endpoint: 'https://ingest.reproit.com',
+  apiKey: 'pk_live_...',
+  build: { version: '1.4.2', commit: 'abc123' },
+});
 ```
 
-Pass any config field to override a default (e.g.
-`ReproIt.start({ appId: 'example', endpoint: 'https://ingest.reproit.example' })`),
-or use `ReproIt.init(...)` (below) when you want telemetry in every build. To
-enable `start()` in a release build too, pass `{ enableInRelease: true }`.
+`ReproIt.init(...)` runs in release builds. `ReproIt.start()` remains a
+debug-only convenience unless `enableInRelease: true` is passed.
 
 ## Install
 
 ```sh
-npm install reproit-react-native
+git submodule add https://github.com/ReproIt/reproit vendor/reproit
+npm install ./vendor/reproit/sdk/reproit-react-native
 ```
 
 `react` and `react-native` are peer dependencies (use your app's versions).
+The reserved npm name is not presented as a registry install until it is
+published.
 
-During a Reproit causal run, the SDK automatically guards both global `fetch`
+During a ReproIt causal run, the SDK automatically guards both global `fetch`
 and direct `XMLHttpRequest`. The autolinked native module supplies the capsule
 before the wrapper is installed; unmatched requests fail closed and never use
 live infrastructure. On remote Android farms without runner-side adb access,
-set `appium:appPackage` so Reproit can inject the capsule before activating the
+set `appium:appPackage` so ReproIt can inject the capsule before activating the
 otherwise stopped app.
 
 ## Usage
@@ -56,8 +62,8 @@ import { ReproIt } from 'reproit-react-native';
 
 ReproIt.init({
   appId: 'example',
-  endpoint: 'https://ingest.reproit.example', // null => onEvent / debug only
-  apiKey: 'sk_...',                           // optional Bearer token
+  endpoint: 'https://ingest.reproit.com',     // null => onEvent / debug only
+  apiKey: 'pk_live_...',                      // write-only browser/mobile key
   sampleRate: 1.0,                            // fraction of sessions to record
   redactLabels: false,                        // true => signatures only, no text
   build: { version: '1.4.2', commit: 'abc123' }, // your build, so reproit can tell
@@ -359,7 +365,7 @@ positional index, never derived from the value.
 No E2E glue is required. The package autolinks a tiny `ReproItRuntime` module on
 iOS and Android. During an Appium run it reads the guarded capsule injected by
 the runner and the normal `ReproIt.init`/`start` path installs fail-closed global
-fetch replay. Outside Reproit the module exports no capsule and networking is
+fetch replay. Outside ReproIt the module exports no capsule and networking is
 unchanged.
 
 Android requires the normal React Native autolinking step; iOS requires the
@@ -386,4 +392,4 @@ byte-identical to the web SDK, Flutter SDK, and runner:
 
 ## License
 
-Apache License 2.0, consistent with the Reproit CLI.
+Apache License 2.0, consistent with the ReproIt CLI.

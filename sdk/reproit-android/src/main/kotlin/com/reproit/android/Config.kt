@@ -15,6 +15,12 @@ data class ReproItConfig(
     /** Bearer token sent as `Authorization: Bearer <apiKey>` when set. */
     val apiKey: String? = null,
 
+    /** User-visible application version stamped into `ctx.build.version`. */
+    val buildVersion: String? = null,
+
+    /** Source revision stamped into `ctx.build.commit`. */
+    val buildCommit: String? = null,
+
     /**
      * Dev hook / custom transport; called for every event in addition to (or
      * instead of, when [endpoint] is null) the HTTP sink. The map is the event

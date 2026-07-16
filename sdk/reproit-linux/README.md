@@ -21,13 +21,16 @@ and a build step, and a clumsier embed story for a GTK/Qt app.
 
 ## Install
 
-```
-pip install reproit-linux            # core + reporter (pure stdlib)
-pip install 'reproit-linux[capture]' # adds PyGObject for the live walk
+```sh
+pip install \
+  'reproit-linux @ git+https://github.com/ReproIt/reproit.git#subdirectory=sdk/reproit-linux'
 ```
 
 A GTK/Qt app already ships PyGObject and the GObject-Introspection typelibs, so
 the live walk works out of the box in-app.
+
+The reserved PyPI name is not presented as a registry install until it is
+published.
 
 ## Usage
 
@@ -39,8 +42,10 @@ from reproit_linux import ReproIt
 win = builder.get_object("main_window")        # a top-level GtkWindow
 ReproIt.init(
     app_id="example",
-    endpoint="https://ingest.reproit.example",
-    api_key="sk_...",
+    endpoint="https://ingest.reproit.com",
+    api_key="pk_live_...",
+    build_version="1.4.2",
+    build_commit="abc123",
     root_widget=win,                            # the SDK walks win.get_accessible()
 )
 

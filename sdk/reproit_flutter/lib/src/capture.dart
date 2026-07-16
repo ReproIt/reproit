@@ -1,3 +1,7 @@
+// See the package entry point for the cross-version semantics compatibility
+// rationale.
+// ignore_for_file: deprecated_member_use
+
 /// Flutter semantics -> canonical [RNode] capture.
 ///
 /// Walks the live semantics tree and produces the canonical node tree the

@@ -17,8 +17,8 @@ Usage (one call in your app entry, after the main window is built):
     win = builder.get_object("main_window")          # your top-level GtkWindow
     ReproIt.init(
         app_id="example",
-        endpoint="https://ingest.reproit.example",
-        api_key="sk_...",
+        endpoint="https://ingest.reproit.com",
+        api_key="pk_live_...",
         root_widget=win,            # a GTK widget; the SDK walks its accessible
     )
 
@@ -62,7 +62,7 @@ class _ReproIt:
     def init(self, app_id, endpoint=None, api_key=None, on_event=None,
              root_widget=None, root_accessible=None, atspi_root=None,
              value_nodes=None, flush_ms=5000, path_cap=60, redact_labels=False,
-             install_crash_handler=True):
+             install_crash_handler=True, build_version=None, build_commit=None):
         """Initialize telemetry.
 
         Provide exactly one capture root:
@@ -82,6 +82,7 @@ class _ReproIt:
         self._reporter = Reporter(
             app_id=app_id, endpoint=endpoint, api_key=api_key, on_event=on_event,
             flush_ms=flush_ms, path_cap=path_cap, redact_labels=redact_labels,
+            build_version=build_version, build_commit=build_commit,
         )
         self._value_nodes = list(value_nodes or [])
 

@@ -145,6 +145,19 @@ namespace ReproIt.ParityTests
         }
 
         [Fact]
+        public void ConfiguredBuildIdentityIsAddedToContext()
+        {
+            var engine = new Engine(new ReproItConfig("example")
+            {
+                BuildVersion = "1.4.2",
+                BuildCommit = "abc123",
+            });
+            var build = Assert.IsType<Dictionary<string, object>>(engine.Context()["build"]);
+            Assert.Equal("1.4.2", build["version"]);
+            Assert.Equal("abc123", build["commit"]);
+        }
+
+        [Fact]
         public void IdentifiedBatchEnvelopeCarriesHashedUidNotRawValue()
         {
             var engine = new Engine(new ReproItConfig("example"), now: () => 1_717_939_200_123L);

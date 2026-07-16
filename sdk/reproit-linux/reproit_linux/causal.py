@@ -114,7 +114,7 @@ def _write_capabilities(path):
 
 
 def install_causal_urllib(exclude_prefix=None):
-    """Install once during a Reproit run and return an idempotent restore callback."""
+    """Install once during a ReproIt run and return an idempotent restore callback."""
     network = os.environ.get("REPROIT_NETWORK_FILE")
     capsule_path = os.environ.get("REPROIT_CAPSULE")
     if not network and not capsule_path:
