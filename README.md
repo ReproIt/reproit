@@ -157,11 +157,11 @@ Cloud golden path (production bug -> local repro -> triaged fix):
 
 ```sh
 reproit login                                       # once: browser sign-in and project selection
-reproit cloud setup --app app_...                    # optional CI + SDK wiring
 reproit bugs
 reproit bkt_...
+reproit record bkt_...
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
-reproit cloud resolution-events --app app_...
+reproit resolution-events
 ```
 
 Cross-cutting flags on `fuzz`/`check`:

@@ -251,8 +251,21 @@ mod tests {
     #[test]
     fn skill_core_commands_exist_and_are_documented() {
         const CORE: &[&str] = &[
-            "scan", "fuzz", "check", "keep", "record", "repro", "repros", "watch", "auth",
-            "journey", "cloud",
+            "scan",
+            "fuzz",
+            "check",
+            "keep",
+            "record",
+            "repro",
+            "repros",
+            "watch",
+            "auth",
+            "journey",
+            "login",
+            "bugs",
+            "triage",
+            "timeline",
+            "resolution-events",
         ];
         let text = all_skill_text();
         let cmd = crate::Cli::command();

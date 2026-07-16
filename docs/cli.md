@@ -388,11 +388,11 @@ session, and `reproit <bkt_...>` saves and reproduces it locally.
 
 ```sh
 reproit login                                          # once: browser sign-in and project selection
-reproit cloud setup --app app_...                      # optional CI + SDK wiring
 reproit bugs                                             # impact-ranked bucket ids
 reproit bkt_...                                          # reproduce locally
+reproit record bkt_...                                   # pull if needed, then record
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
-reproit cloud resolution-events --app app_...
+reproit resolution-events
 ```
 
 Local is the fast inner loop in your worktree; cloud is the broad outer loop with
@@ -422,7 +422,7 @@ reproit screenshots [tour]    store/marketing shots across locales + devices
 reproit import maestro <f>    convert a Maestro flow into a journey
 reproit auth <account>        configure, discover, and verify a test login
 reproit mcp                   serve reproit to your coding agent (stdio)
-reproit cloud ...             fleet + production telemetry (see Cloud)
+reproit login                 connect production telemetry to this account
 reproit platforms             UI-framework -> backend matrix
 reproit update                verify and install the latest CLI release
 reproit debug map ...         advanced internal-model diagnostics
@@ -521,9 +521,9 @@ reproit_cloud_resolution_events(app?)            recent prod-truth transitions (
 reproit_cloud_timeline(bucket, app?)             per-bucket occurrence series + resolution
 ```
 
-`cloud setup` persists the selected app and validated credential, so `bugs`,
-`pull`, and `triage` need no repeated app or key flags. Explicit flags and
-`$REPROIT_CLOUD_APP` remain available for automation and multi-project use.
+`reproit login` persists the account credential and selected project. Bucket ids
+resolve across every project that account may access, so reproduction, recording,
+triage, and timelines never need an app id.
 
 The full production loop (manage + monitor, not just fix): `reproit_cloud_buckets`
 (impact-ranked) -> `reproit_cloud_pull` the top -> `reproit_check` (reproduce) ->
@@ -531,22 +531,17 @@ fix -> `reproit_check` (verify) -> `reproit_keep` -> `reproit_cloud_triage`
 status=fixed --fixed-in-build X (record the fix intent) -> watch
 `reproit_cloud_resolution_events` for a regression (prod contradicting the claim).
 
-## Cloud commands
+## Production commands
 
 ```
 reproit login                       sign in in the browser and select a discovered project
-reproit cloud setup --app <app>     optional repo + SDK + CI wiring and live verification
 reproit bugs [query]                impact-ranked confirmed production bugs
 reproit <bkt_...>                   pull and verify locally
+reproit record <bkt_...>            pull if needed and record the exact replay
 reproit triage <bucket> <status>    update lifecycle state
-reproit cloud fuzz [--pr N]         fuzz locally, store confirmed result in Cloud
-reproit cloud buckets --app <app>    impact-ranked bucket ids
-reproit cloud findings --app <app>   cohorts and user discriminators
-reproit cloud blast-radius --app <app> --bucket <id>   who's affected
-reproit cloud triage --app <app> --bucket <id> [--status <s> --fixed-in-build <v> --assignee <id>]
-reproit cloud resolution-events --app <app>
-reproit cloud timeline --app <app> --bucket <id>
-reproit cloud query --app <app> [--query <text>] --export
+reproit timeline <bucket>           occurrence history and production resolution
+reproit diagnose <report>           match a report to a confirmed bug
+reproit resolution-events           recent confirmations and regressions
 ```
 
 ## screenshots

@@ -4,7 +4,7 @@ The headline cloud use case: a real user session crashed in production, the SDK
 captured it, and you replay it **locally and deterministically**.
 
 ```sh
-reproit login --app <app>
+reproit login
 reproit bugs                            # browse what production reported
 reproit <bkt>
 ```
@@ -19,11 +19,12 @@ any other.
 1. `reproit <bkt>` to pull and replay the crash.
 2. It lands as a local repro id, from here it is the normal loop: `check` to
    confirm, `why` to localize, fix, `check` to prove.
-3. `reproit cloud blast-radius` shows how many sessions/users a given crash
-   signature affects, use it to prioritize which bucket to reproduce first.
+3. `reproit bugs` ranks confirmed bugs by impact so you know what to fix first.
+4. `reproit triage <bkt>` reads or updates its workflow state.
+5. `reproit timeline <bkt>` shows the bug history, and
+   `reproit resolution-events` shows resolution evidence across the selected project.
 
 ## Notes
 
-- Cloud is the paid/proprietary tier; `login` is required.
-- The same `reproit` binary runs locally and in the cloud fleet, so a repro
-  that passes locally passes in CI and vice versa.
+- Hosted Cloud requires `login`; self-hosted Cloud uses the same CLI contract.
+- Bucket ids resolve across every project the signed-in account may access.

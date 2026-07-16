@@ -478,7 +478,12 @@ fn build_argv(
             };
             // The impact-ranked list at GET /v1/apps/:app/buckets -- the ONLY
             // command that surfaces the `bucketId` the rest of the loop keys off.
-            argv.extend(["cloud".into(), "buckets".into(), "--app".into(), app]);
+            argv.extend([
+                "__cloud-internal".into(),
+                "buckets".into(),
+                "--app".into(),
+                app,
+            ]);
             if let Some(q) = s("query") {
                 argv.extend(["--query".into(), q]);
             }
@@ -490,7 +495,12 @@ fn build_argv(
             let Some(bucket) = s("bucket") else {
                 return Err((missing("bucket"), true));
             };
-            argv.extend(["cloud".into(), "blast-radius".into(), "--app".into(), app]);
+            argv.extend([
+                "__cloud-internal".into(),
+                "blast-radius".into(),
+                "--app".into(),
+                app,
+            ]);
             // A bucket is an index (integer) by default, or a signature.
             if bucket.chars().all(|c| c.is_ascii_digit()) {
                 argv.extend(["--idx".into(), bucket]);
@@ -512,8 +522,8 @@ fn build_argv(
             // bucket-based reproduce (pull -> check). The old `--idx <bucket>`
             // dispatch broke with real bucket ids (they are not integers).
             argv.extend([
-                "cloud".into(),
-                "reproduce".into(),
+                "__cloud-internal".into(),
+                "__replay-dispatch".into(),
                 "--app".into(),
                 app,
                 "--bucket".into(),
@@ -534,8 +544,8 @@ fn build_argv(
                 return Err((missing("as"), true));
             };
             argv.extend([
-                "cloud".into(),
-                "pull".into(),
+                "__cloud-internal".into(),
+                "__pull".into(),
                 "--app".into(),
                 app,
                 "--bucket".into(),
@@ -552,7 +562,7 @@ fn build_argv(
                 return Err((missing("bucket"), true));
             };
             argv.extend([
-                "cloud".into(),
+                "__cloud-internal".into(),
                 "triage".into(),
                 "--app".into(),
                 app,
@@ -577,7 +587,7 @@ fn build_argv(
                 return Err((missing_app(), true));
             };
             argv.extend([
-                "cloud".into(),
+                "__cloud-internal".into(),
                 "resolution-events".into(),
                 "--app".into(),
                 app,
@@ -591,7 +601,7 @@ fn build_argv(
                 return Err((missing("bucket"), true));
             };
             argv.extend([
-                "cloud".into(),
+                "__cloud-internal".into(),
                 "timeline".into(),
                 "--app".into(),
                 app,
@@ -679,7 +689,7 @@ mod tests {
 
     #[test]
     fn cloud_triage_read_dispatches_without_status() {
-        // No status => READ: the CLI gets `cloud triage --app A --bucket B` with no
+        // No status => READ through the private machine-only Cloud route with no
         // --status, and the bridge's --json / --yes globals are present.
         let argv = argv(
             "reproit_cloud_triage",
@@ -687,7 +697,7 @@ mod tests {
         );
         assert!(argv.contains(&"--json".to_string()));
         assert!(argv.contains(&"--yes".to_string()));
-        assert!(argv.windows(2).any(|w| w == ["cloud", "triage"]));
+        assert!(argv.windows(2).any(|w| w == ["__cloud-internal", "triage"]));
         assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
         assert!(argv.windows(2).any(|w| w == ["--bucket", "b00b"]));
         assert!(!argv.iter().any(|a| a == "--status"));
@@ -728,16 +738,18 @@ mod tests {
     #[test]
     fn cloud_buckets_dispatches_to_cloud_buckets_not_findings() {
         // The loop-breaker fix: reproit_cloud_buckets must hit the impact-ranked
-        // `cloud buckets` (GET /v1/apps/:app/buckets, surfaces the bucketId), NOT
-        // `cloud findings` (the cohort lens, which has no bucket id).
+        // the bucket list endpoint that surfaces bucketId, not the cohort lens.
         let argv = argv("reproit_cloud_buckets", json!({ "app": "demo" }));
         assert!(
-            argv.windows(2).any(|w| w == ["cloud", "buckets"]),
-            "expected `cloud buckets`, got {argv:?}"
+            argv.windows(2)
+                .any(|w| w == ["__cloud-internal", "buckets"]),
+            "expected the internal buckets route, got {argv:?}"
         );
         assert!(
-            !argv.windows(2).any(|w| w == ["cloud", "findings"]),
-            "must NOT dispatch to `cloud findings`"
+            !argv
+                .windows(2)
+                .any(|w| w == ["__cloud-internal", "findings"]),
+            "must not dispatch to findings"
         );
         assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
     }
@@ -748,14 +760,18 @@ mod tests {
             "reproit_cloud_buckets",
             json!({ "app": "demo", "query": "checkout" }),
         );
-        assert!(argv.windows(2).any(|w| w == ["cloud", "buckets"]));
+        assert!(argv
+            .windows(2)
+            .any(|w| w == ["__cloud-internal", "buckets"]));
         assert!(argv.windows(2).any(|w| w == ["--query", "checkout"]));
     }
 
     #[test]
     fn cloud_resolution_events_dispatches() {
         let argv = argv("reproit_cloud_resolution_events", json!({ "app": "demo" }));
-        assert!(argv.windows(2).any(|w| w == ["cloud", "resolution-events"]));
+        assert!(argv
+            .windows(2)
+            .any(|w| w == ["__cloud-internal", "resolution-events"]));
         assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
     }
 
@@ -765,7 +781,9 @@ mod tests {
             "reproit_cloud_timeline",
             json!({ "app": "demo", "bucket": "b00b" }),
         );
-        assert!(argv.windows(2).any(|w| w == ["cloud", "timeline"]));
+        assert!(argv
+            .windows(2)
+            .any(|w| w == ["__cloud-internal", "timeline"]));
         assert!(argv.windows(2).any(|w| w == ["--app", "demo"]));
         assert!(argv.windows(2).any(|w| w == ["--bucket", "b00b"]));
     }

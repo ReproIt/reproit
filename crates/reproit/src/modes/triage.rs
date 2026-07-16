@@ -228,6 +228,30 @@ pub async fn raw_buckets(app: &str, cloud: Option<String>, key: Option<String>) 
     c.get(&format!("/v1/apps/{app}/buckets")).await
 }
 
+/// Resolve the project that owns a bucket using the signed-in account scope.
+/// The bucket package is the authority and includes `appId`; callers use this
+/// only to reach project-scoped management endpoints after global resolution.
+pub async fn bucket_app(
+    bucket: &str,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<String> {
+    let c = Cloud::new(cloud, key);
+    if let Some(app) = crate::crosscut::load_cloud_app(&crate::crosscut::token_path()) {
+        if c.get(&format!("/v1/apps/{app}/buckets/{bucket}"))
+            .await
+            .is_ok()
+        {
+            return Ok(app);
+        }
+    }
+    let package = c.get(&format!("/v1/buckets/{bucket}")).await?;
+    package["appId"]
+        .as_str()
+        .map(String::from)
+        .context("cloud bucket package omitted appId")
+}
+
 /// Validate a cloud/project key for `cloud login` by hitting an AUTHENTICATED
 /// endpoint, so login proves the key actually WORKS (not just that the host is
 /// up). With an `app`, validates against `GET /v1/apps/:app/buckets` (the loop's
@@ -304,9 +328,9 @@ const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction: runs in YOUR CI, 
 # dashboard or POST /v1/apps/<app>/buckets/<bucket>/reproduce), the cloud fires a
 # repository_dispatch at this repo with {app, bucket, runId}; this workflow
 # reproduces the bug against your code and posts the verdict (and recording) back
-# with the private `reproit cloud __replay-dispatch` callback.
+# with ReproIt's private CI callback.
 #
-# `reproit cloud setup` wrote this file, bound this repo on the cloud side, and
+# ReproIt wrote this file, bound this repo on the cloud side, and
 # persisted your project key. The one manual step left is adding your sk_live_...
 # project key as the REPROIT_CLOUD_KEY repo secret (the setup output prints the
 # exact `gh secret set` command). Self-hosters also set a REPROIT_CLOUD_URL
@@ -317,7 +341,7 @@ name: reproit-repro
 on:
   repository_dispatch:
     types: [reproit-repro]
-  # Smoke-test the loop by hand: pass an app + bucket id from `reproit cloud buckets`.
+  # Smoke-test the loop by hand with an app + bucket id from `reproit bugs`.
   workflow_dispatch:
     inputs:
       app:
@@ -347,7 +371,7 @@ jobs:
           APP="${{ github.event.client_payload.app || github.event.inputs.app }}"
           BUCKET="${{ github.event.client_payload.bucket || github.event.inputs.bucket }}"
           RUN_ID="${{ github.event.client_payload.runId }}"
-          ~/.local/bin/reproit cloud __replay-dispatch \
+          ~/.local/bin/reproit __cloud-internal __replay-dispatch \
             --app "$APP" \
             --bucket "$BUCKET" \
             --as "$BUCKET" \
@@ -430,7 +454,7 @@ fn print_sdk_hint(platform: Option<&str>, app: &str, publishable_key: &str, endp
     println!("     (that is the web shape; see {sdk}/README for your platform's exact call)");
 }
 
-/// `reproit cloud setup`: wire an EXISTING cloud project into this repo in one
+/// Internal setup helper: wire an existing Cloud project into this repo in one
 /// step. Validates + persists the project key, binds this GitHub repo for
 /// `repository_dispatch` on the cloud side (via `PUT /v1/apps/:app/integrations`,
 /// reachable with just the project key), writes the reproduction workflow, and
@@ -465,7 +489,7 @@ pub async fn setup(
         );
     };
 
-    println!("Reproit cloud setup");
+    println!("ReproIt project setup");
     println!("  cloud:    {base}");
     println!("  app:      {app}");
 
@@ -617,7 +641,7 @@ pub async fn setup(
     };
     print_sdk_hint(platform_hint.as_deref(), app, &publishable_key, &endpoint);
     println!("  3. Ship a crash, then list your production bugs:");
-    println!("       reproit cloud buckets --app {app}");
+    println!("       reproit bugs");
     Ok(())
 }
 
@@ -754,7 +778,7 @@ pub async fn find(
     Ok(())
 }
 
-/// `cloud buckets`: the IMPACT-RANKED bug list, each with its content-addressed
+/// `bugs`: the IMPACT-RANKED bug list, each with its content-addressed
 /// `bucketId` -- the id the rest of the loop (`pull`/`triage`/`timeline`) keys
 /// off. GETs `/v1/apps/:app/buckets` (already impact-sorted server-side). This is
 /// the entry point the agent loop starts from: it's the ONLY place the `bkt_...`
@@ -813,9 +837,9 @@ pub async fn top_bucket_id(
     let items = v["items"]
         .as_array()
         .context("cloud buckets response did not include an items array")?;
-    let top = items.first().context(
-        "no buckets available to pull; run `reproit cloud buckets` after production data arrives",
-    )?;
+    let top = items
+        .first()
+        .context("no bugs available yet; run `reproit bugs` after production data arrives")?;
     let id = top["bucketId"]
         .as_str()
         .context("top bucket did not include bucketId")?;
@@ -837,22 +861,16 @@ pub async fn explain(
         (Some(bucket), _) => list
             .iter()
             .find(|b| b["bucketId"].as_str() == Some(bucket))
-            .with_context(|| {
-                format!(
-                    "no bucket `{bucket}` in app `{app}`; run `reproit cloud buckets --app {app}`"
-                )
-            })?,
+            .with_context(|| format!("no bucket `{bucket}` in app `{app}`; run `reproit bugs`"))?,
         (None, Some(sig)) => list
             .iter()
             .find(|b| b["crashSig"].as_str() == Some(sig))
             .with_context(|| {
-                format!(
-                    "no bucket with crash signature `{sig}`; run `reproit cloud buckets --app {app}`"
-                )
+                format!("no bucket with crash signature `{sig}`; run `reproit bugs`")
             })?,
-        (None, None) => list.first().with_context(|| {
-            format!("no buckets available for `{app}`; run `reproit cloud buckets --app {app}`")
-        })?,
+        (None, None) => list
+            .first()
+            .with_context(|| format!("no buckets available for `{app}`; run `reproit bugs`"))?,
     };
     let bucket = item["bucketId"]
         .as_str()
@@ -1008,7 +1026,7 @@ fn run_check_and_classify(target: &str, context_hint: Option<&Value>) -> Result<
     Ok(verdict)
 }
 
-/// Bucket-first `cloud reproduce`: `pull` the content-addressed bucket into a
+/// Bucket-first production reproduction: materialize the content-addressed bucket as a
 /// first-class LOCAL repro named `as_name`, then (with `run`) `check` it. This is
 /// the one-step "show me this prod bug locally" verb; it REUSES the existing pull
 /// + check code paths (no duplicated materialize/replay logic), so the pulled
@@ -1033,6 +1051,36 @@ pub async fn reproduce_bucket(
     // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
     // (fixture folded in) and prints the save summary + the `check` hint.
     pull(root, app, bucket, as_name, json, cloud.clone(), key.clone()).await?;
+    report_reproduction(app, bucket, as_name, run, run_id, cloud, key).await
+}
+
+/// Resolve a production bucket across the projects visible to the signed-in
+/// account, materialize it locally, and report the replay verdict to its owning
+/// project. This is the normal human path behind `reproit bkt_...`.
+#[allow(clippy::too_many_arguments)]
+pub async fn reproduce_bucket_global(
+    root: &std::path::Path,
+    bucket: &str,
+    as_name: &str,
+    run: bool,
+    run_id: Option<i64>,
+    json: bool,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<()> {
+    let app = pull_global(root, bucket, as_name, json, cloud.clone(), key.clone()).await?;
+    report_reproduction(&app, bucket, as_name, run, run_id, cloud, key).await
+}
+
+async fn report_reproduction(
+    app: &str,
+    bucket: &str,
+    as_name: &str,
+    run: bool,
+    run_id: Option<i64>,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<()> {
     if !run {
         return Ok(());
     }
@@ -1074,7 +1122,7 @@ pub async fn reproduce_bucket(
 /// What a pulled cloud package materializes into LOCALLY: the same on-disk
 /// artifacts `keep` writes (`meta.json` + `replay.json`), so a pulled repro is
 /// byte-identical in SHAPE to a kept one and `check` reads it unchanged. This is
-/// the PURE core of `cloud pull`: a replay-package JSON in, a `Meta` + action
+/// the pure core of production materialization: a replay-package JSON in, a `Meta` + action
 /// sequence + property-matched fixture out, with no network and no filesystem.
 /// The boundary is one explicit verb; once materialized, the repro is
 /// local-first-class.
@@ -1220,7 +1268,7 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
     })
 }
 
-/// `cloud pull`: EXPLICITLY download a cloud bucket as a first-class LOCAL repro.
+/// Download a cloud bucket as a first-class local repro.
 ///
 /// This is the ONE cloud boundary in the check loop: it fetches the bucket's
 /// replay package (the content-addressed `GET /v1/apps/:app/buckets/:bucket`),
@@ -1240,9 +1288,56 @@ pub async fn pull(
     let c = Cloud::new(cloud, key);
     // The content-addressed bucket endpoint (matches the content-hash model).
     let pkg = c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await?;
+    persist_pulled_package(root, app, bucket, as_name, json, &pkg)
+}
+
+/// Pull a bucket without asking the user for its app id. The authenticated
+/// global endpoint returns the owning app with the portable replay package.
+pub async fn pull_global(
+    root: &std::path::Path,
+    bucket: &str,
+    as_name: &str,
+    json: bool,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<String> {
+    let c = Cloud::new(cloud, key);
+    let selected = crate::crosscut::load_cloud_app(&crate::crosscut::token_path());
+    let (app, pkg) = if let Some(app) = selected {
+        match c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await {
+            Ok(pkg) => (app, pkg),
+            Err(_) => {
+                let pkg = c.get(&format!("/v1/buckets/{bucket}")).await?;
+                let app = pkg["appId"]
+                    .as_str()
+                    .context("cloud bucket package omitted appId")?
+                    .to_string();
+                (app, pkg)
+            }
+        }
+    } else {
+        let pkg = c.get(&format!("/v1/buckets/{bucket}")).await?;
+        let app = pkg["appId"]
+            .as_str()
+            .context("cloud bucket package omitted appId")?
+            .to_string();
+        (app, pkg)
+    };
+    persist_pulled_package(root, &app, bucket, as_name, json, &pkg)?;
+    Ok(app)
+}
+
+fn persist_pulled_package(
+    root: &std::path::Path,
+    app: &str,
+    bucket: &str,
+    as_name: &str,
+    json: bool,
+    pkg: &Value,
+) -> Result<()> {
     let source = format!("bucket {bucket}");
 
-    let pulled = materialize_pull(&pkg, as_name, &chrono::Local::now().to_rfc3339())?;
+    let pulled = materialize_pull(pkg, as_name, &chrono::Local::now().to_rfc3339())?;
     let meta = &pulled.meta;
 
     // Write the SAME two artifacts `keep` writes, so `check` reads it unchanged:
@@ -1275,7 +1370,7 @@ pub async fn pull(
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "command": "cloud pull",
+                "command": "production bucket pull",
                 "app": app,
                 "bucket": bucket,
                 "id": repro::display_repro_id(&meta.id),
@@ -1311,7 +1406,7 @@ pub async fn pull(
     Ok(())
 }
 
-/// `cloud triage`: READ or SET a bucket's triage status (the management state a
+/// `triage`: READ or SET a bucket's triage status (the management state a
 /// dev/agent acts on, distinct from prod-truth resolution).
 ///
 /// With no `status`, GETs `/v1/apps/:app/buckets/:bucket/triage` and renders the
@@ -1378,18 +1473,14 @@ pub async fn triage(
         println!("  updated:   {updated}");
     }
     if status.is_none() {
-        println!(
-            "\nSet it with: reproit cloud triage --app {app} --bucket {bucket} --status fixed --fixed-in-build <ver>"
-        );
+        println!("\nSet it with: reproit triage {bucket} fixed --fixed-in-build <ver>");
     } else {
-        println!(
-            "\nMonitor prod-truth: reproit cloud resolution-events --app {app}   (watch for a regression)"
-        );
+        println!("\nMonitor prod-truth: reproit resolution-events");
     }
     Ok(())
 }
 
-/// `cloud resolution-events`: list recent prod-truth TRANSITIONS the background
+/// `resolution-events`: list recent prod-truth TRANSITIONS the background
 /// pass recorded (`resolved->regressed`, `resolving->resolved`, ...), newest
 /// first. GETs `/v1/apps/:app/resolution-events`.
 ///
@@ -1430,7 +1521,7 @@ pub async fn resolution_events(
     Ok(())
 }
 
-/// `cloud timeline`: the per-bucket OCCURRENCE time-series (segmented by build)
+/// `timeline`: the per-bucket OCCURRENCE time-series (segmented by build)
 /// plus the computed prod-truth resolution. GETs
 /// `/v1/apps/:app/buckets/:bucket/timeline`. The series shows whether occurrences
 /// dropped (resolving/resolved) or returned (regressed) after a fix anchor.
@@ -1614,7 +1705,7 @@ mod tests {
     fn materialize_pull_writes_a_checkable_repro_shape() {
         // A bucket replay package (the content-addressed endpoint's shape) ->
         // Meta + actions identical in SHAPE to what `keep` writes, so `check`
-        // reads it unchanged. This is the PURE core of `cloud pull` (no network,
+        // reads it unchanged. This is the pure materialization core (no network,
         // no fs): given the package JSON, materialize the local repro.
         let pkg = json!({
             "bucketId": "b00b",

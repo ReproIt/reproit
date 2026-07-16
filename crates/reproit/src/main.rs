@@ -561,8 +561,8 @@ enum Cmd {
         device: Option<String>,
     },
     /// Record one replayable repro id ONCE with full evidence + an annotated
-    /// video. Use after `fuzz` prints an fnd_... id or after `keep`; for quick
-    /// visible-issue audit clips, use `scan --record`.
+    /// video. A production bkt_... is pulled automatically when needed. Use
+    /// `scan --record` for quick visible-issue audit clips.
     Record {
         /// The repro to record: pending fnd_..., saved rep_..., or alias.
         repro: String,
@@ -619,26 +619,17 @@ enum Cmd {
     },
     /// List saved local repros under .reproit/repros/.
     Repros,
-    /// List confirmed production bugs, impact-ranked. Uses the project selected
-    /// by `reproit cloud setup`, so the normal form is simply `reproit bugs`.
+    /// List confirmed production bugs, impact-ranked, for the project selected
+    /// during `reproit login`.
     Bugs {
         /// Filter by message, signature, or bucket id.
         query: Option<String>,
-        #[arg(long)]
-        app: Option<String>,
-        #[arg(long)]
-        cloud: Option<String>,
-        #[arg(long)]
-        key: Option<String>,
     },
     /// Internal route for the direct `reproit bkt_...` form.
     #[command(name = "__replay-bucket", hide = true)]
     ReplayBucket {
         /// Production bucket/finding id (bkt_...).
         issue: String,
-        /// Cloud app id (default: $REPROIT_CLOUD_APP).
-        #[arg(long)]
-        app: Option<String>,
         /// Local alias (default: the production issue id).
         #[arg(long = "as", name = "name")]
         as_name: Option<String>,
@@ -661,13 +652,17 @@ enum Cmd {
         fixed_in_build: Option<String>,
         #[arg(long)]
         assignee: Option<i64>,
-        #[arg(long)]
-        app: Option<String>,
-        #[arg(long)]
-        cloud: Option<String>,
-        #[arg(long)]
-        key: Option<String>,
     },
+    /// Show a production bug's occurrence history and resolution state.
+    Timeline { issue: String },
+    /// Match a bug report to a confirmed production bug.
+    Diagnose {
+        report: String,
+        #[arg(long)]
+        run: bool,
+    },
+    /// List recent production confirmation and regression transitions.
+    ResolutionEvents,
     /// Open a repro's recorded video in your default player. Recordings live
     /// under .reproit/recordings/repro/ (gitignored); make one with `record <id>`.
     Watch {
@@ -951,8 +946,8 @@ enum Cmd {
         #[arg(long, short)]
         out: Option<PathBuf>,
     },
-    /// Cloud loop: a fleet + production telemetry. Submit jobs, browse findings,
-    /// see blast radius, and reproduce real user sessions deterministically.
+    /// Internal Cloud and CI plumbing. Human Cloud workflows are top-level.
+    #[command(name = "__cloud-internal", hide = true)]
     Cloud {
         #[command(subcommand)]
         action: CloudAction,
@@ -966,9 +961,6 @@ enum Cmd {
         /// Account/project key for noninteractive CI (default: $REPROIT_CLOUD_KEY).
         #[arg(long)]
         key: Option<String>,
-        /// Optional app id used to validate project access.
-        #[arg(long)]
-        app: Option<String>,
     },
     /// (internal) PTY-driven terminal-UI runner; spawned by the tui backend
     #[command(name = "__tui", hide = true)]
@@ -1512,10 +1504,14 @@ async fn main() -> Result<ExitCode> {
             doctor(cli.config.as_deref(), &ctx).await?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Login { cloud, key, app } => {
+        Cmd::Login { cloud, key } => {
             match cloud_cmd(
                 cli.config.as_deref(),
-                CloudAction::Login { cloud, key, app },
+                CloudAction::Login {
+                    cloud,
+                    key,
+                    app: None,
+                },
                 ctx.json,
                 ctx.yes,
             )
@@ -1688,6 +1684,10 @@ async fn main() -> Result<ExitCode> {
             flicker,
         } => {
             let loaded = config::load(cli.config.as_deref())?;
+            if repro.starts_with("bkt_") && repro::resolve(&loaded.root, &repro).is_none() {
+                let (cloud, key) = cloud_creds(None, None);
+                triage::pull_global(&loaded.root, &repro, &repro, ctx.json, cloud, key).await?;
+            }
             let journey = resolve_repro_journey(&loaded.root, &repro)?;
             let meta = repro::resolve(&loaded.root, &repro)
                 .ok_or_else(|| anyhow::anyhow!("no repro `{repro}` (by id or alias)"))?;
@@ -2191,32 +2191,24 @@ async fn main() -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Bugs {
-            query,
-            app,
-            cloud,
-            key,
-        } => {
-            let app = cloud_app_id(app)?;
-            let (cloud, key) = cloud_creds(cloud, key);
+        Cmd::Bugs { query } => {
+            let app = cloud_app_id(None)?;
+            let (cloud, key) = cloud_creds(None, None);
             triage::buckets(&app, query.as_deref(), ctx.json, cloud, key).await?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::ReplayBucket {
             issue,
-            app,
             as_name,
             no_run,
             cloud,
             key,
         } => {
-            let app = cloud_app_id(app)?;
             let alias = as_name.unwrap_or_else(|| issue.clone());
             let (cloud, key) = cloud_creds(cloud, key);
             let loaded = config::load(cli.config.as_deref())?;
-            triage::reproduce_bucket(
+            triage::reproduce_bucket_global(
                 &loaded.root,
-                &app,
                 &issue,
                 &alias,
                 !no_run,
@@ -2233,12 +2225,9 @@ async fn main() -> Result<ExitCode> {
             status,
             fixed_in_build,
             assignee,
-            app,
-            cloud,
-            key,
         } => {
-            let app = cloud_app_id(app)?;
-            let (cloud, key) = cloud_creds(cloud, key);
+            let (cloud, key) = cloud_creds(None, None);
+            let app = triage::bucket_app(&issue, cloud.clone(), key.clone()).await?;
             triage::triage(
                 &app,
                 &issue,
@@ -2250,6 +2239,24 @@ async fn main() -> Result<ExitCode> {
                 key,
             )
             .await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Timeline { issue } => {
+            let (cloud, key) = cloud_creds(None, None);
+            let app = triage::bucket_app(&issue, cloud.clone(), key.clone()).await?;
+            triage::timeline(&app, &issue, ctx.json, cloud, key).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Diagnose { report, run } => {
+            let app = cloud_app_id(None)?;
+            let (cloud, key) = cloud_creds(None, None);
+            triage::diagnose(&app, &report, run, cloud, key).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::ResolutionEvents => {
+            let app = cloud_app_id(None)?;
+            let (cloud, key) = cloud_creds(None, None);
+            triage::resolution_events(&app, ctx.json, cloud, key).await?;
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Watch { repro } => {
@@ -3492,7 +3499,7 @@ fn cloud_app_id(app: Option<String>) -> Result<String> {
     app.or_else(|| std::env::var("REPROIT_CLOUD_APP").ok())
         .or_else(|| crosscut::load_cloud_app(&crosscut::token_path()))
         .ok_or_else(|| {
-            anyhow::anyhow!("no cloud project selected: run `reproit cloud setup --app <app>` once")
+            anyhow::anyhow!("no project selected: run `reproit login` and choose a project")
         })
 }
 
@@ -3566,7 +3573,7 @@ async fn cloud_cmd(
                         println!("No projects yet. Create one in Cloud.")
                     }
                     None => println!(
-                        "No project selected. Run `reproit login --app <app-id>` to select one."
+                        "No project selected. Run `reproit login` in a terminal and choose one."
                     ),
                 }
                 return Ok(());
@@ -5830,7 +5837,7 @@ async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> 
             app_id.unwrap_or_else(|| {
                 format!("not set; local app platform is {}", l.config.app.platform)
             }),
-            Some("set REPROIT_CLOUD_APP or pass --app to cloud commands".into()),
+            Some("run `reproit login` and select a project".into()),
         );
     }
 
@@ -6314,16 +6321,6 @@ tap:Advanced
             ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
         );
         assert_eq!(
-            expand(&["reproit", "bkt_deadbeef0001", "--app", "acme-store"]),
-            [
-                "reproit",
-                "__replay-bucket",
-                "bkt_deadbeef0001",
-                "--app",
-                "acme-store"
-            ]
-        );
-        assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001"]),
             ["reproit", "check", "--repro-id", "fnd_deadbeef0001"]
         );
@@ -6347,6 +6344,7 @@ tap:Advanced
             vec!["reproit", "pull", "bkt_deadbeef0001"],
             vec!["reproit", "check", "fnd_deadbeef0001"],
             vec!["reproit", "check", "checkout"],
+            vec!["reproit", "cloud"],
             vec!["reproit", "cloud", "login"],
             vec!["reproit", "cloud", "pull"],
             vec!["reproit", "cloud", "reproduce"],
@@ -6364,7 +6362,7 @@ tap:Advanced
 
         let cli = Cli::try_parse_from([
             "reproit",
-            "cloud",
+            "__cloud-internal",
             "__replay-dispatch",
             "--app",
             "acme-store",
@@ -6384,16 +6382,16 @@ tap:Advanced
     }
 
     #[test]
-    fn hosted_login_needs_no_key_and_can_optionally_name_a_project() {
-        let cli = Cli::try_parse_from(["reproit", "login", "--app", "acme-store"]).unwrap();
+    fn hosted_login_needs_no_key_or_project_argument() {
+        let cli = Cli::try_parse_from(["reproit", "login"]).unwrap();
         assert!(matches!(
             cli.command,
             Cmd::Login {
                 cloud: None,
                 key: None,
-                app: Some(app),
-            } if app == "acme-store"
+            }
         ));
+        assert!(Cli::try_parse_from(["reproit", "login", "--app", "acme-store"]).is_err());
     }
 
     #[test]
