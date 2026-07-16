@@ -4642,7 +4642,7 @@ async fn check_repro(
     // dart-define for Flutter, an env var for the rest, both via the
     // orchestrator's define list), so a repro can be replayed under each locale.
     // Precedence: an explicit `--locale` (the cross-locale matrix) wins; otherwise
-    // fall back to a `locale` pinned in the stored replay.json by `cloud pull` /
+    // fall back to a `locale` pinned in the stored production replay.json /
     // `reproduce` (the property-matched fixture's locale), so a locale-dependent
     // prod bug reproduces under a plain `reproit check <name>` without the caller
     // having to remember which locale it came from. The runner reads `inputs` off
@@ -6314,6 +6314,21 @@ tap:Advanced
             ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
         );
         assert_eq!(
+            expand(&[
+                "reproit",
+                "bkt_deadbeef0001",
+                "--app",
+                "acme-store"
+            ]),
+            [
+                "reproit",
+                "__replay-bucket",
+                "bkt_deadbeef0001",
+                "--app",
+                "acme-store"
+            ]
+        );
+        assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001"]),
             ["reproit", "check", "--repro-id", "fnd_deadbeef0001"]
         );
@@ -6350,6 +6365,26 @@ tap:Advanced
             Cmd::Journey {
                 action: JourneyAction::Run(args)
             } if args == ["checkout"]
+        ));
+
+        let cli = Cli::try_parse_from([
+            "reproit",
+            "cloud",
+            "__replay-dispatch",
+            "--app",
+            "acme-store",
+            "--bucket",
+            "bkt_deadbeef0001",
+            "--as",
+            "bkt_deadbeef0001",
+            "--run",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Cloud {
+                action: CloudAction::ReplayDispatch { .. }
+            }
         ));
     }
 

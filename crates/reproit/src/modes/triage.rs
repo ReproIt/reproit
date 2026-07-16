@@ -304,7 +304,7 @@ const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction: runs in YOUR CI, 
 # dashboard or POST /v1/apps/<app>/buckets/<bucket>/reproduce), the cloud fires a
 # repository_dispatch at this repo with {app, bucket, runId}; this workflow
 # reproduces the bug against your code and posts the verdict (and recording) back
-# with `reproit cloud reproduce ... --run`.
+# with the private `reproit cloud __replay-dispatch` callback.
 #
 # `reproit cloud setup` wrote this file, bound this repo on the cloud side, and
 # persisted your project key. The one manual step left is adding your sk_live_...
