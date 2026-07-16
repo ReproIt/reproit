@@ -165,18 +165,21 @@ reproit resolution-events
 ```
 
 `reproit login` can run from any directory. It stores an account credential and
-lets bucket ids resolve across every project you can access. Run `reproit
-bkt_...` or `reproit record bkt_...` inside that app's source checkout so the
-downloaded production actions can execute against its local runner and current
-code. From another directory, pass `--config /path/to/app/reproit.yaml`.
+lets bucket ids resolve across every project you can access. A bucket needs a
+runnable app configuration, not necessarily source. For a deployed web app,
+create a small workspace with `reproit init https://app.example.com`, then run
+`reproit bkt_...` there. To reproduce against current local code, run it inside
+the app checkout. From another directory, pass
+`--config /path/to/app/reproit.yaml`.
 
-Cloud does not upload or clone source code. Web, Flutter, iOS, Android, and
-desktop replays all use the same rule: the local config owns the build command,
-runtime, simulator or device, and auth. Cloud supplies the confirmed production
-actions, failure signature, safe fixture properties, and replay capsule when
-one exists. A bucket replay executes those actions directly; it does not
-download a source tree or a second app graph. Scan and fuzz maintain the local
-app model automatically for discovery.
+Cloud does not upload or clone source code. A URL-backed web configuration owns
+the deployed target and browser runner. A source-backed web, Flutter, iOS,
+Android, or desktop configuration owns the build command, runtime, simulator or
+device, and auth. Cloud supplies the confirmed production actions, failure
+signature, safe fixture properties, and replay capsule when one exists. A
+bucket replay executes those actions directly; it does not download a source
+tree or a second app graph. Scan and fuzz maintain the local app model
+automatically for discovery.
 
 Cross-cutting flags on `fuzz`/`check`:
 

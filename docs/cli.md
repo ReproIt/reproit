@@ -395,14 +395,15 @@ reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit resolution-events
 ```
 
-Login is account-scoped and can run anywhere. Reproduction is source-scoped:
-run a bucket command inside the matching app checkout, or pass
+Login is account-scoped and can run anywhere. Reproduction is execution-scoped:
+it needs a `reproit.yaml` that can launch the target. That may be a source
+checkout, or a URL workspace created with `reproit init
+https://app.example.com`. From elsewhere, pass
 `--config /path/to/app/reproit.yaml`. Reproit downloads the confirmed structural
-path and failure signature, then executes them with that checkout's current
-runner, auth, device or simulator. Bucket replay does not download a source tree
-or app graph. It executes the saved structural actions directly; scan and fuzz
-maintain the checkout's discovery graph automatically. Cloud cannot safely
-choose an unknown build command for a source tree it does not store.
+path and failure signature, then executes them with the configured browser,
+local runner, auth, device, or simulator. Bucket replay does not download a
+source tree or app graph. It executes the saved structural actions directly;
+scan and fuzz maintain the discovery graph automatically.
 
 Local is the fast inner loop in your worktree; cloud is the broad outer loop with
 history. Every cloud view is backed by exportable raw data.

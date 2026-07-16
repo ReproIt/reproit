@@ -1684,7 +1684,7 @@ async fn main() -> Result<ExitCode> {
             flicker,
         } => {
             let loaded = config::load(cli.config.as_deref()).with_context(|| {
-                "recording a production bug needs the app source checkout. Run this inside the app repository after `reproit init`, or pass `--config /path/to/reproit.yaml`"
+                "recording a production bug needs a runnable app configuration. In a source checkout run `reproit init`; for a deployed web app run `reproit init https://app.example.com` in a workspace; from elsewhere pass `--config /path/to/reproit.yaml`"
             })?;
             if repro.starts_with("bkt_") && repro::resolve(&loaded.root, &repro).is_none() {
                 let (cloud, key) = cloud_creds(None, None);
@@ -2209,7 +2209,7 @@ async fn main() -> Result<ExitCode> {
             let alias = as_name.unwrap_or_else(|| issue.clone());
             let (cloud, key) = cloud_creds(cloud, key);
             let loaded = config::load(cli.config.as_deref()).with_context(|| {
-                "replaying a production bug needs the app source checkout. Run this inside the app repository after `reproit init`, or pass `--config /path/to/reproit.yaml`"
+                "replaying a production bug needs a runnable app configuration. In a source checkout run `reproit init`; for a deployed web app run `reproit init https://app.example.com` in a workspace; from elsewhere pass `--config /path/to/reproit.yaml`"
             })?;
             triage::reproduce_bucket_global(
                 &loaded.root,
