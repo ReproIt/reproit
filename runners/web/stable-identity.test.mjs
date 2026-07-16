@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { snapshot, gtCollect, redactNetworkValue, redactNetworkHeaders } from './runner.mjs';
+import { snapshot, gtCollect, tap, redactNetworkValue, redactNetworkHeaders } from './runner.mjs';
 
 test('causal network capture redacts recursively before persistence', () => {
   assert.deepEqual(
@@ -88,6 +88,33 @@ test('explicit semantic identity remains canonical and replayable', async () => 
     const renamed = await snapshot(page, []);
     assert.notEqual(renamed.sig, after.sig, 'name is also an explicit semantic contract');
     assert.equal(renamed.tappables[1].sel, 'key:name:billing_email');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('positional replay identity survives a different viewport height', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 800, height: 300 } });
+    await page.setContent(`
+      <button>Header action</button>
+      <div style="height:700px"></div>
+      <button id="target" onclick="window.hit=(window.hit||0)+1">Checkout</button>
+    `);
+
+    // The production SDK assigns Checkout button#1 across every style-visible
+    // control. It is below this runner's fold, but must keep that identity.
+    const top = await snapshot(page, []);
+    assert.deepEqual(top.tappables.map((el) => el.sel), ['role:button#0']);
+
+    await page.locator('#target').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const scrolled = await snapshot(page, []);
+    assert.ok(scrolled.tappables.some((el) => el.sel === 'role:button#1'));
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    assert.equal(await tap(page, 'role:button#1'), true);
+    assert.equal(await page.evaluate(() => window.hit), 1);
   } finally {
     await browser.close();
   }

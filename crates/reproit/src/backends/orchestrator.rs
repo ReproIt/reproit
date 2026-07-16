@@ -546,6 +546,21 @@ pub async fn run_journey(
         }
     }
 
+    // Bring-your-own runners (web, Electron, desktop, TUI, and Appium) write
+    // their own media into `video-<label>/`. Host-side `recordings` is empty for
+    // those backends, so relying on it made a successful `record` leave
+    // `manifest.json` with `"video": null` even though the clip existed. Keep a
+    // per-device view so manifests and composites both reference the actual
+    // runner-produced evidence.
+    let device_videos: Vec<Option<PathBuf>> = if byo_target {
+        drives
+            .iter()
+            .map(|drive| newest_runner_video(&run_dir.join(format!("video-{}", drive.label))))
+            .collect()
+    } else {
+        (0..drives.len()).map(|i| videos.get(i).cloned()).collect()
+    };
+
     let device_manifests: Vec<DeviceManifest> = sims
         .iter()
         .zip(&drives)
@@ -554,7 +569,9 @@ pub async fn run_journey(
             name: sim.name.clone(),
             udid: sim.udid.clone(),
             log: drive.log_path.to_string_lossy().into_owned(),
-            video: videos.get(i).map(|v| v.to_string_lossy().into_owned()),
+            video: device_videos[i]
+                .as_ref()
+                .map(|v| v.to_string_lossy().into_owned()),
             passed: drive.passed(),
             frames: std::fs::read_to_string(&drive.log_path)
                 .ok()
@@ -568,9 +585,10 @@ pub async fn run_journey(
 
     // 8. Composite multi-device videos side by side.
     let mut composite_path = None;
-    if cfg.evidence.composite && videos.len() >= 2 {
+    let composite_inputs: Vec<PathBuf> = device_videos.iter().flatten().cloned().collect();
+    if cfg.evidence.composite && composite_inputs.len() >= 2 {
         let out = run_dir.join("composite.mp4");
-        if composite_side_by_side(&videos, &out).await {
+        if composite_side_by_side(&composite_inputs, &out).await {
             eprintln!("  wrote {}", out.display());
             composite_path = Some(out.to_string_lossy().into_owned());
         } else {
@@ -973,6 +991,44 @@ fn memory_summary(run_dir: &Path, label: &str) -> Option<serde_json::Value> {
     }))
 }
 
+/// Find the finalized clip emitted by a runner-managed recording backend.
+/// Playwright uses generated filenames in a per-device directory, while native
+/// runners use stable names such as `clip.mov`, so discovery is intentionally
+/// extension-based and recursive.
+fn newest_runner_video(dir: &Path) -> Option<PathBuf> {
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let is_video = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| {
+                    matches!(ext.to_ascii_lowercase().as_str(), "webm" | "mov" | "mp4")
+                });
+            if !is_video {
+                continue;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            if newest.as_ref().is_none_or(|(best, _)| modified > *best) {
+                newest = Some((modified, path));
+            }
+        }
+    }
+    newest.map(|(_, path)| path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1002,5 +1058,22 @@ mod tests {
         t.mark("walk");
         t.finish();
         assert!(t.phases.is_empty()); // no work accrued when disabled
+    }
+
+    #[test]
+    fn discovers_runner_managed_video_recursively() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-runner-video-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let nested = root.join("playwright");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join("box-spec.json"), b"{}").unwrap();
+        let video = nested.join("page-generated.webm");
+        std::fs::write(&video, b"video").unwrap();
+
+        assert_eq!(newest_runner_video(&root), Some(video));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

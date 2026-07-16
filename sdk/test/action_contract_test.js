@@ -54,4 +54,14 @@ for (var i = 0; i < files.length; i++) {
   }
 }
 
+var webSource = fs.readFileSync(path.join(root, "reproit-web.js"), "utf8");
+assert.ok(
+  webSource.indexOf('self._observe(self._pending || "nav")') >= 0,
+  "web navigation must preserve the structural click that triggered it"
+);
+assert.ok(
+  webSource.indexOf('addEventListener("hashchange", observeNavigation)') >= 0,
+  "hash-router navigation must be captured"
+);
+
 console.log("PASS: SDK action contract keeps replay structural and labels display-only");

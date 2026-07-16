@@ -1518,6 +1518,11 @@ async function snapshot(page, valueNodeSelectors) {
     const labels = [];          // DISPLAY-ONLY visible text
     const rawTaps = [];         // tappable nodes in document order
     const extraTaps = [];       // keyed pointer-operable nodes interactive() drops
+    // Positional selectors live in a viewport-independent index space. The
+    // production SDK records role indexes across every style-visible control,
+    // including controls reached after scrolling. Keep that same index here
+    // while still offering only currently reachable controls to the fuzzer.
+    const visiblePerRole = {};
     // Parent registry: a stable per-container index so sibling tappables can be
     // grouped (a button-cluster choice picker). Plus a selected-state read, so a
     // mutually-exclusive choice group (exactly one selected) is distinguishable
@@ -1898,7 +1903,13 @@ async function snapshot(page, valueNodeSelectors) {
         // not be able to minimize a repro through it. Gating here means such a
         // control also never consumes a role+index slot (the index is assigned
         // from rawTaps below), so no replay selector can resolve to it.
-        if (interactive(el, role) && reachable(el)) {
+        const isInteractive = interactive(el, role);
+        let structuralIndex = -1;
+        if (isInteractive) {
+          structuralIndex = visiblePerRole[role] || 0;
+          visiblePerRole[role] = structuralIndex + 1;
+        }
+        if (isInteractive && reachable(el)) {
           const ac = (el.getAttribute && el.getAttribute('autocomplete') || '').toLowerCase();
           const it = (el.getAttribute && el.getAttribute('type') || '').toLowerCase();
           const purpose = ac === 'one-time-code' ? 'otp'
@@ -1908,7 +1919,7 @@ async function snapshot(page, valueNodeSelectors) {
             : (ac === 'tel' || ac === 'tel-national' || it === 'tel') ? 'phone'
             : null;
           rawTaps.push({
-            role, key: keyOf(el),
+            role, key: keyOf(el), index: structuralIndex,
             label: name ? clipLabel(name) : '',
             bounds: boundsOf(el),
             external: isExternalLink(el),
@@ -1948,11 +1959,11 @@ async function snapshot(page, valueNodeSelectors) {
     const root = document.body || document.documentElement;
     const tree = root ? buildNode(root, true) : { role: 'screen', children: [] };
 
-    // Structural selectors for replay (key, else role+per-role index).
-    const perRole = {};
+    // Structural selectors for replay (key, else viewport-independent role
+    // index). `index` was assigned across every style-visible interactive,
+    // while rawTaps contains only the subset a user can reach right now.
     const tappables = rawTaps.map((tn) => {
-      const idx = perRole[tn.role] || 0;
-      perRole[tn.role] = idx + 1;
+      const idx = tn.index;
       const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
       return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, bounds: tn.bounds || null, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected, purpose: tn.purpose || null };
     });
@@ -2353,8 +2364,10 @@ async function gtCollect(page) {
     // Clear any stale tags from a prior state, then re-tag in document order.
     for (const e of document.querySelectorAll('[data-reproit-gt]')) e.removeAttribute('data-reproit-gt');
     const out = [];
-    // perRole counts ONLY tappable-walk elements, so role:<role>#<idx> selectors
-    // match snapshot()/EXPLORE:STATE byte-for-byte. The ground truth also covers
+    // perRole counts every style-visible interactive, so role:<role>#<idx>
+    // selectors match the production SDK and snapshot() byte-for-byte even when
+    // their viewports differ. The ground truth still emits only controls that
+    // are reachable in the presented viewport. It also covers
     // a BROADER set: elements that are operable by pointer yet the tappable
     // grammar drops them (the <div role=option tabindex=-1> delegated case is
     // the motivating one). Such broader-only elements use the same explicit
@@ -2368,7 +2381,10 @@ async function gtCollect(page) {
         // The tappable walk takes only REACHABLE interactives, lockstep with
         // snapshot(), so role:<role>#<idx> indices match EXPLORE:STATE.
         const isReachable = reachable(el);
-        const inTappableWalk = interactive(el, role) && isReachable;
+        const isInteractive = interactive(el, role);
+        const structuralIndex = isInteractive ? (perRole[role] || 0) : -1;
+        if (isInteractive) perRole[role] = structuralIndex + 1;
+        const inTappableWalk = isInteractive && isReachable;
         const native = nativeInteractive(el);
         // cursor:pointer is INHERITED, so a clickable parent paints every
         // descendant with it. Only count it as an OWN operability signal when
@@ -2386,14 +2402,12 @@ async function gtCollect(page) {
         // previously caused tens of thousands of serial CDP inspections on
         // virtualized docs trees without contributing a possible finding.
         const candidate = isReachable && (inTappableWalk || native || cursor || deleg);
-        // Keep the per-role index in lockstep with snapshot() by only advancing
-        // it for tappable-walk elements.
+        // The structural index was advanced above for every style-visible
+        // interactive; candidate filtering must not renumber it.
         let sel;
         if (inTappableWalk) {
-          const idx = perRole[role] || 0;
-          perRole[role] = idx + 1;
           const key = keyOf(el);
-          sel = key ? 'key:' + key : 'role:' + role + '#' + idx;
+          sel = key ? 'key:' + key : 'role:' + role + '#' + structuralIndex;
         } else if (candidate) {
           const key = keyOf(el);
           // No tappable-walk index to borrow; prefer a stable key. Lacking one,
@@ -2799,6 +2813,22 @@ async function tap(page, sel, opts) {
       if (!hit) return false;
       return hit === el || el.contains(hit);
     };
+    // Production sessions can be captured with a taller/shorter viewport than
+    // the developer's runner. A style-visible target that is merely offscreen is
+    // still the same structural control: scroll it into view before declaring a
+    // stale replay. Hidden or occluded controls remain misses.
+    const bringIntoReach = (el) => {
+      if (reachable(el)) return true;
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const offscreen = r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh
+        || r.left < 0 || r.top < 0 || r.right > vw || r.bottom > vh;
+      if (!offscreen) return false;
+      try { el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' }); } catch (_) {}
+      return reachable(el);
+    };
     const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
     // On a recorded replay, tag the clicked element so a crash/jank/hang box can
     // point at exactly the control the user actuated (only the LAST one carries
@@ -2885,12 +2915,10 @@ async function tap(page, sel, opts) {
         el = document.querySelector('[name="' + cssEscape(val) + '"]');
       }
       if (!el) return false;
-      // A control that exists in the DOM but isn't REACHABLE (behind an auth
-      // gate, offstage, or occluded) is not actionable: report it as a miss so a
-      // journey that assumed it could reach this control is classified stale, not
-      // a silent pass. Reachability (not just style-visibility) is the floor so a
-      // keyed selector to an offstage control fails exactly like a user would.
-      if (!reachable(el)) return false;
+      // A keyed control may be below the fold on this runner even though it was
+      // reachable in production. Scroll only that case; auth-gated, hidden, and
+      // occluded controls still fail as stale.
+      if (!bringIntoReach(el)) return false;
       return doClick(el);
     }
 
@@ -2954,15 +2982,16 @@ async function tap(page, sel, opts) {
         if (target) return;
         if (!visible(el)) { for (const c of el.children) walk(c); return; }
         const r = roleOf(el);
-        // Count only REACHABLE candidates so the per-role index matches the one
-        // snapshot() assigned (which also gates on reachable). An offstage control
-        // is walked into for its children but never consumes an index here.
-        if (interactive(el, r) && r === role && reachable(el)) { seen++; if (seen === idx) { target = el; return; } }
+        // Count every style-visible interactive, matching the production SDK and
+        // snapshot()'s viewport-independent positional index. Reachability is
+        // checked only after the structural target is selected.
+        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
         for (const c of el.children) walk(c);
       };
       const root = document.body || document.documentElement;
       if (root) walk(root);
       if (!target) return false;
+      if (!bringIntoReach(target)) return false;
       return doClick(target);
     }
 
@@ -3004,6 +3033,18 @@ async function typeInto(page, sel, value, opts) {
       const hit = document.elementFromPoint(cx, cy);
       if (!hit) return false;
       return hit === el || el.contains(hit);
+    };
+    const bringIntoReach = (el) => {
+      if (reachable(el)) return true;
+      if (!visible(el)) return false;
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const offscreen = r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh
+        || r.left < 0 || r.top < 0 || r.right > vw || r.bottom > vh;
+      if (!offscreen) return false;
+      try { el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' }); } catch (_) {}
+      return reachable(el);
     };
     const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
 
@@ -3078,8 +3119,8 @@ async function typeInto(page, sel, value, opts) {
         if (target) return;
         if (!visible(el)) { for (const c of el.children) walk(c); return; }
         const r = roleOf(el);
-        // Count only REACHABLE candidates, lockstep with snapshot()'s index.
-        if (interactive(el, r) && r === role && reachable(el)) { seen++; if (seen === idx) { target = el; return; } }
+        // Count the viewport-independent, style-visible structural space.
+        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
         for (const c of el.children) walk(c);
       };
       const root = document.body || document.documentElement;
@@ -3087,10 +3128,9 @@ async function typeInto(page, sel, value, opts) {
       el = target;
     }
     if (!el) return false;
-    // A field that isn't REACHABLE (behind an auth gate, a collapsed panel, or
-    // offstage) is not fillable: a miss, so the journey is stale rather than a
-    // silent pass.
-    if (!reachable(el)) return false;
+    // A field below the fold can be made reachable without changing its
+    // structural identity. Hidden or occluded fields remain a miss.
+    if (!bringIntoReach(el)) return false;
     // Only type into things that hold text; a non-text target is a miss so the
     // caller treats it like a failed action rather than silently no-op'ing.
     const tag = el.tagName.toLowerCase();

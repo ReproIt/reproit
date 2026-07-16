@@ -929,6 +929,40 @@
     return false;
   }
 
+  // Must match the CLI's structural message normalization. Volatile numeric
+  // values and quoted user-facing labels cannot split one defect into multiple
+  // identities or leak into the production join key.
+  function structuralMessage(message) {
+    var input = String(message == null ? "" : message);
+    var out = "";
+    for (var i = 0; i < input.length; i++) {
+      var c = input[i];
+      if (c === '"' || c === "'") {
+        var quote = c;
+        while (i + 1 < input.length && input[i + 1] !== quote) i++;
+        if (i + 1 < input.length) i++;
+        out += "<q>";
+      } else if (c >= "0" && c <= "9") {
+        out += "#";
+        while (i + 1 < input.length && /[0-9.,]/.test(input[i + 1])) i++;
+      } else {
+        out += c;
+      }
+    }
+    return out;
+  }
+
+  function crashIdentity(message) {
+    return {
+      oracle: "crash",
+      invariant: "no-exception",
+      kind: "exception",
+      message: structuralMessage(message),
+      frame: "",
+      trigger: "",
+    };
+  }
+
   // ---- the SDK ------------------------------------------------------------
   var ReproIt = {
     _cfg: null,
@@ -964,7 +998,14 @@
 
       // 2. navigations (SPA + classic)
       this._wrapHistory();
-      addEventListener("popstate", function () { self._settle(function () { self._observe("nav"); }); });
+      // Navigation can be caused by the click we just captured. Preserve that
+      // structural click instead of replacing it with a generic `nav`, or the
+      // cloud replay loses the control that opened the destination screen.
+      var observeNavigation = function () {
+        self._settle(function () { self._observe(self._pending || "nav"); });
+      };
+      addEventListener("popstate", observeNavigation);
+      addEventListener("hashchange", observeNavigation);
 
       // 3. interactions -> remember structural action + display label, then re-snapshot
       addEventListener(
@@ -990,6 +1031,7 @@
         self._emit({
           kind: "error",
           oracle: "crash",
+          findingIdentity: crashIdentity(message),
           sig: self._cur,
           path: self._errorPath(),
           message: message,
@@ -1006,6 +1048,7 @@
         self._emit({
           kind: "error",
           oracle: "crash",
+          findingIdentity: crashIdentity("unhandledrejection: " + reason),
           sig: self._cur,
           path: self._errorPath(),
           message: "unhandledrejection: " + reason,
@@ -1077,7 +1120,7 @@
         var orig = history[m];
         history[m] = function () {
           var r = orig.apply(this, arguments);
-          self._settle(function () { self._observe("nav"); });
+          self._settle(function () { self._observe(self._pending || "nav"); });
           return r;
         };
       });
@@ -1195,6 +1238,7 @@
   // The production error gate (host-testable): true for environment/third-party
   // noise the SDK must NOT report, so the crash oracle stays zero/low-FP.
   ReproIt.isCrashNoise = isCrashNoise;
+  ReproIt.structuralMessage = structuralMessage;
 
   // Expose the CANONICAL signature core (load-bearing, parity-tested against
   // signature_vectors.json + the Rust oracle). signatureOf/descriptorOf take a
