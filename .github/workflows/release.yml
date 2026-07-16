@@ -32,6 +32,7 @@ jobs:
       - id: version
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          PUBLISH: ${{ inputs.publish }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -42,14 +43,16 @@ jobs:
             echo "requested $VERSION but crates/reproit/Cargo.toml contains $MANIFEST_VERSION" >&2
             exit 1
           }
-          git rev-parse "$TAG" >/dev/null 2>&1 && {
-            echo "$TAG already exists" >&2
-            exit 1
-          }
-          gh release view "$TAG" >/dev/null 2>&1 && {
-            echo "release $TAG already exists" >&2
-            exit 1
-          }
+          if [[ "$PUBLISH" == "true" ]]; then
+            git rev-parse "$TAG" >/dev/null 2>&1 && {
+              echo "$TAG already exists" >&2
+              exit 1
+            }
+            gh release view "$TAG" >/dev/null 2>&1 && {
+              echo "release $TAG already exists" >&2
+              exit 1
+            }
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
   build:
@@ -80,7 +83,10 @@ jobs:
         shell: bash
         env:
           TAG: ${{ needs.validate.outputs.tag }}
-        run: git tag "$TAG" "$GITHUB_SHA"
+        # This tag exists only inside the isolated build checkout. Force lets a
+        # non-publishing dry run validate a version whose historical tag still
+        # exists; publish-mode validation rejects such a tag before this job.
+        run: git tag -f "$TAG" "$GITHUB_SHA"
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
