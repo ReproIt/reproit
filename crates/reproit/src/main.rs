@@ -3562,8 +3562,12 @@ async fn cloud_cmd(
                 println!("Token stored in {}.", path.display());
                 match selected {
                     Some(project) => println!("Project selected: {project}"),
-                    None if grant.projects.is_empty() => println!("No projects yet. Create one in Cloud."),
-                    None => println!("No project selected. Run `reproit login --app <app-id>` to select one."),
+                    None if grant.projects.is_empty() => {
+                        println!("No projects yet. Create one in Cloud.")
+                    }
+                    None => println!(
+                        "No project selected. Run `reproit login --app <app-id>` to select one."
+                    ),
                 }
                 return Ok(());
             }
@@ -6365,15 +6369,25 @@ tap:Advanced
     #[test]
     fn account_login_selects_one_project_and_resolves_names() {
         let projects = vec![
-            triage::CloudProject { name: "Store".into(), app_id: "store-1".into() },
-            triage::CloudProject { name: "Docs".into(), app_id: "docs-2".into() },
+            triage::CloudProject {
+                name: "Store".into(),
+                app_id: "store-1".into(),
+            },
+            triage::CloudProject {
+                name: "Docs".into(),
+                app_id: "docs-2".into(),
+            },
         ];
         assert_eq!(
-            choose_cloud_project(&projects[..1], None, false).unwrap().as_deref(),
+            choose_cloud_project(&projects[..1], None, false)
+                .unwrap()
+                .as_deref(),
             Some("store-1")
         );
         assert_eq!(
-            choose_cloud_project(&projects, Some("Docs"), false).unwrap().as_deref(),
+            choose_cloud_project(&projects, Some("Docs"), false)
+                .unwrap()
+                .as_deref(),
             Some("docs-2")
         );
         assert!(choose_cloud_project(&projects, Some("missing"), false).is_err());
