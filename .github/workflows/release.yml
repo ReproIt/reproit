@@ -227,7 +227,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
           & ./install.ps1
           & (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --version
-          $help = & (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --help
+          $help = (& (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --help) -join "`n"
           if ($help -notmatch 'reproit scan') { throw 'installed CLI help is incomplete' }
           if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'reproit\web\package.json'))) {
             throw 'web runner bundle was not installed'
