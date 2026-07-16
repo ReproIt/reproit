@@ -320,8 +320,10 @@ pub async fn validate_login(base: &str, key: &str, app: Option<&str>) -> Result<
 /// payload `{app, bucket, runId}`) and, unlike the older hand-copied template,
 /// exports the key under the name the CLI actually reads (`REPROIT_CLOUD_KEY`,
 /// NOT `REPROIT_API_KEY`), so the first hosted reproduction authenticates
-/// instead of silently 401ing. A `workflow_dispatch` trigger is added so a repo
-/// owner can smoke-test the loop by hand.
+/// instead of silently 401ing. Pull requests replay every committed production
+/// repro and report the candidate fix commit back to Cloud. Cloud keeps the
+/// linked issue open until that exact commit reaches production and remains
+/// clean there.
 const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction: runs in YOUR CI, on YOUR checkout.
 #
 # The Reproit cloud never has your source. When a bucket is reproduced (from the
@@ -329,6 +331,11 @@ const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction: runs in YOUR CI, 
 # repository_dispatch at this repo with {app, bucket, runId}; this workflow
 # reproduces the bug against your code and posts the verdict (and recording) back
 # with ReproIt's private CI callback.
+#
+# Pull requests also run every production repro committed under
+# .reproit/repros. A clean replay verifies the candidate fix on the PR commit.
+# Cloud closes the linked issue only after that commit is deployed and production
+# evidence confirms the bug stays gone.
 #
 # ReproIt wrote this file, bound this repo on the cloud side, and
 # persisted your project key. The one manual step left is adding your sk_live_...
@@ -339,6 +346,7 @@ const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction: runs in YOUR CI, 
 name: reproit-repro
 
 on:
+  pull_request:
   repository_dispatch:
     types: [reproit-repro]
   # Smoke-test the loop by hand with an app + bucket id from `reproit bugs`.
@@ -353,6 +361,7 @@ on:
 
 jobs:
   reproduce:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -377,6 +386,94 @@ jobs:
             --as "$BUCKET" \
             --run \
             ${RUN_ID:+--run-id "$RUN_ID"}
+
+  verify-production-repros:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install reproit
+        run: curl -fsSL https://reproit.com/install.sh | sh
+
+      - name: Replay committed production repros
+        id: replay
+        continue-on-error: true
+        run: ~/.local/bin/reproit check --strict --runs 3
+
+      - name: Report candidate fix evidence to Cloud
+        if: always()
+        env:
+          REPROIT_CLOUD_KEY: ${{ secrets.REPROIT_CLOUD_KEY }}
+          REPROIT_CLOUD_URL: ${{ secrets.REPROIT_CLOUD_URL }}
+          REPROIT_APP_ID: "__REPROIT_APP_ID__"
+          REPROIT_FIXED_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.request
+
+          key = os.environ.get("REPROIT_CLOUD_KEY", "").strip()
+          if not key:
+              print("Cloud reporting skipped: REPROIT_CLOUD_KEY is unavailable")
+              raise SystemExit(0)
+
+          base = os.environ.get("REPROIT_CLOUD_URL", "").strip() or "https://cloud.reproit.com"
+          default_app = os.environ["REPROIT_APP_ID"]
+          commit = os.environ["REPROIT_FIXED_COMMIT"]
+          reported = 0
+
+          for origin_path in pathlib.Path(".reproit/repros").glob("*/cloud.json"):
+              origin = json.loads(origin_path.read_text())
+              meta_path = origin_path.with_name("meta.json")
+              if not meta_path.is_file():
+                  continue
+              meta = json.loads(meta_path.read_text())
+              result = str(meta.get("last_result", "stale")).lower()
+              status = {
+                  "pass": "clean",
+                  "fail": "reproduced",
+                  "flaky": "flaky",
+                  "stale": "stale",
+              }.get(result, "stale")
+              failures = 0 if status == "clean" else (3 if status == "reproduced" else 1)
+              app = origin.get("appId") or default_app
+              bucket = origin["bucketId"]
+              body = {
+                  "status": status,
+                  "runs": 3,
+                  "failures": failures,
+              }
+              if status == "clean":
+                  body["fixedInBuild"] = commit
+              req = urllib.request.Request(
+                  f"{base.rstrip('/')}/v1/apps/{app}/buckets/{bucket}/replay-results",
+                  data=json.dumps(body).encode(),
+                  headers={
+                      "Authorization": f"Bearer {key}",
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req) as response:
+                      response.read()
+              except urllib.error.HTTPError as error:
+                  print(error.read().decode(errors="replace"))
+                  raise
+              reported += 1
+              print(f"reported {bucket}: {status}")
+
+          print(f"reported {reported} production repro(s)")
+          PY
+
+      - name: Require every production repro to pass
+        if: steps.replay.outcome != 'success'
+        run: exit 1
 "#;
 
 /// Parse an `owner/repo` slug out of a git remote URL, across the forms git
@@ -543,14 +640,23 @@ pub async fn setup(
         let wf_rel =
             workflow_path.unwrap_or_else(|| ".github/workflows/reproit-repro.yml".to_string());
         let wf_path = root.join(&wf_rel);
+        let workflow = REPRO_WORKFLOW.replace("__REPROIT_APP_ID__", app);
         if wf_path.exists() {
-            println!("  workflow: {wf_rel} already exists, left unchanged");
+            let existing = std::fs::read_to_string(&wf_path)
+                .with_context(|| format!("reading {}", wf_path.display()))?;
+            if existing.starts_with("# Reproit hosted reproduction:") {
+                std::fs::write(&wf_path, workflow)
+                    .with_context(|| format!("updating {}", wf_path.display()))?;
+                println!("  workflow: updated {wf_rel}");
+            } else {
+                println!("  workflow: {wf_rel} is customized, left unchanged");
+            }
         } else {
             if let Some(parent) = wf_path.parent() {
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("creating {}", parent.display()))?;
             }
-            std::fs::write(&wf_path, REPRO_WORKFLOW)
+            std::fs::write(&wf_path, workflow)
                 .with_context(|| format!("writing {}", wf_path.display()))?;
             println!("  workflow: wrote {wf_rel}");
         }
@@ -804,6 +910,7 @@ pub async fn buckets(
     for it in items {
         let msg = it["message"].as_str().unwrap_or("");
         let id = it["bucketId"].as_str().unwrap_or("?");
+        let bug_id = it["bugId"].as_str().unwrap_or("?");
         let count = it["count"].as_u64().unwrap_or(0);
         let score = it["impact"]["score"].as_f64().unwrap_or(0.0);
         let severity = it["impact"]["severity"].as_str().unwrap_or("?");
@@ -811,6 +918,7 @@ pub async fn buckets(
         // One tight, agent-readable row: the id (the loop key) leads, then the
         // ranking signals, then the message.
         println!("\n  [{id}]  impact {score:.2} ({severity})  resolution {resolution}  x{count}");
+        println!("    structural bug: {bug_id}");
         println!("    {}", first_line(msg));
         shown += 1;
     }
@@ -1363,6 +1471,14 @@ fn persist_pulled_package(
     )
     .with_context(|| format!("writing {}", dir.join("replay.json").display()))?;
     repro::save_meta(root, meta)?;
+    std::fs::write(
+        dir.join("cloud.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "appId": app,
+            "bucketId": bucket,
+        }))?,
+    )
+    .with_context(|| format!("writing {}", dir.join("cloud.json").display()))?;
     if let Some(mut capsule) = pulled.capsule.clone() {
         let capsule_dir = capsule.persist(root)?;
         std::fs::write(dir.join("capsule-id"), &capsule.id)?;
@@ -1383,6 +1499,7 @@ fn persist_pulled_package(
                 "command": "production bucket pull",
                 "app": app,
                 "bucket": bucket,
+                "bugId": pkg.get("bugId"),
                 "id": repro::display_repro_id(&meta.id),
                 "kind": "repro",
                 "alias": as_name,
@@ -1397,6 +1514,9 @@ fn persist_pulled_package(
         return Ok(());
     }
     println!("Pulled {source} from '{app}' as a local repro.");
+    if let Some(bug_id) = pkg["bugId"].as_str() {
+        println!("  structural bug: {bug_id}");
+    }
     println!("  expected:  {expected}");
     if let Some(sig) = &meta.trigger_sig {
         println!("  signature: {sig}");
@@ -1412,7 +1532,10 @@ fn persist_pulled_package(
         as_name
     );
     println!("  files:     {}", dir.join("meta.json").display());
-    println!("\nnow run: reproit check {as_name}   (standard local verification, no network)");
+    println!(
+        "\nnow run: reproit check {as_name}\ncommit {} with the fix so CI can verify it",
+        dir.display()
+    );
     Ok(())
 }
 
@@ -1639,6 +1762,17 @@ fn first_line(s: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_workflow_verifies_prs_and_reports_the_head_commit() {
+        let workflow = REPRO_WORKFLOW.replace("__REPROIT_APP_ID__", "app_demo");
+        assert!(workflow.contains("pull_request:"));
+        assert!(workflow.contains("reproit check --strict --runs 3"));
+        assert!(workflow.contains("github.event.pull_request.head.sha"));
+        assert!(workflow.contains("replay-results"));
+        assert!(workflow.contains("REPROIT_APP_ID: \"app_demo\""));
+        assert!(!workflow.contains("__REPROIT_APP_ID__"));
+    }
     use serde_json::json;
 
     #[test]
