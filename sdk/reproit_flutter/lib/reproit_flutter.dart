@@ -855,7 +855,7 @@ class ReproIt {
         _focusCounts.remove(id);
         continue;
       }
-      if (o!.field.overlaps(o.usableViewport)) {
+      if (o.field.overlaps(o.usableViewport)) {
         _focusAttempted.remove(id);
         _focusPrior.remove(id);
         _focusCounts.remove(id);

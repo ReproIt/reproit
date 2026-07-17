@@ -1,0 +1,67 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Reduced rspec-openapi nullable response fixture",
+    "version": "1.0.0"
+  },
+  "x-reproit-source": {
+    "repository": "exoego/rspec-openapi",
+    "revision": "68f225bfee3e10ed501db5665114a5dab7f4b9b0",
+    "path": "spec/apps/hanami/doc/openapi.json",
+    "license": "MIT"
+  },
+  "paths": {
+    "/nullable": {
+      "get": {
+        "operationId": "nullableResponse",
+        "responses": {
+          "200": {
+            "description": "Reduced structural response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["label", "validations", "value", "options"],
+                  "properties": {
+                    "label": { "type": "string", "nullable": true },
+                    "validations": {
+                      "type": "object",
+                      "nullable": true,
+                      "required": ["presence"],
+                      "properties": { "presence": { "type": "boolean" } }
+                    },
+                    "value": {
+                      "nullable": true,
+                      "oneOf": [
+                        { "type": "string" },
+                        { "type": "boolean" },
+                        { "type": "array", "items": { "type": "string" } }
+                      ]
+                    },
+                    "options": {
+                      "nullable": true,
+                      "oneOf": [
+                        { "type": "array", "items": { "type": "string" } },
+                        {
+                          "type": "object",
+                          "required": ["endpoint"],
+                          "properties": { "endpoint": { "type": "string" } }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "example": {
+                  "label": null,
+                  "validations": null,
+                  "value": null,
+                  "options": null
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -605,7 +605,7 @@ mod tests {
     fn pinned_rspec_openapi_nullable_examples_are_valid_but_bad_types_are_not() {
         let document: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../validation/curated-backend-corpus/fixtures/rspec-openapi-nullable.json"
+            "/tests/fixtures/backend/rspec-openapi-nullable.json"
         )))
         .unwrap();
         let operation = import_openapi(&document).pop().unwrap();
