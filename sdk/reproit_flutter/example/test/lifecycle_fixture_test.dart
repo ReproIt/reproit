@@ -1,8 +1,8 @@
 // Dogfood for the LIFECYCLE-metamorphic oracles ROTATION + BACKGROUND-RESTORE
-// (templates/explorer.dart + explorer_headless.dart :: rotationCheck /
-// backgroundCheck). The transform + comparison bodies below are PARITY COPIES of
-// the template logic (templates cannot be imported); if the template logic
-// changes, change it here too. Validates the whole chain live, both directions:
+// (Flutter scaffold :: rotationCheck /
+// backgroundCheck). The transform and comparison bodies below are parity copies
+// because the scaffold is not part of the published SDK. If the scaffold logic
+// changes, change these fixtures too. This validates both directions:
 //   1. the rotation transform (view.physicalSize swap + round-trip back) reaches the
 //      app and is self-restoring
 //   2. an app that permanently loses content on the orientation change  -> fires
@@ -16,7 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// PARITY COPY of the STRUCTURAL signal the oracles compare: the template folds a
+// PARITY COPY of the STRUCTURAL signal the oracles compare: the scaffold folds a
 // structural-only signature (roles + tree shape, value-state excluded). Here we
 // stand in for it with the sorted set of visible Text content -- a deterministic
 // structural fingerprint that changes exactly when content is lost or the screen
@@ -32,7 +32,7 @@ String structuralSnapshot(WidgetTester t) {
   return texts.join('|');
 }
 
-// PARITY COPY of templates/explorer.dart::rotationCheck (the transform half):
+// PARITY COPY of Flutter scaffold::rotationCheck (the transform half):
 // swap the surface width/height (portrait <-> landscape), reflow, then rotate
 // BACK to the original orientation. Round-trip identity at the original
 // orientation is what makes it false-positive-free.
@@ -45,7 +45,7 @@ Future<void> rotate(WidgetTester t) async {
   await t.pumpAndSettle();
 }
 
-// PARITY COPY of templates/explorer.dart::backgroundCheck (the transform half):
+// PARITY COPY of Flutter scaffold::backgroundCheck (the transform half):
 // drive the app lifecycle to the background (inactive -> paused) then restore it
 // (inactive -> resumed).
 Future<void> backgroundRestore(WidgetTester t) async {

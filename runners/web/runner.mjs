@@ -1437,7 +1437,7 @@ function loadFuzz() {
 }
 
 // The list of per-seed fuzz configs to run in this session. Mirrors the other
-// runners' batch contract (templates/explorer_headless.dart FuzzCfg.loadBatch,
+// runners' batch contract (the Flutter scaffold's FuzzCfg.loadBatch,
 // runners/rn, runners/linux-atspi.py load_batch): reproit's multi-seed fuzz
 // writes {"batch":[ <cfg>, ... ]} where each <cfg> is the single-seed shape
 // ({seed, budget, edgeWeights, prefix, replay, ...}). A single-seed run writes
@@ -1841,7 +1841,7 @@ export {
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
-// templates/explorer.dart: the signature is a hash of the tag/role tree shape +
+// Flutter explorer scaffold: the signature is a hash of the tag/role tree shape +
 // stable developer identifiers (data-testid, name, aria role, input type) +
 // structural position, with ALL user-facing text excluded. Visible text is kept
 // only as a display label for `map show`, never folded into the hash or into a

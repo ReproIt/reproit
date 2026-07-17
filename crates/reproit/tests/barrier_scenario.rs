@@ -221,7 +221,11 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
         .expect("repo root")
         .to_path_buf();
     let clients = [
-        ("templates/explorer.dart", "", "FlutterDrive"),
+        (
+            "crates/reproit/scaffolds/flutter/integration_test/reproit_explorer/runner.dart",
+            "crates/reproit/scaffolds/flutter/integration_test/reproit_explorer/config.dart",
+            "FlutterDrive",
+        ),
         ("runners/web/runner.mjs", "", "WebCdp (web)"),
         ("runners/electron.mjs", "", "WebCdp (electron)"),
         ("runners/tauri.mjs", "", "WebCdp (tauri)"),

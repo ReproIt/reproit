@@ -1,9 +1,9 @@
-// ReproIt HEADLESS explorer: the same seeded walk as templates/explorer.dart,
+// ReproIt HEADLESS explorer: the same seeded walk as Flutter scaffold,
 // but run under `flutter test` (WidgetTester drives the REAL app in-process)
 // instead of `flutter drive` on a simulator. No iOS simulator, no Xcode, no
 // VM service: the whole fuzz/exploration tier runs in well under a second on
 // any machine, Linux included. This is the cheap, fast tier; the simulator
-// tier (templates/explorer.dart) is reserved for oracles that need the live
+// tier (Flutter scaffold) is reserved for oracles that need the live
 // runtime.
 //
 // Vendor into your repo as test/fuzz_headless_test.dart and adapt the two
@@ -20,7 +20,7 @@
 // The signature is STRUCTURAL + locale-invariant (FNV-1a over the semantics
 // tree shape: depth + role per node + sorted developer keys, NO localized
 // text). Selectors are "key:<k>" or "role:<role>#<idx>", never visible text.
-// Byte-identical to templates/explorer.dart so headless sigs match sim sigs.
+// Byte-identical to Flutter scaffold so headless sigs match sim sigs.
 //
 // ---- ORACLE SCOPE (be honest about it) -------------------------------------
 //   WORKS HEADLESS:
@@ -54,7 +54,7 @@ const int maxLabelsPerState = 24;
 
 /// Fuzz config: a HOST file path baked in as one constant define, so one
 /// build serves every seed and replay (warm runs). Identical schema to
-/// templates/explorer.dart: {seed,budget,edgeWeights,prefix,replay,batch}.
+/// Flutter scaffold: {seed,budget,edgeWeights,prefix,replay,batch}.
 const String fuzzConfigPath = String.fromEnvironment('REPROIT_FUZZ_CONFIG');
 
 /// The desired UI locale for the whole run, as a BCP47 tag (e.g. "de", "ar",

@@ -283,7 +283,7 @@ impl Outcome {
 /// The verdict of ONE replay run, before aggregation across the N runs.
 ///
 /// This is the crux of distinguishing flaky from stale. The signals come from
-/// the runner's existing log protocol (templates/explorer*.dart):
+/// the runner's existing log protocol (the generated Flutter explorer):
 ///   - `Broke`   = the oracle tripped (an exception block fired, or the run
 ///     reported a FAIL verdict): the actions REPLAYED and the app broke -> a
 ///     real regression (the original finding reproduced).
@@ -610,7 +610,7 @@ fn state_sig_matches(line: &str, want: &str) -> bool {
 /// performed/missed action, a state/edge explore marker, or a drive-completion
 /// line. Used by the no-verdict guard to tell a crashed/setup-errored run (a
 /// bare non-zero exit with a signal-less log) from a real replay. The markers
-/// come from the runner's log protocol (templates/explorer*.dart), the same
+/// come from the runner's log protocol (the generated Flutter explorer), the same
 /// ones the per-run classifiers below already key on.
 fn has_replay_signal(log: &str) -> bool {
     log.lines().any(|line| {

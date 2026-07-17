@@ -1,23 +1,72 @@
 //! `reproit init`: scaffold a repo for reproit in one command. Detects
 //! Flutter vs web, writes reproit.yaml, vendors the explorer + driver
 //! (Flutter) and fills the app entry point automatically when it can.
-//! Templates are embedded in the binary so init works standalone.
+//! Scaffolds are embedded in the binary so init works standalone.
 
 use anyhow::{bail, Result};
 use regex::Regex;
 use std::path::Path;
 
-const EXPLORER: &str = include_str!("../../../templates/explorer.dart");
-const EXPLORER_HEADLESS: &str = include_str!("../../../templates/explorer_headless.dart");
-const HELPERS: &str = include_str!("../../../templates/journey_helpers.dart");
+const EXPLORER: &str = include_str!("../scaffolds/flutter/integration_test/journey_explore.dart");
+const EXPLORER_HEADLESS: &str = include_str!("../scaffolds/flutter/test/fuzz_headless_test.dart");
+const EXPLORER_LIBRARY: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer.dart");
+const EXPLORER_CONFIG: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/config.dart");
+const EXPLORER_SIGNATURE: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/signature.dart");
+const EXPLORER_SEMANTICS: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/semantics.dart");
+const EXPLORER_GROUND_TRUTH: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/ground_truth.dart");
+const EXPLORER_HYGIENE_ORACLES: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/hygiene_oracles.dart");
+const EXPLORER_INVARIANTS: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/invariants.dart");
+const EXPLORER_ENVIRONMENT_ORACLES: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/environment_oracles.dart");
+const EXPLORER_SIMULATOR_WATCHDOG: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/simulator_watchdog.dart");
+const EXPLORER_RUNTIME: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/runtime.dart");
+const EXPLORER_RUNNER: &str =
+    include_str!("../scaffolds/flutter/integration_test/reproit_explorer/runner.dart");
+const HELPERS: &str = include_str!("../scaffolds/flutter/integration_test/journey_helpers.dart");
 
-/// The import comment block both explorer templates carry (sim + headless).
+/// Shared files imported by both generated explorer entry points. Paths are
+/// relative to `journeys.dir`, which defaults to `integration_test`.
+const EXPLORER_SHARED_FILES: &[(&str, &str)] = &[
+    ("reproit_explorer.dart", EXPLORER_LIBRARY),
+    ("reproit_explorer/config.dart", EXPLORER_CONFIG),
+    ("reproit_explorer/signature.dart", EXPLORER_SIGNATURE),
+    ("reproit_explorer/semantics.dart", EXPLORER_SEMANTICS),
+    ("reproit_explorer/ground_truth.dart", EXPLORER_GROUND_TRUTH),
+    (
+        "reproit_explorer/hygiene_oracles.dart",
+        EXPLORER_HYGIENE_ORACLES,
+    ),
+    ("reproit_explorer/invariants.dart", EXPLORER_INVARIANTS),
+    (
+        "reproit_explorer/environment_oracles.dart",
+        EXPLORER_ENVIRONMENT_ORACLES,
+    ),
+    (
+        "reproit_explorer/simulator_watchdog.dart",
+        EXPLORER_SIMULATOR_WATCHDOG,
+    ),
+    ("reproit_explorer/runtime.dart", EXPLORER_RUNTIME),
+    ("reproit_explorer/runner.dart", EXPLORER_RUNNER),
+];
+
+const INTEGRATION_DRIVER: &str =
+    "import 'package:integration_test/integration_test_driver.dart';\n\n\
+     Future<void> main() => integrationDriver();\n";
+
+/// The import comment block both explorer entries carry (sim + headless).
 const IMPORT_NEEDLE: &str =
     "// APP-SPECIFIC: import your app's root widget.\n// import 'package:your_app/app.dart';";
-/// The pump line both explorer templates carry inside `pumpApp(WidgetTester
-/// t)`. The widget tester is bound to `t` here (NOT `tester`), so the filled
-/// line must call `t.pumpWidget`.
-const PUMP_NEEDLE: &str = "    // await t.pumpWidget(const YourApp());";
+/// The pump line both explorer entries carry inside their `pumpApp` callback.
+const PUMP_NEEDLE: &str = "      // await t.pumpWidget(const YourApp());";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Platform {
@@ -225,14 +274,16 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
         &fill(EXPLORER),
         force,
     )?;
-    // Vendor the headless explorer too: the default fuzz/check tier runs
-    // `flutter test fuzz_headless_test.dart`, so it must exist or those
-    // commands cannot run. The orchestrator resolves this exact filename.
+    // Vendor the headless explorer under test/: integration_test depends on
+    // dart:ui on a device, while this entry is compiled by `flutter test`.
     write(
-        &dir.join("integration_test/fuzz_headless_test.dart"),
+        &dir.join("test/fuzz_headless_test.dart"),
         &fill(EXPLORER_HEADLESS),
         force,
     )?;
+    for (relative, content) in EXPLORER_SHARED_FILES {
+        write(&dir.join("integration_test").join(relative), content, force)?;
+    }
     write(
         &dir.join("integration_test/journey_helpers.dart"),
         HELPERS,
@@ -240,8 +291,7 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
     )?;
     write(
         &dir.join("test_driver/integration_driver.dart"),
-        "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> main() \
-         => integrationDriver();\n",
+        INTEGRATION_DRIVER,
         force,
     )?;
     ensure_integration_test_dep(dir)?;
@@ -254,7 +304,8 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
 /// the app entry inferred from the project) into a project that only had the
 /// headless explorer, so `reproit record` / `--sim` just works instead
 /// of erroring on a file reproit knows how to create. Only writes what's
-/// missing, so a configured explorer/driver is never clobbered.
+/// missing, so a configured explorer, shared module, helper, or driver is never
+/// clobbered.
 pub fn vendor_sim_explorer(
     project_dir: &Path,
     journeys_dir: &Path,
@@ -265,33 +316,36 @@ pub fn vendor_sim_explorer(
         .replace(IMPORT_NEEDLE, &import)
         .replace(PUMP_NEEDLE, &pump);
     std::fs::create_dir_all(journeys_dir)?;
-    let explorer_path = journeys_dir.join("journey_explore.dart");
-    std::fs::write(&explorer_path, explorer)?;
-    eprintln!(
-        "  vendored {} (reproit's sim explorer)",
-        explorer_path.display()
-    );
-    let helpers_path = journeys_dir.join("journey_helpers.dart");
-    if !helpers_path.exists() {
-        std::fs::write(&helpers_path, HELPERS)?;
-        eprintln!("  vendored {}", helpers_path.display());
+    vendor_missing(
+        &journeys_dir.join("journey_explore.dart"),
+        &explorer,
+        " (reproit's sim explorer)",
+    )?;
+    for (relative, content) in EXPLORER_SHARED_FILES {
+        vendor_missing(&journeys_dir.join(relative), content, "")?;
     }
+    vendor_missing(&journeys_dir.join("journey_helpers.dart"), HELPERS, "")?;
     let driver_path = project_dir.join(driver_rel);
-    if !driver_path.exists() {
-        if let Some(p) = driver_path.parent() {
-            std::fs::create_dir_all(p)?;
-        }
-        std::fs::write(
-            &driver_path,
-            "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> \
-             main() => integrationDriver();\n",
-        )?;
-        eprintln!("  vendored {}", driver_path.display());
-    }
+    vendor_missing(&driver_path, INTEGRATION_DRIVER, "")?;
     // The flutter-drive tier imports package:integration_test, so it must be a
     // dev dependency or the sim build fails (the headless tier needs only
     // flutter_test, which Flutter projects have by default).
     ensure_integration_test_dep(project_dir)?;
+    Ok(())
+}
+
+/// Write one on-demand scaffold dependency only when the project does not
+/// already own it. This is deliberately stricter than `init --force`: runtime
+/// self-healing must never replace user customization.
+fn vendor_missing(path: &Path, content: &str, suffix: &str) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, content)?;
+    eprintln!("  vendored {}{suffix}", path.display());
     Ok(())
 }
 
@@ -378,14 +432,13 @@ fn detect_app_entry(dir: &Path) -> (String, String) {
     match (pkg, widget) {
         (Some(pkg), Some(w)) => (
             format!("import 'package:{pkg}/main.dart';"),
-            // The widget tester is bound to `t` inside `pumpApp(WidgetTester t)`.
-            format!("    await t.pumpWidget(const {w}());"),
+            format!("      await t.pumpWidget(const {w}());"),
         ),
         _ => (
             "// TODO: import your app's root widget, e.g.\n// import 'package:your_app/main.dart';"
                 .to_string(),
-            "    // TODO: pump your app's root widget, e.g.\n    // await t.pumpWidget(const \
-             MyApp());"
+            "      // TODO: pump your app's root widget, e.g.\n      // await \
+             t.pumpWidget(const MyApp());"
                 .to_string(),
         ),
     }
@@ -603,6 +656,40 @@ mod tests {
         path
     }
 
+    fn flutter_project(name: &str) -> std::path::PathBuf {
+        let project = temporary_project(name);
+        std::fs::create_dir_all(project.join("lib")).unwrap();
+        std::fs::write(
+            project.join("pubspec.yaml"),
+            "name: demo_app\n\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("lib/main.dart"),
+            "void main() => runApp(const DemoApp());\n",
+        )
+        .unwrap();
+        project
+    }
+
+    fn generated_flutter_files() -> Vec<(String, &'static str)> {
+        let mut files = vec![
+            ("integration_test/journey_explore.dart".into(), EXPLORER),
+            ("test/fuzz_headless_test.dart".into(), EXPLORER_HEADLESS),
+            ("integration_test/journey_helpers.dart".into(), HELPERS),
+            (
+                "test_driver/integration_driver.dart".into(),
+                INTEGRATION_DRIVER,
+            ),
+        ];
+        files.extend(
+            EXPLORER_SHARED_FILES
+                .iter()
+                .map(|(path, content)| (format!("integration_test/{path}"), *content)),
+        );
+        files
+    }
+
     #[test]
     fn the_app_specific_needles_exist_in_both_explorer_templates() {
         // If a template changes its wording, init's literal replace silently
@@ -613,15 +700,15 @@ mod tests {
         );
         assert!(
             EXPLORER.contains(PUMP_NEEDLE),
-            "explorer.dart pump needle drifted (template uses `t`, not `tester`)"
+            "sim explorer pump needle drifted"
         );
         assert!(
             EXPLORER_HEADLESS.contains(IMPORT_NEEDLE),
-            "explorer_headless.dart import needle drifted"
+            "headless explorer import needle drifted"
         );
         assert!(
             EXPLORER_HEADLESS.contains(PUMP_NEEDLE),
-            "explorer_headless.dart pump needle drifted"
+            "headless explorer pump needle drifted"
         );
     }
 
@@ -674,23 +761,17 @@ mod tests {
     }
 
     #[test]
-    fn init_flutter_fills_the_pump_line_and_vendors_the_headless_explorer() {
-        let dir = std::env::temp_dir().join(format!("reproit-init-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("lib")).unwrap();
-        std::fs::write(dir.join("pubspec.yaml"), "name: demo_app\n").unwrap();
-        std::fs::write(
-            dir.join("lib/main.dart"),
-            "void main() => runApp(const DemoApp());\n",
-        )
-        .unwrap();
+    fn init_flutter_writes_the_complete_scaffold_and_fills_both_entries() {
+        let project = flutter_project("complete-flutter-scaffold");
+        init_flutter(&project, false).unwrap();
 
-        init_flutter(&dir, true).unwrap();
+        for (relative, _) in generated_flutter_files() {
+            assert!(project.join(&relative).is_file(), "missing {relative}");
+        }
 
         let sim =
-            std::fs::read_to_string(dir.join("integration_test/journey_explore.dart")).unwrap();
-        // The pump line was actually filled (not left as the commented stub),
-        // and uses `t` (the WidgetTester bound inside pumpApp), not `tester`.
+            std::fs::read_to_string(project.join("integration_test/journey_explore.dart")).unwrap();
+        // The pump line was actually filled, not left as the commented stub.
         assert!(
             sim.contains("await t.pumpWidget(const DemoApp());"),
             "sim explorer pump line was not filled"
@@ -704,12 +785,108 @@ mod tests {
         // The headless explorer is vendored (the default fuzz/check tier needs
         // it) and is filled the same way.
         let headless =
-            std::fs::read_to_string(dir.join("integration_test/fuzz_headless_test.dart")).unwrap();
+            std::fs::read_to_string(project.join("test/fuzz_headless_test.dart")).unwrap();
         assert!(
             headless.contains("await t.pumpWidget(const DemoApp());"),
             "headless explorer was not vendored/filled"
         );
+        assert!(headless.contains("import 'package:demo_app/main.dart';"));
 
-        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn init_flutter_without_force_preserves_owned_scaffold_files() {
+        let project = flutter_project("preserve-flutter-scaffold");
+        for (relative, _) in generated_flutter_files() {
+            let path = project.join(&relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, format!("custom {relative}\n")).unwrap();
+        }
+
+        init_flutter(&project, false).unwrap();
+
+        for (relative, _) in generated_flutter_files() {
+            let actual = std::fs::read_to_string(project.join(&relative)).unwrap();
+            assert_eq!(actual, format!("custom {relative}\n"));
+        }
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn init_flutter_force_refreshes_scaffold_but_preserves_reproit_gitignore() {
+        let project = flutter_project("force-flutter-scaffold");
+        for (relative, _) in generated_flutter_files() {
+            let path = project.join(&relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "custom\n").unwrap();
+        }
+        std::fs::create_dir_all(project.join(".reproit")).unwrap();
+        std::fs::write(project.join(".reproit/.gitignore"), "custom ignore\n").unwrap();
+
+        init(&project, Some("flutter"), true).unwrap();
+
+        for (relative, content) in generated_flutter_files() {
+            let actual = std::fs::read_to_string(project.join(&relative)).unwrap();
+            if relative.ends_with("journey_explore.dart")
+                || relative.ends_with("fuzz_headless_test.dart")
+            {
+                assert!(actual.contains("await t.pumpWidget(const DemoApp());"));
+            } else {
+                assert_eq!(actual, content, "force did not refresh {relative}");
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(project.join(".reproit/.gitignore")).unwrap(),
+            "custom ignore\n"
+        );
+        std::fs::remove_dir_all(project).unwrap();
+    }
+
+    #[test]
+    fn sim_self_heal_adds_missing_dependencies_without_overwriting_custom_files() {
+        let project = flutter_project("self-heal-flutter-scaffold");
+        let journeys = project.join("integration_test");
+        std::fs::create_dir_all(journeys.join("reproit_explorer")).unwrap();
+        std::fs::create_dir_all(project.join("test_driver")).unwrap();
+        let preserved = [
+            "journey_explore.dart",
+            "journey_helpers.dart",
+            "reproit_explorer.dart",
+            "reproit_explorer/config.dart",
+        ];
+        for relative in preserved {
+            std::fs::write(journeys.join(relative), format!("custom {relative}\n")).unwrap();
+        }
+        std::fs::write(
+            project.join("test_driver/integration_driver.dart"),
+            "custom driver\n",
+        )
+        .unwrap();
+
+        vendor_sim_explorer(&project, &journeys, "test_driver/integration_driver.dart").unwrap();
+
+        for relative in preserved {
+            let actual = std::fs::read_to_string(journeys.join(relative)).unwrap();
+            assert_eq!(actual, format!("custom {relative}\n"));
+        }
+        assert_eq!(
+            std::fs::read_to_string(project.join("test_driver/integration_driver.dart")).unwrap(),
+            "custom driver\n"
+        );
+        for relative in [
+            "reproit_explorer/signature.dart",
+            "reproit_explorer/semantics.dart",
+            "reproit_explorer/ground_truth.dart",
+            "reproit_explorer/hygiene_oracles.dart",
+            "reproit_explorer/invariants.dart",
+            "reproit_explorer/environment_oracles.dart",
+            "reproit_explorer/simulator_watchdog.dart",
+            "reproit_explorer/runtime.dart",
+            "reproit_explorer/runner.dart",
+        ] {
+            assert!(journeys.join(relative).is_file(), "missing {relative}");
+        }
+        std::fs::remove_dir_all(project).unwrap();
     }
 }

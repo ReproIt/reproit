@@ -1,17 +1,17 @@
-// Dogfood for the APP-INVARIANT oracle (ReproIt.invariant + templates/
-// explorer.dart + explorer_headless.dart :: parseInvariantItems/
-// scrapeInvariants). Exercises BOTH directions live through the REAL file
+// Dogfood for the APP-INVARIANT oracle (ReproIt.invariant plus the Flutter
+// scaffold's parseInvariantItems/scrapeInvariants path). Exercises both
+// directions live through the real file
 // channel:
 //   1. SDK side: ReproIt.invariant registers a predicate; the real evaluate +
 //      JSON-format + file-append path (ReproIt.debugEmitInvariantsTo, the same
 //      code _maybeEmitInvariants runs under the fuzzer) writes a
 //      `REPROIT_INVARIANT {..}` marker line to REPROIT_INVARIANT_FILE.
-//   2. Explorer side: a PARITY COPY of the template functions (templates cannot
-//      be imported) reads the file with byte-offset tracking, parses the marker,
-//      de-dups per (sig,id), and emits EXPLORE:INVARIANT for the current state.
+//   2. Explorer side: a parity copy of the scaffold functions reads the file
+//      with byte-offset tracking, parses the marker, de-dups per (sig,id), and
+//      emits EXPLORE:INVARIANT for the current state.
 // A VIOLATING invariant yields a marker + an EXPLORE:INVARIANT line carrying the
-// app's id + message; a HOLDING one yields nothing. If the template scrape logic
-// changes, change the parity copy below too.
+// app's id + message; a HOLDING one yields nothing. If the scaffold scrape
+// logic changes, change the parity copy below too.
 //
 // This is NOT a full end-to-end `flutter drive`/`flutter test` pump: it drives
 // the SDK registry+append and the explorer scrape as the two real halves joined
@@ -25,7 +25,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reproit_flutter/reproit_flutter.dart';
 
-// PARITY COPY of templates/explorer.dart :: parseInvariantItems.
+// PARITY COPY of Flutter scaffold :: parseInvariantItems.
 List<Map<String, String>> parseInvariantItems(String line) {
   const mark = 'REPROIT_INVARIANT ';
   final at = line.indexOf(mark);
@@ -50,7 +50,7 @@ List<Map<String, String>> parseInvariantItems(String line) {
   }
 }
 
-// PARITY COPY of templates/explorer.dart :: scrapeInvariants (byte-offset read +
+// PARITY COPY of Flutter scaffold :: scrapeInvariants (byte-offset read +
 // (sig,id) de-dup). Wrapped in a class so each test isolates the offset/de-dup
 // state (the template keeps it in top-level vars for the single explorer run),
 // and emits into [sink] instead of debugPrint so the test can assert the line.

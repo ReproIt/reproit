@@ -95,7 +95,7 @@ impl Backend {
     /// and brings its own window forward before its one action; an Appium
     /// actor is its own device session; an instrumented app polls between
     /// frames. Where each client lives:
-    ///   flutter          templates/explorer.dart
+    ///   flutter          scaffolds/flutter/integration_test/reproit_explorer/runner.dart
     ///   web/electron/tauri  runners/web/runner.mjs, runners/electron.mjs,
     ///                    runners/tauri.mjs
     ///   appium           runners/rn/runner.mjs (each actor = its own session)

@@ -10,7 +10,7 @@
 /// and developer ids (from Keys) flow in, so the signature is locale-invariant.
 ///
 /// The same role-mapping table is mirrored byte-for-byte in the explorer
-/// templates (`templates/explorer*.dart`) so the runner and the SDK compute the
+/// generated explorer scaffold so the runner and the SDK compute the
 /// SAME signature for the same screen.
 library reproit_capture;
 

@@ -1,8 +1,8 @@
 // Dogfood for the BLANK-SCREEN / BROKEN-ASSET(tofu) oracles
-// (templates/explorer.dart + explorer_headless.dart :: detectBlankScreen,
-// detectTofu). The detector bodies below are PARITY COPIES of the template
-// functions (templates cannot be imported); if the template logic changes,
-// change it here too. Validates BOTH directions live:
+// (Flutter scaffold :: detectBlankScreen,
+// detectTofu). The detector bodies below are PARITY COPIES of the scaffold
+// functions because those files are not part of the published SDK. If the
+// scaffold logic changes, change these fixtures too. Validates both directions:
 //   blank      : a screen with content is silent; an empty SizedBox screen
 //                fires one {key:"root", w, h} record.
 //   tofu       : a Text rendering U+FFFD fires reason "tofu"; clean text is
@@ -12,10 +12,10 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
-// PARITY COPIES of the template helpers the detectors depend on.
+// PARITY COPIES of the scaffold helpers the detectors depend on.
 // ---------------------------------------------------------------------------
 
-// PARITY COPY of templates/explorer.dart::kRoles.
+// PARITY COPY of Flutter scaffold::kRoles.
 const List<String> kRoles = <String>[
   'screen',
   'header',
@@ -39,10 +39,10 @@ const List<String> kRoles = <String>[
   'node',
 ];
 
-// PARITY COPY of templates/explorer.dart::normalizeRole.
+// PARITY COPY of Flutter scaffold::normalizeRole.
 String normalizeRole(String role) => kRoles.contains(role) ? role : 'node';
 
-// PARITY COPY of templates/explorer.dart::roleOf.
+// PARITY COPY of Flutter scaffold::roleOf.
 String roleOf(SemanticsData data) {
   bool f(SemanticsFlag x) => data.hasFlag(x);
   if (f(SemanticsFlag.isTextField)) return 'textfield';
@@ -59,7 +59,7 @@ String roleOf(SemanticsData data) {
   return 'node';
 }
 
-// PARITY COPY of templates/explorer.dart::keyStringOf.
+// PARITY COPY of Flutter scaffold::keyStringOf.
 String? keyStringOf(Widget w) {
   final k = w.key;
   if (k is ValueKey<String>) return 's:${k.value}';
@@ -68,7 +68,7 @@ String? keyStringOf(Widget w) {
   return null;
 }
 
-// PARITY COPY of templates/explorer.dart::keyValueOf.
+// PARITY COPY of Flutter scaffold::keyValueOf.
 String keyValueOf(String ks) {
   if (ks.startsWith('s:') || ks.startsWith('i:') || ks.startsWith('v:')) {
     return ks.substring(2);
@@ -76,7 +76,7 @@ String keyValueOf(String ks) {
   return ks;
 }
 
-// PARITY COPY of templates/explorer.dart::_isOffstageSubtree.
+// PARITY COPY of Flutter scaffold::_isOffstageSubtree.
 bool _isOffstageSubtree(Widget w) {
   if (w is Offstage) return w.offstage;
   if (w is TickerMode) return !w.enabled;
@@ -84,7 +84,7 @@ bool _isOffstageSubtree(Widget w) {
   return false;
 }
 
-// PARITY COPY of templates/explorer.dart::elementRole.
+// PARITY COPY of Flutter scaffold::elementRole.
 String? elementRole(Widget w) {
   final t = w.runtimeType.toString();
   if (t.contains('EditableText') ||
@@ -110,7 +110,7 @@ String? elementRole(Widget w) {
   return null;
 }
 
-// PARITY COPY of templates/explorer.dart::collectKeyedTappables.
+// PARITY COPY of Flutter scaffold::collectKeyedTappables.
 List<MapEntry<String, String>> collectKeyedTappables() {
   final out = <MapEntry<String, String>>[];
   void walk(Element e) {
@@ -130,7 +130,7 @@ List<MapEntry<String, String>> collectKeyedTappables() {
 // PARITY COPIES of the detectors under test.
 // ---------------------------------------------------------------------------
 
-// PARITY COPY of templates/explorer.dart::detectBlankScreen.
+// PARITY COPY of Flutter scaffold::detectBlankScreen.
 List<Map<String, dynamic>> detectBlankScreen(WidgetTester t) {
   final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
   if (root == null) return const []; // semantics unavailable: never fire
@@ -170,7 +170,7 @@ List<Map<String, dynamic>> detectBlankScreen(WidgetTester t) {
   ];
 }
 
-// PARITY COPY of templates/explorer.dart::detectTofu.
+// PARITY COPY of Flutter scaffold::detectTofu.
 List<Map<String, dynamic>> detectTofu(WidgetTester t) {
   final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
   if (root == null) return const [];

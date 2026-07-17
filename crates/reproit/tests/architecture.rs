@@ -132,3 +132,43 @@ fn source_files_stay_reviewable() {
         }
     }
 }
+
+#[test]
+fn flutter_explorer_scaffold_stays_modular() {
+    const MAX_ENTRY_LINES: usize = 40;
+    const MAX_MODULE_LINES: usize = 1_000;
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scaffolds/flutter");
+
+    for entry in [
+        root.join("integration_test/journey_explore.dart"),
+        root.join("test/fuzz_headless_test.dart"),
+    ] {
+        let body = std::fs::read_to_string(&entry).expect("read Flutter explorer entry");
+        let lines = body.lines().count();
+        assert!(
+            lines <= MAX_ENTRY_LINES,
+            "{} has {lines} lines; keep application wiring in the entry and behavior in modules",
+            entry.display()
+        );
+        assert!(
+            !body.contains("class FuzzCfg") && !body.contains("Snapshot snapshot"),
+            "{} duplicates explorer behavior instead of importing the shared library",
+            entry.display()
+        );
+    }
+
+    let modules = root.join("integration_test/reproit_explorer");
+    for entry in std::fs::read_dir(modules).expect("read Flutter explorer modules") {
+        let path = entry.expect("read Flutter explorer module entry").path();
+        if path.extension().is_none_or(|extension| extension != "dart") {
+            continue;
+        }
+        let body = std::fs::read_to_string(&path).expect("read Flutter explorer module");
+        let lines = body.lines().count();
+        assert!(
+            lines <= MAX_MODULE_LINES,
+            "{} has {lines} lines; split the module before exceeding {MAX_MODULE_LINES}",
+            path.display()
+        );
+    }
+}

@@ -170,16 +170,16 @@ pub async fn run_journey(
         crate::init::ensure_integration_test_dep(&project_dir)?;
         let missing = !jd.join(format!("journey_{journey}.dart")).exists()
             && !jd.join(format!("{journey}.dart")).exists();
-        if missing {
-            if journey == "explore" {
-                crate::init::vendor_sim_explorer(&project_dir, &jd, &cfg.journeys.driver)?;
-            } else {
-                anyhow::bail!(
-                    "no journey_{journey}.dart or {journey}.dart under {}. Author the journey \
-                     there, or run `reproit fuzz` to explore.",
-                    jd.display()
-                );
-            }
+        if journey == "explore" {
+            // This is idempotent and fills missing shared modules as well as a
+            // missing entry. Existing project-owned files are never replaced.
+            crate::init::vendor_sim_explorer(&project_dir, &jd, &cfg.journeys.driver)?;
+        } else if missing {
+            anyhow::bail!(
+                "no journey_{journey}.dart or {journey}.dart under {}. Author the journey \
+                 there, or run `reproit fuzz` to explore.",
+                jd.display()
+            );
         }
     }
 
@@ -661,7 +661,7 @@ pub async fn run_journey_tier(
 /// path writes, so marker/exception parsing (model/map.rs, modes/fuzz.rs) is
 /// byte-identical and findings/trace/coverage attribution work unchanged. The
 /// outcome is minimal (passed + run_dir): the perf/jank and runtime oracles are
-/// the simulator tier's job (see explorer_headless.dart's oracle-scope header).
+/// the simulator tier's job (see the headless runtime's oracle-scope contract).
 ///
 /// Flutter-only: every other backend manages its own (non-simulator) target
 /// already, so headless tiering does not apply to them.
@@ -690,10 +690,9 @@ pub async fn run_journey_headless(
         .join(format!("{}-{journey}", started_at.format("%Y%m%d-%H%M%S")));
     std::fs::create_dir_all(&run_dir)?;
 
-    // Resolve the headless test target: <journeys.dir>/fuzz_headless_<name>.dart,
-    // then fuzz_headless_test.dart (the conventional bugzoo/scaffold name), then
-    // a sibling test/ dir. This is a `flutter test` target (a testWidgets file),
-    // NOT an integration_test/flutter_drive target.
+    // Resolve the headless test target from test/ first. A file under
+    // integration_test/ may be classified as a device test when several devices
+    // are connected, so that location remains only as a legacy fallback.
     let project_dir = root.join(&cfg.app.project_dir);
     let target = resolve_headless_target(cfg, &project_dir, journey)?;
 
@@ -815,24 +814,27 @@ pub async fn run_journey_headless(
 
 /// Resolve the `flutter test` target for the headless tier.
 fn resolve_headless_target(cfg: &Config, project_dir: &Path, journey: &str) -> Result<String> {
-    let dir = &cfg.journeys.dir;
-    let candidates = [
-        format!("{dir}/fuzz_headless_{journey}.dart"),
-        format!("{dir}/fuzz_headless_test.dart"),
-        format!("test/fuzz_headless_{journey}.dart"),
-        "test/fuzz_headless_test.dart".to_string(),
-    ];
-    for c in &candidates {
-        if project_dir.join(c).exists() {
-            return Ok(c.clone());
+    let candidates = headless_target_candidates(&cfg.journeys.dir, journey);
+    for candidate in &candidates {
+        if project_dir.join(candidate).exists() {
+            return Ok(candidate.clone());
         }
     }
     anyhow::bail!(
-        "no headless explorer found (looked for {}). Vendor templates/explorer_headless.dart as \
-         test/fuzz_headless_test.dart and set the app import + pumpWidget. Or run the simulator \
-         tier with `reproit fuzz --sim`.",
+        "no headless explorer found (looked for {}). Run `reproit init --platform flutter` to \
+         create the explorer scaffold, then set the app import + pumpWidget. Or run the \
+         simulator tier with `reproit fuzz --sim`.",
         candidates.join(", ")
     )
+}
+
+fn headless_target_candidates(dir: &str, journey: &str) -> [String; 4] {
+    [
+        format!("test/fuzz_headless_{journey}.dart"),
+        "test/fuzz_headless_test.dart".to_string(),
+        format!("{dir}/fuzz_headless_{journey}.dart"),
+        format!("{dir}/fuzz_headless_test.dart"),
+    ]
 }
 
 /// Per-phase wall-clock timer for `--profile-timing`. Each `mark(name)` closes
@@ -1061,6 +1063,19 @@ mod tests {
         t.mark("walk");
         t.finish();
         assert!(t.phases.is_empty()); // no work accrued when disabled
+    }
+
+    #[test]
+    fn headless_targets_prefer_host_tests_and_keep_legacy_fallbacks() {
+        assert_eq!(
+            headless_target_candidates("integration_test", "explore"),
+            [
+                "test/fuzz_headless_explore.dart",
+                "test/fuzz_headless_test.dart",
+                "integration_test/fuzz_headless_explore.dart",
+                "integration_test/fuzz_headless_test.dart",
+            ]
+        );
     }
 
     #[test]

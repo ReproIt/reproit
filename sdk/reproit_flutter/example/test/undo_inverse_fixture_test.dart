@@ -1,8 +1,7 @@
-// Dogfood for the UNDO-INVERSE oracle (templates/explorer.dart +
-// explorer_headless.dart :: isToggleRole/undoAffordanceSel/undoInverseVerdict and
-// the do-then-undo drive in the walk). The helpers below are a PARITY COPY of the
-// template functions (templates cannot be imported); if the template logic changes,
-// change it here too. Validates the whole metamorphic relation live, both
+// Dogfood for the Flutter scaffold's UNDO-INVERSE oracle. The helpers below are
+// parity copies because the scaffold is not part of the published SDK. If the
+// scaffold logic changes, change these fixtures too. This validates the whole
+// metamorphic relation live, both
 // directions and both inverses:
 //   1. a boolean TOGGLE whose re-tap does not restore the structure   -> fires
 //   2. a toggle that round-trips cleanly                              -> silent
@@ -12,10 +11,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// PARITY COPY of templates/explorer.dart::isToggleRole.
+// PARITY COPY of Flutter scaffold::isToggleRole.
 bool isToggleRole(String role) => role == 'switch' || role == 'checkbox';
 
-// PARITY COPY of templates/explorer.dart::undoInverseVerdict.
+// PARITY COPY of Flutter scaffold::undoInverseVerdict.
 String undoInverseVerdict(String beforeSig, String postSig, String afterSig,
     {required bool viaUndo}) {
   if (afterSig == beforeSig) return 'clean';
@@ -24,10 +23,10 @@ String undoInverseVerdict(String beforeSig, String postSig, String afterSig,
 }
 
 // A structural signature stand-in over the fixture: the number of list items plus
-// whether a residual control is present. Mirrors the template's canonical signature
+// whether a residual control is present. Mirrors the scaffold's canonical signature
 // in the only way that matters here -- it moves when the STRUCTURE changes and is
-// invariant to value/text. (The template signs the real semantics tree; the fixture
-// keeps a small, deterministic structural proxy so the test needs no template.)
+// invariant to value/text. The scaffold signs the real semantics tree; this
+// fixture keeps a deterministic proxy and needs no scaffold dependency.
 String structSig(WidgetTester t) {
   final items = find.byType(_Item).evaluate().length;
   final residue = find.byKey(const Key('residue')).evaluate().isNotEmpty;

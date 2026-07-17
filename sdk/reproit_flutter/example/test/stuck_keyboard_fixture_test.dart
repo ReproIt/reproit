@@ -1,7 +1,6 @@
-// Dogfood for the STUCK-KEYBOARD oracle (templates/explorer.dart +
-// explorer_headless.dart :: detectStuckKeyboard). The detector body below is a
-// PARITY COPY of the template function (templates cannot be imported); if the
-// template logic changes, change it here too. Validates BOTH directions live:
+// Dogfood for the Flutter scaffold's STUCK-KEYBOARD oracle. The detector below
+// is a parity copy because the scaffold is not part of the published SDK. If
+// the scaffold logic changes, change this fixture too. Validates both directions:
 //   1. IME up + focused TextField        -> silent (no false positive)
 //   2. IME up + focus moved to a button  -> fires (the stuck-keyboard bug)
 //   3. IME down                          -> silent regardless of focus
@@ -10,7 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// PARITY COPY of templates/explorer.dart::detectStuckKeyboard.
+// PARITY COPY of Flutter scaffold::detectStuckKeyboard.
 bool detectStuckKeyboard(WidgetTester t) {
   if (t.view.viewInsets.bottom <= 0) return false;
   final focus = FocusManager.instance.primaryFocus;

@@ -111,7 +111,7 @@ function loadFuzz() {
 }
 
 // The multi-seed BATCH contract shared with every other runner (runners/web
-// loadBatch, templates/explorer_headless.dart FuzzCfg.loadBatch, runners/linux-
+// loadBatch, the Flutter scaffold's FuzzCfg.loadBatch, runners/linux-
 // atspi.py load_batch). `reproit check` with gate.runs > 1 (and the multi-seed
 // fuzz path) writes {"batch":[ <cfg>, ... ]} where each <cfg> is the single-seed
 // shape ({seed, replay?, prefix?, ...}); a single run writes the bare <cfg>

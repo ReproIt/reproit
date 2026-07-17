@@ -141,7 +141,7 @@ ReproIt.start(ReproItConfig(appId: "example", onEvent: { print($0) }))
   (`UIApplication.shared.connectedScenes` -> key window -> recursive `subviews`), reading each
   visible element's accessible name. The **state signature** is FNV-1a over the sorted, `|`-joined
   visible accessible names, byte-identical to the runners (`runners/macos-ax.swift`),
-  `sdk/reproit-web.js`, and `templates/explorer.dart`.
+  `sdk/reproit-web.js`, and the generated Flutter explorer.
 - **Accessible name** of an element: `accessibilityLabel`, falling back to the element's own
   title/text (`UIButton` title, `UILabel`/`UITextField` text, search-bar text/placeholder), then
   `accessibilityValue`. The raw name is trimmed, reduced to its first line, skipped if empty or

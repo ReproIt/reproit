@@ -51,7 +51,7 @@ a confirmed bug.
 - Forces the semantics tree on (`ensureSemantics()`) so it reads the same accessibility tree the
   test runner sees, with no a11y service attached.
 - Snapshots that tree, debounced, after the UI settles; the **state signature** is FNV-1a over the
-  sorted visible accessible names (byte-identical to the runners and `templates/explorer.dart`).
+  sorted visible accessible names (byte-identical to the generated explorers).
 - Records each tap by hit-testing the tapped semantics node. `action` is a structural replay
   selector (`tap:key:<key>` or `tap:role:<role>#<idx>`); `label` is optional display text.
 - Hooks `FlutterError.onError` and `PlatformDispatcher.onError`; an error event carries the full

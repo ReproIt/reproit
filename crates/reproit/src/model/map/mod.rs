@@ -181,8 +181,7 @@ pub async fn build_map(
             return Ok(());
         }
         anyhow::bail!(
-            "no EXPLORE:STATE records in {} (is the explorer journey installed? see \
-             templates/explorer.dart)",
+            "no EXPLORE:STATE records in {} (is the generated explorer journey installed?)",
             run_dir.display()
         );
     }

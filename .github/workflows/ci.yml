@@ -207,6 +207,13 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+      - name: Install Rust and the Linux accessibility library
+        working-directory: .
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev
       - run: flutter pub get
       - name: Signature parity (flutter test)
         run: flutter test
@@ -214,6 +221,9 @@ jobs:
         run: |
           flutter analyze lib test
           flutter pub publish --dry-run
+      - name: Validate the generated Flutter scaffold
+        working-directory: .
+        run: bash .github/scripts/check-flutter-scaffold.sh
 
   # Marker-drift guard: each platform's "verbatim" EXPLORE:GROUNDTRUTH golden
   # (crates/reproit/tests/golden/operability/<platform>.json) is the SINGLE source
