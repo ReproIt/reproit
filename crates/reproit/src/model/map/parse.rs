@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// count on the first and last revisit sample. A named alias keeps the
 /// `listener_leaks` map under clippy's type-complexity threshold.
 pub(crate) type LeakMetric = (String, i64, i64);
+pub(crate) type EscapableRoutes = std::sync::Arc<BTreeMap<String, BTreeSet<BTreeSet<String>>>>;
 
 /// One proven violation of an application-declared structural relationship.
 /// Geometry is diagnostic only; stable finding identity is the relationship
@@ -70,7 +71,7 @@ pub(crate) struct RunObs {
     /// section toggle with no route change) shows labels the escapable page
     /// lacks, so it remains a trap. Empty unless a caller populates it
     /// (parse_run leaves it empty).
-    pub escapable_route_labels: BTreeMap<String, Vec<std::collections::BTreeSet<String>>>,
+    pub escapable_route_labels: EscapableRoutes,
     /// sig -> operability/accessibility gaps, from `EXPLORE:GROUNDTRUTH`
     /// records (the graph-1-minus-graph-2 diff). Empty for runners that
     /// don't emit it.
@@ -343,6 +344,11 @@ fn parse_bounds(v: Option<&Value>) -> Option<[i64; 4]> {
 }
 
 pub(crate) fn parse_run(log: &str) -> RunObs {
+    let events = crate::model::runner::parse(log);
+    parse_runner_events(&events)
+}
+
+pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_>]) -> RunObs {
     let mut obs = RunObs {
         states: BTreeMap::new(),
         routes: BTreeMap::new(),
@@ -351,7 +357,7 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         texts: BTreeMap::new(),
         edges: Vec::new(),
         start: None,
-        escapable_route_labels: BTreeMap::new(),
+        escapable_route_labels: EscapableRoutes::default(),
         gaps: BTreeMap::new(),
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),
@@ -379,7 +385,26 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
         safe_areas: BTreeMap::new(),
         permission_screens: BTreeMap::new(),
     };
-    for line in log.lines() {
+    // These records define permission-trap reachability. If one is recognized
+    // but malformed, a partial graph could turn missing evidence into a false
+    // trap. Abstain from all graph invariants for that segment instead.
+    let structural_markers = ["EXPLORE:STATE ", "EXPLORE:EDGE ", "EXPLORE:PERMISSIONWALK "];
+    let malformed_structure = events.iter().any(|event| {
+        let crate::model::runner::RunnerEvent::Explore(line) = *event else {
+            return false;
+        };
+        structural_markers.iter().any(|marker| {
+            line.strip_prefix(marker)
+                .is_some_and(|payload| serde_json::from_str::<Value>(payload).is_err())
+        })
+    });
+    if malformed_structure {
+        return obs;
+    }
+    for event in events {
+        let crate::model::runner::RunnerEvent::Explore(line) = *event else {
+            continue;
+        };
         if let Some(json) = extract(line, "EXPLORE:STATE ") {
             if let (Some(sig), Some(labels)) = (
                 json.get("sig").and_then(Value::as_str),
@@ -1000,8 +1025,8 @@ pub(crate) fn parse_run(log: &str) -> RunObs {
 }
 
 fn extract(line: &str, marker: &str) -> Option<Value> {
-    let idx = line.find(marker)?;
-    serde_json::from_str(line[idx + marker.len()..].trim()).ok()
+    let payload = line.strip_prefix(marker)?;
+    serde_json::from_str(payload.trim()).ok()
 }
 
 /// The metric unit on a JANK/HANG marker -- what `bucket` measures. Defaults to

@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 mod frontier;
+mod index;
 mod merge;
 mod parse;
 mod persistence;
@@ -34,12 +35,14 @@ use merge::sig_index;
 pub(crate) use merge::{action_str, merge};
 #[allow(unused_imports)]
 // Types remain reachable at their pre-split `crate::model::map` paths.
-pub(crate) use parse::{parse_run, LeakMetric, RelationCheck, RelationViolation, RunObs};
-#[allow(unused_imports)] // MapSnapshot is normally inferred by rebuild callers.
-pub(crate) use persistence::{
-    appmap_path, begin_full_rebuild, load_map, load_visits, restore_map, MapSnapshot,
+pub(crate) use parse::{
+    parse_run, parse_runner_events, EscapableRoutes, LeakMetric, RelationCheck, RelationViolation,
+    RunObs,
 };
-use persistence::{save_map, save_visits};
+#[cfg(test)]
+use persistence::load_visits;
+pub(crate) use persistence::{appmap_path, load_existing_map, load_map, load_snapshot};
+use persistence::{load_existing_map_unlocked, load_visits_unlocked, save_snapshot, with_map_lock};
 #[allow(unused_imports)] // MapProvenance is part of the existing façade contract.
 pub(crate) use provenance::{map_freshness, stamp_map, MapFreshness, MapProvenance};
 
@@ -48,12 +51,23 @@ pub(crate) use provenance::{map_freshness, stamp_map, MapFreshness, MapProvenanc
 /// `fuzz`, which reports discoveries but never mutates the committed graph) can
 /// accrue cross-seed/cross-batch coverage guidance within a single invocation
 /// without touching `.reproit/map/appmap.json` / `.reproit/map/visits.json`.
-pub(crate) fn absorb_run_inmem(map: &mut AppMap, visits: &mut Visits, log: &str) -> RunObs {
+#[cfg(test)]
+fn absorb_run_inmem(map: &mut AppMap, visits: &mut Visits, log: &str) -> RunObs {
     let obs = parse_run(log);
+    absorb_obs_inmem(map, visits, &obs);
+    obs
+}
+
+/// Merge observations that were already parsed by the run-analysis pipeline.
+/// Keeping parsing outside this reducer prevents fuzz, findings, and graph
+/// accumulation from reparsing the same marker stream.
+pub(crate) fn absorb_obs_inmem(map: &mut AppMap, visits: &mut Visits, obs: &RunObs) {
     if obs.states.is_empty() {
-        return obs;
+        return;
     }
-    merge(map, &obs);
+    if merge(map, obs) {
+        map.mark_changed();
+    }
     if visits.start.is_none() {
         visits.start = obs.start.clone();
     }
@@ -66,23 +80,46 @@ pub(crate) fn absorb_run_inmem(map: &mut AppMap, visits: &mut Visits, log: &str)
             .entry(format!("{from}|{action}"))
             .or_insert(0) += 1;
     }
-    obs
 }
 
 /// Merge one run's observations into both live files and persist them. This is
 /// `map`'s commit path: `map` is what folds discovered coverage into the
 /// committed graph. `fuzz` must NOT call this (it would make a fixed seed drift
 /// across invocations as visit counts accumulate); it uses
-/// [`absorb_run_inmem`].
-pub(crate) fn absorb_run(root: &Path, cfg: &Config, log: &str) -> Result<RunObs> {
-    let mut map = load_map(root, cfg);
-    let mut visits = load_visits(root);
-    let obs = absorb_run_inmem(&mut map, &mut visits, log);
-    if !obs.states.is_empty() {
-        save_map(root, &map)?;
-        save_visits(root, &visits)?;
-    }
+/// [`absorb_obs_inmem`].
+#[cfg(test)]
+fn absorb_run(root: &Path, cfg: &Config, log: &str) -> Result<RunObs> {
+    let obs = parse_run(log);
+    commit_observations(root, cfg, &obs, false)?;
     Ok(obs)
+}
+
+/// Commit parsed observations. A replacement is assembled entirely in memory,
+/// leaving the last good on-disk graph untouched until a usable new graph is
+/// ready to commit.
+fn commit_observations(root: &Path, cfg: &Config, obs: &RunObs, replace: bool) -> Result<()> {
+    if obs.states.is_empty() {
+        return Ok(());
+    }
+    with_map_lock(root, || {
+        let existing = load_existing_map_unlocked(root)?;
+        let mut map = if replace {
+            let mut replacement = AppMap::empty(cfg.app.bundle_id.clone());
+            if let Some(existing) = &existing {
+                replacement.revision = existing.revision;
+            }
+            replacement
+        } else {
+            existing.unwrap_or_else(|| AppMap::empty(cfg.app.bundle_id.clone()))
+        };
+        let mut visits = if replace {
+            Visits::default()
+        } else {
+            load_visits_unlocked(root, map.revision)?
+        };
+        absorb_obs_inmem(&mut map, &mut visits, obs);
+        save_snapshot(root, &map, &mut visits)
+    })
 }
 
 /// Concatenate every device's drive log in a run dir (`drive-a.log`,
@@ -119,6 +156,7 @@ pub async fn build_map(
     budget: Option<u32>,
     label: bool,
     from_run: Option<&Path>,
+    replace: bool,
 ) -> Result<()> {
     let run_dir = match from_run {
         Some(p) if p.is_absolute() => p.to_path_buf(),
@@ -161,7 +199,7 @@ pub async fn build_map(
     // now emits the same EXPLORE records the crawl does, so the dual-user
     // journeys double as the mapper for screens a single actor can't reach.
     let log = read_all_device_logs(&run_dir)?;
-    let obs = absorb_run(root, cfg, &log)?;
+    let obs = parse_run(&log);
     if let Some(line) = log.lines().find(|line| line.contains("EXPLORE:TRUNCATED ")) {
         let detail = line
             .split_once("EXPLORE:TRUNCATED ")
@@ -185,9 +223,10 @@ pub async fn build_map(
             run_dir.display()
         );
     }
+    commit_observations(root, cfg, &obs, replace)?;
 
     if label {
-        let mut map = load_map(root, cfg);
+        let map = load_map(root, cfg)?;
         let state_labels: BTreeMap<String, Vec<String>> = map
             .states
             .values()
@@ -198,29 +237,27 @@ pub async fn build_map(
             .collect();
         match label_states(cfg, &state_labels).await {
             Ok(names) => {
-                let index = sig_index(&map);
-                let mut renames: Vec<(String, String)> = Vec::new();
-                for (sig, name) in names {
-                    if let Some(old_id) = index.get(&sig) {
-                        if old_id != &name && !map.states.contains_key(&name) {
-                            renames.push((old_id.clone(), name));
-                        }
-                    }
-                }
-                for (old, new) in renames {
-                    if let Some(state) = map.states.remove(&old) {
-                        map.states.insert(new.clone(), state);
-                        for t in &mut map.transitions {
-                            if t.from == old {
-                                t.from = new.clone();
-                            }
-                            if t.to == old {
-                                t.to = new.clone();
+                with_map_lock(root, || {
+                    let mut current = persistence::load_map_unlocked(root, cfg)?;
+                    let mut visits = load_visits_unlocked(root, current.revision)?;
+                    let index = sig_index(&current);
+                    let mut changed = false;
+                    for (sig, name) in &names {
+                        if let Some(state_id) = index.get(sig) {
+                            if let Some(state) = current.states.get_mut(state_id) {
+                                if state.name.as_deref() != Some(name.as_str()) {
+                                    state.name = Some(name.clone());
+                                    changed = true;
+                                }
                             }
                         }
                     }
-                }
-                save_map(root, &map)?;
+                    if changed {
+                        current.mark_changed();
+                        save_snapshot(root, &current, &mut visits)?;
+                    }
+                    Ok(())
+                })?;
             }
             Err(e) => eprintln!("  warn: labeling pass failed ({e}); keeping current names"),
         }
@@ -229,8 +266,8 @@ pub async fn build_map(
     // The graph and its provenance are committed as one logical snapshot. The
     // next graph-consuming command compares actual project inputs to this stamp
     // and refreshes automatically when they differ.
-    stamp_map(root)?;
-    let map = load_map(root, cfg);
+    let map = load_map(root, cfg)?;
+    stamp_map(root, map.revision)?;
     // Progress lines go to STDERR: stdout is reserved for machine output (e.g. a
     // `--json` scan/fuzz that auto-builds the map on first run), and these landing
     // on stdout corrupted the JSON object a piped consumer parses.
@@ -349,6 +386,7 @@ mod tests {
 
     fn st(desc: &str) -> State {
         State {
+            name: None,
             description: desc.to_string(),
             signature: StateSignature {
                 screenshot_phash: None,
@@ -380,7 +418,8 @@ mod tests {
         states.insert("About".to_string(), st("about / version info"));
         AppMap {
             app: "demo".to_string(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states,
             transitions: vec![
                 tap("Home", "Settings", "Settings"),
@@ -414,6 +453,17 @@ mod tests {
     }
 
     #[test]
+    fn human_name_is_searchable_without_changing_structural_identity() {
+        let mut map = sample();
+        map.states.get_mut("Home").unwrap().name = Some("launch_pad".to_string());
+
+        let (target, path) = path_to_label(&map, "launch").unwrap();
+        assert_eq!(target, "Home");
+        assert!(path.is_empty());
+        assert!(map.states.contains_key("Home"));
+    }
+
+    #[test]
     fn frontier_path_is_deterministic_on_ties() {
         // Two unvisited frontier states, each one tap from Home: equal visit count
         // AND equal path length, so the pick comes down to the tie-break. Before
@@ -430,13 +480,15 @@ mod tests {
         states.insert("Bravo".to_string(), sig_state("sig-bravo"));
         let map = AppMap {
             app: "demo".to_string(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states,
             transitions: vec![tap("Home", "a", "Alpha"), tap("Home", "b", "Bravo")],
             invariants: vec![],
             interrupts: vec![],
         };
         let visits = Visits {
+            map_revision: map.revision,
             start: Some("sig-home".to_string()),
             counts: BTreeMap::new(),
             edge_counts: BTreeMap::new(),
@@ -453,31 +505,111 @@ mod tests {
     }
 
     #[test]
+    fn frontier_path_handles_a_ten_thousand_state_chain() {
+        const STATE_COUNT: usize = 10_000;
+        let mut map = AppMap::empty("scaling".to_string());
+        for index in 0..STATE_COUNT {
+            let id = format!("s_{index:05}");
+            let mut state = st("chain");
+            state.signature.semantics_hash = Some(format!("sig-{index:05}"));
+            map.states.insert(id, state);
+        }
+        for index in 0..STATE_COUNT - 1 {
+            map.transitions.push(tap(
+                &format!("s_{index:05}"),
+                "next",
+                &format!("s_{:05}", index + 1),
+            ));
+        }
+        let visits = Visits {
+            map_revision: map.revision,
+            start: Some("sig-00000".to_string()),
+            ..Visits::default()
+        };
+
+        let (target, path) = frontier_path(&map, &visits).unwrap();
+        assert_eq!(target, "s_09999");
+        assert_eq!(path.len(), STATE_COUNT - 1);
+    }
+
+    #[test]
     fn parse_action_recovers_typed_scroll_system_edges() {
         // type:/scroll:/system: must round-trip into their real variants, not
         // collapse to Back (which lost the finder/value of form-driven edges).
-        assert!(matches!(parse_action("tap:Go"), Action::Tap { .. }));
+        assert!(matches!(parse_action("tap:Go"), Some(Action::Tap { .. })));
         match parse_action("type:role:textfield#0=hello") {
-            Action::Type { finder, text } => {
+            Some(Action::Type { finder, text }) => {
                 assert_eq!(finder, "role:textfield#0");
-                assert_eq!(text, "hello");
+                assert!(text.is_empty(), "raw typed values must not enter the map");
             }
             a => panic!("expected Type, got {a:?}"),
         }
         match parse_action("scroll:key:list=-300") {
-            Action::Scroll { finder, dy } => {
+            Some(Action::Scroll { finder, dy }) => {
                 assert_eq!(finder, "key:list");
                 assert_eq!(dy, -300);
             }
             a => panic!("expected Scroll, got {a:?}"),
         }
         match parse_action("system:back") {
-            Action::System { event } => assert_eq!(event, "back"),
+            Some(Action::System { event }) => assert_eq!(event, "back"),
             a => panic!("expected System, got {a:?}"),
         }
-        assert!(matches!(parse_action("back"), Action::Back));
+        assert!(matches!(parse_action("back"), Some(Action::Back)));
         // A typed edge with no `=value` still parses as Type (empty text), not Back.
-        assert!(matches!(parse_action("type:key:x"), Action::Type { .. }));
+        assert!(matches!(
+            parse_action("type:key:x"),
+            Some(Action::Type { .. })
+        ));
+        assert!(parse_action("unknown").is_none());
+        assert!(parse_action("scroll:key:list=wat").is_none());
+    }
+
+    #[test]
+    fn merge_deduplicates_one_run_and_abstains_on_unknown_actions() {
+        let mut map = AppMap::empty("demo".to_string());
+        let mut visits = Visits::default();
+        let log = concat!(
+            "EXPLORE:STATE {\"sig\":\"a\",\"labels\":[\"A\"]}\n",
+            "EXPLORE:STATE {\"sig\":\"b\",\"labels\":[\"B\"]}\n",
+            "EXPLORE:EDGE {\"from\":\"a\",\"action\":\"tap:key:go\",\"to\":\"b\"}\n",
+            "EXPLORE:EDGE {\"from\":\"a\",\"action\":\"tap:key:go\",\"to\":\"b\"}\n",
+            "EXPLORE:EDGE {\"from\":\"a\",\"action\":\"mystery\",\"to\":\"b\"}\n",
+        );
+        absorb_run_inmem(&mut map, &mut visits, log);
+        assert_eq!(map.transitions.len(), 1);
+        assert_eq!(map.revision, 2);
+        assert!(map.states.contains_key("s_a"));
+        assert!(map.states.contains_key("s_b"));
+
+        absorb_run_inmem(&mut map, &mut visits, log);
+        assert_eq!(map.transitions.len(), 1);
+        assert_eq!(map.revision, 2, "an identical merge is not a graph change");
+    }
+
+    #[test]
+    fn malformed_structural_evidence_abstains_from_graph_invariants() {
+        let obs = parse_run(concat!(
+            "EXPLORE:STATE {\"sig\":\"a\",\"labels\":[]}\n",
+            "EXPLORE:PERMISSIONWALK {\"sig\":\"a\",\"permission\":\"camera\"}\n",
+            "EXPLORE:EDGE {malformed}\n",
+        ));
+        assert!(obs.states.is_empty());
+        assert!(obs.permission_screens.is_empty());
+    }
+
+    #[test]
+    fn legacy_version_deserializes_as_a_graph_revision() {
+        let map: AppMap = serde_json::from_str(
+            r#"{"app":"demo","version":7,"states":{},"transitions":[],"invariants":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(map.schema_version, 1);
+        assert_eq!(map.revision, 7);
+
+        let serialized = serde_json::to_value(AppMap::empty("demo".to_string())).unwrap();
+        assert_eq!(serialized["version"], 1);
+        assert!(serialized.get("revision").is_none());
     }
 
     #[test]
@@ -502,7 +634,8 @@ mod tests {
         states.insert("B".to_string(), sig_state("sigB"));
         let map = AppMap {
             app: "demo".to_string(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states,
             transitions: vec![tap("A", "go", "B")],
             invariants: vec![],
@@ -530,7 +663,8 @@ mod tests {
         assert_eq!(obs.routes.get("abc").map(String::as_str), Some("/home"));
         let mut map = AppMap {
             app: "t".into(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states: BTreeMap::new(),
             transitions: vec![],
             invariants: vec![],
@@ -577,7 +711,8 @@ mod tests {
         // The non-operable decoration is never a gap; the healthy nav is not either.
         let mut map = AppMap {
             app: "t".into(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states: BTreeMap::new(),
             transitions: vec![],
             invariants: vec![],
@@ -1174,7 +1309,8 @@ mod tests {
         // First run had no route; a later run that reports one backfills it.
         let mut map = AppMap {
             app: "t".into(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states: BTreeMap::new(),
             transitions: vec![],
             invariants: vec![],
@@ -1277,7 +1413,7 @@ mod tests {
             !root.join(".reproit/visits.json").exists(),
             "old root visits should not be written"
         );
-        let map = load_map(&root, &loaded.config);
+        let map = load_map(&root, &loaded.config).unwrap();
         let state = map.states.values().next().unwrap();
         assert_eq!(state.elements.len(), 1);
         assert_eq!(state.elements[0].label, "Sign in");
@@ -1286,6 +1422,21 @@ mod tests {
         assert_eq!(state.texts.len(), 1);
         assert_eq!(state.texts[0].text, "Sign in");
         assert_eq!(state.texts[0].bounds, Some([22, 28, 44, 14]));
+
+        let visits = load_visits(&root, map.revision).unwrap();
+        assert_eq!(visits.map_revision, map.revision);
+        let good_map = std::fs::read(appmap_path(&root)).unwrap();
+        std::fs::write(appmap_path(&root), b"{").unwrap();
+        let error = load_map(&root, &loaded.config).unwrap_err().to_string();
+        assert!(error.contains("refusing to replace a corrupt map"));
+        assert_eq!(std::fs::read(appmap_path(&root)).unwrap(), b"{");
+        std::fs::write(appmap_path(&root), good_map).unwrap();
+
+        let mut mismatched = visits;
+        mismatched.map_revision += 1;
+        persistence::save_visits(&root, &mismatched).unwrap();
+        let error = load_visits(&root, map.revision).unwrap_err().to_string();
+        assert!(error.contains("refusing a partial snapshot"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1304,17 +1455,12 @@ mod tests {
         std::fs::create_dir_all(root.join(".reproit/map")).unwrap();
         std::fs::write(root.join("src/app.ts"), "export const screen = 'home';").unwrap();
         std::fs::write(root.join("reproit.yaml"), "app: {}\n").unwrap();
-        std::fs::write(appmap_path(&root), "{}").unwrap();
+        let map = AppMap::empty("test-app".to_string());
+        let revision = map.revision;
+        let mut visits = Visits::default();
+        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
 
-        stamp_map(&root).unwrap();
-        assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
-
-        let original_map = std::fs::read(appmap_path(&root)).unwrap();
-        let snapshot = begin_full_rebuild(&root).unwrap();
-        assert!(!appmap_path(&root).exists());
-        std::fs::write(appmap_path(&root), "partial replacement").unwrap();
-        restore_map(snapshot).unwrap();
-        assert_eq!(std::fs::read(appmap_path(&root)).unwrap(), original_map);
+        stamp_map(&root, revision).unwrap();
         assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
 
         std::fs::write(root.join("target/generated.js"), "ignored").unwrap();
@@ -1326,7 +1472,7 @@ mod tests {
             MapFreshness::Stale(vec!["application source changed"])
         );
 
-        stamp_map(&root).unwrap();
+        stamp_map(&root, revision).unwrap();
         std::fs::write(root.join("reproit.yaml"), "app: { platform: web }\n").unwrap();
         assert_eq!(
             map_freshness(&root).unwrap(),

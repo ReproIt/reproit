@@ -3,17 +3,30 @@
 //! the runner. Types only for now; the authoring agent and fuzzer populate
 //! and consume these.
 
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+pub const APP_MAP_SCHEMA_VERSION: u32 = 2;
+
+fn legacy_schema_version() -> u32 {
+    1
+}
+
+fn initial_revision() -> u64 {
+    1
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppMap {
     pub app: String,
-    /// Bumped whenever states/transitions change; fuzz seeds are only
-    /// replayable against the same model version.
-    pub version: u32,
+    /// On-disk representation version. This changes only when a migration is
+    /// required, not when exploration discovers another state or edge.
+    #[serde(default = "legacy_schema_version", rename = "schemaVersion")]
+    pub schema_version: u32,
+    /// Monotonic graph content revision. Legacy maps used `version` for this
+    /// value, so the alias preserves existing committed maps.
+    #[serde(default = "initial_revision", rename = "version", alias = "revision")]
+    pub revision: u64,
     pub states: BTreeMap<String, State>,
     pub transitions: Vec<Transition>,
     pub invariants: Vec<Invariant>,
@@ -23,12 +36,34 @@ pub struct AppMap {
     pub interrupts: Vec<Interrupt>,
 }
 
+impl AppMap {
+    pub fn empty(app: String) -> Self {
+        Self {
+            app,
+            schema_version: APP_MAP_SCHEMA_VERSION,
+            revision: initial_revision(),
+            states: BTreeMap::new(),
+            transitions: Vec::new(),
+            invariants: Vec::new(),
+            interrupts: Vec::new(),
+        }
+    }
+
+    pub fn mark_changed(&mut self) {
+        self.revision = self.revision.saturating_add(1);
+    }
+}
+
 /// A named, recognizable configuration of the UI. States are screen
 /// TEMPLATES: profile-of-Alice and profile-of-Bob are one state with a
 /// `user` parameter. Signatures hash structure, not content; content binds
 /// to parameters. Otherwise the graph explodes.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct State {
+    /// Human-facing name. The containing map key is an immutable structural
+    /// state id and must not be rewritten when this label changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub description: String,
     pub signature: StateSignature,
     /// Actionable elements observed on this state. Labels are display/help
@@ -165,7 +200,8 @@ pub enum InterruptPolicy {
 pub struct StateSignature {
     /// Perceptual hash of the settled screenshot.
     pub screenshot_phash: Option<String>,
-    /// Hash over the semantics tree shape (labels + roles, order-sensitive).
+    /// Hash over the normalized semantics tree shape. Display labels and raw
+    /// values are deliberately excluded from structural identity.
     pub semantics_hash: Option<String>,
     /// Route/page identity when the app exposes one.
     pub route: Option<String>,

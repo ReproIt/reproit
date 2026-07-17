@@ -17,7 +17,7 @@ use crate::config::Config;
 use crate::layout;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 mod confirmation;
@@ -33,7 +33,7 @@ use confirmation::{crash_trigger_index, is_keyed_action};
 use findings::finding_category;
 use findings::{
     all_findings, batch_completed, equivalent_findings_key, finding_label, findings_for_tier,
-    findings_from_log, map_escapable_routes, normalize_message, perf_findings, primary_finding,
+    findings_from_parsed, map_escapable_routes, normalize_message, perf_findings, primary_finding,
     reproduces_original, reserve_shrink_representative, shrink_target, target_identity,
 };
 pub(crate) use findings::{app_exceptions, finding_signature, finding_signatures_for_log};
@@ -144,6 +144,21 @@ pub(super) fn say(json: bool, line: impl std::fmt::Display) {
 struct SeedPlan {
     seed: u64,
     config: Value,
+}
+
+/// Guidance shared by every seed planned from the same pre-batch graph.
+struct StaticGuidance {
+    contract_actions: Vec<String>,
+    seeds: Option<Value>,
+}
+
+struct BatchGuidance<'a> {
+    edge_weights: std::collections::BTreeMap<String, std::collections::BTreeMap<String, u64>>,
+    contract_actions: &'a [String],
+    budget: u32,
+    prefix: Option<Vec<String>>,
+    frontier: Option<String>,
+    seeds: Option<&'a Value>,
 }
 
 /// `fuzz` entry: with no `--locale`, runs the flow once (app default). With one
@@ -302,14 +317,14 @@ async fn fuzz_one_locale(
     // stands at the START of that batch; the in-memory snapshot updates BETWEEN
     // batches (via absorb_run_inmem below), not within. Smaller batches tighten
     // the guidance loop at the cost of more startups.
-    let mut map = crate::model::map::load_map(root, cfg);
+    let (mut map, mut visits) = crate::model::map::load_snapshot(root, cfg)?;
     // Routes the aggregate map can leave: folded into each per-seed permission
     // trap check so a sparse seed does not false-flag an escapable page.
     // Grows as seeds reveal exits the shallow map-build never reached.
     let mut escapable = map_escapable_routes(&map);
-    let mut visits = crate::model::map::load_visits(root);
     let mut warm = false;
     let mut done = 0u32;
+    let static_guidance = static_guidance(cfg, args);
     // Seeds that ACTUALLY executed (one log segment each), vs `done` which counts
     // seeds DISPATCHED into a batch. A wall-clock timeout can kill a multi-seed
     // batch after only the first seed, so the summary must report seeds_run, not
@@ -318,10 +333,11 @@ async fn fuzz_one_locale(
     let mut complete = true;
     while done < args.runs {
         let this_batch = batch_size.min(args.runs - done);
+        let guidance = batch_guidance(args, &map, &visits, &static_guidance);
         let plans: Vec<SeedPlan> = (0..this_batch)
             .map(|j| {
                 let seed = args.seed + (done + j) as u64;
-                plan_seed(cfg, root, args, &map, &visits, seed, done + j)
+                plan_seed(args, &guidance, seed, done + j)
             })
             .collect();
 
@@ -356,6 +372,14 @@ async fn fuzz_one_locale(
         let segments = split_seed_segments(&full_log, &plans);
         seeds_run += segments.len() as u32;
         complete &= batch_completed(&full_log, &plans);
+        let parsed_segments: Vec<_> = segments
+            .into_iter()
+            .map(|(seed, log)| {
+                let events = crate::model::runner::parse(log);
+                let observations = crate::model::map::parse_runner_events(&events);
+                (seed, log, events, observations)
+            })
+            .collect();
 
         // Pool escapable routes across ALL seeds in this batch BEFORE judging any
         // of them. A permission trap is a graph property, so one seed's sparse view is
@@ -363,8 +387,7 @@ async fn fuzz_one_locale(
         // terminus would false-flag it even though a sibling seed left it cleanly.
         // Pooling (and accumulating into `escapable` across batches) means a page
         // any seed could leave via a forward action is never a trap.
-        for (_s, seg_log) in &segments {
-            let o = crate::model::map::parse_run(seg_log);
+        for (_, _, _, o) in &parsed_segments {
             for (from, action, to) in &o.edges {
                 if action != "back" && to != from {
                     if let Some(r) = o.routes.get(from) {
@@ -373,17 +396,20 @@ async fn fuzz_one_locale(
                             .get(from)
                             .map(|labels| labels.iter().cloned().collect())
                             .unwrap_or_default();
-                        escapable.entry(r.clone()).or_default().push(labels);
+                        std::sync::Arc::make_mut(&mut escapable)
+                            .entry(r.clone())
+                            .or_default()
+                            .insert(labels);
                     }
                 }
             }
         }
 
-        for (idx, (seed, seg_log)) in segments.iter().enumerate() {
+        for (idx, (seed, seg_log, events, obs)) in parsed_segments.into_iter().enumerate() {
             // Accrue this walk's coverage into the IN-MEMORY snapshot only, so
             // later batches in THIS run get the guidance, but the committed
             // map/visits stay untouched (fuzz is pure; re-run `map` to fold in).
-            let _ = crate::model::map::absorb_run_inmem(&mut map, &mut visits, seg_log);
+            crate::model::map::absorb_obs_inmem(&mut map, &mut visits, &obs);
             // Findings attributed to THIS seed: exceptions parsed from the
             // seed's log slice, plus the per-device perf oracle (whole-session;
             // attributed to whichever seed it lands in only when we can't split
@@ -398,9 +424,25 @@ async fn fuzz_one_locale(
             // evidence escapes it. Jank/leak stay handled by perf_findings below
             // for the sim tier (session-wide frame stream).
             let exceptions = exceptions_in_log(seg_log);
-            let mut findings =
-                findings_from_log(cfg, seg_log, exceptions, args.sim, escapable.clone());
-            let contract_observations = crate::model::observation::from_runner_log(seg_log, &[]);
+            let contract_observations = if cfg.contracts.is_empty() {
+                Vec::new()
+            } else {
+                crate::model::observation::from_runner_events(&events, &[])
+            };
+            let backend_events = if cfg.backend.enabled {
+                crate::model::backend::parse_runner_events(&events)
+            } else {
+                Vec::new()
+            };
+            let mut findings = findings_from_parsed(
+                cfg,
+                obs,
+                exceptions,
+                args.sim,
+                escapable.clone(),
+                &contract_observations,
+                &backend_events,
+            );
             let contract_violations =
                 crate::model::contracts::evaluate_all(&cfg.contracts, &contract_observations);
             let _ = crate::model::contracts::write_evidence(
@@ -436,12 +478,14 @@ async fn fuzz_one_locale(
             // verdict-bearing repro, per reproit's "reproduces on any machine"
             // promise. Pull them out before the verdict is formed so they never
             // create a FINDING or a saved repro.
-            let advisory: Vec<Value> = findings
-                .iter()
-                .filter(|f| f.get("advisory").and_then(Value::as_bool).unwrap_or(false))
-                .cloned()
-                .collect();
-            findings.retain(|f| !f.get("advisory").and_then(Value::as_bool).unwrap_or(false));
+            let (verdict_findings, advisory): (Vec<_>, Vec<_>) =
+                findings.into_iter().partition(|finding| {
+                    !finding
+                        .get("advisory")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                });
+            findings = verdict_findings;
             for f in &advisory {
                 say(
                     json,
@@ -459,7 +503,8 @@ async fn fuzz_one_locale(
                 }
             }
             for f in &findings {
-                found_sigs.insert(finding_signature(f));
+                let signature = finding_signature(f);
+                found_sigs.insert(signature.clone());
                 // Tally the STATE-PRESENT issues this walk passed (content /
                 // choice / broken-route), deduped by signature,
                 // so the report can point them at `scan` instead of burying them
@@ -473,7 +518,7 @@ async fn fuzz_one_locale(
                         | "broken-route"
                         | "security"
                 ) {
-                    state_present.insert(finding_signature(f), oracle.to_string());
+                    state_present.insert(signature, oracle.to_string());
                 }
             }
             if findings.is_empty() {
@@ -583,12 +628,8 @@ async fn fuzz_one_locale(
             let primary_sig = primary_finding(&findings)
                 .map(finding_signature)
                 .unwrap_or_else(|| "unknown".to_string());
-            let repro_id = crate::model::repro::finding_id(
-                &target_identity(cfg),
-                &primary_sig,
-                *seed,
-                &shrunk,
-            );
+            let repro_id =
+                crate::model::repro::finding_id(&target_identity(cfg), &primary_sig, seed, &shrunk);
             let finding_id = crate::model::repro::display_finding_id(&repro_id);
             // `--all` batches every seed into ONE drive run_dir, so writing each
             // finding's report to that shared dir would overwrite the previous
@@ -605,7 +646,7 @@ async fn fuzz_one_locale(
             } else {
                 outcome.run_dir.clone()
             };
-            write_report(&report_dir, &repro_id, *seed, &findings, &trace, &shrunk)?;
+            write_report(&report_dir, &repro_id, seed, &findings, &trace, &shrunk)?;
             persist_finding_report(root, &repro_id, &report_dir)?;
             if let Some(guard) = crate::model::contracts::FrozenContractGuard::from_findings(
                 &cfg.contracts,
@@ -620,7 +661,7 @@ async fn fuzz_one_locale(
             }
             if let Some(primary) = primary_finding(&findings) {
                 let capsule =
-                    persist_causal_capsule(cfg, root, &outcome.run_dir, primary, &shrunk, *seed)?;
+                    persist_causal_capsule(cfg, root, &outcome.run_dir, primary, &shrunk, seed)?;
                 let capsule = shrink_causal_capsule(
                     cfg,
                     root,
@@ -711,7 +752,7 @@ async fn fuzz_one_locale(
                         .entry(sig)
                         .or_insert_with(|| (finding_label(primary), Vec::new()))
                         .1
-                        .push((repro_id.clone(), shrunk.len(), *seed));
+                        .push((repro_id.clone(), shrunk.len(), seed));
                 }
             }
 
@@ -763,7 +804,7 @@ async fn fuzz_one_locale(
                         // The sim run holds the .mov; copy the finding's report
                         // (with the minimized repro block) into it so the
                         // delivery pipeline reads the repro + summary from there.
-                        write_report(&o.run_dir, &repro_id, *seed, &findings, &trace, &shrunk)?;
+                        write_report(&o.run_dir, &repro_id, seed, &findings, &trace, &shrunk)?;
                         deliver_dir = o.run_dir;
                     }
                     Err(e) => say(json, format!("  confirm-on-sim: sim run failed: {e}")),
@@ -906,15 +947,31 @@ fn crash_guard_for(cfg: &Config) -> crate::crashreporter::CrashReporterGuard {
 /// Resolve one seed's walk config from the (pre-batch) map/visits snapshot.
 /// Resolve the same per-run inputs for each seed, hoisted so a batch can carry
 /// several. `i` is the global run index (for the progress line).
-fn plan_seed(
-    cfg: &Config,
-    root: &Path,
+fn static_guidance(cfg: &Config, args: &FuzzArgs) -> StaticGuidance {
+    let seeds = args.seeds_file.as_ref().and_then(|path| {
+        let parsed = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+        match parsed {
+            Some(value) if value.is_array() => Some(value),
+            _ => {
+                eprintln!("warning: --seeds {path} not readable as a JSON array; ignoring");
+                None
+            }
+        }
+    });
+    StaticGuidance {
+        contract_actions: crate::model::contracts::action_hints(&cfg.contracts),
+        seeds,
+    }
+}
+
+fn batch_guidance<'a>(
     args: &FuzzArgs,
     map: &crate::model::appmap::AppMap,
     visits: &crate::model::map::Visits,
-    seed: u64,
-    i: u32,
-) -> SeedPlan {
+    static_guidance: &'a StaticGuidance,
+) -> BatchGuidance<'a> {
     // Inverse-visit-count action scoring (Adamo et al.): weight each candidate
     // edge by 1/(1+globalVisits) using this snapshot. --uniform zeroes it.
     let edge_weights = if args.uniform {
@@ -926,79 +983,81 @@ fn plan_seed(
     // Power schedule (AFLFast FAST): a rare, edge-rich frontier state earns
     // more budget; a saturated one earns less.
     let mut budget = args.budget;
-    let mut prefix: Option<Vec<String>> = None;
-    if let Some(p) = &args.from_prefix {
-        // `--from <journey>`: replay the journey to its end state, then explore
-        // outward. The journey IS the path in, so it takes precedence over
-        // frontier pathfinding; the seeded walk gets its full budget AFTER the
-        // prefix (the runner adds prefix length to the action budget).
-        say(
-            args.json,
-            format!(
-                "fuzz seed {seed} (run {}/{}): from journey ({} action(s)) then explore, budget \
-                 {budget}",
-                i + 1,
-                args.runs,
-                p.len()
-            ),
-        );
-        prefix = Some(p.clone());
-    } else if args.frontier {
+    let mut prefix = args.from_prefix.clone();
+    let mut frontier = None;
+    if args.from_prefix.is_none() && args.frontier {
         match crate::model::map::frontier_path(map, visits) {
             Some((target, path)) if !path.is_empty() => {
                 if !args.uniform {
                     budget = energy_budget(map, visits, &target, args.budget);
                 }
-                say(
-                    args.json,
-                    format!(
-                        "fuzz seed {seed} (run {}/{}): frontier {} via {} action(s), budget \
-                         {budget}",
-                        i + 1,
-                        args.runs,
-                        target,
-                        path.len()
-                    ),
-                );
                 prefix = Some(path);
+                frontier = Some(target);
             }
-            _ => say(
-                args.json,
-                format!(
-                    "fuzz seed {seed} (run {}/{}): no frontier yet (empty map), plain walk",
-                    i + 1,
-                    args.runs
-                ),
-            ),
+            _ => {}
         }
+    }
+    BatchGuidance {
+        edge_weights,
+        contract_actions: &static_guidance.contract_actions,
+        budget,
+        prefix,
+        frontier,
+        seeds: static_guidance.seeds.as_ref(),
+    }
+}
+
+fn plan_seed(args: &FuzzArgs, guidance: &BatchGuidance<'_>, seed: u64, i: u32) -> SeedPlan {
+    if let Some(prefix) = &args.from_prefix {
+        say(
+            args.json,
+            format!(
+                "fuzz seed {seed} (run {}/{}): from journey ({} action(s)) then explore, budget \
+                 {}",
+                i + 1,
+                args.runs,
+                prefix.len(),
+                guidance.budget
+            ),
+        );
+    } else if let (Some(target), Some(path)) = (&guidance.frontier, &guidance.prefix) {
+        say(
+            args.json,
+            format!(
+                "fuzz seed {seed} (run {}/{}): frontier {target} via {} action(s), budget {}",
+                i + 1,
+                args.runs,
+                path.len(),
+                guidance.budget
+            ),
+        );
+    } else if args.frontier {
+        say(
+            args.json,
+            format!(
+                "fuzz seed {seed} (run {}/{}): no frontier yet (empty map), plain walk",
+                i + 1,
+                args.runs
+            ),
+        );
     } else {
         say(
             args.json,
             format!("fuzz seed {seed} (run {}/{})", i + 1, args.runs),
         );
     }
-
-    let contract_actions = crate::model::contracts::action_hints(&cfg.contracts);
     let mut config = json!({
         "seed": seed,
-        "budget": budget,
-        "edgeWeights": edge_weights,
-        "contractActions": contract_actions,
+        "budget": guidance.budget,
+        "edgeWeights": guidance.edge_weights,
+        "contractActions": guidance.contract_actions,
     });
-    if let Some(p) = prefix {
+    if let Some(p) = &guidance.prefix {
         config["prefix"] = json!(p);
     }
-    // Production seed corpus: real user paths to branch outward from.
-    if let Some(path) = &args.seeds_file {
-        match std::fs::read_to_string(path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        {
-            Some(v) if v.is_array() => config["seeds"] = v,
-            _ => eprintln!("warning: --seeds {path} not readable as a JSON array; ignoring"),
-        }
+    if let Some(seeds) = guidance.seeds {
+        config["seeds"] = seeds.clone();
     }
-    let _ = root; // reserved for future per-seed file resolution
     SeedPlan { seed, config }
 }
 
@@ -1019,27 +1078,27 @@ fn energy_budget(
         .unwrap_or_default();
     let v = visits.counts.get(&sig).copied().unwrap_or(0);
     // Outgoing edges from this state, and how many have ever been traversed.
-    let out_edges: Vec<&str> = map
+    let mut known_out = 0_usize;
+    let mut traversed = 0_usize;
+    for transition in map
         .transitions
         .iter()
-        .filter(|t| t.from == target_id)
-        .map(|t| t.from.as_str())
-        .collect();
-    let known_out = out_edges.len().max(1) as f64;
-    let traversed = map
-        .transitions
-        .iter()
-        .filter(|t| t.from == target_id)
-        .filter(|t| {
-            let action = crate::model::map::action_str(&t.action);
-            visits
-                .edge_counts
-                .get(&format!("{sig}|{action}"))
-                .copied()
-                .unwrap_or(0)
-                > 0
-        })
-        .count() as f64;
+        .filter(|transition| transition.from == target_id)
+    {
+        known_out += 1;
+        let action = crate::model::map::action_str(&transition.action);
+        if visits
+            .edge_counts
+            .get(&format!("{sig}|{action}"))
+            .copied()
+            .unwrap_or(0)
+            > 0
+        {
+            traversed += 1;
+        }
+    }
+    let known_out = known_out.max(1) as f64;
+    let traversed = traversed as f64;
     let unexplored_factor = 1.0 + (known_out - traversed) / known_out; // 1.0..2.0
     let energy = base as f64 * unexplored_factor / (1.0 + v as f64).sqrt();
     energy
@@ -1356,7 +1415,7 @@ FUZZ:ACT back
         let segs = split_seed_segments(log, &[plan(7)]);
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].0, 7);
-        assert_eq!(trace_in_log(&segs[0].1), vec!["tap:A", "back"]);
+        assert_eq!(trace_in_log(segs[0].1), vec!["tap:A", "back"]);
     }
 
     #[test]
@@ -1375,9 +1434,9 @@ JOURNEY DONE
         let segs = split_seed_segments(log, &[plan(1), plan(2)]);
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[0].0, 1);
-        assert_eq!(trace_in_log(&segs[0].1), vec!["tap:A"]);
+        assert_eq!(trace_in_log(segs[0].1), vec!["tap:A"]);
         assert_eq!(segs[1].0, 2);
-        assert_eq!(trace_in_log(&segs[1].1), vec!["tap:B", "back"]);
+        assert_eq!(trace_in_log(segs[1].1), vec!["tap:B", "back"]);
     }
 
     #[test]
@@ -1394,8 +1453,8 @@ SEED:END 7
 ";
         let segs = split_log_segments(log);
         assert_eq!(segs.len(), 2);
-        assert_eq!(trace_in_log(&segs[0]), vec!["tap:A"]);
-        assert_eq!(trace_in_log(&segs[1]), vec!["tap:A"]);
+        assert_eq!(trace_in_log(segs[0]), vec!["tap:A"]);
+        assert_eq!(trace_in_log(segs[1]), vec!["tap:A"]);
     }
 
     #[test]
@@ -1404,7 +1463,7 @@ SEED:END 7
         let log = "FUZZ:ACT tap:A\nJOURNEY DONE\n";
         let segs = split_log_segments(log);
         assert_eq!(segs.len(), 1);
-        assert_eq!(trace_in_log(&segs[0]), vec!["tap:A"]);
+        assert_eq!(trace_in_log(segs[0]), vec!["tap:A"]);
     }
 
     #[test]
@@ -1415,7 +1474,7 @@ SEED:END 7
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[0].0, 1);
         assert_eq!(segs[1].0, 2);
-        assert_eq!(trace_in_log(&segs[0].1), vec!["tap:A"]);
+        assert_eq!(trace_in_log(segs[0].1), vec!["tap:A"]);
     }
 
     #[test]

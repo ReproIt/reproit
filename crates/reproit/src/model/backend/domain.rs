@@ -1,7 +1,7 @@
 use super::{canonical_json, matches_format, redacted_metadata, RedactedMetadata};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(
@@ -81,6 +81,16 @@ pub(super) fn default_true() -> bool {
 
 impl ValueDomain {
     pub fn mismatch(&self, value: &Value, path: &str) -> Option<String> {
+        let mut patterns = HashMap::new();
+        self.mismatch_cached(value, path, &mut patterns)
+    }
+
+    fn mismatch_cached<'a>(
+        &'a self,
+        value: &Value,
+        path: &str,
+        patterns: &mut HashMap<&'a str, Option<regex::Regex>>,
+    ) -> Option<String> {
         if let Some(metadata) = redacted_metadata(value) {
             return self.redacted_mismatch(metadata, path);
         }
@@ -156,9 +166,14 @@ impl ValueDomain {
                 if !variants.is_empty() && !variants.iter().any(|variant| variant == text) {
                     return Some(format!("{path} is not an allowed variant"));
                 }
-                if pattern.as_ref().is_some_and(|pattern| {
-                    regex::Regex::new(pattern).is_ok_and(|regex| !regex.is_match(text))
-                }) {
+                let pattern_mismatch = pattern.as_deref().is_some_and(|pattern| {
+                    patterns
+                        .entry(pattern)
+                        .or_insert_with(|| regex::Regex::new(pattern).ok())
+                        .as_ref()
+                        .is_some_and(|regex| !regex.is_match(text))
+                });
+                if pattern_mismatch {
                     return Some(format!("{path} does not match its pattern"));
                 }
                 if format
@@ -193,10 +208,9 @@ impl ValueDomain {
                         return Some(format!("{path} must contain unique items"));
                     }
                 }
-                values
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, value)| items.mismatch(value, &format!("{path}[{index}]")))
+                values.iter().enumerate().find_map(|(index, value)| {
+                    items.mismatch_cached(value, &format!("{path}[{index}]"), patterns)
+                })
             }
             Self::Object {
                 required,
@@ -216,23 +230,23 @@ impl ValueDomain {
                     }
                 }
                 properties.iter().find_map(|(name, domain)| {
-                    object
-                        .get(name)
-                        .and_then(|value| domain.mismatch(value, &format!("{path}.{name}")))
+                    object.get(name).and_then(|value| {
+                        domain.mismatch_cached(value, &format!("{path}.{name}"), patterns)
+                    })
                 })
             }
             Self::OneOf { variants } => variants
                 .iter()
-                .all(|variant| variant.mismatch(value, path).is_some())
+                .all(|variant| variant.mismatch_cached(value, path, patterns).is_some())
                 .then(|| format!("{path} does not match any allowed variant")),
             Self::AllOf { variants } => variants
                 .iter()
-                .find_map(|variant| variant.mismatch(value, path)),
+                .find_map(|variant| variant.mismatch_cached(value, path, patterns)),
             Self::GraphqlAbstract { variants } => {
                 let kind = value.get("__typename").and_then(Value::as_str)?;
                 variants
                     .get(kind)
-                    .and_then(|variant| variant.mismatch(value, path))
+                    .and_then(|variant| variant.mismatch_cached(value, path, patterns))
             }
             Self::Literal { value: expected } => {
                 (value != expected).then(|| format!("{path} does not equal its declared literal"))

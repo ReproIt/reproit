@@ -67,3 +67,55 @@ cohesion determines when a file should be split.
 
 Formatting, warnings-as-errors Clippy, workspace tests, real CLI contract tests, and native platform
 gates are required for framework-wide changes.
+
+## App-map and runner pipeline
+
+The reviewable app map deliberately uses `BTreeMap<StateId, State>` and `Vec<Transition>`. Expected
+maps do not need a graph database. Deterministic JSON and a small data model are more valuable than
+a general graph abstraction.
+
+- A state key is an immutable structural id. An editable `State.name` supplies the human label.
+- `schemaVersion` changes only for incompatible file-format changes. The in-memory `revision`
+  changes whenever graph content changes and remains serialized as legacy-compatible `version`.
+- `GraphIndex` derives signature, incoming, and outgoing indexes in memory. It is never persisted.
+- Map and visit JSON is streamed to same-directory temporary files and atomically replaced under a
+  workspace lock. A recovery journal rolls an interrupted multi-file commit forward before reads.
+- Corrupt maps, corrupt visits, unsupported schemas, and dangling transitions are errors. They are
+  never interpreted as an empty graph.
+- Typed input values are runtime evidence, not graph identity, and are discarded at map ingestion.
+- Unknown or malformed actions abstain. They are never converted into another action.
+
+Runner output crosses one lexical boundary in `model/runner.rs`. Graph, observation, contract, and
+backend reducers consume the same recognized event stream. A fuzz segment is split by borrowed byte
+ranges and parsed once; reducers do not rescan the complete raw log independently.
+
+## Finding-preservation rule
+
+Performance and storage changes must not broaden a finding predicate. A refactor is acceptable only
+when the same authoritative evidence produces the same finding identity and incomplete, malformed,
+or unsupported evidence still abstains. In particular:
+
+- inferred contracts do not produce confirmed findings;
+- missing effects or lifecycle observations do not prove absence;
+- sparse graph snapshots do not prove permission traps when an equivalent route has a forward exit;
+- advisory timing or pixel signals do not become verdict-bearing reproductions; and
+- framework failures do not become application failures.
+
+The adversarial clean-corpus tests, invariant tests, replay tests, and native gates enforce this
+boundary. Scaling work is performed behind these characterization tests.
+
+## Performance shape
+
+The main hot paths are designed around bounded, linear work:
+
+- fuzz guidance is computed once from the pre-batch map snapshot and shared by every seed;
+- frontier search stores a predecessor and depth per state, then reconstructs one winning path;
+- permission analysis summarizes edges once instead of scanning all edges for every state;
+- constant regular expressions are initialized once, and repeated schema patterns are cached for
+  one recursive domain evaluation;
+- evidence sidecar files remain open for the run, while state changes wake orchestration directly;
+- source fingerprints and JSON persistence stream through bounded buffers; and
+- disabled contract and backend pipelines do not parse their event types.
+
+Parallel parsing and alternative graph containers require benchmark evidence. They are not default
+optimizations because deterministic ordering and a simple failure model are part of correctness.

@@ -128,7 +128,7 @@ pub(super) fn short(key: &str) -> &str {
 /// compared to what the map recorded. This is the "is the map still valid?"
 /// check.
 pub async fn verify_map(loaded: &config::Loaded, quiet: bool) -> Result<VerifyReport> {
-    let map = load_map(&loaded.root).ok_or_else(|| {
+    let map = load_map(&loaded.root)?.ok_or_else(|| {
         anyhow::anyhow!("no internal app model; run `reproit scan` once to learn the app")
     })?;
     let edges = map.transitions.len();

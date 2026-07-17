@@ -251,7 +251,7 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
                 format!(
                     "denying the {perm} permission dead-ends at state {sig}: no outgoing action \
                      edge (the app strands the user on a permission screen with no way forward){}",
-                    screen_hint(&label_set(&obs.obs, sig))
+                    screen_hint(label_set(&obs.obs, sig))
                 ),
                 Some(sig),
             ));

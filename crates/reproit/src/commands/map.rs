@@ -33,22 +33,20 @@ pub(super) async fn rebuild_app_map(
     from: Option<&Path>,
     replace: bool,
 ) -> Result<()> {
-    let snapshot = if replace {
-        Some(map::begin_full_rebuild(&loaded.root)?)
-    } else {
-        None
-    };
-    let mut result =
-        map::build_map(&loaded.config, &loaded.root, journey, budget, label, from).await;
+    let result = map::build_map(
+        &loaded.config,
+        &loaded.root,
+        journey,
+        budget,
+        label,
+        from,
+        replace,
+    )
+    .await;
     if result.is_ok() && replace && !map::appmap_path(&loaded.root).is_file() {
-        result = Err(anyhow::anyhow!(
+        return Err(anyhow::anyhow!(
             "could not refresh the internal app model; the app was not reachable"
         ));
-    }
-    if result.is_err() {
-        if let Some(snapshot) = snapshot {
-            map::restore_map(snapshot)?;
-        }
     }
     result
 }
@@ -85,7 +83,7 @@ pub(super) async fn debug_map(
             let loaded = config::load(config_path)?;
             rebuild_app_map(&loaded, &journey, budget, label, from.as_deref(), true).await?;
             if ctx.json {
-                let m = map::load_map(&loaded.root, &loaded.config);
+                let m = map::load_map(&loaded.root, &loaded.config)?;
                 ctx.emit(&serde_json::json!({
                     "command": "debug map structural",
                     "states": m.states.len(),
@@ -130,7 +128,7 @@ pub(super) async fn debug_map(
                 None => {
                     let loaded = config::load(config_path)?;
                     ensure_app_map(ctx, &loaded, "explore").await?;
-                    let m = map::load_map(&loaded.root, &loaded.config);
+                    let m = map::load_map(&loaded.root, &loaded.config)?;
                     (m, Some(loaded.root))
                 }
             };

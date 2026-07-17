@@ -422,7 +422,7 @@ pub(super) async fn discover_and_verify_login(
         .validate
         .as_ref()
         .and_then(|v| v.text.as_deref());
-    let appmap = map::load_map(&loaded.root, &loaded.config);
+    let appmap = map::load_map(&loaded.root, &loaded.config)?;
     let spec = journey::discover_login_spec(&appmap, account, strategy, validate_text)?;
     let name = format!("login-{account}");
     let path = journey::save(&loaded.root, &name, &spec)?;

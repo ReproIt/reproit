@@ -1,7 +1,8 @@
 //! Visit weighting and deterministic path/frontier selection.
 
-use super::merge::{action_str, sig_index};
-use crate::model::appmap::{AppMap, Transition};
+use super::index::GraphIndex;
+use super::merge::action_str;
+use crate::model::appmap::AppMap;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 /// The app's entry state: one with no incoming transition, else the first by
@@ -10,13 +11,16 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 // and MCP/agent grounding; the journeys feature wires them back in.
 #[allow(dead_code)]
 pub(crate) fn entry_state(map: &AppMap) -> Option<String> {
-    let has_incoming: std::collections::BTreeSet<&str> =
-        map.transitions.iter().map(|t| t.to.as_str()).collect();
+    let graph = GraphIndex::new(map);
+    entry_state_with_index(map, &graph).map(str::to_string)
+}
+
+fn entry_state_with_index<'a>(map: &'a AppMap, graph: &GraphIndex<'a>) -> Option<&'a str> {
     map.states
         .keys()
-        .find(|k| !has_incoming.contains(k.as_str()))
+        .find(|state| !graph.has_incoming(state))
         .or_else(|| map.states.keys().next())
-        .cloned()
+        .map(String::as_str)
 }
 
 /// Shortest action path from the entry state to the first state whose name OR
@@ -27,33 +31,31 @@ pub(crate) fn entry_state(map: &AppMap) -> Option<String> {
 /// the path is empty when the entry state itself matches.
 #[allow(dead_code)]
 pub(crate) fn path_to_label(map: &AppMap, needle: &str) -> Option<(String, Vec<String>)> {
-    let start = entry_state(map)?;
+    let graph = GraphIndex::new(map);
+    let start = entry_state_with_index(map, &graph)?;
     let needle = needle.to_lowercase();
     let matches = |name: &str| -> bool {
         name.to_lowercase().contains(&needle)
-            || map
-                .states
-                .get(name)
-                .map(|s| s.description.to_lowercase().contains(&needle))
-                .unwrap_or(false)
+            || map.states.get(name).is_some_and(|state| {
+                state
+                    .name
+                    .as_deref()
+                    .is_some_and(|label| label.to_lowercase().contains(&needle))
+                    || state.description.to_lowercase().contains(&needle)
+            })
     };
-    let mut adj: BTreeMap<&str, Vec<(String, &str)>> = BTreeMap::new();
-    for t in &map.transitions {
-        adj.entry(t.from.as_str())
-            .or_default()
-            .push((action_str(&t.action), t.to.as_str()));
-    }
     let mut q = std::collections::VecDeque::new();
     let mut prev: BTreeMap<&str, (&str, String)> = BTreeMap::new();
     let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-    q.push_back(start.as_str());
-    seen.insert(start.as_str());
-    let mut goal: Option<&str> = matches(&start).then_some(start.as_str());
+    q.push_back(start);
+    seen.insert(start);
+    let mut goal: Option<&str> = matches(start).then_some(start);
     while goal.is_none() {
         let Some(cur) = q.pop_front() else { break };
-        for (act, to) in adj.get(cur).into_iter().flatten() {
+        for transition in graph.outgoing(cur) {
+            let to = transition.to.as_str();
             if seen.insert(to) {
-                prev.insert(to, (cur, act.clone()));
+                prev.insert(to, (cur, action_str(&transition.action)));
                 if matches(to) {
                     goal = Some(to);
                     break;
@@ -84,8 +86,12 @@ pub(crate) fn edges_summary(map: &AppMap) -> Vec<String> {
 }
 
 /// Visit counts keyed by sig + the start state. Rename-proof.
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub(crate) struct Visits {
+    /// Graph revision these counters were computed against. Zero identifies a
+    /// legacy file and is upgraded in memory on its first successful load.
+    #[serde(default, rename = "mapRevision")]
+    pub map_revision: u64,
     pub start: Option<String>,
     pub counts: BTreeMap<String, u64>,
     /// Per-edge traversal counts keyed "fromSig|action" (action e.g.
@@ -112,21 +118,13 @@ impl Visits {
     /// edges aren't listed, so the explorer treats them as count 0 = max weight
     /// = worth trying. Needs the map to resolve action targets.
     pub fn edge_weights(&self, map: &AppMap) -> BTreeMap<String, BTreeMap<String, u64>> {
-        let sig_of: BTreeMap<&str, &str> = map
-            .states
-            .iter()
-            .filter_map(|(id, s)| {
-                s.signature
-                    .semantics_hash
-                    .as_deref()
-                    .map(|sig| (id.as_str(), sig))
-            })
-            .collect();
+        let graph = GraphIndex::new(map);
         let mut out: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
         for t in &map.transitions {
-            let (Some(&from_sig), Some(&to_sig)) =
-                (sig_of.get(t.from.as_str()), sig_of.get(t.to.as_str()))
-            else {
+            let (Some(from_sig), Some(to_sig)) = (
+                graph.signature_for_state(&t.from),
+                graph.signature_for_state(&t.to),
+            ) else {
                 continue;
             };
             let dest_visits = self
@@ -146,44 +144,25 @@ impl Visits {
 /// BFS shortest action-path from the start state to the least-visited
 /// reachable state (ties: prefer deeper, to push the frontier outward).
 pub(crate) fn frontier_path(map: &AppMap, visits: &Visits) -> Option<(String, Vec<String>)> {
-    let index = sig_index(map);
-    let start_sig = visits.start.clone()?;
-    let start_id = index.get(&start_sig)?.clone();
-
-    let mut adj: HashMap<&str, Vec<(&Transition, &str)>> = HashMap::new();
-    for t in &map.transitions {
-        adj.entry(t.from.as_str())
-            .or_default()
-            .push((t, t.to.as_str()));
-    }
-    let sig_of: HashMap<&str, &str> = map
-        .states
-        .iter()
-        .filter_map(|(id, s)| {
-            s.signature
-                .semantics_hash
-                .as_deref()
-                .map(|sig| (id.as_str(), sig))
-        })
-        .collect();
-
-    let mut paths: HashMap<String, Vec<String>> = HashMap::new();
-    paths.insert(start_id.clone(), vec![]);
-    let mut queue = VecDeque::from([start_id.clone()]);
+    let graph = GraphIndex::new(map);
+    let start_sig = visits.start.as_deref()?;
+    let start_id = graph.state_for_signature(start_sig)?;
+    let mut previous = HashMap::new();
+    let mut depth = HashMap::from([(start_id, 0_usize)]);
+    let mut queue = VecDeque::from([start_id]);
     while let Some(id) = queue.pop_front() {
-        let path = paths[&id].clone();
-        for (t, to) in adj.get(id.as_str()).cloned().unwrap_or_default() {
-            if paths.contains_key(to) {
+        let next_depth = depth[id] + 1;
+        for transition in graph.outgoing(id) {
+            let to = transition.to.as_str();
+            if depth.contains_key(to) {
                 continue;
             }
-            let mut p = path.clone();
-            p.push(action_str(&t.action));
-            paths.insert(to.to_string(), p);
-            queue.push_back(to.to_string());
+            previous.insert(to, (id, *transition));
+            depth.insert(to, next_depth);
+            queue.push_back(to);
         }
     }
-
-    paths
+    let target = depth
         .iter()
         .filter(|(id, _)| **id != start_id)
         // Deterministic frontier choice: least-visited, then deepest path, then a
@@ -191,10 +170,18 @@ pub(crate) fn frontier_path(map: &AppMap, visits: &Visits) -> Option<(String, Ve
         // two keys a tie resolved on `HashMap` iteration order, which is randomized
         // per run -- so `fuzz --frontier` picked a different target (and replayed a
         // different prefix for every seed) run-to-run, breaking reproducibility.
-        .min_by_key(|(id, path)| {
-            let sig = sig_of.get(id.as_str()).copied().unwrap_or("");
+        .min_by_key(|(id, depth)| {
+            let sig = graph.signature_for_state(id).unwrap_or("");
             let count = visits.counts.get(sig).copied().unwrap_or(0);
-            (count, usize::MAX - path.len(), sig, id.as_str())
+            (count, usize::MAX - **depth, sig, **id)
         })
-        .map(|(id, path)| (id.clone(), path.clone()))
+        .map(|(id, _)| *id)?;
+    let mut path = Vec::new();
+    let mut node = target;
+    while let Some((parent, transition)) = previous.get(node) {
+        path.push(action_str(&transition.action));
+        node = parent;
+    }
+    path.reverse();
+    Some((target.to_string(), path))
 }

@@ -1,11 +1,12 @@
 //! Source/config fingerprinting and map freshness provenance.
 
-use super::persistence::{appmap_path, provenance_path};
+use super::persistence::{atomic_write_json, load_existing_snapshot, provenance_path};
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -13,6 +14,8 @@ use std::process::Command;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MapProvenance {
     pub schema: u32,
+    #[serde(default)]
+    pub map_revision: u64,
     pub source_fingerprint: String,
     #[serde(default)]
     pub source_file_count: usize,
@@ -143,14 +146,30 @@ fn hash_files(root: &Path, files: &mut [PathBuf]) -> Result<String> {
             .cmp(b.strip_prefix(root).unwrap_or(b))
     });
     let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
     for path in files {
         let rel = path.strip_prefix(root).unwrap_or(path);
-        let bytes = std::fs::read(&*path)?;
+        let file = std::fs::File::open(&*path)?;
+        let file_len = file.metadata()?.len();
         let rel = rel.to_string_lossy();
         hash.update((rel.len() as u64).to_le_bytes());
         hash.update(rel.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(bytes);
+        hash.update(file_len.to_le_bytes());
+        let mut reader = BufReader::new(file);
+        let mut read_len = 0_u64;
+        loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            read_len += count as u64;
+            hash.update(&buffer[..count]);
+        }
+        anyhow::ensure!(
+            read_len == file_len,
+            "{} changed while its source fingerprint was being computed",
+            path.display()
+        );
     }
     Ok(hash
         .finalize()
@@ -203,9 +222,10 @@ fn git_metadata(root: &Path) -> (Option<String>, bool) {
 }
 
 pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
-    if !appmap_path(root).is_file() {
+    let Some((map, _visits)) = load_existing_snapshot(root)? else {
         return Ok(MapFreshness::Missing);
-    }
+    };
+    let map_revision = map.revision;
     let old: MapProvenance = match std::fs::read_to_string(provenance_path(root))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -224,6 +244,9 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     if old.reproit_version != crate::VERSION {
         reasons.push("reproit version changed");
     }
+    if old.map_revision != map_revision {
+        reasons.push("map snapshot is incomplete");
+    }
     if old.source_file_count == 0 || source_file_count == 0 {
         reasons.push("runtime build has no local source identity");
     }
@@ -234,11 +257,12 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     })
 }
 
-pub(crate) fn stamp_map(root: &Path) -> Result<MapProvenance> {
+pub(crate) fn stamp_map(root: &Path, map_revision: u64) -> Result<MapProvenance> {
     let (source_fingerprint, config_fingerprint, source_file_count) = project_fingerprints(root)?;
     let (git_commit, git_dirty) = git_metadata(root);
     let provenance = MapProvenance {
         schema: 1,
+        map_revision,
         source_fingerprint,
         source_file_count,
         config_fingerprint,
@@ -248,7 +272,6 @@ pub(crate) fn stamp_map(root: &Path) -> Result<MapProvenance> {
         git_dirty,
     };
     let path = provenance_path(root);
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    std::fs::write(path, serde_json::to_string_pretty(&provenance)?)?;
+    atomic_write_json(&path, &provenance)?;
     Ok(provenance)
 }

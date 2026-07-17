@@ -12,4 +12,5 @@ pub(crate) mod invariants;
 pub(crate) mod map;
 pub(crate) mod observation;
 pub(crate) mod repro;
+pub(crate) mod runner;
 pub(crate) mod signature;

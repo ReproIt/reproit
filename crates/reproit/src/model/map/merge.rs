@@ -2,7 +2,7 @@
 
 use super::RunObs;
 use crate::model::appmap::{Action, AppMap, Reversibility, State, StateSignature, Transition};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// sig -> existing state id (states are keyed by id; sig lives in the
 /// signature, so labeling renames never break identity).
@@ -19,7 +19,8 @@ pub(super) fn sig_index(map: &AppMap) -> HashMap<String, String> {
 }
 
 /// Union this run's observations into the map (by sig).
-pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
+pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) -> bool {
+    let mut changed = false;
     let mut index = sig_index(map);
     for (sig, labels) in &obs.states {
         match index.get(sig) {
@@ -28,21 +29,27 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                 // the route if a later run reported one we didn't have.
                 if let Some(state) = map.states.get_mut(id) {
                     if let Some(g) = obs.gaps.get(sig) {
-                        state.operability_gaps = g.clone();
+                        if state.operability_gaps != *g {
+                            state.operability_gaps = g.clone();
+                            changed = true;
+                        }
                     }
                     if state.elements.is_empty() {
                         if let Some(elements) = obs.elements.get(sig) {
                             state.elements = elements.clone();
+                            changed = true;
                         }
                     }
                     if state.texts.is_empty() {
                         if let Some(texts) = obs.texts.get(sig) {
                             state.texts = texts.clone();
+                            changed = true;
                         }
                     }
                     if state.signature.route.is_none() {
                         if let Some(r) = obs.routes.get(sig) {
                             state.signature.route = Some(r.clone());
+                            changed = true;
                         }
                     }
                 }
@@ -52,6 +59,7 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                 map.states.insert(
                     id.clone(),
                     State {
+                        name: None,
                         description: labels
                             .iter()
                             .take(4)
@@ -70,31 +78,37 @@ pub(crate) fn merge(map: &mut AppMap, obs: &RunObs) {
                     },
                 );
                 index.insert(sig.clone(), id);
+                changed = true;
             }
         }
     }
-    let existing: std::collections::HashSet<String> = map
+    let mut existing: HashSet<(String, String, String)> = map
         .transitions
         .iter()
-        .map(|t| format!("{}|{}|{}", t.from, action_str(&t.action), t.to))
+        .map(|t| (t.from.clone(), action_str(&t.action), t.to.clone()))
         .collect();
     for (from, action, to) in &obs.edges {
         let (Some(f), Some(t)) = (index.get(from), index.get(to)) else {
             continue;
         };
-        let key = format!("{f}|{action}|{t}");
-        if existing.contains(&key) {
+        let Some(parsed) = parse_action(action) else {
+            continue;
+        };
+        let key = (f.clone(), action_str(&parsed), t.clone());
+        if !existing.insert(key) {
             continue;
         }
         map.transitions.push(Transition {
             from: f.clone(),
             to: t.clone(),
-            action: parse_action(action),
+            action: parsed,
             guards: vec![],
             reversibility: Reversibility::ProposedReversible,
             expected: None,
         });
+        changed = true;
     }
+    changed
 }
 
 pub(crate) fn action_str(a: &Action) -> String {
@@ -114,32 +128,36 @@ pub(crate) fn action_str(a: &Action) -> String {
 /// the screen behind a typed input becomes unreplayable and frontier guidance
 /// over the map is wrong wherever a state is only reachable through typed
 /// input.
-pub(super) fn parse_action(s: &str) -> Action {
+pub(super) fn parse_action(s: &str) -> Option<Action> {
     if let Some(finder) = s.strip_prefix("tap:") {
-        return Action::Tap {
+        return (!finder.is_empty()).then(|| Action::Tap {
             finder: finder.to_string(),
-        };
+        });
     }
     if let Some(rest) = s.strip_prefix("type:") {
-        // The runner emits `type:<finder>=<text>`; the `=<text>` is optional.
-        let (finder, text) = match rest.split_once('=') {
-            Some((f, t)) => (f.to_string(), t.to_string()),
-            None => (rest.to_string(), String::new()),
-        };
-        return Action::Type { finder, text };
+        // Raw typed values are runtime evidence, not graph identity. Keep only
+        // the structural finder so secrets and personal data cannot enter the
+        // reviewable app map.
+        let finder = rest
+            .split_once('=')
+            .map(|(finder, _)| finder)
+            .unwrap_or(rest);
+        let finder = finder.to_string();
+        let text = String::new();
+        return (!finder.is_empty()).then_some(Action::Type { finder, text });
     }
     if let Some(rest) = s.strip_prefix("scroll:") {
         // `scroll:<finder>` or `scroll:<finder>=<dy>` (dy optional/recoverable).
         let (finder, dy) = match rest.rsplit_once('=') {
-            Some((f, d)) => (f.to_string(), d.parse().unwrap_or(0)),
+            Some((f, d)) => (f.to_string(), d.parse().ok()?),
             None => (rest.to_string(), 0),
         };
-        return Action::Scroll { finder, dy };
+        return (!finder.is_empty()).then_some(Action::Scroll { finder, dy });
     }
     if let Some(ev) = s.strip_prefix("system:") {
-        return Action::System {
+        return (!ev.is_empty()).then(|| Action::System {
             event: ev.to_string(),
-        };
+        });
     }
-    Action::Back
+    (s == "back").then_some(Action::Back)
 }

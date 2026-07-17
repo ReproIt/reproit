@@ -71,8 +71,14 @@ fn matches_format(format: &str, value: &str) -> bool {
         // reject valid addresses, violating the zero-false-positive boundary.
         "email" => true,
         "date-time" => chrono::DateTime::parse_from_rfc3339(value).is_ok(),
-        "uri" | "url" => regex::Regex::new(r"^[A-Za-z][A-Za-z0-9+.-]*:.+$")
-            .is_ok_and(|pattern| pattern.is_match(value)),
+        "uri" | "url" => {
+            static URI: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+            URI.get_or_init(|| {
+                regex::Regex::new(r"^[A-Za-z][A-Za-z0-9+.-]*:.+$")
+                    .expect("the URI format regex is valid")
+            })
+            .is_match(value)
+        }
         _ => true,
     }
 }
@@ -81,6 +87,7 @@ mod effect;
 pub use effect::{EffectKind, EffectPattern};
 
 mod event;
+pub(crate) use event::parse_runner_events;
 pub use event::{parse_events, BackendEvent, BackendEventKind, GraphqlSelection};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1608,7 +1615,7 @@ paths:
     }
 
     #[test]
-    fn marker_parser_is_structural_and_ignores_malformed_noise() {
+    fn marker_parser_abstains_when_recognized_evidence_is_malformed() {
         let log = concat!(
             "unrelated output\n",
             "REPROIT:BACKEND not-json\n",
@@ -1617,8 +1624,7 @@ paths:
              start\",\"input\":{}}\n"
         );
         let events = parse_events(log);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].operation, "op");
+        assert!(events.is_empty());
     }
 
     #[test]

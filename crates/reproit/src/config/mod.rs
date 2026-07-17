@@ -395,7 +395,7 @@ impl Default for InvariantsCfg {
 impl InvariantsCfg {
     /// Does `sig` (with its observed `labels`) match a terminal-state allowlist
     /// entry? Matches either the exact sig or, case-insensitively, any label.
-    pub fn terminal_states_match(&self, sig: &str, labels: Vec<String>) -> bool {
+    pub fn terminal_states_match(&self, sig: &str, labels: &[String]) -> bool {
         self.terminal_states.iter().any(|t| {
             t == sig
                 || labels.iter().any(|l| {

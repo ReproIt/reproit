@@ -343,6 +343,8 @@ pub async fn run_journey(
         started: Instant::now(),
         actions: Mutex::new(std::fs::File::create(run_dir.join("actions.jsonl"))?),
         exceptions: Mutex::new(std::fs::File::create(run_dir.join("exceptions.jsonl"))?),
+        backend_files: Mutex::new(std::collections::HashMap::new()),
+        network_files: Mutex::new(std::collections::HashMap::new()),
     });
 
     let deadline = Instant::now() + Duration::from_secs(cfg.journeys.timeout_sec);
@@ -501,8 +503,10 @@ pub async fn run_journey(
             cfg.journeys.linger_grace_sec
         );
     }
-    // Small tail so the recording includes the final state.
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // A recording needs a short visual tail; a plain check/fuzz run does not.
+    if !recordings.is_empty() || ctx.wants_video {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 
     // 7. Teardown: stop regrant loop, finalize recordings, reap drives.
     timing.mark("teardown");
@@ -514,6 +518,24 @@ pub async fn run_journey(
     for rec in recordings {
         videos.push(rec.path.clone());
         rec.stop().await;
+    }
+
+    // Collect live-service data before stopping the runners, but do not label
+    // it pass/fail until every output pipe has been drained below.
+    let mut covered = None;
+    for drive in &drives {
+        let url = drive.state.lock().unwrap().vm_url.clone();
+        let Some(url) = url else { continue };
+        if let Ok(snapshot) = crate::backends::vmservice::collect_coverage(&url).await {
+            covered = Some(snapshot);
+            break;
+        }
+    }
+
+    // A done marker can precede buffered verdict/evidence on either pipe.
+    // Reap and drain both readers before inspecting state or reading logs.
+    for drive in &mut drives {
+        drive.kill().await;
     }
 
     // Verdict: any explicit failure fails the run, and a run with no explicit
@@ -531,21 +553,14 @@ pub async fn run_journey(
         eprintln!("  note: device(s) killed before declaring completion; run fails");
     }
 
-    // Coverage snapshot (instrument v1b): while the VM service is still alive
-    // and the verdict is known, record which code this run executed, labeled
-    // pass/fail. Best-effort (only Flutter exposes the service); `reproit
-    // localize` ranks suspicious code across a run's snapshots via Ochiai SBFL.
-    for drive in &drives {
-        let url = drive.state.lock().unwrap().vm_url.clone();
-        let Some(url) = url else { continue };
-        if let Ok(covered) = crate::backends::vmservice::collect_coverage(&url).await {
-            let _ = std::fs::write(
-                run_dir.join("coverage.cov.json"),
-                serde_json::to_string(&serde_json::json!({ "passed": passed, "covered": covered }))
-                    .unwrap_or_default(),
-            );
-            break;
-        }
+    // Coverage snapshot (instrument v1b), labeled with the final drained
+    // verdict. Best-effort: only Flutter exposes the service.
+    if let Some(covered) = covered {
+        let _ = std::fs::write(
+            run_dir.join("coverage.cov.json"),
+            serde_json::to_string(&serde_json::json!({ "passed": passed, "covered": covered }))
+                .unwrap_or_default(),
+        );
     }
 
     // Bring-your-own runners (web, Electron, desktop, TUI, and Appium) write
@@ -581,10 +596,6 @@ pub async fn run_journey(
             memory: memory_summary(&run_dir, &drive.label),
         })
         .collect();
-    for drive in drives {
-        drive.kill().await;
-    }
-
     // 8. Composite multi-device videos side by side.
     let mut composite_path = None;
     let composite_inputs: Vec<PathBuf> = device_videos.iter().flatten().cloned().collect();
@@ -947,8 +958,8 @@ impl DriveWatch {
     }
 }
 
-/// Poll `cond` every 2s until true or `deadline`, announcing per-device
-/// transitions as they happen. Returns the final value.
+/// Wait for a runner state notification, with a periodic progress tick and a
+/// hard deadline. Readiness and verdicts no longer pay a polling delay.
 async fn wait_watching<F: Fn(&[Drive]) -> bool>(
     watch: &mut DriveWatch,
     drives: &[Drive],
@@ -956,6 +967,10 @@ async fn wait_watching<F: Fn(&[Drive]) -> bool>(
     deadline: Instant,
 ) -> bool {
     loop {
+        let notifications: Vec<_> = drives
+            .iter()
+            .map(|drive| Box::pin(drive.changed().notified()))
+            .collect();
         watch.tick(drives);
         if cond(drives) {
             return true;
@@ -964,7 +979,12 @@ async fn wait_watching<F: Fn(&[Drive]) -> bool>(
             watch.tick(drives);
             return cond(drives);
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        let until_deadline = deadline.saturating_duration_since(Instant::now());
+        tokio::select! {
+            _ = futures_util::future::select_all(notifications) => {}
+            _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            _ = tokio::time::sleep(until_deadline) => {}
+        }
     }
 }
 

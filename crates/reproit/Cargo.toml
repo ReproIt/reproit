@@ -22,6 +22,7 @@ serde_json = { workspace = true }
 serde_yaml = "0.9"
 graphql-parser = "0.4"
 flate2 = "1"
+fs2 = "0.4.3"
 tar = "0.4"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 protox = "0.9.1"
@@ -63,6 +64,7 @@ windows = { version = "0.58", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
     "Win32_Storage_Xps",
 ] }
 

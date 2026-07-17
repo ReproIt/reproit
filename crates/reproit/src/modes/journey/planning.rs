@@ -1,8 +1,7 @@
 use super::*;
 
-pub(super) fn load_map(root: &Path) -> Option<AppMap> {
-    let p = crate::model::map::appmap_path(root);
-    serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()
+pub(super) fn load_map(root: &Path) -> Result<Option<AppMap>> {
+    crate::model::map::load_existing_map(root)
 }
 
 /// Does `name` (a state key) or its description match the journey's `target`?
@@ -11,7 +10,13 @@ pub(super) fn state_matches(map: &AppMap, name: &str, needle: &str) -> bool {
         || map
             .states
             .get(name)
-            .map(|s| s.description.to_lowercase().contains(needle))
+            .map(|state| {
+                state
+                    .name
+                    .as_deref()
+                    .is_some_and(|label| label.to_lowercase().contains(needle))
+                    || state.description.to_lowercase().contains(needle)
+            })
             .unwrap_or(false)
 }
 
@@ -254,7 +259,7 @@ pub fn prefix_actions(loaded: &config::Loaded, name_or_path: &str) -> Result<Vec
              is no single path to branch a walk from)"
         );
     }
-    let map = load_map(&loaded.root);
+    let map = load_map(&loaded.root)?;
     let plan = build_plan(&loaded.root, map.as_ref(), &j)?;
     if plan.actions.is_empty() {
         bail!("journey `{name_or_path}` has no actions to replay");

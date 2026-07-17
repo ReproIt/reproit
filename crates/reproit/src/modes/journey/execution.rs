@@ -22,7 +22,7 @@ pub async fn fuzz_multi_checkpoint(
     if j.actors.is_empty() && !j.steps.iter().any(|s| s.actor.is_some()) {
         bail!("`{name_or_path}` is not a multi-actor journey");
     }
-    let map = load_map(&loaded.root).ok_or_else(|| {
+    let map = load_map(&loaded.root)?.ok_or_else(|| {
         anyhow::anyhow!("multi-user fuzzing needs a verified app map; run `reproit scan` first")
     })?;
     let (actors, checkpoint) = build_scenario(&loaded.root, Some(&map), &j)?;
@@ -225,7 +225,7 @@ pub async fn run(
     if !j.actors.is_empty() || j.steps.iter().any(|s| s.actor.is_some()) {
         return run_scenario(loaded, name, &j, times, quiet).await;
     }
-    let map = load_map(&loaded.root);
+    let map = load_map(&loaded.root)?;
     let plan = build_plan(&loaded.root, map.as_ref(), &j)?;
     if plan.actions.is_empty() {
         bail!("journey `{name}` has no actions to run");
@@ -479,7 +479,7 @@ pub(super) async fn run_scenario(
             crate::backends::platform::barrier_ids()
         );
     }
-    let map = load_map(&loaded.root);
+    let map = load_map(&loaded.root)?;
     let (actors, tagged) = build_scenario(&loaded.root, map.as_ref(), j)?;
     warn_uncovered_reset_accounts(&loaded.config, j);
     let n = actors.len();

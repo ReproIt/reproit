@@ -881,7 +881,10 @@ pub(in crate::model::backend) fn selection_mismatch(
 }
 
 fn normalized_selection_path(path: &str) -> Option<Vec<(String, bool)>> {
-    let name = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").ok()?;
+    static NAME: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let name = NAME.get_or_init(|| {
+        regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").expect("the GraphQL name regex is valid")
+    });
     let mut out = Vec::new();
     for raw in path.split('.') {
         let (raw, array) = raw

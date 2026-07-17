@@ -69,7 +69,7 @@ pub(crate) fn finding_signature(f: &Value) -> String {
 /// Multi-actor exploration concatenates every actor log and uses this adapter
 /// so it has exactly the same oracle identity as ordinary fuzz and shrink.
 pub(crate) fn finding_signatures_for_log(cfg: &Config, log: &str) -> BTreeSet<String> {
-    let findings = findings_from_log(cfg, log, exceptions_in_log(log), true, BTreeMap::new());
+    let findings = findings_from_log(cfg, log, exceptions_in_log(log), true, Default::default());
     let (confirmed, _) = crate::crosscut::OracleFilter::stable().apply(findings);
     confirmed
         .iter()
@@ -183,8 +183,8 @@ pub(super) fn perf_findings(run_dir: &Path) -> Vec<Value> {
     for d in m
         .get("devices")
         .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
+        .into_iter()
+        .flatten()
     {
         let Some(f) = d.get("frames") else { continue };
         let jank = f.get("jank_pct").and_then(Value::as_f64).unwrap_or(0.0);
@@ -216,15 +216,11 @@ pub(super) fn all_findings(run_dir: &Path) -> Vec<Value> {
 /// left empty here (no-jank then reports nothing headless, as documented).
 /// The session-wide sim jank is still surfaced by `perf_findings`.
 fn invariant_observations(
-    seg_log: &str,
+    mut obs: crate::model::map::RunObs,
     exceptions: Vec<Value>,
     sim: bool,
-    escapable_route_labels: std::collections::BTreeMap<
-        String,
-        Vec<std::collections::BTreeSet<String>>,
-    >,
+    escapable_route_labels: crate::model::map::EscapableRoutes,
 ) -> crate::model::invariants::Observations {
-    let mut obs = crate::model::map::parse_run(seg_log);
     obs.escapable_route_labels = escapable_route_labels;
     crate::model::invariants::Observations {
         obs,
@@ -244,9 +240,11 @@ fn invariant_observations(
 /// escapable page, not a distinct screen that merely shares the URL.
 pub(super) fn map_escapable_routes(
     map: &crate::model::appmap::AppMap,
-) -> std::collections::BTreeMap<String, Vec<std::collections::BTreeSet<String>>> {
-    let mut out: std::collections::BTreeMap<String, Vec<std::collections::BTreeSet<String>>> =
-        std::collections::BTreeMap::new();
+) -> crate::model::map::EscapableRoutes {
+    let mut out = std::collections::BTreeMap::<
+        String,
+        std::collections::BTreeSet<std::collections::BTreeSet<String>>,
+    >::new();
     for t in &map.transitions {
         if matches!(t.action, crate::model::appmap::Action::Back) || t.from == t.to {
             continue;
@@ -259,11 +257,11 @@ pub(super) fn map_escapable_routes(
                     .filter(|s| !s.is_empty())
                     .map(String::from)
                     .collect();
-                out.entry(route.clone()).or_default().push(labels);
+                out.entry(route.clone()).or_default().insert(labels);
             }
         }
     }
-    out
+    std::sync::Arc::new(out)
 }
 
 /// The category of a finding: its named invariant id when present, else its
@@ -344,25 +342,59 @@ pub(super) fn findings_from_log(
     log: &str,
     exceptions: Vec<Value>,
     sim: bool,
-    escapable: std::collections::BTreeMap<String, Vec<std::collections::BTreeSet<String>>>,
+    escapable: crate::model::map::EscapableRoutes,
 ) -> Vec<Value> {
-    let inv_obs = invariant_observations(log, exceptions.clone(), sim, escapable);
+    let events = crate::model::runner::parse(log);
+    let obs = crate::model::map::parse_runner_events(&events);
+    let observations = if cfg.contracts.is_empty() {
+        Vec::new()
+    } else {
+        crate::model::observation::from_runner_events(&events, &[])
+    };
+    let backend_events = if cfg.backend.enabled {
+        crate::model::backend::parse_runner_events(&events)
+    } else {
+        Vec::new()
+    };
+    findings_from_parsed(
+        cfg,
+        obs,
+        exceptions,
+        sim,
+        escapable,
+        &observations,
+        &backend_events,
+    )
+}
+
+pub(super) fn findings_from_parsed(
+    cfg: &Config,
+    obs: crate::model::map::RunObs,
+    exceptions: Vec<Value>,
+    sim: bool,
+    escapable: crate::model::map::EscapableRoutes,
+    observations: &[crate::model::observation::Observation],
+    backend_events: &[crate::model::backend::BackendEvent],
+) -> Vec<Value> {
+    let inv_obs = invariant_observations(obs, exceptions.clone(), sim, escapable);
     let mut f = crate::model::invariants::evaluate(&inv_obs, &cfg.invariants);
     if !cfg.invariants.no_exception {
         f.extend(exceptions);
     }
-    let observations = crate::model::observation::from_runner_log(log, &[]);
-    f.extend(
-        crate::model::contracts::evaluate_all(&cfg.contracts, &observations)
-            .iter()
-            .map(crate::model::contracts::finding),
-    );
-    let backend_events = crate::model::backend::parse_events(log);
-    f.extend(
-        crate::model::backend::evaluate(&cfg.backend, &backend_events)
-            .iter()
-            .map(crate::model::backend::finding),
-    );
+    if !cfg.contracts.is_empty() {
+        f.extend(
+            crate::model::contracts::evaluate_all(&cfg.contracts, observations)
+                .iter()
+                .map(crate::model::contracts::finding),
+        );
+    }
+    if cfg.backend.enabled {
+        f.extend(
+            crate::model::backend::evaluate(&cfg.backend, backend_events)
+                .iter()
+                .map(crate::model::backend::finding),
+        );
+    }
     f
 }
 
@@ -375,7 +407,12 @@ pub(super) fn findings_from_log(
 /// sim-only, surfaced separately via perf_findings.
 pub(super) fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
     let log = std::fs::read_to_string(run_dir.join("drive-a.log")).unwrap_or_default();
-    let contract_observations = crate::model::observation::from_runner_log(&log, &[]);
+    let events = crate::model::runner::parse(&log);
+    let contract_observations = if cfg.contracts.is_empty() {
+        Vec::new()
+    } else {
+        crate::model::observation::from_runner_events(&events, &[])
+    };
     let contract_violations =
         crate::model::contracts::evaluate_all(&cfg.contracts, &contract_observations);
     let _ = crate::model::contracts::write_evidence(
@@ -384,7 +421,11 @@ pub(super) fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<
         &contract_observations,
         &contract_violations,
     );
-    let backend_events = crate::model::backend::parse_events(&log);
+    let backend_events = if cfg.backend.enabled {
+        crate::model::backend::parse_runner_events(&events)
+    } else {
+        Vec::new()
+    };
     let backend_violations = crate::model::backend::evaluate(&cfg.backend, &backend_events);
     let _ = crate::model::backend::write_evidence(
         &run_dir.join("backend-evidence.json"),
@@ -400,12 +441,14 @@ pub(super) fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<
     // The check path re-verifies a specific recorded finding without the
     // aggregate map in scope; an empty set keeps its permission-trap check
     // unchanged.
-    let mut f = findings_from_log(
+    let mut f = findings_from_parsed(
         cfg,
-        &log,
+        crate::model::map::parse_runner_events(&events),
         exceptions,
         sim,
-        std::collections::BTreeMap::new(),
+        Default::default(),
+        &contract_observations,
+        &backend_events,
     );
     if sim {
         f.extend(perf_findings(run_dir));

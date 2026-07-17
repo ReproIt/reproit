@@ -587,6 +587,7 @@ mod tests {
         states.insert(
             "home".to_string(),
             crate::model::appmap::State {
+                name: None,
                 description: "home".to_string(),
                 signature: crate::model::appmap::StateSignature {
                     screenshot_phash: None,
@@ -607,7 +608,8 @@ mod tests {
         );
         TapResolver::from_map(&AppMap {
             app: "demo".to_string(),
-            version: 1,
+            schema_version: 2,
+            revision: 1,
             states,
             transitions: vec![],
             invariants: vec![],

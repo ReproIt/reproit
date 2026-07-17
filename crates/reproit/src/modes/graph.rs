@@ -46,6 +46,20 @@ fn esc(s: &str) -> String {
     s.replace('"', "'").replace('\n', " ")
 }
 
+fn state_label<'a>(id: &'a str, state: &'a crate::model::appmap::State) -> &'a str {
+    state
+        .name
+        .as_deref()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| {
+            if state.description.is_empty() {
+                id
+            } else {
+                &state.description
+            }
+        })
+}
+
 fn mermaid(map: &AppMap) -> String {
     let mut out = String::from("flowchart LR\n");
     for (id, state) in &map.states {
@@ -56,7 +70,7 @@ fn mermaid(map: &AppMap) -> String {
         };
         out.push_str(&format!(
             "  {id}[\"{}{params}\"]\n",
-            esc(&state.description)
+            esc(state_label(id, state))
         ));
     }
     for t in &map.transitions {
@@ -96,7 +110,7 @@ fn dot(map: &AppMap) -> String {
     for (id, state) in &map.states {
         out.push_str(&format!(
             "  {id} [label=\"{}\"];\n",
-            esc(&state.description)
+            esc(state_label(id, state))
         ));
     }
     for t in &map.transitions {

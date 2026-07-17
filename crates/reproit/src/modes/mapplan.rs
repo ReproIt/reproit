@@ -49,7 +49,7 @@ pub async fn plan(loaded: &config::Loaded, quiet: bool) -> Result<CandidateMap> 
     };
 
     // Reconcile against whatever the simulator has verified so far.
-    let verified = map::load_map(&loaded.root, &loaded.config);
+    let verified = map::load_map(&loaded.root, &loaded.config)?;
     cm.reconcile(&verified);
     candidate::save(&loaded.root, &cm)?;
 
@@ -191,7 +191,7 @@ pub fn cover(loaded: &config::Loaded, json: bool) -> Result<()> {
         }
         return Ok(());
     };
-    let verified = map::load_map(&loaded.root, &loaded.config);
+    let verified = map::load_map(&loaded.root, &loaded.config)?;
     cm.reconcile(&verified);
     candidate::save(&loaded.root, &cm)?;
     if json {
@@ -373,7 +373,7 @@ pub fn converge_cmd(loaded: &config::Loaded, json: bool) -> Result<()> {
         }
         return Ok(());
     };
-    let verified = map::load_map(&loaded.root, &loaded.config);
+    let verified = map::load_map(&loaded.root, &loaded.config)?;
     let mut validator = MapValidator { map: &verified };
     let report = converge(&mut cm, &mut validator, 20, 2);
     candidate::save(&loaded.root, &cm)?;

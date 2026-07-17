@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio::sync::Notify;
 
 /// Shared context for one journey run (all devices).
 pub struct RunCtx {
@@ -78,6 +79,10 @@ pub struct RunCtx {
     /// timeline alongside video and actions. Parsed from Flutter test
     /// framework exception blocks in the drive log.
     pub exceptions: Mutex<std::fs::File>,
+    /// Long-lived sidecar handles avoid opening the same evidence file for
+    /// every backend/network marker.
+    pub backend_files: Mutex<std::collections::HashMap<String, std::fs::File>>,
+    pub network_files: Mutex<std::collections::HashMap<String, std::fs::File>>,
 }
 
 #[derive(Default)]
@@ -115,6 +120,7 @@ pub struct Drive {
     /// of blocking on ready/done until the timeout. It never reaches 0
     /// while the child runs with its pipes open.
     readers_alive: Arc<AtomicUsize>,
+    changed: Arc<Notify>,
 }
 
 #[derive(Serialize)]
@@ -154,6 +160,7 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
         .flatten()
         .collect();
     let readers_alive = Arc::new(AtomicUsize::new(streams.len()));
+    let changed = Arc::new(Notify::new());
     let mut readers = Vec::new();
     for stream in streams {
         let ctx = ctx.clone();
@@ -162,17 +169,19 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
         let label = label.to_string();
         let udid = udid.to_string();
         let readers_alive = readers_alive.clone();
+        let changed = changed.clone();
         readers.push(tokio::spawn(async move {
             let mut lines = match stream {
                 StreamSrc::Out(s) => Lines::Out(BufReader::new(s).lines()),
                 StreamSrc::Err(s) => Lines::Err(BufReader::new(s).lines()),
             };
             while let Ok(Some(line)) = lines.next().await {
-                handle_line(&ctx, &state, &log, &label, &udid, &line).await;
+                handle_line(&ctx, &state, &log, &changed, &label, &udid, &line).await;
             }
             // Pipe EOF: this stream's end. When the last reader ends the child has
             // exited, so `has_exited()` flips true and the wait loop stops blocking.
             readers_alive.fetch_sub(1, Ordering::Relaxed);
+            changed.notify_one();
         }));
     }
 
@@ -183,6 +192,7 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
         child,
         readers,
         readers_alive,
+        changed,
     })
 }
 
@@ -531,6 +541,7 @@ async fn handle_line(
     ctx: &RunCtx,
     state: &Mutex<DriveState>,
     log: &Mutex<std::fs::File>,
+    changed: &Notify,
     label: &str,
     udid: &str,
     line: &str,
@@ -559,14 +570,12 @@ async fn handle_line(
                     crate::model::backend::EVENT_MARKER,
                     json
                 );
-                let path = ctx.run_dir.join(format!("backend-{label}.jsonl"));
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path)
-                {
-                    let _ = writeln!(file, "{json}");
-                }
+                append_sidecar(
+                    &ctx.backend_files,
+                    label,
+                    &ctx.run_dir.join(format!("backend-{label}.jsonl")),
+                    &json,
+                );
             }
         }
     }
@@ -598,15 +607,13 @@ async fn handle_line(
                 &crate::capsule::RedactionPolicy::default(),
                 &mut manifest,
             );
-            let path = ctx.run_dir.join(format!("network-{label}.jsonl"));
-            if let (Ok(mut file), Ok(json)) = (
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path),
-                serde_json::to_string(&exchange),
-            ) {
-                let _ = writeln!(file, "{json}");
+            if let Ok(json) = serde_json::to_string(&exchange) {
+                append_sidecar(
+                    &ctx.network_files,
+                    label,
+                    &ctx.run_dir.join(format!("network-{label}.jsonl")),
+                    &json,
+                );
             }
         }
     }
@@ -629,6 +636,7 @@ async fn handle_line(
     if let Some(marker) = &ctx.ready_marker {
         if line.contains(marker.as_str()) {
             state.lock().unwrap().ready = true;
+            changed.notify_one();
         }
     }
     if let Some(idx) = line.find("Connecting to Flutter application at ") {
@@ -647,6 +655,7 @@ async fn handle_line(
             // one. Runner verdicts are authoritative: they overwrite a
             // journey-declared completion.
             s.passed = Some(i == 0);
+            changed.notify_one();
         }
     }
     if let Some(marker) = &ctx.device_done_marker {
@@ -658,6 +667,7 @@ async fn handle_line(
             if s.passed.is_none() {
                 s.passed = Some(true);
             }
+            changed.notify_one();
         }
     }
     if let Some(idx) = line.find(ctx.screenshot_marker.as_str()) {
@@ -731,6 +741,30 @@ async fn handle_line(
     }
 }
 
+fn append_sidecar(
+    files: &Mutex<std::collections::HashMap<String, std::fs::File>>,
+    label: &str,
+    path: &std::path::Path,
+    line: &str,
+) {
+    let Ok(mut files) = files.lock() else {
+        return;
+    };
+    if !files.contains_key(label) {
+        let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        else {
+            return;
+        };
+        files.insert(label.to_string(), file);
+    }
+    if let Some(file) = files.get_mut(label) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 fn parse_exception_block(ctx: &RunCtx, device: &str, buf: &[String]) -> ExceptionRecord {
     let clean = |l: &String| l.trim_start_matches("flutter: ").trim().to_string();
     let kind = buf
@@ -799,10 +833,14 @@ impl Drive {
     pub fn has_exited(&self) -> bool {
         self.readers_alive.load(Ordering::Relaxed) == 0
     }
+
+    pub fn changed(&self) -> &Notify {
+        &self.changed
+    }
     /// flutter drive often does NOT exit after the test finishes (app timers
     /// keep the isolate alive), so the orchestrator kills it once the log
     /// reports a result.
-    pub async fn kill(mut self) {
+    pub async fn kill(&mut self) {
         let _ = self.child.start_kill();
         let _ = self.child.wait().await;
         // The child is dead, so its stdout/stderr pipes hit EOF; the reader tasks

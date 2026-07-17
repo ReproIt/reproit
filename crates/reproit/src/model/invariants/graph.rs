@@ -29,21 +29,20 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
     // is unchanged there.
     let mut route_exit_labels: std::collections::BTreeMap<
         String,
-        Vec<std::collections::BTreeSet<String>>,
+        std::collections::BTreeSet<std::collections::BTreeSet<String>>,
     > = std::collections::BTreeMap::new();
     for (from, action, to) in &obs.edges {
         if action != "back" && to != from {
             if let Some(route) = obs.routes.get(from) {
-                let labels: std::collections::BTreeSet<String> =
-                    label_set(obs, from).into_iter().collect();
+                let labels = label_set(obs, from).iter().cloned().collect();
                 route_exit_labels
                     .entry(route.clone())
                     .or_default()
-                    .push(labels);
+                    .insert(labels);
             }
         }
     }
-    for (route, sets) in &obs.escapable_route_labels {
+    for (route, sets) in obs.escapable_route_labels.iter() {
         route_exit_labels
             .entry(route.clone())
             .or_default()
@@ -57,17 +56,37 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
     // tappable sibling has, so it is not excused here.
     let mut routes_with_tappables: std::collections::BTreeMap<
         String,
-        Vec<std::collections::BTreeSet<String>>,
+        std::collections::BTreeSet<std::collections::BTreeSet<String>>,
     > = std::collections::BTreeMap::new();
     for (sig, &n) in &obs.tappables {
         if n > 0 {
             if let Some(route) = obs.routes.get(sig) {
-                let labels: std::collections::BTreeSet<String> =
-                    label_set(obs, sig).into_iter().collect();
+                let labels = label_set(obs, sig).iter().cloned().collect();
                 routes_with_tappables
                     .entry(route.clone())
                     .or_default()
-                    .push(labels);
+                    .insert(labels);
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct EdgeFacts {
+        acted: bool,
+        forward_exit: bool,
+        forward_actions: usize,
+    }
+    let mut reached = std::collections::BTreeSet::new();
+    let mut edges_by_source: std::collections::BTreeMap<&str, EdgeFacts> =
+        std::collections::BTreeMap::new();
+    for (from, action, to) in &obs.edges {
+        reached.insert(to.as_str());
+        let facts = edges_by_source.entry(from).or_default();
+        facts.acted = true;
+        if action != "back" {
+            facts.forward_actions += 1;
+            if to != from {
+                facts.forward_exit = true;
             }
         }
     }
@@ -76,7 +95,7 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
     for sig in obs.states.keys() {
         let is_start = obs.start.as_deref() == Some(sig.as_str());
         // Reachable as a destination of some edge, or the start state.
-        let reachable = is_start || obs.edges.iter().any(|(_, _, to)| to == sig);
+        let reachable = is_start || reached.contains(sig.as_str());
         if !reachable {
             continue;
         }
@@ -85,14 +104,12 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
         // seed that churned without recording an exit). Only the start gets this
         // pass: a NON-start state reached with no exit IS a genuine sink (the
         // Advanced-screen planted bug), so it stays flagged.
-        let acted_from = obs.edges.iter().any(|(from, _, _)| from == sig);
+        let facts = edges_by_source.get(sig.as_str());
+        let acted_from = facts.is_some_and(|facts| facts.acted);
         if is_start && !acted_from {
             continue;
         }
-        let has_forward_exit = obs
-            .edges
-            .iter()
-            .any(|(from, action, to)| from == sig && action != "back" && to != sig);
+        let has_forward_exit = facts.is_some_and(|facts| facts.forward_exit);
         if has_forward_exit {
             continue;
         }
@@ -104,7 +121,7 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
         if let Some(route) = obs.routes.get(sig) {
             if let Some(sibling_sets) = route_exit_labels.get(route) {
                 let sink_labels: std::collections::BTreeSet<String> =
-                    label_set(obs, sig).into_iter().collect();
+                    label_set(obs, sig).iter().cloned().collect();
                 // Suppress only a same-or-reduced render of an escapable sibling:
                 // the sink shows nothing the escapable page does not already show.
                 // A distinct screen at the same URL carries labels no escapable
@@ -130,11 +147,7 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
             // `tap:` alone made every TUI state look like all its offered elements
             // were untried (suppression always fired, real TUI sinks never flagged).
             // `!= "back"` is the platform-neutral "the walk tried something here".
-            let tried = obs
-                .edges
-                .iter()
-                .filter(|(from, action, _)| from == sig && *action != "back")
-                .count();
+            let tried = facts.map(|facts| facts.forward_actions).unwrap_or(0);
             if offered > tried {
                 continue;
             }
@@ -146,7 +159,7 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
             // carries, so it stays flagged.
             if let Some(sibling_sets) = routes_with_tappables.get(route) {
                 let sink_labels: std::collections::BTreeSet<String> =
-                    label_set(obs, sig).into_iter().collect();
+                    label_set(obs, sig).iter().cloned().collect();
                 if sibling_sets.iter().any(|s| sink_labels.is_subset(s)) {
                     continue;
                 }
@@ -157,8 +170,8 @@ pub(super) fn permission_traps(obs: &RunObs) -> Vec<String> {
     out
 }
 
-pub(super) fn label_set(obs: &RunObs, sig: &str) -> Vec<String> {
-    obs.states.get(sig).cloned().unwrap_or_default()
+pub(super) fn label_set<'a>(obs: &'a RunObs, sig: &str) -> &'a [String] {
+    obs.states.get(sig).map(Vec::as_slice).unwrap_or(&[])
 }
 
 pub(super) fn screen_hint(labels: &[String]) -> String {

@@ -85,20 +85,29 @@ pub enum BackendEventKind {
 }
 
 pub fn parse_events(log: &str) -> Vec<BackendEvent> {
-    let mut events = log
-        .lines()
-        .filter_map(|raw| {
-            let line = raw.trim_start_matches("flutter: ").trim();
-            let value = line
-                .find(EVENT_MARKER)
-                .map(|index| &line[index + EVENT_MARKER.len()..])
-                .or_else(|| {
-                    line.find("FUZZ:BACKEND ")
-                        .map(|index| &line[index + "FUZZ:BACKEND ".len()..])
-                })?;
-            serde_json::from_str::<BackendEvent>(value).ok()
-        })
-        .collect::<Vec<_>>();
+    let runner_events = crate::model::runner::parse(log);
+    parse_runner_events(&runner_events)
+}
+
+pub(crate) fn parse_runner_events(
+    runner_events: &[crate::model::runner::RunnerEvent<'_>],
+) -> Vec<BackendEvent> {
+    let mut events = Vec::new();
+    for event in runner_events {
+        let value = match *event {
+            crate::model::runner::RunnerEvent::Backend(line) => line.strip_prefix(EVENT_MARKER),
+            crate::model::runner::RunnerEvent::Fuzz(line) => line.strip_prefix("FUZZ:BACKEND "),
+            crate::model::runner::RunnerEvent::Explore(_) => None,
+        };
+        let Some(value) = value else { continue };
+        let Ok(event) = serde_json::from_str::<BackendEvent>(value) else {
+            // A recognized but malformed evidence envelope makes the stream
+            // incomplete. Abstain instead of turning a dropped event into an
+            // absence-based backend finding.
+            return Vec::new();
+        };
+        events.push(event);
+    }
     events.sort_by_key(|event| event.sequence);
     events
 }
