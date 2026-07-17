@@ -12,7 +12,9 @@ FROM ubuntu:24.04
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
 COPY --from=node-toolchain /usr/local /usr/local
-ENV PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH \
+  CARGO_HOME=/usr/local/cargo \
+  RUSTUP_HOME=/usr/local/rustup
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config ca-certificates curl \

@@ -29,12 +29,21 @@ import { platform as osPlatform } from 'node:os';
 // dependency-free, so a static import keeps this module import-safe for the parity
 // test (it imports the signature functions without the webdriverio runtime).
 import {
-  CHOICE_ANOMALY_IN_PAGE_SRC, CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, CHOICE_ROLES,
+  CHOICE_ANOMALY_IN_PAGE_SRC,
+  CHOICE_OUTLIER_RATIO,
+  CHOICE_MIN_MAGNITUDE,
+  CHOICE_ROLES,
 } from './web/choice-oracle.mjs';
 import {
-  occlusionScan, confirmOcclusions, securityScan,
-  focusLossArm, focusLossCheck,
-  blankScreenScan, brokenAssetScan, zoomTappableKeys, zoomReflowScan,
+  occlusionScan,
+  confirmOcclusions,
+  securityScan,
+  focusLossArm,
+  focusLossCheck,
+  blankScreenScan,
+  brokenAssetScan,
+  zoomTappableKeys,
+  zoomReflowScan,
   scrollRoundTripScan,
 } from './web/hygiene-oracles.mjs';
 
@@ -91,8 +100,18 @@ const MAX_LABEL_LEN = 40;
 // explode the graph. The oracle is stateless; the cap is purely runner-local.
 const VALUE_CLASS_CAP = 8;
 
-function log(line) { process.stdout.write(line + '\n'); }
-function loadFuzz() { const p = process.env.REPROIT_FUZZ_CONFIG; if (!p) return {}; try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; } }
+function log(line) {
+  process.stdout.write(line + '\n');
+}
+function loadFuzz() {
+  const p = process.env.REPROIT_FUZZ_CONFIG;
+  if (!p) return {};
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch {
+    return {};
+  }
+}
 
 // Screenshot-capture contract (drive.rs): on a named "shoot" point, capture the
 // current webview to $REPROIT_SHOTS_DIR/<name>.png, then print `SHOOT:<name>` so
@@ -109,7 +128,9 @@ async function shoot(browser, name) {
       mkdirSync(dir, { recursive: true });
       const b64 = await browser.takeScreenshot();
       writeFileSync(joinPath(dir, name + '.png'), Buffer.from(b64, 'base64'));
-    } catch (e) { /* capture is best-effort; still emit the marker below */ }
+    } catch (e) {
+      /* capture is best-effort; still emit the marker below */
+    }
   }
   log('SHOOT:' + name);
 }
@@ -122,10 +143,17 @@ async function shoot(browser, name) {
 // so value-state is strictly opt-in.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
-  if (!p) { const def = resolvePath(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
+  if (!p) {
+    const def = resolvePath(process.cwd(), 'reproit.yaml');
+    if (existsSync(def)) p = def;
+  }
   if (!p || !existsSync(p)) return [];
   let text = '';
-  try { text = readFileSync(p, 'utf8'); } catch { return []; }
+  try {
+    text = readFileSync(p, 'utf8');
+  } catch {
+    return [];
+  }
   return parseValueNodes(text);
 }
 // Extract the `value_nodes:` list items from a YAML document. Supports the two
@@ -137,8 +165,10 @@ function parseValueNodes(text) {
   const out = [];
   const clean = (s) => {
     let v = s.trim();
-    const h = v.indexOf('#'); if (h >= 0) v = v.slice(0, h).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    const h = v.indexOf('#');
+    if (h >= 0) v = v.slice(0, h).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
+      v = v.slice(1, -1);
     return v.trim();
   };
   for (let i = 0; i < lines.length; i++) {
@@ -148,7 +178,10 @@ function parseValueNodes(text) {
     const inline = m[2].trim();
     if (inline.startsWith('[')) {
       const body = inline.replace(/^\[/, '').replace(/\].*$/, '');
-      for (const part of body.split(',')) { const v = clean(part); if (v) out.push(v); }
+      for (const part of body.split(',')) {
+        const v = clean(part);
+        if (v) out.push(v);
+      }
       return out;
     }
     for (let j = i + 1; j < lines.length; j++) {
@@ -165,7 +198,17 @@ function parseValueNodes(text) {
   }
   return out;
 }
-function rng(seed) { let s = (seed >>> 0) || 1; return (n) => { s ^= (s << 13); s >>>= 0; s ^= (s >> 17); s ^= (s << 5); s >>>= 0; return (s & 0x7fffffff) % n; }; }
+function rng(seed) {
+  let s = seed >>> 0 || 1;
+  return (n) => {
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    return (s & 0x7fffffff) % n;
+  };
+}
 
 // The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
 // descriptor and V: keys can carry non-ASCII (a localized anchor, a non-ASCII
@@ -193,7 +236,9 @@ function reproitCmpUtf8(a, b) {
   const ab = REPROIT_UTF8.encode(a);
   const bb = REPROIT_UTF8.encode(b);
   const n = Math.min(ab.length, bb.length);
-  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  for (let i = 0; i < n; i++) {
+    if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1;
+  }
   return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
@@ -206,9 +251,26 @@ function reproitCmpUtf8(a, b) {
 //  page context and feeds it here in Node.
 // ====================================================================
 const ROLES = {
-  screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-  icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-  slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+  screen: 1,
+  header: 1,
+  text: 1,
+  button: 1,
+  link: 1,
+  textfield: 1,
+  image: 1,
+  icon: 1,
+  list: 1,
+  listitem: 1,
+  tab: 1,
+  switch: 1,
+  checkbox: 1,
+  radio: 1,
+  slider: 1,
+  menu: 1,
+  menuitem: 1,
+  dialog: 1,
+  group: 1,
+  node: 1,
 };
 const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1 };
 // Value-role set (docs/signature.md "Value-state", Layer 2). A node is value-
@@ -217,10 +279,22 @@ const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, toolti
 // timer/output are NOT in the structural vocabulary so they normalize to "node"
 // in the body; the value-role test uses the RAW role on purpose. Chrome roles
 // (button/header/text/link) are NEVER value-bearing (rule 1 preserved).
-const VALUE_ROLES = { textfield: 1, status: 1, log: 1, progressbar: 1, meter: 1, timer: 1, output: 1 };
+const VALUE_ROLES = {
+  textfield: 1,
+  status: 1,
+  log: 1,
+  progressbar: 1,
+  meter: 1,
+  timer: 1,
+  output: 1,
+};
 
-function normalizeRole(role) { return ROLES[role] ? role : 'node'; }
-function isTransientNode(node) { return !!node.transient || !!TRANSIENT_ROLES[node.role]; }
+function normalizeRole(role) {
+  return ROLES[role] ? role : 'node';
+}
+function isTransientNode(node) {
+  return !!node.transient || !!TRANSIENT_ROLES[node.role];
+}
 function isValueBearing(node) {
   return node.value != null && (!!VALUE_ROLES[node.role] || !!node.value_node);
 }
@@ -229,7 +303,10 @@ function normalizeNode(node) {
   if (isTransientNode(node)) return null;
   const kids = [];
   const children = node.children || [];
-  for (const c of children) { const n = normalizeNode(c); if (n) kids.push(n); }
+  for (const c of children) {
+    const n = normalizeNode(c);
+    if (n) kids.push(n);
+  }
   return {
     role: normalizeRole(node.role),
     type: node.type != null ? node.type : null,
@@ -265,7 +342,7 @@ function serializeChildren(children, depth, tokens) {
     const key = subtreeKey(children[i]);
     let j = i + 1;
     while (j < children.length && subtreeKey(children[j]) === key) j++;
-    serializeNode(children[i], depth, (j - i) >= 2, tokens);
+    serializeNode(children[i], depth, j - i >= 2, tokens);
     i = j;
   }
 }
@@ -273,13 +350,15 @@ function serializeChildren(children, depth, tokens) {
 // Strict ^[+-]?[0-9]+(\.[0-9]+)?$: optional sign, >=1 ASCII digits, optional
 // period + >=1 ASCII digits. No grouping, no exponent, no leading/trailing dot.
 function isStrictDecimal(s) {
-  let i = 0; const n = s.length;
+  let i = 0;
+  const n = s.length;
   if (i < n && (s.charCodeAt(i) === 43 || s.charCodeAt(i) === 45)) i++;
   const intStart = i;
   while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
   if (i === intStart) return false;
   if (i < n && s.charCodeAt(i) === 46) {
-    i++; const fracStart = i;
+    i++;
+    const fracStart = i;
     while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
     if (i === fracStart) return false;
   }
@@ -339,7 +418,9 @@ function descriptorOf(anchor, root) {
   if (norm) serializeNode(norm, 0, false, tokens);
   return 'A:' + (anchor == null ? '' : anchor) + '\n' + tokens.join(';') + valueSection(root);
 }
-function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
+function signatureOf(anchor, root) {
+  return fnv1a(descriptorOf(anchor, root));
+}
 
 export { signatureOf, descriptorOf, valueClass };
 
@@ -370,7 +451,9 @@ const snapshotJs = (valueNodeSelectors) => `
     const tag = el.tagName.toLowerCase();
     const ariaRole = (el.getAttribute('role') || '').toLowerCase();
     if (ariaRole) {
-      if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+      if (
+        ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox'
+      ) return 'textfield';
       if (ariaRole === 'heading') return 'header';
       if (ariaRole === 'img') return 'image';
       if (ariaRole === 'switch') return 'switch';
@@ -446,7 +529,9 @@ const snapshotJs = (valueNodeSelectors) => `
     for (const a of allAnims) {
       if (a.playState !== 'running') continue;
       const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
-      if (t && t.iterations === Infinity && a.effect && a.effect.target) infiniteAnimEls.add(a.effect.target);
+      if (t && t.iterations === Infinity && a.effect && a.effect.target) {
+        infiniteAnimEls.add(a.effect.target);
+      }
     }
   } catch (_) {}
 
@@ -457,7 +542,9 @@ const snapshotJs = (valueNodeSelectors) => `
     const live = (el.getAttribute('aria-live') || '').toLowerCase();
     if (live === 'assertive' || live === 'polite') return true;
     const cls = (el.getAttribute('class') || '').toLowerCase();
-    if (/\\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\\b/.test(cls)) return true;
+    if (
+      /\\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\\b/.test(cls)
+    ) return true;
     if (el.hasAttribute('data-transient')) return true;
     // A node mid-INFINITE-animation samples a different frame every capture, so
     // exclude it (finite animations are settled by settleForSignature first).
@@ -473,13 +560,19 @@ const snapshotJs = (valueNodeSelectors) => `
   const valueRoleOf = (el) => {
     const tag = el.tagName.toLowerCase();
     const ar = (el.getAttribute('role') || '').toLowerCase();
-    if (ar === 'status' || ar === 'log' || ar === 'progressbar' || ar === 'meter' || ar === 'timer') return ar;
+    if (
+      ar === 'status' || ar === 'log' || ar === 'progressbar' ||
+      ar === 'meter' || ar === 'timer'
+    ) return ar;
     if (tag === 'output' || ar === 'output') return 'output';
     const live = (el.getAttribute('aria-live') || '').toLowerCase();
     if (live === 'polite' || live === 'assertive') return 'status';
     if (tag === 'input') {
       const t = (el.getAttribute('type') || 'text').toLowerCase();
-      if (['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image', 'hidden', 'file', 'password'].includes(t)) return null;
+      if (
+        ['checkbox', 'radio', 'range', 'button', 'submit', 'reset',
+          'image', 'hidden', 'file', 'password'].includes(t)
+      ) return null;
       return 'textfield';
     }
     if (tag === 'textarea' || tag === 'select') return 'textfield';
@@ -490,7 +583,9 @@ const snapshotJs = (valueNodeSelectors) => `
   // textContent for output/status/live nodes.
   const valueOf = (el) => {
     const tag = el.tagName.toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || tag === 'select') return el.value != null ? String(el.value) : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      return el.value != null ? String(el.value) : '';
+    }
     return (el.textContent != null ? el.textContent : '').trim();
   };
   // Layer-3 opt-in: does this element match one of the value_nodes selectors?
@@ -531,7 +626,9 @@ const snapshotJs = (valueNodeSelectors) => `
       const t = (el.getAttribute('type') || 'text').toLowerCase();
       return !['text', 'password', 'email', 'number', 'search'].includes(t);
     }
-    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+    if (
+      ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)
+    ) return true;
     if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
     return false;
   };
@@ -553,7 +650,10 @@ const snapshotJs = (valueNodeSelectors) => `
   };
   const fnvLbl = (name) => {
     let h = 0x811c9dc5;
-    for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    for (let i = 0; i < name.length; i++) {
+      h ^= name.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
     return (h >>> 0).toString(16).padStart(8, '0');
   };
   const clipLabel = (name) => {
@@ -642,7 +742,10 @@ const snapshotJs = (valueNodeSelectors) => `
 
   // Layer-1 content fingerprint source: sorted (stable-key, trimmed text) over
   // value + keyed-text nodes. Sorted here so it is order-independent.
-  textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
+  textNodes.sort((a, b) => (
+    a[0] < b[0] ? -1 : a[0] > b[0] ? 1 :
+      (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)
+  ));
 
   return { tree, anchor, labels: [...new Set(labels)], tappables, textNodes };
 `;
@@ -675,7 +778,8 @@ async function snapshot(browser, valueNodeSelectors) {
 async function settleForSignature(browser) {
   try {
     await browser.executeAsync((done) => {
-      const twoFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const twoFrames = () =>
+        new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       (async () => {
         await new Promise((resolve) => {
           let obs = null;
@@ -683,20 +787,33 @@ async function settleForSignature(browser) {
           const finish = () => {
             if (quiet) clearTimeout(quiet);
             if (hard) clearTimeout(hard);
-            if (obs) { try { obs.disconnect(); } catch (_) {} }
+            if (obs) {
+              try {
+                obs.disconnect();
+              } catch (_) {}
+            }
             resolve();
           };
-          const arm = () => { if (quiet) clearTimeout(quiet); quiet = setTimeout(finish, 400); };
+          const arm = () => {
+            if (quiet) clearTimeout(quiet);
+            quiet = setTimeout(finish, 400);
+          };
           const hard = setTimeout(finish, 1800);
           try {
             obs = new MutationObserver(arm);
-            obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+            obs.observe(document.documentElement, {
+              subtree: true,
+              childList: true,
+              attributes: true,
+              characterData: true,
+            });
           } catch (_) {}
           arm();
         });
         try {
-          const running = (document.getAnimations ? document.getAnimations() : [])
-            .filter((a) => a.playState === 'running');
+          const running = (document.getAnimations ? document.getAnimations() : []).filter(
+            (a) => a.playState === 'running',
+          );
           await Promise.race([
             Promise.allSettled(running.map((a) => a.finished)),
             new Promise((r) => setTimeout(r, 800)),
@@ -718,20 +835,33 @@ async function detectBotWall(browser) {
       const title = (document.title || '').toLowerCase();
       const bodyText = (document.body ? document.body.innerText || '' : '').toLowerCase();
       const has = (re) => re.test(title) || re.test(bodyText);
-      if (document.querySelector(
-        '#challenge-running, #cf-challenge-running, #challenge-form, .cf-turnstile, [id^="cf-chl"], script[src*="challenge-platform"], iframe[src*="challenges.cloudflare.com"]'
-      )) return { vendor: 'Cloudflare', marker: 'challenge-platform' };
-      if (has(/just a moment/) || has(/checking your browser before/)
-        || has(/performing (a )?security verification/)
-        || has(/enable javascript and cookies to continue/)) {
+      if (
+        document.querySelector(
+          '#challenge-running, #cf-challenge-running, #challenge-form, .' +
+            'cf-turnstile, [id^="cf-chl"], script[src*="challenge-platform"], ' +
+            'iframe[src*="challenges.cloudflare.com"]',
+        )
+      )
+        return { vendor: 'Cloudflare', marker: 'challenge-platform' };
+      if (
+        has(/just a moment/) ||
+        has(/checking your browser before/) ||
+        has(/performing (a )?security verification/) ||
+        has(/enable javascript and cookies to continue/)
+      ) {
         return { vendor: 'Cloudflare', marker: 'interstitial' };
       }
-      if (has(/attention required/) && has(/cloudflare/)) return { vendor: 'Cloudflare', marker: 'attention-required' };
-      if (document.querySelector('#px-captcha, .px-block, [class*="perimeterx"]')) return { vendor: 'PerimeterX', marker: 'px-captcha' };
-      if (/ray id:/.test(bodyText) && bodyText.length < 1200) return { vendor: 'Cloudflare', marker: 'ray-id-block' };
+      if (has(/attention required/) && has(/cloudflare/))
+        return { vendor: 'Cloudflare', marker: 'attention-required' };
+      if (document.querySelector('#px-captcha, .px-block, [class*="perimeterx"]'))
+        return { vendor: 'PerimeterX', marker: 'px-captcha' };
+      if (/ray id:/.test(bodyText) && bodyText.length < 1200)
+        return { vendor: 'Cloudflare', marker: 'ray-id-block' };
       return null;
     });
-  } catch (_) { return null; }
+  } catch (_) {
+    return null;
+  }
 }
 
 // PARITY: keep in sync with runners/web/runner.mjs (operability + flicker oracle)
@@ -759,7 +889,9 @@ const GROUNDTRUTH_JS = `
     const tag = el.tagName.toLowerCase();
     const ariaRole = (el.getAttribute('role') || '').toLowerCase();
     if (ariaRole) {
-      if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+      if (
+        ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox'
+      ) return 'textfield';
       if (ariaRole === 'heading') return 'header';
       if (ariaRole === 'img') return 'image';
       if (ariaRole === 'switch') return 'switch';
@@ -791,7 +923,9 @@ const GROUNDTRUTH_JS = `
     if (['a', 'button', 'select'].includes(tag)) return true;
     if (tag === 'input' || tag === 'textarea') return true;
     if (role === 'textfield') return true;
-    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+    if (
+      ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)
+    ) return true;
     if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
     return false;
   };
@@ -813,7 +947,10 @@ const GROUNDTRUTH_JS = `
   const nativeInteractive = (el) => {
     const tag = el.tagName.toLowerCase();
     if (['a', 'button', 'select', 'textarea', 'summary'].includes(tag)) return true;
-    if (tag === 'input') { const t = (el.getAttribute('type') || 'text').toLowerCase(); return t !== 'hidden'; }
+    if (tag === 'input') {
+      const t = (el.getAttribute('type') || 'text').toLowerCase();
+      return t !== 'hidden';
+    }
     if (el.isContentEditable) return true;
     return false;
   };
@@ -928,14 +1065,17 @@ const GROUNDTRUTH_JS = `
         // off-screen/occluded control is not pointer-operable, so it cannot be a
         // pointer-only/keyboard gap either; gate on reachability to align the two
         // graphs (matches the web runner).
-        const operable = reachable(el) && (native || cursor || ownInline || (docDelegates && deleg));
+        const operable = reachable(el) && (
+          native || cursor || ownInline || (docDelegates && deleg)
+        );
         // inTabOrder: sequential-focus reachability. An element is in the Tab
         // sequence iff it is focusable AND its tabIndex is >= 0. A tabindex=-1
         // element is script/pointer focusable but NOT reachable by Tab (the
         // motivating <div role=option tabindex=-1> case). An aria-activedescendant
         // item is reachable + activatable via its focusable composite container.
         const adm = adManaged(el);
-        const focusable = native || el.tabIndex >= 0 || (el.hasAttribute('tabindex') && el.tabIndex >= 0) || adm;
+        const focusable = native || el.tabIndex >= 0 ||
+          (el.hasAttribute('tabindex') && el.tabIndex >= 0) || adm;
         const inTabOrder = (el.tabIndex >= 0 && focusable) || adm;
         const a11y = {
           rolePresent: rolePresent(el),
@@ -962,7 +1102,12 @@ const GROUNDTRUTH_JS = `
             a11y.keyboardActivatable = native || inlineKey || focusable;
           }
         }
-        out.push({ id: sel, operable: operable, gestureKind: gestureKindOf(el, role, native, deleg), a11y });
+        out.push({
+          id: sel,
+          operable: operable,
+          gestureKind: gestureKindOf(el, role, native, deleg),
+          a11y,
+        });
       }
     }
     for (const c of el.children) walk(c, false);
@@ -978,9 +1123,16 @@ const GROUNDTRUTH_JS = `
 // probe simply emits nothing.
 async function emitGroundtruth(browser, sig) {
   let res;
-  try { res = await browser.execute(GROUNDTRUTH_JS); } catch (e) { return; }
+  try {
+    res = await browser.execute(GROUNDTRUTH_JS);
+  } catch (e) {
+    return;
+  }
   if (!res) return;
-  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: !!res.focusTrap, elements: res.elements || [] }));
+  log(
+    'EXPLORE:GROUNDTRUTH ' +
+      JSON.stringify({ sig, focusTrap: !!res.focusTrap, elements: res.elements || [] }),
+  );
 }
 
 // Tier-1 flicker oracle (persistent-anchor churn), mirroring runners/web. Tag the
@@ -992,9 +1144,9 @@ async function emitGroundtruth(browser, sig) {
 // survive from before-action to after-settle. Pure DOM, no frame timing.
 const ANCHOR_SEL_JS = JSON.stringify(
   'header,nav,main,footer,aside,' +
-  '[role=banner],[role=navigation],[role=main],[role=contentinfo],' +
-  '[role=complementary],[role=region],[role=search],[role=listbox],' +
-  '[role=list],[role=tablist],[role=toolbar],[role=dialog],[id]'
+    '[role=banner],[role=navigation],[role=main],[role=contentinfo],' +
+    '[role=complementary],[role=region],[role=search],[role=listbox],' +
+    '[role=list],[role=tablist],[role=toolbar],[role=dialog],[id]',
 );
 const MARK_ANCHORS_JS = `
   const sel = ${ANCHOR_SEL_JS};
@@ -1029,7 +1181,10 @@ const MARK_ANCHORS_JS = `
 const CHURNED_ANCHORS_JS = `
   const sel = ${ANCHOR_SEL_JS};
   const old = window.__reproitAnchors;
-  if (!old || window.__reproitAnchorDoc !== document) { window.__reproitAnchors = null; return null; }
+  if (!old || window.__reproitAnchorDoc !== document) {
+    window.__reproitAnchors = null;
+    return null;
+  }
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
@@ -1088,7 +1243,9 @@ const DETECT_CONTENTBUG_JS = `
   const fromFuzzInjection = (text) => {
     const n = String(text || '').toLowerCase();
     if (!n) return false;
-    if (injected.some((v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1))) return true;
+    if (injected.some(
+      (v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1),
+    )) return true;
     // Fragmented reflection: the browser parsed markup out of the probe, so the
     // visible text is a fragment; check the specific artifact tokens for provenance.
     const arts = [];
@@ -1135,7 +1292,11 @@ const DETECT_CONTENTBUG_JS = `
       if (dominates(s)) return 'object-object';
     }
     if (/\\{\\{[^}]*\\}\\}/.test(text) || /\\$\\{[^}]*\\}/.test(text)) {
-      const s = text.replace(/\\{\\{[^}]*\\}\\}/g, ' ').replace(/\\$\\{[^}]*\\}/g, ' ').replace(/\\s+/g, ' ').trim();
+      const s = text
+        .replace(/\\{\\{[^}]*\\}\\}/g, ' ')
+        .replace(/\\$\\{[^}]*\\}/g, ' ')
+        .replace(/\\s+/g, ' ')
+        .trim();
       if (dominates(s)) return 'unrendered-template';
     }
     return null;
@@ -1157,7 +1318,10 @@ const DETECT_CONTENTBUG_JS = `
     seen.add(dedup);
     out.push({ key, reason, text: text.slice(0, 80) });
   }
-  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  out.sort((a, b) => (
+    a.key < b.key ? -1 : a.key > b.key ? 1 :
+      (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)
+  ));
   return out;
 `;
 
@@ -1215,11 +1379,19 @@ const DRAIN_LONGTASK_JS = `
   return t;
 `;
 async function installLongTaskObserver(browser) {
-  try { await browser.execute(INSTALL_LONGTASK_JS); } catch { /* webview not ready */ }
+  try {
+    await browser.execute(INSTALL_LONGTASK_JS);
+  } catch {
+    /* webview not ready */
+  }
 }
 async function drainJank(browser) {
   let tasks = [];
-  try { tasks = await browser.execute(DRAIN_LONGTASK_JS); } catch { return null; }
+  try {
+    tasks = await browser.execute(DRAIN_LONGTASK_JS);
+  } catch {
+    return null;
+  }
   if (!tasks || !tasks.length) return null;
   const max = Math.max(...tasks);
   if (max >= HANG_FLOOR_MS) return { kind: 'hang', bucket: HANG_FLOOR_MS, count: tasks.length };
@@ -1244,9 +1416,10 @@ async function drainJank(browser) {
 // Long Tasks path uses, so the marker is byte-identical across paths and to the
 // web runner. `count` is the number of distinct stall EVENTS (runs), not raw
 // frames. The floors are FP-validated on real firefox/webkit; do not retune them.
-const RAF_FRAME_MS = 100;       // an inter-frame interval this long is a "long frame"
-const RAF_JANK_RUN_MIN = 2;     // a sustained jank run needs >= this many long frames
-const RAF_JANK_LONE_MS = 350;   // a single frame this long is jank on its own (> GC noise, < the 600ms fixture)
+const RAF_FRAME_MS = 100; // an inter-frame interval this long is a "long frame"
+const RAF_JANK_RUN_MIN = 2; // a sustained jank run needs >= this many long frames
+// One frame this long is jank on its own (> GC noise, < the 600ms fixture).
+const RAF_JANK_LONE_MS = 350;
 
 // Pure classifier over a list of inter-frame intervals (ms). Deterministic: the
 // SAME interval list always yields the same verdict. Byte-identical to the web
@@ -1266,7 +1439,10 @@ function classifyFrameIntervals(intervals) {
   let i = 0;
   const n = intervals.length;
   while (i < n) {
-    if (intervals[i] < RAF_FRAME_MS) { i++; continue; }
+    if (intervals[i] < RAF_FRAME_MS) {
+      i++;
+      continue;
+    }
     let j = i;
     let total = 0;
     let peak = 0;
@@ -1318,13 +1494,21 @@ const DRAIN_FRAME_JS = `
   return t;
 `;
 async function installFrameObserver(browser) {
-  try { await browser.execute(INSTALL_FRAME_JS); } catch { /* webview not ready */ }
+  try {
+    await browser.execute(INSTALL_FRAME_JS);
+  } catch {
+    /* webview not ready */
+  }
 }
 // Drain the rAF interval buffer and classify it. Returns the SAME shape as
 // drainJank ({ kind, bucket, count }) or null. The cross-engine path.
 async function drainFrameJank(browser) {
   let intervals = [];
-  try { intervals = await browser.execute(DRAIN_FRAME_JS); } catch { return null; }
+  try {
+    intervals = await browser.execute(DRAIN_FRAME_JS);
+  } catch {
+    return null;
+  }
   return classifyFrameIntervals(intervals);
 }
 // Per-action jank/hang verdict, engine-agnostic. Tauri cannot tell us which
@@ -1378,9 +1562,15 @@ const PERF_MEMORY_JS = `
 // sampler degrades to the JS fallback).
 function hostExec(cmd, args) {
   try {
-    const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+    const out = execFileSync(cmd, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
     return out == null ? null : String(out);
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // Resolve the Tauri app's MAIN host pid from its binary path ($REPROIT_APP), or
@@ -1445,15 +1635,25 @@ function hostRssBytes(pid) {
 async function sampleHeap(browser, tMs, pidRef) {
   // PRIMARY: process RSS, gated on a uniquely resolved main-process pid.
   if (pidRef) {
-    if (!pidRef.tried) { pidRef.tried = true; pidRef.pid = resolveTauriPid(APP); }
+    if (!pidRef.tried) {
+      pidRef.tried = true;
+      pidRef.pid = resolveTauriPid(APP);
+    }
     if (pidRef.pid > 0) {
       const rss = hostRssBytes(pidRef.pid);
-      if (rss != null) { log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: rss })); return; }
+      if (rss != null) {
+        log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: rss }));
+        return;
+      }
     }
   }
   // FALLBACK: quantized JS heap (Chromium/WebView2) or silence (WebKit '~').
   let used = null;
-  try { used = await browser.execute(PERF_MEMORY_JS); } catch (_) { used = null; }
+  try {
+    used = await browser.execute(PERF_MEMORY_JS);
+  } catch (_) {
+    used = null;
+  }
   if (used == null) return;
   log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
 }
@@ -1503,7 +1703,11 @@ const INSTALL_HOOKS_JS = `
 `;
 
 async function installHooks(browser) {
-  try { await browser.execute(INSTALL_HOOKS_JS); } catch { /* webview not ready yet */ }
+  try {
+    await browser.execute(INSTALL_HOOKS_JS);
+  } catch {
+    /* webview not ready yet */
+  }
 }
 
 // Emit the SAME exception block the web/Electron runners emit and the Rust
@@ -1513,8 +1717,10 @@ function emitError(err) {
   log('EXCEPTION CAUGHT BY TAURI WEBVIEW');
   log('The following error was thrown:');
   log(String(err && err.message ? err.message : err));
-  const stack = (err && err.stack) ? String(err.stack) : '';
-  for (const line of stack.split('\n').slice(0, 8)) { if (line) log(line); }
+  const stack = err && err.stack ? String(err.stack) : '';
+  for (const line of stack.split('\n').slice(0, 8)) {
+    if (line) log(line);
+  }
   log('════════');
 }
 
@@ -1527,8 +1733,12 @@ async function drainErrors(browser) {
       window.__reproit_errors = [];
       return e;
     });
-  } catch { return; }
-  if (Array.isArray(errs)) { for (const e of errs) emitError(e); }
+  } catch {
+    return;
+  }
+  if (Array.isArray(errs)) {
+    for (const e of errs) emitError(e);
+  }
 }
 
 // STRUCTURAL tap: resolve a locale-invariant selector and click it inside the
@@ -1546,7 +1756,9 @@ const TAP_JS = `
     const st = getComputedStyle(el);
     return st.visibility !== 'hidden' && st.display !== 'none';
   };
-  const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&'));
+  const cssEscape = (v) => (
+    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
+  );
 
   const doClick = (el) => {
     // Stash the clicked element for the post-tap oracle probes (the focus-loss
@@ -1602,7 +1814,9 @@ const TAP_JS = `
       const tag = el.tagName.toLowerCase();
       const ariaRole = (el.getAttribute('role') || '').toLowerCase();
       if (ariaRole) {
-        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+        if (
+          ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox'
+        ) return 'textfield';
         if (ariaRole === 'heading') return 'header';
         if (ariaRole === 'img') return 'image';
         if (ariaRole === 'switch') return 'switch';
@@ -1636,7 +1850,9 @@ const TAP_JS = `
         const t = (el.getAttribute('type') || 'text').toLowerCase();
         return !['text', 'password', 'email', 'number', 'search'].includes(t);
       }
-      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)) return true;
+      if (
+        ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)
+      ) return true;
       if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
       return false;
     };
@@ -1661,7 +1877,9 @@ async function tap(browser, sel) {
   try {
     const ok = await browser.execute(TAP_JS, sel);
     return !!ok;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 // ── --record clip capture (route B: host film + box-spec) ───────────────────
@@ -1697,7 +1915,9 @@ const RESOLVE_CLIP_BOX_JS = `
     const st = getComputedStyle(el);
     return st.visibility !== 'hidden' && st.display !== 'none';
   };
-  const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&'));
+  const cssEscape = (v) => (
+    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
+  );
   let el = null;
   if (s.startsWith('key:')) {
     const body = s.slice(4);
@@ -1726,7 +1946,10 @@ const RESOLVE_CLIP_BOX_JS = `
         const tag = n.tagName.toLowerCase();
         const ariaRole = (n.getAttribute('role') || '').toLowerCase();
         if (ariaRole) {
-          if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+          if (
+            ariaRole === 'textbox' || ariaRole === 'searchbox' ||
+            ariaRole === 'combobox'
+          ) return 'textfield';
           if (ariaRole === 'heading') return 'header';
           if (ariaRole === 'img') return 'image';
           if (ariaRole === 'switch') return 'switch';
@@ -1760,7 +1983,9 @@ const RESOLVE_CLIP_BOX_JS = `
           const t = (n.getAttribute('type') || 'text').toLowerCase();
           return !['text', 'password', 'email', 'number', 'search'].includes(t);
         }
-        if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)) return true;
+        if (
+          ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)
+        ) return true;
         if (n.hasAttribute('onclick') || n.tabIndex >= 0) return true;
         return false;
       };
@@ -1805,8 +2030,11 @@ const RESOLVE_CLIP_BOX_JS = `
 `;
 
 async function resolveClipBox(browser, sel) {
-  try { return await browser.executeAsync(RESOLVE_CLIP_BOX_JS, sel); }
-  catch { return null; }
+  try {
+    return await browser.executeAsync(RESOLVE_CLIP_BOX_JS, sel);
+  } catch {
+    return null;
+  }
 }
 
 // Film ONLY the app window (never the desktop, a hard privacy rule) with a host
@@ -1827,21 +2055,44 @@ function startClipCapture(pid, outMov) {
       // Resolve the window id + geometry from the pid (best-effort; needs
       // xdotool). Geometry lets us crop x11grab to the WINDOW, never the display.
       let wid = (hostExec('xdotool', ['search', '--pid', String(pid), '--onlyvisible']) || '')
-        .trim().split(/\s+/).filter(Boolean).pop();
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .pop();
       if (!wid) return null;
       const geo = hostExec('xdotool', ['getwindowgeometry', '--shell', wid]) || '';
       const g = {};
-      for (const line of geo.split('\n')) { const m = line.match(/^(\w+)=(-?\d+)/); if (m) g[m[1]] = parseInt(m[2], 10); }
+      for (const line of geo.split('\n')) {
+        const m = line.match(/^(\w+)=(-?\d+)/);
+        if (m) g[m[1]] = parseInt(m[2], 10);
+      }
       if (!(g.WIDTH > 0 && g.HEIGHT > 0)) return null;
       // Even dimensions for yuv420p.
-      const w = g.WIDTH - (g.WIDTH % 2), h = g.HEIGHT - (g.HEIGHT % 2);
-      const proc = spawn('ffmpeg', [
-        '-hide_banner', '-loglevel', 'error', '-y',
-        '-f', 'x11grab', '-framerate', '15',
-        '-video_size', `${w}x${h}`,
-        '-i', `${disp}+${g.X || 0},${g.Y || 0}`,
-        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outMov,
-      ], { stdio: ['pipe', 'ignore', 'ignore'] });
+      const w = g.WIDTH - (g.WIDTH % 2),
+        h = g.HEIGHT - (g.HEIGHT % 2);
+      const proc = spawn(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-y',
+          '-f',
+          'x11grab',
+          '-framerate',
+          '15',
+          '-video_size',
+          `${w}x${h}`,
+          '-i',
+          `${disp}+${g.X || 0},${g.Y || 0}`,
+          '-c:v',
+          'libx264',
+          '-pix_fmt',
+          'yuv420p',
+          outMov,
+        ],
+        { stdio: ['pipe', 'ignore', 'ignore'] },
+      );
       return proc;
     }
     if (plat === 'win32') {
@@ -1849,13 +2100,29 @@ function startClipCapture(pid, outMov) {
       // title is the app's, matched loosely; ffmpeg errors out cleanly if absent.
       const title = hostExec('tasklist', ['/FI', 'PID eq ' + pid, '/FO', 'CSV', '/NH', '/V']) || '';
       const m = title.match(/^"[^"]*","\d+","[^"]*","[^"]*","[^"]*","([^"]*)"/);
-      const win = (m && m[1] && m[1] !== 'N/A') ? m[1] : null;
+      const win = m && m[1] && m[1] !== 'N/A' ? m[1] : null;
       if (!win) return null;
-      const proc = spawn('ffmpeg', [
-        '-hide_banner', '-loglevel', 'error', '-y',
-        '-f', 'gdigrab', '-framerate', '15', '-i', 'title=' + win,
-        '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outMov,
-      ], { stdio: ['pipe', 'ignore', 'ignore'] });
+      const proc = spawn(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-y',
+          '-f',
+          'gdigrab',
+          '-framerate',
+          '15',
+          '-i',
+          'title=' + win,
+          '-c:v',
+          'libx264',
+          '-pix_fmt',
+          'yuv420p',
+          outMov,
+        ],
+        { stdio: ['pipe', 'ignore', 'ignore'] },
+      );
       return proc;
     }
     if (plat === 'darwin') {
@@ -1874,11 +2141,20 @@ async function stopClipCapture(proc) {
   if (!proc || proc.exitCode !== null) return;
   await new Promise((resolve) => {
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
+    const finish = () => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
     proc.once('exit', finish);
     // ffmpeg reads 'q' on stdin for a graceful stop; SIGINT is the fallback.
-    try { proc.stdin && proc.stdin.writable && proc.stdin.write('q'); } catch (_) {}
-    try { proc.kill('SIGINT'); } catch (_) {}
+    try {
+      proc.stdin && proc.stdin.writable && proc.stdin.write('q');
+    } catch (_) {}
+    try {
+      proc.kill('SIGINT');
+    } catch (_) {}
     setTimeout(finish, 4000);
   });
 }
@@ -1916,7 +2192,9 @@ const TYPE_JS = `
     const st = getComputedStyle(el);
     return st.visibility !== 'hidden' && st.display !== 'none';
   };
-  const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&'));
+  const cssEscape = (v) => (
+    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
+  );
   let el = null;
   if (s.startsWith('key:')) {
     const body = s.slice(4);
@@ -1941,10 +2219,14 @@ const TYPE_JS = `
     const roleOf = (el) => {
       const tag = el.tagName.toLowerCase();
       const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+      if (
+        ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox'
+      ) return 'textfield';
       if (tag === 'input') {
         const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image'].includes(t)) return t;
+        if (
+          ['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image'].includes(t)
+        ) return t;
         return 'textfield';
       }
       if (tag === 'textarea' || tag === 'select') return 'textfield';
@@ -1964,7 +2246,8 @@ const TYPE_JS = `
   if (!el || !visible(el)) return false;
   const tag = el.tagName.toLowerCase();
   const isText = tag === 'textarea'
-    || (el.getAttribute && (el.getAttribute('role') || '').toLowerCase().match(/textbox|searchbox|combobox/))
+    || (el.getAttribute &&
+      (el.getAttribute('role') || '').toLowerCase().match(/textbox|searchbox|combobox/))
     || el.isContentEditable
     || (tag === 'input' && !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image']
       .includes((el.getAttribute('type') || 'text').toLowerCase()));
@@ -1994,7 +2277,9 @@ const COUNT_JS = `
     const ci = body.indexOf(':');
     const kind = ci >= 0 ? body.slice(0, ci) : '';
     const val = ci >= 0 ? body.slice(ci + 1) : body;
-    if (kind === 'testid') sel = '[data-testid="' + esc(val) + '"],[data-test-id="' + esc(val) + '"]';
+    if (kind === 'testid') {
+      sel = '[data-testid="' + esc(val) + '"],[data-test-id="' + esc(val) + '"]';
+    }
     else if (kind === 'id') sel = '#' + esc(val);
     else if (kind === 'name') sel = '[name="' + esc(val) + '"]';
   }
@@ -2025,28 +2310,52 @@ async function execScenarioAction(browser, act, who) {
     if (body.startsWith('text=')) {
       const want = body.slice('text='.length);
       let ok = false;
-      try { ok = await browser.execute('return !!(document.body && document.body.innerText.includes(arguments[0]))', want); } catch (_) {}
-      log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who);
+      try {
+        ok = await browser.execute(
+          'return !!(document.body && document.body.innerText.' + 'includes(arguments[0]))',
+          want,
+        );
+      } catch (_) {}
+      log(
+        'FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who,
+      );
     } else if (body.startsWith('count:')) {
       const rest = body.slice('count:'.length);
       const eq = rest.lastIndexOf('=');
       const finder = eq >= 0 ? rest.slice(0, eq) : rest;
       const want = eq >= 0 ? parseInt(rest.slice(eq + 1), 10) : 0;
       let got = -1;
-      try { got = await browser.execute(COUNT_JS, finder); } catch (_) {}
-      log('FUZZ:ASSERT ' + (got === want ? 'pass' : 'fail') + ' count ' + finder + ' want=' + want + ' got=' + got + ' actor=' + who);
+      try {
+        got = await browser.execute(COUNT_JS, finder);
+      } catch (_) {}
+      log(
+        'FUZZ:ASSERT ' +
+          (got === want ? 'pass' : 'fail') +
+          ' count ' +
+          finder +
+          ' want=' +
+          want +
+          ' got=' +
+          got +
+          ' actor=' +
+          who,
+      );
     } else {
       log('FUZZ:ASSERT fail unsupported ' + body + ' actor=' + who);
     }
     await browser.pause(300);
     return;
   }
-  if (act === 'back') { await browser.back().catch(() => {}); await browser.pause(400); return; }
+  if (act === 'back') {
+    await browser.back().catch(() => {});
+    await browser.pause(400);
+    return;
+  }
   if (act.startsWith('auth:')) {
     // Session-restore login is not wired on the Tauri runner; use a
     // `login(<account>)` actor prelude (UI flow) for multi-user auth. No-op so
     // ordering still advances, but flag it loudly.
-    log('JOURNEY[a] step: auth-restore unsupported on tauri runner; use login() for ' + act);
+    log('JOURNEY[a] step: auth-restore unsupported on tauri runner; use login() ' + 'for ' + act);
     await browser.pause(200);
     return;
   }
@@ -2057,7 +2366,9 @@ async function execScenarioAction(browser, act, who) {
     const value = expandEnv(eq >= 0 ? b.slice(eq + 1) : '');
     if (value != null && String(value).length > 0) INJECTED_VALUES.add(String(value));
     let ok = false;
-    try { ok = await browser.execute(TYPE_JS, sel, value); } catch (_) {}
+    try {
+      ok = await browser.execute(TYPE_JS, sel, value);
+    } catch (_) {}
     if (!ok) log('FUZZ:MISS ' + who + ' ' + act);
     await browser.pause(900);
     return;
@@ -2078,7 +2389,11 @@ async function runScenarioActor(browser) {
   // else claim a distinct role from the conductor.
   let who = process.env.REPROIT_DEVICE;
   if (!who) {
-    try { who = (await (await fetch(base + '/claim')).text()).trim(); } catch (_) { who = ''; }
+    try {
+      who = (await (await fetch(base + '/claim')).text()).trim();
+    } catch (_) {
+      who = '';
+    }
     if (!who || who.startsWith('ERR')) who = 'a';
   }
   log('JOURNEY claimed role=' + who);
@@ -2089,15 +2404,24 @@ async function runScenarioActor(browser) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let guard = 0; guard < 100000; guard++) {
     let body = 'WAIT';
-    try { body = (await (await fetch(base + '/next?device=' + who)).text()).trim(); }
-    catch { await sleep(100); continue; }
+    try {
+      body = (await (await fetch(base + '/next?device=' + who)).text()).trim();
+    } catch {
+      await sleep(100);
+      continue;
+    }
     if (body === 'DONE') break;
-    if (body === 'WAIT') { await sleep(40); continue; }
+    if (body === 'WAIT') {
+      await sleep(40);
+      continue;
+    }
     const act = body.startsWith('ACT\t') ? body.slice(4) : body;
     await execScenarioAction(browser, act, who);
     await installHooks(browser); // a navigation replaces the window; idempotent
     await drainErrors(browser);
-    try { await fetch(base + '/done?device=' + who, { method: 'POST' }); } catch (_) {}
+    try {
+      await fetch(base + '/done?device=' + who, { method: 'POST' });
+    } catch (_) {}
   }
   await drainErrors(browser); // catch an error settled after the last step
   log('JOURNEY DONE');
@@ -2105,7 +2429,12 @@ async function runScenarioActor(browser) {
 }
 
 async function main() {
-  if (!APP) { log('EXCEPTION CAUGHT BY REPROIT'); log('REPROIT_APP (executable path) required'); log('═'.repeat(8)); process.exit(0); }
+  if (!APP) {
+    log('EXCEPTION CAUGHT BY REPROIT');
+    log('REPROIT_APP (executable path) required');
+    log('═'.repeat(8));
+    process.exit(0);
+  }
   const fuzz = loadFuzz();
   const { remote } = await import('webdriverio');
   const url = new URL(WD_URL);
@@ -2137,7 +2466,9 @@ async function main() {
   // off mid-exercise. A picker with many options at ~600ms each can run several
   // seconds; 30s leaves comfortable headroom without hanging the run if a webview
   // wedges (executeAsync still rejects on its own timeout). Best-effort.
-  try { await browser.setTimeout({ script: 30000 }); } catch (_) {}
+  try {
+    await browser.setTimeout({ script: 30000 });
+  } catch (_) {}
   // Install the exception hooks before the first snapshot so even errors thrown
   // during initial render are captured.
   await installHooks(browser);
@@ -2153,15 +2484,26 @@ async function main() {
   // completion markers still fire so the run reads as a clean, complete pass.
   const wall = await detectBotWall(browser);
   if (wall) {
-    const diag = `target is behind a ${wall.vendor} bot-challenge (${wall.marker}); reproit could not reach the app.`;
-    log('EXPLORE:UNSCANNABLE ' + JSON.stringify({ reason: 'bot-wall', vendor: wall.vendor, marker: wall.marker, diagnostic: diag }));
+    const diag =
+      `target is behind a ${wall.vendor} bot-challenge (${wall.marker}); ` +
+      'reproit could not reach the app.';
+    log(
+      'EXPLORE:UNSCANNABLE ' +
+        JSON.stringify({
+          reason: 'bot-wall',
+          vendor: wall.vendor,
+          marker: wall.marker,
+          diagnostic: diag,
+        }),
+    );
     log('JOURNEY[a] step: UNSCANNABLE - ' + diag);
     log('JOURNEY DONE');
     log('All tests passed');
     await browser.deleteSession();
     return;
   }
-  const seen = new Set(), tried = new Set();
+  const seen = new Set(),
+    tried = new Set();
   const pick = rng(fuzz.seed || 0);
 
   // Layer-3 opt-in value-node selectors from reproit.yaml (empty if none).
@@ -2172,15 +2514,18 @@ async function main() {
   // track the DISTINCT value-class combinations seen. Once a node exceeds
   // VALUE_CLASS_CAP, fall back to its structural-only signature for the rest of
   // the run so an adversarial value generator cannot explode the graph.
-  const valueCombos = new Map();   // structuralSig -> Set of V: sections
-  const cappedNodes = new Set();   // structuralSig that hit the cap
+  const valueCombos = new Map(); // structuralSig -> Set of V: sections
+  const cappedNodes = new Set(); // structuralSig that hit the cap
   // The EFFECTIVE signature for a snapshot, applying the runner-local cap: the
   // full value-folded sig unless this structural node is capped, then structural.
   function effectiveSig(snap) {
     if (cappedNodes.has(snap.structuralSig)) return snap.structuralSig;
     if (snap.vsection) {
       let set = valueCombos.get(snap.structuralSig);
-      if (!set) { set = new Set(); valueCombos.set(snap.structuralSig, set); }
+      if (!set) {
+        set = new Set();
+        valueCombos.set(snap.structuralSig, set);
+      }
       set.add(snap.vsection);
       if (set.size > VALUE_CLASS_CAP) {
         cappedNodes.add(snap.structuralSig);
@@ -2204,12 +2549,15 @@ async function main() {
     await drainErrors(browser);
     const snap = await snapshot(browser, valueNodeSelectors);
     snap.sig = effectiveSig(snap);
-    log('FUZZ:OBS ' + JSON.stringify({
-      sig: snap.sig,
-      ...(snap.anchor ? { route: snap.anchor } : {}),
-      labels: snap.labels.slice(0, 24),
-      elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
-    }));
+    log(
+      'FUZZ:OBS ' +
+        JSON.stringify({
+          sig: snap.sig,
+          ...(snap.anchor ? { route: snap.anchor } : {}),
+          labels: snap.labels.slice(0, 24),
+          elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
+        }),
+    );
     if (!seen.has(snap.sig)) {
       seen.add(snap.sig);
       // sig: STRUCTURAL (roles + tree shape + stable developer keys),
@@ -2217,18 +2565,21 @@ async function main() {
       // labels: DISPLAY-ONLY visible text (map show), never in the sig.
       // elements: structural selectors for replay; `nokey` flags a tappable
       //           with no stable id (data-testid/id/name).
-      log('EXPLORE:STATE ' + JSON.stringify({
-        sig: snap.sig,
-        // route: the URL path, so the candidate map reconciles by route (the
-        // reliable join key), consistent with the web and Flutter runners.
-        ...(snap.anchor ? { route: snap.anchor } : {}),
-        labels: snap.labels.slice(0, 24),
-        elements: snap.tappables.slice(0, 24).map((e) => {
-          const o = { sel: e.sel, role: e.role, label: e.label };
-          if (!e.key) o.nokey = true;
-          return o;
-        }),
-      }));
+      log(
+        'EXPLORE:STATE ' +
+          JSON.stringify({
+            sig: snap.sig,
+            // route: the URL path, so the candidate map reconciles by route (the
+            // reliable join key), consistent with the web and Flutter runners.
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            labels: snap.labels.slice(0, 24),
+            elements: snap.tappables.slice(0, 24).map((e) => {
+              const o = { sel: e.sel, role: e.role, label: e.label };
+              if (!e.key) o.nokey = true;
+              return o;
+            }),
+          }),
+      );
       // Operability/accessibility ground truth for this newly-seen state, keyed
       // by the SAME sig. Tauri has no CDP, so it uses native+cursor+attr signals
       // and an in-page focusability rule (see GROUNDTRUTH_JS). The synthetic
@@ -2241,9 +2592,18 @@ async function main() {
       // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
       // emitted when a broken-content artifact is actually rendered.
       let cbug = null;
-      try { cbug = await browser.execute(DETECT_CONTENTBUG_JS, [...INJECTED_VALUES]); } catch (_) {}
+      try {
+        cbug = await browser.execute(DETECT_CONTENTBUG_JS, [...INJECTED_VALUES]);
+      } catch (_) {}
       if (cbug && cbug.length) {
-        log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+        log(
+          'EXPLORE:CONTENTBUG ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: cbug,
+            }),
+        );
       }
       // OCCLUSION + SECURITY: same pure-DOM hygiene scans as the web runner,
       // shared from web/hygiene-oracles.mjs (webview DOM, identical API).
@@ -2260,12 +2620,28 @@ async function main() {
         }
       } catch (_) {}
       if (occ && occ.length) {
-        log('EXPLORE:OCCLUSION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: occ }));
+        log(
+          'EXPLORE:OCCLUSION ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: occ,
+            }),
+        );
       }
       let sec = null;
-      try { sec = await browser.execute(securityScan); } catch (_) {}
+      try {
+        sec = await browser.execute(securityScan);
+      } catch (_) {}
       if (sec && sec.length) {
-        log('EXPLORE:SECURITY ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: sec }));
+        log(
+          'EXPLORE:SECURITY ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: sec,
+            }),
+        );
       }
       // BLANK-SCREEN: the state rendered NOTHING -- zero visible text nodes,
       // zero tappable controls, zero visible media -- in a non-empty viewport
@@ -2277,15 +2653,26 @@ async function main() {
       // from web/hygiene-oracles.mjs, injected the way every scan runs here
       // (browser.execute serializes the self-contained function).
       let blank = null;
-      try { blank = await browser.execute(blankScreenScan); } catch (_) {}
+      try {
+        blank = await browser.execute(blankScreenScan);
+      } catch (_) {}
       // Settle-then-recheck: a candidate-blank state may be a MID-LOAD blank frame,
       // not a WSOD. Only a state STILL blank AFTER settle fires (mirrors web runner).
       if (blank && blank.length) {
         await settleForSignature(browser);
-        try { blank = await browser.execute(blankScreenScan); } catch (_) {}
+        try {
+          blank = await browser.execute(blankScreenScan);
+        } catch (_) {}
       }
       if (blank && blank.length) {
-        log('EXPLORE:BLANKSCREEN ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: blank }));
+        log(
+          'EXPLORE:BLANKSCREEN ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: blank,
+            }),
+        );
       }
       // APP-INVARIANT: the app's OWN predicates, registered via the SDK
       // (ReproIt.invariant, pushed to window.__reproit_invariants). Runner-
@@ -2303,19 +2690,34 @@ async function main() {
           for (let i = 0; i < reg.length; i++) {
             const it = reg[i];
             if (!it || typeof it.test !== 'function') continue;
-            let ok = true, message = '';
+            let ok = true,
+              message = '';
             try {
               const r = it.test();
-              if (r && typeof r === 'object') { ok = !!r.ok; message = r.message ? String(r.message) : ''; }
-              else { ok = !!r; }
-            } catch (e) { ok = false; message = (e && e.message) ? String(e.message) : String(e); }
+              if (r && typeof r === 'object') {
+                ok = !!r.ok;
+                message = r.message ? String(r.message) : '';
+              } else {
+                ok = !!r;
+              }
+            } catch (e) {
+              ok = false;
+              message = e && e.message ? String(e.message) : String(e);
+            }
             if (!ok) out.push({ id: String(it.id), message });
           }
           return out;
         });
       } catch (_) {}
       if (invViolations && invViolations.length) {
-        log('EXPLORE:INVARIANT ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: invViolations }));
+        log(
+          'EXPLORE:INVARIANT ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: invViolations,
+            }),
+        );
       }
       // BROKEN-ASSET: dead subresources rendered in this state -- an img that
       // completed with no pixels, a FontFace whose load errored, rendered tofu
@@ -2323,9 +2725,18 @@ async function main() {
       // settle wait means loads have resolved, so a still-loading asset never
       // false-positives. Silent when every asset is healthy.
       let assets = null;
-      try { assets = await browser.execute(brokenAssetScan, [...INJECTED_VALUES]); } catch (_) {}
+      try {
+        assets = await browser.execute(brokenAssetScan, [...INJECTED_VALUES]);
+      } catch (_) {}
       if (assets && assets.length) {
-        log('EXPLORE:BROKENASSET ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: assets }));
+        log(
+          'EXPLORE:BROKENASSET ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: assets,
+            }),
+        );
       }
       // DYNAMIC-TYPE clip (the OS-text-scale sibling of zoom-reflow): bump the
       // root font-size (the rem/em scale) and flag content that then clips or a
@@ -2339,19 +2750,32 @@ async function main() {
         // (it awaits frames), so it runs via executeAsync. Self-restoring; silent
         // when the list is stable or there is no scroller.
         let srt = [];
-        try { srt = await browser.executeAsync(SCROLLROUNDTRIP_ASYNC_JS); } catch (_) { srt = []; }
+        try {
+          srt = await browser.executeAsync(SCROLLROUNDTRIP_ASYNC_JS);
+        } catch (_) {
+          srt = [];
+        }
         if (srt && srt.length) {
-          log('EXPLORE:SCROLLROUNDTRIP ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: srt }));
+          log(
+            'EXPLORE:SCROLLROUNDTRIP ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: srt,
+              }),
+          );
         }
       }
     }
     return snap;
   };
 
-  let current = await observe(), stuck = 0;
-  const prefix = fuzz.prefix || null, replay = fuzz.replay || null;
+  let current = await observe(),
+    stuck = 0;
+  const prefix = fuzz.prefix || null,
+    replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
-  const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  const budget = replay ? replay.length : (fuzz.budget || ACTION_BUDGET) + prefixLen;
   const exercisedChoiceStates = new Set(); // sigs whose choice components were exercised
   // ZOOM-REFLOW (WCAG 1.4.10 Reflow, EAA-mandatory), ported from the web
   // runner: re-render the CURRENT route at 200% zoom by halving the window's
@@ -2371,12 +2795,19 @@ async function main() {
     let orig = null;
     try {
       orig = await browser.getWindowSize();
-      if (!orig || !(orig.width > 0 && orig.height > 0)) { orig = null; return; }
+      if (!orig || !(orig.width > 0 && orig.height > 0)) {
+        orig = null;
+        return;
+      }
       const preKeys = await browser.execute(zoomTappableKeys);
       await browser.setWindowSize(Math.round(orig.width / 2), Math.round(orig.height / 2));
       await browser.pause(350);
       let items = null;
-      try { items = await browser.execute(zoomReflowScan, preKeys); } catch (e) { items = null; }
+      try {
+        items = await browser.execute(zoomReflowScan, preKeys);
+      } catch (e) {
+        items = null;
+      }
       if (items && items.length) {
         log('EXPLORE:ZOOMREFLOW ' + JSON.stringify({ sig, ...(route ? { route } : {}), items }));
       }
@@ -2384,7 +2815,10 @@ async function main() {
     } finally {
       // Restore the original window size (layout-sensitive oracles depend on it).
       if (orig) {
-        try { await browser.setWindowSize(orig.width, orig.height); await browser.pause(350); } catch (e) {}
+        try {
+          await browser.setWindowSize(orig.width, orig.height);
+          await browser.pause(350);
+        } catch (e) {}
       }
     }
   }
@@ -2412,18 +2846,30 @@ async function main() {
     let orig = null;
     try {
       orig = await browser.getWindowSize();
-      if (!orig || !(orig.width > 0 && orig.height > 0)) { orig = null; }
-      else {
+      if (!orig || !(orig.width > 0 && orig.height > 0)) {
+        orig = null;
+      } else {
         await browser.setWindowSize(orig.height, orig.width);
         await browser.pause(350);
       }
     } catch (e) {}
     if (orig) {
-      try { await browser.setWindowSize(orig.width, orig.height); await browser.pause(350); } catch (e) {}
+      try {
+        await browser.setWindowSize(orig.width, orig.height);
+        await browser.pause(350);
+      } catch (e) {}
     }
     const after = await observe();
     if (snap.tappables && snap.tappables.length > 0 && after.structuralSig !== expected) {
-      log('EXPLORE:ROTATION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
+      log(
+        'EXPLORE:ROTATION ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            expected,
+            got: after.structuralSig,
+          }),
+      );
     }
     return after;
   }
@@ -2437,16 +2883,30 @@ async function main() {
     const expected = snap.structuralSig;
     try {
       await browser.execute(() => {
-        try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); } catch (e) {}
-        try { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); } catch (e) {}
+        try {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'hidden',
+          });
+        } catch (e) {}
+        try {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+        } catch (e) {}
         document.dispatchEvent(new Event('visibilitychange'));
         window.dispatchEvent(new Event('pagehide'));
         window.dispatchEvent(new Event('blur'));
       });
       await browser.pause(300);
       await browser.execute(() => {
-        try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); } catch (e) {}
-        try { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); } catch (e) {}
+        try {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'visible',
+          });
+        } catch (e) {}
+        try {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+        } catch (e) {}
         document.dispatchEvent(new Event('visibilitychange'));
         window.dispatchEvent(new Event('pageshow'));
         window.dispatchEvent(new Event('focus'));
@@ -2455,7 +2915,15 @@ async function main() {
     } catch (e) {}
     const after = await observe();
     if (snap.tappables && snap.tappables.length > 0 && after.structuralSig !== expected) {
-      log('EXPLORE:BGRESTORE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
+      log(
+        'EXPLORE:BGRESTORE ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            expected,
+            got: after.structuralSig,
+          }),
+      );
     }
     return after;
   }
@@ -2477,7 +2945,7 @@ async function main() {
   // --record clip capture (route B): arm when this is a replay with a clip plan
   // {sel,label,oracle} + REPROIT_VIDEO_DIR. Start filming the app WINDOW now, so
   // the recording covers the whole replay up to the boxed finding state.
-  const clipPlan = (fuzz.clip && typeof fuzz.clip.sel === 'string') ? fuzz.clip : null;
+  const clipPlan = fuzz.clip && typeof fuzz.clip.sel === 'string' ? fuzz.clip : null;
   const clipArmed = !!(VIDEO_DIR && replay && clipPlan);
   const clipMov = clipArmed ? joinPath(VIDEO_DIR, 'clip.mov') : null;
   let clipProc = null;
@@ -2496,8 +2964,14 @@ async function main() {
     // and assert the structural signature survives it. Self-restoring, so
     // `current` is refreshed to the (restored) reality; never in replay/probe.
     if (!replay && !PROBE) {
-      if (!rotChecked.has(current.sig)) { rotChecked.add(current.sig); current = await rotationCheck(current); }
-      if (!bgChecked.has(current.sig)) { bgChecked.add(current.sig); current = await backgroundCheck(current); }
+      if (!rotChecked.has(current.sig)) {
+        rotChecked.add(current.sig);
+        current = await rotationCheck(current);
+      }
+      if (!bgChecked.has(current.sig)) {
+        bgChecked.add(current.sig);
+        current = await backgroundCheck(current);
+      }
     }
     // COMPONENT-CHOICE differential (fuzz only, not replay), ported from the web
     // runner. Tauri has no CDP, so the SAME self-contained in-page pass is injected
@@ -2510,19 +2984,29 @@ async function main() {
     if (!replay && !exercisedChoiceStates.has(current.sig)) {
       exercisedChoiceStates.add(current.sig);
       let findings = [];
-      try { findings = await browser.executeAsync(CHOICE_ANOMALY_ASYNC_JS); } catch (_) { findings = []; }
-      let emitted = false;
-      for (const f of (findings || [])) {
-        emitted = true;
-        log('EXPLORE:CHOICEBUG ' + JSON.stringify({
-          from: current.sig,
-          role: f.role,
-          outlier: f.outlier,
-          magnitude: f.magnitude,
-          siblingMedian: f.siblingMedian,
-        }));
+      try {
+        findings = await browser.executeAsync(CHOICE_ANOMALY_ASYNC_JS);
+      } catch (_) {
+        findings = [];
       }
-      if (emitted) { current = await observe(); continue; }
+      let emitted = false;
+      for (const f of findings || []) {
+        emitted = true;
+        log(
+          'EXPLORE:CHOICEBUG ' +
+            JSON.stringify({
+              from: current.sig,
+              role: f.role,
+              outlier: f.outlier,
+              magnitude: f.magnitude,
+              siblingMedian: f.siblingMedian,
+            }),
+        );
+      }
+      if (emitted) {
+        current = await observe();
+        continue;
+      }
     }
     let act;
     if (replay) act = replay[a];
@@ -2539,10 +3023,21 @@ async function main() {
       const total = weights.reduce((x, y) => x + y, 0);
       let r = (pick(1 << 20) / (1 << 20)) * total;
       act = options[options.length - 1];
-      for (let k = 0; k < options.length; k++) { r -= weights[k]; if (r <= 0) { act = options[k]; break; } }
+      for (let k = 0; k < options.length; k++) {
+        r -= weights[k];
+        if (r <= 0) {
+          act = options[k];
+          break;
+        }
+      }
     } else {
       act = null;
-      for (const el of current.tappables) { if (!tried.has(current.sig + '|' + el.sel)) { act = 'tap:' + el.sel; break; } }
+      for (const el of current.tappables) {
+        if (!tried.has(current.sig + '|' + el.sel)) {
+          act = 'tap:' + el.sel;
+          break;
+        }
+      }
       act = act || 'back';
     }
     log('FUZZ:ACT ' + act);
@@ -2568,20 +3063,31 @@ async function main() {
         // do not count it as stuck, but no graph edge is added.
         stuck = 0;
       } else stuck++;
-      current = next; continue;
+      current = next;
+      continue;
     }
     const sel = act.slice('tap:'.length);
     tried.add(current.sig + '|' + sel);
     const before = current.sig;
     const beforeContent = current.content;
     const beforeAnchor = current.anchor;
-    try { await browser.execute(RESET_LONGTASK_JS); } catch (e) {} // jank/hang: drop pre-action longtasks
-    try { await browser.execute(RESET_FRAME_JS); } catch (e) {} // jank/hang: drop pre-action rAF intervals
+    try {
+      await browser.execute(RESET_LONGTASK_JS);
+    } catch (e) {} // jank/hang: drop pre-action longtasks
+    try {
+      await browser.execute(RESET_FRAME_JS);
+    } catch (e) {} // jank/hang: drop pre-action rAF intervals
     // FOCUS-LOSS: record the pre-tap activeElement + open dialog count and arm
     // the probe (TAP_JS's doClick then focuses the control before clicking, the
     // way a real user click does). Checked after the settle below.
-    try { await browser.execute(focusLossArm); } catch (e) {}
-    if (!(await tap(browser, sel))) { log('FUZZ:MISS ' + act); stuck++; continue; }
+    try {
+      await browser.execute(focusLossArm);
+    } catch (e) {}
+    if (!(await tap(browser, sel))) {
+      log('FUZZ:MISS ' + act);
+      stuck++;
+      continue;
+    }
     await browser.pause(700);
     // JANK/HANG watchdog: did this action block the main thread past the
     // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
@@ -2591,15 +3097,26 @@ async function main() {
     // is unavailable, so the signal is no longer silent on mac/Linux.
     const tapJank = await drainJankForEngine(browser);
     if (tapJank) {
-      log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
-        JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
+      log(
+        'EXPLORE:' +
+          (tapJank.kind === 'hang' ? 'HANG' : 'JANK') +
+          ' ' +
+          JSON.stringify({
+            from: before,
+            action: 'tap:' + sel,
+            bucket: tapJank.bucket,
+            count: tapJank.count,
+          }),
+      );
     }
     // FOCUS-LOSS: read the in-page verdict BEFORE observe() -- a new state's
     // ground-truth probe runs there and later instrumentation must not corrupt
     // the reading. Whether the tap actually navigated is only known after
     // observe(), so the emit decision is just below.
     let focusLost = false;
-    try { focusLost = await browser.execute(focusLossCheck); } catch (e) {}
+    try {
+      focusLost = await browser.execute(focusLossCheck);
+    } catch (e) {}
     const next = await observe();
     // FOCUS-LOSS: only a NON-navigating tap counts (same structural sig, or
     // the same route after settle: an in-place re-render). A navigation is
@@ -2647,22 +3164,33 @@ async function main() {
       const spec = {
         videoW: box.videoW,
         videoH: box.videoH,
-        boxes: [{
-          x: box.x, y: box.y, w: box.w, h: box.h,
-          tStart: shownAt, tEnd: 1e9,
-          label: clipPlan.label || clipPlan.oracle || 'finding',
-          color: 'red',
-        }],
+        boxes: [
+          {
+            x: box.x,
+            y: box.y,
+            w: box.w,
+            h: box.h,
+            tStart: shownAt,
+            tEnd: 1e9,
+            label: clipPlan.label || clipPlan.oracle || 'finding',
+            color: 'red',
+          },
+        ],
       };
       try {
         mkdirSync(VIDEO_DIR, { recursive: true });
         writeFileSync(joinPath(VIDEO_DIR, 'box-spec.json'), JSON.stringify(spec));
         drew = true;
-      } catch (_) { drew = false; }
+      } catch (_) {
+        drew = false;
+      }
       await browser.pause(900); // hold the boxed state on camera
     }
     await stopClipCapture(clipProc); // flush clip.mov (no-op if capture never started)
-    log('FINDING:BOXED ' + JSON.stringify({ oracle: clipPlan.oracle || null, sel: clipPlan.sel, drew }));
+    log(
+      'FINDING:BOXED ' +
+        JSON.stringify({ oracle: clipPlan.oracle || null, sel: clipPlan.sel, drew }),
+    );
   }
   log(`JOURNEY[a] step: explored ${seen.size} states`);
   log('JOURNEY DONE');
@@ -2672,7 +3200,8 @@ async function main() {
 
 // Only auto-run when invoked as the entry point. When imported (e.g. by the
 // parity test) the canonical signature is exported without connecting WebDriver.
-const INVOKED_DIRECTLY = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+const INVOKED_DIRECTLY =
+  process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 if (INVOKED_DIRECTLY) {
   main().catch((e) => {
     log('EXCEPTION CAUGHT BY TAURI RUNNER');

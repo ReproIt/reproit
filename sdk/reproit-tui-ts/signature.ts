@@ -57,7 +57,7 @@ export function sigOf(s: string): string {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   // 8-char zero-padded lowercase hex, matching Rust's format!("{h:08x}").
-  return ("0000000" + (h >>> 0).toString(16)).slice(-8);
+  return ('0000000' + (h >>> 0).toString(16)).slice(-8);
 }
 
 // structuralClass reduces one screen cell char to a locale-INVARIANT structural
@@ -78,17 +78,17 @@ export function sigOf(s: string): string {
 export function structuralClass(c: string): string {
   const cp = c.codePointAt(0) as number;
   if (cp >= 0x2500 && cp <= 0x259f) {
-    return "#"; // box-drawing / block -> a structural edge marker
+    return '#'; // box-drawing / block -> a structural edge marker
   } else if (isAsciiDigit(cp)) {
-    return "9"; // a number lives here (value-agnostic)
+    return '9'; // a number lives here (value-agnostic)
   } else if (isAlphanumeric(cp)) {
-    return "W"; // any word character (any language, incl. CJK) -> placeholder
-  } else if (c === " " || c === "\n" || isAsciiPunctuation(cp)) {
+    return 'W'; // any word character (any language, incl. CJK) -> placeholder
+  } else if (c === ' ' || c === '\n' || isAsciiPunctuation(cp)) {
     return c; // layout whitespace, or a non-localized symbol/hotkey/field marker
   } else if (isWhitespace(cp)) {
-    return " "; // other whitespace -> space
+    return ' '; // other whitespace -> space
   } else {
-    return "W"; // anything else exotic -> treat as a word glyph
+    return 'W'; // anything else exotic -> treat as a word glyph
   }
 }
 
@@ -106,7 +106,7 @@ export function skeletonOf(contents: string): string {
   for (const ch of contents) {
     classed.push(structuralClass(ch));
   }
-  let out = "";
+  let out = '';
   let i = 0;
   while (i < classed.length) {
     const c = classed[i];
@@ -115,15 +115,15 @@ export function skeletonOf(contents: string): string {
       run++;
     }
     i += run;
-    if (c === "\n") {
+    if (c === '\n') {
       // newline runs delimit rows; emit them literally so row count/positions are
       // preserved without a noisy length prefix.
-      out += "\n".repeat(run);
+      out += '\n'.repeat(run);
     } else {
       // a leading run-length captures the extent (border width, gap width,
       // word-field width) which is structural; single cells need no length.
       out += c;
-      if (run > 1 && c !== "9" && c !== " ") {
+      if (run > 1 && c !== '9' && c !== ' ') {
         out += String(run);
       }
     }
@@ -141,21 +141,17 @@ export function skeletonOf(contents: string): string {
 // cursor.1) tuple lib.rs reads from screen().cursor_position(). The V: section is
 // empty (byte-identical to a skeleton-only sig) when the screen has no numeric
 // tokens, preserving the locale and word invariants.
-export function structuralSig(
-  contents: string,
-  cursorRow: number,
-  cursorCol: number,
-): string {
+export function structuralSig(contents: string, cursorRow: number, cursorCol: number): string {
   const skeleton = skeletonOf(contents);
   const vclasses = numericValueClasses(contents);
   const input =
     skeleton +
-    "\x1ecur=" +
+    '\x1ecur=' +
     String(cursorRow >>> 0) +
-    "," +
+    ',' +
     String(cursorCol >>> 0) +
-    "\x1eV:" +
-    vclasses.join(",");
+    '\x1eV:' +
+    vclasses.join(',');
   return sigOf(input);
 }
 
@@ -175,23 +171,22 @@ export function numericValueClasses(contents: string): string[] {
   let i = 0;
   while (i < chars.length) {
     const c = chars[i];
-    const next = i + 1 < chars.length ? chars[i + 1] : "";
+    const next = i + 1 < chars.length ? chars[i + 1] : '';
     const starts =
-      isAsciiDigitStr(c) ||
-      ((c === "+" || c === "-" || c === ".") && isAsciiDigitStr(next));
+      isAsciiDigitStr(c) || ((c === '+' || c === '-' || c === '.') && isAsciiDigitStr(next));
     if (!starts) {
       i++;
       continue;
     }
     const start = i;
     // consume the optional leading sign / period already matched above.
-    if (chars[i] === "+" || chars[i] === "-" || chars[i] === ".") {
+    if (chars[i] === '+' || chars[i] === '-' || chars[i] === '.') {
       i++;
     }
-    while (i < chars.length && (isAsciiDigitStr(chars[i]) || chars[i] === ".")) {
+    while (i < chars.length && (isAsciiDigitStr(chars[i]) || chars[i] === '.')) {
       i++;
     }
-    const token = chars.slice(start, i).join("");
+    const token = chars.slice(start, i).join('');
     classes.push(valueClass(token));
   }
   const unique = [...new Set(classes)].sort();
@@ -208,27 +203,27 @@ export function numericValueClasses(contents: string): string[] {
 export function valueClass(s: string): string {
   const t = s.trim();
   if (t.length === 0) {
-    return "EMPTY";
+    return 'EMPTY';
   }
   if (isStrictDecimal(t)) {
     // Parse is safe: the grammar is a subset of JS number syntax.
     const n = Number(t);
     const a = Math.abs(n);
     if (n === 0) {
-      return "ZERO";
+      return 'ZERO';
     } else if (n < 0) {
-      return "NEG";
+      return 'NEG';
     } else if (a < 10) {
-      return "POS1";
+      return 'POS1';
     } else if (a < 100) {
-      return "POS2";
+      return 'POS2';
     } else if (a < 1000) {
-      return "POS3";
+      return 'POS3';
     } else {
-      return "POSL";
+      return 'POSL';
     }
   }
-  return "NONEMPTY";
+  return 'NONEMPTY';
 }
 
 // isStrictDecimal is the strict ^[+-]?[0-9]+(\.[0-9]+)?$ grammar: optional sign,
@@ -269,13 +264,8 @@ export function isStrictDecimal(s: string): boolean {
 // it changes whenever ANY on-screen value changes, even when the skeleton
 // signature is frozen. It is EPHEMERAL and must NEVER enter the canonical state
 // set; the SDK uses it only to decide whether an action did anything.
-export function contentFingerprint(
-  contents: string,
-  cursorRow: number,
-  cursorCol: number,
-): string {
-  const input =
-    contents + "\x1ecur=" + String(cursorRow >>> 0) + "," + String(cursorCol >>> 0);
+export function contentFingerprint(contents: string, cursorRow: number, cursorCol: number): string {
+  const input = contents + '\x1ecur=' + String(cursorRow >>> 0) + ',' + String(cursorCol >>> 0);
   return sigOf(input);
 }
 
@@ -284,11 +274,11 @@ export function contentFingerprint(
 // surrounding non-alphanumerics, cap token code-point width at 40, dedup, sort
 // (a BTreeSet iterates sorted), take MAX_LABELS. Never enters the signature.
 export function labelsOf(contents: string): string[] {
-  let cleaned = "";
+  let cleaned = '';
   for (const ch of contents) {
     const cp = ch.codePointAt(0) as number;
     if (cp >= 0x2500 && cp <= 0x259f) {
-      cleaned += " ";
+      cleaned += ' ';
     } else {
       cleaned += ch;
     }
@@ -394,12 +384,12 @@ function isAlphanumeric(cp: number): boolean {
 // the split set matches Rust exactly.
 function splitWhitespace(s: string): string[] {
   const out: string[] = [];
-  let cur = "";
+  let cur = '';
   for (const ch of s) {
     if (isWhitespace(ch.codePointAt(0) as number)) {
       if (cur.length > 0) {
         out.push(cur);
-        cur = "";
+        cur = '';
       }
     } else {
       cur += ch;
@@ -417,5 +407,5 @@ function trimNonAlphanumeric(s: string): string {
   let hi = chars.length;
   while (lo < hi && !isAlphanumeric(chars[lo].codePointAt(0) as number)) lo++;
   while (hi > lo && !isAlphanumeric(chars[hi - 1].codePointAt(0) as number)) hi--;
-  return chars.slice(lo, hi).join("");
+  return chars.slice(lo, hi).join('');
 }

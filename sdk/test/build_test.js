@@ -9,39 +9,39 @@
  * RN SDK's build.test.ts. The cloud reads context.build.version/.commit to
  * segment bugs by build (regressed in / resolved since).
  */
-"use strict";
-var assert = require("assert");
-var ReproIt = require("../reproit-web.js");
+'use strict';
+var assert = require('assert');
+var ReproIt = require('../reproit-web.js');
 
 var tests = 0;
 function check(name, fn) {
   fn();
   tests++;
-  console.log("ok - " + name);
+  console.log('ok - ' + name);
 }
 
 // ---- normalizeBuild (pure) ------------------------------------------------
 
-check("normalizeBuild keeps both provided fields", function () {
-  assert.deepStrictEqual(ReproIt.normalizeBuild({ version: "1.4.2", commit: "abc123" }), {
-    version: "1.4.2",
-    commit: "abc123",
+check('normalizeBuild keeps both provided fields', function () {
+  assert.deepStrictEqual(ReproIt.normalizeBuild({ version: '1.4.2', commit: 'abc123' }), {
+    version: '1.4.2',
+    commit: 'abc123',
   });
 });
 
-check("normalizeBuild keeps only version", function () {
-  assert.deepStrictEqual(ReproIt.normalizeBuild({ version: "1.4.2" }), { version: "1.4.2" });
+check('normalizeBuild keeps only version', function () {
+  assert.deepStrictEqual(ReproIt.normalizeBuild({ version: '1.4.2' }), { version: '1.4.2' });
 });
 
-check("normalizeBuild keeps only commit", function () {
-  assert.deepStrictEqual(ReproIt.normalizeBuild({ commit: "abc123" }), { commit: "abc123" });
+check('normalizeBuild keeps only commit', function () {
+  assert.deepStrictEqual(ReproIt.normalizeBuild({ commit: 'abc123' }), { commit: 'abc123' });
 });
 
-check("normalizeBuild returns null for absent / empty / non-string", function () {
+check('normalizeBuild returns null for absent / empty / non-string', function () {
   assert.strictEqual(ReproIt.normalizeBuild(null), null);
   assert.strictEqual(ReproIt.normalizeBuild(undefined), null);
   assert.strictEqual(ReproIt.normalizeBuild({}), null);
-  assert.strictEqual(ReproIt.normalizeBuild({ version: "", commit: "" }), null);
+  assert.strictEqual(ReproIt.normalizeBuild({ version: '', commit: '' }), null);
   assert.strictEqual(ReproIt.normalizeBuild({ version: 42 }), null);
 });
 
@@ -55,7 +55,7 @@ function withStubs(run) {
   global.document = {
     body: null,
     documentElement: null,
-    visibilityState: "visible",
+    visibilityState: 'visible',
     querySelectorAll: function () {
       return [];
     },
@@ -84,40 +84,44 @@ function withStubs(run) {
   }
 }
 
-check("init WITH build -> batch.ctx.build = { version, commit }", function () {
+check('init WITH build -> batch.ctx.build = { version, commit }', function () {
   withStubs(function (sent) {
     ReproIt.init({
-      appId: "app",
-      endpoint: "https://ingest.example/v1/events",
-      build: { version: "1.4.2", commit: "abc123" },
+      appId: 'app',
+      endpoint: 'https://ingest.example/v1/events',
+      build: { version: '1.4.2', commit: 'abc123' },
     });
     // Seed one event and flush.
-    ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });
+    ReproIt._buf.push({ kind: 'edge', action: 'load', to: 'deadbeef', t: 1 });
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
-    assert.deepStrictEqual(sent[0].ctx.build, { version: "1.4.2", commit: "abc123" });
-    assert.strictEqual(sent[0].ctx.platform, "web");
+    assert.deepStrictEqual(sent[0].ctx.build, { version: '1.4.2', commit: 'abc123' });
+    assert.strictEqual(sent[0].ctx.platform, 'web');
   });
 });
 
-check("init WITH only-version -> batch.ctx.build has version, no commit", function () {
+check('init WITH only-version -> batch.ctx.build has version, no commit', function () {
   withStubs(function (sent) {
-    ReproIt.init({ appId: "app", endpoint: "https://ingest.example/v1/events", build: { version: "9.9.9" } });
-    ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });
+    ReproIt.init({
+      appId: 'app',
+      endpoint: 'https://ingest.example/v1/events',
+      build: { version: '9.9.9' },
+    });
+    ReproIt._buf.push({ kind: 'edge', action: 'load', to: 'deadbeef', t: 1 });
     ReproIt._flush();
-    assert.deepStrictEqual(sent[0].ctx.build, { version: "9.9.9" });
+    assert.deepStrictEqual(sent[0].ctx.build, { version: '9.9.9' });
   });
 });
 
-check("init WITHOUT build -> safe environment context, no build", function () {
+check('init WITHOUT build -> safe environment context, no build', function () {
   withStubs(function (sent) {
-    ReproIt.init({ appId: "app", endpoint: "https://ingest.example/v1/events" });
-    ReproIt._buf.push({ kind: "edge", action: "load", to: "deadbeef", t: 1 });
+    ReproIt.init({ appId: 'app', endpoint: 'https://ingest.example/v1/events' });
+    ReproIt._buf.push({ kind: 'edge', action: 'load', to: 'deadbeef', t: 1 });
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
-    assert.strictEqual(sent[0].ctx.platform, "web");
+    assert.strictEqual(sent[0].ctx.platform, 'web');
     assert.strictEqual(sent[0].ctx.build, undefined);
   });
 });
 
-console.log("\n" + tests + " tests passed");
+console.log('\n' + tests + ' tests passed');

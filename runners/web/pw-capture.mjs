@@ -20,7 +20,15 @@
 // prefix, and reproit's job is to fuzz onward, not to grade the test.
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -53,7 +61,12 @@ export function mapSelector(selector) {
 
   // internal:testid=[data-testid="x"s]  (getByTestId). Playwright appends a
   // case-sensitivity flag (`s`/`i`) before the closing bracket; tolerate it.
-  let m = sel.match(/^internal:testid=\[(?:data-testid|data-test-id|data-test)="([^"]*)"[si]?\]/i);
+  let m = sel.match(
+    new RegExp(
+      '^internal:testid=\\[(?:data-testid|data-test-id|data-test)="([^"]*)"[si]' + '?\\]',
+      'i',
+    ),
+  );
   if (m) return { finder: 'key:testid:' + m[1] };
 
   // internal:attr=[name="x"s]  /  internal:attr=[id="x"s]
@@ -71,7 +84,11 @@ export function mapSelector(selector) {
   }
   m = sel.match(/^internal:role=([a-z]+)\b/i);
   if (m) {
-    return { finder: 'role:' + m[1].toLowerCase() + '#0', weak: true, reason: 'getByRole without an accessible name' };
+    return {
+      finder: 'role:' + m[1].toLowerCase() + '#0',
+      weak: true,
+      reason: 'getByRole without an accessible name',
+    };
   }
 
   // internal:label="T"  /  internal:text="T"  /  internal:has-text="T"
@@ -98,9 +115,11 @@ export function mapSelector(selector) {
 
   // Everything else (complex css, xpath=, chained, regex name, :nth, etc.) is
   // SKIPPED with a reason. Guessing a finder for these would silently mis-replay.
-  const kind = sel.startsWith('xpath=') ? 'xpath selector'
-    : sel.startsWith('internal:') ? ('unsupported engine: ' + sel.slice(0, 24))
-    : 'complex css selector';
+  const kind = sel.startsWith('xpath=')
+    ? 'xpath selector'
+    : sel.startsWith('internal:')
+      ? 'unsupported engine: ' + sel.slice(0, 24)
+      : 'complex css selector';
   return { skip: true, reason: kind };
 }
 
@@ -123,7 +142,13 @@ export function mapAction(apiName, selector, value) {
   if (/\.(fill|type)$/.test(api)) {
     const m = mapSelector(selector);
     if (m.skip) return { skip: true, reason: m.reason, raw: selector };
-    return { kind: 'type', finder: m.finder, value: value == null ? '' : String(value), weak: m.weak, reason: m.reason };
+    return {
+      kind: 'type',
+      finder: m.finder,
+      value: value == null ? '' : String(value),
+      weak: m.weak,
+      reason: m.reason,
+    };
   }
   // Anything else (expect/assert/waitFor/hover/screenshot/...) is not a state
   // mutation reproit replays; skip silently-but-counted as "non-action".
@@ -154,18 +179,30 @@ function actionsFromTrace(tracePath) {
     const s = line.trim();
     if (!s) continue;
     let ev;
-    try { ev = JSON.parse(s); } catch (_) { continue; }
+    try {
+      ev = JSON.parse(s);
+    } catch (_) {
+      continue;
+    }
     // Playwright trace formats: an action is type:"action" (older) or a
     // "before" event carrying apiName (newer). Both carry apiName + params.
     const isAction = ev.type === 'action' || ev.type === 'before';
     if (!isAction) continue;
-    const apiName = ev.apiName || (ev.method ? (ev.class ? ev.class.toLowerCase() + '.' + ev.method : ev.method) : null);
+    const apiName =
+      ev.apiName ||
+      (ev.method ? (ev.class ? ev.class.toLowerCase() + '.' + ev.method : ev.method) : null);
     if (!apiName) continue;
     const params = ev.params || {};
-    const selector = params.selector != null ? params.selector
-      : (params.strings && params.strings[0]) || null;
-    const value = params.value != null ? params.value
-      : (params.text != null ? params.text : (params.url != null ? params.url : undefined));
+    const selector =
+      params.selector != null ? params.selector : (params.strings && params.strings[0]) || null;
+    const value =
+      params.value != null
+        ? params.value
+        : params.text != null
+          ? params.text
+          : params.url != null
+            ? params.url
+            : undefined;
     out.push({ apiName, selector, value, startTime: ev.startTime || ev.wallTime || 0 });
   }
   // Order by startTime so multiple .trace files (page + api) interleave correctly.
@@ -177,11 +214,19 @@ function findTraceZips(root) {
   const found = [];
   const walk = (dir) => {
     let entries = [];
-    try { entries = readdirSync(dir); } catch (_) { return; }
+    try {
+      entries = readdirSync(dir);
+    } catch (_) {
+      return;
+    }
     for (const e of entries) {
       const p = join(dir, e);
       let st;
-      try { st = statSync(p); } catch (_) { continue; }
+      try {
+        st = statSync(p);
+      } catch (_) {
+        continue;
+      }
       if (st.isDirectory()) walk(p);
       else if (e === 'trace.zip') found.push({ path: p, mtime: st.mtimeMs });
     }
@@ -230,17 +275,26 @@ export default defineConfig({
   // (success, early-exit, or a thrown error), so a stray file never lingers in the
   // runner dir between runs.
   process.on('exit', () => {
-    try { rmSync(configPath, { force: true }); } catch (_) {}
-    try { rmSync(work, { recursive: true, force: true }); } catch (_) {}
+    try {
+      rmSync(configPath, { force: true });
+    } catch (_) {}
+    try {
+      rmSync(work, { recursive: true, force: true });
+    } catch (_) {}
   });
 
   // Resolve the playwright test CLI from THIS runner dir's node_modules, so the
   // capture uses the same bundled browsers reproit already installs.
   let cli;
-  try { cli = require.resolve('playwright/cli'); }
-  catch (_) {
-    try { cli = require.resolve('@playwright/test/cli'); }
-    catch (e) { process.stderr.write('pw-capture: cannot resolve playwright cli\n'); process.exit(2); }
+  try {
+    cli = require.resolve('playwright/cli');
+  } catch (_) {
+    try {
+      cli = require.resolve('@playwright/test/cli');
+    } catch (e) {
+      process.stderr.write('pw-capture: cannot resolve playwright cli\n');
+      process.exit(2);
+    }
   }
 
   // The user's test imports `@playwright/test`, which must resolve from the test
@@ -263,7 +317,17 @@ export default defineConfig({
   const zips = findTraceZips(outDir);
   if (zips.length === 0) {
     process.stderr.write('pw-capture: no trace.zip produced (did the test launch a browser?)\n');
-    emit({ baseURL: null, gotoUrl: null, actions: [], unsupported: [], notes: ['no trace produced'], passed }, args.out);
+    emit(
+      {
+        baseURL: null,
+        gotoUrl: null,
+        actions: [],
+        unsupported: [],
+        notes: ['no trace produced'],
+        passed,
+      },
+      args.out,
+    );
     process.exit(0);
   }
 
@@ -302,7 +366,11 @@ export function buildResult(raw) {
       if (!url) continue;
       if (!gotoUrl) {
         gotoUrl = url;
-        try { baseURL = new URL(url).origin; } catch (_) { baseURL = url; }
+        try {
+          baseURL = new URL(url).origin;
+        } catch (_) {
+          baseURL = url;
+        }
         notes.push('start url from page.goto: ' + url);
       } else {
         // Later gotos are not in-fuzz nav (the runner explores from one origin);
@@ -312,17 +380,30 @@ export function buildResult(raw) {
       continue;
     }
     if (mapped.skip) {
-      if (!mapped.nonAction) unsupported.push({ raw: mapped.raw || a.selector || '?', reason: mapped.reason });
+      if (!mapped.nonAction)
+        unsupported.push({ raw: mapped.raw || a.selector || '?', reason: mapped.reason });
       continue;
     }
     if (mapped.weak) {
-      notes.push('weak finder for ' + a.apiName + ': ' + mapped.finder + ' (' + mapped.reason + ')');
+      notes.push(
+        'weak finder for ' + a.apiName + ': ' + mapped.finder + ' (' + mapped.reason + ')',
+      );
     }
     if (mapped.kind === 'tap') {
-      actions.push({ kind: 'tap', finder: mapped.finder, action: 'tap:' + mapped.finder, raw: a.selector });
+      actions.push({
+        kind: 'tap',
+        finder: mapped.finder,
+        action: 'tap:' + mapped.finder,
+        raw: a.selector,
+      });
     } else if (mapped.kind === 'type') {
-      actions.push({ kind: 'type', finder: mapped.finder, value: mapped.value,
-        action: 'type:' + mapped.finder + '=' + mapped.value, raw: a.selector });
+      actions.push({
+        kind: 'type',
+        finder: mapped.finder,
+        value: mapped.value,
+        action: 'type:' + mapped.finder + '=' + mapped.value,
+        raw: a.selector,
+      });
     }
   }
   return { baseURL, gotoUrl, actions, unsupported, notes };
@@ -335,5 +416,6 @@ function emit(obj, outPath) {
 }
 
 // Only run main when invoked directly (not when imported by tests).
-const invokedDirect = process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname);
+const invokedDirect =
+  process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname);
 if (invokedDirect) main();

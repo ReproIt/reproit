@@ -38,7 +38,13 @@ ok(!text.includes('EXCEPTION CAUGHT BY RN RUNNER'),
 
 const states = lines
   .filter((l) => l.startsWith('EXPLORE:STATE '))
-  .map((l) => { try { return JSON.parse(l.slice('EXPLORE:STATE '.length)); } catch { return null; } })
+  .map((l) => {
+    try {
+      return JSON.parse(l.slice('EXPLORE:STATE '.length));
+    } catch {
+      return null;
+    }
+  })
   .filter((s) => s != null);
 ok(states.length >= 1, 'at least one EXPLORE:STATE captured');
 ok(states.some((s) => typeof s.sig === 'string' && /^[0-9a-f]{8}$/.test(s.sig)),

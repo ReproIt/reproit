@@ -46,7 +46,8 @@ namespace ReproIt.Core
     /// <summary>One observed accessibility node, as the platform layer reads it.</summary>
     public sealed class RawNode
     {
-        /// <summary>AutomationProperties.Name ?? text, already non-null (empty if neither).</summary>
+        /// <summary>AutomationProperties.Name ?? text, already non-null (empty if
+        /// neither).</summary>
         public string Name { get; }
 
         /// <summary>True if the underlying element is invokable/clickable.</summary>
@@ -106,7 +107,8 @@ namespace ReproIt.Core
         private readonly Func<string, bool> _transport;
         private readonly Action<string> _log;
 
-        private readonly List<IDictionary<string, object>> _queue = new List<IDictionary<string, object>>();
+        private readonly List<IDictionary<string, object>> _queue =
+            new List<IDictionary<string, object>>();
         private readonly List<Step> _path = new List<Step>();
         private readonly object _queueLock = new object();
         private readonly object _ctxLock = new object();
@@ -124,15 +126,13 @@ namespace ReproIt.Core
         private readonly Dictionary<string, Func<InvariantResult>> _invariants =
             new Dictionary<string, Func<InvariantResult>>(StringComparer.Ordinal);
 
-        public Engine(
-            ReproItConfig cfg,
-            Func<long> now = null,
-            Func<string, bool> transport = null,
-            Action<string> log = null)
+        public Engine(ReproItConfig cfg, Func<long> now = null, Func<string, bool> transport = null,
+                      Action<string> log = null)
         {
             _cfg = cfg;
             _now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            _transport = transport ?? (_ => true);
+            _transport = transport ?? (
+                                          _ => true);
             _log = log;
             var build = new Dictionary<string, object>();
             if (!string.IsNullOrWhiteSpace(cfg.BuildVersion))
@@ -151,7 +151,12 @@ namespace ReproIt.Core
 
         public int QueueSize
         {
-            get { lock (_queueLock) { return _queue.Count; } }
+            get {
+                lock (_queueLock)
+                {
+                    return _queue.Count;
+                }
+            }
         }
 
         public string CurrentSignature()
@@ -159,16 +164,24 @@ namespace ReproIt.Core
             return _currentSig;
         }
 
-        /// <summary>Read-only snapshot of the current context dimensions (for tests / debug).</summary>
+        /// <summary>Read-only snapshot of the current context dimensions (for tests /
+        /// debug).</summary>
         public IDictionary<string, object> Context()
         {
-            lock (_ctxLock) { return new Dictionary<string, object>(_context); }
+            lock (_ctxLock)
+            {
+                return new Dictionary<string, object>(_context);
+            }
         }
 
-        /// <summary>Set a single PII-safe context dimension (e.g. role, plan, a count bucket).</summary>
+        /// <summary>Set a single PII-safe context dimension (e.g. role, plan, a count
+        /// bucket).</summary>
         public void SetContext(string key, object value)
         {
-            lock (_ctxLock) { _context[key] = value; }
+            lock (_ctxLock)
+            {
+                _context[key] = value;
+            }
         }
 
         /// <summary>Merge several context dimensions at once.</summary>
@@ -319,7 +332,8 @@ namespace ReproIt.Core
             _currentSig = snap.Sig;
         }
 
-        private void EmitEdge(string from, string action, Snapshot to, bool append, string label = null)
+        private void EmitEdge(string from, string action, Snapshot to, bool append,
+                              string label = null)
         {
             if (append)
             {
@@ -378,8 +392,8 @@ namespace ReproIt.Core
         /// invariant held (no empty-items line); inert in production (env var unset).</summary>
         private void ReportInvariants(string sig)
         {
-            if (_invariants.Count == 0
-                || string.IsNullOrEmpty(Environment.GetEnvironmentVariable("REPROIT_UNDER_FUZZER")))
+            if (_invariants.Count == 0 ||
+                string.IsNullOrEmpty(Environment.GetEnvironmentVariable("REPROIT_UNDER_FUZZER")))
             {
                 return;
             }
@@ -409,12 +423,9 @@ namespace ReproIt.Core
         /// <summary>Record an error event carrying the current signature and graph path.
         /// stack is capped to 8 lines. Returns the event (useful for tests / for the
         /// caller to flush synchronously before a crash).</summary>
-        public IDictionary<string, object> RecordError(
-            string message,
-            IList<string> stack,
-            string source = "",
-            int line = 0,
-            IDictionary<string, object> context = null)
+        public IDictionary<string, object> RecordError(string message, IList<string> stack,
+                                                       string source = "", int line = 0,
+                                                       IDictionary<string, object> context = null)
         {
             var ev = new Dictionary<string, object>();
             ev["kind"] = "error";
@@ -432,8 +443,7 @@ namespace ReproIt.Core
             // observe records it, so the bare path stops one step short of the bug.
             if (!string.IsNullOrEmpty(_pendingAction))
             {
-                pathOut.Add(new Dictionary<string, object>
-                {
+                pathOut.Add(new Dictionary<string, object> {
                     ["sig"] = _currentSig ?? string.Empty,
                     ["action"] = _pendingAction,
                     ["label"] = !_cfg.RedactLabels ? _pendingLabel : null,
@@ -455,6 +465,57 @@ namespace ReproIt.Core
                 ev["context"] = context;
             }
             ev["t"] = _now();
+            Enqueue(ev);
+            return ev;
+        }
+
+        /// <summary>Capture the current structural state as a tester-observed bug.</summary>
+        public IDictionary<string, object> CaptureBug()
+        {
+            if (string.IsNullOrEmpty(_currentSig))
+            {
+                return null;
+            }
+            var pathOut = new List<object>();
+            foreach (var s in _path)
+            {
+                pathOut.Add(s.ToMap());
+            }
+            if (!string.IsNullOrEmpty(_pendingAction))
+            {
+                pathOut.Add(new Dictionary<string, object> {
+                    ["sig"] = _currentSig,
+                    ["action"] = _pendingAction,
+                    ["label"] = !_cfg.RedactLabels ? _pendingLabel : null,
+                });
+            }
+            var trigger = "load";
+            if (pathOut.Count > 0)
+            {
+                var last = pathOut[pathOut.Count - 1] as IDictionary<string, object>;
+                if (last != null && last.ContainsKey("action"))
+                {
+                    trigger = last["action"] as string ?? "load";
+                }
+            }
+            var ev = new Dictionary<string, object> {
+                ["kind"] = "error",
+                ["oracle"] = "tester-capture",
+                ["sig"] = _currentSig,
+                ["path"] = pathOut,
+                ["message"] = "Tester observed a bug in this state",
+                ["findingIdentity"] =
+                    new Dictionary<string, object> {
+                        ["oracle"] = "tester-capture",
+                        ["invariant"] = "tester-observed-failure",
+                        ["kind"] = "structural-state",
+                        ["message"] = "",
+                        ["frame"] = "",
+                        ["trigger"] = trigger,
+                        ["boundary"] = _currentSig,
+                    },
+                ["t"] = _now(),
+            };
             Enqueue(ev);
             return ev;
         }
@@ -519,7 +580,10 @@ namespace ReproIt.Core
         {
             if (_cfg.Endpoint == null)
             {
-                lock (_queueLock) { _queue.Clear(); }
+                lock (_queueLock)
+                {
+                    _queue.Clear();
+                }
                 return;
             }
             List<IDictionary<string, object>> batch;

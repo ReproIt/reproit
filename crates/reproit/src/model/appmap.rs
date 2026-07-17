@@ -31,13 +31,14 @@ pub struct AppMap {
 pub struct State {
     pub description: String,
     pub signature: StateSignature,
-    /// Actionable elements observed on this state. Labels are display/help text;
-    /// `sel` is the replayable structural selector.
+    /// Actionable elements observed on this state. Labels are display/help
+    /// text; `sel` is the replayable structural selector.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub elements: Vec<StateElement>,
-    /// Text regions observed on the screen, from DOM/accessibility text boxes or
-    /// OCR-equivalent runner output. Used to translate imported text taps into
-    /// structural selectors without making text a replay primitive.
+    /// Text regions observed on the screen, from DOM/accessibility text boxes
+    /// or OCR-equivalent runner output. Used to translate imported text
+    /// taps into structural selectors without making text a replay
+    /// primitive.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub texts: Vec<StateText>,
     /// Parameter names this screen template binds (e.g. "user", "item_id").
@@ -118,9 +119,10 @@ pub struct OperabilityGaps {
     #[serde(default)]
     pub focus_trap: bool,
     /// Per-element gap detail: which ground-truth-operable element (by reproit
-    /// selector) failed which accessibility dimension(s). This is what makes the
-    /// diff GROUNDED and actionable (a coordinate the agent can act on) rather
-    /// than a bare count. Empty on older maps that only recorded counts.
+    /// selector) failed which accessibility dimension(s). This is what makes
+    /// the diff GROUNDED and actionable (a coordinate the agent can act on)
+    /// rather than a bare count. Empty on older maps that only recorded
+    /// counts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<OperabilityGap>,
 }

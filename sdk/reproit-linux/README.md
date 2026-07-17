@@ -1,23 +1,8 @@
-# reproit-linux
+# ReproIt SDK for Linux
 
-Production telemetry SDK for native Linux GUI apps (GTK and Qt). The in-app twin
-of `runners/linux-atspi.py`: that runner drives an app from OUTSIDE through the
-AT-SPI bus; this SDK runs INSIDE the app, captures the widget tree through the
-accessibility interface, computes the CANONICAL structural signature
-(`docs/signature.md`) byte-for-byte identical to the Rust oracle and every other
-SDK, and reports the state graph plus crash signatures to the reproit cloud so a
-production crash replays as a deterministic test.
-
-## Why Python
-
-The Linux runner already drives AT-SPI via PyGObject (`gi` / `Atspi`), so a
-Python SDK reuses the exact accessibility binding and the exact signature core
-that is already proven against the golden vectors. PyGObject is the natural
-in-app GTK binding (a GTK Python app already imports `gi.repository.Gtk`, so the
-SDK attaches to the live widget tree with no FFI), and Qt apps expose AT-SPI,
-which the same accessibility walk reads. The parity test runs here with
-`python3`. A Go or C SDK would need a separate FNV / descriptor reimplementation
-and a build step, and a clumsier embed story for a GTK/Qt app.
+This SDK connects native GTK and Qt applications to ReproIt. It captures the accessible widget
+structure, records structural transitions and crash paths, and uses the same signature contract as
+the Linux runner.
 
 ## Install
 
@@ -26,100 +11,80 @@ pip install \
   'reproit-linux @ git+https://github.com/ReproIt/reproit.git#subdirectory=sdk/reproit-linux'
 ```
 
-A GTK/Qt app already ships PyGObject and the GObject-Introspection typelibs, so
-the live walk works out of the box in-app.
+The live widget walk requires PyGObject and the applicable GTK, Qt, ATK, or AT-SPI runtime
+libraries.
 
-The reserved PyPI name is not presented as a registry install until it is
-published.
+## Connect an application
 
-## Usage
-
-GTK (in-process ATK walk):
+GTK applications pass their top-level widget:
 
 ```python
 from reproit_linux import ReproIt
 
-win = builder.get_object("main_window")        # a top-level GtkWindow
+window = builder.get_object("main_window")
 ReproIt.init(
     app_id="example",
     endpoint="https://ingest.reproit.com",
     api_key="pk_live_...",
     build_version="1.4.2",
     build_commit="abc123",
-    root_widget=win,                            # the SDK walks win.get_accessible()
+    root_widget=window,
 )
 
-# Call after each user action (or wire to your signal handlers):
 button.connect("clicked", lambda *_: ReproIt.observe("tap:roll"))
 ```
 
-Qt (or any AT-SPI toolkit) - pass the AT-SPI root accessible:
+Qt and other AT-SPI applications can pass the top-level accessible object:
 
 ```python
-ReproIt.init(app_id="example", atspi_root=top_accessible, endpoint=..., api_key=...)
+ReproIt.init(
+    app_id="example",
+    atspi_root=top_accessible,
+    endpoint="https://ingest.reproit.com",
+    api_key="pk_live_...",
+)
 ```
 
-A fatal crash flushes the session automatically: `install_crash_handler` (on by
-default) hooks `sys.excepthook` and the fatal native signals
-(SIGSEGV/SIGABRT/SIGBUS/SIGFPE), records an error event carrying the graph path,
-flushes, then chains to the prior handler / re-raises so the crash is not
-swallowed.
+Call `ReproIt.observe(action)` after a settled user action. An edge is recorded only when the
+structural signature changes. Accessible labels do not enter the signature, so translated interfaces
+retain the same structural identity.
 
-## App invariants
+## Capture an exploratory bug
 
-Declare a predicate the app must satisfy in EVERY state the fuzzer reaches (a
-running total never negative, exactly one row selected). Under the fuzzer reproit
-evaluates it on each observed screen and reports the failures as `invariant`
-findings; in production the registry is inert.
+Add `ReproIt.capture_bug()` to a debug action. It sends the rolling structural path and current
+state without field values. Run `reproit record` from the application source directory. The CLI
+replays and shrinks the path before it creates a confirmed bug.
+
+## Report invariants
 
 ```python
-ReproIt.invariant("cart-total-nonneg", lambda: cart.total >= 0)
+ReproIt.invariant("cart-total-nonnegative", lambda: cart.total >= 0)
 
-# Raise (or return {"ok": False, "message": ...}) to supply the failure message.
 def one_row_selected():
-    n = len(tree.get_selection())
-    if n != 1:
-        raise ValueError(f"{n} rows selected")
+    count = len(tree.get_selection())
+    if count != 1:
+        raise ValueError(f"{count} rows selected")
     return True
 
 ReproIt.invariant("one-row-selected", one_row_selected)
 ```
 
-The predicate returns truthy when it holds; returning falsy, raising, or
-returning `{"ok": False, "message": ...}` marks it violated (the raised text or
-the message becomes the finding message). Registration is idempotent by id. When
-reproit launches the app under the fuzzer (it sets `REPROIT_UNDER_FUZZER`), the
-SDK writes each violation to stderr as a `REPROIT_INVARIANT` marker that the
-AT-SPI runner scrapes into the finding.
+An invariant becomes a finding only when it returns false, raises, or returns a failed result and
+the same violation reproduces.
 
-## How a widget folds into the descriptor
+## Crash handling
 
-Both capture paths funnel every accessible through `capture.node_from_attrs`,
-which produces the SAME `signature.Node` the other SDKs use:
+Crash handling is enabled by default. It records the current signature and path, flushes the batch,
+and then preserves the previous exception or signal behavior.
 
-| accessible field                         | Node field | notes |
-|------------------------------------------|------------|-------|
-| ATK / AT-SPI Role name (e.g. `PUSH_BUTTON`) | `role`  | mapped via `ATSPI_ROLE_TO_ROLE` (shared with the runner), unknown roles -> `node` |
-| `accessible-id` / buildable id           | `id`       | empty -> omitted |
-| `PASSWORD_TEXT` / `SPIN_BUTTON`          | `type`     | `password` / `number` refinement on a `textfield` |
-| Value / Text interface, or live name     | `value`    | bucketed by `value_class` into the V: section, only for value-bearing roles |
-| accessible name / label text            | (excluded) | localized text NEVER enters the hash (rule 1); kept only as a display-only label list |
+## Validate
 
-Promotions match the runner: `STATUS_BAR` and an active `live` / `container-live`
-region become the value-role `status`; a `PROGRESS_BAR` that exposes a value
-becomes `progressbar` (otherwise it is the transient `progress`, dropped).
-Transient roles (toast/snackbar/spinner/progress/tooltip/badge) and the explicit
-`transient` flag drop the node and its subtree before hashing.
-
-## Tests
-
-```
-python3 tests/test_parity.py    # all 25 golden vectors reproduce byte-for-byte
-python3 tests/test_capture.py   # widget-tree -> descriptor mapping (synthetic trees)
+```sh
+cd sdk/reproit-linux
+python3 tests/test_parity.py
+python3 tests/test_capture.py
 ```
 
-The parity test is the cross-language gate (mirrors the Rust oracle's
-`golden_vectors_match` and `runners/test_signature.py`). The capture test
-exercises the mapping with synthetic ATK / AT-SPI accessibles; the LIVE
-GTK/AT-SPI walk against a running app needs a Linux display and a11y bus and is
-not exercised headless.
+The parity test checks signatures against the shared golden vectors. The capture test checks
+synthetic GTK and AT-SPI widget mappings. A live widget walk requires a Linux display and
+accessibility bus.

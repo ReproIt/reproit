@@ -4,10 +4,11 @@
 //! a reviewer-ready pull-request comment:
 //!
 //!   1. `record_repro_clip` annotates the minimized-repro video (sim tier only)
-//!      into an MP4 + GIF via the web runner's annotate.mjs tool (caption bars are
-//!      rendered with headless Chrome since this ffmpeg has no drawtext).
+//!      into an MP4 + GIF via the web runner's annotate.mjs tool (caption bars
+//!      are rendered with headless Chrome since this ffmpeg has no drawtext).
 //!   2. `publish` uploads those artifacts to the cloud bucket evidence endpoint
-//!      (POST /v1/apps/:app/buckets/:bucket/evidence) and returns the served URLs.
+//!      (POST /v1/apps/:app/buckets/:bucket/evidence) and returns the served
+//!      URLs.
 //!   3. `comment` builds the PR-comment markdown (summary, suspected file:line,
 //!      minimized repro, cohort "who it hits", inline GIF, dashboard link) and
 //!      posts it to the GitHub PR (or prints it with --dry-run).
@@ -80,8 +81,8 @@ pub async fn publish(
     let clip = record_repro_clip(&run_dir, &web_runner_dir, &bug_label, &action_label).await?;
     let Some((mp4, gif)) = clip else {
         println!(
-            "  no repro video in this run (headless tier?). Re-run the finding with \
-             `reproit fuzz --confirm-on-sim` (or --sim) to record the minimized repro."
+            "  no repro video in this run (headless tier?). Re-run the finding with `reproit fuzz \
+             --confirm-on-sim` (or --sim) to record the minimized repro."
         );
         return Ok(());
     };
@@ -103,9 +104,9 @@ pub async fn publish(
     Ok(())
 }
 
-/// `reproit comment`: build the PR-comment markdown for a finding and post it to
-/// GitHub (or print it with dry_run). Pulls cohort + uploaded-evidence URLs from
-/// the cloud, the summary/suspected/repro from the run dir.
+/// `reproit comment`: build the PR-comment markdown for a finding and post it
+/// to GitHub (or print it with dry_run). Pulls cohort + uploaded-evidence URLs
+/// from the cloud, the summary/suspected/repro from the run dir.
 #[allow(clippy::too_many_arguments)]
 pub async fn comment(
     cfg: &Config,
@@ -425,8 +426,8 @@ fn repro_from_report(run_dir: &Path) -> Vec<String> {
 // ---- markdown formatter (pure, unit-tested) -------------------------------
 
 /// Build the PR-comment markdown. Pure: given a fully-populated CommentInput it
-/// returns deterministic markdown, so the format is testable without any run dir,
-/// cloud, or GitHub access. This is the artifact `--dry-run` prints.
+/// returns deterministic markdown, so the format is testable without any run
+/// dir, cloud, or GitHub access. This is the artifact `--dry-run` prints.
 pub fn render_comment(input: &CommentInput) -> String {
     let mut md = String::new();
     md.push_str("## reproit found a bug\n\n");
@@ -464,7 +465,8 @@ pub fn render_comment(input: &CommentInput) -> String {
     md.push_str("### Who it hits\n\n");
     if input.cohort.is_empty() {
         md.push_str(
-            "_No production cohort data for this signature yet (not data-specific, or telemetry unavailable)._\n\n",
+            "_No production cohort data for this signature yet (not data-specific, or telemetry \
+             unavailable)._\n\n",
         );
     } else {
         if input.cohort_count > 0 {
@@ -503,7 +505,8 @@ pub fn render_comment(input: &CommentInput) -> String {
 
 // ---- artifact generation (sim tier only) ----------------------------------
 
-/// Locate the run's repro .mov: the confirm-on-sim replay records `device-a.mov`.
+/// Locate the run's repro .mov: the confirm-on-sim replay records
+/// `device-a.mov`.
 fn find_repro_video(run_dir: &Path) -> Option<PathBuf> {
     for name in ["device-a.mov", "device-A.mov", "composite.mp4"] {
         let p = run_dir.join(name);
@@ -520,8 +523,9 @@ fn find_repro_video(run_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Annotate the run's repro video into an MP4 + GIF under <run>/evidence/, via
-/// the web runner's annotate.mjs tool. Sim-tier only: headless runs have no video,
-/// so this returns None for them. `web_runner_dir` is where annotate.mjs lives.
+/// the web runner's annotate.mjs tool. Sim-tier only: headless runs have no
+/// video, so this returns None for them. `web_runner_dir` is where annotate.mjs
+/// lives.
 pub async fn record_repro_clip(
     run_dir: &Path,
     web_runner_dir: &Path,
@@ -675,7 +679,10 @@ mod tests {
         let md = render_comment(&input);
         // Structure: header, inline GIF, summary, suspected, repro, cohort, links.
         assert!(md.starts_with("## reproit found a bug"));
-        assert!(md.contains("![minimized repro](https://cloud.reproit.com/v1/blob/bugzoo/0/x.gif)"));
+        assert!(md.contains(concat!(
+            "![minimized repro]",
+            "(https://cloud.reproit.com/v1/blob/bugzoo/0/x.gif)"
+        )));
         assert!(md.contains("**EXCEPTION CAUGHT BY WIDGETS LIBRARY: Ticker disposed"));
         assert!(md.contains("**Suspected:** `lib/main.dart:210`"));
         assert!(md.contains("**Confirmed:** reproduced on the real runtime"));
@@ -683,7 +690,10 @@ mod tests {
         assert!(md.contains("tap:Compose\ntap:New post"));
         assert!(md.contains("Seen **3x** in production"));
         assert!(md.contains("`locale=tr`: 100% of affected users (2.67x baseline)"));
-        assert!(md.contains("[full repro video](https://cloud.reproit.com/v1/blob/bugzoo/0/x.mp4)"));
+        assert!(md.contains(concat!(
+            "[full repro video]",
+            "(https://cloud.reproit.com/v1/blob/bugzoo/0/x.mp4)"
+        )));
         assert!(md.contains(
             "[evidence + dashboard](https://cloud.reproit.com/app?app=bugzoo&bucket=bkt_abc)"
         ));
@@ -734,7 +744,9 @@ mod tests {
     fn repro_block_parsed_from_report() {
         let dir = std::env::temp_dir().join(format!("reproit-deliver-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let md = "# fuzz finding (seed 1)\n\n## findings\n\n- boom\n\n## repro (2 actions, shrunk from 7)\n\n```\ntap:Compose\ntap:New post\n```\n\nReplay: write {\"replay\": [...]}\n";
+        let md = "# fuzz finding (seed 1)\n\n## findings\n\n- boom\n\n## repro (2 actions, shrunk \
+                  from 7)\n\n```\ntap:Compose\ntap:New post\n```\n\nReplay: write {\"replay\": \
+                  [...]}\n";
         std::fs::write(dir.join("fuzz.md"), md).unwrap();
         let got = repro_from_report(&dir);
         assert_eq!(got, vec!["tap:Compose", "tap:New post"]);

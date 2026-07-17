@@ -3,9 +3,9 @@
 //! global, strictly-ordered scenario script.
 //!
 //! This is the framework-agnostic core of multi-actor: every backend (web node,
-//! flutter dart on a sim, android, desktop) drives ONE actor and speaks the same
-//! verbs to this barrier over localhost (which iOS sims and host processes alike
-//! can reach):
+//! flutter dart on a sim, android, desktop) drives ONE actor and speaks the
+//! same verbs to this barrier over localhost (which iOS sims and host processes
+//! alike can reach):
 //!
 //!   GET  /claim                  -> body `<letter>` (your role: `a`, `b`, ...)
 //!                                        | `ERR full` (all roles taken)
@@ -22,9 +22,9 @@
 //!
 //! Two safety properties this enforces, both framework-neutral:
 //!   * Distinct roles. `/claim` hands out `a`, then `b`, ... from an atomic
-//!     counter and refuses an over-subscribed claimant, so two devices can never
-//!     drive the same actor (the failure that silently dropped an actor when a
-//!     shared-build runner defaulted every device to role `a`).
+//!     counter and refuses an over-subscribed claimant, so two devices can
+//!     never drive the same actor (the failure that silently dropped an actor
+//!     when a shared-build runner defaulted every device to role `a`).
 //!   * Join-barrier. No action is served until every actor has shown up (via
 //!     `/claim` or its first `/next`). If one never joins, the run stalls and
 //!     `diagnose()` names who is missing rather than failing anonymously.
@@ -45,7 +45,8 @@ struct State {
     actions: Vec<String>,
     /// The step currently being served (or about to be).
     cursor: usize,
-    /// Whether `cursor`'s action has been handed out and we're awaiting `/done`.
+    /// Whether `cursor`'s action has been handed out and we're awaiting
+    /// `/done`.
     served: bool,
     /// When `cursor`'s action was first handed out (for stall attribution).
     served_at: Option<Instant>,
@@ -130,9 +131,9 @@ impl Conductor {
         s.cursor >= s.actions.len()
     }
 
-    /// Where the scenario stands: completed, awaiting a no-show actor, stalled on
-    /// an un-acked action, or simply in progress. Used to turn an anonymous
-    /// timeout into a named diagnosis.
+    /// Where the scenario stands: completed, awaiting a no-show actor, stalled
+    /// on an un-acked action, or simply in progress. Used to turn an
+    /// anonymous timeout into a named diagnosis.
     pub fn diagnose(&self) -> Stage {
         let s = self.state.lock().unwrap();
         if s.cursor >= s.actions.len() {
@@ -225,8 +226,8 @@ fn route(method: &str, path: &str, device: Option<usize>, state: &Arc<Mutex<Stat
 
 /// Hand out the lowest role not yet taken (claimed, or already seen via
 /// `/next`), atomically. Refuses an over-subscribed claimant so two devices can
-/// never share an actor, and stays correct even if some runners are env-labelled
-/// (they register via `/next`) while others claim.
+/// never share an actor, and stays correct even if some runners are
+/// env-labelled (they register via `/next`) while others claim.
 fn claim(s: &mut State) -> String {
     match s.joined.iter().position(|&j| !j) {
         Some(role) => {

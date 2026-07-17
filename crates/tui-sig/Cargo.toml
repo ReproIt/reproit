@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
-description = "Canonical TUI screen signature for reproit: the locale-invariant layout-skeleton hash shared byte-for-byte by the `reproit __tui` runner and the production TUI SDKs."
+description = "Canonical layout-skeleton signatures shared by the reproit TUI runner and SDKs"
 
 # No dependencies on purpose: this is a tiny, std-only crate so a production TUI
 # app (or its SDK) can depend on it without pulling in the runner, a PTY, or vt100.

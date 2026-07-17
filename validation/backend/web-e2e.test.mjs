@@ -8,11 +8,15 @@ import { beginBackendTrace } from './sdk-node.mjs';
 const require = createRequire(new URL('../../runners/web/package.json', import.meta.url));
 const { chromium } = require('playwright');
 
-test('browser request, service evidence, and trace validation work end to end', async (t) => {
+test('browser request, service evidence, and trace validation work end to ' + 'end', async (t) => {
   const server = createServer((req, res) => {
     if (req.url === '/') {
       res.writeHead(200, { 'content-type': 'text/html' });
-      res.end('<button id="send">Send</button><script>send.onclick=()=>fetch("/api/messages",{method:"POST",headers:{"content-type":"application/json"},body:"{\\"body\\":\\"hello\\"}"})</script>');
+      res.end(
+        '<button id="send">Send</button><script>send.onclick=()=>fetch("/api/' +
+          'messages",{method:"POST",headers:{"content-type":"application/json"},' +
+          'body:"{\\"body\\":\\"hello\\"}"})</script>',
+      );
       return;
     }
     if (req.url === '/api/messages') {
@@ -47,7 +51,9 @@ test('browser request, service evidence, and trace validation work end to end', 
     actionIndex: () => 4,
   });
   const page = await context.newPage();
-  const responsePromise = page.waitForResponse((response) => response.url().endsWith('/api/messages'));
+  const responsePromise = page.waitForResponse((response) =>
+    response.url().endsWith('/api/messages'),
+  );
   await page.goto(origin);
   await page.click('#send');
   const response = await responsePromise;
@@ -61,6 +67,9 @@ test('browser request, service evidence, and trace validation work end to end', 
     requestHeaders['x-reproit-action'],
     requestHeaders['x-reproit-actor'],
   );
-  assert.deepEqual(events.map((event) => event.kind), ['start', 'effect', 'effect', 'return']);
+  assert.deepEqual(
+    events.map((event) => event.kind),
+    ['start', 'effect', 'effect', 'return'],
+  );
   assert.ok(events.every((event) => event.actionIndex === 4 && event.actor === 'alice'));
 });

@@ -66,7 +66,10 @@ fi
 # package the crash oracle has no target and correctly stays silent, while the
 # structural signature + tap + state-change path (what this smoke proves) is
 # unaffected.
-export REPROIT_APPIUM_CAPS='{"platformName":"Android","appium:automationName":"UiAutomator2","appium:noReset":true,"appium:newCommandTimeout":600,"appium:adbExecTimeout":120000}'
+REPROIT_APPIUM_CAPS='{"platformName":"Android","appium:automationName":"UiAutomator2",'
+REPROIT_APPIUM_CAPS+='"appium:noReset":true,"appium:newCommandTimeout":600,'
+REPROIT_APPIUM_CAPS+='"appium:adbExecTimeout":120000}'
+export REPROIT_APPIUM_CAPS
 
 # A small map-mode budget keeps the walk to a handful of taps.
 FUZZ="$(mktemp)"

@@ -122,7 +122,7 @@ for (let i = 0; i < boxes.length; i++) {
   const en = `between(t,${t0.toFixed(3)},${t1.toFixed(3)})`;
   const out = `b${i}`;
   filters.push(
-    `[${vlabel}]drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${stroke}@1:t=3:enable='${en}'[${out}]`
+    `[${vlabel}]drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${stroke}@1:t=3:enable='${en}'[${out}]`,
   );
   vlabel = out;
 
@@ -135,24 +135,34 @@ for (let i = 0; i < boxes.length; i++) {
     // Prefer above the box; if that clips the top, put it just below.
     const cy = y - chip.h - 4 >= 0 ? y - chip.h - 4 : y + h + 4;
     const out2 = `c${i}`;
-    filters.push(
-      `[${vlabel}][${inIdx}:v]overlay=x=${cx}:y=${cy}:enable='${en}'[${out2}]`
-    );
+    filters.push(`[${vlabel}][${inIdx}:v]overlay=x=${cx}:y=${cy}:enable='${en}'[${out2}]`);
     vlabel = out2;
     inIdx++;
   }
 }
 
 const args = [
-  '-hide_banner', '-loglevel', 'error', '-y',
+  '-hide_banner',
+  '-loglevel',
+  'error',
+  '-y',
   ...inputs,
-  '-filter_complex', filters.join(';'),
-  '-map', `[${vlabel}]`,
-  '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+  '-filter_complex',
+  filters.join(';'),
+  '-map',
+  `[${vlabel}]`,
+  '-c:v',
+  'libx264',
+  '-pix_fmt',
+  'yuv420p',
+  '-movflags',
+  '+faststart',
   OUT,
 ];
 const r = spawnSync('ffmpeg', args, { stdio: ['ignore', 'inherit', 'inherit'] });
-try { rmSync(WORK, { recursive: true, force: true }); } catch (_) {}
+try {
+  rmSync(WORK, { recursive: true, force: true });
+} catch (_) {}
 if (r.status !== 0) {
   console.error(`box-overlay: ffmpeg failed (${r.status})`);
   process.exit(r.status || 1);

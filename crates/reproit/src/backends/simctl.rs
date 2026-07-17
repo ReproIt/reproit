@@ -226,7 +226,8 @@ pub async fn tile_windows(sims: &[Sim]) {
         .enumerate()
         .map(|(i, s)| {
             format!(
-                "\n  try\n    set position of (first window whose name contains \"{}\") to {{{}, 60}}\n  end try",
+                "\n  try\n    set position of (first window whose name contains \"{}\") to {{{}, \
+                 60}}\n  end try",
                 s.name,
                 40 + i * 520
             )

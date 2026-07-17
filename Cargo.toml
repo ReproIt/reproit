@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/llm", "crates/reproit", "crates/tui-sig", "sdk/reproit-backend-rs", "sdk/reproit-tui-rs"]
+members = [
+  "crates/llm",
+  "crates/reproit",
+  "crates/tui-sig",
+  "sdk/reproit-backend-rs",
+  "sdk/reproit-tui-rs",
+]
 
 [workspace.package]
 license = "Apache-2.0"
@@ -12,7 +18,16 @@ regex = "1.12.4"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "process", "time", "io-util", "fs", "sync", "net"] }
+tokio = { version = "1.52.3", features = [
+  "macros",
+  "rt-multi-thread",
+  "process",
+  "time",
+  "io-util",
+  "fs",
+  "sync",
+  "net",
+] }
 
 # Small, fast release binaries for distribution.
 [profile.release]

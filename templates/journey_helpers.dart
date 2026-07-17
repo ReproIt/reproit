@@ -77,11 +77,14 @@ Future<bool> waitFor(WidgetTester t, Finder f, {int timeoutMs = 15000}) async {
 
 /// Assert that a finder appears within the bound. Fails the test (and
 /// therefore the run) when it does not.
-Future<void> expectEventually(WidgetTester t, Finder f,
-    {int timeoutMs = 20000, String? reason}) async {
+Future<void> expectEventually(
+  WidgetTester t,
+  Finder f, {
+  int timeoutMs = 20000,
+  String? reason,
+}) async {
   final found = await waitFor(t, f, timeoutMs: timeoutMs);
-  expect(found, isTrue,
-      reason: reason ?? 'expected $f within ${timeoutMs}ms');
+  expect(found, isTrue, reason: reason ?? 'expected $f within ${timeoutMs}ms');
 }
 
 /// Best-effort tap: taps if present, logs and returns false otherwise.

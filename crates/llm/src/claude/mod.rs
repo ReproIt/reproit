@@ -3,9 +3,9 @@
 //! Scope rules (resist drift toward a general-purpose SDK):
 //!   - Only the surface reproit actually uses: Messages API, retries,
 //!     streaming, the tool loop.
-//!   - Types tolerate unknown content blocks (kept as raw JSON and echoed
-//!     back verbatim), so API additions and protected thinking blocks never
-//!     break us.
+//!   - Types tolerate unknown content blocks (kept as raw JSON and echoed back
+//!     verbatim), so API additions and protected thinking blocks never break
+//!     us.
 //!   - Every wire-level constant (base URL, version header, auth headers,
 //!     default model) lives in this module and nowhere else.
 //!

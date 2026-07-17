@@ -38,7 +38,10 @@ jobs:
           set -euo pipefail
           VERSION="${REQUESTED_VERSION#v}"
           TAG="v${VERSION}"
-          MANIFEST_VERSION=$(sed -n 's/^version = "\([0-9][0-9.]*\)"/\1/p' crates/reproit/Cargo.toml | head -1)
+          MANIFEST_VERSION=$(
+            sed -n 's/^version = "\([0-9][0-9.]*\)"/\1/p' \
+              crates/reproit/Cargo.toml | head -1
+          )
           test "$VERSION" = "$MANIFEST_VERSION" || {
             echo "requested $VERSION but crates/reproit/Cargo.toml contains $MANIFEST_VERSION" >&2
             exit 1
@@ -189,7 +192,8 @@ jobs:
       - name: Serve release candidate assets
         shell: bash
         run: |
-          python -m http.server 18780 --bind 127.0.0.1 --directory dist > "$RUNNER_TEMP/reproit-assets.log" 2>&1 &
+          python -m http.server 18780 --bind 127.0.0.1 --directory dist \
+            > "$RUNNER_TEMP/reproit-assets.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/reproit-assets.pid"
           for _ in {1..50}; do
             curl -fsS http://127.0.0.1:18780/ >/dev/null && exit 0

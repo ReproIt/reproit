@@ -53,7 +53,7 @@ export class ScreenContents {
   // that string here. cursor defaults to [0, 0] when the framework does not
   // surface a cursor position.
   static fromText(text: string, cursor: Cursor = [0, 0]): ScreenContents {
-    return new ScreenContents(text ?? "", cursor[0], cursor[1]);
+    return new ScreenContents(text ?? '', cursor[0], cursor[1]);
   }
 
   // fromRows renders a row-major cell grid to the SAME contents string vt100's
@@ -71,35 +71,33 @@ export class ScreenContents {
   // This is the model the runner hashes, so reproducing it exactly is what makes
   // the embedded signature equal the runner signature.
   static fromRows(rows: Row[], cursor: Cursor = [0, 0]): ScreenContents {
-    let out = "";
+    let out = '';
     for (const row of rows) {
       // normalize each cell to {contents, wide}
-      const cells: Cell[] = row.map((c) =>
-        typeof c === "string" ? { contents: c } : c,
-      );
+      const cells: Cell[] = row.map((c) => (typeof c === 'string' ? { contents: c } : c));
       // find the last non-empty cell so trailing empties are dropped
       let last = -1;
       for (let i = 0; i < cells.length; i++) {
-        if (cells[i].contents !== "") last = i;
+        if (cells[i].contents !== '') last = i;
       }
       let col = 0;
       while (col <= last) {
         const c = cells[col];
-        if (c.contents !== "") {
+        if (c.contents !== '') {
           out += c.contents;
           if (c.wide) {
             col += 2; // skip the spacer column the wide glyph occupies
             continue;
           }
         } else {
-          out += " "; // a gap before a later non-empty cell
+          out += ' '; // a gap before a later non-empty cell
         }
         col++;
       }
-      out += "\n";
+      out += '\n';
     }
     // strip all trailing newlines (trailing blank rows trimmed)
-    out = out.replace(/\n+$/, "");
+    out = out.replace(/\n+$/, '');
     return new ScreenContents(out, cursor[0], cursor[1]);
   }
 }

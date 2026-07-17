@@ -1,58 +1,110 @@
-# Oracles
+# Oracle operating guide
 
-Oracles are the checks reproit runs while fuzzing. All are on by default. Narrow
-with `--only` or exclude with `--no`:
+Use an oracle to explain what evidence made a ReproIt result authoritative. Never describe a
+repeated observation as a confirmed bug unless its oracle has an authoritative truth source and
+exact replay predicate.
+
+The repository's complete catalog is [`docs/oracles.md`](../../../docs/oracles.md). This reference
+contains the rules an agent needs while diagnosing a finding.
+
+## Verdicts
+
+| Verdict   | Interpretation                                                     |
+| --------- | ------------------------------------------------------------------ |
+| `PROVEN`  | Exact authoritative evidence contradicts the oracle contract.      |
+| `VALID`   | The same evidence channel proves the contract currently holds.     |
+| `UNKNOWN` | Evidence is missing, ambiguous, unsupported, or not authoritative. |
+
+`UNKNOWN` is an abstention. Do not call it clean, broken, fixed, or flaky.
+
+## Default confirmed categories
+
+| Oracle               | Authority                                                               |
+| -------------------- | ----------------------------------------------------------------------- |
+| `crash`              | Uncaught exception, fatal assertion, signal, or native crash            |
+| `detached-indicator` | Application-declared owner, container, gap, and settled geometry        |
+| `contract`           | Application-declared structural or temporal rule with a frozen identity |
+
+The top-level `invariant` and `visual` categories are also contract-dependent. They require an
+application predicate or an approved pinned baseline.
+
+## Specialist UI categories
+
+These may be useful observations, but selecting them with `--only` does not upgrade their
+confidence:
+
+- Environment-dependent: `jank`, `leak`, `flicker`, `divergence`, `hang`, `stuck-keyboard`,
+  `rotation`, `background-restore`, `scroll-round-trip`, `wakelock`, `safe-area`, and
+  `permission-walk`.
+- Heuristic or policy-dependent: `content-bug`, `occlusion`, `choice-anomaly`, `broken-route`,
+  `security`, `duplicate-submit`, `focus-loss`, `blank-screen`, `broken-asset`, and `zoom-reflow`.
+- `unknown` is registry-drift telemetry and can never become a confirmed bug.
+
+Useful exact contract identities include:
+
+- `focused-input-obscured:<field>`
+- `state-preservation:<boundary>:<id>`
+- `action-effect:<id>:route`
+- `action-effect:<id>:state`
+- `detached-indicator:<id>`
+
+When one of these returns `UNKNOWN`, report which required signal was absent. Do not replace the
+missing signal with a screenshot or language-dependent text guess.
+
+## Backend categories
+
+Backend support is experimental. A result needs a schema-owned or authored contract and a runtime
+event correlated to the exact operation.
+
+- Request and response: `server-error`, `response-status`, `accepted-invalid-input`,
+  `response-shape`, and `response-selection`.
+- Effects and tenancy: `read-only-mutation`, `missing-effect`, `excess-effect`, and
+  `tenant-isolation`.
+- Resource lifecycle: `resource-create-missing`, `resource-delete-visible`, `resource-identity`,
+  `resource-state`, and `resource-round-trip`.
+- Query and application rules: `authored-invariant`, `query-pagination`,
+  `query-pagination-reference`, and `idempotency`.
+- Deployment and multi-actor proofs: `fleet-consistency`, `authorization-matrix`,
+  `transaction-atomicity`, `concurrent-update`, and `concurrent-conservation`.
+
+Backend semantics must not be inferred from operation, field, route, framework, or function names.
+Missing strong consistency, snapshot identity, complete effects, or an explicit behavioral contract
+means `UNKNOWN`.
+
+## A2UI categories
+
+A2UI runs validate v0.9 streams and render them through the official React and Lit integrations:
+
+- `protocol-invalid`
+- `renderer-error`
+- `unlabeled-input`
+- `unlabeled-button`
+- `stream-convergence`
+- `default-conformance`
+- `bound-action-coherence`
+
+Each A2UI finding must retain a minimized message stream, renderer identity, structural signature,
+repair context, and exact replay predicate.
+
+## Commands
 
 ```sh
-reproit fuzz --only crash,jank        # just these
-reproit fuzz --no visual,occlusion    # everything except these
+reproit scan                 # one coverage walk
+reproit fuzz                 # deeper sequences and structural inputs
+reproit fuzz --only crash    # narrow observation to one category
+reproit <finding-id>         # replay the saved minimized proof
 ```
 
-| Oracle | Catches | When a finding means |
-|---|---|---|
-| `crash` | Unhandled exceptions, native crashes, fatal asserts | A code path throws. Read the stack in the repro. |
-| `jank` | Dropped frames (build or raster over the 16.7ms/60Hz budget) | A transition stutters. Profile the janky transition, not the whole app. |
-| `leak` | Growing retained memory across repeated states, OR event listeners / DOM nodes that climb monotonically across REPEATED visits to the same route (`listener-leak`, web + Electron) | A state isn't releasing. For `listener-leak`: the route mounts listeners/nodes on every visit that unmount never removes, an unbounded climb. Deterministic: the opt-in revisit probe (`REPROIT_LISTENERLEAK=1`) drives enter/leave/re-enter N times and only fires on a strict monotonic increase above a slope floor, so a stable app (flat after warmup) never fires. Fix the component's teardown to remove the listeners / detach the nodes it added. |
-| `visual` | Pixel regression vs the committed baseline (tolerance-banded) | A screen rendered differently than the approved baseline. |
-| `flicker` | Transient render glitch *within* a run: a frame that diverges then snaps back | A flash/unstyled frame/layout jump during a transition. Run `reproit record <id> --flicker`. No baseline needed. |
-| `divergence` | Same flow behaving differently across engines/targets | Cross-engine bug (e.g. Chromium-fine, WebKit-broken). |
-| `content-bug` | A rendered label leaking a stringify/template artifact (web): `[object Object]`, a bare `undefined`/`null`/`NaN`, or an unrendered `{{...}}`/`${...}` | A binding/serialization bug put a raw value on screen. Built-in DOM/label scan (no custom invariant needed); deterministic, addressed by the element's stable key. |
-| `hang` | A synchronous main-thread freeze (web): an action whose handler stops the app making progress past the hang floor | The app froze for the duration (an unbounded/very long synchronous task). Deterministic, keyed off the browser's Long Tasks trace, bucketed so timing jitter can't flip the verdict. |
-| `occlusion` | A visible control whose center hit target is covered by a foreign element | Pointer activation hits the covering element instead of the control. Open dialogs and their intentionally blocked background controls are excluded. |
-| `choice-anomaly` | One option of a multi-choice component (ARIA tab/radio group or button-cluster) shifts the global layout when its siblings do not (web only) | An odd-one-out choice: differential, not absolute, so it is false-positive-free (the bug is the choice whose layout effect is an outlier vs its siblings). Surface these with `reproit scan`. (A `<select>` is treated as a text field today, not a differenced choice.) |
-| `broken-route` | The app links to a URL whose document returns 404/410/5xx (a dead route), NOT 401/403/429 (intended auth gates / rate limits) (web only) | A broken internal link: keyed off the navigation HTTP status, so it is structural and false-positive-free (a 404/410/5xx is never an intended screen). The repro is the source link that points to the dead route. |
-| `security` | Client-side security-hygiene smells (web only): a cross-origin `target=_blank` link with no `rel=noopener` (reverse tabnabbing), or an HTTPS page with an `http:` form action / `http:` subresource (mixed content) | A pure DOM/URL predicate, deterministic and false-positive-free. Fix the markup: add `rel="noopener"` to the link, or serve the form action / subresource over HTTPS. |
-| `metamorphic` | A route the app navigated to does not survive a page reload (web only): the URL is preserved but a cold refresh rebuilds a different screen for it (the classic "refresh drops you on the home page" SPA bug) | A structural metamorphic relation (same URL in, same structure out), checked by reloading each newly-reached route and comparing the structural signature. Deterministic and false-positive-free (the URL is unchanged across the reload). Fix the router to read the URL on cold boot. |
-| `stuck-keyboard` | The soft keyboard is visible while no text input is focused (native mobile only: Flutter and Appium explorers): the app moved on from a field and never dismissed the IME, so the keyboard covers content the user cannot dismiss | Platform ground truth: keyboard visible must imply an editable is focused, read from the IME state plus the focus tree, so it is deterministic and false-positive-free. Dismiss the keyboard on navigation or unfocus, e.g. clear focus in the route change handler. |
-| `duplicate-submit` | A submit-like control (a button named Submit/Save/Pay/Order/Confirm/Checkout/Send/Post/Buy, or a `type=submit` control in a form) that fires the SAME first-party non-GET request twice when tapped twice within ~150ms (web only) | The handler has no double-activation guard, so an impatient double click places the order/payment/post twice. The runner's double-dispatch probe is OPT-IN per run via `REPROIT_DUPSUBMIT=1`, because double-firing real submits changes exploration semantics; a first click that navigates legitimately swallows the second and is never flagged. Fix: disable the control on first activation or make the endpoint idempotent. |
-| `focus-loss` | A non-navigating activation of an ALREADY-FOCUSED control that leaves keyboard focus on `<body>` while the control still exists (web + its Electron/Tauri embeds) | The interaction's re-render dropped focus, so a keyboard user loses their place and has to tab from the top again. Fires ONLY when the tapped control itself held focus BEFORE activation (the keyboard flow: tab to a control, activate it, watch the re-render steal its focus). A fresh mouse activation of a never-focused control is NOT a loss: on macOS Chromium / WebKitGTK a mouse click does not focus a button by OS convention, so `activeElement` staying on `<body>` is a platform artifact, not an app bug; the synthetic pre-click focus the probe applies does not count, and focus that sat on some OTHER element (an input) is not this control's focus to lose. Further false-positive guards: a tap that opens/closes a dialog or popover, and a control removed by its own re-render, never fire. Fix: restore focus to the control (or a sensible successor) after the update. |
-| `blank-screen` | A reached state that renders zero visible text nodes and zero tappable controls in a non-empty viewport (web only): the white-screen-of-death | Nothing mounted for that route (a failed SPA mount, a render error swallowed before paint). Checked only after the settle wait and only when `document.body` has a laid-out box, so a page still loading never fires; structural DOM emptiness, not a pixel check, so it is deterministic. |
-| `broken-asset` | A critical asset failed: a visible image has no pixels, rendered text contains encoding tofu, or a same-origin stylesheet/application script failed or was rejected for its MIME type | Correlates settled DOM references with browser load errors and Playwright response facts. Nested CSS `@import` and JavaScript module failures name the exact failed dependency instead of blaming the healthy root file; CSS also reports the importing root, while module reports `parent=unavailable` when the browser does not expose the module edge rather than guessing. Ignores third-party resources, inactive media stylesheets, prefetch/preload, optional analytics, intentional cancellations, and successful retries. |
-| `zoom-reflow` | A route that breaks at 200% zoom (web only), per WCAG 1.4.10 Reflow (EAA-mandatory): re-rendered at half the viewport's CSS size, the document requires two-dimensional scrolling (a horizontal scrollbar appears by more than 16px) or a previously visible tappable's hit rect collapses below 1px | Fixed-width content (a hard-coded px table/row) does not reflow, so low-vision users who zoom must scroll in both axes, or a control shrinks to unclickable. Checked once per route with the original viewport restored after; never during replay or probe mode. Pure layout measurement at the zoomed viewport, deterministic. |
-| `invariant` | An app-registered predicate that failed in a visited state: the app declared it with the SDK (`ReproIt.invariant("cart total never negative", () => total >= 0)`) and the SDK evaluated it on each state-settle under the fuzzer, reporting the ones that returned false or threw (any backend whose SDK has a state hook: web, Flutter, React Native, native iOS/Android, desktop, TUI) | The app's OWN domain rule was violated, a truth reproit cannot know on its own (a running total, a selected tab staying highlighted, a cart count matching the badge). The app owns the ground truth, so it is false-positive-free by construction, and the SDK only emits under the fuzzer, so production telemetry is untouched. Distinct from the CLI-config `custom` regex rules, which are declarative predicates written in a reproit config file rather than app code. |
-| `contract` | A structural state or temporal property declared in `reproit.yaml` failed on a normalized observation trace | The exact contract hash and violation fingerprint reproduced in a clean replay. Shrink may shorten the path, but it must preserve that identity. |
-| `rotation` | A screen that loses content or breaks structure across a device rotation (native Flutter/Appium + Chromium web/electron/tauri): the explorer rotates the surface portrait <-> landscape (split-screen), reflows, then rotates BACK to the original orientation, and the structure does not come back | An app that mishandles the orientation/resize lifecycle drops state that never rebuilds (a StatefulWidget that resets on a metric change, a resize handler that nulls the view). A metamorphic relation checked by ROUND-TRIP identity: same orientation in and out, value-state excluded, so a legit responsive / `OrientationBuilder` branch is symmetric and restores (never fires) and only a permanent loss does. Deterministic and false-positive-free. Not a single-screen state-present check (a transform relation), so it runs in the walk, not the `scan` coverage crawl. Desktop AX/UIA and TUI backends are excluded (no device orientation). |
-| `background-restore` | A screen that changes or loses state across the app background -> foreground lifecycle (native Flutter/Appium + Chromium web/electron/tauri): the explorer backgrounds the app (paused/hidden) then restores it (resumed/visible) and lands on a different screen or with state lost | An app whose lifecycle handling drops you elsewhere on resume (a session lock that never unlocks, a rebuild that resets navigation). A metamorphic relation with no size change, value-state excluded, so it is deterministic and false-positive-free (a correct app returns to the identical screen). Not a single-screen state-present check (a transform relation), so it runs in the walk, not the `scan` coverage crawl. Desktop AX/UIA and TUI backends are excluded (no app-lifecycle background/foreground hook). |
-| `deep-link-parity` | A route the app reached in-app does not rebuild the same screen when its URL is opened COLD (web only): opening the route directly in a fresh context (no carried session/local storage or history, like a shared link, bookmark, or hard deep link) produces a different structure than reaching it by navigating | The stricter sibling of `metamorphic`: a reload keeps the browsing context, a cold deep link does not, so this catches routes that only build because of state the earlier navigation left behind (a detail screen that reads from an in-memory store the list page filled). The runner reopens each newly-reached route in a fresh browser context and diffs the structural signature; the URL is preserved across the reopen, so a difference is a real bug (deterministic, false-positive-free). Fix the route to hydrate its own state from the URL/persistent storage on a cold open. |
-| `scroll-round-trip` | In a scrollable list, the content at a pinned offset is not identical after scrolling away and back (Flutter + web): a list-recycling / virtualization bug rebinds a different row to the same position | The list's item recycler reuses a cell without rebinding its data, so scrolling swaps the content under a fixed offset. A metamorphic relation across a scroll transform (scroll down then back is an identity for content at a fixed offset); the comparison normalizes out legitimately dynamic value-state (numbers), so it is deterministic and false-positive-free. |
-| `wakelock` | A wakelock (or a window `FLAG_KEEP_SCREEN_ON`) acquired on a screen is still held after the user navigates away from it (Android/Appium only) | A battery drain: the CPU/screen stays awake off the video/map/call screen that needed it. Ground truth is `dumpsys power` (the app-owned held wake locks) plus the focused window's keep-screen-on flag, sampled before vs after leaving each screen. App-global/baseline locks (held at launch) are excluded, short-lived/released locks never fire, and each leak is attributed to its origin screen and reported once, so it is deterministic and false-positive-free. Fix: release the wakelock / clear `FLAG_KEEP_SCREEN_ON` in the screen's teardown. iOS is excluded (no public wakelock introspection); web/desktop/TUI have no wakelock concept. |
-| `safe-area` | An interactive control whose hit rect intersects a device safe-area inset (native mobile only): the status bar / notch / Dynamic Island (top), the home indicator (bottom), or a landscape notch / rounded corner (left or right), so the control is obscured or hard to tap | The layout ignores the safe area: it draws a button under the notch or over the home indicator. Ground truth is the platform inset geometry (Flutter `MediaQuery.viewPadding` / Appium safe-area insets) versus the control's own hit rect, a pure structural measurement, so it is deterministic and false-positive-free. Fix by wrapping the content in a `SafeArea` / applying the platform inset padding. Desktop has no device insets and headless web reports every `env(safe-area-inset-*)` as 0, so both are excluded. |
-| `permission-walk` | Under a runtime-permission denial sweep, the denial strands the app on a screen with no working way forward (native mobile only) | The environment-controlled denial reproducibly traps the user. This is not a general graph-sink oracle: it runs only after denying a specific permission and attributes the trap to that permission. Appium denies the permission; Flutter mocks the permission platform channel. Fix by providing a back, skip, or manual path. |
+Shrinking may shorten a sequence only while the same oracle identity and fingerprint reproduce. A
+different failure is a different bug.
 
-## Visual oracle specifics
+## How to explain a result
 
-`reproit baseline` (the `visual` oracle) diffs the current capture against a
-committed baseline with a per-pixel tolerance (absorbs antialiasing) and a
-per-image percent threshold (ignores trivial diffs). Determinism is handled
-upstream (pinned status bar, seeded data).
+Give four facts:
 
-- First run / new screen: reported `NEW` (no baseline yet).
-- Accept the current capture as the baseline: `reproit baseline --update`
-  (do this only when the new look is intended).
-- A `visual` failure is not a crash: decide whether the pixel change is a
-  regression or an intended redesign before touching code.
+1. The oracle and exact structural identity.
+2. The authoritative evidence it consumed.
+3. The minimal sequence that reproduces it.
+4. What `VALID` would look like after a fix.
 
-## Cross-target divergence
-
-`--target ios,android` or `--target chromium,firefox,webkit` runs each and
-diffs for divergence. Use this when a bug is reported on one platform only.
+If any of those facts are unavailable, state the gap instead of upgrading the claim.

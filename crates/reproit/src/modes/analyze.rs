@@ -97,8 +97,8 @@ failed assertion. The most common triage error is calling a test bug "environmen
     println!("  triaging via {} ...", provider.name());
     let report = provider
         .complete(&Task::new(prompt).system(
-            "You are a precise test-failure triage assistant. Ground every claim in the \
-provided logs; quote them. Output plain markdown.",
+            "You are a precise test-failure triage assistant. Ground every claim in the provided \
+             logs; quote them. Output plain markdown.",
         ))
         .await?;
 

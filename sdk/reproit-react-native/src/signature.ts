@@ -47,15 +47,37 @@ export interface Node {
 // Fixed, language-independent role vocabulary (docs/signature.md "Roles").
 // Anything outside this set normalizes to "node".
 const ROLES: Record<string, 1> = {
-  screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-  icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-  slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+  screen: 1,
+  header: 1,
+  text: 1,
+  button: 1,
+  link: 1,
+  textfield: 1,
+  image: 1,
+  icon: 1,
+  list: 1,
+  listitem: 1,
+  tab: 1,
+  switch: 1,
+  checkbox: 1,
+  radio: 1,
+  slider: 1,
+  menu: 1,
+  menuitem: 1,
+  dialog: 1,
+  group: 1,
+  node: 1,
 };
 
 // Roles that flicker in/out and are dropped before hashing (rule 2).
 // "progress" is the role name for spinner/progress.
 const TRANSIENT_ROLES: Record<string, 1> = {
-  toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1,
+  toast: 1,
+  snackbar: 1,
+  spinner: 1,
+  progress: 1,
+  tooltip: 1,
+  badge: 1,
 };
 
 // Value-role set (docs/signature.md "Value-state", Layer 2). A node is
@@ -67,7 +89,13 @@ const TRANSIENT_ROLES: Record<string, 1> = {
 // roles (button/label/header/text/link) are NEVER value-bearing, so the
 // chrome-text exclusion (rule 1) is preserved exactly.
 const VALUE_ROLES: Record<string, 1> = {
-  textfield: 1, status: 1, log: 1, progressbar: 1, meter: 1, timer: 1, output: 1,
+  textfield: 1,
+  status: 1,
+  log: 1,
+  progressbar: 1,
+  meter: 1,
+  timer: 1,
+  output: 1,
 };
 
 function normalizeRole(role: string): string {

@@ -48,7 +48,8 @@ namespace ReproIt.Windows
 
         // A conditional-weak table keyed by object identity, so marks do not keep
         // elements alive and survive across captures.
-        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, Marks> MarkTable =
+        private static readonly System.Runtime.CompilerServices
+            .ConditionalWeakTable<object, Marks> MarkTable =
             new System.Runtime.CompilerServices.ConditionalWeakTable<object, Marks>();
 
         internal static Marks MarksFor(object element, bool create)
@@ -112,8 +113,7 @@ namespace ReproIt.Windows
                 }
             }
             string value = ValueOf(element, role);
-            var n = new Node(role)
-            {
+            var n = new Node(role) {
                 Id = IdOf(element),
                 Type = TypeOf(element, role),
                 Icon = IconOf(element),
@@ -136,90 +136,90 @@ namespace ReproIt.Windows
         // element's runtime type name and its base chain so framework-specific
         // subclasses (e.g. a custom Button) still resolve. Ordering is most-specific
         // first via an explicit probe in RoleOf.
-        private static readonly Dictionary<string, string> ClassToRole = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            // text input
-            { "TextBox", "textfield" },
-            { "RichTextBox", "textfield" },
-            { "PasswordBox", "textfield" },
-            { "AutoSuggestBox", "textfield" },
-            { "ComboBox", "textfield" },
-            { "SearchBox", "textfield" },
-            // buttons
-            { "Button", "button" },
-            { "RepeatButton", "button" },
-            { "HyperlinkButton", "link" },
-            { "DropDownButton", "button" },
-            { "SplitButton", "button" },
-            { "ToggleButton", "checkbox" },
-            { "AppBarButton", "button" },
-            // toggles / selection
-            { "CheckBox", "checkbox" },
-            { "RadioButton", "radio" },
-            { "ToggleSwitch", "switch" },
-            // sliders / progress
-            { "Slider", "slider" },
-            { "ProgressBar", "progress" },   // transient unless it carries a value
-            { "ProgressRing", "progress" },  // transient
-            { "RatingControl", "slider" },
-            // text / headers
-            { "TextBlock", "text" },
-            { "RichTextBlock", "text" },
-            { "Label", "text" },
-            // image
-            { "Image", "image" },
-            { "ImageIcon", "image" },
-            // lists
-            { "ListView", "list" },
-            { "ListBox", "list" },
-            { "GridView", "list" },
-            { "DataGrid", "list" },
-            { "TreeView", "list" },
-            { "ItemsControl", "list" },
-            { "ListViewItem", "listitem" },
-            { "ListBoxItem", "listitem" },
-            { "GridViewItem", "listitem" },
-            { "TreeViewItem", "listitem" },
-            { "DataGridRow", "listitem" },
-            // tabs
-            { "TabControl", "tab" },
-            { "TabView", "tab" },
-            { "TabItem", "tab" },
-            { "TabViewItem", "tab" },
-            { "Pivot", "tab" },
-            { "PivotItem", "tab" },
-            // menus
-            { "Menu", "menu" },
-            { "MenuBar", "menu" },
-            { "MenuFlyout", "menu" },
-            { "ContextMenu", "menu" },
-            { "MenuItem", "menuitem" },
-            { "MenuBarItem", "menuitem" },
-            { "MenuFlyoutItem", "menuitem" },
-            // dialogs
-            { "ContentDialog", "dialog" },
-            { "Window", "dialog" },
-            { "Popup", "dialog" },
-            // transient chrome
-            { "ToolTip", "tooltip" },
-            { "InfoBadge", "badge" },
-            // containers -> group
-            { "Grid", "group" },
-            { "StackPanel", "group" },
-            { "Canvas", "group" },
-            { "Border", "group" },
-            { "Panel", "group" },
-            { "DockPanel", "group" },
-            { "WrapPanel", "group" },
-            { "ScrollViewer", "group" },
-            { "Expander", "group" },
-            { "GroupBox", "group" },
-            { "UserControl", "group" },
-            { "ContentControl", "group" },
-            { "ContentPresenter", "group" },
-            { "ToolBar", "group" },
-            { "StatusBar", "text" },
-        };
+        private static readonly Dictionary<string, string> ClassToRole =
+            new Dictionary<string, string>(StringComparer.Ordinal) {
+                // text input
+                { "TextBox", "textfield" },
+                { "RichTextBox", "textfield" },
+                { "PasswordBox", "textfield" },
+                { "AutoSuggestBox", "textfield" },
+                { "ComboBox", "textfield" },
+                { "SearchBox", "textfield" },
+                // buttons
+                { "Button", "button" },
+                { "RepeatButton", "button" },
+                { "HyperlinkButton", "link" },
+                { "DropDownButton", "button" },
+                { "SplitButton", "button" },
+                { "ToggleButton", "checkbox" },
+                { "AppBarButton", "button" },
+                // toggles / selection
+                { "CheckBox", "checkbox" },
+                { "RadioButton", "radio" },
+                { "ToggleSwitch", "switch" },
+                // sliders / progress
+                { "Slider", "slider" },
+                { "ProgressBar", "progress" },  // transient unless it carries a value
+                { "ProgressRing", "progress" }, // transient
+                { "RatingControl", "slider" },
+                // text / headers
+                { "TextBlock", "text" },
+                { "RichTextBlock", "text" },
+                { "Label", "text" },
+                // image
+                { "Image", "image" },
+                { "ImageIcon", "image" },
+                // lists
+                { "ListView", "list" },
+                { "ListBox", "list" },
+                { "GridView", "list" },
+                { "DataGrid", "list" },
+                { "TreeView", "list" },
+                { "ItemsControl", "list" },
+                { "ListViewItem", "listitem" },
+                { "ListBoxItem", "listitem" },
+                { "GridViewItem", "listitem" },
+                { "TreeViewItem", "listitem" },
+                { "DataGridRow", "listitem" },
+                // tabs
+                { "TabControl", "tab" },
+                { "TabView", "tab" },
+                { "TabItem", "tab" },
+                { "TabViewItem", "tab" },
+                { "Pivot", "tab" },
+                { "PivotItem", "tab" },
+                // menus
+                { "Menu", "menu" },
+                { "MenuBar", "menu" },
+                { "MenuFlyout", "menu" },
+                { "ContextMenu", "menu" },
+                { "MenuItem", "menuitem" },
+                { "MenuBarItem", "menuitem" },
+                { "MenuFlyoutItem", "menuitem" },
+                // dialogs
+                { "ContentDialog", "dialog" },
+                { "Window", "dialog" },
+                { "Popup", "dialog" },
+                // transient chrome
+                { "ToolTip", "tooltip" },
+                { "InfoBadge", "badge" },
+                // containers -> group
+                { "Grid", "group" },
+                { "StackPanel", "group" },
+                { "Canvas", "group" },
+                { "Border", "group" },
+                { "Panel", "group" },
+                { "DockPanel", "group" },
+                { "WrapPanel", "group" },
+                { "ScrollViewer", "group" },
+                { "Expander", "group" },
+                { "GroupBox", "group" },
+                { "UserControl", "group" },
+                { "ContentControl", "group" },
+                { "ContentPresenter", "group" },
+                { "ToolBar", "group" },
+                { "StatusBar", "text" },
+            };
 
         /// <summary>The canonical role for an element, from its class / automation
         /// control type only, never from text. An explicit AutomationProperties
@@ -568,7 +568,8 @@ namespace ReproIt.Windows
             Type t = o.GetType();
             while (t != null && t != typeof(object))
             {
-                if (t.Name == "DependencyObject" || t.Name == "UIElement" || t.Name == "FrameworkElement")
+                if (t.Name == "DependencyObject" || t.Name == "UIElement" ||
+                    t.Name == "FrameworkElement")
                 {
                     return true;
                 }
@@ -634,7 +635,8 @@ namespace ReproIt.Windows
             }
             try
             {
-                PropertyInfo pi = element.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo pi = element.GetType().GetProperty(name, BindingFlags.Public |
+                                                                          BindingFlags.Instance);
                 if (pi == null || !pi.CanRead)
                 {
                     return null;
@@ -657,7 +659,8 @@ namespace ReproIt.Windows
         /// expose a static AutomationProperties type with GetName/GetAutomationId
         /// accessors; we locate the type by name in the loaded assemblies and invoke
         /// the accessor reflectively so this works on either stack.</summary>
-        private static string GetAutomationString(object element, string propertyFieldName, string getterName)
+        private static string GetAutomationString(object element, string propertyFieldName,
+                                                  string getterName)
         {
             try
             {
@@ -666,7 +669,8 @@ namespace ReproIt.Windows
                 {
                     return null;
                 }
-                MethodInfo getter = apType.GetMethod(getterName, BindingFlags.Public | BindingFlags.Static);
+                MethodInfo getter =
+                    apType.GetMethod(getterName, BindingFlags.Public | BindingFlags.Static);
                 if (getter == null)
                 {
                     return null;
@@ -692,8 +696,7 @@ namespace ReproIt.Windows
             _automationLookupDone = true;
             // WPF: System.Windows.Automation.AutomationProperties.
             // WinUI 3: Microsoft.UI.Xaml.Automation.AutomationProperties.
-            string[] candidates =
-            {
+            string[] candidates = {
                 "System.Windows.Automation.AutomationProperties, PresentationCore",
                 "Microsoft.UI.Xaml.Automation.AutomationProperties, Microsoft.WinUI",
             };
@@ -711,8 +714,9 @@ namespace ReproIt.Windows
             {
                 try
                 {
-                    Type t = asm.GetType("System.Windows.Automation.AutomationProperties", false)
-                             ?? asm.GetType("Microsoft.UI.Xaml.Automation.AutomationProperties", false);
+                    Type t =
+                        asm.GetType("System.Windows.Automation.AutomationProperties", false) ??
+                        asm.GetType("Microsoft.UI.Xaml.Automation.AutomationProperties", false);
                     if (t != null)
                     {
                         _automationPropertiesType = t;
@@ -736,14 +740,16 @@ namespace ReproIt.Windows
                 {
                     return false;
                 }
-                MethodInfo getter = apType.GetMethod("GetHeadingLevel", BindingFlags.Public | BindingFlags.Static);
+                MethodInfo getter =
+                    apType.GetMethod("GetHeadingLevel", BindingFlags.Public | BindingFlags.Static);
                 if (getter == null)
                 {
                     return false;
                 }
                 object level = getter.Invoke(null, new[] { element });
                 // The enum member "None" means not a heading; any other level is one.
-                return level != null && !string.Equals(level.ToString(), "None", StringComparison.Ordinal);
+                return level != null &&
+                       !string.Equals(level.ToString(), "None", StringComparison.Ordinal);
             }
             catch
             {
@@ -760,14 +766,16 @@ namespace ReproIt.Windows
                 {
                     return false;
                 }
-                MethodInfo getter = apType.GetMethod("GetLiveSetting", BindingFlags.Public | BindingFlags.Static);
+                MethodInfo getter =
+                    apType.GetMethod("GetLiveSetting", BindingFlags.Public | BindingFlags.Static);
                 if (getter == null)
                 {
                     return false;
                 }
                 object setting = getter.Invoke(null, new[] { element });
                 // AutomationLiveSetting.Off means no live region; Polite/Assertive do.
-                return setting != null && !string.Equals(setting.ToString(), "Off", StringComparison.Ordinal);
+                return setting != null &&
+                       !string.Equals(setting.ToString(), "Off", StringComparison.Ordinal);
             }
             catch
             {

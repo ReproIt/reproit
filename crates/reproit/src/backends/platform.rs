@@ -58,12 +58,12 @@ impl Backend {
 
     /// Whether reproit itself provisions and manages the target device for this
     /// backend: booting named `<prefix>-X` simulators, pinning determinism,
-    /// regranting permissions, and recording from the host. Backends that return
-    /// false have a runner that brings its own target (a browser, an Appium
-    /// session, a desktop app, a PTY), so reproit only assigns it a logical
-    /// label. Keyed on the backend, not a "not-Flutter" guess, so a new backend
-    /// that needs device provisioning opts in here rather than by editing the
-    /// orchestrator.
+    /// regranting permissions, and recording from the host. Backends that
+    /// return false have a runner that brings its own target (a browser, an
+    /// Appium session, a desktop app, a PTY), so reproit only assigns it a
+    /// logical label. Keyed on the backend, not a "not-Flutter" guess, so a
+    /// new backend that needs device provisioning opts in here rather than
+    /// by editing the orchestrator.
     pub fn provisions_device(self) -> bool {
         matches!(self, Backend::FlutterDrive)
     }
@@ -81,12 +81,13 @@ impl Backend {
     }
 
     /// Whether this backend's runner implements the multi-actor conductor
-    /// client (`GET /claim` + `GET /next` + `POST /done`, see modes/barrier.rs),
-    /// i.e. can play one actor of an authored multi-user scenario. Keyed on the
-    /// backend, not the platform id, so every platform riding a supporting
-    /// backend gets scenarios at once (web, electron and tauri all ride WebCdp).
-    /// `run_scenario` gates on this so a scenario on an unsupported backend
-    /// fails with a clear message instead of booting idle devices.
+    /// client (`GET /claim` + `GET /next` + `POST /done`, see
+    /// modes/barrier.rs), i.e. can play one actor of an authored multi-user
+    /// scenario. Keyed on the backend, not the platform id, so every
+    /// platform riding a supporting backend gets scenarios at once (web,
+    /// electron and tauri all ride WebCdp). `run_scenario` gates on this so
+    /// a scenario on an unsupported backend fails with a clear message
+    /// instead of booting idle devices.
     ///
     /// Every backend speaks it today. The conductor serializes actions
     /// GLOBALLY (one ACT outstanding at a time), so no backend needs
@@ -99,21 +100,22 @@ impl Backend {
     ///                    runners/tauri.mjs
     ///   appium           runners/rn/runner.mjs (each actor = its own session)
     ///   desktop ax/uia/atspi  runners/macos-ax.swift, and the in-process Rust
-    ///                    runners backends/uia.rs (`reproit __uia`) +
-    ///                    backends/atspi.rs (`reproit __atspi`) (per-actor app
-    ///                    instance, bound by pid; window re-activated per action)
-    ///   instrumented     the scenario core in reproit_imgui.h/reproit_clay.h
-    ///                    (a dependency-free blocking HTTP client over POSIX/
-    ///                    Winsock sockets, polled from FrameEnd)
-    ///   tui              the actor loop in backends/tui.rs
-    /// The wire contract is pinned per runner source by
+    ///                    runners backends/uia/mod.rs (`reproit __uia`) +
+    ///                    backends/atspi/mod.rs (`reproit __atspi`) (per-actor
+    /// app                    instance, bound by pid; window re-activated
+    /// per action)   instrumented     the scenario core in
+    /// reproit_imgui.h/reproit_clay.h                    (a dependency-free
+    /// blocking HTTP client over POSIX/                    Winsock sockets,
+    /// polled from FrameEnd)   tui              the actor loop in
+    /// backends/tui/mod.rs The wire contract is pinned per runner source by
     /// tests/barrier_scenario.rs.
     pub fn speaks_barrier(self) -> bool {
         true
     }
 }
 
-/// A registered platform identifier (the `app.platform` string in reproit.yaml).
+/// A registered platform identifier (the `app.platform` string in
+/// reproit.yaml).
 #[derive(Debug, Clone, Copy)]
 pub struct Platform {
     pub id: &'static str,
@@ -170,9 +172,8 @@ const STATIC_PLATFORMS: &[(Backend, &str, &str)] = &[
     (
         Backend::Appium,
         "android",
-        "Native Android (Jetpack Compose / Views) via Appium UiAutomator2; \
-         Compose nodes surface by text/content-desc, and testTagsAsResourceId=true \
-         exposes testTag locators.",
+        "Native Android (Jetpack Compose / Views) via Appium UiAutomator2; Compose nodes surface \
+         by text/content-desc, and testTagsAsResourceId=true exposes testTag locators.",
     ),
     (
         Backend::DesktopAx,

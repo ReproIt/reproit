@@ -71,7 +71,12 @@ curl -sf "$APPIUM_URL/status" > /dev/null || {
 # first available iPhone simulator (every macOS runner image ships several).
 UDID="${REPROIT_IOS_SIM_UDID:-}"
 if [ -z "$UDID" ]; then
-  UDID="$(xcrun simctl list devices available | grep -E '^ +iPhone' | head -n 1 | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}')"
+  UDID_PATTERN='[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-'
+  UDID_PATTERN+='[0-9A-F]{4}-[0-9A-F]{12}'
+  UDID="$(
+    xcrun simctl list devices available | grep -E '^ +iPhone' |
+      head -n 1 | grep -oE "$UDID_PATTERN"
+  )"
 fi
 if [ -z "$UDID" ]; then
   echo "appium-ios-smoke: no available iPhone simulator found" >&2
@@ -120,7 +125,12 @@ echo "appium-ios-smoke: simulator runtime iOS $IOS_VERSION"
 # whole WDA build + retries or webdriverio aborts POST /session at its 120s
 # default (exactly what the first CI run did).
 export REPROIT_APPIUM_CONNECT_TIMEOUT_MS=1200000
-export REPROIT_APPIUM_CAPS="{\"platformName\":\"iOS\",\"appium:automationName\":\"XCUITest\",\"appium:platformVersion\":\"$IOS_VERSION\",\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\",\"appium:noReset\":true,\"appium:newCommandTimeout\":600,\"appium:wdaLaunchTimeout\":300000,\"appium:wdaStartupRetries\":2}"
+REPROIT_APPIUM_CAPS='{"platformName":"iOS","appium:automationName":"XCUITest",'
+REPROIT_APPIUM_CAPS+="\"appium:platformVersion\":\"$IOS_VERSION\","
+REPROIT_APPIUM_CAPS+="\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\","
+REPROIT_APPIUM_CAPS+='"appium:noReset":true,"appium:newCommandTimeout":600,'
+REPROIT_APPIUM_CAPS+='"appium:wdaLaunchTimeout":300000,"appium:wdaStartupRetries":2}'
+export REPROIT_APPIUM_CAPS
 
 # A small map-mode budget keeps the walk to a handful of taps.
 FUZZ="$(mktemp)"

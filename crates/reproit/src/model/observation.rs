@@ -222,7 +222,8 @@ mod tests {
     #[test]
     fn parses_network_status_and_response_shape() {
         let observations = from_runner_log(
-            "FUZZ:NETWORK {\"status\":409,\"url\":\"/messages\",\"responseShape\":\"{error:string}\"}\n",
+            "FUZZ:NETWORK \
+             {\"status\":409,\"url\":\"/messages\",\"responseShape\":\"{error:string}\"}\n",
             &[],
         );
         assert_eq!(observations[0].network_statuses, [409]);

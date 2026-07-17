@@ -12,12 +12,17 @@ import assert from 'node:assert';
 import { chromium } from 'playwright';
 import { collectRouteLinks, soft404View, isSoftHandled, ASSET_EXT_SOURCE } from './runner.mjs';
 
-test('collectRouteLinks skips nofollow/submit/asset links and keeps real routes', async () => {
+test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'routes', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
     await page.route('**/*', (route) =>
-      route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>t</title>' }));
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>t</title>',
+      }),
+    );
     await page.goto('http://app.test/');
     await page.setContent(`
       <a href="/dashboard">Dashboard</a>
@@ -31,8 +36,12 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real routes'
       <a href="https://other.test/x">Off-site</a>
     `);
     const links = await page.evaluate(collectRouteLinks, ASSET_EXT_SOURCE);
-    assert.deepEqual([...links].sort(), ['/dashboard', '/settings'],
-      'only same-origin GET routes survive; nofollow/submit/asset/js/mailto/off-site dropped, trailing slash normalized');
+    assert.deepEqual(
+      [...links].sort(),
+      ['/dashboard', '/settings'],
+      'only same-origin GET routes survive; nofollow/submit/asset/js/mailto/' +
+        'off-site dropped, trailing slash normalized',
+    );
   } finally {
     await browser.close();
   }
@@ -43,7 +52,12 @@ test('collectRouteLinks honors <base href> when resolving relative links', async
   try {
     const page = await browser.newPage();
     await page.route('**/*', (route) =>
-      route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>t</title>' }));
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>t</title>',
+      }),
+    );
     await page.goto('http://app.test/app/examples/');
     // A <base> repoints relative resolution: `builder` must resolve under the base,
     // not the document URL. Without base support this manufactured a wrong-path 404.
@@ -52,7 +66,10 @@ test('collectRouteLinks honors <base href> when resolving relative links', async
       <a href="builder">Builder</a>
     `);
     const links = await page.evaluate(collectRouteLinks, ASSET_EXT_SOURCE);
-    assert.ok(links.includes('/app/examples/builder'), `base-relative link resolved under <base>; got ${JSON.stringify(links)}`);
+    assert.ok(
+      links.includes('/app/examples/builder'),
+      `base-relative link resolved under <base>; got ${JSON.stringify(links)}`,
+    );
   } finally {
     await browser.close();
   }
@@ -63,21 +80,35 @@ test('SPA soft-404 (filled app view) is NOT dead; a bare error page IS dead', as
   try {
     const page = await browser.newPage();
     await page.route('**/*', (route) =>
-      route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>t</title>' }));
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>t</title>',
+      }),
+    );
     await page.goto('http://app.test/');
 
     // A static host 404s /deep but serves index.html; the router hydrates the real
     // app: a filled #app mount with plenty of controls and no not-found heading.
     let controls = '';
     for (let i = 0; i < 14; i++) controls += `<a href="/x${i}">Item ${i}</a>`;
-    await page.setContent(`<div id="app"><nav>${controls}</nav><main><h1>Components</h1><button>Go</button></main></div>`);
+    await page.setContent(
+      `<div id="app"><nav>${controls}</nav><main><h1>Components</h1>` +
+        '<button>Go</button></main></div>',
+    );
     const appView = await page.evaluate(soft404View);
-    assert.ok(isSoftHandled(appView), `a hydrated app view must be treated as soft-404 (not dead); got ${JSON.stringify(appView)}`);
+    assert.ok(
+      isSoftHandled(appView),
+      `a hydrated app view must be treated as soft-404 (not dead); got ${JSON.stringify(appView)}`,
+    );
 
     // A genuine error page: a not-found heading and little else.
     await page.setContent(`<div id="app"><h1>404 - Page not found</h1><a href="/">Home</a></div>`);
     const errView = await page.evaluate(soft404View);
-    assert.ok(!isSoftHandled(errView), `a bare 404 page must stay dead; got ${JSON.stringify(errView)}`);
+    assert.ok(
+      !isSoftHandled(errView),
+      `a bare 404 page must stay dead; got ${JSON.stringify(errView)}`,
+    );
   } finally {
     await browser.close();
   }

@@ -30,24 +30,50 @@ import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import {
-  gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth, DEFAULT_GRID,
+  gridPoints,
+  changedFraction,
+  classifyPoint,
+  probeRegionsToGroundtruth,
+  DEFAULT_GRID,
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
 import {
-  occlusionScan, confirmOcclusions, securityScan,
-  dupSubmitEligible, focusLossArm, focusLossCheck,
-  blankScreenScan, brokenAssetScan, installCriticalResourceObserver,
-  criticalResourceScan, zoomTappableKeys, zoomReflowScan,
+  occlusionScan,
+  confirmOcclusions,
+  securityScan,
+  indicatorRelationshipScan,
+  confirmRelationshipViolations,
+  dupSubmitEligible,
+  focusLossArm,
+  focusLossCheck,
+  blankScreenScan,
+  brokenAssetScan,
+  installCriticalResourceObserver,
+  criticalResourceScan,
+  zoomTappableKeys,
+  zoomReflowScan,
   scrollRoundTripScan,
-  installListenerLeakCounter, listenerLeakSample,
+  installListenerLeakCounter,
+  listenerLeakSample,
 } from './hygiene-oracles.mjs';
 import {
-  CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, CHOICE_ROLES as CHOICE_ROLE_LIST,
-  layoutDelta, medianOf, choiceAnomalyInPage, replayChoiceComponentInPage,
+  CHOICE_OUTLIER_RATIO,
+  CHOICE_MIN_MAGNITUDE,
+  CHOICE_ROLES as CHOICE_ROLE_LIST,
+  layoutDelta,
+  medianOf,
+  choiceAnomalyInPage,
+  replayChoiceComponentInPage,
 } from './choice-oracle.mjs';
 
-const APP_URL = process.env.REPROIT_URL || "http://localhost:8080";
-const APP_ORIGIN = (() => { try { return new URL(APP_URL).origin; } catch (e) { return ''; } })();
+const APP_URL = process.env.REPROIT_URL || 'http://localhost:8080';
+const APP_ORIGIN = (() => {
+  try {
+    return new URL(APP_URL).origin;
+  } catch (e) {
+    return '';
+  }
+})();
 const VIDEO_DIR = process.env.REPROIT_VIDEO_DIR || undefined;
 const NETWORK_FILE = process.env.REPROIT_NETWORK_FILE || undefined;
 const NETWORK_ACTOR = process.env.REPROIT_DEVICE || 'a';
@@ -58,13 +84,19 @@ const BACKEND_ORIGINS = (() => {
   try {
     const values = JSON.parse(process.env.REPROIT_BACKEND_ORIGINS || '[]');
     const normalized = [APP_ORIGIN, ...(Array.isArray(values) ? values : [])]
-      .map((value) => { try {
-        const url = new URL(value);
-        return /^https?:$/.test(url.protocol) ? url.origin : null;
-      } catch (_) { return null; } })
+      .map((value) => {
+        try {
+          const url = new URL(value);
+          return /^https?:$/.test(url.protocol) ? url.origin : null;
+        } catch (_) {
+          return null;
+        }
+      })
       .filter(Boolean);
     return new Set(normalized);
-  } catch (_) { return new Set([APP_ORIGIN].filter(Boolean)); }
+  } catch (_) {
+    return new Set([APP_ORIGIN].filter(Boolean));
+  }
 })();
 // 0 is the immutable bootstrap phase; user actions are 1-based. This keeps
 // initial API/config traffic hermetic without conflating it with the first tap.
@@ -96,7 +128,11 @@ export function exceptionIsFirstParty(stack, appOrigin) {
   let sawOffOrigin = false;
   for (const u of urls) {
     let origin;
-    try { origin = new URL(u).origin; } catch (e) { continue; }
+    try {
+      origin = new URL(u).origin;
+    } catch (e) {
+      continue;
+    }
     if (origin === appOrigin) return true; // a frame on the app -> first-party
     sawOffOrigin = true;
   }
@@ -114,8 +150,16 @@ export function exceptionIsFirstParty(stack, appOrigin) {
 // filter structurally cannot see: it removed the self-hosted `awshome_s_code.js`
 // false crash a docs scan surfaced without touching a real same-CDN app bundle.
 // Pure + exported for unit testing.
-const TRACKER_SCRIPT_RE =
-  /s_code\.js|adobedtm|\bat\.js\b|fbevents\.js|connect\.facebook\.net|googletagmanager|\/gtag(\/|\.js)|gtm\.js|google-analytics\.com|\/ga\.js|\/analytics\.js|ima3\.js|doubleclick\.net|adsbygoogle|hotjar\.com|static\.hotjar|cdn\.mixpanel|cdn\.segment\.com|clarity\.ms|\/clarity\.js|cdn\.optimizely|amplitude\.com|fullstory\.com|quantserve|scorecardresearch|chartbeat|js-agent\.newrelic\.com|nr-data\.net|browser\.sentry-cdn\.com|bugsnag/i;
+const TRACKER_SCRIPT_RE = new RegExp(
+  's_code\\.js|adobedtm|\\bat\\.js\\b|fbevents\\.js|connect\\.facebook\\.' +
+    'net|googletagmanager|\\/gtag(\\/|\\.js)|gtm\\.js|google-analytics\\.com|\\/' +
+    'ga\\.js|\\/analytics\\.js|ima3\\.js|doubleclick\\.net|adsbygoogle|hotjar\\.' +
+    'com|static\\.hotjar|cdn\\.mixpanel|cdn\\.segment\\.com|clarity\\.ms|\\/' +
+    'clarity\\.js|cdn\\.optimizely|amplitude\\.com|fullstory\\.' +
+    'com|quantserve|scorecardresearch|chartbeat|js-agent\\.newrelic\\.' +
+    'com|nr-data\\.net|browser\\.sentry-cdn\\.com|bugsnag',
+  'i',
+);
 export function exceptionThrownInTracker(stack) {
   const urls = String(stack || '').match(/https?:\/\/[^\s)'"]+/g) || [];
   if (!urls.length) return false;
@@ -130,8 +174,11 @@ export function exceptionThrownInTracker(stack) {
 // reproduce on replay, and so fails reproit's determinism bar. Only honored for a
 // STACKLESS throw - a real app-code JSON.parse / fetch-handling bug carries an app
 // stack frame and is kept by the first-party rule above. Pure + exported for tests.
-const NONDET_ERROR_RE =
-  /is not valid JSON|Unexpected end of JSON input|Failed to fetch|NetworkError when attempting to fetch|Load failed/i;
+const NONDET_ERROR_RE = new RegExp(
+  'is not valid JSON|Unexpected end of JSON input|Failed to ' +
+    'fetch|NetworkError when attempting to fetch|Load failed',
+  'i',
+);
 export function exceptionIsNonDeterministic(message, stack) {
   if (!NONDET_ERROR_RE.test(String(message || ''))) return false;
   return (String(stack || '').match(/https?:\/\//g) || []).length === 0;
@@ -145,8 +192,11 @@ export function exceptionIsNonDeterministic(message, stack) {
 // warning the browser recovers from, suppressed by default in every error tracker.
 // Matched by message because the signal is in the message, not the stack. Keep
 // this list TIGHT - over-suppression hides real bugs. Pure + exported for tests.
-const BENIGN_ERROR_RE =
-  /Blocked a frame with origin|accessing a cross-origin frame|Permission denied to access property .* on cross-origin|ResizeObserver loop/i;
+const BENIGN_ERROR_RE = new RegExp(
+  'Blocked a frame with origin|accessing a cross-origin frame|Permission ' +
+    'denied to access property .* on cross-origin|ResizeObserver loop',
+  'i',
+);
 export function exceptionIsBenign(message) {
   return BENIGN_ERROR_RE.test(String(message || ''));
 }
@@ -184,8 +234,10 @@ const EXTRA_HEADERS = (() => {
     const raw = (process.env.REPROIT_EXTRA_HEADERS || '').trim();
     if (!raw) return {};
     const o = JSON.parse(raw);
-    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
-  } catch (_) { return {}; }
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch (_) {
+    return {};
+  }
 })();
 // A caller may override the User-Agent via `--header "User-Agent: ..."`.
 const UA_OVERRIDE = (() => {
@@ -218,12 +270,17 @@ function countMatching(finder) {
     const ci = body.indexOf(':');
     const kind = ci >= 0 ? body.slice(0, ci) : '';
     const val = ci >= 0 ? body.slice(ci + 1) : body;
-    if (kind === 'testid') sel = '[data-testid="' + esc(val) + '"],[data-test-id="' + esc(val) + '"]';
+    if (kind === 'testid')
+      sel = '[data-testid="' + esc(val) + '"],[data-test-id="' + esc(val) + '"]';
     else if (kind === 'id') sel = '#' + esc(val);
     else if (kind === 'name') sel = '[name="' + esc(val) + '"]';
   }
   let els;
-  try { els = document.querySelectorAll(sel); } catch (_) { return -1; }
+  try {
+    els = document.querySelectorAll(sel);
+  } catch (_) {
+    return -1;
+  }
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
@@ -265,24 +322,44 @@ const ANCHOR_SEL =
 // re-check. Best-effort throughout (a blocked IndexedDB delete never hangs the
 // reset). Exported so resetToRoot and its test share one implementation.
 export async function clearClientStorage(page) {
-  await page.evaluate(async () => {
-    try { if (typeof window.__reproitReset === 'function') await window.__reproitReset(); } catch (_) {}
-    try { localStorage.clear(); } catch (_) {}
-    try { sessionStorage.clear(); } catch (_) {}
-    try {
-      if (window.indexedDB && typeof indexedDB.databases === 'function') {
-        const dbs = await indexedDB.databases();
-        await Promise.all((dbs || []).map((d) => (d && d.name)
-          ? new Promise((res) => {
-              let done = false; const fin = () => { if (!done) { done = true; res(); } };
-              const req = indexedDB.deleteDatabase(d.name);
-              req.onsuccess = fin; req.onerror = fin; req.onblocked = fin;
-              setTimeout(fin, 500); // never hang the reset on a blocked delete
-            })
-          : Promise.resolve()));
-      }
-    } catch (_) {}
-  }).catch(() => {});
+  await page
+    .evaluate(async () => {
+      try {
+        if (typeof window.__reproitReset === 'function') await window.__reproitReset();
+      } catch (_) {}
+      try {
+        localStorage.clear();
+      } catch (_) {}
+      try {
+        sessionStorage.clear();
+      } catch (_) {}
+      try {
+        if (window.indexedDB && typeof indexedDB.databases === 'function') {
+          const dbs = await indexedDB.databases();
+          await Promise.all(
+            (dbs || []).map((d) =>
+              d && d.name
+                ? new Promise((res) => {
+                    let done = false;
+                    const fin = () => {
+                      if (!done) {
+                        done = true;
+                        res();
+                      }
+                    };
+                    const req = indexedDB.deleteDatabase(d.name);
+                    req.onsuccess = fin;
+                    req.onerror = fin;
+                    req.onblocked = fin;
+                    setTimeout(fin, 500); // never hang the reset on a blocked delete
+                  })
+                : Promise.resolve(),
+            ),
+          );
+        }
+      } catch (_) {}
+    })
+    .catch(() => {});
 }
 
 // shared by markAnchors/churnedAnchors; inlined into each (page.evaluate
@@ -307,9 +384,13 @@ function markAnchors(sel) {
     if (!visible(el)) continue;
     const r = el.getBoundingClientRect();
     anchors.push({
-      key: keyOf(el), node: el,
+      key: keyOf(el),
+      node: el,
       text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256),
-      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+      x: Math.round(r.x),
+      y: Math.round(r.y),
+      w: Math.round(r.width),
+      h: Math.round(r.height),
     });
   }
   window.__reproitAnchors = anchors;
@@ -320,7 +401,10 @@ function markAnchors(sel) {
 function churnedAnchors(sel) {
   const old = window.__reproitAnchors;
   // No mark, or the document was replaced (navigation): not a flicker candidate.
-  if (!old || window.__reproitAnchorDoc !== document) { window.__reproitAnchors = null; return null; }
+  if (!old || window.__reproitAnchorDoc !== document) {
+    window.__reproitAnchors = null;
+    return null;
+  }
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
@@ -340,19 +424,24 @@ function churnedAnchors(sel) {
   for (const el of document.querySelectorAll(sel)) {
     if (!visible(el)) continue;
     const k = keyOf(el);
-    if (cur.has(k)) { dup.add(k); continue; }
+    if (cur.has(k)) {
+      dup.add(k);
+      continue;
+    }
     cur.set(k, el);
   }
   const churned = [];
   for (const a of old) {
-    if (dup.has(a.key)) continue;        // ambiguous key -> skip
+    if (dup.has(a.key)) continue; // ambiguous key -> skip
     const now = cur.get(a.key);
-    if (!now) continue;                  // gone in the new state -> a real removal, not flicker
-    if (now === a.node) continue;        // same node survived -> reconciled, no churn (good)
+    if (!now) continue; // gone in the new state -> a real removal, not flicker
+    if (now === a.node) continue; // same node survived -> reconciled, no churn (good)
     const r = now.getBoundingClientRect();
     const sameBox =
-      Math.round(r.x) === a.x && Math.round(r.y) === a.y &&
-      Math.round(r.width) === a.w && Math.round(r.height) === a.h;
+      Math.round(r.x) === a.x &&
+      Math.round(r.y) === a.y &&
+      Math.round(r.width) === a.w &&
+      Math.round(r.height) === a.h;
     const sameText = (now.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256) === a.text;
     if (sameBox && sameText) churned.push(a.key); // unchanged yet rebuilt = flicker
   }
@@ -395,7 +484,8 @@ function detectContentBugs(injectedValues) {
     const n = String(text || '').toLowerCase();
     if (!n) return false;
     // Direct: the whole label is fuzzer-provenanced (either containment direction).
-    if (injected.some((v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1))) return true;
+    if (injected.some((v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1)))
+      return true;
     // Fragmented: when the browser PARSES a reflected probe (e.g.
     // `"><img src=x onerror=alert(1)>{{7*7}}`), the `<img>` markup is stripped from
     // the visible text, leaving a fragment that is not a contiguous substring of the
@@ -403,8 +493,10 @@ function detectContentBugs(injectedValues) {
     // finding -- a `{{...}}`/`${...}` binding, or the object-coercion literal -- for
     // fuzzer provenance (the probe that produced them was typed by us).
     const arts = [];
-    const tm = n.match(/\{\{[^}]*\}\}/g); if (tm) arts.push(...tm);
-    const dm = n.match(/\$\{[^}]*\}/g); if (dm) arts.push(...dm);
+    const tm = n.match(/\{\{[^}]*\}\}/g);
+    if (tm) arts.push(...tm);
+    const dm = n.match(/\$\{[^}]*\}/g);
+    if (dm) arts.push(...dm);
     if (n.indexOf('[object object]') !== -1) arts.push('[object object]');
     return arts.some((a) => injected.some((v) => v.indexOf(a) !== -1));
   };
@@ -456,14 +548,21 @@ function detectContentBugs(injectedValues) {
   const reasonOf = (text) => {
     if (!text) return null;
     if (text.includes('[object Object]')) {
-      const s = text.replace(/\[object Object\]/g, ' ').replace(/\s+/g, ' ').trim();
+      const s = text
+        .replace(/\[object Object\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       if (dominates(s)) return 'object-object';
       // else prose mention -- fall through to the template check below.
     }
     // An unrendered template placeholder: a `{{ expr }}` or `${ expr }` survived
     // into the DOM (the binding engine never evaluated it), gated by the prose guard.
     if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) {
-      const s = text.replace(/\{\{[^}]*\}\}/g, ' ').replace(/\$\{[^}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+      const s = text
+        .replace(/\{\{[^}]*\}\}/g, ' ')
+        .replace(/\$\{[^}]*\}/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       if (dominates(s)) return 'unrendered-template';
     }
     return null;
@@ -497,7 +596,9 @@ function detectContentBugs(injectedValues) {
     out.push({ key, reason, text: text.slice(0, 80) });
   }
   // Stable order: by key then reason, so the marker is byte-identical run to run.
-  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  out.sort((a, b) =>
+    a.key < b.key ? -1 : a.key > b.key ? 1 : a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0,
+  );
   return out;
 }
 
@@ -533,25 +634,31 @@ const JANK_LAYOUT_FLOOR = 50;
 // Long Tasks API (firefox/webkit) simply records nothing, so jank/hang are a
 // chromium-tier signal (stated honestly), never a false positive elsewhere.
 async function installLongTaskObserver(page) {
-  await page.addInitScript(() => {
-    try {
-      window.__reproitLongTasks = [];
-      const obs = new PerformanceObserver((list) => {
-        for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
-      });
-      obs.observe({ entryTypes: ['longtask'] });
-    } catch (_) { /* no Long Tasks API: jank/hang silent on this engine */ }
-  }).catch(() => {});
+  await page
+    .addInitScript(() => {
+      try {
+        window.__reproitLongTasks = [];
+        const obs = new PerformanceObserver((list) => {
+          for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
+        });
+        obs.observe({ entryTypes: ['longtask'] });
+      } catch (_) {
+        /* no Long Tasks API: jank/hang silent on this engine */
+      }
+    })
+    .catch(() => {});
 }
 // Drain the longtask buffer and return the classification for the action that
 // just ran, or null when nothing crossed the jank floor. `kind` is 'hang' or
 // 'jank'; `bucket` is the coarse blocked-time floor (deterministic detail).
 async function drainJank(page) {
-  const tasks = await page.evaluate(() => {
-    const t = window.__reproitLongTasks || [];
-    window.__reproitLongTasks = [];
-    return t;
-  }).catch(() => []);
+  const tasks = await page
+    .evaluate(() => {
+      const t = window.__reproitLongTasks || [];
+      window.__reproitLongTasks = [];
+      return t;
+    })
+    .catch(() => []);
   if (!tasks || !tasks.length) return null;
   const max = Math.max(...tasks);
   if (max >= HANG_FLOOR_MS) {
@@ -569,9 +676,14 @@ async function readLayoutCounters(cdp) {
   if (!cdp) return null;
   try {
     const { metrics } = await cdp.send('Performance.getMetrics');
-    const g = (n) => { const m = metrics.find((x) => x.name === n); return m ? m.value : 0; };
+    const g = (n) => {
+      const m = metrics.find((x) => x.name === n);
+      return m ? m.value : 0;
+    };
     return { layout: g('LayoutCount'), recalc: g('RecalcStyleCount') };
-  } catch (_) { return null; }
+  } catch (_) {
+    return null;
+  }
 }
 // Classify the deterministic layout-thrash signal from two counter snapshots
 // taken TIGHTLY around the action (before the tap, and right after it returns --
@@ -614,9 +726,10 @@ function layoutThrash(before, after) {
 // one stall regardless of how rAF chopped it, so the detail is reproducible even
 // though the raw intervals are not. The fixtures (600ms / 3500ms) sit far from
 // the floors, so the verdict is discrete and a same-seed replay reproduces it.
-const RAF_FRAME_MS = 100;       // an inter-frame interval this long is a "long frame"
-const RAF_JANK_RUN_MIN = 2;     // a sustained jank run needs >= this many long frames
-const RAF_JANK_LONE_MS = 350;   // a single frame this long is jank on its own (> GC noise, < the 600ms fixture)
+const RAF_FRAME_MS = 100; // an inter-frame interval this long is a "long frame"
+const RAF_JANK_RUN_MIN = 2; // a sustained jank run needs >= this many long frames
+// One frame this long is jank on its own (> GC noise, < the 600ms fixture).
+const RAF_JANK_LONE_MS = 350;
 
 // Pure classifier over a list of inter-frame intervals (ms). Deterministic: the
 // SAME interval list always yields the same verdict. Exported for unit tests.
@@ -636,7 +749,10 @@ function classifyFrameIntervals(intervals) {
   let i = 0;
   const n = intervals.length;
   while (i < n) {
-    if (intervals[i] < RAF_FRAME_MS) { i++; continue; }
+    if (intervals[i] < RAF_FRAME_MS) {
+      i++;
+      continue;
+    }
     let j = i;
     let total = 0;
     let peak = 0;
@@ -661,33 +777,39 @@ function classifyFrameIntervals(intervals) {
 // Works in all three engines (rAF is universal), so it is the cross-engine
 // jank/hang path. Cheap (one timestamp per frame) and side-effect-free.
 async function installFrameObserver(page) {
-  await page.addInitScript(() => {
-    try {
-      window.__reproitFrameIntervals = [];
-      let last = -1;
-      const tick = (now) => {
-        if (last >= 0) {
-          const d = now - last;
-          // Cap the buffer so a long idle stretch cannot grow it unbounded; the
-          // per-action window is short, so this never trims a real stall.
-          const buf = window.__reproitFrameIntervals;
-          if (buf.length < 4096) buf.push(Math.round(d));
-        }
-        last = now;
+  await page
+    .addInitScript(() => {
+      try {
+        window.__reproitFrameIntervals = [];
+        let last = -1;
+        const tick = (now) => {
+          if (last >= 0) {
+            const d = now - last;
+            // Cap the buffer so a long idle stretch cannot grow it unbounded; the
+            // per-action window is short, so this never trims a real stall.
+            const buf = window.__reproitFrameIntervals;
+            if (buf.length < 4096) buf.push(Math.round(d));
+          }
+          last = now;
+          requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    } catch (_) { /* no rAF: cross-engine jank/hang silent (never a false positive) */ }
-  }).catch(() => {});
+      } catch (_) {
+        /* no rAF: cross-engine jank/hang silent (never a false positive) */
+      }
+    })
+    .catch(() => {});
 }
 // Drain the rAF interval buffer and classify it. Returns the SAME shape as
 // drainJank ({ kind, bucket, count }) or null. The cross-engine path.
 async function drainFrameJank(page) {
-  const intervals = await page.evaluate(() => {
-    const t = window.__reproitFrameIntervals || [];
-    window.__reproitFrameIntervals = [];
-    return t;
-  }).catch(() => []);
+  const intervals = await page
+    .evaluate(() => {
+      const t = window.__reproitFrameIntervals || [];
+      window.__reproitFrameIntervals = [];
+      return t;
+    })
+    .catch(() => []);
   return classifyFrameIntervals(intervals);
 }
 // Per-action jank/hang verdict, engine-aware. On chromium we keep the PRECISE
@@ -727,15 +849,26 @@ async function sampleHeap(page, cdp, tMs) {
       await cdp.send('HeapProfiler.collectGarbage').catch(() => {});
       const r = await cdp.send('Runtime.getHeapUsage');
       if (r && typeof r.usedSize === 'number') used = Math.round(r.usedSize);
-    } catch (_) { used = null; }
+    } catch (_) {
+      used = null;
+    }
   }
   if (used == null) return;
   // DETERMINISTIC leak signal alongside the bytes: the live DOM element count.
   // Heap bytes are allocator/machine-dependent, but the node count over identical
   // cycles is an integer that reproduces on any runner, so monotonic node growth
   // is a machine-invariant leak verdict. Counted AFTER the forced GC above.
-  const domNodes = await page.evaluate(() => document.getElementsByTagName('*').length).catch(() => null);
-  log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used, ...(domNodes != null ? { dom_nodes: domNodes } : {}) }));
+  const domNodes = await page
+    .evaluate(() => document.getElementsByTagName('*').length)
+    .catch(() => null);
+  log(
+    'MEMORY:SAMPLE ' +
+      JSON.stringify({
+        t_ms: tMs,
+        heap_used: used,
+        ...(domNodes != null ? { dom_nodes: domNodes } : {}),
+      }),
+  );
 }
 
 const ACTION_BUDGET = 36;
@@ -759,10 +892,17 @@ const VALUE_CLASS_CAP = 8;
 // so value-state is strictly opt-in.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
-  if (!p) { const def = resolve(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
+  if (!p) {
+    const def = resolve(process.cwd(), 'reproit.yaml');
+    if (existsSync(def)) p = def;
+  }
   if (!p || !existsSync(p)) return [];
   let text = '';
-  try { text = readFileSync(p, 'utf8'); } catch { return []; }
+  try {
+    text = readFileSync(p, 'utf8');
+  } catch {
+    return [];
+  }
   return parseValueNodes(text);
 }
 // Extract the `value_nodes:` list items from a YAML document. Supports the two
@@ -774,8 +914,10 @@ function parseValueNodes(text) {
   const out = [];
   const clean = (s) => {
     let v = s.trim();
-    const h = v.indexOf('#'); if (h >= 0) v = v.slice(0, h).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    const h = v.indexOf('#');
+    if (h >= 0) v = v.slice(0, h).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
+      v = v.slice(1, -1);
     return v.trim();
   };
   for (let i = 0; i < lines.length; i++) {
@@ -786,7 +928,10 @@ function parseValueNodes(text) {
     if (inline.startsWith('[')) {
       // inline flow sequence: value_nodes: [a, b, c]
       const body = inline.replace(/^\[/, '').replace(/\].*$/, '');
-      for (const part of body.split(',')) { const v = clean(part); if (v) out.push(v); }
+      for (const part of body.split(',')) {
+        const v = clean(part);
+        if (v) out.push(v);
+      }
       return out;
     }
     // block sequence: subsequent more-indented `- item` lines.
@@ -887,17 +1032,32 @@ function log(line) {
 }
 
 const SECRET_FIELD_NAMES = [
-  'password', 'passwd', 'secret', 'token', 'authorization', 'cookie', 'email', 'phone',
-  'apikey', 'publishablekey', 'privatekey', 'accesskey', 'signingkey', 'idempotencykey',
+  'password',
+  'passwd',
+  'secret',
+  'token',
+  'authorization',
+  'cookie',
+  'email',
+  'phone',
+  'apikey',
+  'publishablekey',
+  'privatekey',
+  'accesskey',
+  'signingkey',
+  'idempotencykey',
 ];
 function secretFieldName(name) {
-  const canonical = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const canonical = String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
   return SECRET_FIELD_NAMES.some((part) => canonical.includes(part));
 }
 function redactedMetadata(value) {
   let type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
   if (type === 'object') type = 'object';
-  const length = type === 'string' ? [...value].length : type === 'array' ? value.length : undefined;
+  const length =
+    type === 'string' ? [...value].length : type === 'array' ? value.length : undefined;
   return { $reproit: { redacted: true, type, ...(length == null ? {} : { length }) } };
 }
 function isRedactedMetadata(value) {
@@ -911,9 +1071,7 @@ export function redactNetworkValue(value) {
     const out = {};
     for (const key of Object.keys(value).sort()) {
       const child = value[key];
-      out[key] = secretFieldName(key)
-        ? redactedMetadata(child)
-        : redactNetworkValue(child);
+      out[key] = secretFieldName(key) ? redactedMetadata(child) : redactNetworkValue(child);
     }
     return out;
   }
@@ -922,16 +1080,23 @@ export function redactNetworkValue(value) {
 export function redactNetworkHeaders(headers) {
   const out = {};
   for (const key of Object.keys(headers || {}).sort()) {
-    out[key] = key.toLowerCase() === 'x-reproit-events'
-      ? '<reproit:backend-events>'
-      : secretFieldName(key) ? '<reproit:secret>' : String(headers[key]);
+    out[key] =
+      key.toLowerCase() === 'x-reproit-events'
+        ? '<reproit:backend-events>'
+        : secretFieldName(key)
+          ? '<reproit:secret>'
+          : String(headers[key]);
   }
   return out;
 }
 export function parseNetworkBody(raw, contentType = '') {
   if (raw == null || raw === '') return undefined;
   if (/json/i.test(contentType)) {
-    try { return redactNetworkValue(JSON.parse(raw)); } catch (_) { return '<reproit:invalid-json>'; }
+    try {
+      return redactNetworkValue(JSON.parse(raw));
+    } catch (_) {
+      return '<reproit:invalid-json>';
+    }
   }
   // Persist structure, not arbitrary production content. Exact binary/text
   // bodies require an explicit future project policy and capability.
@@ -944,24 +1109,43 @@ export function responseShape(value) {
     return `[${shapes.join('|')}]`;
   }
   if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${key}:${responseShape(value[key])}`).join(',')}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${key}:${responseShape(value[key])}`)
+      .join(',')}}`;
   }
   if (value === null) return 'null';
   return typeof value;
 }
 function appendNetworkFact(fact) {
   if (!NETWORK_FILE) return;
-  try { appendFileSync(NETWORK_FILE, JSON.stringify(fact) + '\n', { encoding: 'utf8', mode: 0o600 }); } catch (_) {}
+  try {
+    appendFileSync(NETWORK_FILE, JSON.stringify(fact) + '\n', { encoding: 'utf8', mode: 0o600 });
+  } catch (_) {}
 }
 
-export function backendCorrelationHeaders(url, actionIndex, ordinal, trustedOrigins = APP_ORIGIN, actor = NETWORK_ACTOR) {
+export function backendCorrelationHeaders(
+  url,
+  actionIndex,
+  ordinal,
+  trustedOrigins = APP_ORIGIN,
+  actor = NETWORK_ACTOR,
+) {
   let origin;
-  try { origin = new URL(url).origin; } catch (_) { return null; }
-  const allowed = trustedOrigins instanceof Set
-    ? trustedOrigins
-    : new Set(Array.isArray(trustedOrigins) ? trustedOrigins : [trustedOrigins]);
+  try {
+    origin = new URL(url).origin;
+  } catch (_) {
+    return null;
+  }
+  const allowed =
+    trustedOrigins instanceof Set
+      ? trustedOrigins
+      : new Set(Array.isArray(trustedOrigins) ? trustedOrigins : [trustedOrigins]);
   if (!allowed.has(origin)) return null;
-  const safeActor = String(actor).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 32) || 'a';
+  const safeActor =
+    String(actor)
+      .replace(/[^A-Za-z0-9_.-]/g, '')
+      .slice(0, 32) || 'a';
   const traceId = `rpt-${safeActor}-${Math.max(0, actionIndex)}-${Math.max(0, ordinal)}`;
   return {
     'x-reproit-trace': traceId,
@@ -977,17 +1161,31 @@ export function decodeBackendEventHeader(encoded, expectedTrace, actionIndex, ac
   try {
     const value = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
     if (!Array.isArray(value) || value.length > 256) return [];
-    return value.filter((event) => event && typeof event === 'object' &&
-      Number.isSafeInteger(event.sequence) && event.sequence >= 0 &&
-      typeof event.traceId === 'string' && event.traceId === expectedTrace &&
-      typeof event.spanId === 'string' && event.spanId.length > 0 && event.spanId.length <= 128 &&
-      typeof event.operation === 'string' && event.operation.length > 0 && event.operation.length <= 256 &&
-      ['start', 'return', 'effect'].includes(event.kind))
+    return value
+      .filter(
+        (event) =>
+          event &&
+          typeof event === 'object' &&
+          Number.isSafeInteger(event.sequence) &&
+          event.sequence >= 0 &&
+          typeof event.traceId === 'string' &&
+          event.traceId === expectedTrace &&
+          typeof event.spanId === 'string' &&
+          event.spanId.length > 0 &&
+          event.spanId.length <= 128 &&
+          typeof event.operation === 'string' &&
+          event.operation.length > 0 &&
+          event.operation.length <= 256 &&
+          ['start', 'return', 'effect'].includes(event.kind),
+      )
       .map((event) => {
         const rawIdentity = event.idempotencyKey == null ? undefined : String(event.idempotencyKey);
-        const identity = rawIdentity == null ? undefined :
-          /^sha256:[0-9a-f]{24}$/i.test(rawIdentity) ? rawIdentity.toLowerCase() :
-            `sha256:${createHash('sha256').update(rawIdentity).digest('hex').slice(0, 24)}`;
+        const identity =
+          rawIdentity == null
+            ? undefined
+            : /^sha256:[0-9a-f]{24}$/i.test(rawIdentity)
+              ? rawIdentity.toLowerCase()
+              : `sha256:${createHash('sha256').update(rawIdentity).digest('hex').slice(0, 24)}`;
         const safe = redactNetworkValue({
           ...event,
           actionIndex: Math.max(0, Number(actionIndex) || 0),
@@ -996,7 +1194,9 @@ export function decodeBackendEventHeader(encoded, expectedTrace, actionIndex, ac
         if (identity) safe.idempotencyKey = identity;
         return safe;
       });
-  } catch (_) { return []; }
+  } catch (_) {
+    return [];
+  }
 }
 
 export function encodeBackendEventHeader(events) {
@@ -1007,15 +1207,19 @@ export function encodeBackendEventHeader(events) {
 
 export async function installBackendCorrelation(context, enabled = BACKEND_ENABLED, options = {}) {
   if (!enabled) return;
-  const trustedOrigins = options.trustedOrigins ||
-    (options.appOrigin ? new Set([options.appOrigin]) : BACKEND_ORIGINS);
+  const trustedOrigins =
+    options.trustedOrigins || (options.appOrigin ? new Set([options.appOrigin]) : BACKEND_ORIGINS);
   const actor = options.actor || NETWORK_ACTOR;
   const currentAction = options.actionIndex || (() => causalActionIndex);
   await context.route('**/*', async (route) => {
     const req = route.request();
     if (!['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) return route.fallback();
     const correlation = backendCorrelationHeaders(
-      req.url(), currentAction(), backendRequestOrdinal++, trustedOrigins, actor,
+      req.url(),
+      currentAction(),
+      backendRequestOrdinal++,
+      trustedOrigins,
+      actor,
     );
     if (!correlation) return route.fallback();
     return route.fallback({ headers: { ...req.headers(), ...correlation } });
@@ -1025,26 +1229,36 @@ export async function installBackendCorrelation(context, enabled = BACKEND_ENABL
 function canonicalNetworkUrl(raw) {
   try {
     const u = new URL(raw);
-    const pairs = [...u.searchParams.entries()].sort(([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv));
+    const pairs = [...u.searchParams.entries()].sort(
+      ([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv),
+    );
     u.search = '';
     for (const [k, v] of pairs) u.searchParams.append(k, v);
     return u.toString();
-  } catch (_) { return String(raw); }
+  } catch (_) {
+    return String(raw);
+  }
 }
 
 export async function installCapsuleReplay(context, path = process.env.REPROIT_CAPSULE) {
   if (!path) return;
   const capsule = JSON.parse(readFileSync(path, 'utf8'));
-  const exchanges = (capsule.exchanges || []).filter((e) => e.required && /^(https?|sse)$/.test(e.protocol));
+  const exchanges = (capsule.exchanges || []).filter(
+    (e) => e.required && /^(https?|sse)$/.test(e.protocol),
+  );
   const used = new Set();
   await context.route('**/*', async (route) => {
     const req = route.request();
     if (!['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) return route.continue();
     const actionIndex = Math.max(causalActionIndex, 0);
     const wantedUrl = canonicalNetworkUrl(req.url());
-    const idx = exchanges.findIndex((e, i) =>
-      !used.has(i) && e.actor === NETWORK_ACTOR && e.actionIndex === actionIndex &&
-      String(e.method).toUpperCase() === req.method().toUpperCase() && canonicalNetworkUrl(e.url) === wantedUrl
+    const idx = exchanges.findIndex(
+      (e, i) =>
+        !used.has(i) &&
+        e.actor === NETWORK_ACTOR &&
+        e.actionIndex === actionIndex &&
+        String(e.method).toUpperCase() === req.method().toUpperCase() &&
+        canonicalNetworkUrl(e.url) === wantedUrl,
     );
     if (idx < 0) {
       log(`CAPSULE:MISS ${req.method()} ${req.url()} action=${actionIndex}`);
@@ -1056,7 +1270,8 @@ export async function installCapsuleReplay(context, path = process.env.REPROIT_C
     let body = '';
     if (e.responseBody !== undefined) {
       body = typeof e.responseBody === 'string' ? e.responseBody : JSON.stringify(e.responseBody);
-      if (typeof e.responseBody !== 'string' && !headers['content-type']) headers['content-type'] = 'application/json';
+      if (typeof e.responseBody !== 'string' && !headers['content-type'])
+        headers['content-type'] = 'application/json';
     }
     log(`CAPSULE:HIT ${e.id}`);
     return route.fulfill({ status: e.status, headers, body });
@@ -1065,9 +1280,16 @@ export async function installCapsuleReplay(context, path = process.env.REPROIT_C
 }
 
 function websocketFrameValue(message) {
-  if (typeof message !== 'string') return { supported: false, value: `<reproit:body:length=${message.length}>` };
-  try { return { supported: true, value: redactNetworkValue(JSON.parse(message)) }; }
-  catch (_) { return { supported: false, value: `<reproit:body:length=${Buffer.byteLength(message, 'utf8')}>` }; }
+  if (typeof message !== 'string')
+    return { supported: false, value: `<reproit:body:length=${message.length}>` };
+  try {
+    return { supported: true, value: redactNetworkValue(JSON.parse(message)) };
+  } catch (_) {
+    return {
+      supported: false,
+      value: `<reproit:body:length=${Buffer.byteLength(message, 'utf8')}>`,
+    };
+  }
 }
 
 function websocketReplayFrame(value) {
@@ -1086,11 +1308,17 @@ export async function installWebSocketCausal(context, path = process.env.REPROIT
   await context.routeWebSocket(/.*/, (socket) => {
     const url = socket.url();
     if (path) {
-      const next = () => replay
-        .map((exchange, index) => ({ exchange, index }))
-        .filter(({ exchange, index }) => !used.has(index) && exchange.actor === NETWORK_ACTOR &&
-          exchange.actionIndex === causalActionIndex && canonicalNetworkUrl(exchange.url) === canonicalNetworkUrl(url))
-        .sort((a, b) => a.exchange.ordinal - b.exchange.ordinal)[0];
+      const next = () =>
+        replay
+          .map((exchange, index) => ({ exchange, index }))
+          .filter(
+            ({ exchange, index }) =>
+              !used.has(index) &&
+              exchange.actor === NETWORK_ACTOR &&
+              exchange.actionIndex === causalActionIndex &&
+              canonicalNetworkUrl(exchange.url) === canonicalNetworkUrl(url),
+          )
+          .sort((a, b) => a.exchange.ordinal - b.exchange.ordinal)[0];
       const deliver = () => {
         for (;;) {
           const item = next();
@@ -1104,8 +1332,11 @@ export async function installWebSocketCausal(context, path = process.env.REPROIT
       socket.onMessage((message) => {
         const frame = websocketFrameValue(message);
         const item = next();
-        if (!item || item.exchange.method !== 'SEND' ||
-            JSON.stringify(item.exchange.requestBody) !== JSON.stringify(frame.value)) {
+        if (
+          !item ||
+          item.exchange.method !== 'SEND' ||
+          JSON.stringify(item.exchange.requestBody) !== JSON.stringify(frame.value)
+        ) {
           log(`CAPSULE:MISS WS SEND ${url} action=${causalActionIndex}`);
           socket.close({ code: 1008, reason: 'reproit capsule miss' });
           return;
@@ -1121,17 +1352,29 @@ export async function installWebSocketCausal(context, path = process.env.REPROIT
     const capture = (method, message, forward) => {
       const frame = websocketFrameValue(message);
       if (!frame.supported) {
-        log('REPROIT:CAPABILITIES {"websocket":{"status":"unsupported","detail":"non-JSON frame cannot be safely persisted"},"websocket_replay":{"status":"unsupported","detail":"non-JSON frame cannot be safely persisted"}}');
+        log(
+          'REPROIT:CAPABILITIES {"websocket":{"status":"unsupported","detail":' +
+            '"non-JSON frame cannot be safely persisted"},"websocket_replay":' +
+            '{"status":"unsupported","detail":"non-JSON frame cannot be safely ' +
+            'persisted"}}',
+        );
         forward(message);
         return;
       }
       const ordinal = causalOrdinal++;
       appendNetworkFact({
-        id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`, actor: NETWORK_ACTOR,
-        actionIndex: causalActionIndex, ordinal,
-        protocol: new URL(url).protocol.replace(':', ''), method, url,
-        requestHeaders: {}, requestBody: method === 'SEND' ? frame.value : undefined,
-        status: 101, responseHeaders: {}, responseBody: method === 'RECV' ? frame.value : undefined,
+        id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`,
+        actor: NETWORK_ACTOR,
+        actionIndex: causalActionIndex,
+        ordinal,
+        protocol: new URL(url).protocol.replace(':', ''),
+        method,
+        url,
+        requestHeaders: {},
+        requestBody: method === 'SEND' ? frame.value : undefined,
+        status: 101,
+        responseHeaders: {},
+        responseBody: method === 'RECV' ? frame.value : undefined,
         required: true,
       });
       forward(message);
@@ -1139,17 +1382,28 @@ export async function installWebSocketCausal(context, path = process.env.REPROIT
     socket.onMessage((message) => capture('SEND', message, (value) => server.send(value)));
     server.onMessage((message) => capture('RECV', message, (value) => socket.send(value)));
   });
-  log('REPROIT:CAPABILITIES {"websocket":{"status":"captured"},"websocket_replay":{"status":"captured"},"sse":{"status":"captured"},"sse_replay":{"status":"captured"}}');
+  log(
+    'REPROIT:CAPABILITIES {"websocket":{"status":"captured"},' +
+      '"websocket_replay":{"status":"captured"},"sse":{"status":"captured"},' +
+      '"sse_replay":{"status":"captured"}}',
+  );
 }
 
 export function redactSse(raw) {
   let supported = true;
-  const body = String(raw).split(/(\r?\n)/).map((line) => {
-    if (!line.startsWith('data:')) return line;
-    const prefix = line.match(/^data:\s*/)[0];
-    try { return prefix + JSON.stringify(redactNetworkValue(JSON.parse(line.slice(prefix.length)))); }
-    catch (_) { supported = false; return 'data:<reproit:unsupported-non-json>'; }
-  }).join('');
+  const body = String(raw)
+    .split(/(\r?\n)/)
+    .map((line) => {
+      if (!line.startsWith('data:')) return line;
+      const prefix = line.match(/^data:\s*/)[0];
+      try {
+        return prefix + JSON.stringify(redactNetworkValue(JSON.parse(line.slice(prefix.length))));
+      } catch (_) {
+        supported = false;
+        return 'data:<reproit:unsupported-non-json>';
+      }
+    })
+    .join('');
   return { body, supported };
 }
 
@@ -1165,7 +1419,9 @@ async function shoot(page, name) {
     try {
       mkdirSync(dir, { recursive: true });
       await page.screenshot({ path: join(dir, name + '.png'), fullPage: false });
-    } catch (e) { /* capture is best-effort; still emit the marker below */ }
+    } catch (e) {
+      /* capture is best-effort; still emit the marker below */
+    }
   }
   log('SHOOT:' + name);
 }
@@ -1173,7 +1429,11 @@ async function shoot(page, name) {
 function loadFuzz() {
   const p = process.env.REPROIT_FUZZ_CONFIG;
   if (!p) return {};
-  try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; }
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 // The list of per-seed fuzz configs to run in this session. Mirrors the other
@@ -1195,7 +1455,9 @@ function loadBatch() {
 
 const FUZZ_CONFIGURED = !!process.env.REPROIT_FUZZ_CONFIG;
 
-function edgeKey(sig, action) { return sig + '|' + action; }
+function edgeKey(sig, action) {
+  return sig + '|' + action;
+}
 function rememberActions(actionsByState, sig, actions) {
   const known = actionsByState.get(sig) || [];
   for (const action of actions) if (!known.includes(action)) known.push(action);
@@ -1208,7 +1470,8 @@ function firstUntriedAction(actionsByState, tried, sig) {
   return null;
 }
 function hasFrontier(actionsByState, tried) {
-  for (const sig of actionsByState.keys()) if (firstUntriedAction(actionsByState, tried, sig)) return true;
+  for (const sig of actionsByState.keys())
+    if (firstUntriedAction(actionsByState, tried, sig)) return true;
   return false;
 }
 function rememberEdge(graph, from, action, to) {
@@ -1235,11 +1498,13 @@ function pathToFrontier(graph, actionsByState, tried, start) {
 
 // xorshift32, identical to explorer.dart so seeds mean the same thing.
 function rng(seed) {
-  let s = (seed >>> 0) || 1;
+  let s = seed >>> 0 || 1;
   return (n) => {
-    s ^= (s << 13); s >>>= 0;
-    s ^= (s >> 17);
-    s ^= (s << 5); s >>>= 0;
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5;
+    s >>>= 0;
     return (s & 0x7fffffff) % n;
   };
 }
@@ -1270,7 +1535,9 @@ function reproitCmpUtf8(a, b) {
   const ab = REPROIT_UTF8.encode(a);
   const bb = REPROIT_UTF8.encode(b);
   const n = Math.min(ab.length, bb.length);
-  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  for (let i = 0; i < n; i++) {
+    if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1;
+  }
   return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
@@ -1283,9 +1550,26 @@ function reproitCmpUtf8(a, b) {
 //  page context and feeds it here in Node.
 // ====================================================================
 const ROLES = {
-  screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-  icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-  slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+  screen: 1,
+  header: 1,
+  text: 1,
+  button: 1,
+  link: 1,
+  textfield: 1,
+  image: 1,
+  icon: 1,
+  list: 1,
+  listitem: 1,
+  tab: 1,
+  switch: 1,
+  checkbox: 1,
+  radio: 1,
+  slider: 1,
+  menu: 1,
+  menuitem: 1,
+  dialog: 1,
+  group: 1,
+  node: 1,
 };
 const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1 };
 // Value-role set (docs/signature.md "Value-state", Layer 2). A node is value-
@@ -1294,10 +1578,22 @@ const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, toolti
 // timer/output are NOT in the structural vocabulary so they normalize to "node"
 // in the body; the value-role test uses the RAW role on purpose. Chrome roles
 // (button/header/text/link) are NEVER value-bearing (rule 1 preserved).
-const VALUE_ROLES = { textfield: 1, status: 1, log: 1, progressbar: 1, meter: 1, timer: 1, output: 1 };
+const VALUE_ROLES = {
+  textfield: 1,
+  status: 1,
+  log: 1,
+  progressbar: 1,
+  meter: 1,
+  timer: 1,
+  output: 1,
+};
 
-function normalizeRole(role) { return ROLES[role] ? role : 'node'; }
-function isTransientNode(node) { return !!node.transient || !!TRANSIENT_ROLES[node.role]; }
+function normalizeRole(role) {
+  return ROLES[role] ? role : 'node';
+}
+function isTransientNode(node) {
+  return !!node.transient || !!TRANSIENT_ROLES[node.role];
+}
 function isValueBearing(node) {
   return node.value != null && (!!VALUE_ROLES[node.role] || !!node.value_node);
 }
@@ -1306,7 +1602,10 @@ function normalizeNode(node) {
   if (isTransientNode(node)) return null;
   const kids = [];
   const children = node.children || [];
-  for (const c of children) { const n = normalizeNode(c); if (n) kids.push(n); }
+  for (const c of children) {
+    const n = normalizeNode(c);
+    if (n) kids.push(n);
+  }
   return {
     role: normalizeRole(node.role),
     type: node.type != null ? node.type : null,
@@ -1342,7 +1641,7 @@ function serializeChildren(children, depth, tokens) {
     const key = subtreeKey(children[i]);
     let j = i + 1;
     while (j < children.length && subtreeKey(children[j]) === key) j++;
-    serializeNode(children[i], depth, (j - i) >= 2, tokens);
+    serializeNode(children[i], depth, j - i >= 2, tokens);
     i = j;
   }
 }
@@ -1350,13 +1649,15 @@ function serializeChildren(children, depth, tokens) {
 // Strict ^[+-]?[0-9]+(\.[0-9]+)?$: optional sign, >=1 ASCII digits, optional
 // period + >=1 ASCII digits. No grouping, no exponent, no leading/trailing dot.
 function isStrictDecimal(s) {
-  let i = 0; const n = s.length;
+  let i = 0;
+  const n = s.length;
   if (i < n && (s.charCodeAt(i) === 43 || s.charCodeAt(i) === 45)) i++;
   const intStart = i;
   while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
   if (i === intStart) return false;
   if (i < n && s.charCodeAt(i) === 46) {
-    i++; const fracStart = i;
+    i++;
+    const fracStart = i;
     while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
     if (i === fracStart) return false;
   }
@@ -1417,7 +1718,9 @@ function descriptorOf(anchor, root) {
   if (norm) serializeNode(norm, 0, false, tokens);
   return 'A:' + (anchor == null ? '' : anchor) + '\n' + tokens.join(';') + valueSection(root);
 }
-function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
+function signatureOf(anchor, root) {
+  return fnv1a(descriptorOf(anchor, root));
+}
 
 // BROKEN-ROUTE ground-truth predicates (shared so the same rule is used by the
 // runner and by its unit tests). A route is DEAD only when the resource is
@@ -1425,14 +1728,21 @@ function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
 // semantics -- a CDN answering HEAD 501 while GET is 200 was a false positive),
 // 3xx (redirect), 401/403/429 (auth / rate limit), or 5xx (a transient server
 // error is not a broken LINK).
-function isDeadRouteStatus(s) { return s === 404 || s === 410; }
+function isDeadRouteStatus(s) {
+  return s === 404 || s === 410;
+}
 // Source for the non-app asset/download extensions the end-of-crawl probe must
 // NOT fetch: archives, installers, media, fonts, and static web assets. NOTE:
 // .html / .htm are deliberately NOT here -- they are navigable pages (a real 404
 // on `pages/examples/invoice.html` must still fire). A 404 on an actual asset is a
 // broken-asset concern, not a broken-route.
-const ASSET_EXT_SOURCE = '\\.(zip|pdf|dmg|exe|msi|pkg|deb|rpm|apk|tar|gz|tgz|bz2|xz|7z|rar|iso|mp4|mp3|wav|mov|avi|mkv|webm|png|jpe?g|gif|svg|webp|avif|ico|bmp|css|js|mjs|cjs|map|wasm|woff2?|ttf|otf|eot|xml|csv|txt|rss|atom)$';
-function isAssetPath(pathname) { return new RegExp(ASSET_EXT_SOURCE, 'i').test(pathname || ''); }
+const ASSET_EXT_SOURCE =
+  '\\.(zip|pdf|dmg|exe|msi|pkg|deb|rpm|apk|tar|gz|tgz|bz2|xz|7z|rar|iso|mp' +
+  '4|mp3|wav|mov|avi|mkv|webm|png|jpe?g|gif|svg|webp|avif|ico|bmp|css|js|' +
+  'mjs|cjs|map|wasm|woff2?|ttf|otf|eot|xml|csv|txt|rss|atom)$';
+function isAssetPath(pathname) {
+  return new RegExp(ASSET_EXT_SOURCE, 'i').test(pathname || '');
+}
 
 // In-page collector of same-origin APP link targets for the end-of-crawl
 // broken-route probe (self-contained so it can be passed to page.evaluate and
@@ -1451,7 +1761,7 @@ function isAssetPath(pathname) { return new RegExp(ASSET_EXT_SOURCE, 'i').test(p
 function collectRouteLinks(assetExtSrc) {
   const out = [];
   const ASSET_EXT = new RegExp(assetExtSrc, 'i');
-  const norm = (p) => (p.length > 1 ? (p.replace(/\/+$/, '') || '/') : p);
+  const norm = (p) => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p);
   const relTokens = (a) => (a.getAttribute('rel') || '').toLowerCase().split(/\s+/);
   for (const a of document.querySelectorAll('a[href]')) {
     try {
@@ -1460,7 +1770,11 @@ function collectRouteLinks(assetExtSrc) {
       if (rel.includes('nofollow') || rel.includes('external')) continue;
       const rawHref = a.getAttribute('href') || '';
       if (/^(javascript:|mailto:|tel:|#)/i.test(rawHref.trim())) continue;
-      if (a.closest('form') && (a.getAttribute('type') === 'submit' || a.hasAttribute('data-submit'))) continue;
+      if (
+        a.closest('form') &&
+        (a.getAttribute('type') === 'submit' || a.hasAttribute('data-submit'))
+      )
+        continue;
       const u = new URL(a.href);
       if (u.origin !== location.origin || !u.pathname) continue;
       if (ASSET_EXT.test(u.pathname)) continue;
@@ -1478,14 +1792,20 @@ function collectRouteLinks(assetExtSrc) {
 function soft404View() {
   const body = document.body;
   if (!body) return { controls: 0, mountFilled: false, notFound: false };
-  const mount = document.querySelector('#root,#app,#__next,#__nuxt,[data-reactroot],main,[role=main]');
+  const mount = document.querySelector(
+    '#root,#app,#__next,#__nuxt,[data-reactroot],main,[role=main]',
+  );
   const mountFilled = !!(mount && mount.querySelectorAll('*').length > 12);
   const controls = document.querySelectorAll(
-    'a[href],button,[role=button],input,select,textarea,[role=tab],[role=menuitem]'
+    'a[href],button,[role=button],input,select,textarea,[role=tab],' + '[role=menuitem]',
   ).length;
-  const heads = Array.from(document.querySelectorAll('h1,h2,[role=heading]'))
-    .map((h) => (h.textContent || '').trim().toLowerCase());
-  const notFound = heads.some((t) => t.length < 60 && /(^|\b)(404|not found|page not found|doesn'?t exist|no such page)\b/.test(t));
+  const heads = Array.from(document.querySelectorAll('h1,h2,[role=heading]')).map((h) =>
+    (h.textContent || '').trim().toLowerCase(),
+  );
+  const notFound = heads.some(
+    (t) =>
+      t.length < 60 && /(^|\b)(404|not found|page not found|doesn'?t exist|no such page)\b/.test(t),
+  );
   return { controls, mountFilled, notFound };
 }
 // Host-side decision from the soft404View signals: true == the app served a real
@@ -1494,7 +1814,30 @@ function isSoftHandled(view) {
   return !!(view && view.mountFilled && view.controls >= 8 && !view.notFound);
 }
 
-export { signatureOf, descriptorOf, valueClass, snapshot, gtCollect, gtTabOrder, detectContentBugs, typeInto, loadInputs, inputValueFor, classifyFrameIntervals, drawFindingBoxes, tap, isDeadRouteStatus, isAssetPath, ASSET_EXT_SOURCE, collectRouteLinks, soft404View, isSoftHandled, settleForSignature, normalizePathname, detectBotWall };
+export {
+  signatureOf,
+  descriptorOf,
+  valueClass,
+  snapshot,
+  gtCollect,
+  gtTabOrder,
+  detectContentBugs,
+  typeInto,
+  loadInputs,
+  inputValueFor,
+  classifyFrameIntervals,
+  drawFindingBoxes,
+  tap,
+  isDeadRouteStatus,
+  isAssetPath,
+  ASSET_EXT_SOURCE,
+  collectRouteLinks,
+  soft404View,
+  isSoftHandled,
+  settleForSignature,
+  normalizePathname,
+  detectBotWall,
+};
 
 // Snapshot the DOM: a STRUCTURAL, locale-invariant signature plus display-only
 // labels and the structural selectors for each tappable. Mirrors
@@ -1514,527 +1857,663 @@ export { signatureOf, descriptorOf, valueClass, snapshot, gtCollect, gtTabOrder,
 // authored CSS and ARIA in the page, but never enter a state hash or saved replay.
 
 async function snapshot(page, valueNodeSelectors) {
-  const snap = await page.evaluate(async ({ maxLen, valueNodeSelectors }) => {
-    const labels = [];          // DISPLAY-ONLY visible text
-    const rawTaps = [];         // tappable nodes in document order
-    const extraTaps = [];       // keyed pointer-operable nodes interactive() drops
-    // Positional selectors live in a viewport-independent index space. The
-    // production SDK records role indexes across every style-visible control,
-    // including controls reached after scrolling. Keep that same index here
-    // while still offering only currently reachable controls to the fuzzer.
-    const visiblePerRole = {};
-    // Parent registry: a stable per-container index so sibling tappables can be
-    // grouped (a button-cluster choice picker). Plus a selected-state read, so a
-    // mutually-exclusive choice group (exactly one selected) is distinguishable
-    // from a row of action buttons (none selected). Used by detectChoiceGroups.
-    const parentReg = new Map(); let parentIdx = 0;
-    const groupOf = (el) => {
-      const par = el.parentElement; if (!par) return -1;
-      if (!parentReg.has(par)) parentReg.set(par, parentIdx++);
-      return parentReg.get(par);
-    };
-    // Owning-container id for a choice option: the CLOSEST ARIA choice container
-    // (tablist / radiogroup / menu(bar)) or a <fieldset>, registered to a stable
-    // id in DOM order. This scopes the choice-anomaly oracle per component so two
-    // INDEPENDENT tablists/radiogroups on one page are not compared as one (which
-    // produced false outliers). A radio with no container still groups by its
-    // `name`. null when nothing owns it (the oracle then falls back to bare role).
-    const choiceReg = new Map();
-    let choiceIdx = 0;
-    const choiceContainerOf = (el) => {
-      const cont = el.closest && el.closest(
-        '[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset'
-      );
-      if (cont) {
-        if (!choiceReg.has(cont)) choiceReg.set(cont, 'c' + choiceIdx++);
-        return choiceReg.get(cont);
-      }
-      const tag = el.tagName ? el.tagName.toLowerCase() : '';
-      if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') {
-        const nm = el.getAttribute('name');
-        if (nm) return 'name:' + nm;
-      }
-      return null;
-    };
-    const selectedState = (el) => {
-      const a = (n) => (el.getAttribute(n) || '').toLowerCase();
-      if (a('aria-pressed') === 'true' || a('aria-selected') === 'true') return true;
-      if (a('aria-checked') === 'true' || el.getAttribute('aria-current') != null) return true;
-      const ds = a('data-state'); if (['active', 'selected', 'on', 'checked', 'open'].includes(ds)) return true;
-      return false;
-    };
-    const textNodes = [];       // (stable-key, trimmed text) for the Layer-1 fingerprint
-
-    // Fixed canonical role vocabulary (docs/signature.md "Roles").
-    const ROLES = {
-      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-    };
-    const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1 };
-
-    // DOM -> canonical role, from tag + aria role + input type, NEVER text.
-    const roleOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (ariaRole) {
-        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-        if (ariaRole === 'heading') return 'header';
-        if (ariaRole === 'img') return 'image';
-        if (ariaRole === 'switch') return 'switch';
-        if (ariaRole === 'link') return 'link';
-        if (ariaRole === 'button') return 'button';
-        if (ROLES[ariaRole]) return ariaRole;
-      }
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (t === 'checkbox') return 'checkbox';
-        if (t === 'radio') return 'radio';
-        if (t === 'range') return 'slider';
-        if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-        return 'textfield';
-      }
-      if (tag === 'textarea' || tag === 'select') return 'textfield';
-      if (tag === 'a') return 'link';
-      if (tag === 'button') return 'button';
-      if (tag === 'img' || tag === 'svg') return 'image';
-      if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-      if (tag === 'ul' || tag === 'ol') return 'list';
-      if (tag === 'li') return 'listitem';
-      if (tag === 'dialog') return 'dialog';
-      if (tag === 'nav' || tag === 'menu') return 'menu';
-      return 'node';
-    };
-
-    // Optional input type refinement (textfield only).
-    const typeOf = (el, role) => {
-      if (role !== 'textfield') return null;
-      if (el.tagName.toLowerCase() !== 'input') return null;
-      const t = (el.getAttribute('type') || 'text').toLowerCase();
-      const allowed = { text: 1, password: 1, email: 1, number: 1, search: 1 };
-      return allowed[t] ? t : 'text';
-    };
-
-    // Language-independent icon identity: svg <use> href / data-icon. No text.
-    const iconOf = (el) => {
-      const di = el.getAttribute('data-icon') || el.getAttribute('data-icon-name');
-      if (di && di.trim()) return di.trim();
-      const use = el.querySelector ? el.querySelector('use[href], use[xlink\\:href]') : null;
-      if (use) {
-        const href = use.getAttribute('href') || use.getAttribute('xlink:href');
-        if (href && href.trim()) return href.trim().replace(/^#/, '');
-      }
-      return null;
-    };
-
-    // Stable author contract: data-testid > name (for the descriptor token).
-    const idOf = (el) => {
-      const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
-      if (testid && testid.trim()) return testid.trim();
-      const name = el.getAttribute('name');
-      if (name && name.trim()) return name.trim();
-      return null;
-    };
-
-    // Selector KEY (for replay): kind-tagged so tap() can resolve it. Same
-    // Raw DOM ids are intentionally skipped: their lifetime is not knowable from
-    // one capture, so they cannot support a deterministic saved replay.
-    const keyOf = (el) => {
-      const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
-      if (testid && testid.trim()) return 'testid:' + testid.trim();
-      const name = el.getAttribute('name');
-      if (name && name.trim()) return 'name:' + name.trim();
-      return null;
-    };
-
-    // Elements running an INFINITE animation (a spinner/pulse/marquee that never
-    // settles), computed ONCE per snapshot from a single document.getAnimations()
-    // call. A per-node el.getAnimations() made every snapshot O(nodes) on a large
-    // DOM (a code editor renders thousands of line nodes) and dominated the crawl;
-    // this precompute + Set lookup is O(animations).
-    const infiniteAnimEls = new Set();
-    try {
-      const all = document.getAnimations ? document.getAnimations() : [];
-      for (const a of all) {
-        if (a.playState !== 'running') continue;
-        const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
-        if (t && t.iterations === Infinity && a.effect && a.effect.target) infiniteAnimEls.add(a.effect.target);
-      }
-    } catch (_) {}
-
-    // Transient heuristic: role / aria-live / class flag a flickering node.
-    const isTransientEl = (el) => {
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (TRANSIENT_ROLES[ariaRole]) return true;
-      if (ariaRole === 'alert' || ariaRole === 'status') return true;
-      const live = (el.getAttribute('aria-live') || '').toLowerCase();
-      if (live === 'assertive' || live === 'polite') return true;
-      const cls = (el.getAttribute('class') || '').toLowerCase();
-      if (/\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test(cls)) return true;
-      if (el.hasAttribute('data-transient')) return true;
-      // A node mid-INFINITE-animation samples a different frame every capture, so
-      // two renders of the same page diverge on it: exclude it. Finite animations
-      // are already settled by settleForSignature before a parity capture.
-      if (infiniteAnimEls.has(el)) return true;
-      return false;
-    };
-
-    // RAW value-role (docs/signature.md "Value-state"): the value-role name for
-    // a value-bearing DOM element, NEVER from text. role=status/log/progressbar/
-    // meter/timer pass through; <output>/role=output -> output; an aria-live
-    // region (polite/assertive) -> status (so a live counter is value-bearing
-    // WITHOUT opt-in); text form fields -> textfield. null for chrome / non-text
-    // inputs (password is never read).
-    const valueRoleOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      const ar = (el.getAttribute('role') || '').toLowerCase();
-      if (ar === 'status' || ar === 'log' || ar === 'progressbar' || ar === 'meter' || ar === 'timer') return ar;
-      if (tag === 'output' || ar === 'output') return 'output';
-      const live = (el.getAttribute('aria-live') || '').toLowerCase();
-      if (live === 'polite' || live === 'assertive') return 'status';
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image', 'hidden', 'file', 'password'].includes(t)) return null;
-        return 'textfield';
-      }
-      if (tag === 'textarea' || tag === 'select') return 'textfield';
-      if (ar === 'textbox' || ar === 'searchbox' || ar === 'combobox') return 'textfield';
-      return null;
-    };
-    // The displayed value: the field .value for form controls, else trimmed
-    // textContent for output/status/live nodes.
-    const valueOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return el.value != null ? String(el.value) : '';
-      return (el.textContent != null ? el.textContent : '').trim();
-    };
-    // Layer-3 opt-in: does this element match one of the value_nodes selectors?
-    // key:<id> | role:<role>#<idx> | raw CSS. Same grammar as reproit.yaml.
-    const selList = valueNodeSelectors || [];
-    const matchesValueNode = (el) => {
-      for (const sel of selList) {
-        if (!sel) continue;
-        if (sel.indexOf('key:') === 0) {
-          const id = sel.slice(4);
-          const got = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') ||
-            el.getAttribute('id') || el.getAttribute('name') || '').trim();
-          if (id && got === id) return true;
-        } else if (sel.indexOf('role:') === 0) {
-          const hash = sel.indexOf('#');
-          if (hash < 0) continue;
-          const role = sel.slice(5, hash);
-          const idx = parseInt(sel.slice(hash + 1), 10);
-          if (!(idx >= 0)) continue;
-          let seen = -1, target = null;
-          const root = document.body || document.documentElement;
-          (function walk(node) {
-            if (target || !node) return;
-            if (roleOf(node) === role) { seen++; if (seen === idx) { target = node; return; } }
-            for (const c of node.children) walk(c);
-          })(root);
-          if (target === el) return true;
-        } else {
-          try { if (el.matches && el.matches(sel)) return true; } catch (e) {}
+  const snap = await page.evaluate(
+    async ({ maxLen, valueNodeSelectors }) => {
+      const labels = []; // DISPLAY-ONLY visible text
+      const rawTaps = []; // tappable nodes in document order
+      const extraTaps = []; // keyed pointer-operable nodes interactive() drops
+      // Positional selectors live in a viewport-independent index space. The
+      // production SDK records role indexes across every style-visible control,
+      // including controls reached after scrolling. Keep that same index here
+      // while still offering only currently reachable controls to the fuzzer.
+      const visiblePerRole = {};
+      // Parent registry: a stable per-container index so sibling tappables can be
+      // grouped (a button-cluster choice picker). Plus a selected-state read, so a
+      // mutually-exclusive choice group (exactly one selected) is distinguishable
+      // from a row of action buttons (none selected). Used by detectChoiceGroups.
+      const parentReg = new Map();
+      let parentIdx = 0;
+      const groupOf = (el) => {
+        const par = el.parentElement;
+        if (!par) return -1;
+        if (!parentReg.has(par)) parentReg.set(par, parentIdx++);
+        return parentReg.get(par);
+      };
+      // Owning-container id for a choice option: the CLOSEST ARIA choice container
+      // (tablist / radiogroup / menu(bar)) or a <fieldset>, registered to a stable
+      // id in DOM order. This scopes the choice-anomaly oracle per component so two
+      // INDEPENDENT tablists/radiogroups on one page are not compared as one (which
+      // produced false outliers). A radio with no container still groups by its
+      // `name`. null when nothing owns it (the oracle then falls back to bare role).
+      const choiceReg = new Map();
+      let choiceIdx = 0;
+      const choiceContainerOf = (el) => {
+        const cont =
+          el.closest &&
+          el.closest('[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset');
+        if (cont) {
+          if (!choiceReg.has(cont)) choiceReg.set(cont, 'c' + choiceIdx++);
+          return choiceReg.get(cont);
         }
-      }
-      return false;
-    };
-
-    const interactive = (el, role) => {
-      const tag = el.tagName.toLowerCase();
-      if (['a', 'button', 'select'].includes(tag)) return true;
-      // Text fields ARE actionable: the explorer drives them with a "type"
-      // action. Without this, form-gated apps (login, search, TodoMVC new-todo)
-      // map to a single dead state because their only control is undrivable.
-      if (tag === 'input' || tag === 'textarea') return true;
-      if (role === 'textfield') return true;
-      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
-      if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-      return false;
-    };
-
-    // A link that navigates OFF the app-under-test's origin (a team member's
-    // LinkedIn, a "View on GitHub" footer). Tapping it leaves the app, so the
-    // explorer must not offer it as an action: the destination is a foreign
-    // site, not a state of the app, and recording it produces phantom states +
-    // spurious dead ends. mailto:/tel:/javascript: are not external navigation.
-    const isExternalLink = (el) => {
-      const a = el.closest && el.closest('a[href]');
-      if (!a) return false;
-      let href;
-      try { href = new URL(a.getAttribute('href'), location.href); } catch (e) { return false; }
-      if (href.protocol !== 'http:' && href.protocol !== 'https:') return false;
-      return href.origin !== location.origin;
-    };
-
-    const nameOf = (el) => {
-      const aria = el.getAttribute('aria-label');
-      if (aria && aria.trim()) return aria.trim();
-      const title = el.getAttribute('title');
-      if (title && title.trim()) return title.trim();
-      const alt = el.getAttribute('alt');
-      if (alt && alt.trim()) return alt.trim();
-      const text = (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
-      return text;
-    };
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
-      const st = getComputedStyle(el);
-      return st.visibility !== 'hidden' && st.display !== 'none';
-    };
-    // REACHABLE: a real user can hit this element. Style-visible is NOT enough,
-    // an offstage control (positioned outside the viewport) or one fully occluded
-    // by another element is style-visible but un-tappable. The floor test is the
-    // SAME hit-test used by the framebuffer probe (runFramebufferProbe ~L1052):
-    // the element's center must lie inside the viewport AND a hit-test there must
-    // resolve to the element or a descendant (so a button whose deepest painted
-    // node is an inner <span> still counts). Used to gate tap candidacy AND the
-    // role+index assignment so an unreachable control is neither offered as an
-    // action nor given an index a replay could resolve to.
-    const reachable = (el) => {
-      if (!visible(el)) return false;
-      const r = el.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const vw = window.innerWidth || document.documentElement.clientWidth;
-      const vh = window.innerHeight || document.documentElement.clientHeight;
-      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
-      const hit = document.elementFromPoint(cx, cy);
-      if (!hit) return false;
-      return hit === el || el.contains(hit);
-    };
-    const boundsOf = (el) => {
-      try {
-        const r = el.getBoundingClientRect();
-        if (!r || r.width <= 0 || r.height <= 0) return null;
-        return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
-      } catch (_) {
+        const tag = el.tagName ? el.tagName.toLowerCase() : '';
+        if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') {
+          const nm = el.getAttribute('name');
+          if (nm) return 'name:' + nm;
+        }
         return null;
-      }
-    };
-    // Pointer-operable but OUTSIDE interactive()'s tappable grammar: a control a
-    // pointer user can drive (cursor:pointer, or an ARIA-interactive role /
-    // focusable tabindex delegation marker) that interactive() does not take.
-    // The operability ground truth (EXPLORE:GROUNDTRUTH) already counts these as
-    // operable; mirroring that predicate here lets the explorer actually TAP
-    // them, so an SPA built from delegated-click <div role=option> elements no
-    // longer maps to a single state. Kept deliberately conservative (and the
-    // caller adds ONLY keyed elements) so it expands coverage without flooding
-    // the candidate set with decorative cursor:pointer chrome.
-    const ARIA_OPERABLE = {
-      button: 1, link: 1, checkbox: 1, radio: 1, switch: 1, tab: 1,
-      menuitem: 1, menuitemcheckbox: 1, menuitemradio: 1, option: 1, slider: 1,
-    };
-    const pointerOperable = (el) => {
-      // cursor:pointer is INHERITED, so only count an element that INTRODUCES it
-      // (its parent is not already pointer), matching the ground-truth guard so a
-      // clickable parent does not paint every descendant as a candidate.
-      const parentCursor = el.parentElement ? getComputedStyle(el.parentElement).cursor : '';
-      if (getComputedStyle(el).cursor === 'pointer' && parentCursor !== 'pointer') return true;
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (ARIA_OPERABLE[ariaRole]) return true;
-      const ti = el.getAttribute('tabindex');
-      if (ti !== null && parseInt(ti, 10) >= 0) return true;
-      return false;
-    };
-    const fnvLbl = (name) => {
-      let h = 0x811c9dc5;
-      for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-      return (h >>> 0).toString(16).padStart(8, '0');
-    };
-    const clipLabel = (name) => {
-      if (name.length <= maxLen) return name;
-      const suffix = '#' + fnvLbl(name);
-      return name.slice(0, maxLen - suffix.length) + suffix;
-    };
+      };
+      const selectedState = (el) => {
+        const a = (n) => (el.getAttribute(n) || '').toLowerCase();
+        if (a('aria-pressed') === 'true' || a('aria-selected') === 'true') return true;
+        if (a('aria-checked') === 'true' || el.getAttribute('aria-current') != null) return true;
+        const ds = a('data-state');
+        if (['active', 'selected', 'on', 'checked', 'open'].includes(ds)) return true;
+        return false;
+      };
+      const textNodes = []; // (stable-key, trimmed text) for the Layer-1 fingerprint
 
-    // Build the canonical Node tree (role + id + type + icon + children). The
-    // root is the screen; invisible wrappers are skipped but their visible
-    // descendants are hoisted; transient subtrees carry transient:true so the
-    // host-side normalizer drops them. We also collect labels + tappables for
-    // the display/elements list along the way.
-    const buildNode = (el, isRoot) => {
-      const role = isRoot ? 'screen' : roleOf(el);
-      // Value-state (Layer 2): a value-role element (by tag/aria), an aria-live
-      // region, or a Layer-3 opt-in node is value-bearing. Value-bearing WINS
-      // over the transient heuristic, so a role=status / aria-live counter that
-      // the transient heuristic would otherwise drop is kept as a value node and
-      // its keypresses produce DISTINCT value-states.
-      const vrole = !isRoot ? valueRoleOf(el) : null;
-      const optIn = !isRoot && matchesValueNode(el);
-      const valueBearing = !isRoot && (!!vrole || optIn);
-      const transient = !isRoot && !valueBearing && isTransientEl(el);
-      const node = { role: role };
-      const id = idOf(el); if (id != null) node.id = id;
-      const type = typeOf(el, role); if (type != null) node.type = type;
-      const icon = iconOf(el); if (icon != null) node.icon = icon;
-      if (valueBearing) {
-        node.value = valueOf(el);
-        // The flag makes the canonical is_value_bearing accept the node even
-        // when roleOf normalized its raw value-role (status/output/...) to node.
-        node.value_node = true;
-        // Layer-1 content fingerprint: a value node's stable key + its raw value.
-        const fkey = id != null ? 'key:' + id : 'vrole:' + (vrole || 'opt');
-        textNodes.push([fkey, node.value]);
-      }
-      if (transient) { node.transient = true; node.children = []; return node; }
+      // Fixed canonical role vocabulary (docs/signature.md "Roles").
+      const ROLES = {
+        screen: 1,
+        header: 1,
+        text: 1,
+        button: 1,
+        link: 1,
+        textfield: 1,
+        image: 1,
+        icon: 1,
+        list: 1,
+        listitem: 1,
+        tab: 1,
+        switch: 1,
+        checkbox: 1,
+        radio: 1,
+        slider: 1,
+        menu: 1,
+        menuitem: 1,
+        dialog: 1,
+        group: 1,
+        node: 1,
+      };
+      const TRANSIENT_ROLES = {
+        toast: 1,
+        snackbar: 1,
+        spinner: 1,
+        progress: 1,
+        tooltip: 1,
+        badge: 1,
+      };
 
-      // Layer-1 content fingerprint over text-bearing nodes (runner-local, NOT
-      // canonical): any keyed element's own (non-child) trimmed text contributes
-      // (stable-key, text). This catches a display whose textContent changes
-      // without any structural move (a calculator/counter), so the action is seen
-      // as EFFECTIVE even when the value node itself was not detected as a
-      // value-role. The raw text never enters the canonical key.
-      if (!isRoot && id != null && !valueBearing) {
-        let own = '';
-        for (const c of el.childNodes) { if (c.nodeType === 3) own += c.textContent; }
-        own = own.trim();
-        if (own) textNodes.push(['text:' + id, own]);
-      }
-
-      // labels + tappables (display/elements list; never in the hash)
-      if (!isRoot) {
-        const name = nameOf(el);
-        if (name) labels.push(clipLabel(name));
-        // Tap candidacy requires REACHABILITY, not just interactivity: an
-        // offstage / occluded control is interactive in the DOM but a user can't
-        // reach it, so the explorer must not offer it as an action and ddmin must
-        // not be able to minimize a repro through it. Gating here means such a
-        // control also never consumes a role+index slot (the index is assigned
-        // from rawTaps below), so no replay selector can resolve to it.
-        const isInteractive = interactive(el, role);
-        let structuralIndex = -1;
-        if (isInteractive) {
-          structuralIndex = visiblePerRole[role] || 0;
-          visiblePerRole[role] = structuralIndex + 1;
+      // DOM -> canonical role, from tag + aria role + input type, NEVER text.
+      const roleOf = (el) => {
+        const tag = el.tagName.toLowerCase();
+        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+        if (ariaRole) {
+          if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+            return 'textfield';
+          if (ariaRole === 'heading') return 'header';
+          if (ariaRole === 'img') return 'image';
+          if (ariaRole === 'switch') return 'switch';
+          if (ariaRole === 'link') return 'link';
+          if (ariaRole === 'button') return 'button';
+          if (ROLES[ariaRole]) return ariaRole;
         }
-        if (isInteractive && reachable(el)) {
-          const ac = (el.getAttribute && el.getAttribute('autocomplete') || '').toLowerCase();
-          const it = (el.getAttribute && el.getAttribute('type') || '').toLowerCase();
-          const purpose = ac === 'one-time-code' ? 'otp'
-            : (ac === 'current-password' || ac === 'new-password' || it === 'password') ? 'password'
-            : ac === 'username' ? 'username'
-            : (ac === 'email' || it === 'email') ? 'email'
-            : (ac === 'tel' || ac === 'tel-national' || it === 'tel') ? 'phone'
-            : null;
-          rawTaps.push({
-            role, key: keyOf(el), index: structuralIndex,
-            label: name ? clipLabel(name) : '',
-            bounds: boundsOf(el),
-            external: isExternalLink(el),
-            grp: groupOf(el),
-            cgrp: choiceContainerOf(el),
-            selected: selectedState(el),
-            purpose,
-          });
-        } else if (reachable(el) && pointerOperable(el)) {
-          // Only KEYED extras: a stable `key:<id>` selector is reproducible and
-          // does NOT consume a role+index slot, so existing role:<role>#<idx>
-          // selectors and the canonical signature are untouched. A pointer-
-          // operable element with no stable id is exactly one a repro could not
-          // address anyway, so dropping it here loses nothing replayable.
-          const k = keyOf(el);
-          if (k) {
-            extraTaps.push({
-              role, key: k,
-              label: name ? clipLabel(name) : '',
-              bounds: boundsOf(el),
-            });
+        if (tag === 'input') {
+          const t = (el.getAttribute('type') || 'text').toLowerCase();
+          if (t === 'checkbox') return 'checkbox';
+          if (t === 'radio') return 'radio';
+          if (t === 'range') return 'slider';
+          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+          return 'textfield';
+        }
+        if (tag === 'textarea' || tag === 'select') return 'textfield';
+        if (tag === 'a') return 'link';
+        if (tag === 'button') return 'button';
+        if (tag === 'img' || tag === 'svg') return 'image';
+        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+        if (tag === 'ul' || tag === 'ol') return 'list';
+        if (tag === 'li') return 'listitem';
+        if (tag === 'dialog') return 'dialog';
+        if (tag === 'nav' || tag === 'menu') return 'menu';
+        return 'node';
+      };
+
+      // Optional input type refinement (textfield only).
+      const typeOf = (el, role) => {
+        if (role !== 'textfield') return null;
+        if (el.tagName.toLowerCase() !== 'input') return null;
+        const t = (el.getAttribute('type') || 'text').toLowerCase();
+        const allowed = { text: 1, password: 1, email: 1, number: 1, search: 1 };
+        return allowed[t] ? t : 'text';
+      };
+
+      // Language-independent icon identity: svg <use> href / data-icon. No text.
+      const iconOf = (el) => {
+        const di = el.getAttribute('data-icon') || el.getAttribute('data-icon-name');
+        if (di && di.trim()) return di.trim();
+        const use = el.querySelector ? el.querySelector('use[href], use[xlink\\:href]') : null;
+        if (use) {
+          const href = use.getAttribute('href') || use.getAttribute('xlink:href');
+          if (href && href.trim()) return href.trim().replace(/^#/, '');
+        }
+        return null;
+      };
+
+      // Stable author contract: data-testid > name (for the descriptor token).
+      const idOf = (el) => {
+        const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+        if (testid && testid.trim()) return testid.trim();
+        const name = el.getAttribute('name');
+        if (name && name.trim()) return name.trim();
+        return null;
+      };
+
+      // Selector KEY (for replay): kind-tagged so tap() can resolve it. Same
+      // Raw DOM ids are intentionally skipped: their lifetime is not knowable from
+      // one capture, so they cannot support a deterministic saved replay.
+      const keyOf = (el) => {
+        const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+        if (testid && testid.trim()) return 'testid:' + testid.trim();
+        const name = el.getAttribute('name');
+        if (name && name.trim()) return 'name:' + name.trim();
+        return null;
+      };
+
+      // Elements running an INFINITE animation (a spinner/pulse/marquee that never
+      // settles), computed ONCE per snapshot from a single document.getAnimations()
+      // call. A per-node el.getAnimations() made every snapshot O(nodes) on a large
+      // DOM (a code editor renders thousands of line nodes) and dominated the crawl;
+      // this precompute + Set lookup is O(animations).
+      const infiniteAnimEls = new Set();
+      try {
+        const all = document.getAnimations ? document.getAnimations() : [];
+        for (const a of all) {
+          if (a.playState !== 'running') continue;
+          const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+          if (t && t.iterations === Infinity && a.effect && a.effect.target)
+            infiniteAnimEls.add(a.effect.target);
+        }
+      } catch (_) {}
+
+      // Transient heuristic: role / aria-live / class flag a flickering node.
+      const isTransientEl = (el) => {
+        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+        if (TRANSIENT_ROLES[ariaRole]) return true;
+        if (ariaRole === 'alert' || ariaRole === 'status') return true;
+        const live = (el.getAttribute('aria-live') || '').toLowerCase();
+        if (live === 'assertive' || live === 'polite') return true;
+        const cls = (el.getAttribute('class') || '').toLowerCase();
+        if (/\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test(cls))
+          return true;
+        if (el.hasAttribute('data-transient')) return true;
+        // A node mid-INFINITE-animation samples a different frame every capture, so
+        // two renders of the same page diverge on it: exclude it. Finite animations
+        // are already settled by settleForSignature before a parity capture.
+        if (infiniteAnimEls.has(el)) return true;
+        return false;
+      };
+
+      // RAW value-role (docs/signature.md "Value-state"): the value-role name for
+      // a value-bearing DOM element, NEVER from text. role=status/log/progressbar/
+      // meter/timer pass through; <output>/role=output -> output; an aria-live
+      // region (polite/assertive) -> status (so a live counter is value-bearing
+      // WITHOUT opt-in); text form fields -> textfield. null for chrome / non-text
+      // inputs (password is never read).
+      const valueRoleOf = (el) => {
+        const tag = el.tagName.toLowerCase();
+        const ar = (el.getAttribute('role') || '').toLowerCase();
+        if (
+          ar === 'status' ||
+          ar === 'log' ||
+          ar === 'progressbar' ||
+          ar === 'meter' ||
+          ar === 'timer'
+        )
+          return ar;
+        if (tag === 'output' || ar === 'output') return 'output';
+        const live = (el.getAttribute('aria-live') || '').toLowerCase();
+        if (live === 'polite' || live === 'assertive') return 'status';
+        if (tag === 'input') {
+          const t = (el.getAttribute('type') || 'text').toLowerCase();
+          if (
+            [
+              'checkbox',
+              'radio',
+              'range',
+              'button',
+              'submit',
+              'reset',
+              'image',
+              'hidden',
+              'file',
+              'password',
+            ].includes(t)
+          )
+            return null;
+          return 'textfield';
+        }
+        if (tag === 'textarea' || tag === 'select') return 'textfield';
+        if (ar === 'textbox' || ar === 'searchbox' || ar === 'combobox') return 'textfield';
+        return null;
+      };
+      // The displayed value: the field .value for form controls, else trimmed
+      // textContent for output/status/live nodes.
+      const valueOf = (el) => {
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select')
+          return el.value != null ? String(el.value) : '';
+        return (el.textContent != null ? el.textContent : '').trim();
+      };
+      // Layer-3 opt-in: does this element match one of the value_nodes selectors?
+      // key:<id> | role:<role>#<idx> | raw CSS. Same grammar as reproit.yaml.
+      const selList = valueNodeSelectors || [];
+      const matchesValueNode = (el) => {
+        for (const sel of selList) {
+          if (!sel) continue;
+          if (sel.indexOf('key:') === 0) {
+            const id = sel.slice(4);
+            const got = (
+              el.getAttribute('data-testid') ||
+              el.getAttribute('data-test-id') ||
+              el.getAttribute('id') ||
+              el.getAttribute('name') ||
+              ''
+            ).trim();
+            if (id && got === id) return true;
+          } else if (sel.indexOf('role:') === 0) {
+            const hash = sel.indexOf('#');
+            if (hash < 0) continue;
+            const role = sel.slice(5, hash);
+            const idx = parseInt(sel.slice(hash + 1), 10);
+            if (!(idx >= 0)) continue;
+            let seen = -1,
+              target = null;
+            const root = document.body || document.documentElement;
+            (function walk(node) {
+              if (target || !node) return;
+              if (roleOf(node) === role) {
+                seen++;
+                if (seen === idx) {
+                  target = node;
+                  return;
+                }
+              }
+              for (const c of node.children) walk(c);
+            })(root);
+            if (target === el) return true;
+          } else {
+            try {
+              if (el.matches && el.matches(sel)) return true;
+            } catch (e) {}
           }
         }
+        return false;
+      };
+
+      const interactive = (el, role) => {
+        const tag = el.tagName.toLowerCase();
+        if (['a', 'button', 'select'].includes(tag)) return true;
+        // Text fields ARE actionable: the explorer drives them with a "type"
+        // action. Without this, form-gated apps (login, search, TodoMVC new-todo)
+        // map to a single dead state because their only control is undrivable.
+        if (tag === 'input' || tag === 'textarea') return true;
+        if (role === 'textfield') return true;
+        if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+          return true;
+        if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+        return false;
+      };
+
+      // A link that navigates OFF the app-under-test's origin (a team member's
+      // LinkedIn, a "View on GitHub" footer). Tapping it leaves the app, so the
+      // explorer must not offer it as an action: the destination is a foreign
+      // site, not a state of the app, and recording it produces phantom states +
+      // spurious dead ends. mailto:/tel:/javascript: are not external navigation.
+      const isExternalLink = (el) => {
+        const a = el.closest && el.closest('a[href]');
+        if (!a) return false;
+        let href;
+        try {
+          href = new URL(a.getAttribute('href'), location.href);
+        } catch (e) {
+          return false;
+        }
+        if (href.protocol !== 'http:' && href.protocol !== 'https:') return false;
+        return href.origin !== location.origin;
+      };
+
+      const nameOf = (el) => {
+        const aria = el.getAttribute('aria-label');
+        if (aria && aria.trim()) return aria.trim();
+        const title = el.getAttribute('title');
+        if (title && title.trim()) return title.trim();
+        const alt = el.getAttribute('alt');
+        if (alt && alt.trim()) return alt.trim();
+        const text = (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
+        return text;
+      };
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return false;
+        const st = getComputedStyle(el);
+        return st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      // REACHABLE: a real user can hit this element. Style-visible is NOT enough,
+      // an offstage control (positioned outside the viewport) or one fully occluded
+      // by another element is style-visible but un-tappable. The floor test is the
+      // SAME hit-test used by the framebuffer probe (runFramebufferProbe ~L1052):
+      // the element's center must lie inside the viewport AND a hit-test there must
+      // resolve to the element or a descendant (so a button whose deepest painted
+      // node is an inner <span> still counts). Used to gate tap candidacy AND the
+      // role+index assignment so an unreachable control is neither offered as an
+      // action nor given an index a replay could resolve to.
+      const reachable = (el) => {
+        if (!visible(el)) return false;
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const vw = window.innerWidth || document.documentElement.clientWidth;
+        const vh = window.innerHeight || document.documentElement.clientHeight;
+        if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+        const hit = document.elementFromPoint(cx, cy);
+        if (!hit) return false;
+        return hit === el || el.contains(hit);
+      };
+      const boundsOf = (el) => {
+        try {
+          const r = el.getBoundingClientRect();
+          if (!r || r.width <= 0 || r.height <= 0) return null;
+          return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+        } catch (_) {
+          return null;
+        }
+      };
+      // Pointer-operable but OUTSIDE interactive()'s tappable grammar: a control a
+      // pointer user can drive (cursor:pointer, or an ARIA-interactive role /
+      // focusable tabindex delegation marker) that interactive() does not take.
+      // The operability ground truth (EXPLORE:GROUNDTRUTH) already counts these as
+      // operable; mirroring that predicate here lets the explorer actually TAP
+      // them, so an SPA built from delegated-click <div role=option> elements no
+      // longer maps to a single state. Kept deliberately conservative (and the
+      // caller adds ONLY keyed elements) so it expands coverage without flooding
+      // the candidate set with decorative cursor:pointer chrome.
+      const ARIA_OPERABLE = {
+        button: 1,
+        link: 1,
+        checkbox: 1,
+        radio: 1,
+        switch: 1,
+        tab: 1,
+        menuitem: 1,
+        menuitemcheckbox: 1,
+        menuitemradio: 1,
+        option: 1,
+        slider: 1,
+      };
+      const pointerOperable = (el) => {
+        // cursor:pointer is INHERITED, so only count an element that INTRODUCES it
+        // (its parent is not already pointer), matching the ground-truth guard so a
+        // clickable parent does not paint every descendant as a candidate.
+        const parentCursor = el.parentElement ? getComputedStyle(el.parentElement).cursor : '';
+        if (getComputedStyle(el).cursor === 'pointer' && parentCursor !== 'pointer') return true;
+        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+        if (ARIA_OPERABLE[ariaRole]) return true;
+        const ti = el.getAttribute('tabindex');
+        if (ti !== null && parseInt(ti, 10) >= 0) return true;
+        return false;
+      };
+      const fnvLbl = (name) => {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < name.length; i++) {
+          h ^= name.charCodeAt(i);
+          h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return (h >>> 0).toString(16).padStart(8, '0');
+      };
+      const clipLabel = (name) => {
+        if (name.length <= maxLen) return name;
+        const suffix = '#' + fnvLbl(name);
+        return name.slice(0, maxLen - suffix.length) + suffix;
+      };
+
+      // Build the canonical Node tree (role + id + type + icon + children). The
+      // root is the screen; invisible wrappers are skipped but their visible
+      // descendants are hoisted; transient subtrees carry transient:true so the
+      // host-side normalizer drops them. We also collect labels + tappables for
+      // the display/elements list along the way.
+      const buildNode = (el, isRoot) => {
+        const role = isRoot ? 'screen' : roleOf(el);
+        // Value-state (Layer 2): a value-role element (by tag/aria), an aria-live
+        // region, or a Layer-3 opt-in node is value-bearing. Value-bearing WINS
+        // over the transient heuristic, so a role=status / aria-live counter that
+        // the transient heuristic would otherwise drop is kept as a value node and
+        // its keypresses produce DISTINCT value-states.
+        const vrole = !isRoot ? valueRoleOf(el) : null;
+        const optIn = !isRoot && matchesValueNode(el);
+        const valueBearing = !isRoot && (!!vrole || optIn);
+        const transient = !isRoot && !valueBearing && isTransientEl(el);
+        const node = { role: role };
+        const id = idOf(el);
+        if (id != null) node.id = id;
+        const type = typeOf(el, role);
+        if (type != null) node.type = type;
+        const icon = iconOf(el);
+        if (icon != null) node.icon = icon;
+        if (valueBearing) {
+          node.value = valueOf(el);
+          // The flag makes the canonical is_value_bearing accept the node even
+          // when roleOf normalized its raw value-role (status/output/...) to node.
+          node.value_node = true;
+          // Layer-1 content fingerprint: a value node's stable key + its raw value.
+          const fkey = id != null ? 'key:' + id : 'vrole:' + (vrole || 'opt');
+          textNodes.push([fkey, node.value]);
+        }
+        if (transient) {
+          node.transient = true;
+          node.children = [];
+          return node;
+        }
+
+        // Layer-1 content fingerprint over text-bearing nodes (runner-local, NOT
+        // canonical): any keyed element's own (non-child) trimmed text contributes
+        // (stable-key, text). This catches a display whose textContent changes
+        // without any structural move (a calculator/counter), so the action is seen
+        // as EFFECTIVE even when the value node itself was not detected as a
+        // value-role. The raw text never enters the canonical key.
+        if (!isRoot && id != null && !valueBearing) {
+          let own = '';
+          for (const c of el.childNodes) {
+            if (c.nodeType === 3) own += c.textContent;
+          }
+          own = own.trim();
+          if (own) textNodes.push(['text:' + id, own]);
+        }
+
+        // labels + tappables (display/elements list; never in the hash)
+        if (!isRoot) {
+          const name = nameOf(el);
+          if (name) labels.push(clipLabel(name));
+          // Tap candidacy requires REACHABILITY, not just interactivity: an
+          // offstage / occluded control is interactive in the DOM but a user can't
+          // reach it, so the explorer must not offer it as an action and ddmin must
+          // not be able to minimize a repro through it. Gating here means such a
+          // control also never consumes a role+index slot (the index is assigned
+          // from rawTaps below), so no replay selector can resolve to it.
+          const isInteractive = interactive(el, role);
+          let structuralIndex = -1;
+          if (isInteractive) {
+            structuralIndex = visiblePerRole[role] || 0;
+            visiblePerRole[role] = structuralIndex + 1;
+          }
+          if (isInteractive && reachable(el)) {
+            const ac = ((el.getAttribute && el.getAttribute('autocomplete')) || '').toLowerCase();
+            const it = ((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+            const purpose =
+              ac === 'one-time-code'
+                ? 'otp'
+                : ac === 'current-password' || ac === 'new-password' || it === 'password'
+                  ? 'password'
+                  : ac === 'username'
+                    ? 'username'
+                    : ac === 'email' || it === 'email'
+                      ? 'email'
+                      : ac === 'tel' || ac === 'tel-national' || it === 'tel'
+                        ? 'phone'
+                        : null;
+            rawTaps.push({
+              role,
+              key: keyOf(el),
+              index: structuralIndex,
+              label: name ? clipLabel(name) : '',
+              bounds: boundsOf(el),
+              external: isExternalLink(el),
+              grp: groupOf(el),
+              cgrp: choiceContainerOf(el),
+              selected: selectedState(el),
+              purpose,
+            });
+          } else if (reachable(el) && pointerOperable(el)) {
+            // Only KEYED extras: a stable `key:<id>` selector is reproducible and
+            // does NOT consume a role+index slot, so existing role:<role>#<idx>
+            // selectors and the canonical signature are untouched. A pointer-
+            // operable element with no stable id is exactly one a repro could not
+            // address anyway, so dropping it here loses nothing replayable.
+            const k = keyOf(el);
+            if (k) {
+              extraTaps.push({
+                role,
+                key: k,
+                label: name ? clipLabel(name) : '',
+                bounds: boundsOf(el),
+              });
+            }
+          }
+        }
+
+        node.children = [];
+        collectChildren(el, node.children);
+        return node;
+      };
+      const collectChildren = (el, out) => {
+        for (const child of el.children) {
+          if (!visible(child)) {
+            collectChildren(child, out);
+            continue;
+          }
+          out.push(buildNode(child, false));
+        }
+      };
+
+      const root = document.body || document.documentElement;
+      const tree = root ? buildNode(root, true) : { role: 'screen', children: [] };
+
+      // Structural selectors for replay (key, else viewport-independent role
+      // index). `index` was assigned across every style-visible interactive,
+      // while rawTaps contains only the subset a user can reach right now.
+      const tappables = rawTaps.map((tn) => {
+        const idx = tn.index;
+        const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
+        return {
+          sel,
+          role: tn.role,
+          index: idx,
+          key: tn.key,
+          label: tn.label,
+          bounds: tn.bounds || null,
+          external: !!tn.external,
+          grp: tn.grp,
+          cgrp: tn.cgrp != null ? tn.cgrp : null,
+          selected: !!tn.selected,
+          purpose: tn.purpose || null,
+        };
+      });
+      // Append the keyed pointer-operable extras (keyed selector only; no role
+      // index, so nothing above shifts). Dedup against selectors already present
+      // so an element can never appear twice in the candidate set.
+      const present = new Set(tappables.map((t) => t.sel));
+      for (const tn of extraTaps) {
+        const sel = 'key:' + tn.key;
+        if (present.has(sel)) continue;
+        present.add(sel);
+        tappables.push({
+          sel,
+          role: tn.role,
+          index: -1,
+          key: tn.key,
+          label: tn.label,
+          bounds: tn.bounds || null,
+        });
       }
 
-      node.children = [];
-      collectChildren(el, node.children);
-      return node;
-    };
-    const collectChildren = (el, out) => {
-      for (const child of el.children) {
-        if (!visible(child)) { collectChildren(child, out); continue; }
-        out.push(buildNode(child, false));
+      const texts = [];
+      const seenTextBoxes = new Set();
+      for (const el of Array.from(document.querySelectorAll('body *'))) {
+        if (!visible(el)) continue;
+        let text = '';
+        for (const c of el.childNodes) {
+          if (c.nodeType === 3) text += c.textContent || '';
+        }
+        text = text.replace(/\s+/g, ' ').trim();
+        if (!text) continue;
+        const bounds = boundsOf(el);
+        if (!bounds) continue;
+        const key = text + '|' + bounds.join(',');
+        if (seenTextBoxes.has(key)) continue;
+        seenTextBoxes.add(key);
+        texts.push({ text: clipLabel(text), bounds });
+        if (texts.length >= 48) break;
       }
-    };
 
-    const root = document.body || document.documentElement;
-    const tree = root ? buildNode(root, true) : { role: 'screen', children: [] };
+      // Anchor: route of the current screen = path + SPA hash route, but NOT the
+      // query string. Hash routers (the common SPA case) put the real route in
+      // location.hash (#/a vs #/b on one pathname), so the hash MUST be in the
+      // signature or distinct screens collapse into one state. The query string
+      // (location.search, plus any ?... embedded in the hash) is deliberately
+      // EXCLUDED: utm/session/token params are volatile and would explode the
+      // state space, and a screen that genuinely differs by query still differs
+      // structurally (the DOM tree), so it stays distinct on its own.
+      let anchor = null;
+      let path = null;
+      try {
+        if (location && location.pathname) {
+          let pth = location.pathname;
+          // Trailing-slash route normalization (mirrors host-side normalizePathname):
+          // /docs/ and /docs are the SAME screen, so a 301 that toggles the slash is
+          // not a distinct route (else the same screen double-counts / a benign
+          // redirect reads as a broken route).
+          if (pth.length > 1) pth = pth.replace(/\/+$/, '') || '/';
+          path = pth;
+          let hash = location.hash || '';
+          const q = hash.indexOf('?');
+          if (q >= 0) hash = hash.slice(0, q);
+          anchor = pth + hash;
+        }
+      } catch (e) {}
 
-    // Structural selectors for replay (key, else viewport-independent role
-    // index). `index` was assigned across every style-visible interactive,
-    // while rawTaps contains only the subset a user can reach right now.
-    const tappables = rawTaps.map((tn) => {
-      const idx = tn.index;
-      const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label, bounds: tn.bounds || null, external: !!tn.external, grp: tn.grp, cgrp: tn.cgrp != null ? tn.cgrp : null, selected: !!tn.selected, purpose: tn.purpose || null };
-    });
-    // Append the keyed pointer-operable extras (keyed selector only; no role
-    // index, so nothing above shifts). Dedup against selectors already present
-    // so an element can never appear twice in the candidate set.
-    const present = new Set(tappables.map((t) => t.sel));
-    for (const tn of extraTaps) {
-      const sel = 'key:' + tn.key;
-      if (present.has(sel)) continue;
-      present.add(sel);
-      tappables.push({ sel, role: tn.role, index: -1, key: tn.key, label: tn.label, bounds: tn.bounds || null });
-    }
+      // Layer-1 content fingerprint source: sorted (stable-key, trimmed text) over
+      // value + keyed-text nodes. Sorted here so it is order-independent.
+      textNodes.sort((a, b) =>
+        a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0,
+      );
 
-    const texts = [];
-    const seenTextBoxes = new Set();
-    for (const el of Array.from(document.querySelectorAll('body *'))) {
-      if (!visible(el)) continue;
-      let text = '';
-      for (const c of el.childNodes) {
-        if (c.nodeType === 3) text += c.textContent || '';
-      }
-      text = text.replace(/\s+/g, ' ').trim();
-      if (!text) continue;
-      const bounds = boundsOf(el);
-      if (!bounds) continue;
-      const key = text + '|' + bounds.join(',');
-      if (seenTextBoxes.has(key)) continue;
-      seenTextBoxes.add(key);
-      texts.push({ text: clipLabel(text), bounds });
-      if (texts.length >= 48) break;
-    }
-
-    // Anchor: route of the current screen = path + SPA hash route, but NOT the
-    // query string. Hash routers (the common SPA case) put the real route in
-    // location.hash (#/a vs #/b on one pathname), so the hash MUST be in the
-    // signature or distinct screens collapse into one state. The query string
-    // (location.search, plus any ?... embedded in the hash) is deliberately
-    // EXCLUDED: utm/session/token params are volatile and would explode the
-    // state space, and a screen that genuinely differs by query still differs
-    // structurally (the DOM tree), so it stays distinct on its own.
-    let anchor = null;
-    let path = null;
-    try {
-      if (location && location.pathname) {
-        let pth = location.pathname;
-        // Trailing-slash route normalization (mirrors host-side normalizePathname):
-        // /docs/ and /docs are the SAME screen, so a 301 that toggles the slash is
-        // not a distinct route (else the same screen double-counts / a benign
-        // redirect reads as a broken route).
-        if (pth.length > 1) pth = pth.replace(/\/+$/, '') || '/';
-        path = pth;
-        let hash = location.hash || '';
-        const q = hash.indexOf('?');
-        if (q >= 0) hash = hash.slice(0, q);
-        anchor = pth + hash;
-      }
-    } catch (e) {}
-
-    // Layer-1 content fingerprint source: sorted (stable-key, trimmed text) over
-    // value + keyed-text nodes. Sorted here so it is order-independent.
-    textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
-
-    // Return `tree` as a JSON STRING, not the live object. Playwright's evaluate
-    // serializer caps object-graph DEPTH (~100 nested refs) and throws "object
-    // reference chain is too long" on a deeply nested DOM (e.g. docs sites with
-    // many wrapper divs) -- which killed observe()/the whole crawl before any
-    // state-present oracle (choice-anomaly, overflow) could run. A string has no
-    // object graph, so it serializes regardless of DOM depth; parsed back below.
-    return { tree: JSON.stringify(tree), anchor, path, labels: [...new Set(labels)], tappables, texts, textNodes };
-  }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [] });
+      // Return `tree` as a JSON STRING, not the live object. Playwright's evaluate
+      // serializer caps object-graph DEPTH (~100 nested refs) and throws "object
+      // reference chain is too long" on a deeply nested DOM (e.g. docs sites with
+      // many wrapper divs) -- which killed observe()/the whole crawl before any
+      // state-present oracle (choice-anomaly, overflow) could run. A string has no
+      // object graph, so it serializes regardless of DOM depth; parsed back below.
+      return {
+        tree: JSON.stringify(tree),
+        anchor,
+        path,
+        labels: [...new Set(labels)],
+        tappables,
+        texts,
+        textNodes,
+      };
+    },
+    { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [] },
+  );
   // Reparse the canonical tree (stringified in-page to dodge the serializer's
   // depth cap) back into the object signatureOf/descriptorOf consume.
   snap.tree = JSON.parse(snap.tree);
@@ -2078,10 +2557,13 @@ function normalizePathname(p) {
 // poll) still returns. Best-effort: any failure is ignored and the caller falls
 // back to whatever is on screen.
 async function settleForSignature(page) {
-  try { await page.waitForLoadState('networkidle', { timeout: 2500 }); } catch (_) {}
+  try {
+    await page.waitForLoadState('networkidle', { timeout: 2500 });
+  } catch (_) {}
   try {
     await page.evaluate(async () => {
-      const twoFrames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const twoFrames = () =>
+        new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       // No DOM mutation for a 400ms stable window; hard cap 1.8s. The early-exit
       // (a quiet page resolves at 400ms) keeps well-behaved pages fast; the cap
       // bounds the cost on a page that keeps mutating (polling/analytics).
@@ -2091,22 +2573,35 @@ async function settleForSignature(page) {
         const finish = () => {
           if (quiet) clearTimeout(quiet);
           if (hard) clearTimeout(hard);
-          if (obs) { try { obs.disconnect(); } catch (_) {} }
+          if (obs) {
+            try {
+              obs.disconnect();
+            } catch (_) {}
+          }
           resolve();
         };
-        const arm = () => { if (quiet) clearTimeout(quiet); quiet = setTimeout(finish, 400); };
+        const arm = () => {
+          if (quiet) clearTimeout(quiet);
+          quiet = setTimeout(finish, 400);
+        };
         const hard = setTimeout(finish, 1800);
         try {
           obs = new MutationObserver(arm);
-          obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+          obs.observe(document.documentElement, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true,
+          });
         } catch (_) {}
         arm();
       });
       // Running transitions / animations settled; hard cap 800ms (an infinite
       // animation never resolves its `finished`, so the race releases it).
       try {
-        const running = (document.getAnimations ? document.getAnimations() : [])
-          .filter((a) => a.playState === 'running');
+        const running = (document.getAnimations ? document.getAnimations() : []).filter(
+          (a) => a.playState === 'running',
+        );
         await Promise.race([
           Promise.allSettled(running.map((a) => a.finished)),
           new Promise((r) => setTimeout(r, 800)),
@@ -2131,25 +2626,40 @@ async function detectBotWall(page) {
       const title = (document.title || '').toLowerCase();
       const bodyText = (document.body ? document.body.innerText || '' : '').toLowerCase();
       const has = (re) => re.test(title) || re.test(bodyText);
-      if (document.querySelector(
-        '#challenge-running, #cf-challenge-running, #challenge-form, .cf-turnstile, [id^="cf-chl"], script[src*="challenge-platform"], iframe[src*="challenges.cloudflare.com"]'
-      )) return { vendor: 'Cloudflare', marker: 'challenge-platform' };
-      if (has(/just a moment/) || has(/checking your browser before/)
-        || has(/performing (a )?security verification/)
-        || has(/enable javascript and cookies to continue/)) {
+      if (
+        document.querySelector(
+          '#challenge-running, #cf-challenge-running, #challenge-form, .' +
+            'cf-turnstile, [id^="cf-chl"], script[src*="challenge-platform"], ' +
+            'iframe[src*="challenges.cloudflare.com"]',
+        )
+      )
+        return { vendor: 'Cloudflare', marker: 'challenge-platform' };
+      if (
+        has(/just a moment/) ||
+        has(/checking your browser before/) ||
+        has(/performing (a )?security verification/) ||
+        has(/enable javascript and cookies to continue/)
+      ) {
         return { vendor: 'Cloudflare', marker: 'interstitial' };
       }
-      if (has(/attention required/) && has(/cloudflare/)) return { vendor: 'Cloudflare', marker: 'attention-required' };
-      if (document.querySelector('#px-captcha, .px-block, [class*="perimeterx"]')) return { vendor: 'PerimeterX', marker: 'px-captcha' };
-      if (has(/verify you are (a )?human/)
-        && document.querySelector('iframe[src*="captcha"], .g-recaptcha, .h-captcha')) {
+      if (has(/attention required/) && has(/cloudflare/))
+        return { vendor: 'Cloudflare', marker: 'attention-required' };
+      if (document.querySelector('#px-captcha, .px-block, [class*="perimeterx"]'))
+        return { vendor: 'PerimeterX', marker: 'px-captcha' };
+      if (
+        has(/verify you are (a )?human/) &&
+        document.querySelector('iframe[src*="captcha"], .g-recaptcha, .h-captcha')
+      ) {
         return { vendor: 'WAF', marker: 'human-verification' };
       }
       // A bare Cloudflare block page: dominated by a Ray ID with little else.
-      if (/ray id:/.test(bodyText) && bodyText.length < 1200) return { vendor: 'Cloudflare', marker: 'ray-id-block' };
+      if (/ray id:/.test(bodyText) && bodyText.length < 1200)
+        return { vendor: 'Cloudflare', marker: 'ray-id-block' };
       return null;
     });
-  } catch (_) { return null; }
+  } catch (_) {
+    return null;
+  }
 }
 
 // ====================================================================
@@ -2185,15 +2695,33 @@ async function detectBotWall(page) {
 async function gtCollect(page) {
   return page.evaluate(() => {
     const ROLES = {
-      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+      screen: 1,
+      header: 1,
+      text: 1,
+      button: 1,
+      link: 1,
+      textfield: 1,
+      image: 1,
+      icon: 1,
+      list: 1,
+      listitem: 1,
+      tab: 1,
+      switch: 1,
+      checkbox: 1,
+      radio: 1,
+      slider: 1,
+      menu: 1,
+      menuitem: 1,
+      dialog: 1,
+      group: 1,
+      node: 1,
     };
     const roleOf = (el) => {
       const tag = el.tagName.toLowerCase();
       const ariaRole = (el.getAttribute('role') || '').toLowerCase();
       if (ariaRole) {
-        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+          return 'textfield';
         if (ariaRole === 'heading') return 'header';
         if (ariaRole === 'img') return 'image';
         if (ariaRole === 'switch') return 'switch';
@@ -2225,7 +2753,8 @@ async function gtCollect(page) {
       if (['a', 'button', 'select'].includes(tag)) return true;
       if (tag === 'input' || tag === 'textarea') return true;
       if (role === 'textfield') return true;
-      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+        return true;
       if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
       return false;
     };
@@ -2284,15 +2813,49 @@ async function gtCollect(page) {
     // (docDelegates) and surfaces as a phantom pointer-only/keyboard gap.
     const NON_INTERACTIVE_ROLES = new Set([
       // landmarks
-      'banner', 'complementary', 'contentinfo', 'form', 'main', 'navigation',
-      'region', 'search',
+      'banner',
+      'complementary',
+      'contentinfo',
+      'form',
+      'main',
+      'navigation',
+      'region',
+      'search',
       // document structure
-      'article', 'definition', 'directory', 'document', 'feed', 'figure', 'group',
-      'heading', 'img', 'list', 'listitem', 'math', 'none', 'note', 'presentation',
-      'separator', 'table', 'term', 'toolbar', 'tooltip', 'caption', 'rowgroup',
-      'row', 'cell', 'columnheader', 'rowheader',
+      'article',
+      'definition',
+      'directory',
+      'document',
+      'feed',
+      'figure',
+      'group',
+      'heading',
+      'img',
+      'list',
+      'listitem',
+      'math',
+      'none',
+      'note',
+      'presentation',
+      'separator',
+      'table',
+      'term',
+      'toolbar',
+      'tooltip',
+      'caption',
+      'rowgroup',
+      'row',
+      'cell',
+      'columnheader',
+      'rowheader',
       // containers + live regions / status
-      'dialog', 'alertdialog', 'alert', 'log', 'marquee', 'status', 'timer',
+      'dialog',
+      'alertdialog',
+      'alert',
+      'log',
+      'marquee',
+      'status',
+      'timer',
       'application',
     ]);
     const hasDelegationMarker = (el) => {
@@ -2362,7 +2925,8 @@ async function gtCollect(page) {
     };
 
     // Clear any stale tags from a prior state, then re-tag in document order.
-    for (const e of document.querySelectorAll('[data-reproit-gt]')) e.removeAttribute('data-reproit-gt');
+    for (const e of document.querySelectorAll('[data-reproit-gt]'))
+      e.removeAttribute('data-reproit-gt');
     const out = [];
     // perRole counts every style-visible interactive, so role:<role>#<idx>
     // selectors match the production SDK and snapshot() byte-for-byte even when
@@ -2375,14 +2939,17 @@ async function gtCollect(page) {
     const perRole = {};
     const root = document.body || document.documentElement;
     const walk = (el, isRoot) => {
-      if (!isRoot && !visible(el)) { for (const c of el.children) walk(c, false); return; }
+      if (!isRoot && !visible(el)) {
+        for (const c of el.children) walk(c, false);
+        return;
+      }
       if (!isRoot) {
         const role = roleOf(el);
         // The tappable walk takes only REACHABLE interactives, lockstep with
         // snapshot(), so role:<role>#<idx> indices match EXPLORE:STATE.
         const isReachable = reachable(el);
         const isInteractive = interactive(el, role);
-        const structuralIndex = isInteractive ? (perRole[role] || 0) : -1;
+        const structuralIndex = isInteractive ? perRole[role] || 0 : -1;
         if (isInteractive) perRole[role] = structuralIndex + 1;
         const inTappableWalk = isInteractive && isReachable;
         const native = nativeInteractive(el);
@@ -2418,7 +2985,11 @@ async function gtCollect(page) {
           const i = out.length;
           el.setAttribute('data-reproit-gt', String(i));
           out.push({
-            sel, role, native, cursor, deleg,
+            sel,
+            role,
+            native,
+            cursor,
+            deleg,
             // reachable: a real user can hit this (on-screen + hit-testable). The
             // keyboard-activation probe must NOT focus+Enter an UNreachable control
             // (offstage / occluded), doing so fires its handler and lets reproit
@@ -2447,9 +3018,18 @@ async function gtDocDelegates(cdp) {
     try {
       const { result } = await cdp.send('Runtime.evaluate', { expression: expr });
       if (!result || !result.objectId) continue;
-      const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
-      if ((listeners || []).some((l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown')) return true;
-    } catch (e) { /* CDP best-effort */ }
+      const { listeners } = await cdp.send('DOMDebugger.getEventListeners', {
+        objectId: result.objectId,
+      });
+      if (
+        (listeners || []).some(
+          (l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown',
+        )
+      )
+        return true;
+    } catch (e) {
+      /* CDP best-effort */
+    }
   }
   return false;
 }
@@ -2467,13 +3047,19 @@ async function gtElementListeners(cdp, i) {
       expression: 'document.querySelector(\'[data-reproit-gt="' + i + '"]\')',
     });
     if (!result || !result.objectId) return { pointer: false, key: false };
-    const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
+    const { listeners } = await cdp.send('DOMDebugger.getEventListeners', {
+      objectId: result.objectId,
+    });
     const ls = listeners || [];
     return {
-      pointer: ls.some((l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown'),
+      pointer: ls.some(
+        (l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown',
+      ),
       key: ls.some((l) => l.type === 'keydown' || l.type === 'keypress' || l.type === 'keyup'),
     };
-  } catch (e) { return { pointer: false, key: false }; }
+  } catch (e) {
+    return { pointer: false, key: false };
+  }
 }
 
 // GRAPH 2 part A: a real Tab traversal from document.body. Press Tab up to
@@ -2485,7 +3071,12 @@ async function gtElementListeners(cdp, i) {
 async function gtTabOrder(page, count, steps) {
   const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
   // Start from a clean baseline: blur whatever is focused onto body.
-  await page.evaluate(() => { try { if (document.activeElement) document.activeElement.blur(); document.body.focus(); } catch (e) {} });
+  await page.evaluate(() => {
+    try {
+      if (document.activeElement) document.activeElement.blur();
+      document.body.focus();
+    } catch (e) {}
+  });
   const inTab = new Set();
   const visited = [];
   try {
@@ -2505,22 +3096,29 @@ async function gtTabOrder(page, count, steps) {
     // contextual-layer portals, or lazy footer chrome while we measure keyboard
     // reachability. Do not leak that audit-only UI into the next app snapshot:
     // it would hash as a new screen and trigger another 60-step audit forever.
-    await page.evaluate(({ x, y }) => {
-      try {
-        if (document.activeElement) document.activeElement.blur();
-        const body = document.body;
-        if (body) {
-          const old = body.getAttribute('tabindex');
-          body.setAttribute('tabindex', '-1');
-          body.focus({ preventScroll: true });
-          if (old == null) body.removeAttribute('tabindex'); else body.setAttribute('tabindex', old);
-        }
-        window.scrollTo(x, y);
-      } catch (_) {}
-    }, scroll).catch(() => {});
+    await page
+      .evaluate(({ x, y }) => {
+        try {
+          if (document.activeElement) document.activeElement.blur();
+          const body = document.body;
+          if (body) {
+            const old = body.getAttribute('tabindex');
+            body.setAttribute('tabindex', '-1');
+            body.focus({ preventScroll: true });
+            if (old == null) body.removeAttribute('tabindex');
+            else body.setAttribute('tabindex', old);
+          }
+          window.scrollTo(x, y);
+        } catch (_) {}
+      }, scroll)
+      .catch(() => {});
     // Give focusout-driven portal teardown two presented frames to finish before
     // exploration observes or acts on the page again.
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))).catch(() => {});
+    await page
+      .evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      )
+      .catch(() => {});
   }
   // Focus trap: after focus first left body it never came back (no -2 after the
   // first real focus), yet focus kept moving. A page that lets you Tab back out
@@ -2528,7 +3126,11 @@ async function gtTabOrder(page, count, steps) {
   let firstReal = visited.findIndex((v) => v >= 0 || v === -1);
   let returnedToBody = false;
   if (firstReal >= 0) {
-    for (let k = firstReal + 1; k < visited.length; k++) if (visited[k] === -2) { returnedToBody = true; break; }
+    for (let k = firstReal + 1; k < visited.length; k++)
+      if (visited[k] === -2) {
+        returnedToBody = true;
+        break;
+      }
   }
   const focusTrap = firstReal >= 0 && !returnedToBody && inTab.size > 0 && inTab.size < count;
   return { inTab, focusTrap };
@@ -2569,13 +3171,19 @@ async function startScreencastCapture(cdp) {
       maxHeight: 240,
     });
   } catch (_) {
-    try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+    try {
+      cdp.off('Page.screencastFrame', onFrame);
+    } catch (_) {}
     return null;
   }
   return {
     async stop() {
-      try { await cdp.send('Page.stopScreencast'); } catch (_) {}
-      try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+      try {
+        await cdp.send('Page.stopScreencast');
+      } catch (_) {}
+      try {
+        cdp.off('Page.screencastFrame', onFrame);
+      } catch (_) {}
       return frames;
     },
   };
@@ -2587,17 +3195,29 @@ async function startScreencastCapture(cdp) {
 async function finishScreencastCapture(cap, from, action) {
   if (!cap) return;
   let frames;
-  try { frames = await cap.stop(); } catch (_) { return; }
+  try {
+    frames = await cap.stop();
+  } catch (_) {
+    return;
+  }
   if (!frames || frames.length < 3) return;
   let rgbas;
-  try { rgbas = frames.map(pngToRgba); } catch (_) { return; }
+  try {
+    rgbas = frames.map(pngToRgba);
+  } catch (_) {
+    return;
+  }
   const final = rgbas[rgbas.length - 1];
   // Per-frame distance to the FINAL settled frame. Skip any frame whose
   // dimensions differ from the final (a resize, not a flash) rather than score
   // it as fully-different.
   const diffs = [];
   for (const f of rgbas) {
-    if (f.width !== final.width || f.height !== final.height || f.data.length !== final.data.length) {
+    if (
+      f.width !== final.width ||
+      f.height !== final.height ||
+      f.data.length !== final.data.length
+    ) {
       continue;
     }
     diffs.push(changedFraction(f.data, final.data));
@@ -2620,7 +3240,11 @@ async function finishScreencastCapture(cap, from, action) {
 // the state the explorer is mapping.
 async function runFramebufferProbe(page) {
   let vp;
-  try { vp = page.viewportSize() || { width: 1280, height: 800 }; } catch (_) { vp = { width: 1280, height: 800 }; }
+  try {
+    vp = page.viewportSize() || { width: 1280, height: 800 };
+  } catch (_) {
+    vp = { width: 1280, height: 800 };
+  }
   const pts = gridPoints(vp.width, vp.height, DEFAULT_GRID);
   const probed = [];
   for (const pt of pts) {
@@ -2644,28 +3268,41 @@ async function runFramebufferProbe(page) {
         }
         return false;
       }, pt);
-    } catch (_) { a11yCovered = true; /* unknown -> don't flag */ }
+    } catch (_) {
+      a11yCovered = true; /* unknown -> don't flag */
+    }
 
     try {
       beforeBuf = await page.screenshot({ clip: clipAround(pt, vp), animations: 'disabled' });
       await page.mouse.click(pt.x, pt.y, { delay: 10 });
       await page.waitForTimeout(120);
       afterBuf = await page.screenshot({ clip: clipAround(pt, vp), animations: 'disabled' });
-    } catch (_) { continue; }
+    } catch (_) {
+      continue;
+    }
 
     let changed = 0;
     try {
       const a = pngToRgba(beforeBuf);
       const b = pngToRgba(afterBuf);
       changed = changedFraction(a.data, b.data);
-    } catch (_) { changed = 0; }
+    } catch (_) {
+      changed = 0;
+    }
     probed.push({ x: pt.x, y: pt.y, changed, a11yCovered });
   }
   // The clicks may have navigated/mutated the page; restore the start screen so
   // the explorer's next snapshot reflects the real state, not a probe artifact.
-  try { await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 }); await page.waitForTimeout(300); } catch (_) {}
+  try {
+    await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 });
+    await page.waitForTimeout(300);
+  } catch (_) {}
   const gaps = probeRegionsToGroundtruth(probed);
-  if (gaps.length) log(`JOURNEY[a] step: framebuffer-probe found ${gaps.length} operable region(s) with no a11y control`);
+  if (gaps.length)
+    log(
+      `JOURNEY[a] step: framebuffer-probe found ${gaps.length} operable ` +
+        'region(s) with no a11y control',
+    );
   return gaps;
 }
 
@@ -2687,13 +3324,21 @@ function clipAround(pt, vp) {
 // fails is simply omitted, so we never emit a dimension we did not measure.
 async function emitGroundtruth(page, cdp, sig) {
   let els;
-  try { els = await gtCollect(page); } catch (e) { return; }
+  try {
+    els = await gtCollect(page);
+  } catch (e) {
+    return;
+  }
   // PIECE 2 floor: when opted in, the framebuffer probe contributes operable
   // regions that have NO a11y/DOM node (so gtCollect, which is DOM-based, can't
   // see them). Run it first; its results are appended to the records below.
   let probeEls = [];
   if (PROBE) {
-    try { probeEls = await runFramebufferProbe(page); } catch (_) { probeEls = []; }
+    try {
+      probeEls = await runFramebufferProbe(page);
+    } catch (_) {
+      probeEls = [];
+    }
   }
   if (!els || !els.length) {
     // No DOM-discoverable elements, but the framebuffer probe may still have
@@ -2719,8 +3364,11 @@ async function emitGroundtruth(page, cdp, sig) {
     }
   }
   // GRAPH 2 part A: Tab traversal.
-  let inTab = new Set(), focusTrap = false;
-  try { ({ inTab, focusTrap } = await gtTabOrder(page, els.length, 60)); } catch (e) {}
+  let inTab = new Set(),
+    focusTrap = false;
+  try {
+    ({ inTab, focusTrap } = await gtTabOrder(page, els.length, 60));
+  } catch (e) {}
 
   const records = [];
   for (let i = 0; i < els.length; i++) {
@@ -2768,18 +3416,25 @@ async function emitGroundtruth(page, cdp, sig) {
       a11y.keyboardActivatable = e.adManaged
         ? focusableOnscreen
         : cdpListeners
-        ? focusableOnscreen && (e.native || keyListener[i])
-        : focusableOnscreen;
+          ? focusableOnscreen && (e.native || keyListener[i])
+          : focusableOnscreen;
     }
     records.push({ id: e.sel, operable, gestureKind: e.gestureKind, a11y });
   }
   // Clean up the tagging so it never leaks into a later snapshot/signature.
-  try { await page.evaluate(() => { for (const el of document.querySelectorAll('[data-reproit-gt]')) el.removeAttribute('data-reproit-gt'); }); } catch (e) {}
+  try {
+    await page.evaluate(() => {
+      for (const el of document.querySelectorAll('[data-reproit-gt]'))
+        el.removeAttribute('data-reproit-gt');
+    });
+  } catch (e) {}
 
   // Append the framebuffer-probe floor's findings (operable regions with no DOM/
   // a11y node). These are addressed by spatial selector, so they never collide
   // with the DOM `sel` ids above.
-  log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap, elements: records.concat(probeEls) }));
+  log(
+    'EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap, elements: records.concat(probeEls) }),
+  );
 }
 
 // STRUCTURAL tap: resolve a locale-invariant selector and click it. Returns
@@ -2790,213 +3445,283 @@ async function emitGroundtruth(page, cdp, sig) {
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
 async function tap(page, sel, opts) {
-  const ok = await page.evaluate(({ s, mark, box, boxColor }) => {
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
-      const st = getComputedStyle(el);
-      return st.visibility !== 'hidden' && st.display !== 'none';
-    };
-    // Same reachability floor as snapshot(): center on-screen AND hit-test there
-    // resolves to the element or a descendant. Kept in lockstep so role+index
-    // resolution counts exactly the candidates snapshot() offered, an offstage
-    // control consumes no index and can't be reached by any selector.
-    const reachable = (el) => {
-      if (!visible(el)) return false;
-      const r = el.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const vw = window.innerWidth || document.documentElement.clientWidth;
-      const vh = window.innerHeight || document.documentElement.clientHeight;
-      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
-      const hit = document.elementFromPoint(cx, cy);
-      if (!hit) return false;
-      return hit === el || el.contains(hit);
-    };
-    // Production sessions can be captured with a taller/shorter viewport than
-    // the developer's runner. A style-visible target that is merely offscreen is
-    // still the same structural control: scroll it into view before declaring a
-    // stale replay. Hidden or occluded controls remain misses.
-    const bringIntoReach = (el) => {
-      if (reachable(el)) return true;
-      if (!visible(el)) return false;
-      const r = el.getBoundingClientRect();
-      const vw = window.innerWidth || document.documentElement.clientWidth;
-      const vh = window.innerHeight || document.documentElement.clientHeight;
-      const offscreen = r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh
-        || r.left < 0 || r.top < 0 || r.right > vw || r.bottom > vh;
-      if (!offscreen) return false;
-      try { el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' }); } catch (_) {}
-      return reachable(el);
-    };
-    const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
-    // On a recorded replay, tag the clicked element so a crash/jank/hang box can
-    // point at exactly the control the user actuated (only the LAST one carries
-    // the tag). Gated on `mark` so a normal fuzz walk never touches the DOM.
-    const doClick = (el) => {
-      if (mark) {
-        try {
-          for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
-          el.setAttribute('data-reproit-trigger', '1');
-        } catch (_) {}
-      }
-      // PREVIEW (`box`): instead of clicking, highlight the element reproit is
-      // ABOUT to tap, with a human-readable caption, drawn while the page is still
-      // live. So a tap that then navigates / freezes / crashes still shows the
-      // right element and the right name (a frozen page can't be annotated after).
-      if (box) {
-        // Minimal motion: scroll to the element ONLY if it is not already fully in
-        // view, and centre it just enough to keep it on screen -- a clip should not
-        // re-scroll a control the viewer can already see.
-        try {
-          const rr = el.getBoundingClientRect();
-          const vh = window.innerHeight || document.documentElement.clientHeight;
+  const ok = await page
+    .evaluate(
+      ({ s, mark, box, boxColor }) => {
+        const visible = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        // Same reachability floor as snapshot(): center on-screen AND hit-test there
+        // resolves to the element or a descendant. Kept in lockstep so role+index
+        // resolution counts exactly the candidates snapshot() offered, an offstage
+        // control consumes no index and can't be reached by any selector.
+        const reachable = (el) => {
+          if (!visible(el)) return false;
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
           const vw = window.innerWidth || document.documentElement.clientWidth;
-          const inView = rr.top >= 0 && rr.left >= 0 && rr.bottom <= vh && rr.right <= vw;
-          if (!inView) el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-        } catch (_) {}
-        const old = document.getElementById('__reproit_tapbox'); if (old) old.remove();
-        const r = el.getBoundingClientRect();
-        const layer = document.createElement('div');
-        layer.id = '__reproit_tapbox';
-        layer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none';
-        const b = document.createElement('div');
-        const col = boxColor || '#2f6bff';
-        b.style.cssText = [
-          'position:absolute', 'top:' + (r.top + window.scrollY - 2) + 'px', 'left:' + (r.left + window.scrollX - 2) + 'px',
-          'width:' + (r.width + 4) + 'px', 'height:' + (r.height + 4) + 'px',
-          'border:3px solid ' + col, 'background:' + col + '20', 'border-radius:4px',
-          'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)',
-        ].join(';');
-        const tag = document.createElement('div');
-        tag.textContent = box;
-        tag.style.cssText = [
-          'position:absolute', 'top:-22px', 'left:-3px', 'background:' + col, 'color:#fff',
-          'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace', 'padding:4px 7px',
-          'border-radius:5px', 'white-space:nowrap', 'box-shadow:0 2px 8px rgba(0,0,0,.4)',
-        ].join(';');
-        b.appendChild(tag); layer.appendChild(b);
-        (document.body || document.documentElement).appendChild(layer);
-        return true;
-      }
-      // Stash the clicked element for the post-tap oracle probes (the
-      // duplicate-submit eligibility check and the focus-loss guards read it
-      // in-page). A window ref only, never a DOM mutation, so the signature/
-      // content/mutation oracles are untouched.
-      try {
-        window.__reproitLastTap = el;
-        // FOCUS-LOSS probe: a real user click gives the control keyboard focus
-        // before activating it; el.click() alone does not. When the walk armed
-        // the probe pre-tap (focusLossArm), focus first (no scroll, so the
-        // viewport-dependent snapshot is untouched) so the oracle can observe
-        // whether the app's re-render then drops focus back to <body>.
-        if (window.__reproitFocusProbe) {
-          try { el.focus({ preventScroll: true }); } catch (_) {}
-          window.__reproitTapFocused = document.activeElement === el;
-        }
-      } catch (_) {}
-      el.click();
-      return true;
-    };
+          const vh = window.innerHeight || document.documentElement.clientHeight;
+          if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+          const hit = document.elementFromPoint(cx, cy);
+          if (!hit) return false;
+          return hit === el || el.contains(hit);
+        };
+        // Production sessions can be captured with a taller/shorter viewport than
+        // the developer's runner. A style-visible target that is merely offscreen is
+        // still the same structural control: scroll it into view before declaring a
+        // stale replay. Hidden or occluded controls remain misses.
+        const bringIntoReach = (el) => {
+          if (reachable(el)) return true;
+          if (!visible(el)) return false;
+          const r = el.getBoundingClientRect();
+          const vw = window.innerWidth || document.documentElement.clientWidth;
+          const vh = window.innerHeight || document.documentElement.clientHeight;
+          const offscreen =
+            r.right <= 0 ||
+            r.bottom <= 0 ||
+            r.left >= vw ||
+            r.top >= vh ||
+            r.left < 0 ||
+            r.top < 0 ||
+            r.right > vw ||
+            r.bottom > vh;
+          if (!offscreen) return false;
+          try {
+            el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+          } catch (_) {}
+          return reachable(el);
+        };
+        const cssEscape = (v) =>
+          window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
+        // On a recorded replay, tag the clicked element so a crash/jank/hang box can
+        // point at exactly the control the user actuated (only the LAST one carries
+        // the tag). Gated on `mark` so a normal fuzz walk never touches the DOM.
+        const doClick = (el) => {
+          if (mark) {
+            try {
+              for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+                e.removeAttribute('data-reproit-trigger');
+              el.setAttribute('data-reproit-trigger', '1');
+            } catch (_) {}
+          }
+          // PREVIEW (`box`): instead of clicking, highlight the element reproit is
+          // ABOUT to tap, with a human-readable caption, drawn while the page is still
+          // live. So a tap that then navigates / freezes / crashes still shows the
+          // right element and the right name (a frozen page can't be annotated after).
+          if (box) {
+            // Minimal motion: scroll to the element ONLY if it is not already fully in
+            // view, and centre it just enough to keep it on screen -- a clip should not
+            // re-scroll a control the viewer can already see.
+            try {
+              const rr = el.getBoundingClientRect();
+              const vh = window.innerHeight || document.documentElement.clientHeight;
+              const vw = window.innerWidth || document.documentElement.clientWidth;
+              const inView = rr.top >= 0 && rr.left >= 0 && rr.bottom <= vh && rr.right <= vw;
+              if (!inView)
+                el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            } catch (_) {}
+            const old = document.getElementById('__reproit_tapbox');
+            if (old) old.remove();
+            const r = el.getBoundingClientRect();
+            const layer = document.createElement('div');
+            layer.id = '__reproit_tapbox';
+            layer.style.cssText =
+              'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;' +
+              'pointer-events:none';
+            const b = document.createElement('div');
+            const col = boxColor || '#2f6bff';
+            b.style.cssText = [
+              'position:absolute',
+              'top:' + (r.top + window.scrollY - 2) + 'px',
+              'left:' + (r.left + window.scrollX - 2) + 'px',
+              'width:' + (r.width + 4) + 'px',
+              'height:' + (r.height + 4) + 'px',
+              'border:3px solid ' + col,
+              'background:' + col + '20',
+              'border-radius:4px',
+              'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)',
+            ].join(';');
+            const tag = document.createElement('div');
+            tag.textContent = box;
+            tag.style.cssText = [
+              'position:absolute',
+              'top:-22px',
+              'left:-3px',
+              'background:' + col,
+              'color:#fff',
+              'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace',
+              'padding:4px 7px',
+              'border-radius:5px',
+              'white-space:nowrap',
+              'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+            ].join(';');
+            b.appendChild(tag);
+            layer.appendChild(b);
+            (document.body || document.documentElement).appendChild(layer);
+            return true;
+          }
+          // Stash the clicked element for the post-tap oracle probes (the
+          // duplicate-submit eligibility check and the focus-loss guards read it
+          // in-page). A window ref only, never a DOM mutation, so the signature/
+          // content/mutation oracles are untouched.
+          try {
+            window.__reproitLastTap = el;
+            // FOCUS-LOSS probe: a real user click gives the control keyboard focus
+            // before activating it; el.click() alone does not. When the walk armed
+            // the probe pre-tap (focusLossArm), focus first (no scroll, so the
+            // viewport-dependent snapshot is untouched) so the oracle can observe
+            // whether the app's re-render then drops focus back to <body>.
+            if (window.__reproitFocusProbe) {
+              try {
+                el.focus({ preventScroll: true });
+              } catch (_) {}
+              window.__reproitTapFocused = document.activeElement === el;
+            }
+          } catch (_) {}
+          el.click();
+          return true;
+        };
 
-    if (s.startsWith('key:')) {
-      const body = s.slice(4);
-      const ci = body.indexOf(':');
-      if (ci < 0) return false;
-      const kind = body.slice(0, ci);
-      const val = body.slice(ci + 1);
-      let el = null;
-      if (kind === 'testid') {
-        el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-          || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-      } else if (kind === 'id') {
-        el = document.getElementById(val);
-      } else if (kind === 'name') {
-        el = document.querySelector('[name="' + cssEscape(val) + '"]');
-      }
-      if (!el) return false;
-      // A keyed control may be below the fold on this runner even though it was
-      // reachable in production. Scroll only that case; auth-gated, hidden, and
-      // occluded controls still fail as stale.
-      if (!bringIntoReach(el)) return false;
-      return doClick(el);
-    }
+        if (s.startsWith('key:')) {
+          const body = s.slice(4);
+          const ci = body.indexOf(':');
+          if (ci < 0) return false;
+          const kind = body.slice(0, ci);
+          const val = body.slice(ci + 1);
+          let el = null;
+          if (kind === 'testid') {
+            el =
+              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+          } else if (kind === 'id') {
+            el = document.getElementById(val);
+          } else if (kind === 'name') {
+            el = document.querySelector('[name="' + cssEscape(val) + '"]');
+          }
+          if (!el) return false;
+          // A keyed control may be below the fold on this runner even though it was
+          // reachable in production. Scroll only that case; auth-gated, hidden, and
+          // occluded controls still fail as stale.
+          if (!bringIntoReach(el)) return false;
+          return doClick(el);
+        }
 
-    if (s.startsWith('role:')) {
-      const hash = s.indexOf('#');
-      if (hash < 0) return false;
-      const role = s.slice('role:'.length, hash);
-      const idx = parseInt(s.slice(hash + 1), 10);
-      if (!(idx >= 0)) return false;
-      // Re-derive document-order tappables of this role from the live tree using
-      // the SAME canonical role logic as snapshot(), and click the idx-th. No text.
-      const ROLES = {
-        screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-        icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-        slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-      };
-      const roleOf = (el) => {
-        const tag = el.tagName.toLowerCase();
-        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-        if (ariaRole) {
-          if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-          if (ariaRole === 'heading') return 'header';
-          if (ariaRole === 'img') return 'image';
-          if (ariaRole === 'switch') return 'switch';
-          if (ariaRole === 'link') return 'link';
-          if (ariaRole === 'button') return 'button';
-          if (ROLES[ariaRole]) return ariaRole;
+        if (s.startsWith('role:')) {
+          const hash = s.indexOf('#');
+          if (hash < 0) return false;
+          const role = s.slice('role:'.length, hash);
+          const idx = parseInt(s.slice(hash + 1), 10);
+          if (!(idx >= 0)) return false;
+          // Re-derive document-order tappables of this role from the live tree using
+          // the SAME canonical role logic as snapshot(), and click the idx-th. No text.
+          const ROLES = {
+            screen: 1,
+            header: 1,
+            text: 1,
+            button: 1,
+            link: 1,
+            textfield: 1,
+            image: 1,
+            icon: 1,
+            list: 1,
+            listitem: 1,
+            tab: 1,
+            switch: 1,
+            checkbox: 1,
+            radio: 1,
+            slider: 1,
+            menu: 1,
+            menuitem: 1,
+            dialog: 1,
+            group: 1,
+            node: 1,
+          };
+          const roleOf = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+            if (ariaRole) {
+              if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+                return 'textfield';
+              if (ariaRole === 'heading') return 'header';
+              if (ariaRole === 'img') return 'image';
+              if (ariaRole === 'switch') return 'switch';
+              if (ariaRole === 'link') return 'link';
+              if (ariaRole === 'button') return 'button';
+              if (ROLES[ariaRole]) return ariaRole;
+            }
+            if (tag === 'input') {
+              const t = (el.getAttribute('type') || 'text').toLowerCase();
+              if (t === 'checkbox') return 'checkbox';
+              if (t === 'radio') return 'radio';
+              if (t === 'range') return 'slider';
+              if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+              return 'textfield';
+            }
+            if (tag === 'textarea' || tag === 'select') return 'textfield';
+            if (tag === 'a') return 'link';
+            if (tag === 'button') return 'button';
+            if (tag === 'img' || tag === 'svg') return 'image';
+            if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+            if (tag === 'ul' || tag === 'ol') return 'list';
+            if (tag === 'li') return 'listitem';
+            if (tag === 'dialog') return 'dialog';
+            if (tag === 'nav' || tag === 'menu') return 'menu';
+            return 'node';
+          };
+          const interactive = (el, r) => {
+            const tag = el.tagName.toLowerCase();
+            if (['a', 'button', 'select'].includes(tag)) return true;
+            // Keep this in lockstep with snapshot()'s interactive() so role+index
+            // ordering is identical: text fields are actionable (driven by "type").
+            if (tag === 'input' || tag === 'textarea') return true;
+            if (r === 'textfield') return true;
+            if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r))
+              return true;
+            if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+            return false;
+          };
+          let seen = -1,
+            target = null;
+          const walk = (el) => {
+            if (target) return;
+            if (!visible(el)) {
+              for (const c of el.children) walk(c);
+              return;
+            }
+            const r = roleOf(el);
+            // Count every style-visible interactive, matching the production SDK and
+            // snapshot()'s viewport-independent positional index. Reachability is
+            // checked only after the structural target is selected.
+            if (interactive(el, r) && r === role) {
+              seen++;
+              if (seen === idx) {
+                target = el;
+                return;
+              }
+            }
+            for (const c of el.children) walk(c);
+          };
+          const root = document.body || document.documentElement;
+          if (root) walk(root);
+          if (!target) return false;
+          if (!bringIntoReach(target)) return false;
+          return doClick(target);
         }
-        if (tag === 'input') {
-          const t = (el.getAttribute('type') || 'text').toLowerCase();
-          if (t === 'checkbox') return 'checkbox';
-          if (t === 'radio') return 'radio';
-          if (t === 'range') return 'slider';
-          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-          return 'textfield';
-        }
-        if (tag === 'textarea' || tag === 'select') return 'textfield';
-        if (tag === 'a') return 'link';
-        if (tag === 'button') return 'button';
-        if (tag === 'img' || tag === 'svg') return 'image';
-        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-        if (tag === 'ul' || tag === 'ol') return 'list';
-        if (tag === 'li') return 'listitem';
-        if (tag === 'dialog') return 'dialog';
-        if (tag === 'nav' || tag === 'menu') return 'menu';
-        return 'node';
-      };
-      const interactive = (el, r) => {
-        const tag = el.tagName.toLowerCase();
-        if (['a', 'button', 'select'].includes(tag)) return true;
-        // Keep this in lockstep with snapshot()'s interactive() so role+index
-        // ordering is identical: text fields are actionable (driven by "type").
-        if (tag === 'input' || tag === 'textarea') return true;
-        if (r === 'textfield') return true;
-        if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)) return true;
-        if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+
         return false;
-      };
-      let seen = -1, target = null;
-      const walk = (el) => {
-        if (target) return;
-        if (!visible(el)) { for (const c of el.children) walk(c); return; }
-        const r = roleOf(el);
-        // Count every style-visible interactive, matching the production SDK and
-        // snapshot()'s viewport-independent positional index. Reachability is
-        // checked only after the structural target is selected.
-        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
-        for (const c of el.children) walk(c);
-      };
-      const root = document.body || document.documentElement;
-      if (root) walk(root);
-      if (!target) return false;
-      if (!bringIntoReach(target)) return false;
-      return doClick(target);
-    }
-
-    return false;
-  }, { s: sel, mark: !!(opts && opts.mark), box: (opts && opts.box) || null, boxColor: (opts && opts.boxColor) || null }).catch(() => false);
+      },
+      {
+        s: sel,
+        mark: !!(opts && opts.mark),
+        box: (opts && opts.box) || null,
+        boxColor: (opts && opts.boxColor) || null,
+      },
+    )
+    .catch(() => false);
   return !!ok;
 }
 
@@ -3012,143 +3737,198 @@ async function tap(page, sel, opts) {
 const INJECTED_VALUES = new Set();
 async function typeInto(page, sel, value, opts) {
   if (value != null && String(value).length > 0) INJECTED_VALUES.add(String(value));
-  const found = await page.evaluate(({ s, mark }) => {
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
-      const st = getComputedStyle(el);
-      return st.visibility !== 'hidden' && st.display !== 'none';
-    };
-    // Same reachability floor as snapshot()/tap(): center on-screen AND hit-test
-    // resolves to the element or a descendant. Kept in lockstep so role+index
-    // resolution counts exactly the fields snapshot() offered.
-    const reachable = (el) => {
-      if (!visible(el)) return false;
-      const r = el.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const vw = window.innerWidth || document.documentElement.clientWidth;
-      const vh = window.innerHeight || document.documentElement.clientHeight;
-      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
-      const hit = document.elementFromPoint(cx, cy);
-      if (!hit) return false;
-      return hit === el || el.contains(hit);
-    };
-    const bringIntoReach = (el) => {
-      if (reachable(el)) return true;
-      if (!visible(el)) return false;
-      const r = el.getBoundingClientRect();
-      const vw = window.innerWidth || document.documentElement.clientWidth;
-      const vh = window.innerHeight || document.documentElement.clientHeight;
-      const offscreen = r.right <= 0 || r.bottom <= 0 || r.left >= vw || r.top >= vh
-        || r.left < 0 || r.top < 0 || r.right > vw || r.bottom > vh;
-      if (!offscreen) return false;
-      try { el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' }); } catch (_) {}
-      return reachable(el);
-    };
-    const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
+  const found = await page
+    .evaluate(
+      ({ s, mark }) => {
+        const visible = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        // Same reachability floor as snapshot()/tap(): center on-screen AND hit-test
+        // resolves to the element or a descendant. Kept in lockstep so role+index
+        // resolution counts exactly the fields snapshot() offered.
+        const reachable = (el) => {
+          if (!visible(el)) return false;
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const vw = window.innerWidth || document.documentElement.clientWidth;
+          const vh = window.innerHeight || document.documentElement.clientHeight;
+          if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) return false;
+          const hit = document.elementFromPoint(cx, cy);
+          if (!hit) return false;
+          return hit === el || el.contains(hit);
+        };
+        const bringIntoReach = (el) => {
+          if (reachable(el)) return true;
+          if (!visible(el)) return false;
+          const r = el.getBoundingClientRect();
+          const vw = window.innerWidth || document.documentElement.clientWidth;
+          const vh = window.innerHeight || document.documentElement.clientHeight;
+          const offscreen =
+            r.right <= 0 ||
+            r.bottom <= 0 ||
+            r.left >= vw ||
+            r.top >= vh ||
+            r.left < 0 ||
+            r.top < 0 ||
+            r.right > vw ||
+            r.bottom > vh;
+          if (!offscreen) return false;
+          try {
+            el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+          } catch (_) {}
+          return reachable(el);
+        };
+        const cssEscape = (v) =>
+          window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
 
-    let el = null;
-    if (s.startsWith('key:')) {
-      const body = s.slice(4);
-      const ci = body.indexOf(':');
-      if (ci < 0) return false;
-      const kind = body.slice(0, ci);
-      const val = body.slice(ci + 1);
-      if (kind === 'testid') {
-        el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-          || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-      } else if (kind === 'id') {
-        el = document.getElementById(val);
-      } else if (kind === 'name') {
-        el = document.querySelector('[name="' + cssEscape(val) + '"]');
-      }
-    } else if (s.startsWith('role:')) {
-      const hash = s.indexOf('#');
-      if (hash < 0) return false;
-      const role = s.slice('role:'.length, hash);
-      const idx = parseInt(s.slice(hash + 1), 10);
-      if (!(idx >= 0)) return false;
-      const ROLES = {
-        screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-        icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-        slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-      };
-      const roleOf = (el) => {
-        const tag = el.tagName.toLowerCase();
-        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-        if (ariaRole) {
-          if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-          if (ariaRole === 'heading') return 'header';
-          if (ariaRole === 'img') return 'image';
-          if (ariaRole === 'switch') return 'switch';
-          if (ariaRole === 'link') return 'link';
-          if (ariaRole === 'button') return 'button';
-          if (ROLES[ariaRole]) return ariaRole;
+        let el = null;
+        if (s.startsWith('key:')) {
+          const body = s.slice(4);
+          const ci = body.indexOf(':');
+          if (ci < 0) return false;
+          const kind = body.slice(0, ci);
+          const val = body.slice(ci + 1);
+          if (kind === 'testid') {
+            el =
+              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+          } else if (kind === 'id') {
+            el = document.getElementById(val);
+          } else if (kind === 'name') {
+            el = document.querySelector('[name="' + cssEscape(val) + '"]');
+          }
+        } else if (s.startsWith('role:')) {
+          const hash = s.indexOf('#');
+          if (hash < 0) return false;
+          const role = s.slice('role:'.length, hash);
+          const idx = parseInt(s.slice(hash + 1), 10);
+          if (!(idx >= 0)) return false;
+          const ROLES = {
+            screen: 1,
+            header: 1,
+            text: 1,
+            button: 1,
+            link: 1,
+            textfield: 1,
+            image: 1,
+            icon: 1,
+            list: 1,
+            listitem: 1,
+            tab: 1,
+            switch: 1,
+            checkbox: 1,
+            radio: 1,
+            slider: 1,
+            menu: 1,
+            menuitem: 1,
+            dialog: 1,
+            group: 1,
+            node: 1,
+          };
+          const roleOf = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+            if (ariaRole) {
+              if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+                return 'textfield';
+              if (ariaRole === 'heading') return 'header';
+              if (ariaRole === 'img') return 'image';
+              if (ariaRole === 'switch') return 'switch';
+              if (ariaRole === 'link') return 'link';
+              if (ariaRole === 'button') return 'button';
+              if (ROLES[ariaRole]) return ariaRole;
+            }
+            if (tag === 'input') {
+              const t = (el.getAttribute('type') || 'text').toLowerCase();
+              if (t === 'checkbox') return 'checkbox';
+              if (t === 'radio') return 'radio';
+              if (t === 'range') return 'slider';
+              if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+              return 'textfield';
+            }
+            if (tag === 'textarea' || tag === 'select') return 'textfield';
+            if (tag === 'a') return 'link';
+            if (tag === 'button') return 'button';
+            if (tag === 'img' || tag === 'svg') return 'image';
+            if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+            if (tag === 'ul' || tag === 'ol') return 'list';
+            if (tag === 'li') return 'listitem';
+            if (tag === 'dialog') return 'dialog';
+            if (tag === 'nav' || tag === 'menu') return 'menu';
+            return 'node';
+          };
+          const interactive = (el, r) => {
+            const tag = el.tagName.toLowerCase();
+            if (['a', 'button', 'select'].includes(tag)) return true;
+            if (tag === 'input' || tag === 'textarea') return true;
+            if (r === 'textfield') return true;
+            if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r))
+              return true;
+            if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+            return false;
+          };
+          let seen = -1,
+            target = null;
+          const walk = (el) => {
+            if (target) return;
+            if (!visible(el)) {
+              for (const c of el.children) walk(c);
+              return;
+            }
+            const r = roleOf(el);
+            // Count the viewport-independent, style-visible structural space.
+            if (interactive(el, r) && r === role) {
+              seen++;
+              if (seen === idx) {
+                target = el;
+                return;
+              }
+            }
+            for (const c of el.children) walk(c);
+          };
+          const root = document.body || document.documentElement;
+          if (root) walk(root);
+          el = target;
         }
-        if (tag === 'input') {
-          const t = (el.getAttribute('type') || 'text').toLowerCase();
-          if (t === 'checkbox') return 'checkbox';
-          if (t === 'radio') return 'radio';
-          if (t === 'range') return 'slider';
-          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-          return 'textfield';
-        }
-        if (tag === 'textarea' || tag === 'select') return 'textfield';
-        if (tag === 'a') return 'link';
-        if (tag === 'button') return 'button';
-        if (tag === 'img' || tag === 'svg') return 'image';
-        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-        if (tag === 'ul' || tag === 'ol') return 'list';
-        if (tag === 'li') return 'listitem';
-        if (tag === 'dialog') return 'dialog';
-        if (tag === 'nav' || tag === 'menu') return 'menu';
-        return 'node';
-      };
-      const interactive = (el, r) => {
+        if (!el) return false;
+        // A field below the fold can be made reachable without changing its
+        // structural identity. Hidden or occluded fields remain a miss.
+        if (!bringIntoReach(el)) return false;
+        // Only type into things that hold text; a non-text target is a miss so the
+        // caller treats it like a failed action rather than silently no-op'ing.
         const tag = el.tagName.toLowerCase();
-        if (['a', 'button', 'select'].includes(tag)) return true;
-        if (tag === 'input' || tag === 'textarea') return true;
-        if (r === 'textfield') return true;
-        if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)) return true;
-        if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-        return false;
-      };
-      let seen = -1, target = null;
-      const walk = (el) => {
-        if (target) return;
-        if (!visible(el)) { for (const c of el.children) walk(c); return; }
-        const r = roleOf(el);
-        // Count the viewport-independent, style-visible structural space.
-        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
-        for (const c of el.children) walk(c);
-      };
-      const root = document.body || document.documentElement;
-      if (root) walk(root);
-      el = target;
-    }
-    if (!el) return false;
-    // A field below the fold can be made reachable without changing its
-    // structural identity. Hidden or occluded fields remain a miss.
-    if (!bringIntoReach(el)) return false;
-    // Only type into things that hold text; a non-text target is a miss so the
-    // caller treats it like a failed action rather than silently no-op'ing.
-    const tag = el.tagName.toLowerCase();
-    const isText = tag === 'textarea'
-      || (el.getAttribute && (el.getAttribute('role') || '').toLowerCase().match(/textbox|searchbox|combobox/))
-      || el.isContentEditable
-      || (tag === 'input' && !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image']
-        .includes((el.getAttribute('type') || 'text').toLowerCase()));
-    if (!isText) return false;
-    try { el.focus(); } catch (e) {}
-    el.setAttribute('data-reproit-typed', '1');
-    // Recorded replay: tag this field as the trigger so a crash/jank box (e.g. a
-    // form that throws on submit) can point at it. Only the latest action's tag.
-    if (mark) {
-      try { for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger'); el.setAttribute('data-reproit-trigger', '1'); } catch (_) {}
-    }
-    return true;
-  }, { s: sel, mark: !!(opts && opts.mark) }).catch(() => false);
+        const isText =
+          tag === 'textarea' ||
+          (el.getAttribute &&
+            (el.getAttribute('role') || '').toLowerCase().match(/textbox|searchbox|combobox/)) ||
+          el.isContentEditable ||
+          (tag === 'input' &&
+            !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image'].includes(
+              (el.getAttribute('type') || 'text').toLowerCase(),
+            ));
+        if (!isText) return false;
+        try {
+          el.focus();
+        } catch (e) {}
+        el.setAttribute('data-reproit-typed', '1');
+        // Recorded replay: tag this field as the trigger so a crash/jank box (e.g. a
+        // form that throws on submit) can point at it. Only the latest action's tag.
+        if (mark) {
+          try {
+            for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+              e.removeAttribute('data-reproit-trigger');
+            el.setAttribute('data-reproit-trigger', '1');
+          } catch (_) {}
+        }
+        return true;
+      },
+      { s: sel, mark: !!(opts && opts.mark) },
+    )
+    .catch(() => false);
   if (!found) return false;
   // Type via the real keyboard so framework input handlers fire, then commit
   // with Enter. We located + focused the element above; type into the focused
@@ -3171,7 +3951,9 @@ async function typeInto(page, sel, value, opts) {
       ae.dispatchEvent(new Event('change', { bubbles: true }));
     }, value);
     await page.keyboard.press('Enter');
-  } catch (e) { return false; }
+  } catch (e) {
+    return false;
+  }
   return true;
 }
 
@@ -3190,22 +3972,41 @@ async function execScenarioAction(page, act, who, inputs) {
     const body = act.slice('assert:'.length);
     if (body.startsWith('text=')) {
       const want = body.slice('text='.length);
-      const ok = await page.evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want).catch(() => false);
-      log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who);
+      const ok = await page
+        .evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want)
+        .catch(() => false);
+      log(
+        'FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who,
+      );
     } else if (body.startsWith('count:')) {
       const rest = body.slice('count:'.length);
       const eq = rest.lastIndexOf('=');
       const finder = eq >= 0 ? rest.slice(0, eq) : rest;
       const want = eq >= 0 ? parseInt(rest.slice(eq + 1), 10) : 0;
       const got = await page.evaluate(countMatching, finder).catch(() => -1);
-      log('FUZZ:ASSERT ' + (got === want ? 'pass' : 'fail') + ' count ' + finder + ' want=' + want + ' got=' + got + ' actor=' + who);
+      log(
+        'FUZZ:ASSERT ' +
+          (got === want ? 'pass' : 'fail') +
+          ' count ' +
+          finder +
+          ' want=' +
+          want +
+          ' got=' +
+          got +
+          ' actor=' +
+          who,
+      );
     } else {
       log('FUZZ:ASSERT fail unsupported ' + body + ' actor=' + who);
     }
     await page.waitForTimeout(300);
     return;
   }
-  if (act === 'back') { await page.goBack().catch(() => {}); await page.waitForTimeout(400); return; }
+  if (act === 'back') {
+    await page.goBack().catch(() => {});
+    await page.waitForTimeout(400);
+    return;
+  }
   if (act.startsWith('type:')) {
     const b = act.slice('type:'.length);
     const eq = b.lastIndexOf('=');
@@ -3215,9 +4016,12 @@ async function execScenarioAction(page, act, who, inputs) {
     // adversarial-class token (same rule as the fuzz-replay path); else the
     // class token / env-expanded literal, unchanged.
     const fixtureVal = inputValueFor(sel, inputs);
-    const value = fixtureVal != null
-      ? fixtureVal
-      : (ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId));
+    const value =
+      fixtureVal != null
+        ? fixtureVal
+        : ADVERSARIAL_BY_ID[valId] !== undefined
+          ? ADVERSARIAL_BY_ID[valId]
+          : expandEnv(valId);
     const ok = await typeInto(page, sel, value);
     if (!ok) log('FUZZ:MISS ' + who + ' ' + act);
     await page.waitForTimeout(900);
@@ -3246,17 +4050,27 @@ async function runScenarioActor(browser) {
   // `b`, ... atomically so two actors can never collide.
   let who = process.env.REPROIT_DEVICE;
   if (!who) {
-    try { who = (await (await fetch(base + '/claim')).text()).trim(); } catch (_) { who = ''; }
+    try {
+      who = (await (await fetch(base + '/claim')).text()).trim();
+    } catch (_) {
+      who = '';
+    }
     if (!who || who.startsWith('ERR')) who = 'a';
   }
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on('pageerror', (err) => {
     const msg = String(err && err.message ? err.message : err);
-    if (exceptionIsBenign(msg) || exceptionThrownInTracker(err && err.stack) || exceptionIsNonDeterministic(msg, err && err.stack) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    if (
+      exceptionIsBenign(msg) ||
+      exceptionThrownInTracker(err && err.stack) ||
+      exceptionIsNonDeterministic(msg, err && err.stack) ||
+      !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)
+    )
+      return;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('actor ' + who + ': ' + msg);
-    const stack = (err && err.stack) ? String(err.stack) : '';
+    const stack = err && err.stack ? String(err.stack) : '';
     for (const line of stack.split('\n').slice(0, 8)) log(line);
     log('════════');
   });
@@ -3264,7 +4078,11 @@ async function runScenarioActor(browser) {
   // app-crash block so a process death isn't misattributed to the runner.
   page.on('crash', () => {
     log('EXCEPTION CAUGHT BY WEB PAGE');
-    log('actor ' + who + ': the page crashed (renderer process gone -- GPU / out-of-memory / sad-tab)');
+    log(
+      'actor ' +
+        who +
+        (': the page crashed (renderer process gone -- GPU / out-of-memory / ' + 'sad-tab)'),
+    );
     log('════════');
   });
   await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 }).catch(() => {});
@@ -3272,13 +4090,22 @@ async function runScenarioActor(browser) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let guard = 0; guard < 100000; guard++) {
     let body = 'WAIT';
-    try { body = (await (await fetch(base + '/next?device=' + who)).text()).trim(); }
-    catch { await sleep(100); continue; }
+    try {
+      body = (await (await fetch(base + '/next?device=' + who)).text()).trim();
+    } catch {
+      await sleep(100);
+      continue;
+    }
     if (body === 'DONE') break;
-    if (body === 'WAIT') { await sleep(40); continue; }
+    if (body === 'WAIT') {
+      await sleep(40);
+      continue;
+    }
     const act = body.startsWith('ACT\t') ? body.slice(4) : body;
     await execScenarioAction(page, act, who, inputs);
-    try { await fetch(base + '/done?device=' + who, { method: 'POST' }); } catch (_) {}
+    try {
+      await fetch(base + '/done?device=' + who, { method: 'POST' });
+    } catch (_) {}
   }
   await page.waitForTimeout(500); // flush a trailing pageerror before teardown
   log('JOURNEY DONE');
@@ -3316,11 +4143,20 @@ async function showActionHud(page, act, step, total) {
           el = document.createElement('div');
           el.id = '__reproit_hud';
           el.style.cssText = [
-            'position:fixed', 'top:14px', 'left:50%', 'transform:translateX(-50%)',
-            'z-index:2147483647', 'font:600 14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace',
-            'padding:10px 16px', 'border-radius:10px', 'pointer-events:none',
-            'box-shadow:0 6px 24px rgba(0,0,0,.45)', 'max-width:92vw',
-            'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis',
+            'position:fixed',
+            'top:14px',
+            'left:50%',
+            'transform:translateX(-50%)',
+            'z-index:2147483647',
+            'font:600 14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace',
+            'padding:10px 16px',
+            'border-radius:10px',
+            'pointer-events:none',
+            'box-shadow:0 6px 24px rgba(0,0,0,.45)',
+            'max-width:92vw',
+            'white-space:nowrap',
+            'overflow:hidden',
+            'text-overflow:ellipsis',
           ].join(';');
           (document.body || document.documentElement).appendChild(el);
         }
@@ -3329,7 +4165,7 @@ async function showActionHud(page, act, step, total) {
         el.style.border = '1px solid ' + (isFail ? '#ff7a7a' : 'rgba(255,255,255,.14)');
         el.textContent = (isFail ? '✗  ' : '▸  ') + text;
       },
-      { text, isFail }
+      { text, isFail },
     )
     .catch(() => {});
 }
@@ -3353,7 +4189,9 @@ async function drawFindingBoxes(page, hints = {}) {
   const drew = await page
     .evaluate(
       async ({ trigger, flickerKeys, oracle, linkHref }) => {
-        try { clearInterval(window.__reproitBoxHeal); } catch (_) {}
+        try {
+          clearInterval(window.__reproitBoxHeal);
+        } catch (_) {}
         const old = document.getElementById('__reproit_boxes');
         if (old) old.remove();
         const visible = (el) => {
@@ -3362,13 +4200,24 @@ async function drawFindingBoxes(page, hints = {}) {
           const st = getComputedStyle(el);
           return st.visibility !== 'hidden' && st.display !== 'none';
         };
-        const sx = window.scrollX, sy = window.scrollY;
+        const sx = window.scrollX,
+          sy = window.scrollY;
         // {prio,mag} orders findings by user-visible impact.
         const hits = [];
         const push = (el, label, prio, mag, cat, rect) => {
           // rect overrides the element box (a range-tightened text rect).
           const r = rect || el.getBoundingClientRect();
-          hits.push({ top: r.top + sy, left: r.left + sx, w: r.width, h: r.height, label, prio, mag, el, cat });
+          hits.push({
+            top: r.top + sy,
+            left: r.left + sx,
+            w: r.width,
+            h: r.height,
+            label,
+            prio,
+            mag,
+            el,
+            cat,
+          });
         };
         const all = document.body ? document.body.querySelectorAll('*') : [];
         // Content-bug artifacts: the literal broken-stringify tokens, on the OWN
@@ -3383,11 +4232,18 @@ async function drawFindingBoxes(page, hints = {}) {
           if (!text) return null;
           // Same prose guard as detectContentBugs for both artifact kinds.
           if (text.includes('[object Object]')) {
-            const s = text.replace(/\[object Object\]/g, ' ').replace(/\s+/g, ' ').trim();
+            const s = text
+              .replace(/\[object Object\]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
             if (dominates(s)) return '[object Object]';
           }
           if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) {
-            const s = text.replace(/\{\{[^}]*\}\}/g, ' ').replace(/\$\{[^}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+            const s = text
+              .replace(/\{\{[^}]*\}\}/g, ' ')
+              .replace(/\$\{[^}]*\}/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
             if (dominates(s)) return 'unrendered template';
           }
           return null;
@@ -3424,9 +4280,14 @@ async function drawFindingBoxes(page, hints = {}) {
         if (flickerKeys && flickerKeys.length) {
           const keyToEl = (key) => {
             const ci = key.indexOf(':');
-            const kind = key.slice(0, ci), val = key.slice(ci + 1);
+            const kind = key.slice(0, ci),
+              val = key.slice(ci + 1);
             if (kind === 'id') return document.getElementById(val);
-            if (kind === 'testid') return document.querySelector('[data-testid="' + val + '"]') || document.querySelector('[data-test-id="' + val + '"]');
+            if (kind === 'testid')
+              return (
+                document.querySelector('[data-testid="' + val + '"]') ||
+                document.querySelector('[data-test-id="' + val + '"]')
+              );
             if (kind === 'tag') {
               const m = val.match(/^([a-z0-9-]+)(?:\[([a-z]+)\])?$/i);
               if (!m) return null;
@@ -3438,7 +4299,10 @@ async function drawFindingBoxes(page, hints = {}) {
           const seenF = new Set();
           for (const k of flickerKeys) {
             const el = keyToEl(k);
-            if (el && !seenF.has(el) && visible(el)) { seenF.add(el); push(el, 'flicker  rebuilt', 2, 5e5, 'flicker'); }
+            if (el && !seenF.has(el) && visible(el)) {
+              seenF.add(el);
+              push(el, 'flicker  rebuilt', 2, 5e5, 'flicker');
+            }
           }
         }
         // BROKEN-ROUTE: the source link whose navigation target is the dead route.
@@ -3454,16 +4318,25 @@ async function drawFindingBoxes(page, hints = {}) {
             // visually hidden element.
             if (raw.startsWith('#')) continue;
             let path = '';
-            try { path = new URL(raw, location.href).pathname; } catch (e) { continue; }
+            try {
+              path = new URL(raw, location.href).pathname;
+            } catch (e) {
+              continue;
+            }
             if (path !== linkHref) continue;
             const txt = (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40);
             // A glyphless anchor (an image-overlay link) renders nothing of its
             // own, so a bare box reads as "a box around nothing". Caption it as
             // the image/overlay link it is, named by alt/aria-label when present.
-            const img = a.querySelector('img') || (a.parentElement && a.parentElement.querySelector('img'));
-            const label = txt || ((img && img.getAttribute('alt')) || a.getAttribute('aria-label') || '')
-              .replace(/\s+/g, ' ').trim().slice(0, 40);
-            const kind = txt ? 'broken link' : (img ? 'broken image link' : 'broken overlay link');
+            const img =
+              a.querySelector('img') || (a.parentElement && a.parentElement.querySelector('img'));
+            const label =
+              txt ||
+              ((img && img.getAttribute('alt')) || a.getAttribute('aria-label') || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 40);
+            const kind = txt ? 'broken link' : img ? 'broken image link' : 'broken overlay link';
             // Tighten a block-level anchor's box to its rendered text so the box
             // hugs what a person sees instead of the full container width.
             let rect = null;
@@ -3473,9 +4346,18 @@ async function drawFindingBoxes(page, hints = {}) {
                 rg.selectNodeContents(a);
                 const rr = rg.getBoundingClientRect();
                 if (rr.width > 0 && rr.height > 0) rect = rr;
-              } catch (e) { /* keep the element rect */ }
+              } catch (e) {
+                /* keep the element rect */
+              }
             }
-            push(a, kind + '  ' + (label ? '"' + label + '" → ' : '') + linkHref, 5, 3e6, 'link', rect);
+            push(
+              a,
+              kind + '  ' + (label ? '"' + label + '" → ' : '') + linkHref,
+              5,
+              3e6,
+              'link',
+              rect,
+            );
             break;
           }
         }
@@ -3491,7 +4373,14 @@ async function drawFindingBoxes(page, hints = {}) {
           if (o.includes('broken-render') || o.includes('content')) return 'content';
           if (o.includes('flicker')) return 'flicker';
           if (o.includes('broken-route') || o.includes('not-found')) return 'link';
-          if (o.includes('exception') || o.includes('crash') || o.includes('jank') || o.includes('hang') || o.includes('choice')) return 'trigger';
+          if (
+            o.includes('exception') ||
+            o.includes('crash') ||
+            o.includes('jank') ||
+            o.includes('hang') ||
+            o.includes('choice')
+          )
+            return 'trigger';
           return null;
         };
         let scoped;
@@ -3528,22 +4417,32 @@ async function drawFindingBoxes(page, hints = {}) {
           const fvh = window.innerHeight || document.documentElement.clientHeight;
           const fvw = window.innerWidth || document.documentElement.clientWidth;
           const fInView = fr.top >= 0 && fr.left >= 0 && fr.bottom <= fvh && fr.right <= fvw;
-          if (!fInView) chosen[0].el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+          if (!fInView)
+            chosen[0].el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
         } catch (_) {}
         {
-          let lastY = -1, stable = 0;
+          let lastY = -1,
+            stable = 0;
           for (let i = 0; i < 50; i++) {
             await new Promise((r) => setTimeout(r, 50));
             const y = window.scrollY;
-            if (y === lastY) { if (++stable >= 3) break; } else { stable = 0; lastY = y; }
+            if (y === lastY) {
+              if (++stable >= 3) break;
+            } else {
+              stable = 0;
+              lastY = y;
+            }
           }
         }
-        const vx = window.scrollX, vy2 = window.scrollY;
+        const vx = window.scrollX,
+          vy2 = window.scrollY;
         const vw = window.innerWidth || document.documentElement.clientWidth;
         const vh = window.innerHeight || document.documentElement.clientHeight;
         const layer = document.createElement('div');
         layer.id = '__reproit_boxes';
-        layer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none';
+        layer.style.cssText =
+          'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483646;' +
+          'pointer-events:none';
         for (const h of chosen) {
           const box = document.createElement('div');
           // CLAMP the box to the visible viewport (with an inset): an element bigger
@@ -3565,20 +4464,33 @@ async function drawFindingBoxes(page, hints = {}) {
           const bw = Math.max(8, br - bl);
           const bh = Math.max(8, bb - bt);
           box.style.cssText = [
-            'position:absolute', 'top:' + bt + 'px', 'left:' + bl + 'px',
-            'width:' + bw + 'px', 'height:' + bh + 'px',
-            'border:3px solid #e21f1f', 'background:rgba(226,31,31,.10)', 'border-radius:4px',
-            'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)', 'pointer-events:none',
+            'position:absolute',
+            'top:' + bt + 'px',
+            'left:' + bl + 'px',
+            'width:' + bw + 'px',
+            'height:' + bh + 'px',
+            'border:3px solid #e21f1f',
+            'background:rgba(226,31,31,.10)',
+            'border-radius:4px',
+            'box-shadow:0 0 0 1px rgba(255,255,255,.5),0 4px 18px rgba(0,0,0,.35)',
+            'pointer-events:none',
           ].join(';');
           const tag = document.createElement('div');
           tag.textContent = h.label;
           // Sit the label above the box, but flip it just inside the top edge when
           // the box hugs the viewport top (a clamped/banner box) so it stays on-screen.
-          const labelTop = (bt - vy2) < 24 ? 3 : -22;
+          const labelTop = bt - vy2 < 24 ? 3 : -22;
           tag.style.cssText = [
-            'position:absolute', 'top:' + labelTop + 'px', 'left:-3px', 'background:#e21f1f', 'color:#fff',
-            'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace', 'padding:4px 7px',
-            'border-radius:5px', 'white-space:nowrap', 'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+            'position:absolute',
+            'top:' + labelTop + 'px',
+            'left:-3px',
+            'background:#e21f1f',
+            'color:#fff',
+            'font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace',
+            'padding:4px 7px',
+            'border-radius:5px',
+            'white-space:nowrap',
+            'box-shadow:0 2px 8px rgba(0,0,0,.4)',
           ].join(';');
           box.appendChild(tag);
           layer.appendChild(box);
@@ -3588,13 +4500,18 @@ async function drawFindingBoxes(page, hints = {}) {
         // injected nodes on their next reconcile, so the box flashed once then
         // vanished mid-clip. Re-attach it for a bounded window so it stays on
         // camera through the hold. Auto-stops; the box-removal sites clear it.
-        try { clearInterval(window.__reproitBoxHeal); } catch (_) {}
+        try {
+          clearInterval(window.__reproitBoxHeal);
+        } catch (_) {}
         let heals = 0;
         window.__reproitBoxHeal = setInterval(() => {
           if (!document.getElementById('__reproit_boxes')) {
             (document.body || document.documentElement).appendChild(layer);
           }
-          if (++heals >= 24) { clearInterval(window.__reproitBoxHeal); window.__reproitBoxHeal = null; }
+          if (++heals >= 24) {
+            clearInterval(window.__reproitBoxHeal);
+            window.__reproitBoxHeal = null;
+          }
         }, 150);
         return chosen.length > 0;
       },
@@ -3603,7 +4520,7 @@ async function drawFindingBoxes(page, hints = {}) {
         flickerKeys: hints.flickerKeys || null,
         oracle: hints.oracle || null,
         linkHref: hints.linkHref || null,
-      }
+      },
     )
     .catch(() => false);
   // TRUST GATE: tell the Rust side whether the box actually drew, so a clip that
@@ -3660,7 +4577,8 @@ function detectChoiceGroups(tappables) {
   for (const t of tappables) {
     // Only plain BUTTONS (links navigate, they are not a choice picker), with a
     // label (a real picker labels every option).
-    if (claimed.has(t.sel) || t.role !== 'button' || !t.label || t.grp == null || t.grp < 0) continue;
+    if (claimed.has(t.sel) || t.role !== 'button' || !t.label || t.grp == null || t.grp < 0)
+      continue;
     if (!byGrp.has(t.grp)) byGrp.set(t.grp, []);
     byGrp.get(t.grp).push(t);
   }
@@ -3695,7 +4613,11 @@ async function detectSelectGroups(page) {
       };
       const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
       const keyOf = (el) => {
-        const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
+        const tid = (
+          el.getAttribute('data-testid') ||
+          el.getAttribute('data-test-id') ||
+          ''
+        ).trim();
         if (tid) return 'testid:' + tid;
         const name = (el.getAttribute('name') || '').trim();
         if (name) return 'name:' + name;
@@ -3716,7 +4638,10 @@ async function detectSelectGroups(page) {
         out.push({
           ssel,
           orig: sel.value,
-          opts: opts.map((o) => ({ value: o.value, label: norm(o.label || o.textContent) || o.value })),
+          opts: opts.map((o) => ({
+            value: o.value,
+            label: norm(o.label || o.textContent) || o.value,
+          })),
         });
       }
       return out;
@@ -3741,7 +4666,8 @@ async function setSelectValue(page, selectSel, value) {
   return await page
     .evaluate(
       ({ selectSel, value }) => {
-        const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&'));
+        const cssEscape = (v) =>
+          window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&');
         let el = null;
         if (selectSel.startsWith('key:')) {
           const body = selectSel.slice(4);
@@ -3749,10 +4675,12 @@ async function setSelectValue(page, selectSel, value) {
           const kind = ci >= 0 ? body.slice(0, ci) : '';
           const val = ci >= 0 ? body.slice(ci + 1) : body;
           if (kind === 'testid') {
-            el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-              || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+            el =
+              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
           } else if (kind === 'id') el = document.getElementById(val);
-          else if (kind === 'name') el = document.querySelector('select[name="' + cssEscape(val) + '"]');
+          else if (kind === 'name')
+            el = document.querySelector('select[name="' + cssEscape(val) + '"]');
         } else if (selectSel.startsWith('tag:select#')) {
           const idx = parseInt(selectSel.slice('tag:select#'.length), 10);
           const all = document.querySelectorAll('select');
@@ -3765,7 +4693,7 @@ async function setSelectValue(page, selectSel, value) {
         el.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
       },
-      { selectSel, value }
+      { selectSel, value },
     )
     .catch(() => false);
 }
@@ -3794,7 +4722,11 @@ async function measureGlobalLayout(page) {
       // INSTANT jump: many sites set CSS `scroll-behavior:smooth`, under which a
       // plain scrollTo animates and the rects below are read MID-SCROLL, which
       // shifts the "above-fold" set and injects huge phantom deltas.
-      try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch (_) { window.scrollTo(0, 0); }
+      try {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      } catch (_) {
+        window.scrollTo(0, 0);
+      }
       document.documentElement.scrollTop = 0;
       const de = document.documentElement;
       const anchors = [];
@@ -3882,7 +4814,9 @@ async function clickOptionByLabel(page, role, label) {
     .evaluate(
       ({ label }) => {
         const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-        for (const el of document.querySelectorAll('button, [role=button], [role=tab], [role=radio]')) {
+        for (const el of document.querySelectorAll(
+          'button, [role=button], [role=tab], [role=radio]',
+        )) {
           const ll = el.getAttribute('aria-labelledby');
           let name = norm(el.getAttribute('aria-label'));
           if (!name && ll) {
@@ -3898,7 +4832,7 @@ async function clickOptionByLabel(page, role, label) {
         }
         return false;
       },
-      { label }
+      { label },
     )
     .catch(() => false);
 }
@@ -3933,7 +4867,7 @@ async function measureSettledLayout(page) {
 async function pickChoiceOption(page, group, opt) {
   return group.role === 'select'
     ? await setSelectValue(page, group.selectSel, opt.value)
-    : ((await tap(page, opt.sel)) || (await clickOptionByLabel(page, group.role, opt.label)));
+    : (await tap(page, opt.sel)) || (await clickOptionByLabel(page, group.role, opt.label));
 }
 
 async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
@@ -3971,8 +4905,7 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
     }
   }
   for (const r of valid) r.mag = layoutDelta(medoid.fp, r.fp);
-  const siblingMedFor = (cand) =>
-    medianOf(valid.filter((o) => o !== cand).map((o) => o.mag));
+  const siblingMedFor = (cand) => medianOf(valid.filter((o) => o !== cand).map((o) => o.mag));
   const candidates = valid
     .filter((r) => {
       if (r === medoid || r.mag < CHOICE_MIN_MAGNITUDE) return false;
@@ -4004,7 +4937,11 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
     const b = await measureSettledLayout(page);
     const mag = a && b ? layoutDelta(a, b) : null;
     const med = siblingMedFor(cand);
-    if (mag !== null && mag >= CHOICE_MIN_MAGNITUDE && mag >= CHOICE_OUTLIER_RATIO * Math.max(med, 1)) {
+    if (
+      mag !== null &&
+      mag >= CHOICE_MIN_MAGNITUDE &&
+      mag >= CHOICE_OUTLIER_RATIO * Math.max(med, 1)
+    ) {
       confirmed.push({ opt: cand.opt, mag, med });
     }
   }
@@ -4030,7 +4967,7 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
             sel: c.opt.sel,
             magnitude: Math.round(c.mag),
             siblingMedian: Math.round(c.med),
-          })
+          }),
       );
     }
     // Recorded fuzz walk (`fuzz --record`): re-select the outlier and box it so
@@ -4046,27 +4983,36 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
       if (group.role === 'select' && group.selectSel) {
         await setSelectValue(page, group.selectSel, max.opt.value);
         tapped = await page
-          .evaluate(({ selectSel }) => {
-            const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&'));
-            let el = null;
-            if (selectSel.startsWith('key:')) {
-              const body = selectSel.slice(4);
-              const ci = body.indexOf(':');
-              const kind = ci >= 0 ? body.slice(0, ci) : '';
-              const val = ci >= 0 ? body.slice(ci + 1) : body;
-              if (kind === 'testid') el = document.querySelector('[data-testid="' + cssEscape(val) + '"]') || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-              else if (kind === 'id') el = document.getElementById(val);
-              else if (kind === 'name') el = document.querySelector('select[name="' + cssEscape(val) + '"]');
-            } else if (selectSel.startsWith('tag:select#')) {
-              const idx = parseInt(selectSel.slice('tag:select#'.length), 10);
-              const all = document.querySelectorAll('select');
-              el = idx >= 0 && idx < all.length ? all[idx] : null;
-            }
-            if (!el) return false;
-            for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
-            el.setAttribute('data-reproit-trigger', '1');
-            return true;
-          }, { selectSel: group.selectSel })
+          .evaluate(
+            ({ selectSel }) => {
+              const cssEscape = (v) =>
+                window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&');
+              let el = null;
+              if (selectSel.startsWith('key:')) {
+                const body = selectSel.slice(4);
+                const ci = body.indexOf(':');
+                const kind = ci >= 0 ? body.slice(0, ci) : '';
+                const val = ci >= 0 ? body.slice(ci + 1) : body;
+                if (kind === 'testid')
+                  el =
+                    document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+                    document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+                else if (kind === 'id') el = document.getElementById(val);
+                else if (kind === 'name')
+                  el = document.querySelector('select[name="' + cssEscape(val) + '"]');
+              } else if (selectSel.startsWith('tag:select#')) {
+                const idx = parseInt(selectSel.slice('tag:select#'.length), 10);
+                const all = document.querySelectorAll('select');
+                el = idx >= 0 && idx < all.length ? all[idx] : null;
+              }
+              if (!el) return false;
+              for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+                e.removeAttribute('data-reproit-trigger');
+              el.setAttribute('data-reproit-trigger', '1');
+              return true;
+            },
+            { selectSel: group.selectSel },
+          )
           .catch(() => false);
       } else {
         // Re-select the EXACT outlier by selector and tag it (mark) so the box lands
@@ -4079,17 +5025,29 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
         const label = max.opt.label || max.opt.sel;
         await clickOptionByLabel(page, group.role, label);
         await page
-          .evaluate(({ label }) => {
-            const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-            for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
-            for (const el of document.querySelectorAll('button, [role=button], [role=tab], [role=radio]')) {
-              const ll = el.getAttribute('aria-labelledby');
-              let name = norm(el.getAttribute('aria-label'));
-              if (!name && ll) { const ref = document.getElementById(ll.split(/\s+/)[0]); if (ref) name = norm(ref.textContent); }
-              if (!name) name = norm(el.textContent);
-              if (name === label) { el.setAttribute('data-reproit-trigger', '1'); break; }
-            }
-          }, { label })
+          .evaluate(
+            ({ label }) => {
+              const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+              for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+                e.removeAttribute('data-reproit-trigger');
+              for (const el of document.querySelectorAll(
+                'button, [role=button], [role=tab], [role=radio]',
+              )) {
+                const ll = el.getAttribute('aria-labelledby');
+                let name = norm(el.getAttribute('aria-label'));
+                if (!name && ll) {
+                  const ref = document.getElementById(ll.split(/\s+/)[0]);
+                  if (ref) name = norm(ref.textContent);
+                }
+                if (!name) name = norm(el.textContent);
+                if (name === label) {
+                  el.setAttribute('data-reproit-trigger', '1');
+                  break;
+                }
+              }
+            },
+            { label },
+          )
           .catch(() => {});
       }
       await page.waitForTimeout(500);
@@ -4103,9 +5061,13 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
       if (!keepBox) {
         await page
           .evaluate(() => {
-            try { clearInterval(window.__reproitBoxHeal); } catch (_) {}
-            const b = document.getElementById('__reproit_boxes'); if (b) b.remove();
-            for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+            try {
+              clearInterval(window.__reproitBoxHeal);
+            } catch (_) {}
+            const b = document.getElementById('__reproit_boxes');
+            if (b) b.remove();
+            for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+              e.removeAttribute('data-reproit-trigger');
           })
           .catch(() => {});
       }
@@ -4185,12 +5147,20 @@ async function main() {
   // ground-truth falls back to native + cursor + delegation-marker signals.
   let gtCdp = null;
   if (ENGINE === 'chromium') {
-    try { gtCdp = await context.newCDPSession(page); } catch (e) { gtCdp = null; }
+    try {
+      gtCdp = await context.newCDPSession(page);
+    } catch (e) {
+      gtCdp = null;
+    }
     // JANK hardening: enable the CDP Performance domain so we can read
     // LayoutCount/RecalcStyleCount. The DELTA of forced synchronous layouts
     // around an action is a machine-INVARIANT jank signal (300 forced layouts is
     // 300 on any runner), unlike the wall-clock stall. Chromium-only; best-effort.
-    if (gtCdp) { try { await gtCdp.send('Performance.enable'); } catch (_) {} }
+    if (gtCdp) {
+      try {
+        await gtCdp.send('Performance.enable');
+      } catch (_) {}
+    }
   }
 
   // Exception oracle: uncaught page errors (a throw in an onclick, an
@@ -4202,12 +5172,18 @@ async function main() {
   const emitError = (err) => {
     const msg = String(err && err.message ? err.message : err);
     // Skip third-party-script throws and known-benign browser-policy errors.
-    if (exceptionIsBenign(msg) || exceptionThrownInTracker(err && err.stack) || exceptionIsNonDeterministic(msg, err && err.stack) || !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)) return;
+    if (
+      exceptionIsBenign(msg) ||
+      exceptionThrownInTracker(err && err.stack) ||
+      exceptionIsNonDeterministic(msg, err && err.stack) ||
+      !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)
+    )
+      return;
     replayErrorCount++;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
     log(msg);
-    const stack = (err && err.stack) ? String(err.stack) : '';
+    const stack = err && err.stack ? String(err.stack) : '';
     for (const line of stack.split('\n').slice(0, 8)) log(line);
     log('\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550');
   };
@@ -4220,7 +5196,7 @@ async function main() {
     replayErrorCount++;
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
-    log('the page crashed (renderer process gone -- GPU / out-of-memory / sad-tab)');
+    log('the page crashed (renderer process gone -- GPU / out-of-memory / ' + 'sad-tab)');
     log('════════');
   });
 
@@ -4241,8 +5217,11 @@ async function main() {
       let responseHeaders;
       let backendEvents = [];
       let backendReplayHeader = null;
-      if (BACKEND_ENABLED && BACKEND_ORIGINS.has(responseUrl.origin) &&
-          ['xhr', 'fetch', 'eventsource'].includes(resourceType)) {
+      if (
+        BACKEND_ENABLED &&
+        BACKEND_ORIGINS.has(responseUrl.origin) &&
+        ['xhr', 'fetch', 'eventsource'].includes(resourceType)
+      ) {
         responseHeaders = await resp.allHeaders().catch(() => ({}));
         const requestHeaders = req.headers();
         const traceId = requestHeaders['x-reproit-trace'];
@@ -4257,9 +5236,17 @@ async function main() {
           for (const event of backendEvents) log('REPROIT:BACKEND ' + JSON.stringify(event));
           if (backendEvents.length > 0) {
             backendReplayHeader = encodeBackendEventHeader(backendEvents);
-            log(backendReplayHeader
-              ? 'REPROIT:CAPABILITIES {"backend_effects":{"status":"captured","detail":"trace-bound structural service events"},"backend_effects_replay":{"status":"captured","detail":"redacted events retained in hermetic HTTP response"}}'
-              : 'REPROIT:CAPABILITIES {"backend_effects":{"status":"captured","detail":"trace-bound structural service events"},"backend_effects_replay":{"status":"unsupported","detail":"event envelope exceeds the safe replay limit"}}');
+            log(
+              backendReplayHeader
+                ? 'REPROIT:CAPABILITIES {"backend_effects":{"status":"captured","detail":' +
+                    '"trace-bound structural service events"},"backend_effects_replay":' +
+                    '{"status":"captured","detail":"redacted events retained in hermetic ' +
+                    'HTTP response"}}'
+                : 'REPROIT:CAPABILITIES {"backend_effects":{"status":"captured","detail":' +
+                    '"trace-bound structural service events"},"backend_effects_replay":' +
+                    '{"status":"unsupported","detail":"event envelope exceeds the safe ' +
+                    'replay limit"}}',
+            );
           }
         }
       }
@@ -4291,14 +5278,19 @@ async function main() {
       }
       const causal = causalRequests.get(req);
       if (causal && NETWORK_FILE) {
-        const headers = responseHeaders || await resp.allHeaders().catch(() => ({}));
+        const headers = responseHeaders || (await resp.allHeaders().catch(() => ({})));
         const contentType = headers['content-type'] || '';
         let body;
         if (/text\/event-stream/i.test(contentType)) {
           const raw = await resp.text().catch(() => '');
           const sse = redactSse(raw);
           body = sse.body;
-          if (!sse.supported) log('REPROIT:CAPABILITIES {"sse":{"status":"unsupported","detail":"non-JSON event cannot be safely persisted"},"sse_replay":{"status":"unsupported","detail":"non-JSON event cannot be safely persisted"}}');
+          if (!sse.supported)
+            log(
+              'REPROIT:CAPABILITIES {"sse":{"status":"unsupported","detail":"non-JSON ' +
+                'event cannot be safely persisted"},"sse_replay":{"status":' +
+                '"unsupported","detail":"non-JSON event cannot be safely persisted"}}',
+            );
         } else if (/json/i.test(contentType)) {
           const raw = await resp.text().catch(() => '');
           body = parseNetworkBody(raw, contentType);
@@ -4311,26 +5303,42 @@ async function main() {
           safeResponseHeaders['x-reproit-events'] = backendReplayHeader;
         }
         appendNetworkFact({
-          version: 1, type: 'exchange', id: causal.id, actor: NETWORK_ACTOR,
-          actionIndex: Math.max(causal.actionIndex, 0), ordinal: causal.ordinal,
-          protocol: /text\/event-stream/i.test(contentType) ? 'sse' : new URL(resp.url()).protocol.replace(':', ''), method: req.method(), url: resp.url(),
-          requestHeaders: causal.headers, requestBody: causal.body,
-          status: resp.status(), responseHeaders: safeResponseHeaders, responseBody: body,
+          version: 1,
+          type: 'exchange',
+          id: causal.id,
+          actor: NETWORK_ACTOR,
+          actionIndex: Math.max(causal.actionIndex, 0),
+          ordinal: causal.ordinal,
+          protocol: /text\/event-stream/i.test(contentType)
+            ? 'sse'
+            : new URL(resp.url()).protocol.replace(':', ''),
+          method: req.method(),
+          url: resp.url(),
+          requestHeaders: causal.headers,
+          requestBody: causal.body,
+          status: resp.status(),
+          responseHeaders: safeResponseHeaders,
+          responseBody: body,
           required: true,
         });
         if (/json/i.test(contentType)) {
-          log('FUZZ:NETWORK ' + JSON.stringify({
-            status: resp.status(),
-            url: new URL(resp.url()).pathname,
-            responseShape: responseShape(body),
-          }));
+          log(
+            'FUZZ:NETWORK ' +
+              JSON.stringify({
+                status: resp.status(),
+                url: new URL(resp.url()).pathname,
+                responseShape: responseShape(body),
+              }),
+          );
         }
       }
       if (req.frame() !== page.mainFrame() || req.resourceType() !== 'document') return;
       const u = new URL(resp.url());
       if (u.origin !== APP_ORIGIN) return;
       navStatus[normalizePathname(u.pathname)] = resp.status();
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   });
   page.on('requestfailed', (req) => {
     try {
@@ -4394,7 +5402,9 @@ async function main() {
       if (method === 'GET') return;
       if (new URL(req.url()).origin !== APP_ORIGIN) return;
       dupReqLog.push(method + ' ' + req.url());
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   });
 
   // Install the Long Tasks observer (jank/hang watchdog) BEFORE the first
@@ -4421,7 +5431,9 @@ async function main() {
   // replaying drifty positional taps. Same-origin as APP_URL, so the off-origin
   // guards still hold. Absent for a normal run -> the app's start URL.
   const START_URL = loadFuzz().gotoUrl || APP_URL;
-  const startResponse = await page.goto(START_URL, { waitUntil: 'networkidle', timeout: 8000 }).catch(() => null);
+  const startResponse = await page
+    .goto(START_URL, { waitUntil: 'networkidle', timeout: 8000 })
+    .catch(() => null);
   await page.waitForTimeout(800);
 
   // BOT-WALL guard: if the landing page is a WAF challenge interstitial, reproit
@@ -4430,14 +5442,27 @@ async function main() {
   // reads as a clean, complete pass with zero findings, not a cut-short crawl).
   const wall = await detectBotWall(page);
   if (wall) {
-    const diag = `target is behind a ${wall.vendor} bot-challenge (${wall.marker}); reproit could not reach the app. `
-      + `Allowlist the reproit User-Agent ("${REPROIT_UA_TOKEN}") in your WAF, run reproit against your dev/staging build, `
-      + `or pass --header "Cookie: cf_clearance=..." to inject a clearance token.`;
-    log('EXPLORE:UNSCANNABLE ' + JSON.stringify({ reason: 'bot-wall', vendor: wall.vendor, marker: wall.marker, diagnostic: diag }));
+    const diag =
+      `target is behind a ${wall.vendor} bot-challenge (${wall.marker}); ` +
+      'reproit could not reach the app. ' +
+      `Allowlist the reproit User-Agent ("${REPROIT_UA_TOKEN}") in your WAF, ` +
+      'run reproit against your dev/staging build, ' +
+      `or pass --header "Cookie: cf_clearance=..." to inject a clearance token.`;
+    log(
+      'EXPLORE:UNSCANNABLE ' +
+        JSON.stringify({
+          reason: 'bot-wall',
+          vendor: wall.vendor,
+          marker: wall.marker,
+          diagnostic: diag,
+        }),
+    );
     log('JOURNEY[a] step: UNSCANNABLE - ' + diag);
     log('JOURNEY DONE');
     log('All tests passed');
-    try { await browser.close(); } catch (_) {}
+    try {
+      await browser.close();
+    } catch (_) {}
     return;
   }
 
@@ -4451,15 +5476,18 @@ async function main() {
   // the run so an adversarial value generator cannot explode the graph. The cap
   // is SESSION-wide (every seed): an adversarial value generator cannot evade it
   // by resetting between seeds, matching the other runners' contract.
-  const valueCombos = new Map();   // structuralSig -> Set of V: sections
-  const cappedNodes = new Set();   // structuralSig that hit the cap
+  const valueCombos = new Map(); // structuralSig -> Set of V: sections
+  const cappedNodes = new Set(); // structuralSig that hit the cap
   // The EFFECTIVE signature for a snapshot, applying the runner-local cap: the
   // full value-folded sig unless this structural node is capped, then structural.
   function effectiveSig(snap) {
     if (cappedNodes.has(snap.structuralSig)) return snap.structuralSig;
     if (snap.vsection) {
       let set = valueCombos.get(snap.structuralSig);
-      if (!set) { set = new Set(); valueCombos.set(snap.structuralSig, set); }
+      if (!set) {
+        set = new Set();
+        valueCombos.set(snap.structuralSig, set);
+      }
       set.add(snap.vsection);
       if (set.size > VALUE_CLASS_CAP) {
         cappedNodes.add(snap.structuralSig);
@@ -4478,16 +5506,28 @@ async function main() {
   // Returns true if a recovery was performed (caller should not record state).
   async function recoverIfOffOrigin() {
     let url = '';
-    try { url = page.url(); } catch (e) {}
+    try {
+      url = page.url();
+    } catch (e) {}
     let off = false;
-    try { off = new URL(url).origin !== APP_ORIGIN; } catch (e) { off = true; }
+    try {
+      off = new URL(url).origin !== APP_ORIGIN;
+    } catch (e) {
+      off = true;
+    }
     if (!off) return false;
     await page.goBack({ timeout: 3000 }).catch(() => {});
     await page.waitForTimeout(400);
     let back = '';
-    try { back = page.url(); } catch (e) {}
+    try {
+      back = page.url();
+    } catch (e) {}
     let stillOff = true;
-    try { stillOff = new URL(back).origin !== APP_ORIGIN; } catch (e) { stillOff = true; }
+    try {
+      stillOff = new URL(back).origin !== APP_ORIGIN;
+    } catch (e) {
+      stillOff = true;
+    }
     if (stillOff) {
       await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(400);
@@ -4550,7 +5590,7 @@ async function main() {
     const recording = !!(replay && VIDEO_DIR);
     const crashAtStart = replayErrorCount;
     let lastTriggerLabel = null; // 'jank' / 'froze' from the latest action (crash overrides)
-    let lastFlickerKeys = null;  // churned persistent-chrome anchor keys, latest action
+    let lastFlickerKeys = null; // churned persistent-chrome anchor keys, latest action
     // Property-matched fixture inputs for this seed (field -> concrete value).
     // Empty unless the config carries `inputs`; when present, a matching `type:`
     // action types the provided value instead of the adversarial-class token.
@@ -4569,12 +5609,15 @@ async function main() {
       snap.sig = effectiveSig(snap);
       // Temporal contracts need every observation, including revisits and text
       // changes that deliberately do not alter the structural map signature.
-      log('FUZZ:OBS ' + JSON.stringify({
-        sig: snap.sig,
-        ...(snap.anchor ? { route: snap.anchor } : {}),
-        labels: snap.labels.slice(0, 24),
-        elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
-      }));
+      log(
+        'FUZZ:OBS ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            labels: snap.labels.slice(0, 24),
+            elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
+          }),
+      );
       if (replay) log('FUZZ:STATE ' + snap.sig);
       if (!seenStates.has(snap.sig)) {
         seenStates.add(snap.sig);
@@ -4584,21 +5627,24 @@ async function main() {
         // elements: structural selectors for replay; `nokey` flags a tappable
         //           with no explicit author key (data-testid/name) so the map layer can
         //           warn the developer to add one.
-        log('EXPLORE:STATE ' + JSON.stringify({
-          sig: snap.sig,
-          // route: the URL path, so the candidate map can reconcile by route
-          // (the reliable, framework-neutral join key) and not just by name.
-          ...(snap.anchor ? { route: snap.anchor } : {}),
-          labels: snap.labels.slice(0, 24),
-          elements: snap.tappables.slice(0, 24).map((e) => {
-            const o = { sel: e.sel, role: e.role, label: e.label };
-            if (e.purpose) o.inputPurpose = e.purpose;
-            if (e.bounds) o.bounds = e.bounds;
-            if (!e.key) o.nokey = true;
-            return o;
-          }),
-          texts: (snap.texts || []).slice(0, 48),
-        }));
+        log(
+          'EXPLORE:STATE ' +
+            JSON.stringify({
+              sig: snap.sig,
+              // route: the URL path, so the candidate map can reconcile by route
+              // (the reliable, framework-neutral join key) and not just by name.
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              labels: snap.labels.slice(0, 24),
+              elements: snap.tappables.slice(0, 24).map((e) => {
+                const o = { sel: e.sel, role: e.role, label: e.label };
+                if (e.purpose) o.inputPurpose = e.purpose;
+                if (e.bounds) o.bounds = e.bounds;
+                if (!e.key) o.nokey = true;
+                return o;
+              }),
+              texts: (snap.texts || []).slice(0, 48),
+            }),
+        );
         // Evidence recording is not another audit. The scan already found and
         // classified the bug; this run exists only to film that reproduction.
         // Skip state-audit probes here because some are intentionally invasive:
@@ -4618,7 +5664,14 @@ async function main() {
         // timing), so it reproduces on replay. Silent when nothing is broken.
         const cbug = await page.evaluate(detectContentBugs, [...INJECTED_VALUES]).catch(() => null);
         if (cbug && cbug.length) {
-          log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+          log(
+            'EXPLORE:CONTENTBUG ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: cbug,
+              }),
+          );
         }
         // OCCLUSION: an interactive element that is presented as usable (visible,
         // in the viewport, not aria-hidden/inert) but whose CENTER is covered by a
@@ -4640,7 +5693,48 @@ async function main() {
           occ = confirmOcclusions(occ1, occ2 || []);
         }
         if (occ && occ.length) {
-          log('EXPLORE:OCCLUSION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: occ }));
+          log(
+            'EXPLORE:OCCLUSION ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: occ,
+              }),
+          );
+        }
+        // EXPLICIT STRUCTURAL RELATIONSHIPS. This is deliberately not a visual
+        // badge heuristic: the page must declare indicator, owner, and container
+        // semantics. UNKNOWN relationships stay silent. A PROVEN violation must
+        // survive a second settled sample with the same structural identity and
+        // violation before it enters the marker stream.
+        const relation1 = await page.evaluate(indicatorRelationshipScan).catch(() => null);
+        let relation2 = null;
+        if (relation1?.outcome === 'PROVEN') {
+          await page.waitForTimeout(120);
+          relation2 = await page.evaluate(indicatorRelationshipScan).catch(() => null);
+          const relations = confirmRelationshipViolations(relation1, relation2);
+          if (relations.length) {
+            log(
+              'EXPLORE:RELATION ' +
+                JSON.stringify({
+                  sig: snap.sig,
+                  ...(snap.anchor ? { route: snap.anchor } : {}),
+                  items: relations,
+                }),
+            );
+          }
+        }
+        const relationStatus = relation2 || relation1;
+        if (relationStatus) {
+          log(
+            'EXPLORE:RELATIONSTATUS ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                outcome: relationStatus.outcome,
+                checks: relationStatus.checks,
+              }),
+          );
         }
         // SECURITY hygiene: pure DOM/URL predicates, deterministic and FP-free.
         //   - tabnabbing: a cross-origin target=_blank link with no rel=noopener
@@ -4651,7 +5745,14 @@ async function main() {
         //     never false-positives.
         const sec = await page.evaluate(securityScan).catch(() => null);
         if (sec && sec.length) {
-          log('EXPLORE:SECURITY ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: sec }));
+          log(
+            'EXPLORE:SECURITY ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: sec,
+              }),
+          );
         }
         // BLANK-SCREEN: the state rendered NOTHING -- zero visible text nodes,
         // zero tappable controls, zero visible media -- in a non-empty viewport
@@ -4671,7 +5772,14 @@ async function main() {
           blank = await page.evaluate(blankScreenScan).catch(() => null);
         }
         if (blank && blank.length) {
-          log('EXPLORE:BLANKSCREEN ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: blank }));
+          log(
+            'EXPLORE:BLANKSCREEN ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: blank,
+              }),
+          );
         }
         // APP-INVARIANT: the app's OWN predicates, registered via the SDK
         // (ReproIt.invariant("id", fn), which pushes to the stable global
@@ -4681,34 +5789,60 @@ async function main() {
         // violation is real (FP-free). Silent when the app registered none or
         // all held. Each test is isolated so one throwing predicate cannot
         // suppress the others.
-        const invViolations = await page.evaluate(() => {
-          const reg = window.__reproit_invariants || [];
-          const out = [];
-          for (let i = 0; i < reg.length; i++) {
-            const it = reg[i];
-            if (!it || typeof it.test !== 'function') continue;
-            let ok = true, message = '';
-            try {
-              const r = it.test();
-              if (r && typeof r === 'object') { ok = !!r.ok; message = r.message ? String(r.message) : ''; }
-              else { ok = !!r; }
-            } catch (e) { ok = false; message = (e && e.message) ? String(e.message) : String(e); }
-            if (!ok) out.push({ id: String(it.id), message: message });
-          }
-          return out;
-        }).catch(() => null);
+        const invViolations = await page
+          .evaluate(() => {
+            const reg = window.__reproit_invariants || [];
+            const out = [];
+            for (let i = 0; i < reg.length; i++) {
+              const it = reg[i];
+              if (!it || typeof it.test !== 'function') continue;
+              let ok = true,
+                message = '';
+              try {
+                const r = it.test();
+                if (r && typeof r === 'object') {
+                  ok = !!r.ok;
+                  message = r.message ? String(r.message) : '';
+                } else {
+                  ok = !!r;
+                }
+              } catch (e) {
+                ok = false;
+                message = e && e.message ? String(e.message) : String(e);
+              }
+              if (!ok) out.push({ id: String(it.id), message: message });
+            }
+            return out;
+          })
+          .catch(() => null);
         if (invViolations && invViolations.length) {
-          log('EXPLORE:INVARIANT ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: invViolations }));
+          log(
+            'EXPLORE:INVARIANT ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: invViolations,
+              }),
+          );
         }
         // BROKEN-ASSET: visible dead images/tofu plus same-origin critical CSS
         // and application scripts that failed or were browser-rejected. The
         // settled DOM is correlated with response/error facts, so optional or
         // unreferenced requests never become findings.
         const assets = await page.evaluate(brokenAssetScan, [...INJECTED_VALUES]).catch(() => null);
-        const criticalAssets = await page.evaluate(criticalResourceScan, [...criticalResourceFacts.values()]).catch(() => null);
+        const criticalAssets = await page
+          .evaluate(criticalResourceScan, [...criticalResourceFacts.values()])
+          .catch(() => null);
         const brokenAssets = [...(assets || []), ...(criticalAssets || [])].slice(0, 20);
         if (brokenAssets.length) {
-          log('EXPLORE:BROKENASSET ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: brokenAssets }));
+          log(
+            'EXPLORE:BROKENASSET ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: brokenAssets,
+              }),
+          );
         }
         if (!PROBE) {
           // SCROLL ROUND-TRIP: scroll the primary list away and back and flag
@@ -4718,7 +5852,14 @@ async function main() {
           // replay. Silent when the list is stable or there is no scroller.
           const srt = await page.evaluate(scrollRoundTripScan).catch(() => null);
           if (srt && srt.length) {
-            log('EXPLORE:SCROLLROUNDTRIP ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: srt }));
+            log(
+              'EXPLORE:SCROLLROUNDTRIP ' +
+                JSON.stringify({
+                  sig: snap.sig,
+                  ...(snap.anchor ? { route: snap.anchor } : {}),
+                  items: srt,
+                }),
+            );
           }
         }
         // BROKEN-ROUTE: the document for this URL came back with a status that
@@ -4741,13 +5882,16 @@ async function main() {
           // broken route. A genuine error page still fails the check and fires.
           const view = await page.evaluate(soft404View).catch(() => null);
           if (!isSoftHandled(view)) {
-            log('EXPLORE:BROKENROUTE ' + JSON.stringify({
-              sig: snap.sig,
-              ...(snap.anchor ? { route: snap.anchor } : {}),
-              status,
-              // Exact source attribution: the page + link that led here.
-              ...(lastNav ? { from: lastNav.from, action: lastNav.action } : {}),
-            }));
+            log(
+              'EXPLORE:BROKENROUTE ' +
+                JSON.stringify({
+                  sig: snap.sig,
+                  ...(snap.anchor ? { route: snap.anchor } : {}),
+                  status,
+                  // Exact source attribution: the page + link that led here.
+                  ...(lastNav ? { from: lastNav.from, action: lastNav.action } : {}),
+                }),
+            );
           }
         }
         // Operability/accessibility ground truth LAST: its keyboard-activation
@@ -4836,7 +5980,15 @@ async function main() {
         await page.waitForTimeout(700);
         const confirmed = await snapshot(page, valueNodeSelectors).catch(() => null);
         if (confirmed && confirmed.structuralSig === after.structuralSig) {
-          log('EXPLORE:ROTATION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
+          log(
+            'EXPLORE:ROTATION ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                expected,
+                got: after.structuralSig,
+              }),
+          );
         }
       }
       return after;
@@ -4858,16 +6010,30 @@ async function main() {
       if (!pre || pre.structuralSig !== expected) return pre || snap;
       try {
         await page.evaluate(() => {
-          try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); } catch (_) {}
-          try { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); } catch (_) {}
+          try {
+            Object.defineProperty(document, 'visibilityState', {
+              configurable: true,
+              get: () => 'hidden',
+            });
+          } catch (_) {}
+          try {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+          } catch (_) {}
           document.dispatchEvent(new Event('visibilitychange'));
           window.dispatchEvent(new Event('pagehide'));
           window.dispatchEvent(new Event('blur'));
         });
         await page.waitForTimeout(300);
         await page.evaluate(() => {
-          try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); } catch (_) {}
-          try { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); } catch (_) {}
+          try {
+            Object.defineProperty(document, 'visibilityState', {
+              configurable: true,
+              get: () => 'visible',
+            });
+          } catch (_) {}
+          try {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+          } catch (_) {}
           document.dispatchEvent(new Event('visibilitychange'));
           window.dispatchEvent(new Event('pageshow'));
           window.dispatchEvent(new Event('focus'));
@@ -4879,7 +6045,15 @@ async function main() {
         await page.waitForTimeout(700);
         const confirmed = await snapshot(page, valueNodeSelectors).catch(() => null);
         if (confirmed && confirmed.structuralSig === after.structuralSig) {
-          log('EXPLORE:BGRESTORE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
+          log(
+            'EXPLORE:BGRESTORE ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                expected,
+                got: after.structuralSig,
+              }),
+          );
         }
       }
       return after;
@@ -4896,8 +6070,8 @@ async function main() {
     // leakChecked), never in replay/probe mode. Self-restoring: back/forward net
     // to the entry we started on, so the walk continues undisturbed.
     async function listenerLeakCheck(route) {
-      const CYCLES = 5;    // revisit samples compared for a monotonic climb
-      const MIN_RISE = 5;  // net climb (last - first) a metric must show to count
+      const CYCLES = 5; // revisit samples compared for a monotonic climb
+      const MIN_RISE = 5; // net climb (last - first) a metric must show to count
       const samples = [];
       try {
         for (let i = 0; i < CYCLES; i++) {
@@ -4914,19 +6088,28 @@ async function main() {
           if (!s) return;
           samples.push(s);
         }
-      } catch (_) { return; }
+      } catch (_) {
+        return;
+      }
       if (samples.length < 3) return;
       const items = [];
       const consider = (kind, series) => {
         for (let i = 1; i < series.length; i++) if (!(series[i] > series[i - 1])) return;
         const rise = series[series.length - 1] - series[0];
-        if (rise >= MIN_RISE) items.push({ kind, first: series[0], last: series[series.length - 1] });
+        if (rise >= MIN_RISE)
+          items.push({ kind, first: series[0], last: series[series.length - 1] });
       };
       // Drop the first sample as warmup (the route's initial persistent mount),
       // then require a strict monotonic climb across the remaining revisits.
       const post = samples.slice(1);
-      consider('listeners', post.map((s) => s.live));
-      consider('nodes', post.map((s) => s.nodes));
+      consider(
+        'listeners',
+        post.map((s) => s.live),
+      );
+      consider(
+        'nodes',
+        post.map((s) => s.nodes),
+      );
       if (items.length) {
         log('EXPLORE:LISTENERLEAK ' + JSON.stringify({ route, visits: post.length, items }));
       }
@@ -4946,7 +6129,8 @@ async function main() {
     const mapMode = !replay && !prefix && !fuzz.seed;
     const budget = replay
       ? replay.length
-      : (((mapMode && !FUZZ_CONFIGURED) ? MAP_ACTION_BUDGET : (fuzz.budget || ACTION_BUDGET)) + prefixLen);
+      : (mapMode && !FUZZ_CONFIGURED ? MAP_ACTION_BUDGET : fuzz.budget || ACTION_BUDGET) +
+        prefixLen;
 
     // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
     // sample the web heap once at the start and after every action, so the Rust
@@ -4957,472 +6141,642 @@ async function main() {
 
     let actions = 0;
     for (; actions < budget && stuck < 3; actions++) {
-    // LEAK sampler: in replay mode, sample the heap once per action (this fires
-    // BEFORE acting, so action k's sample reflects the heap after the previous
-    // action settled; together with the start + final samples it forms the
-    // monotonic series the soak slope is read from). No-op outside replay.
-    if (replay && actions > 0) await sampleHeap(page, gtCdp, Date.now() - t0);
-    // LIFECYCLE-metamorphic oracles (rotation, background-restore): once per
-    // distinct state, apply a device-lifecycle transform and assert the
-    // structural signature survives it. Self-restoring, so `current` is refreshed
-    // to the (restored) reality afterwards; never in replay/probe (a recorded
-    // clip must not jump viewport or fire lifecycle events). Runs before action
-    // selection so the walk continues from the re-observed state.
-    if (!replay && !PROBE) {
-      if (!rotChecked.has(current.sig)) { rotChecked.add(current.sig); current = await rotationCheck(current); }
-      if (!bgChecked.has(current.sig)) { bgChecked.add(current.sig); current = await backgroundCheck(current); }
-    }
-    // COMPONENT-CHOICE differential (fuzz only, not replay): when the current
-    // state exposes a multi-choice component not yet exercised this seed,
-    // exhaustively select each choice and flag a global-layout outlier. Each
-    // group is its own bounded sub-traversal, consuming one action slot.
-    if (!replay) {
-      let exercised = false;
-      // ARIA / button-cluster groups (from the snapshot tappables) plus native
-      // <select> components (FEATURE 1; queried live since the snapshot maps a
-      // <select> to a text field and so never surfaces its options).
-      const groups = detectChoiceGroups(current.tappables)
-        .concat(await detectSelectGroups(page));
-      for (const group of groups) {
-        const gkey =
-          current.sig + '|' + group.role + '|' + group.opts.map((o) => o.sel).join(',');
-        if (exercisedGroups.has(gkey)) continue;
-        exercisedGroups.add(gkey);
-        await exerciseChoiceGroup(page, group, current.sig);
-        current = await observe();
-        exercised = true;
-        break;
+      // LEAK sampler: in replay mode, sample the heap once per action (this fires
+      // BEFORE acting, so action k's sample reflects the heap after the previous
+      // action settled; together with the start + final samples it forms the
+      // monotonic series the soak slope is read from). No-op outside replay.
+      if (replay && actions > 0) await sampleHeap(page, gtCdp, Date.now() - t0);
+      // LIFECYCLE-metamorphic oracles (rotation, background-restore): once per
+      // distinct state, apply a device-lifecycle transform and assert the
+      // structural signature survives it. Self-restoring, so `current` is refreshed
+      // to the (restored) reality afterwards; never in replay/probe (a recorded
+      // clip must not jump viewport or fire lifecycle events). Runs before action
+      // selection so the walk continues from the re-observed state.
+      if (!replay && !PROBE) {
+        if (!rotChecked.has(current.sig)) {
+          rotChecked.add(current.sig);
+          current = await rotationCheck(current);
+        }
+        if (!bgChecked.has(current.sig)) {
+          bgChecked.add(current.sig);
+          current = await backgroundCheck(current);
+        }
       }
-      if (exercised) continue;
-    }
-    let act;
-    if (replay) act = replay[actions];
-    else if (prefix && actions < prefixLen) act = prefix[actions];
-    else if (fuzz.seed) {
-      // Inverse-visit-count weighted pick: weight each candidate edge by
-      // 1/(1+globalVisits) from the edgeWeights snapshot, plus 'back'.
-      // Seeded + deterministic, so replays reproduce exactly. Candidates are
-      // addressed by STRUCTURAL selector (key, else role+index), never by
-      // visible text, so the seeded pick and any replay are locale-invariant.
-      // Candidate edges: tap every tappable; for text fields ALSO offer a type
-      // edge whose adversarial value is chosen deterministically from the seed
-      // (the option string carries the value id so a replay reconstructs it).
-      // Exclude cross-origin links from the action set: tapping one leaves the
-      // app (see isExternalLink). They stay in `tappables` so role:<role>#<idx>
-      // indices are unchanged; they are just never chosen as an edge.
-      const actable = current.tappables.filter((e) => !e.external);
-      const taps = actable.map((e) => e.sel).sort();
-      const textSels = actable.filter((e) => e.role === 'textfield').map((e) => e.sel).sort();
-      const typeOpts = textSels.map((s) => {
-        // Derive the adversarial id from seed + selector so the same field on
-        // the same seed always types the same value (reproducible), but
-        // different fields can get different values.
-        const idx = pick(ADVERSARIAL.length === 0 ? 1 : ADVERSARIAL.length);
-        return 'type:' + s + '=' + adversarialFor(idx).id;
-      });
-      const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
-      const options = taps.map((s) => 'tap:' + s).concat(typeOpts).concat(['back']);
-      const contractActions = new Set(fuzz.contractActions || []);
-      const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
-      const total = weights.reduce((a, b) => a + b, 0);
-      let r = (pick(1 << 20) / (1 << 20)) * total;
-      act = options[options.length - 1];
-      for (let k = 0; k < options.length; k++) { r -= weights[k]; if (r <= 0) { act = options[k]; break; } }
-    } else {
-      const actions = [];
-      for (const el of current.tappables) {
-        if (el.external) continue; // never leave the app-under-test's origin
-        actions.push(el.role === 'textfield' ? 'type:' + el.sel + '=normal' : 'tap:' + el.sel);
+      // COMPONENT-CHOICE differential (fuzz only, not replay): when the current
+      // state exposes a multi-choice component not yet exercised this seed,
+      // exhaustively select each choice and flag a global-layout outlier. Each
+      // group is its own bounded sub-traversal, consuming one action slot.
+      if (!replay) {
+        let exercised = false;
+        // ARIA / button-cluster groups (from the snapshot tappables) plus native
+        // <select> components (FEATURE 1; queried live since the snapshot maps a
+        // <select> to a text field and so never surfaces its options).
+        const groups = detectChoiceGroups(current.tappables).concat(await detectSelectGroups(page));
+        for (const group of groups) {
+          const gkey =
+            current.sig + '|' + group.role + '|' + group.opts.map((o) => o.sel).join(',');
+          if (exercisedGroups.has(gkey)) continue;
+          exercisedGroups.add(gkey);
+          await exerciseChoiceGroup(page, group, current.sig);
+          current = await observe();
+          exercised = true;
+          break;
+        }
+        if (exercised) continue;
       }
-      actions.sort();
-      actions.push('back');
-      rememberActions(actionsByState, current.sig, actions);
-      act = firstUntriedAction(actionsByState, triedEdges, current.sig);
-      if (!act) {
-        const path = pathToFrontier(graph, actionsByState, triedEdges, current.sig);
-        act = path && path.length ? path[0] : null;
+      let act;
+      if (replay) act = replay[actions];
+      else if (prefix && actions < prefixLen) act = prefix[actions];
+      else if (fuzz.seed) {
+        // Inverse-visit-count weighted pick: weight each candidate edge by
+        // 1/(1+globalVisits) from the edgeWeights snapshot, plus 'back'.
+        // Seeded + deterministic, so replays reproduce exactly. Candidates are
+        // addressed by STRUCTURAL selector (key, else role+index), never by
+        // visible text, so the seeded pick and any replay are locale-invariant.
+        // Candidate edges: tap every tappable; for text fields ALSO offer a type
+        // edge whose adversarial value is chosen deterministically from the seed
+        // (the option string carries the value id so a replay reconstructs it).
+        // Exclude cross-origin links from the action set: tapping one leaves the
+        // app (see isExternalLink). They stay in `tappables` so role:<role>#<idx>
+        // indices are unchanged; they are just never chosen as an edge.
+        const actable = current.tappables.filter((e) => !e.external);
+        const taps = actable.map((e) => e.sel).sort();
+        const textSels = actable
+          .filter((e) => e.role === 'textfield')
+          .map((e) => e.sel)
+          .sort();
+        const typeOpts = textSels.map((s) => {
+          // Derive the adversarial id from seed + selector so the same field on
+          // the same seed always types the same value (reproducible), but
+          // different fields can get different values.
+          const idx = pick(ADVERSARIAL.length === 0 ? 1 : ADVERSARIAL.length);
+          return 'type:' + s + '=' + adversarialFor(idx).id;
+        });
+        const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
+        const options = taps
+          .map((s) => 'tap:' + s)
+          .concat(typeOpts)
+          .concat(['back']);
+        const contractActions = new Set(fuzz.contractActions || []);
+        const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
+        const total = weights.reduce((a, b) => a + b, 0);
+        let r = (pick(1 << 20) / (1 << 20)) * total;
+        act = options[options.length - 1];
+        for (let k = 0; k < options.length; k++) {
+          r -= weights[k];
+          if (r <= 0) {
+            act = options[k];
+            break;
+          }
+        }
+      } else {
+        const actions = [];
+        for (const el of current.tappables) {
+          if (el.external) continue; // never leave the app-under-test's origin
+          actions.push(el.role === 'textfield' ? 'type:' + el.sel + '=normal' : 'tap:' + el.sel);
+        }
+        actions.sort();
+        actions.push('back');
+        rememberActions(actionsByState, current.sig, actions);
+        act = firstUntriedAction(actionsByState, triedEdges, current.sig);
+        if (!act) {
+          const path = pathToFrontier(graph, actionsByState, triedEdges, current.sig);
+          act = path && path.length ? path[0] : null;
+        }
+        if (!act && hasFrontier(actionsByState, triedEdges) && current.sig !== launchSig) break;
+        if (!act) break;
       }
-      if (!act && hasFrontier(actionsByState, triedEdges) && current.sig !== launchSig) break;
-      if (!act) break;
-    }
 
-    log('FUZZ:ACT ' + act);
-    // Record/review HUD: when recording a REPLAY (`check --record`), draw a
-    // paced on-screen caption of each action so a human can actually follow the
-    // repro - the video analogue of the cloud "path to the bug". Only when
-    // replaying AND recording, so a normal fuzz hunt is never slowed.
-    if (replay && VIDEO_DIR && !act.startsWith('assert:') && !act.startsWith('shoot:')) {
-      const isLast = actions >= replay.length - 1;
-      const o = String(fuzz.highlight || '');
-      // The final action of a sequence-bug clip is the one that breaks the app.
-      const trigger = isLast && /hang|jank|exception|crash/.test(o);
-      if (act.startsWith('tap:')) {
-        // Highlight the element reproit is ABOUT to tap, with its human-readable
-        // name (not `role:link#7`), drawn while the page is still live. For the
-        // final trigger of a sequence-bug clip (hang/crash/jank) it is the bug
-        // itself, so box it RED with the outcome; other taps are BLUE "here's what
-        // I clicked". Drawing pre-tap (a PREVIEW box, no click) means a tap that
-        // navigates/freezes still shows the right element (a frozen page can't be
-        // annotated afterward), and lets the clip LINGER on the doomed control
-        // before it is actually tapped.
-        const sel = act.slice('tap:'.length);
-        const target = current.tappables.find((e) => e.sel === sel);
-        let name = (target && target.label && String(target.label).trim()) || sel;
-        if (name.length > 36) name = name.slice(0, 35) + '…';
-        const outcome = /hang/.test(o) ? '  → froze' : /jank/.test(o) ? '  → janked' : /exception|crash/.test(o) ? '  → crashed' : /dead/.test(o) ? '  → no effect' : '';
-        // Highlight the element in RED before acting on it -- every clicked control
-        // in a clip is boxed red the beat BEFORE the click, so the viewer always
-        // sees what is about to be actuated (the trigger also carries its outcome).
-        await tap(page, sel, {
-          box: 'about to tap  ' + name + (trigger ? outcome : ''),
-          boxColor: '#e21f1f',
-        }).catch(() => {});
-      } else {
-        await showActionHud(page, act, actions, replay.length).catch(() => {});
+      log('FUZZ:ACT ' + act);
+      // Record/review HUD: when recording a REPLAY (`check --record`), draw a
+      // paced on-screen caption of each action so a human can actually follow the
+      // repro - the video analogue of the cloud "path to the bug". Only when
+      // replaying AND recording, so a normal fuzz hunt is never slowed.
+      if (replay && VIDEO_DIR && !act.startsWith('assert:') && !act.startsWith('shoot:')) {
+        const isLast = actions >= replay.length - 1;
+        const o = String(fuzz.highlight || '');
+        // The final action of a sequence-bug clip is the one that breaks the app.
+        const trigger = isLast && /hang|jank|exception|crash/.test(o);
+        if (act.startsWith('tap:')) {
+          // Highlight the element reproit is ABOUT to tap, with its human-readable
+          // name (not `role:link#7`), drawn while the page is still live. For the
+          // final trigger of a sequence-bug clip (hang/crash/jank) it is the bug
+          // itself, so box it RED with the outcome; other taps are BLUE "here's what
+          // I clicked". Drawing pre-tap (a PREVIEW box, no click) means a tap that
+          // navigates/freezes still shows the right element (a frozen page can't be
+          // annotated afterward), and lets the clip LINGER on the doomed control
+          // before it is actually tapped.
+          const sel = act.slice('tap:'.length);
+          const target = current.tappables.find((e) => e.sel === sel);
+          let name = (target && target.label && String(target.label).trim()) || sel;
+          if (name.length > 36) name = name.slice(0, 35) + '…';
+          const outcome = /hang/.test(o)
+            ? '  → froze'
+            : /jank/.test(o)
+              ? '  → janked'
+              : /exception|crash/.test(o)
+                ? '  → crashed'
+                : /dead/.test(o)
+                  ? '  → no effect'
+                  : '';
+          // Highlight the element in RED before acting on it -- every clicked control
+          // in a clip is boxed red the beat BEFORE the click, so the viewer always
+          // sees what is about to be actuated (the trigger also carries its outcome).
+          await tap(page, sel, {
+            box: 'about to tap  ' + name + (trigger ? outcome : ''),
+            boxColor: '#e21f1f',
+          }).catch(() => {});
+        } else {
+          await showActionHud(page, act, actions, replay.length).catch(() => {});
+        }
+        // Hold before performing the action. Linger LONGEST on the control that is
+        // about to break (the crash/jank/hang trigger) so the recorded clip clearly
+        // shows the doomed element for a beat -- highlighted, pausable -- and THEN
+        // breaks. Other final steps get a shorter beat; mid-sequence steps are quick.
+        await page.waitForTimeout(trigger ? 2600 : isLast ? 1600 : 950);
       }
-      // Hold before performing the action. Linger LONGEST on the control that is
-      // about to break (the crash/jank/hang trigger) so the recorded clip clearly
-      // shows the doomed element for a beat -- highlighted, pausable -- and THEN
-      // breaks. Other final steps get a shorter beat; mid-sequence steps are quick.
-      await page.waitForTimeout(trigger ? 2600 : isLast ? 1600 : 950);
-    }
-    if (act.startsWith('shoot:')) {
-      // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
-      // the current screen to REPROIT_SHOTS_DIR and emit the SHOOT marker. Like
-      // an assertion, it does not move the known state (no observe/stuck change).
-      await shoot(page, act.slice('shoot:'.length));
-      continue;
-    }
-    if (act.startsWith('auth:')) {
-      // Session bypass: restore a pre-authenticated session for the account so a
-      // journey can exercise a feature without re-driving the login UI each run.
-      // The orchestrator injects REPROIT_SECRET_<ACCT>_STORAGE (a JSON map of
-      // localStorage entries) from the vault; we seed it and reload so the app
-      // boots authenticated. Absent/garbage => FUZZ:MISS (the journey is stale,
-      // not a pass: it never reached the authenticated state it assumed).
-      const acct = act.slice('auth:'.length);
-      const envName = 'REPROIT_SECRET_' + acct.replace(/[^A-Za-z0-9]/g, '_').toUpperCase() + '_STORAGE';
-      const raw = process.env[envName];
-      if (!raw) { log('FUZZ:MISS ' + act + ' (no ' + envName + ')'); stuck++; continue; }
-      let store;
-      try { store = JSON.parse(raw); } catch { log('FUZZ:MISS ' + act + ' (bad JSON in ' + envName + ')'); stuck++; continue; }
-      await page.addInitScript((entries) => {
-        try { for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v); } catch (_) {}
-      }, store);
-      await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 }).catch(() => {});
-      await page.waitForTimeout(replay ? 700 : 400);
-      current = await observe(); // observe() emits FUZZ:STATE in replay mode
-      continue;
-    }
-    if (act.startsWith('assert:')) {
-      // Journey assertions: evaluated against the live screen at this point in
-      // the replay. They never move state (no observe/stuck change); the verdict
-      // is reported via FUZZ:ASSERT and the CLI maps a fail to a stale run.
-      const body = act.slice('assert:'.length);
-      if (body.startsWith('state=')) {
-        const want = body.slice('state='.length);
-        const got = current.sig; // current is the state after the previous action
-        log('FUZZ:ASSERT ' + (got === want ? 'pass' : 'fail') + ' state want=' + want + ' got=' + got);
-      } else if (body.startsWith('text=')) {
-        const want = body.slice('text='.length);
-        const ok = await page.evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want).catch(() => false);
-        log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want));
-      } else if (body.startsWith('count:')) {
-        const rest = body.slice('count:'.length);
-        const eq = rest.lastIndexOf('=');
-        const finder = eq >= 0 ? rest.slice(0, eq) : rest;
-        const want = eq >= 0 ? parseInt(rest.slice(eq + 1), 10) : 0;
-        const got = await page.evaluate(countMatching, finder).catch(() => -1);
-        log('FUZZ:ASSERT ' + (got === want ? 'pass' : 'fail') + ' count ' + finder + ' want=' + want + ' got=' + got);
-      } else {
-        log('FUZZ:ASSERT fail unknown-assertion ' + body);
+      if (act.startsWith('shoot:')) {
+        // Screenshot point (e.g. a `do: shoot:<name>` journey/tour step): capture
+        // the current screen to REPROIT_SHOTS_DIR and emit the SHOOT marker. Like
+        // an assertion, it does not move the known state (no observe/stuck change).
+        await shoot(page, act.slice('shoot:'.length));
+        continue;
       }
-      continue;
-    }
-    if (act === 'back') {
-      const before = current.sig;
-      triedEdges.add(edgeKey(before, 'back'));
-      const beforeContent = current.content;
-      const origin = new URL(APP_URL).origin;
-      await page.goBack({ timeout: 3000 }).catch(() => {});
-      await page.waitForTimeout(600);
-      // Stepping off the app (about:blank) is not a real state: go forward.
-      if (!page.url().startsWith(origin)) {
+      if (act.startsWith('auth:')) {
+        // Session bypass: restore a pre-authenticated session for the account so a
+        // journey can exercise a feature without re-driving the login UI each run.
+        // The orchestrator injects REPROIT_SECRET_<ACCT>_STORAGE (a JSON map of
+        // localStorage entries) from the vault; we seed it and reload so the app
+        // boots authenticated. Absent/garbage => FUZZ:MISS (the journey is stale,
+        // not a pass: it never reached the authenticated state it assumed).
+        const acct = act.slice('auth:'.length);
+        const envName =
+          'REPROIT_SECRET_' + acct.replace(/[^A-Za-z0-9]/g, '_').toUpperCase() + '_STORAGE';
+        const raw = process.env[envName];
+        if (!raw) {
+          log('FUZZ:MISS ' + act + ' (no ' + envName + ')');
+          stuck++;
+          continue;
+        }
+        let store;
+        try {
+          store = JSON.parse(raw);
+        } catch {
+          log('FUZZ:MISS ' + act + ' (bad JSON in ' + envName + ')');
+          stuck++;
+          continue;
+        }
+        await page.addInitScript((entries) => {
+          try {
+            for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v);
+          } catch (_) {}
+        }, store);
         await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 }).catch(() => {});
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(replay ? 700 : 400);
+        current = await observe(); // observe() emits FUZZ:STATE in replay mode
+        continue;
+      }
+      if (act.startsWith('assert:')) {
+        // Journey assertions: evaluated against the live screen at this point in
+        // the replay. They never move state (no observe/stuck change); the verdict
+        // is reported via FUZZ:ASSERT and the CLI maps a fail to a stale run.
+        const body = act.slice('assert:'.length);
+        if (body.startsWith('state=')) {
+          const want = body.slice('state='.length);
+          const got = current.sig; // current is the state after the previous action
+          log(
+            'FUZZ:ASSERT ' +
+              (got === want ? 'pass' : 'fail') +
+              ' state want=' +
+              want +
+              ' got=' +
+              got,
+          );
+        } else if (body.startsWith('text=')) {
+          const want = body.slice('text='.length);
+          const ok = await page
+            .evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want)
+            .catch(() => false);
+          log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want));
+        } else if (body.startsWith('count:')) {
+          const rest = body.slice('count:'.length);
+          const eq = rest.lastIndexOf('=');
+          const finder = eq >= 0 ? rest.slice(0, eq) : rest;
+          const want = eq >= 0 ? parseInt(rest.slice(eq + 1), 10) : 0;
+          const got = await page.evaluate(countMatching, finder).catch(() => -1);
+          log(
+            'FUZZ:ASSERT ' +
+              (got === want ? 'pass' : 'fail') +
+              ' count ' +
+              finder +
+              ' want=' +
+              want +
+              ' got=' +
+              got,
+          );
+        } else {
+          log('FUZZ:ASSERT fail unknown-assertion ' + body);
+        }
+        continue;
+      }
+      if (act === 'back') {
+        const before = current.sig;
+        triedEdges.add(edgeKey(before, 'back'));
+        const beforeContent = current.content;
+        const origin = new URL(APP_URL).origin;
+        await page.goBack({ timeout: 3000 }).catch(() => {});
+        await page.waitForTimeout(600);
+        // Stepping off the app (about:blank) is not a real state: go forward.
+        if (!page.url().startsWith(origin)) {
+          await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 8000 }).catch(() => {});
+          await page.waitForTimeout(400);
+          stuck++;
+          current = await observe();
+          continue;
+        }
+        const next = await observe();
+        if (next.sig !== before) {
+          log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
+          rememberEdge(graph, before, 'back', next.sig);
+          stuck = 0;
+        } else if (next.content !== beforeContent) {
+          // Layer-1: the action changed on-screen content without moving the
+          // structural sig (a value-state change on a capped node). It is
+          // EFFECTIVE, so do not count it as stuck, but no graph edge is added.
+          stuck = 0;
+        } else stuck++;
+        current = next;
+        continue;
+      }
+      if (act.startsWith('type:')) {
+        // type:<sel>=<valueId> -> focus the field and type the value.
+        const body = act.slice('type:'.length);
+        const eq = body.lastIndexOf('=');
+        const sel = eq >= 0 ? body.slice(0, eq) : body;
+        const valId = eq >= 0 ? body.slice(eq + 1) : 'normal';
+        // PRECEDENCE: an explicit property-matched fixture input for this field
+        // wins over the adversarial-class token. The class token still picks the
+        // value when no input matches (the existing path, unchanged). Both are
+        // deterministic, so the replay reproduces the same text either way.
+        const fixtureVal = inputValueFor(sel, inputs);
+        const value =
+          fixtureVal != null
+            ? fixtureVal
+            : ADVERSARIAL_BY_ID[valId] !== undefined
+              ? ADVERSARIAL_BY_ID[valId]
+              : expandEnv(valId);
+        triedEdges.add(edgeKey(current.sig, act));
+        const before = current.sig;
+        const beforeContent = current.content;
+        await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {});
+        await page
+          .evaluate(() => {
+            window.__reproitLongTasks = [];
+            window.__reproitFrameIntervals = [];
+          })
+          .catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
+        // Jank: machine-invariant forced-layout baseline.
+        const perfBeforeType = await readLayoutCounters(gtCdp);
+        // Tier 2 (gated): record presented frames.
+        const typePix = await startScreencastCapture(gtCdp);
+        const ok = await typeInto(page, sel, value, { mark: recording });
+        if (!ok) {
+          if (typePix) await typePix.stop();
+          log('FUZZ:MISS ' + act);
+          stuck++;
+          continue;
+        }
+        // Read before settle so this captures synchronous reflow only.
+        const perfAfterType = await readLayoutCounters(gtCdp);
+        // Replays settle longer than the fuzz walk: under recording/CI load the
+        // app's handler (and any uncaught throw it triggers) needs more wall-clock
+        // to run and for `pageerror` to fire, so a deterministic crash isn't
+        // missed. The fuzz walk stays fast.
+        await page.waitForTimeout(replay ? 1100 : 700);
+        const typeChurn = await page.evaluate(churnedAnchors, ANCHOR_SEL).catch(() => null);
+        if (typeChurn && typeChurn.length) {
+          log(
+            'EXPLORE:RERENDER ' +
+              JSON.stringify({
+                from: before,
+                action: 'type:' + sel + '=' + valId,
+                churned: typeChurn,
+              }),
+          );
+        }
+        // Typing + Enter can navigate (e.g. a search form submitting to another
+        // origin). Stay on the app-under-test: drop off-origin destinations.
+        if (await recoverIfOffOrigin()) {
+          if (typePix) await typePix.stop();
+          stuck++;
+          current = await observe();
+          continue;
+        }
+        await finishScreencastCapture(typePix, before, 'type:' + sel + '=' + valId);
+        const typeJank = await drainJankForEngine(page);
+        const typeThrash = layoutThrash(perfBeforeType, perfAfterType);
+        if (typeThrash && (!typeJank || typeJank.kind !== 'hang')) {
+          log(
+            'EXPLORE:JANK ' +
+              JSON.stringify({
+                from: before,
+                action: 'type:' + sel + '=' + valId,
+                bucket: typeThrash.count,
+                unit: 'layouts',
+                count: typeThrash.count,
+              }),
+          );
+        } else if (typeJank) {
+          log(
+            'EXPLORE:' +
+              (typeJank.kind === 'hang' ? 'HANG' : 'JANK') +
+              ' ' +
+              JSON.stringify({
+                from: before,
+                action: 'type:' + sel + '=' + valId,
+                bucket: typeJank.bucket,
+                count: typeJank.count,
+              }),
+          );
+        }
+        if (recording) {
+          lastTriggerLabel =
+            typeJank || typeThrash
+              ? typeJank && typeJank.kind === 'hang'
+                ? 'froze'
+                : 'jank'
+              : null;
+          lastFlickerKeys = typeChurn && typeChurn.length ? typeChurn : null;
+        }
+        const next = await observe();
+        if (next.sig !== before) {
+          log(
+            'EXPLORE:EDGE ' +
+              JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, to: next.sig }),
+          );
+          rememberEdge(graph, before, 'type:' + sel + '=' + valId, next.sig);
+          stuck = 0;
+        } else if (next.content !== beforeContent) {
+          stuck = 0; // Layer-1: content changed without a structural move; effective.
+        } else stuck++;
+        current = next;
+        continue;
+      }
+      const sel = act.slice('tap:'.length);
+      // Key MUST match the picker's edge form (`tap:<sel>`, line ~3337); recording
+      // the bare `<sel>` left every tap looking perpetually untried, so the
+      // deterministic walk kept re-tapping the first control and under-explored.
+      triedEdges.add(edgeKey(current.sig, 'tap:' + sel));
+      const before = current.sig;
+      const beforeContent = current.content;
+      const beforeAnchor = current.anchor;
+      await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {});
+      // Remember the source page + link before this (possibly navigating) tap, so a
+      // broken-route landed on next is attributed to exactly here, not reverse-matched.
+      lastNav = { from: before, action: 'tap:' + sel };
+      await page
+        .evaluate(() => {
+          window.__reproitLongTasks = [];
+          window.__reproitFrameIntervals = [];
+        })
+        .catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
+      // FOCUS-LOSS: record the pre-tap activeElement + open dialog count and arm
+      // the probe (tap()'s doClick then focuses the control before clicking, the
+      // way a real user click does). Checked after the settle below.
+      await page.evaluate(focusLossArm).catch(() => {});
+      // DUPLICATE-SUBMIT probe (opt-in, REPROIT_DUPSUBMIT=1): when this tap
+      // targets a button, dispatch a SECOND click ~120ms after the first and
+      // record every first-party non-GET request over the window, so a submit
+      // handler with no double-activation guard is caught firing the same
+      // (method, url) twice. Armed BEFORE the first click so its request counts;
+      // the in-page eligibility check between the clicks confirms the control is
+      // actually submit-like. Once per (from, action); never on a recorded clip.
+      const dupTapTarget = DUPSUBMIT ? current.tappables.find((e) => e.sel === sel) : null;
+      const dupProbe =
+        DUPSUBMIT &&
+        !recording &&
+        !!dupTapTarget &&
+        dupTapTarget.role === 'button' &&
+        !dupProbed.has(edgeKey(before, 'tap:' + sel));
+      let dupUrlBefore = null;
+      if (dupProbe) {
+        dupProbed.add(edgeKey(before, 'tap:' + sel));
+        dupUrlBefore = page.url();
+        dupReqLog = [];
+      }
+      // Jank: machine-invariant forced-layout baseline.
+      const perfBefore = await readLayoutCounters(gtCdp);
+      const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
+      const ok = await tap(page, sel, { mark: recording });
+      if (!ok) {
+        if (tapPix) await tapPix.stop();
+        dupReqLog = null;
+        log('FUZZ:MISS ' + act);
+        stuck++;
+        continue;
+      }
+      // JANK: read the forced-layout counter NOW, right after the synchronous
+      // handler returned and BEFORE the settle wait, so the delta counts only the
+      // handler's own reflows -- not animation frames over the settle (which would
+      // be machine-dependent and reintroduce flake).
+      const perfAfterTap = await readLayoutCounters(gtCdp);
+      // DUPLICATE-SUBMIT double dispatch: the second click, ~120ms after the
+      // first -- the probe's rapid double activation IN PLACE OF the walk's usual
+      // single click. Skipped when the first click already changed the URL (the
+      // navigation legitimately swallows a second click: no probe, no finding) or
+      // when the resolved element is not submit-like in-page (a submit-type
+      // control inside a form qualifies even without a matching accessible name).
+      let dupDispatched = false;
+      if (dupProbe && dupReqLog) {
+        await page.waitForTimeout(120);
+        const eligible = await page.evaluate(dupSubmitEligible).catch(() => false);
+        if (eligible && page.url() === dupUrlBefore) {
+          dupDispatched = await tap(page, sel).catch(() => false);
+          // RECORD the second dispatch into the action sequence (FUZZ:ACT) only when
+          // it actually fired: the walk continues from the post-double-click state, so
+          // a kept repro must replay both clicks or it diverges (the probe otherwise
+          // mutated state invisibly).
+          if (dupDispatched) log('FUZZ:ACT tap:' + sel);
+        }
+        if (!dupDispatched) dupReqLog = null;
+      }
+      // Replays settle longer than the fuzz walk (see the type branch): a
+      // deterministic crash must have time to throw + flush `pageerror` under load.
+      await page.waitForTimeout(replay ? 1100 : 700);
+      const tapChurn = await page.evaluate(churnedAnchors, ANCHOR_SEL).catch(() => null);
+      if (tapChurn && tapChurn.length) {
+        log(
+          'EXPLORE:RERENDER ' +
+            JSON.stringify({
+              from: before,
+              action: 'tap:' + sel,
+              churned: tapChurn,
+            }),
+        );
+      }
+      // DUPLICATE-SUBMIT verdict: group the captured window's first-party non-GET
+      // requests by (method, url); the same pair firing twice or more while the
+      // URL never changed is the bug (the handler has no double-activation
+      // guard). Reported once per (from, action); the map layer dedupes again.
+      if (dupProbe && dupReqLog) {
+        const captured = dupReqLog;
+        dupReqLog = null;
+        if (dupDispatched && page.url() === dupUrlBefore) {
+          const counts = new Map();
+          for (const r of captured) counts.set(r, (counts.get(r) || 0) + 1);
+          for (const [key, n] of counts) {
+            if (n < 2) continue;
+            const sp = key.indexOf(' ');
+            log(
+              'EXPLORE:DUPSUBMIT ' +
+                JSON.stringify({
+                  from: before,
+                  action: 'tap:' + sel,
+                  method: key.slice(0, sp),
+                  url: key.slice(sp + 1),
+                  count: n,
+                }),
+            );
+            break;
+          }
+        }
+      }
+      // SEQUENCE-BUG clip (hang/crash/jank), FINAL action: this tap IS the trigger
+      // and the page may now be frozen/busy. The churn + observe below each do a
+      // page.evaluate, which BLOCKS on a busy main thread for ~30s -- that is what
+      // made a hang clip ~80s long. So for a clip we skip them and detect the bug by
+      // RESPONSIVENESS (a hang's own definition: the page stops responding), which
+      // is fast AND faithful (it really re-fired), not a timeout that gives up.
+      if (
+        recording &&
+        replay &&
+        actions >= replay.length - 1 &&
+        /hang|jank|exception|crash/.test(String(fuzz.highlight || ''))
+      ) {
+        if (tapPix) await tapPix.stop();
+        if (/hang|jank/.test(String(fuzz.highlight))) {
+          const responsive = await Promise.race([
+            page
+              .evaluate(() => true)
+              .then(
+                () => true,
+                () => true,
+              ),
+            new Promise((r) => setTimeout(() => r(false), 2500)),
+          ]);
+          if (!responsive) lastTriggerLabel = 'froze'; // unresponsive = the hang re-fired
+        }
+        // crash: the pageerror handler already bumped replayErrorCount.
+        break; // end the replay; the end-of-replay block emits FINDING:BOXED + holds
+      }
+      // ORIGIN GUARD: a tap on an outbound link (footer "View on GitHub", a
+      // social link) navigates off the app-under-test's origin. That page is NOT
+      // a state of the app; recording it would make the whole map about the
+      // foreign site. Recover (go back / re-goto) and do NOT record the state.
+      if (await recoverIfOffOrigin()) {
+        if (tapPix) await tapPix.stop();
         stuck++;
         current = await observe();
         continue;
       }
-      const next = await observe();
-      if (next.sig !== before) {
-        log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
-        rememberEdge(graph, before, 'back', next.sig);
-        stuck = 0;
-      } else if (next.content !== beforeContent) {
-        // Layer-1: the action changed on-screen content without moving the
-        // structural sig (a value-state change on a capped node). It is
-        // EFFECTIVE, so do not count it as stuck, but no graph edge is added.
-        stuck = 0;
-      } else stuck++;
-      current = next;
-      continue;
-    }
-    if (act.startsWith('type:')) {
-      // type:<sel>=<valueId> -> focus the field and type the value.
-      const body = act.slice('type:'.length);
-      const eq = body.lastIndexOf('=');
-      const sel = eq >= 0 ? body.slice(0, eq) : body;
-      const valId = eq >= 0 ? body.slice(eq + 1) : 'normal';
-      // PRECEDENCE: an explicit property-matched fixture input for this field
-      // wins over the adversarial-class token. The class token still picks the
-      // value when no input matches (the existing path, unchanged). Both are
-      // deterministic, so the replay reproduces the same text either way.
-      const fixtureVal = inputValueFor(sel, inputs);
-      const value = fixtureVal != null
-        ? fixtureVal
-        : (ADVERSARIAL_BY_ID[valId] !== undefined ? ADVERSARIAL_BY_ID[valId] : expandEnv(valId));
-      triedEdges.add(edgeKey(current.sig, act));
-      const before = current.sig;
-      const beforeContent = current.content;
-      await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {});
-      await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
-      const perfBeforeType = await readLayoutCounters(gtCdp); // jank: machine-invariant forced-layout baseline
-      const typePix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
-      const ok = await typeInto(page, sel, value, { mark: recording });
-      if (!ok) { if (typePix) await typePix.stop(); log('FUZZ:MISS ' + act); stuck++; continue; }
-      const perfAfterType = await readLayoutCounters(gtCdp); // jank: read before settle -> synchronous reflow only
-      // Replays settle longer than the fuzz walk: under recording/CI load the
-      // app's handler (and any uncaught throw it triggers) needs more wall-clock
-      // to run and for `pageerror` to fire, so a deterministic crash isn't
-      // missed. The fuzz walk stays fast.
-      await page.waitForTimeout(replay ? 1100 : 700);
-      const typeChurn = await page
-        .evaluate(churnedAnchors, ANCHOR_SEL)
-        .catch(() => null);
-      if (typeChurn && typeChurn.length) {
-        log('EXPLORE:RERENDER ' + JSON.stringify({
-          from: before,
-          action: 'type:' + sel + '=' + valId,
-          churned: typeChurn,
-        }));
-      }
-      // Typing + Enter can navigate (e.g. a search form submitting to another
-      // origin). Stay on the app-under-test: drop off-origin destinations.
-      if (await recoverIfOffOrigin()) { if (typePix) await typePix.stop(); stuck++; current = await observe(); continue; }
-      await finishScreencastCapture(typePix, before, 'type:' + sel + '=' + valId);
-      const typeJank = await drainJankForEngine(page);
-      const typeThrash = layoutThrash(perfBeforeType, perfAfterType);
-      if (typeThrash && (!typeJank || typeJank.kind !== 'hang')) {
-        log('EXPLORE:JANK ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, bucket: typeThrash.count, unit: 'layouts', count: typeThrash.count }));
-      } else if (typeJank) {
-        log('EXPLORE:' + (typeJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
-          JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, bucket: typeJank.bucket, count: typeJank.count }));
+      await finishScreencastCapture(tapPix, before, 'tap:' + sel);
+      // JANK/HANG watchdog: did this action block the main thread past the
+      // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
+      // Rust side attributes it to this transition and `check` re-confirms it.
+      const tapJank = await drainJankForEngine(page);
+      // Deterministic layout-thrash jank (machine-invariant forced-layout count).
+      // Preferred over the wall-clock jank bucket when it fires: the count
+      // reproduces on any runner, so `check` re-confirms it without depending on
+      // machine speed. A HANG (freeze) still reports from the timing watchdog (a 2s
+      // freeze is robust and may be pure-compute with no layouts).
+      const tapThrash = layoutThrash(perfBefore, perfAfterTap);
+      if (tapThrash && (!tapJank || tapJank.kind !== 'hang')) {
+        log(
+          'EXPLORE:JANK ' +
+            JSON.stringify({
+              from: before,
+              action: 'tap:' + sel,
+              bucket: tapThrash.count,
+              unit: 'layouts',
+              count: tapThrash.count,
+            }),
+        );
+      } else if (tapJank) {
+        log(
+          'EXPLORE:' +
+            (tapJank.kind === 'hang' ? 'HANG' : 'JANK') +
+            ' ' +
+            JSON.stringify({
+              from: before,
+              action: 'tap:' + sel,
+              bucket: tapJank.bucket,
+              count: tapJank.count,
+            }),
+        );
       }
       if (recording) {
-        lastTriggerLabel = (typeJank || typeThrash) ? ((typeJank && typeJank.kind === 'hang') ? 'froze' : 'jank') : null;
-        lastFlickerKeys = (typeChurn && typeChurn.length) ? typeChurn : null;
+        lastTriggerLabel =
+          tapJank || tapThrash ? (tapJank && tapJank.kind === 'hang' ? 'froze' : 'jank') : null;
+        lastFlickerKeys = tapChurn && tapChurn.length ? tapChurn : null;
       }
+      // FOCUS-LOSS: read the in-page verdict BEFORE observe() -- a new state's
+      // ground-truth probe mutates the DOM and can move focus, which would
+      // corrupt the reading. Whether the tap actually navigated is only known
+      // after observe(), so the emit decision is just below.
+      const focusLost = await page.evaluate(focusLossCheck).catch(() => false);
       const next = await observe();
+      // FOCUS-LOSS: only a NON-navigating tap counts (same structural sig, or
+      // the same route after settle: an in-place re-render). A navigation is
+      // expected to move focus, so it never fires; the in-page check already
+      // applied the dialog / removed-control / link guards.
+      if (focusLost && (next.sig === before || (next.anchor && next.anchor === beforeAnchor))) {
+        log('EXPLORE:FOCUSLOSS ' + JSON.stringify({ from: before, action: 'tap:' + sel }));
+      }
       if (next.sig !== before) {
-        log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'type:' + sel + '=' + valId, to: next.sig }));
-        rememberEdge(graph, before, 'type:' + sel + '=' + valId, next.sig);
+        log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
+        rememberEdge(graph, before, 'tap:' + sel, next.sig);
         stuck = 0;
-      } else if (next.content !== beforeContent) {
-        stuck = 0; // Layer-1: content changed without a structural move; effective.
-      } else stuck++;
-      current = next;
-      continue;
-    }
-    const sel = act.slice('tap:'.length);
-    // Key MUST match the picker's edge form (`tap:<sel>`, line ~3337); recording
-    // the bare `<sel>` left every tap looking perpetually untried, so the
-    // deterministic walk kept re-tapping the first control and under-explored.
-    triedEdges.add(edgeKey(current.sig, 'tap:' + sel));
-    const before = current.sig;
-    const beforeContent = current.content;
-    const beforeAnchor = current.anchor;
-    await page.evaluate(markAnchors, ANCHOR_SEL).catch(() => {});
-    // Remember the source page + link before this (possibly navigating) tap, so a
-    // broken-route landed on next is attributed to exactly here, not reverse-matched.
-    lastNav = { from: before, action: 'tap:' + sel };
-    await page.evaluate(() => { window.__reproitLongTasks = []; window.__reproitFrameIntervals = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks + frame intervals
-    // FOCUS-LOSS: record the pre-tap activeElement + open dialog count and arm
-    // the probe (tap()'s doClick then focuses the control before clicking, the
-    // way a real user click does). Checked after the settle below.
-    await page.evaluate(focusLossArm).catch(() => {});
-    // DUPLICATE-SUBMIT probe (opt-in, REPROIT_DUPSUBMIT=1): when this tap
-    // targets a button, dispatch a SECOND click ~120ms after the first and
-    // record every first-party non-GET request over the window, so a submit
-    // handler with no double-activation guard is caught firing the same
-    // (method, url) twice. Armed BEFORE the first click so its request counts;
-    // the in-page eligibility check between the clicks confirms the control is
-    // actually submit-like. Once per (from, action); never on a recorded clip.
-    const dupTapTarget = DUPSUBMIT ? current.tappables.find((e) => e.sel === sel) : null;
-    const dupProbe = DUPSUBMIT && !recording
-      && !!dupTapTarget && dupTapTarget.role === 'button'
-      && !dupProbed.has(edgeKey(before, 'tap:' + sel));
-    let dupUrlBefore = null;
-    if (dupProbe) {
-      dupProbed.add(edgeKey(before, 'tap:' + sel));
-      dupUrlBefore = page.url();
-      dupReqLog = [];
-    }
-    const perfBefore = await readLayoutCounters(gtCdp); // jank: machine-invariant forced-layout baseline
-    const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
-    const ok = await tap(page, sel, { mark: recording });
-    if (!ok) { if (tapPix) await tapPix.stop(); dupReqLog = null; log('FUZZ:MISS ' + act); stuck++; continue; }
-    // JANK: read the forced-layout counter NOW, right after the synchronous
-    // handler returned and BEFORE the settle wait, so the delta counts only the
-    // handler's own reflows -- not animation frames over the settle (which would
-    // be machine-dependent and reintroduce flake).
-    const perfAfterTap = await readLayoutCounters(gtCdp);
-    // DUPLICATE-SUBMIT double dispatch: the second click, ~120ms after the
-    // first -- the probe's rapid double activation IN PLACE OF the walk's usual
-    // single click. Skipped when the first click already changed the URL (the
-    // navigation legitimately swallows a second click: no probe, no finding) or
-    // when the resolved element is not submit-like in-page (a submit-type
-    // control inside a form qualifies even without a matching accessible name).
-    let dupDispatched = false;
-    if (dupProbe && dupReqLog) {
-      await page.waitForTimeout(120);
-      const eligible = await page.evaluate(dupSubmitEligible).catch(() => false);
-      if (eligible && page.url() === dupUrlBefore) {
-        dupDispatched = await tap(page, sel).catch(() => false);
-        // RECORD the second dispatch into the action sequence (FUZZ:ACT) only when
-        // it actually fired: the walk continues from the post-double-click state, so
-        // a kept repro must replay both clicks or it diverges (the probe otherwise
-        // mutated state invisibly).
-        if (dupDispatched) log('FUZZ:ACT tap:' + sel);
-      }
-      if (!dupDispatched) dupReqLog = null;
-    }
-    // Replays settle longer than the fuzz walk (see the type branch): a
-    // deterministic crash must have time to throw + flush `pageerror` under load.
-    await page.waitForTimeout(replay ? 1100 : 700);
-    const tapChurn = await page
-      .evaluate(churnedAnchors, ANCHOR_SEL)
-      .catch(() => null);
-    if (tapChurn && tapChurn.length) {
-      log('EXPLORE:RERENDER ' + JSON.stringify({
-        from: before,
-        action: 'tap:' + sel,
-        churned: tapChurn,
-      }));
-    }
-    // DUPLICATE-SUBMIT verdict: group the captured window's first-party non-GET
-    // requests by (method, url); the same pair firing twice or more while the
-    // URL never changed is the bug (the handler has no double-activation
-    // guard). Reported once per (from, action); the map layer dedupes again.
-    if (dupProbe && dupReqLog) {
-      const captured = dupReqLog;
-      dupReqLog = null;
-      if (dupDispatched && page.url() === dupUrlBefore) {
-        const counts = new Map();
-        for (const r of captured) counts.set(r, (counts.get(r) || 0) + 1);
-        for (const [key, n] of counts) {
-          if (n < 2) continue;
-          const sp = key.indexOf(' ');
-          log('EXPLORE:DUPSUBMIT ' + JSON.stringify({
-            from: before, action: 'tap:' + sel,
-            method: key.slice(0, sp), url: key.slice(sp + 1), count: n,
-          }));
-          break;
+        // ZOOM-REFLOW: this tap navigated to a route not yet zoom-tested; run the
+        // 200% zoom re-render BEFORE the metamorphic reload below (the check
+        // restores the viewport, so the reload still sees the pinned size). Never
+        // in replay (a recorded clip must not jump viewports) or probe mode.
+        if (!replay && !PROBE && next.anchor && !zoomChecked.has(next.anchor)) {
+          zoomChecked.add(next.anchor);
+          await zoomReflowCheck(next.sig, next.anchor);
         }
+        // LISTENER-LEAK (opt-in): this tap navigated to a new route with a real
+        // history entry (the anchor CHANGED). Probe it for a revisit leak via the
+        // back/forward loop. Once per route; guarded off in replay/probe mode like
+        // the other route checks.
+        if (
+          LISTENERLEAK &&
+          !replay &&
+          !PROBE &&
+          next.anchor &&
+          next.anchor !== beforeAnchor &&
+          !leakChecked.has(next.anchor)
+        ) {
+          leakChecked.add(next.anchor);
+          await listenerLeakCheck(next.anchor);
+        }
+      } else if (next.content !== beforeContent) {
+        // Layer-1 effect detection: the tap changed displayed content (a calculator
+        // keypress on a capped display) without a structural move. EFFECTIVE, so
+        // reset stuck and keep driving; no self-edge is recorded.
+        stuck = 0;
       }
+      current = next;
     }
-    // SEQUENCE-BUG clip (hang/crash/jank), FINAL action: this tap IS the trigger
-    // and the page may now be frozen/busy. The churn + observe below each do a
-    // page.evaluate, which BLOCKS on a busy main thread for ~30s -- that is what
-    // made a hang clip ~80s long. So for a clip we skip them and detect the bug by
-    // RESPONSIVENESS (a hang's own definition: the page stops responding), which
-    // is fast AND faithful (it really re-fired), not a timeout that gives up.
-    if (recording && replay && actions >= replay.length - 1
-        && /hang|jank|exception|crash/.test(String(fuzz.highlight || ''))) {
-      if (tapPix) await tapPix.stop();
-      if (/hang|jank/.test(String(fuzz.highlight))) {
-        const responsive = await Promise.race([
-          page.evaluate(() => true).then(() => true, () => true),
-          new Promise((r) => setTimeout(() => r(false), 2500)),
-        ]);
-        if (!responsive) lastTriggerLabel = 'froze'; // unresponsive = the hang re-fired
-      }
-      // crash: the pageerror handler already bumped replayErrorCount.
-      break; // end the replay; the end-of-replay block emits FINDING:BOXED + holds
-    }
-    // ORIGIN GUARD: a tap on an outbound link (footer "View on GitHub", a
-    // social link) navigates off the app-under-test's origin. That page is NOT
-    // a state of the app; recording it would make the whole map about the
-    // foreign site. Recover (go back / re-goto) and do NOT record the state.
-    if (await recoverIfOffOrigin()) { if (tapPix) await tapPix.stop(); stuck++; current = await observe(); continue; }
-    await finishScreencastCapture(tapPix, before, 'tap:' + sel);
-    // JANK/HANG watchdog: did this action block the main thread past the
-    // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
-    // Rust side attributes it to this transition and `check` re-confirms it.
-    const tapJank = await drainJankForEngine(page);
-    // Deterministic layout-thrash jank (machine-invariant forced-layout count).
-    // Preferred over the wall-clock jank bucket when it fires: the count
-    // reproduces on any runner, so `check` re-confirms it without depending on
-    // machine speed. A HANG (freeze) still reports from the timing watchdog (a 2s
-    // freeze is robust and may be pure-compute with no layouts).
-    const tapThrash = layoutThrash(perfBefore, perfAfterTap);
-    if (tapThrash && (!tapJank || tapJank.kind !== 'hang')) {
-      log('EXPLORE:JANK ' + JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapThrash.count, unit: 'layouts', count: tapThrash.count }));
-    } else if (tapJank) {
-      log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
-        JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
-    }
-    if (recording) {
-      lastTriggerLabel = (tapJank || tapThrash) ? ((tapJank && tapJank.kind === 'hang') ? 'froze' : 'jank') : null;
-      lastFlickerKeys = (tapChurn && tapChurn.length) ? tapChurn : null;
-    }
-    // FOCUS-LOSS: read the in-page verdict BEFORE observe() -- a new state's
-    // ground-truth probe mutates the DOM and can move focus, which would
-    // corrupt the reading. Whether the tap actually navigated is only known
-    // after observe(), so the emit decision is just below.
-    const focusLost = await page.evaluate(focusLossCheck).catch(() => false);
-    const next = await observe();
-    // FOCUS-LOSS: only a NON-navigating tap counts (same structural sig, or
-    // the same route after settle: an in-place re-render). A navigation is
-    // expected to move focus, so it never fires; the in-page check already
-    // applied the dialog / removed-control / link guards.
-    if (focusLost && (next.sig === before || (next.anchor && next.anchor === beforeAnchor))) {
-      log('EXPLORE:FOCUSLOSS ' + JSON.stringify({ from: before, action: 'tap:' + sel }));
-    }
-    if (next.sig !== before) {
-      log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
-      rememberEdge(graph, before, 'tap:' + sel, next.sig);
-      stuck = 0;
-      // ZOOM-REFLOW: this tap navigated to a route not yet zoom-tested; run the
-      // 200% zoom re-render BEFORE the metamorphic reload below (the check
-      // restores the viewport, so the reload still sees the pinned size). Never
-      // in replay (a recorded clip must not jump viewports) or probe mode.
-      if (!replay && !PROBE && next.anchor && !zoomChecked.has(next.anchor)) {
-        zoomChecked.add(next.anchor);
-        await zoomReflowCheck(next.sig, next.anchor);
-      }
-      // LISTENER-LEAK (opt-in): this tap navigated to a new route with a real
-      // history entry (the anchor CHANGED). Probe it for a revisit leak via the
-      // back/forward loop. Once per route; guarded off in replay/probe mode like
-      // the other route checks.
-      if (LISTENERLEAK && !replay && !PROBE && next.anchor && next.anchor !== beforeAnchor && !leakChecked.has(next.anchor)) {
-        leakChecked.add(next.anchor);
-        await listenerLeakCheck(next.anchor);
-      }
-    } else if (next.content !== beforeContent) {
-      // Layer-1 effect detection: the tap changed displayed content (a calculator
-      // keypress on a capped display) without a structural move. EFFECTIVE, so
-      // reset stuck and keep driving; no self-edge is recorded.
-      stuck = 0;
-    }
-    current = next;
-  }
 
     if (mapMode && actions >= budget && hasFrontier(actionsByState, triedEdges)) {
-      log('EXPLORE:TRUNCATED ' + JSON.stringify({
-        reason: 'action-budget', budget: MAP_ACTION_BUDGET,
-        states: actionsByState.size,
-      }));
+      log(
+        'EXPLORE:TRUNCATED ' +
+          JSON.stringify({
+            reason: 'action-budget',
+            budget: MAP_ACTION_BUDGET,
+            states: actionsByState.size,
+          }),
+      );
     }
 
     // LEAK sampler: a final heap sample after the last action, so the series
@@ -5449,17 +6803,27 @@ async function main() {
           let label = fuzz.choiceOutlier || null;
           let mag = Number(fuzz.choiceMag) || 0;
           if (!label) {
-            const found = await page.evaluate(choiceAnomalyInPage, {
-              settleMs: 600, ratio: CHOICE_OUTLIER_RATIO, minMag: CHOICE_MIN_MAGNITUDE,
-              choiceRoles: CHOICE_ROLE_LIST,
-            }).catch(() => []);
+            const found = await page
+              .evaluate(choiceAnomalyInPage, {
+                settleMs: 600,
+                ratio: CHOICE_OUTLIER_RATIO,
+                minMag: CHOICE_MIN_MAGNITUDE,
+                choiceRoles: CHOICE_ROLE_LIST,
+              })
+              .catch(() => []);
             const top = (found || []).sort((a, b) => (b.magnitude || 0) - (a.magnitude || 0))[0];
-            if (top && top.outlier) { label = top.outlier; mag = top.magnitude || 0; }
+            if (top && top.outlier) {
+              label = top.outlier;
+              mag = top.magnitude || 0;
+            }
           }
           if (label) {
-            const replayed = await page.evaluate(replayChoiceComponentInPage, {
-              label, settleMs: 450,
-            }).catch(() => ({ ok: false, choices: [] }));
+            const replayed = await page
+              .evaluate(replayChoiceComponentInPage, {
+                label,
+                settleMs: 450,
+              })
+              .catch(() => ({ ok: false, choices: [] }));
             if (replayed && replayed.ok) {
               await page.waitForTimeout(800); // let the page settle into the shifted layout
               await drawFindingBoxes(page, {
@@ -5470,7 +6834,9 @@ async function main() {
               drew = true;
             }
           }
-        } catch (_) { /* ignore */ }
+        } catch (_) {
+          /* ignore */
+        }
         log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew }));
       } else if (/hang|jank|exception|crash/.test(String(fuzz.highlight || ''))) {
         // SEQUENCE-BUG clip (hang/crash/jank): the trigger was already boxed RED
@@ -5478,8 +6844,10 @@ async function main() {
         // broken page -- that is what made the clip wait ~80s for the freeze to
         // release. The trust gate is whether the bug ACTUALLY RE-FIRED on replay
         // (a real re-hang / re-crash), not whether a box drew. Faithful or dropped.
-        const fired = lastTriggerLabel === 'froze' || lastTriggerLabel === 'jank'
-          || replayErrorCount > crashAtStart;
+        const fired =
+          lastTriggerLabel === 'froze' ||
+          lastTriggerLabel === 'jank' ||
+          replayErrorCount > crashAtStart;
         log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew: !!fired }));
       } else if (fuzz.brokenRouteStatus) {
         // A broken document reached during the original walk has no source
@@ -5488,7 +6856,8 @@ async function main() {
         // trust marker deterministic without substituting an unrelated link.
         const expected = Number(fuzz.brokenRouteStatus);
         const actual = startResponse ? startResponse.status() : 0;
-        const view = await page.evaluate(soft404View)
+        const view = await page
+          .evaluate(soft404View)
           .catch(() => ({ controls: 0, mountFilled: false, notFound: false }));
         const fired = actual === expected && isDeadRouteStatus(actual) && !isSoftHandled(view);
         log('FINDING:BOXED ' + JSON.stringify({ oracle: fuzz.highlight, drew: fired }));
@@ -5516,25 +6885,34 @@ async function main() {
     //   2) VERIFY each flagged candidate with a real page.goto (also a GET) -- only
     //      a link that truly returns 404/410 ON NAVIGATION is reported.
     if (!replay) {
-      const FETCH_CAP = 400, VERIFY_CAP = 20;
+      const FETCH_CAP = 400,
+        VERIFY_CAP = 20;
       const toProbe = [...seenLinks.entries()].filter(([p]) => navStatus[p] === undefined);
       const batch = toProbe.slice(0, FETCH_CAP);
       let statuses = {};
       if (batch.length) {
         try {
-          statuses = await page.evaluate(async (paths) => {
-            const origin = location.origin, out = {};
-            let i = 0;
-            const worker = async () => {
-              while (i < paths.length) {
-                const p = paths[i++];
-                try { const r = await fetch(origin + p, { method: 'GET', redirect: 'manual' }); out[p] = r.status; }
-                catch (e) { out[p] = 0; }
-              }
-            };
-            await Promise.all(Array.from({ length: 8 }, worker));
-            return out;
-          }, batch.map(([p]) => p));
+          statuses = await page.evaluate(
+            async (paths) => {
+              const origin = location.origin,
+                out = {};
+              let i = 0;
+              const worker = async () => {
+                while (i < paths.length) {
+                  const p = paths[i++];
+                  try {
+                    const r = await fetch(origin + p, { method: 'GET', redirect: 'manual' });
+                    out[p] = r.status;
+                  } catch (e) {
+                    out[p] = 0;
+                  }
+                }
+              };
+              await Promise.all(Array.from({ length: 8 }, worker));
+              return out;
+            },
+            batch.map(([p]) => p),
+          );
         } catch (_) {}
       }
       // DEAD only when the resource is GENUINELY GONE: 404 or 410 (isDeadRouteStatus).
@@ -5565,17 +6943,24 @@ async function main() {
         // client router hydrates its shell within a short window -- the full settle
         // here cost seconds per candidate on a never-idle site (the Ace editor / a
         // large 404 set), so it is bounded to a short fixed wait.
-        try { await page.waitForTimeout(500); } catch (_) {}
-        const view = await page.evaluate(soft404View)
+        try {
+          await page.waitForTimeout(500);
+        } catch (_) {}
+        const view = await page
+          .evaluate(soft404View)
           .catch(() => ({ controls: 0, mountFilled: false, notFound: false }));
         if (isSoftHandled(view)) {
           navStatus[path] = 200; // the app served a real view; not a broken route.
           continue;
         }
-        log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }));
+        log(
+          'EXPLORE:BROKENROUTE ' +
+            JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }),
+        );
       }
       const unverified = candidates.length - Math.min(candidates.length, VERIFY_CAP);
-      if (unverified) log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
+      if (unverified)
+        log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   }

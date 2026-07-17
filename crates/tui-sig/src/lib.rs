@@ -1,13 +1,14 @@
 //! Canonical TUI screen signature.
 //!
 //! This crate is the single source of truth for the terminal-UI (TUI) state
-//! signature. The `reproit __tui` runner (crates/reproit/src/backends/tui.rs)
-//! and every production TUI SDK (Rust/Go/TS/Python) compute the SAME value, so a
-//! production crash reported by an SDK carries a signature the runner can replay
-//! locally. The Rust runner and the Rust SDK share THIS code directly, so their
-//! parity is a compile-time property, not a tested-after-the-fact port; the
-//! Go/TS/Python SDKs port these functions and are pinned to the golden vectors
-//! (tui_signature_vectors.json) generated from this crate.
+//! signature. The `reproit __tui` runner
+//! (crates/reproit/src/backends/tui/mod.rs) and every production TUI SDK
+//! (Rust/Go/TS/Python) compute the SAME value, so a production crash reported
+//! by an SDK carries a signature the runner can replay locally. The Rust runner
+//! and the Rust SDK share THIS code directly, so their parity is a compile-time
+//! property, not a tested-after-the-fact port; the Go/TS/Python SDKs port these
+//! functions and are pinned to the golden vectors (tui_signature_vectors.json)
+//! generated from this crate.
 //!
 //! The descriptor SOURCE is the rendered terminal screen (the VT cell grid),
 //! normalized to a locale-invariant layout skeleton, NOT an accessibility role
@@ -19,10 +20,11 @@
 use std::collections::BTreeSet;
 
 /// Cap on the number of numeric value-classes folded into the TUI signature, so
-/// an adversarial number generator (a screen densely tiled with changing numbers)
-/// cannot explode the value-class section. Mirrors the oracle's per-node hard cap
-/// of 8 distinct value-class combinations (docs/signature.md Layer 2), applied
-/// here as a per-screen bound on the count of numeric tokens that contribute.
+/// an adversarial number generator (a screen densely tiled with changing
+/// numbers) cannot explode the value-class section. Mirrors the oracle's
+/// per-node hard cap of 8 distinct value-class combinations (docs/signature.md
+/// Layer 2), applied here as a per-screen bound on the count of numeric tokens
+/// that contribute.
 const MAX_VALUE_CLASSES: usize = 8;
 
 /// Cap on the display-only label set (`labels_of`), matching the a11y oracle's
@@ -44,28 +46,30 @@ pub fn sig_of(s: &str) -> String {
 
 /// Reduce one screen cell character to a locale-INVARIANT structural class.
 ///
-/// The whole point of language-independence (docs/cli.md "Language-independence"
-/// hard invariant): "Welcome" and "Begruessungsbildschirm" must hash the same.
-/// So any run of natural-language letters collapses to a single placeholder
-/// ('W'): a word is "a word" regardless of which language fills it. What we DO
-/// keep is everything that is stable across locales and carries the layout:
+/// The whole point of language-independence (docs/cli.md
+/// "Language-independence" hard invariant): "Welcome" and
+/// "Begruessungsbildschirm" must hash the same. So any run of natural-language
+/// letters collapses to a single placeholder ('W'): a word is "a word"
+/// regardless of which language fills it. What we DO keep is everything that is
+/// stable across locales and carries the layout:
 ///   - box-drawing / block glyphs (U+2500..U+259F): borders, panel extents.
 ///     Normalized to one marker ('#') so a single/double/rounded border edge
 ///     reads as the same structural edge.
 ///   - digits: collapsed to one marker ('9'). Numbers are not translated, but
 ///     their VALUES churn (counters, clocks), so we keep "a number is here"
 ///     positionally without pinning the value.
-///   - ASCII punctuation / symbols (':', '[', ']', '/', '$', ...): kept verbatim.
-///     These are the non-localized tokens, bracketed hotkeys and field markers,
-///     that genuinely distinguish layouts.
+///   - ASCII punctuation / symbols (':', '[', ']', '/', '$', ...): kept
+///     verbatim. These are the non-localized tokens, bracketed hotkeys and
+///     field markers, that genuinely distinguish layouts.
 ///   - spaces: retained as separators, with run widths normalized because
 ///     right-aligned numeric fields trade padding for digits as values change.
 ///
-/// Tradeoff (documented): a TUI is inherently text, so we cannot drop characters
-/// entirely without losing the row/column geometry that discriminates screens.
-/// We therefore keep POSITIONS for every cell but erase the localized IDENTITY
-/// of word characters. The skeleton (borders, gaps, symbol/number positions)
-/// survives; the words do not. Same layout in two languages -> same skeleton.
+/// Tradeoff (documented): a TUI is inherently text, so we cannot drop
+/// characters entirely without losing the row/column geometry that
+/// discriminates screens. We therefore keep POSITIONS for every cell but erase
+/// the localized IDENTITY of word characters. The skeleton (borders, gaps,
+/// symbol/number positions) survives; the words do not. Same layout in two
+/// languages -> same skeleton.
 pub fn structural_class(c: char) -> char {
     if ('\u{2500}'..='\u{259f}').contains(&c) {
         '#' // box-drawing / block -> a structural edge marker
@@ -74,7 +78,8 @@ pub fn structural_class(c: char) -> char {
     } else if c.is_alphanumeric() {
         'W' // any word character (any language, incl. CJK) -> placeholder
     } else if c == ' ' || c == '\n' || c.is_ascii_punctuation() {
-        c // layout whitespace, or a non-localized symbol/hotkey/field marker, kept
+        c // layout whitespace, or a non-localized symbol/hotkey/field marker,
+          // kept
     } else if c.is_whitespace() {
         ' ' // other whitespace -> space
     } else {
@@ -82,11 +87,11 @@ pub fn structural_class(c: char) -> char {
     }
 }
 
-/// Serialize the screen into its locale-invariant LAYOUT SKELETON, then collapse
-/// each maximal run of the SAME class char to a length-prefixed token. The
-/// length keeps stable extents (a 20-wide border vs a 4-wide one differ; a long
-/// word-field vs a short one differ). Numeric and whitespace run lengths are
-/// omitted because dashboard values exchange padding for digits over time.
+/// Serialize the screen into its locale-invariant LAYOUT SKELETON, then
+/// collapse each maximal run of the SAME class char to a length-prefixed token.
+/// The length keeps stable extents (a 20-wide border vs a 4-wide one differ; a
+/// long word-field vs a short one differ). Numeric and whitespace run lengths
+/// are omitted because dashboard values exchange padding for digits over time.
 pub fn skeleton_of(contents: &str) -> String {
     let mut out = String::new();
     let classed: String = contents.chars().map(structural_class).collect();
@@ -123,12 +128,13 @@ pub fn skeleton_of(contents: &str) -> String {
 /// value-class section, and the cursor cell (which interactive field/row is
 /// focused is structure, not text). Unit-testable without a live PTY/parser.
 ///
-/// The value-class section is the TUI analogue of the oracle's Layer 2 (canonical
-/// bounded value-class identity). The skeleton maps every digit to '9', so a
-/// value-state app has a frozen skeleton; folding a bounded set of numeric
-/// value-classes back in gives it a few distinct states (a counter at 0, 1, 12
-/// land in ZERO, POS1, POS2) while two values in the same bucket (3 and 7, both
-/// POS1) still collapse, exactly as the a11y oracle buckets node values.
+/// The value-class section is the TUI analogue of the oracle's Layer 2
+/// (canonical bounded value-class identity). The skeleton maps every digit to
+/// '9', so a value-state app has a frozen skeleton; folding a bounded set of
+/// numeric value-classes back in gives it a few distinct states (a counter at
+/// 0, 1, 12 land in ZERO, POS1, POS2) while two values in the same bucket (3
+/// and 7, both POS1) still collapse, exactly as the a11y oracle buckets node
+/// values.
 pub fn structural_sig(contents: &str, cursor: (u16, u16)) -> String {
     let skeleton = skeleton_of(contents);
     let vclasses = numeric_value_classes(contents);
@@ -152,12 +158,12 @@ pub fn structural_sig(contents: &str, cursor: (u16, u16)) -> String {
 ///
 /// A "numeric token" is a maximal run of characters that can appear in a strict
 /// decimal literal (digits, a leading sign, an internal period). Each token is
-/// classified by the shared `value_class` bucketer, so tokens outside the strict
-/// grammar (e.g. `1,234`, `12:34` split on the colon) bucket as the oracle would
-/// (`NONEMPTY`, or the per-part numeric class). Buckets are sorted for
-/// determinism and deduplicated before the count is capped. Repeated dashboard
-/// metrics therefore cannot change identity as values enter and leave the first
-/// few cells of a dense screen.
+/// classified by the shared `value_class` bucketer, so tokens outside the
+/// strict grammar (e.g. `1,234`, `12:34` split on the colon) bucket as the
+/// oracle would (`NONEMPTY`, or the per-part numeric class). Buckets are sorted
+/// for determinism and deduplicated before the count is capped. Repeated
+/// dashboard metrics therefore cannot change identity as values enter and leave
+/// the first few cells of a dense screen.
 pub fn numeric_value_classes(contents: &str) -> Vec<String> {
     let chars: Vec<char> = contents.chars().collect();
     let mut classes = BTreeSet::new();
@@ -187,11 +193,11 @@ pub fn numeric_value_classes(contents: &str) -> Vec<String> {
     classes.into_iter().take(MAX_VALUE_CLASSES).collect()
 }
 
-/// Map a numeric value string to the SAME bounded value-class token the canonical
-/// oracle uses (crates/reproit/src/model/signature.rs::value_class): the buckets,
-/// the strict period-decimal grammar, and the locale-safe fallback are identical.
-/// The binding guarantee for terminal surfaces is the same value-class family,
-/// deterministic and bounded, not a shared `Node` tree.
+/// Map a numeric value string to the SAME bounded value-class token the
+/// canonical oracle uses (crates/reproit/src/model/signature.rs::value_class):
+/// the buckets, the strict period-decimal grammar, and the locale-safe fallback
+/// are identical. The binding guarantee for terminal surfaces is the same
+/// value-class family, deterministic and bounded, not a shared `Node` tree.
 pub fn value_class(s: &str) -> &'static str {
     let t = s.trim();
     if t.is_empty() {
@@ -221,9 +227,9 @@ pub fn value_class(s: &str) -> &'static str {
 
 /// Strict `^[+-]?[0-9]+(\.[0-9]+)?$`: optional sign, one or more ASCII digits,
 /// optionally a period followed by one or more ASCII digits. No grouping
-/// separators, no exponent, no leading/trailing dot. Byte-for-byte the same rule
-/// as the oracle's `is_strict_decimal`, so a TUI numeric token buckets exactly as
-/// an a11y node value would.
+/// separators, no exponent, no leading/trailing dot. Byte-for-byte the same
+/// rule as the oracle's `is_strict_decimal`, so a TUI numeric token buckets
+/// exactly as an a11y node value would.
 pub fn is_strict_decimal(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
@@ -244,7 +250,8 @@ pub fn is_strict_decimal(s: &str) -> bool {
             i += 1;
         }
         if i == frac_start {
-            return false; // a trailing dot with no fraction digits is not allowed
+            return false; // a trailing dot with no fraction digits is not
+                          // allowed
         }
     }
     i == bytes.len()
@@ -254,11 +261,11 @@ pub fn is_strict_decimal(s: &str) -> bool {
 /// rendered cells, digits and words verbatim) plus the cursor cell. This is the
 /// TUI analogue of Layer 1 effect detection (docs/signature.md): unlike the
 /// skeleton signature, which maps every digit to '9' and every word to a
-/// placeholder, this hashes the raw content, so it changes whenever ANY on-screen
-/// value changes, even when the skeleton is byte-identical (a counter ticking
-/// 0 -> 1 -> 2). It is EPHEMERAL and runner-local: it carries raw localized text
-/// and MUST NOT enter the canonical state set, exactly as the a11y Layer-1
-/// fingerprint must not enter the canonical graph key.
+/// placeholder, this hashes the raw content, so it changes whenever ANY
+/// on-screen value changes, even when the skeleton is byte-identical (a counter
+/// ticking 0 -> 1 -> 2). It is EPHEMERAL and runner-local: it carries raw
+/// localized text and MUST NOT enter the canonical state set, exactly as the
+/// a11y Layer-1 fingerprint must not enter the canonical graph key.
 pub fn content_fingerprint(contents: &str, cursor: (u16, u16)) -> String {
     let input = format!("{contents}\x1ecur={},{}", cursor.0, cursor.1);
     sig_of(&input)
@@ -316,19 +323,17 @@ mod tests {
     #[test]
     fn signature_is_locale_invariant_for_the_same_layout() {
         let en = "\
-\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n\
-\u{2502} Login    \u{2502}\n\
-\u{2502} User:    \u{2502}\n\
-\u{2502} Pass:    \u{2502}\n\
-\u{2502} [o] Okay \u{2502}\n\
-\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}\n";
+\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n\u{2502} \
+                  Login    \u{2502}\n\u{2502} User:    \u{2502}\n\u{2502} Pass:    \
+                  \u{2502}\n\u{2502} [o] Okay \
+                  \u{2502}\n\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\\
+                  u{2500}\u{2500}\u{2518}\n";
         let de = "\
-\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n\
-\u{2502} Anmel    \u{2502}\n\
-\u{2502} Nutz:    \u{2502}\n\
-\u{2502} Pass:    \u{2502}\n\
-\u{2502} [o] Okay \u{2502}\n\
-\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}\n";
+\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}\n\u{2502} \
+                  Anmel    \u{2502}\n\u{2502} Nutz:    \u{2502}\n\u{2502} Pass:    \
+                  \u{2502}\n\u{2502} [o] Okay \
+                  \u{2502}\n\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\\
+                  u{2500}\u{2500}\u{2518}\n";
         assert_eq!(
             structural_sig(en, (2, 8)),
             structural_sig(de, (2, 8)),
@@ -336,9 +341,7 @@ mod tests {
         );
 
         let other = "\
-Some plain text screen\n\
-with no borders at all\n\
-and a totally different shape here\n";
+Some plain text screen\nwith no borders at all\nand a totally different shape here\n";
         assert_ne!(
             structural_sig(en, (2, 8)),
             structural_sig(other, (0, 0)),

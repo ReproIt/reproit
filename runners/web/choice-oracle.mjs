@@ -30,8 +30,8 @@
 // in-page pieces are exported both as functions (for page.evaluate) and as a
 // source string (for execute()), so there is no second copy to drift.
 
-export const CHOICE_OUTLIER_RATIO = 3;   // outlier magnitude >= 3x the sibling median ...
-export const CHOICE_MIN_MAGNITUDE = 24;  // ...and at least this many px of global move.
+export const CHOICE_OUTLIER_RATIO = 3; // outlier magnitude >= 3x the sibling median ...
+export const CHOICE_MIN_MAGNITUDE = 24; // ...and at least this many px of global move.
 export const CHOICE_ROLES = ['tab', 'radio', 'menuitemradio'];
 
 // Total px the global layout moved between two fingerprints: horizontal-overflow
@@ -115,7 +115,11 @@ export function measureGlobalLayoutInPage() {
   // an INSTANT jump: many sites set CSS `scroll-behavior:smooth`, under which a
   // plain scrollTo animates and the rects below are read MID-SCROLL, which shifts
   // the "above-fold" set and injects huge phantom deltas.
-  try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch (_) { window.scrollTo(0, 0); }
+  try {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  } catch (_) {
+    window.scrollTo(0, 0);
+  }
   document.documentElement.scrollTop = 0;
   const de = document.documentElement;
   const anchors = [];
@@ -221,7 +225,10 @@ export async function choiceAnomalyInPage(arg) {
     let n = norm(el.getAttribute && el.getAttribute('aria-label'));
     if (!n && el.getAttribute) {
       const ll = el.getAttribute('aria-labelledby');
-      if (ll) { const ref = document.getElementById(ll.split(/\s+/)[0]); if (ref) n = norm(ref.textContent); }
+      if (ll) {
+        const ref = document.getElementById(ll.split(/\s+/)[0]);
+        if (ref) n = norm(ref.textContent);
+      }
     }
     if (!n) n = norm(el.textContent);
     return n;
@@ -248,7 +255,11 @@ export async function choiceAnomalyInPage(arg) {
       }
       anchors.push([el.tagName.toLowerCase() + ':' + i, Math.round(r.top), Math.round(r.left)]);
     }
-    return { hOverflow: Math.max(0, de.scrollWidth - window.innerWidth), scrollH: de.scrollHeight, anchors };
+    return {
+      hOverflow: Math.max(0, de.scrollWidth - window.innerWidth),
+      scrollH: de.scrollHeight,
+      anchors,
+    };
   };
   const delta = (base, cur) => {
     if (!base || !cur) return 0;
@@ -312,7 +323,9 @@ export async function choiceAnomalyInPage(arg) {
   // 2) ARIA choice groups (tab/radio/menuitemradio), scoped by owning container so
   // two independent groups never merge into one false comparison.
   const containerOf = (el) => {
-    const cont = el.closest && el.closest('[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset');
+    const cont =
+      el.closest &&
+      el.closest('[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset');
     if (cont) return cont;
     const tag = el.tagName ? el.tagName.toLowerCase() : '';
     if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') {
@@ -325,7 +338,8 @@ export async function choiceAnomalyInPage(arg) {
     const ar = (el.getAttribute('role') || '').toLowerCase();
     if (CHOICE_ROLE_SET.has(ar)) return ar;
     const tag = el.tagName ? el.tagName.toLowerCase() : '';
-    if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') return 'radio';
+    if (tag === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio')
+      return 'radio';
     return null;
   };
   const ariaGroups = new Map(); // key(container|role) -> { role, els:[] }
@@ -334,9 +348,11 @@ export async function choiceAnomalyInPage(arg) {
   let qList;
   try {
     qList = document.querySelectorAll(
-      '[role=tab],[role=radio],[role=menuitemradio],input[type=radio]'
+      '[role=tab],[role=radio],[role=menuitemradio],input[type=radio]',
     );
-  } catch (_) { qList = []; }
+  } catch (_) {
+    qList = [];
+  }
   for (const el of qList) {
     if (!visible(el)) continue;
     const role = ariaRoleOf(el);
@@ -345,7 +361,10 @@ export async function choiceAnomalyInPage(arg) {
     let ckey;
     if (cont == null) ckey = 'role';
     else if (typeof cont === 'string') ckey = cont;
-    else { if (!contKey.has(cont)) contKey.set(cont, 'c' + contId++); ckey = contKey.get(cont); }
+    else {
+      if (!contKey.has(cont)) contKey.set(cont, 'c' + contId++);
+      ckey = contKey.get(cont);
+    }
     const key = role + '|' + ckey;
     if (!ariaGroups.has(key)) ariaGroups.set(key, { role, els: [] });
     ariaGroups.get(key).els.push(el);
@@ -358,9 +377,18 @@ export async function choiceAnomalyInPage(arg) {
       role: g.role,
       options: g.els.map((el) => ({
         label: nameOf(el),
-        pick: () => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); },
+        pick: () => {
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          el.click();
+        },
       })),
-      restore: () => { if (orig) { try { orig.click(); } catch (_) {} } },
+      restore: () => {
+        if (orig) {
+          try {
+            orig.click();
+          } catch (_) {}
+        }
+      },
     });
   }
 
@@ -369,10 +397,15 @@ export async function choiceAnomalyInPage(arg) {
   // row of action buttons (Save/Delete), so a Delete is never blindly clicked.
   const byParent = new Map();
   let btnList;
-  try { btnList = document.querySelectorAll('button,[role=button]'); } catch (_) { btnList = []; }
+  try {
+    btnList = document.querySelectorAll('button,[role=button]');
+  } catch (_) {
+    btnList = [];
+  }
   for (const el of btnList) {
     if (!visible(el)) continue;
-    if (el.closest && el.closest('[role=tablist],[role=radiogroup],[role=menu],[role=menubar]')) continue;
+    if (el.closest && el.closest('[role=tablist],[role=radiogroup],[role=menu],[role=menubar]'))
+      continue;
     if (!nameOf(el)) continue;
     const par = el.parentElement;
     if (!par) continue;
@@ -388,9 +421,18 @@ export async function choiceAnomalyInPage(arg) {
       role: 'button-cluster',
       options: els.map((el) => ({
         label: nameOf(el),
-        pick: () => { el.scrollIntoView({ block: 'center', inline: 'center' }); el.click(); },
+        pick: () => {
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          el.click();
+        },
       })),
-      restore: () => { if (orig) { try { orig.click(); } catch (_) {} } },
+      restore: () => {
+        if (orig) {
+          try {
+            orig.click();
+          } catch (_) {}
+        }
+      },
     });
   }
 
@@ -419,12 +461,23 @@ export async function choiceAnomalyInPage(arg) {
     // settled state, and no baseline choice can hide or misattribute anything.
     const fps = [];
     for (const opt of comp.options) {
-      try { opt.pick(); } catch (_) { fps.push(null); continue; }
+      try {
+        opt.pick();
+      } catch (_) {
+        fps.push(null);
+        continue;
+      }
       fps.push(await measureSettled());
     }
     const validIdx = [];
     for (let i = 0; i < fps.length; i++) if (fps[i]) validIdx.push(i);
-    if (validIdx.length < 3) { try { comp.restore(); } catch (_) {} await sleep(50); continue; }
+    if (validIdx.length < 3) {
+      try {
+        comp.restore();
+      } catch (_) {}
+      await sleep(50);
+      continue;
+    }
     // NORM: the MEDOID fingerprint (the option most like the others) is the
     // group's typical page geometry; each option's magnitude is its distance
     // from it. The pack defines the median deviation, so uniform pickers stay
@@ -434,7 +487,10 @@ export async function choiceAnomalyInPage(arg) {
     for (const i of validIdx) {
       let s = 0;
       for (const j of validIdx) if (j !== i) s += delta(fps[i], fps[j]);
-      if (s < bestSum) { bestSum = s; medoidI = i; }
+      if (s < bestSum) {
+        bestSum = s;
+        medoidI = i;
+      }
     }
     const mag = {};
     for (const i of validIdx) mag[i] = delta(fps[medoidI], fps[i]);
@@ -446,7 +502,9 @@ export async function choiceAnomalyInPage(arg) {
     // component intentionally swaps differently sized content, so it is not a
     // choice anomaly.
     if (candIdx.length !== 1) {
-      try { comp.restore(); } catch (_) {}
+      try {
+        comp.restore();
+      } catch (_) {}
       await sleep(50);
       continue;
     }
@@ -469,7 +527,9 @@ export async function choiceAnomalyInPage(arg) {
     }
     // Restore the component to its starting state -- non-destructive, like the
     // rest of the oracle.
-    try { comp.restore(); } catch (_) {}
+    try {
+      comp.restore();
+    } catch (_) {}
     await sleep(50);
     hits.sort((a, b) => b.mag - a.mag);
     for (const hit of hits) {
@@ -535,7 +595,8 @@ export async function replayChoiceComponentInPage(arg) {
     const options = [...(select.options || [])].filter((o) => !o.disabled);
     const target = options.find((o) => norm(o.label || o.textContent) === label);
     if (!target || options.length < 3) continue;
-    if (!inView(select)) select.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    if (!inView(select))
+      select.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     await sleep(250);
     const choose = async (opt) => {
       select.value = opt.value;
@@ -545,29 +606,39 @@ export async function replayChoiceComponentInPage(arg) {
     };
     for (const opt of options) if (opt !== target) await choose(opt);
     await choose(target);
-    for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+    for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+      e.removeAttribute('data-reproit-trigger');
     select.setAttribute('data-reproit-trigger', '1');
     return { ok: true, choices: options.map((o) => norm(o.label || o.textContent)) };
   }
 
-  const all = [...document.querySelectorAll('button,[role=button],[role=tab],[role=radio],[role=menuitemradio]')]
-    .filter(visible);
+  const all = [
+    ...document.querySelectorAll(
+      'button,[role=button],[role=tab],[role=radio],[role=menuitemradio]',
+    ),
+  ].filter(visible);
   const target = all.find((el) => nameOf(el) === label);
   if (!target) return { ok: false, choices: [] };
 
   // Prefer an explicit ARIA owner. Plain button-cluster pickers use same-parent
   // siblings, matching the detector's grouping rule.
-  const owner = target.closest('[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset');
+  const owner = target.closest(
+    '[role=tablist],[role=radiogroup],[role=menu],[role=menubar],fieldset',
+  );
   let options;
   if (owner) {
-    options = [...owner.querySelectorAll('button,[role=button],[role=tab],[role=radio],[role=menuitemradio]')]
-      .filter(visible);
+    options = [
+      ...owner.querySelectorAll(
+        'button,[role=button],[role=tab],[role=radio],[role=menuitemradio]',
+      ),
+    ].filter(visible);
   } else {
     options = all.filter((el) => el.parentElement === target.parentElement);
   }
   if (options.length < 3 || !options.includes(target)) return { ok: false, choices: [] };
 
-  if (!inView(target)) target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  if (!inView(target))
+    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
   await sleep(250);
   // Ordinary choices establish the visual norm. The outlier is always last, so
   // the layout shift and final red box have an immediate before/after context.
@@ -576,7 +647,8 @@ export async function replayChoiceComponentInPage(arg) {
     option.click();
     await sleep(settleMs);
   }
-  for (const e of document.querySelectorAll('[data-reproit-trigger]')) e.removeAttribute('data-reproit-trigger');
+  for (const e of document.querySelectorAll('[data-reproit-trigger]'))
+    e.removeAttribute('data-reproit-trigger');
   target.click();
   target.setAttribute('data-reproit-trigger', '1');
   await sleep(settleMs);

@@ -9,7 +9,8 @@
 //! Providers:
 //!   - codex-cli   `codex exec`     OpenAI, billed via ChatGPT subscription
 //!   - claude-cli  `claude -p`      Anthropic, billed via Claude subscription
-//!   - claude-api  raw Messages API (the `claude` module), per-token, for prod/CI
+//!   - claude-api  raw Messages API (the `claude` module), per-token, for
+//!     prod/CI
 //!   - openai-api  Chat Completions over raw HTTP, per-token (model required)
 
 // A self-contained Anthropic client (typed Messages API, retries, streaming,
@@ -91,7 +92,8 @@ pub fn from_spec(spec: &Spec) -> Result<Box<dyn Provider>> {
         "claude-api" => Ok(Box::new(providers::ClaudeApiProvider::new(spec))),
         "openai-api" => Ok(Box::new(providers::OpenAiProvider::new(spec)?)),
         other => anyhow::bail!(
-            "unknown llm provider {other:?} (expected codex-cli, claude-cli, claude-api, or openai-api)"
+            "unknown llm provider {other:?} (expected codex-cli, claude-cli, claude-api, or \
+             openai-api)"
         ),
     }
 }

@@ -1,12 +1,14 @@
-//! `reproit skills install`: emit the reproit playbook (the find -> reproduce ->
-//! fix -> check loop and journey-authoring knowledge that tool descriptions can't
-//! carry) into the coding agent's native format. The PLAYBOOK is harness-neutral;
-//! only the packaging differs, so we target FORMATS, not vendors:
+//! `reproit skills install`: emit the reproit playbook (the find -> reproduce
+//! -> fix -> check loop and journey-authoring knowledge that tool descriptions
+//! can't carry) into the coding agent's native format. The PLAYBOOK is
+//! harness-neutral; only the packaging differs, so we target FORMATS, not
+//! vendors:
 //!   - agents: a marker-delimited section in `AGENTS.md`, the cross-agent open
 //!     standard (Codex, opencode, Cursor, Aider, Zed, Copilot, Windsurf, ...).
-//!   - skill:  the Agent Skills format, a SKILL.md tree (Claude Code / opencode).
-//! The skill sources live in `skills/` at the repo root and are embedded into the
-//! binary at compile time, so one source of truth renders to every harness.
+//!   - skill:  the Agent Skills format, a SKILL.md tree (Claude Code /
+//!     opencode).
+//! The skill sources live in `skills/` at the repo root and are embedded into
+//! the binary at compile time, so one source of truth renders to every harness.
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
@@ -33,7 +35,8 @@ const AGENTS_BEGIN: &str = "<!-- BEGIN reproit skills (auto-generated) -->";
 const AGENTS_END: &str = "<!-- END reproit skills (auto-generated) -->";
 
 /// (path under skills/, file contents) embedded at compile time. Keep in sync
-/// with the `skills/` tree; a missing file is a compile error, not a runtime one.
+/// with the `skills/` tree; a missing file is a compile error, not a runtime
+/// one.
 const FILES: &[(&str, &str)] = &[
     (
         "reproit/SKILL.md",
@@ -110,8 +113,8 @@ fn install_skill(global: bool, dir: Option<PathBuf>) -> Result<()> {
 
 /// AGENTS.md (the cross-agent standard): flatten the playbook into a delimited
 /// section. Idempotent: replaces our marked block if present, appends it
-/// otherwise, and never touches the rest of the user's file. Default location is
-/// the project-root AGENTS.md (where every AGENTS.md-aware agent looks).
+/// otherwise, and never touches the rest of the user's file. Default location
+/// is the project-root AGENTS.md (where every AGENTS.md-aware agent looks).
 fn install_agents(global: bool, dir: Option<PathBuf>) -> Result<()> {
     let path = match dir {
         Some(d) => d.join("AGENTS.md"),
@@ -238,8 +241,8 @@ mod tests {
             let tag = o.as_str();
             assert!(
                 oracles.contains(&format!("`{tag}`")),
-                "the `{tag}` oracle is not documented in \
-                 skills/reproit/references/oracles.md (expected a `{tag}` table row)"
+                "the `{tag}` oracle is not documented in skills/reproit/references/oracles.md \
+                 (expected a `{tag}` table row)"
             );
         }
     }
@@ -268,7 +271,7 @@ mod tests {
             "resolution-events",
         ];
         let text = all_skill_text();
-        let cmd = crate::Cli::command();
+        let cmd = crate::cli::args::Cli::command();
         let names: Vec<&str> = cmd
             .get_subcommands()
             .filter(|s| !s.is_hide_set())

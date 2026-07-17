@@ -22,15 +22,24 @@ cleanup() {
 trap cleanup EXIT
 
 actual="$(git -C "$checkout" rev-parse HEAD)"
-[[ "$actual" == "$pin" ]] || { echo "A2UI checkout must be pinned to $pin (got $actual)" >&2; exit 1; }
+[[ "$actual" == "$pin" ]] || {
+  echo "A2UI checkout must be pinned to $pin (got $actual)" >&2
+  exit 1
+}
 
 (cd "$checkout" && corepack yarn install --immutable)
 (cd "$checkout" && corepack yarn workspace @a2ui/react-explorer build)
 (cd "$checkout" && corepack yarn workspace @a2ui/lit-explorer build)
 
-(cd "$checkout/renderers/react/a2ui_explorer" && corepack yarn vite --host 127.0.0.1 --port 4311) >"${TMPDIR:-/tmp}/reproit-a2ui-react.log" 2>&1 &
+(
+  cd "$checkout/renderers/react/a2ui_explorer"
+  corepack yarn vite --host 127.0.0.1 --port 4311
+) >"${TMPDIR:-/tmp}/reproit-a2ui-react.log" 2>&1 &
 react_pid=$!
-(cd "$checkout/renderers/lit/a2ui_explorer" && corepack yarn vite --host 127.0.0.1 --port 4312) >"${TMPDIR:-/tmp}/reproit-a2ui-lit.log" 2>&1 &
+(
+  cd "$checkout/renderers/lit/a2ui_explorer"
+  corepack yarn vite --host 127.0.0.1 --port 4312
+) >"${TMPDIR:-/tmp}/reproit-a2ui-lit.log" 2>&1 &
 lit_pid=$!
 
 for url in http://127.0.0.1:4311 http://127.0.0.1:4312; do

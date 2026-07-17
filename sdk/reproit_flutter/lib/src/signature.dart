@@ -151,8 +151,7 @@ class RNode {
 /// roles map to `node` (docs/signature.md "Roles").
 String normalizeRole(String role) => kRoles.contains(role) ? role : 'node';
 
-bool _isTransient(RNode n) =>
-    n.transient || kTransientRoles.contains(n.role);
+bool _isTransient(RNode n) => n.transient || kTransientRoles.contains(n.role);
 
 /// A normalized node after rules 1, 2, 4 are applied (transients removed,
 /// children normalized in order). Rule 3 (collapse) is applied at serialization.
@@ -305,8 +304,9 @@ String valueClass(String s) {
 /// if present, otherwise the structural fallback `role:<role>#<idx>` using the
 /// NORMALIZED role (so the key namespace matches the selector grammar). This is
 /// the "stable-key" the `V:` section sorts on.
-String _valueKey(RNode n, int structuralIndex) =>
-    n.id != null ? 'key:${n.id}' : 'role:${normalizeRole(n.role)}#$structuralIndex';
+String _valueKey(RNode n, int structuralIndex) => n.id != null
+    ? 'key:${n.id}'
+    : 'role:${normalizeRole(n.role)}#$structuralIndex';
 
 /// Collect `(value_key, value_class)` pairs for every value-bearing node in the
 /// tree, in pre-order, skipping transient subtrees (rule 2) so the `V:` section
@@ -348,7 +348,8 @@ List<MapEntry<String, String>> valuePairs(RNode root) {
 /// byte-identical to a pre-value-state tree. [excludeKeys] lets a RUNNER enforce
 /// the per-node cap (Layer 2 "Hard cap") by dropping keys that exceeded their
 /// distinct-value-class budget; the SDK passes none.
-String _valueSection(List<MapEntry<String, String>> pairs, Set<String>? excludeKeys) {
+String _valueSection(
+    List<MapEntry<String, String>> pairs, Set<String>? excludeKeys) {
   final kept = (excludeKeys == null || excludeKeys.isEmpty)
       ? pairs
       : pairs.where((e) => !excludeKeys.contains(e.key)).toList();

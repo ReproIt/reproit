@@ -29,8 +29,10 @@ const { runScenarioActor } = await import(${JSON.stringify(RUNNER_URL)});
 const PAGE_XML = \`<?xml version="1.0" encoding="UTF-8"?>
 <hierarchy rotation="0">
   <android.widget.FrameLayout bounds="[0,0][1080,1920]" displayed="true">
-    <android.widget.Button resource-id="com.demo:id/send" text="Send" clickable="true" displayed="true" bounds="[0,0][200,80]"/>
-    <android.widget.EditText resource-id="com.demo:id/msg" text="" clickable="true" displayed="true" bounds="[0,100][1080,180]"/>
+    <android.widget.Button resource-id="com.demo:id/send" text="Send"
+      clickable="true" displayed="true" bounds="[0,0][200,80]"/>
+    <android.widget.EditText resource-id="com.demo:id/msg" text=""
+      clickable="true" displayed="true" bounds="[0,100][1080,180]"/>
     <android.widget.TextView text="hello from alice" displayed="true" bounds="[0,200][1080,260]"/>
   </android.widget.FrameLayout>
 </hierarchy>\`;
@@ -63,7 +65,8 @@ function runActors(env) {
       process.execPath,
       ['--input-type=module', '-e', HARNESS],
       { env: { ...process.env, ...env }, timeout: 30000 },
-      (err, stdout, stderr) => (err ? reject(new Error(String(err) + '\n' + stdout + stderr)) : resolve(stdout)),
+      (err, stdout, stderr) =>
+        err ? reject(new Error(String(err) + '\n' + stdout + stderr)) : resolve(stdout),
     );
   });
 }
@@ -160,9 +163,15 @@ test('two appium actors interleave in the scripted order', async () => {
   const second = callsOf(out, 'b');
   const tapper = first.some((c) => c.startsWith('click ~send')) ? first : second;
   const typer = tapper === first ? second : first;
-  assert.ok(tapper.some((c) => c.startsWith('click ~send')), tapper.join());
+  assert.ok(
+    tapper.some((c) => c.startsWith('click ~send')),
+    tapper.join(),
+  );
   assert.ok(!tapper.some((c) => c.startsWith('setValue')), tapper.join());
-  assert.ok(typer.some((c) => c === 'setValue ~msg=hi bob'), typer.join());
+  assert.ok(
+    typer.some((c) => c === 'setValue ~msg=hi bob'),
+    typer.join(),
+  );
   assert.ok(!typer.some((c) => c.startsWith('click')), typer.join());
 
   // The conductor saw every step served AND acked in the global order: the
@@ -175,7 +184,7 @@ test('two appium actors interleave in the scripted order', async () => {
 test('a labeled actor keeps its env role and misses loudly on a stale action', async () => {
   const script = [
     [0, 'tap:key:nonexistent'], // still resolves (mock says everything exists)
-    [0, 'key:Down'],            // a TUI-surface action: cross-surface MISS
+    [0, 'key:Down'], // a TUI-surface action: cross-surface MISS
   ];
   const { port, observed, close } = await startConductor(script, 1);
   let out = '';

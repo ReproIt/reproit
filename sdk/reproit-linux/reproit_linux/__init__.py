@@ -195,6 +195,13 @@ class _ReproIt:
         if self._on and self._reporter is not None:
             self._reporter.record_error(exc, message=message)
 
+    def capture_bug(self):
+        """Capture the current structural state as a tester-observed bug."""
+        if not self._on or self._reporter is None:
+            return False
+        self.observe(action="auto")
+        return self._reporter.capture_bug()
+
     def set_context(self, key, value):
         if self._reporter is not None:
             self._reporter.set_context(key, value)

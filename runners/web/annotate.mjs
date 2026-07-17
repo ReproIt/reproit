@@ -42,8 +42,18 @@ function ffmpeg(args) {
 function ffprobeWidth(path) {
   const r = spawnSync(
     'ffprobe',
-    ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width', '-of', 'csv=p=0', path],
-    { encoding: 'utf8' }
+    [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=width',
+      '-of',
+      'csv=p=0',
+      path,
+    ],
+    { encoding: 'utf8' },
   );
   const w = parseInt((r.stdout || '').trim(), 10);
   return Number.isFinite(w) && w > 0 ? w : 1280;
@@ -53,7 +63,7 @@ function ffprobeDuration(path) {
   const r = spawnSync(
     'ffprobe',
     ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
-    { encoding: 'utf8' }
+    { encoding: 'utf8' },
   );
   const d = parseFloat((r.stdout || '').trim());
   return Number.isFinite(d) && d > 0 ? d : 3.0;
@@ -83,7 +93,9 @@ async function verdictBadge(width, out, verdict) {
   // NOT ffmpeg-scaled like the caption bar), so it must match the video's pixel
   // coordinate space exactly or it overflows the frame.
   const b = await chromium.launch({ headless: true });
-  const p = await (await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })).newPage();
+  const p = await (
+    await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
+  ).newPage();
   await p.setContent(html);
   await p.screenshot({ path: out, omitBackground: true });
   await b.close();
@@ -108,24 +120,46 @@ const tailStart = Math.max(0, DUR - 0.8).toFixed(3);
 const tailExpr = `gte(t,${tailStart})`;
 const tint = VERDICT === 'pass' ? 'green@0.14' : 'red@0.18';
 ffmpeg([
-  '-i', IN,
-  '-i', badgePng,
+  '-i',
+  IN,
+  '-i',
+  badgePng,
   '-filter_complex',
   [
     `[0:v]drawbox=x=0:y=0:w=iw:h=ih:color=${tint}:t=fill:enable='${tailExpr}'[v1]`,
     `[v1][1:v]overlay=x=(W-w)/2:y=(H-h)/2:enable='${tailExpr}'[v]`,
   ].join(';'),
-  '-map', '[v]',
-  '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+  '-map',
+  '[v]',
+  '-c:v',
+  'libx264',
+  '-pix_fmt',
+  'yuv420p',
+  '-movflags',
+  '+faststart',
   MP4,
 ]);
 
 // GIF of the failure tail (last 2.5s), 480px wide, 12fps, palette for clean color.
 const palette = join(OUTDIR, 'palette.png');
-ffmpeg(['-sseof', '-2.5', '-i', MP4, '-vf', 'fps=12,scale=480:-1:flags=lanczos,palettegen', palette]);
 ffmpeg([
-  '-sseof', '-2.5', '-i', MP4, '-i', palette,
-  '-lavfi', 'fps=12,scale=480:-1:flags=lanczos[x];[x][1:v]paletteuse',
+  '-sseof',
+  '-2.5',
+  '-i',
+  MP4,
+  '-vf',
+  'fps=12,scale=480:-1:flags=lanczos,palettegen',
+  palette,
+]);
+ffmpeg([
+  '-sseof',
+  '-2.5',
+  '-i',
+  MP4,
+  '-i',
+  palette,
+  '-lavfi',
+  'fps=12,scale=480:-1:flags=lanczos[x];[x][1:v]paletteuse',
   GIF,
 ]);
 

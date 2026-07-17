@@ -20,7 +20,7 @@ export function exactRepairFeedback(report, options = {}) {
   const schemas = {};
   const messageSchemas = {};
   let reproductionBudget = options.reproductionBudget ?? DEFAULT_REPRODUCTION_BUDGET;
-  const findings = (report.findings ?? []).map(finding => {
+  const findings = (report.findings ?? []).map((finding) => {
     const minimized = finding.minimalMessages;
     const minimizedJson = minimized === undefined ? '' : JSON.stringify(minimized);
     const includeMessages = minimizedJson.length <= reproductionBudget;
@@ -31,12 +31,20 @@ export function exactRepairFeedback(report, options = {}) {
       reason: finding.reason,
       path: finding.path,
       signature: finding.signature,
+      oracle: finding.oracle,
+      actual: finding.actual,
+      reproductionActions: finding.reproductionActions,
       minimalMessages: includeMessages ? minimized : undefined,
-      minimalReproduction: minimized === undefined ? undefined : {
-        messageCount: Array.isArray(minimized) ? minimized.length : undefined,
-        included: includeMessages,
-        omittedReason: includeMessages ? undefined : 'The complete original stream is already present in the repair request.',
-      },
+      minimalReproduction:
+        minimized === undefined
+          ? undefined
+          : {
+              messageCount: Array.isArray(minimized) ? minimized.length : undefined,
+              included: includeMessages,
+              omittedReason: includeMessages
+                ? undefined
+                : 'The complete original stream is already present in the repair request.',
+            },
       repairContext: compactContext(finding.repairContext, schemas, messageSchemas),
     };
   });

@@ -11,25 +11,27 @@
 //! template (placeholders {journey}/{platform}/{locale}/{device}), e.g. to emit
 //! the exact layout `fastlane deliver` / `supply` expect.
 //!
-//! Because the state signature is locale-invariant, ONE tour covers every locale
-//! with no per-locale selectors. The verification gate (v1) checks that every
-//! locale of a given platform/device produced the SAME set of shot names: a tour
-//! that silently skipped a screen in one locale (a real navigation-drift failure
-//! Maestro/snapshot ship blindly) fails here instead. Per-shot signature
-//! assertion (the runner emitting the screen signature at SHOOT time) is the next
-//! increment; today drive.rs does not see a per-screen signature.
+//! Because the state signature is locale-invariant, ONE tour covers every
+//! locale with no per-locale selectors. The verification gate (v1) checks that
+//! every locale of a given platform/device produced the SAME set of shot names:
+//! a tour that silently skipped a screen in one locale (a real navigation-drift
+//! failure Maestro/snapshot ship blindly) fails here instead. Per-shot
+//! signature assertion (the runner emitting the screen signature at SHOOT time)
+//! is the next increment; today drive.rs does not see a per-screen signature.
 //!
 //! Capture support is per-runner: the Flutter iOS-sim path captures via simctl
-//! today; web (Playwright) and Android (Appium/adb) capture are the next pieces.
+//! today; web (Playwright) and Android (Appium/adb) capture are the next
+//! pieces.
 
 use anyhow::{anyhow, bail, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use crate::backends::orchestrator::{self, RunOpts};
+use crate::cli::context::Ctx;
 use crate::config::Loaded;
 use crate::crosscut::{self, RunTarget};
-use crate::orchestrator::{self, RunOpts};
-use crate::{Ctx, ScopedEnv};
+use crate::infra::ScopedEnv;
 
 /// Resolved command knobs. Each Option/empty falls back to the `screenshots:`
 /// config block; a CLI value overrides it.
@@ -41,8 +43,9 @@ pub struct Args {
     pub devices: Vec<String>,
     /// None = use the config default (on); Some(false) = --no-verify.
     pub verify: Option<bool>,
-    /// Explicit per-shot directory template (overrides the auto layout). Supports
-    /// {journey} {platform} {locale} {device}; None = use the config / auto layout.
+    /// Explicit per-shot directory template (overrides the auto layout).
+    /// Supports {journey} {platform} {locale} {device}; None = use the
+    /// config / auto layout.
     pub path_template: Option<String>,
 }
 
@@ -63,13 +66,16 @@ pub async fn run(ctx: &Ctx, loaded: &Loaded, args: Args) -> Result<bool> {
         .tour
         .or_else(|| sc.map(|s| s.tour.clone()))
         .ok_or_else(|| {
-            anyhow!("no tour given: pass `reproit screenshots <tour>` or set screenshots.tour in reproit.yaml")
+            anyhow!(
+                "no tour given: pass `reproit screenshots <tour>` or set screenshots.tour in \
+                 reproit.yaml"
+            )
         })?;
-    if !crate::journey::exists(&loaded.root, &tour) {
+    if !crate::modes::journey::exists(&loaded.root, &tour) {
         bail!(
             "tour journey {:?} not found (expected {})",
             tour,
-            crate::journey::journey_path(&loaded.root, &tour).display()
+            crate::modes::journey::journey_path(&loaded.root, &tour).display()
         );
     }
 
@@ -240,15 +246,15 @@ fn seg(s: &str) -> String {
 /// Resolve the per-combo directory a tour's shots land in.
 ///
 /// With an explicit `template`, the user fully controls the layout: the
-/// placeholders {journey}/{platform}/{locale}/{device} are substituted (an absent
-/// locale/device renders as "default") and joined under `out_root`.
+/// placeholders {journey}/{platform}/{locale}/{device} are substituted (an
+/// absent locale/device renders as "default") and joined under `out_root`.
 ///
-/// Otherwise the auto layout is journey-led and collapses axes that do not vary:
-/// `<out>/<journey>[/<platform>][/<locale>][/<device>]`. The platform level only
-/// appears when fanning more than one platform; the locale and device levels only
-/// appear when those axes have a concrete value. So a single platform/locale run
-/// with a named device is just `<out>/<journey>/<device>/`, and fanning locales or
-/// platforms deepens it as needed (so nothing collides).
+/// Otherwise the auto layout is journey-led and collapses axes that do not
+/// vary: `<out>/<journey>[/<platform>][/<locale>][/<device>]`. The platform
+/// level only appears when fanning more than one platform; the locale and
+/// device levels only appear when those axes have a concrete value. So a single
+/// platform/locale run with a named device is just `<out>/<journey>/<device>/`,
+/// and fanning locales or platforms deepens it as needed (so nothing collides).
 fn shot_dir(
     out_root: &Path,
     template: Option<&str>,

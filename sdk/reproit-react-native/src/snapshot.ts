@@ -269,7 +269,8 @@ function typeOfFiber(props: Record<string, unknown> | null, role: string): strin
   if (typeof kt === 'string') {
     const k = kt.toLowerCase();
     if (k === 'email-address') return 'email';
-    if (k === 'numeric' || k === 'number-pad' || k === 'decimal-pad' || k === 'phone-pad') return 'number';
+    if (k === 'numeric' || k === 'number-pad' || k === 'decimal-pad' || k === 'phone-pad')
+      return 'number';
     if (k === 'web-search') return 'search';
   }
   return 'text';
@@ -310,7 +311,8 @@ function isTransientFiber(props: Record<string, unknown> | null, role: string): 
     if (l === 'assertive' || l === 'polite') return true;
   }
   const trait = rawTrait(props).toLowerCase();
-  if (trait === 'alert' || trait === 'status' || trait === 'progressbar' || trait === 'timer') return true;
+  if (trait === 'alert' || trait === 'status' || trait === 'progressbar' || trait === 'timer')
+    return true;
   // Explicit opt-out for app-marked transient nodes (toast/snackbar/badge etc).
   if (props['data-transient'] === true || props.reproitTransient === true) return true;
   return false;
@@ -333,8 +335,12 @@ function valueRoleOfFiber(
 ): string | null {
   const trait = rawTrait(props).toLowerCase();
   if (
-    trait === 'status' || trait === 'log' || trait === 'progressbar' ||
-    trait === 'meter' || trait === 'timer' || trait === 'output'
+    trait === 'status' ||
+    trait === 'log' ||
+    trait === 'progressbar' ||
+    trait === 'meter' ||
+    trait === 'timer' ||
+    trait === 'output'
   ) {
     return trait;
   }
@@ -484,11 +490,7 @@ interface BuildOut {
  * many composite wrappers an app uses (parallels the web SDK hoisting invisible
  * wrappers). Accessibility-hidden subtrees are dropped entirely.
  */
-function buildChildren(
-  fiber: NonNullable<Fiber>,
-  cfg: ResolvedConfig,
-  out: BuildOut,
-): Node[] {
+function buildChildren(fiber: NonNullable<Fiber>, cfg: ResolvedConfig, out: BuildOut): Node[] {
   const nodes: Node[] = [];
   let child = fiber.child ?? null;
   while (child) {
@@ -663,7 +665,12 @@ export function snapshot(cfg: ResolvedConfig): Snapshot {
 function isTextField(fiber: NonNullable<Fiber>, props: Record<string, unknown> | null): boolean {
   if (typeof fiber.type !== 'string') return false;
   const t = fiber.type;
-  if (t !== 'RCTTextInput' && t !== 'RCTSinglelineTextInputView' && t !== 'RCTMultilineTextInputView' && t !== 'AndroidTextInput') {
+  if (
+    t !== 'RCTTextInput' &&
+    t !== 'RCTSinglelineTextInputView' &&
+    t !== 'RCTMultilineTextInputView' &&
+    t !== 'AndroidTextInput'
+  ) {
     return false;
   }
   if (props && props.secureTextEntry === true) return false;
@@ -673,7 +680,14 @@ function isTextField(fiber: NonNullable<Fiber>, props: Record<string, unknown> |
 /** A stable, value-independent label for a field (never derived from value). */
 function fieldLabelOf(props: Record<string, unknown> | null, index: number): string {
   if (props) {
-    for (const key of ['accessibilityLabel', 'aria-label', 'testID', 'nativeID', 'placeholder', 'name']) {
+    for (const key of [
+      'accessibilityLabel',
+      'aria-label',
+      'testID',
+      'nativeID',
+      'placeholder',
+      'name',
+    ]) {
       const v = props[key];
       if (typeof v === 'string' && v.trim()) return firstLine(v);
     }

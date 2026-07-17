@@ -33,7 +33,9 @@ TST="$HERE/src/test/kotlin/com/reproit/android"
 "$KOTLINC" -cp "$JUNIT_JAR:$HAMCREST_JAR" \
   "$SRC/Signature.kt" "$SRC/Json.kt" "$SRC/Config.kt" "$SRC/Engine.kt" \
   "$SRC/Fingerprint.kt" "$SRC/Compose.kt" \
+  "$SRC/IndicatorRelation.kt" "$SRC/StructuralContracts.kt" \
   "$TST/SignatureParityTest.kt" "$TST/ComposeMappingTest.kt" "$TST/InvariantTest.kt" \
+  "$TST/IndicatorRelationTest.kt" "$TST/StructuralContractsTest.kt" \
   -d "$OUT/classes.jar"
 
 # Locate kotlin-stdlib next to the compiler. Resolve symlinks (Homebrew points
@@ -65,4 +67,6 @@ java -cp "$OUT/classes.jar:$JUNIT_JAR:$HAMCREST_JAR:$STDLIB" \
   org.junit.runner.JUnitCore \
   com.reproit.android.SignatureParityTest \
   com.reproit.android.ComposeMappingTest \
-  com.reproit.android.InvariantTest
+  com.reproit.android.InvariantTest \
+  com.reproit.android.IndicatorRelationTest \
+  com.reproit.android.StructuralContractsTest

@@ -33,9 +33,9 @@ fn out_result(out: std::process::Output) -> RunResult {
     }
 }
 
-/// Drive a Command to completion under a timeout. `kill_on_drop` means a timeout
-/// (or a cancelled run) drops the output future and kills the child, rather than
-/// leaving an orphaned process and a hung await.
+/// Drive a Command to completion under a timeout. `kill_on_drop` means a
+/// timeout (or a cancelled run) drops the output future and kills the child,
+/// rather than leaving an orphaned process and a hung await.
 async fn run_command(mut cmd: Command, timeout: Duration) -> RunResult {
     cmd.kill_on_drop(true);
     match tokio::time::timeout(timeout, cmd.output()).await {
@@ -53,8 +53,8 @@ async fn run_command(mut cmd: Command, timeout: Duration) -> RunResult {
     }
 }
 
-/// Run a command to completion, capturing output. Never errors on non-zero exit;
-/// bounded by `DEFAULT_TIMEOUT`.
+/// Run a command to completion, capturing output. Never errors on non-zero
+/// exit; bounded by `DEFAULT_TIMEOUT`.
 pub async fn run(cmd: &str, args: &[&str]) -> RunResult {
     run_timeout(cmd, args, DEFAULT_TIMEOUT).await
 }
@@ -80,7 +80,8 @@ pub async fn which(bin: &str) -> bool {
     run("sh", &["-c", &format!("command -v {bin}")]).await.ok()
 }
 
-/// SIGINT a pid (used to finalize simctl recordings so the moov atom is written).
+/// SIGINT a pid (used to finalize simctl recordings so the moov atom is
+/// written).
 pub async fn sigint(pid: u32) {
     let _ = run("kill", &["-INT", &pid.to_string()]).await;
 }

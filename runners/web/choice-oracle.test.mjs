@@ -16,9 +16,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { chromium } from 'playwright';
 import {
-  layoutDelta, medianOf, classifyChoiceOutlier, choiceAnomalyInPage,
+  layoutDelta,
+  medianOf,
+  classifyChoiceOutlier,
+  choiceAnomalyInPage,
   replayChoiceComponentInPage,
-  CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, CHOICE_ROLES,
+  CHOICE_OUTLIER_RATIO,
+  CHOICE_MIN_MAGNITUDE,
+  CHOICE_ROLES,
 } from './choice-oracle.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,11 +35,13 @@ test('medianOf: odd and even length', () => {
   assert.strictEqual(medianOf([]), 0);
 });
 
-test('choice recording cycles only the affected component and leaves the outlier last', async () => {
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    await page.setContent(`
+test(
+  'choice recording cycles only the affected component and leaves the ' + 'outlier last',
+  async () => {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      await page.setContent(`
       <div id="affected">
         <button aria-pressed="true">Python</button>
         <button>TypeScript</button>
@@ -48,24 +55,52 @@ test('choice recording cycles only the affected component and leaves the outlier
         window.clicked = [];
         for (const b of document.querySelectorAll('button')) b.addEventListener('click', () => {
           window.clicked.push(b.textContent);
-          for (const s of b.parentElement.querySelectorAll('button')) s.setAttribute('aria-pressed', String(s === b));
+          for (const s of b.parentElement.querySelectorAll('button')) {
+            s.setAttribute('aria-pressed', String(s === b));
+          }
         });
       <\/script>
     `);
-    const result = await page.evaluate(replayChoiceComponentInPage, { label: 'Go', settleMs: 5 });
-    assert.strictEqual(result.ok, true);
-    assert.deepStrictEqual(result.choices, ['Python', 'TypeScript', 'Go', 'Java']);
-    assert.deepStrictEqual(await page.evaluate(() => window.clicked), ['Python', 'TypeScript', 'Java', 'Go']);
-    assert.strictEqual(await page.evaluate(() => document.querySelector('[data-reproit-trigger]').textContent), 'Go');
-    assert.strictEqual(await page.evaluate(() => document.querySelector('#unrelated [aria-pressed=true]').textContent), 'Small');
-  } finally {
-    await browser.close();
-  }
-});
+      const result = await page.evaluate(replayChoiceComponentInPage, { label: 'Go', settleMs: 5 });
+      assert.strictEqual(result.ok, true);
+      assert.deepStrictEqual(result.choices, ['Python', 'TypeScript', 'Go', 'Java']);
+      assert.deepStrictEqual(await page.evaluate(() => window.clicked), [
+        'Python',
+        'TypeScript',
+        'Java',
+        'Go',
+      ]);
+      assert.strictEqual(
+        await page.evaluate(() => document.querySelector('[data-reproit-trigger]').textContent),
+        'Go',
+      );
+      assert.strictEqual(
+        await page.evaluate(
+          () => document.querySelector('#unrelated [aria-pressed=true]').textContent,
+        ),
+        'Small',
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 test('layoutDelta: horizontal overflow + keyed anchor displacement', () => {
-  const base = { hOverflow: 0, anchors: [['header:0', 0, 0], ['nav:1', 48, 0]] };
-  const cur = { hOverflow: 100, anchors: [['header:0', 0, 0], ['nav:1', 148, 0]] };
+  const base = {
+    hOverflow: 0,
+    anchors: [
+      ['header:0', 0, 0],
+      ['nav:1', 48, 0],
+    ],
+  };
+  const cur = {
+    hOverflow: 100,
+    anchors: [
+      ['header:0', 0, 0],
+      ['nav:1', 148, 0],
+    ],
+  };
   // 100 (overflow) + 100 (the nav anchor moved 100px down) = 200.
   assert.strictEqual(layoutDelta(base, cur), 200);
   assert.strictEqual(layoutDelta(null, cur), 0);
@@ -89,7 +124,7 @@ test('classifyChoiceOutlier: uniform choices produce nothing', () => {
   assert.strictEqual(classifyChoiceOutlier([0, 40, 42, 41, 39]), null);
 });
 
-test('classifyChoiceOutlier: an outlier below the magnitude floor stays silent', () => {
+test('classifyChoiceOutlier: an outlier below the magnitude floor stays ' + 'silent', () => {
   // 20px max is a 10x outlier vs 2px siblings, but below the 24px floor.
   assert.strictEqual(classifyChoiceOutlier([0, 2, 2, 20, 2]), null);
 });
@@ -98,47 +133,61 @@ test('classifyChoiceOutlier: needs >= 3 valid options', () => {
   assert.strictEqual(classifyChoiceOutlier([0, 100]), null);
 });
 
-test('choiceAnomalyInPage fires on one odd choice, stays silent on uniform and varied-content pickers, and restores values', async () => {
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    await page.goto(FIXTURE_URL);
+test(
+  'choiceAnomalyInPage fires on one odd choice, stays silent on uniform ' +
+    'and varied-content pickers, and restores values',
+  async () => {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      await page.goto(FIXTURE_URL);
 
-    const origLang = await page.evaluate(() => document.getElementById('lang').value);
-    const origSize = await page.evaluate(() => document.getElementById('size').value);
-    const origVaried = await page.evaluate(() => document.getElementById('varied').value);
+      const origLang = await page.evaluate(() => document.getElementById('lang').value);
+      const origSize = await page.evaluate(() => document.getElementById('size').value);
+      const origVaried = await page.evaluate(() => document.getElementById('varied').value);
 
-    const findings = await page.evaluate(choiceAnomalyInPage, {
-      settleMs: 80, ratio: CHOICE_OUTLIER_RATIO, minMag: CHOICE_MIN_MAGNITUDE, choiceRoles: CHOICE_ROLES,
-    });
+      const findings = await page.evaluate(choiceAnomalyInPage, {
+        settleMs: 80,
+        ratio: CHOICE_OUTLIER_RATIO,
+        minMag: CHOICE_MIN_MAGNITUDE,
+        choiceRoles: CHOICE_ROLES,
+      });
 
-    // FIRES: exactly one finding, a native <select>, whose outlier is the "Broken"
-    // option (the one that pushes the page into horizontal overflow).
-    const selectFindings = findings.filter((f) => f.kind === 'select');
-    assert.strictEqual(selectFindings.length, 1,
-      `expected exactly one <select> anomaly, got ${JSON.stringify(findings)}`);
-    assert.strictEqual(selectFindings[0].outlier, 'Broken',
-      `expected the Broken option to be the outlier, got ${JSON.stringify(selectFindings[0])}`);
-    assert.ok(selectFindings[0].magnitude >= CHOICE_MIN_MAGNITUDE);
+      // FIRES: exactly one finding, a native <select>, whose outlier is the "Broken"
+      // option (the one that pushes the page into horizontal overflow).
+      const selectFindings = findings.filter((f) => f.kind === 'select');
+      assert.strictEqual(
+        selectFindings.length,
+        1,
+        `expected exactly one <select> anomaly, got ${JSON.stringify(findings)}`,
+      );
+      assert.strictEqual(
+        selectFindings[0].outlier,
+        'Broken',
+        `expected the Broken option to be the outlier, got ${JSON.stringify(selectFindings[0])}`,
+      );
+      assert.ok(selectFindings[0].magnitude >= CHOICE_MIN_MAGNITUDE);
 
-    // SILENT: the uniform `size` picker and intentionally varied `varied`
-    // picker must not appear. Several large panes are not one odd choice.
-    assert.strictEqual(selectFindings.length, 1);
+      // SILENT: the uniform `size` picker and intentionally varied `varied`
+      // picker must not appear. Several large panes are not one odd choice.
+      assert.strictEqual(selectFindings.length, 1);
 
-    // NON-DESTRUCTIVE: both selects are restored to their original values.
-    const afterLang = await page.evaluate(() => document.getElementById('lang').value);
-    const afterSize = await page.evaluate(() => document.getElementById('size').value);
-    const afterVaried = await page.evaluate(() => document.getElementById('varied').value);
-    assert.strictEqual(afterLang, origLang, 'buggy <select> not restored');
-    assert.strictEqual(afterSize, origSize, 'clean <select> not restored');
-    assert.strictEqual(afterVaried, origVaried, 'varied <select> not restored');
+      // NON-DESTRUCTIVE: both selects are restored to their original values.
+      const afterLang = await page.evaluate(() => document.getElementById('lang').value);
+      const afterSize = await page.evaluate(() => document.getElementById('size').value);
+      const afterVaried = await page.evaluate(() => document.getElementById('varied').value);
+      assert.strictEqual(afterLang, origLang, 'buggy <select> not restored');
+      assert.strictEqual(afterSize, origSize, 'clean <select> not restored');
+      assert.strictEqual(afterVaried, origVaried, 'varied <select> not restored');
 
-    // And the page is no longer in horizontal overflow (the overlay was hidden
-    // again when the value was restored).
-    const overflow = await page.evaluate(
-      () => Math.max(0, document.documentElement.scrollWidth - window.innerWidth));
-    assert.strictEqual(overflow, 0, 'page left in horizontal overflow after restore');
-  } finally {
-    await browser.close();
-  }
-});
+      // And the page is no longer in horizontal overflow (the overlay was hidden
+      // again when the value was restored).
+      const overflow = await page.evaluate(() =>
+        Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+      );
+      assert.strictEqual(overflow, 0, 'page left in horizontal overflow after restore');
+    } finally {
+      await browser.close();
+    }
+  },
+);

@@ -16,7 +16,8 @@ set -e
 
 test "$status" -eq 0
 grep -q 'sent-message-becomes-visible' "$out"
-find "$root/validation/contracts/.reproit/runs" -name 'contract-evidence-*.json' -print -quit | grep -q .
+find "$root/validation/contracts/.reproit/runs" \
+  -name 'contract-evidence-*.json' -print -quit | grep -q .
 id="$(sed -n 's/.*"id": "\(fnd_[0-9a-f]*\)".*/\1/p' "$out" | tail -1)"
 test -n "$id"
 set +e

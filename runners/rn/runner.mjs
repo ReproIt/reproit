@@ -72,11 +72,14 @@ async function advanceCausalAction(driver) {
   }
 }
 
-function log(line) { process.stdout.write(line + '\n'); }
+function log(line) {
+  process.stdout.write(line + '\n');
+}
 function stageAndroidCausalBeforeLaunch(caps) {
   if (!isAndroid()) return true;
   const serial = caps['appium:udid'] || caps.udid;
-  const adb = (args) => execFileSync('adb', [...(serial ? ['-s', String(serial)] : []), ...args], { stdio: 'ignore' });
+  const adb = (args) =>
+    execFileSync('adb', [...(serial ? ['-s', String(serial)] : []), ...args], { stdio: 'ignore' });
   try {
     adb(['shell', 'setprop', 'debug.reproit.fuzz', '1']);
     adb(['shell', 'setprop', 'debug.reproit.action', '0']);
@@ -100,7 +103,11 @@ function stageAndroidCausalBeforeLaunch(caps) {
 function loadFuzz() {
   const p = process.env.REPROIT_FUZZ_CONFIG;
   if (!p) return {};
-  try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; }
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 // The multi-seed BATCH contract shared with every other runner (runners/web
@@ -125,7 +132,9 @@ function loadBatch() {
 
 const FUZZ_CONFIGURED = !!process.env.REPROIT_FUZZ_CONFIG;
 
-function edgeKey(sig, action) { return sig + '|' + action; }
+function edgeKey(sig, action) {
+  return sig + '|' + action;
+}
 function rememberActions(actionsByState, sig, actions) {
   const known = actionsByState.get(sig) || [];
   for (const action of actions) if (!known.includes(action)) known.push(action);
@@ -138,7 +147,8 @@ function firstUntriedAction(actionsByState, tried, sig) {
   return null;
 }
 function hasFrontier(actionsByState, tried) {
-  for (const sig of actionsByState.keys()) if (firstUntriedAction(actionsByState, tried, sig)) return true;
+  for (const sig of actionsByState.keys())
+    if (firstUntriedAction(actionsByState, tried, sig)) return true;
   return false;
 }
 function rememberEdge(graph, from, action, to) {
@@ -171,10 +181,17 @@ function pathToFrontier(graph, actionsByState, tried, start) {
 // so value-state is strictly opt-in. Mirrors runners/web.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
-  if (!p) { const def = resolve(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
+  if (!p) {
+    const def = resolve(process.cwd(), 'reproit.yaml');
+    if (existsSync(def)) p = def;
+  }
   if (!p || !existsSync(p)) return [];
   let text = '';
-  try { text = readFileSync(p, 'utf8'); } catch { return []; }
+  try {
+    text = readFileSync(p, 'utf8');
+  } catch {
+    return [];
+  }
   return parseValueNodes(text);
 }
 // Extract the `value_nodes:` list items from a YAML document. Supports the two
@@ -186,8 +203,10 @@ function parseValueNodes(text) {
   const out = [];
   const clean = (s) => {
     let v = s.trim();
-    const h = v.indexOf('#'); if (h >= 0) v = v.slice(0, h).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    const h = v.indexOf('#');
+    if (h >= 0) v = v.slice(0, h).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
+      v = v.slice(1, -1);
     return v.trim();
   };
   for (let i = 0; i < lines.length; i++) {
@@ -197,7 +216,10 @@ function parseValueNodes(text) {
     const inline = m[2].trim();
     if (inline.startsWith('[')) {
       const body = inline.replace(/^\[/, '').replace(/\].*$/, '');
-      for (const part of body.split(',')) { const v = clean(part); if (v) out.push(v); }
+      for (const part of body.split(',')) {
+        const v = clean(part);
+        if (v) out.push(v);
+      }
       return out;
     }
     for (let j = i + 1; j < lines.length; j++) {
@@ -217,8 +239,15 @@ function parseValueNodes(text) {
 
 // xorshift32, identical to the Flutter/web runners so seeds mean the same thing.
 function rng(seed) {
-  let s = (seed >>> 0) || 1;
-  return (n) => { s ^= (s << 13); s >>>= 0; s ^= (s >> 17); s ^= (s << 5); s >>>= 0; return (s & 0x7fffffff) % n; };
+  let s = seed >>> 0 || 1;
+  return (n) => {
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    return (s & 0x7fffffff) % n;
+  };
 }
 
 // The shared UTF-8 encoder for the canonical hash + V: byte-order sort. The
@@ -233,7 +262,10 @@ const REPROIT_UTF8 = new TextEncoder();
 function fnv1a(s) {
   const bytes = REPROIT_UTF8.encode(s);
   let h = 0x811c9dc5;
-  for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
@@ -244,7 +276,9 @@ function reproitCmpUtf8(a, b) {
   const ab = REPROIT_UTF8.encode(a);
   const bb = REPROIT_UTF8.encode(b);
   const n = Math.min(ab.length, bb.length);
-  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  for (let i = 0; i < n; i++) {
+    if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1;
+  }
   return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
@@ -254,9 +288,26 @@ function reproitCmpUtf8(a, b) {
 //  and signature_vectors.json. Spec: docs/signature.md.
 // ====================================================================
 const ROLES = {
-  screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-  icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-  slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+  screen: 1,
+  header: 1,
+  text: 1,
+  button: 1,
+  link: 1,
+  textfield: 1,
+  image: 1,
+  icon: 1,
+  list: 1,
+  listitem: 1,
+  tab: 1,
+  switch: 1,
+  checkbox: 1,
+  radio: 1,
+  slider: 1,
+  menu: 1,
+  menuitem: 1,
+  dialog: 1,
+  group: 1,
+  node: 1,
 };
 const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1 };
 // Value-role set (docs/signature.md "Value-state", Layer 2). A node is value-
@@ -265,10 +316,22 @@ const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, toolti
 // timer/output are NOT in the structural vocabulary so they normalize to "node"
 // in the body; the value-role test uses the RAW role on purpose. Chrome roles
 // (button/header/text/link) are NEVER value-bearing (rule 1 preserved).
-const VALUE_ROLES = { textfield: 1, status: 1, log: 1, progressbar: 1, meter: 1, timer: 1, output: 1 };
+const VALUE_ROLES = {
+  textfield: 1,
+  status: 1,
+  log: 1,
+  progressbar: 1,
+  meter: 1,
+  timer: 1,
+  output: 1,
+};
 
-function normalizeRole(role) { return ROLES[role] ? role : 'node'; }
-function isTransientNode(node) { return !!node.transient || !!TRANSIENT_ROLES[node.role]; }
+function normalizeRole(role) {
+  return ROLES[role] ? role : 'node';
+}
+function isTransientNode(node) {
+  return !!node.transient || !!TRANSIENT_ROLES[node.role];
+}
 function isValueBearing(node) {
   return node.value != null && (!!VALUE_ROLES[node.role] || !!node.value_node);
 }
@@ -277,7 +340,10 @@ function normalizeNode(node) {
   if (isTransientNode(node)) return null;
   const kids = [];
   const children = node.children || [];
-  for (const c of children) { const n = normalizeNode(c); if (n) kids.push(n); }
+  for (const c of children) {
+    const n = normalizeNode(c);
+    if (n) kids.push(n);
+  }
   return {
     role: normalizeRole(node.role),
     type: node.type != null ? node.type : null,
@@ -313,7 +379,7 @@ function serializeChildren(children, depth, tokens) {
     const key = subtreeKey(children[i]);
     let j = i + 1;
     while (j < children.length && subtreeKey(children[j]) === key) j++;
-    serializeNode(children[i], depth, (j - i) >= 2, tokens);
+    serializeNode(children[i], depth, j - i >= 2, tokens);
     i = j;
   }
 }
@@ -321,13 +387,15 @@ function serializeChildren(children, depth, tokens) {
 // Strict ^[+-]?[0-9]+(\.[0-9]+)?$: optional sign, >=1 ASCII digits, optional
 // period + >=1 ASCII digits. No grouping, no exponent, no leading/trailing dot.
 function isStrictDecimal(s) {
-  let i = 0; const n = s.length;
+  let i = 0;
+  const n = s.length;
   if (i < n && (s.charCodeAt(i) === 43 || s.charCodeAt(i) === 45)) i++;
   const intStart = i;
   while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
   if (i === intStart) return false;
   if (i < n && s.charCodeAt(i) === 46) {
-    i++; const fracStart = i;
+    i++;
+    const fracStart = i;
     while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
     if (i === fracStart) return false;
   }
@@ -388,7 +456,9 @@ function descriptorOf(anchor, root) {
   if (norm) serializeNode(norm, 0, false, tokens);
   return 'A:' + (anchor == null ? '' : anchor) + '\n' + tokens.join(';') + valueSection(root);
 }
-function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
+function signatureOf(anchor, root) {
+  return fnv1a(descriptorOf(anchor, root));
+}
 
 export { signatureOf, descriptorOf, valueClass };
 
@@ -469,7 +539,8 @@ function roleFromAndroid(cls) {
   const c = cls.toLowerCase();
   if (c.includes('imagebutton') || c.includes('togglebutton')) return 'button';
   if (c.includes('button')) return 'button';
-  if (c.includes('edittext') || c.includes('autocompletetextview') || c.includes('textinput')) return 'textfield';
+  if (c.includes('edittext') || c.includes('autocompletetextview') || c.includes('textinput'))
+    return 'textfield';
   if (c.includes('switch')) return 'switch';
   if (c.includes('seekbar') || c.includes('slider')) return 'slider';
   if (c.includes('checkbox')) return 'checkbox';
@@ -477,8 +548,15 @@ function roleFromAndroid(cls) {
   if (c.includes('progressbar')) return 'progress';
   if (c.includes('imageview') || c.includes('image')) return 'image';
   if (c.includes('tablayout')) return 'menu';
-  if (c.includes('recyclerview') || c.includes('listview') || c.includes('scrollview')) return 'list';
-  if (c.includes('viewgroup') || c.includes('linearlayout') || c.includes('framelayout') || c.includes('relativelayout')) return 'group';
+  if (c.includes('recyclerview') || c.includes('listview') || c.includes('scrollview'))
+    return 'list';
+  if (
+    c.includes('viewgroup') ||
+    c.includes('linearlayout') ||
+    c.includes('framelayout') ||
+    c.includes('relativelayout')
+  )
+    return 'group';
   if (c.includes('textview')) return 'text';
   if (c.includes('toolbar') || c.includes('actionbar')) return 'header';
   return null;
@@ -487,24 +565,56 @@ function roleFromAndroid(cls) {
 // ARIA-style / generic a11y trait (accessibility-role, role) -> canonical role.
 function roleFromTrait(trait) {
   switch ((trait || '').toLowerCase()) {
-    case 'header': case 'heading': return 'header';
-    case 'button': case 'imagebutton': case 'togglebutton': return 'button';
-    case 'link': return 'link';
-    case 'search': case 'searchbox': case 'combobox': case 'textbox': return 'textfield';
-    case 'image': case 'img': return 'image';
-    case 'switch': return 'switch';
-    case 'checkbox': return 'checkbox';
-    case 'radio': return 'radio';
-    case 'adjustable': case 'slider': return 'slider';
-    case 'tab': return 'tab';
-    case 'tablist': case 'menubar': case 'toolbar': case 'menu': return 'menu';
-    case 'menuitem': return 'menuitem';
-    case 'list': return 'list';
-    case 'listitem': case 'cell': return 'listitem';
-    case 'alert': case 'dialog': return 'dialog';
-    case 'text': case 'summary': return 'text';
-    case 'progressbar': return 'progress';
-    default: return null;
+    case 'header':
+    case 'heading':
+      return 'header';
+    case 'button':
+    case 'imagebutton':
+    case 'togglebutton':
+      return 'button';
+    case 'link':
+      return 'link';
+    case 'search':
+    case 'searchbox':
+    case 'combobox':
+    case 'textbox':
+      return 'textfield';
+    case 'image':
+    case 'img':
+      return 'image';
+    case 'switch':
+      return 'switch';
+    case 'checkbox':
+      return 'checkbox';
+    case 'radio':
+      return 'radio';
+    case 'adjustable':
+    case 'slider':
+      return 'slider';
+    case 'tab':
+      return 'tab';
+    case 'tablist':
+    case 'menubar':
+    case 'toolbar':
+    case 'menu':
+      return 'menu';
+    case 'menuitem':
+      return 'menuitem';
+    case 'list':
+      return 'list';
+    case 'listitem':
+    case 'cell':
+      return 'listitem';
+    case 'alert':
+    case 'dialog':
+      return 'dialog';
+    case 'text':
+    case 'summary':
+      return 'text';
+    case 'progressbar':
+      return 'progress';
+    default:
+      return null;
   }
 }
 
@@ -512,10 +622,15 @@ function roleFromTrait(trait) {
 // XCUI tag, then the Android widget class/tag, else `node`. Never from text.
 function roleOfEl(tag, get) {
   const trait = get('accessibility-role') || get('role') || '';
-  if (trait) { const r = roleFromTrait(trait); if (r) return r; }
-  const xc = roleFromXcui(tag); if (xc) return xc;
+  if (trait) {
+    const r = roleFromTrait(trait);
+    if (r) return r;
+  }
+  const xc = roleFromXcui(tag);
+  if (xc) return xc;
   const cls = get('class') || tag;
-  const ar = roleFromAndroid(cls); if (ar) return ar;
+  const ar = roleFromAndroid(cls);
+  if (ar) return ar;
   return 'node';
 }
 
@@ -569,11 +684,19 @@ function typeOfEl(tag, get, role) {
 function inputPurposeOfEl(tag, get, role) {
   if (role !== 'textfield') return null;
   const hint = [
-    get('textContentType'), get('content-type'), get('autofillHints'),
-    get('autofill-hints'), get('importantForAutofill'), get('autocomplete'),
-  ].filter(Boolean).join(' ').toLowerCase();
+    get('textContentType'),
+    get('content-type'),
+    get('autofillHints'),
+    get('autofill-hints'),
+    get('importantForAutofill'),
+    get('autocomplete'),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
   const type = typeOfEl(tag, get, role);
-  if (hint.includes('onetimecode') || hint.includes('one-time-code') || hint.includes('smsotp')) return 'otp';
+  if (hint.includes('onetimecode') || hint.includes('one-time-code') || hint.includes('smsotp'))
+    return 'otp';
   if (hint.includes('password') || type === 'password') return 'password';
   if (hint.includes('username')) return 'username';
   if (hint.includes('email') || type === 'email') return 'email';
@@ -598,7 +721,12 @@ function isTransientEl(get, role, cls) {
   if (live === 'assertive' || live === 'polite') return true;
   const trait = (get('accessibility-role') || get('role') || '').toLowerCase();
   if (trait === 'alert' || trait === 'status' || trait === 'timer') return true;
-  if (/\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test((cls || '').toLowerCase())) return true;
+  if (
+    /\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test(
+      (cls || '').toLowerCase(),
+    )
+  )
+    return true;
   return false;
 }
 
@@ -612,8 +740,14 @@ function isTransientEl(get, role, cls) {
 // Returns null for chrome and for password fields (never read).
 function valueRoleOfEl(tag, get, role) {
   const trait = (get('accessibility-role') || get('role') || '').toLowerCase();
-  if (trait === 'status' || trait === 'log' || trait === 'progressbar' ||
-      trait === 'meter' || trait === 'timer' || trait === 'output') {
+  if (
+    trait === 'status' ||
+    trait === 'log' ||
+    trait === 'progressbar' ||
+    trait === 'meter' ||
+    trait === 'timer' ||
+    trait === 'output'
+  ) {
     return trait;
   }
   const live = (get('aria-live') || get('live-region') || '').toLowerCase();
@@ -645,7 +779,10 @@ function valueOfEl(get) {
 
 // Display-only accessible name (label/content-desc/text). Never in the hash.
 function nameOfEl(get) {
-  return (get('label') || get('content-desc') || get('text') || get('value') || '').trim().split('\n')[0].trim();
+  return (get('label') || get('content-desc') || get('text') || get('value') || '')
+    .trim()
+    .split('\n')[0]
+    .trim();
 }
 
 // The element's on-screen frame as {l,t,r,b} in device pixels, or null when no
@@ -660,14 +797,22 @@ function rectOfEl(get) {
   if (b) {
     const m = b.match(/^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/);
     if (m) {
-      const l = parseInt(m[1], 10), t = parseInt(m[2], 10);
-      const r = parseInt(m[3], 10), bot = parseInt(m[4], 10);
+      const l = parseInt(m[1], 10),
+        t = parseInt(m[2], 10);
+      const r = parseInt(m[3], 10),
+        bot = parseInt(m[4], 10);
       if ([l, t, r, bot].every(Number.isFinite)) return { l, t, r, b: bot };
     }
   }
-  const xs = get('x'), ys = get('y'), ws = get('width'), hs = get('height');
+  const xs = get('x'),
+    ys = get('y'),
+    ws = get('width'),
+    hs = get('height');
   if (xs !== '' && ys !== '' && ws !== '' && hs !== '') {
-    const x = parseFloat(xs), y = parseFloat(ys), w = parseFloat(ws), h = parseFloat(hs);
+    const x = parseFloat(xs),
+      y = parseFloat(ys),
+      w = parseFloat(ws),
+      h = parseFloat(hs);
     if ([x, y, w, h].every(Number.isFinite)) return { l: x, t: y, r: x + w, b: y + h };
   }
   return null;
@@ -693,11 +838,18 @@ function contentBugReason(text) {
   if (!text) return null;
   const dominates = (s) => s.length <= 24 && !/[.!?]/.test(s);
   if (text.includes('[object Object]')) {
-    const s = text.replace(/\[object Object\]/g, ' ').replace(/\s+/g, ' ').trim();
+    const s = text
+      .replace(/\[object Object\]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (dominates(s)) return 'object-object';
   }
   if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) {
-    const s = text.replace(/\{\{[^}]*\}\}/g, ' ').replace(/\$\{[^}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+    const s = text
+      .replace(/\{\{[^}]*\}\}/g, ' ')
+      .replace(/\$\{[^}]*\}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     if (dominates(s)) return 'unrendered-template';
   }
   return null;
@@ -735,7 +887,9 @@ function contentBugItems(raw) {
     seen.add(k);
     out.push({ key: it.key, reason: it.reason, text: String(it.text || '').slice(0, 80) });
   }
-  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  out.sort((a, b) =>
+    a.key < b.key ? -1 : a.key > b.key ? 1 : a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0,
+  );
   return out;
 }
 
@@ -786,7 +940,13 @@ function brokenAssetItems(raw) {
     const k = it.key + '|' + it.reason;
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push({ key: it.key, reason: it.reason, detail: String(it.detail || '').trim().slice(0, 60) });
+    out.push({
+      key: it.key,
+      reason: it.reason,
+      detail: String(it.detail || '')
+        .trim()
+        .slice(0, 60),
+    });
   }
   out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return out;
@@ -808,10 +968,13 @@ function brokenAssetItems(raw) {
 // test).
 function safeAreaItems(tapRects, insets, screenRect) {
   if (!insets || !screenRect) return [];
-  const top = insets.top || 0, bottom = insets.bottom || 0;
-  const left = insets.left || 0, right = insets.right || 0;
+  const top = insets.top || 0,
+    bottom = insets.bottom || 0;
+  const left = insets.left || 0,
+    right = insets.right || 0;
   if (top <= 0 && bottom <= 0 && left <= 0 && right <= 0) return [];
-  const H = screenRect.b - screenRect.t, W = screenRect.r - screenRect.l;
+  const H = screenRect.b - screenRect.t,
+    W = screenRect.r - screenRect.l;
   const els = (tapRects || []).filter(
     (e) => e && e.rect && e.rect.r - e.rect.l > 0 && e.rect.b - e.rect.t > 0,
   );
@@ -840,8 +1003,9 @@ function safeAreaItems(tapRects, insets, screenRect) {
   // H/W are referenced for clarity of the band model; guard against a degenerate
   // frame so a zero-size screen never manufactures a collision.
   if (!(H > 0 && W > 0)) return [];
-  out.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1
-    : (x.edge < y.edge ? -1 : x.edge > y.edge ? 1 : 0)));
+  out.sort((x, y) =>
+    x.key < y.key ? -1 : x.key > y.key ? 1 : x.edge < y.edge ? -1 : x.edge > y.edge ? 1 : 0,
+  );
   return out;
 }
 
@@ -858,7 +1022,8 @@ function safeAreaItems(tapRects, insets, screenRect) {
 // transiently-empty a11y tree (app boot) never false-positives.
 function blankScreenItems(labels, elements, roleSeen, screenRect) {
   if (!screenRect) return [];
-  const w = screenRect.r - screenRect.l, h = screenRect.b - screenRect.t;
+  const w = screenRect.r - screenRect.l,
+    h = screenRect.b - screenRect.t;
   if (!(w > 0 && h > 0)) return [];
   if ((labels && labels.length) || (elements && elements.length)) return [];
   if (roleSeen && ((roleSeen.textfield || 0) > 0 || (roleSeen.image || 0) > 0)) return [];
@@ -871,7 +1036,8 @@ function blankScreenItems(labels, elements, roleSeen, screenRect) {
 
 // Interactive: a tappable role, or an explicit clickable/enabled-button flag.
 function isTappableEl(get, role) {
-  if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+  if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+    return true;
   if (get('clickable') === 'true') return true;
   return false;
 }
@@ -884,10 +1050,21 @@ function isTappableEl(get, role) {
 // no_role gap. This is the host-readable native equivalent of the fiber probe's
 // `accessibilityRole == null` test, used by the native-fallback groundtruth.
 const AT_ROLES = {
-  button: 1, link: 1, menuitem: 1, tab: 1, checkbox: 1, switch: 1,
-  radio: 1, slider: 1, menu: 1, textfield: 1, listitem: 1,
+  button: 1,
+  link: 1,
+  menuitem: 1,
+  tab: 1,
+  checkbox: 1,
+  switch: 1,
+  radio: 1,
+  slider: 1,
+  menu: 1,
+  textfield: 1,
+  listitem: 1,
 };
-function exposesAtRole(role) { return !!AT_ROLES[role]; }
+function exposesAtRole(role) {
+  return !!AT_ROLES[role];
+}
 
 // Does the element actually carry a press affordance natively? On Android RN an
 // operable Pressable surfaces clickable="true"; a real <Button> widget is also
@@ -913,7 +1090,10 @@ function reconcileComposeControls(elements, nativeCandidates) {
   const input = (elements || []).map((e) => ({ ...e }));
   const removed = new Set();
   const generic = new Set(['node', 'group']);
-  const sameBounds = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === 4 &&
+  const sameBounds = (a, b) =>
+    Array.isArray(a) &&
+    Array.isArray(b) &&
+    a.length === 4 &&
     a.every((v, i) => Math.abs(Number(v) - Number(b[i])) <= 1);
 
   for (let i = 0; i < input.length; i++) {
@@ -921,7 +1101,13 @@ function reconcileComposeControls(elements, nativeCandidates) {
     if (!keyed.key || !generic.has(keyed.role) || !keyed.bounds) continue;
     for (let j = 0; j < input.length; j++) {
       const semantic = input[j];
-      if (i === j || semantic.key || generic.has(semantic.role) || !sameBounds(keyed.bounds, semantic.bounds)) continue;
+      if (
+        i === j ||
+        semantic.key ||
+        generic.has(semantic.role) ||
+        !sameBounds(keyed.bounds, semantic.bounds)
+      )
+        continue;
       keyed.role = semantic.role;
       if (!keyed.label && semantic.label) keyed.label = semantic.label;
       keyed.sel = `key:${keyed.key}`;
@@ -933,14 +1119,18 @@ function reconcileComposeControls(elements, nativeCandidates) {
 
   // Removing an id-less duplicate must not leave holes in role:<role># indexes.
   const perRole = {};
-  const controls = input.filter((_, i) => !removed.has(i)).map((e) => {
-    if (e.key) return e;
-    const idx = perRole[e.role] || 0;
-    perRole[e.role] = idx + 1;
-    return { ...e, sel: `role:${e.role}#${idx}` };
-  });
+  const controls = input
+    .filter((_, i) => !removed.has(i))
+    .map((e) => {
+      if (e.key) return e;
+      const idx = perRole[e.role] || 0;
+      perRole[e.role] = idx + 1;
+      return { ...e, sel: `role:${e.role}#${idx}` };
+    });
 
-  const byId = new Map((nativeCandidates || []).filter((c) => c && c.id != null).map((c) => [c.id, { ...c }]));
+  const byId = new Map(
+    (nativeCandidates || []).filter((c) => c && c.id != null).map((c) => [c.id, { ...c }]),
+  );
   for (const e of controls) {
     if (!e.key || !byId.has(e.key)) continue;
     const c = byId.get(e.key);
@@ -982,15 +1172,19 @@ function parseXml(xml) {
   return root;
 }
 function decodeXmlEntities(s) {
-  return s
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-    // Numeric character references: serializers escape non-ASCII / control
-    // chars this way (e.g. Android's &#10; newlines, a tofu U+FFFD as
-    // &#xFFFD;). Decoded BEFORE &amp; so a literal "&amp;#65;" stays "&#65;".
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&amp;/g, '&');
+  return (
+    s
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      // Numeric character references: serializers escape non-ASCII / control
+      // chars this way (e.g. Android's &#10; newlines, a tofu U+FFFD as
+      // &#xFFFD;). Decoded BEFORE &amp; so a literal "&amp;#65;" stays "&#65;".
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&#([0-9]+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+      .replace(/&amp;/g, '&')
+  );
 }
 
 // Test one element's stable id / canonical role against the active Layer-3
@@ -1091,7 +1285,11 @@ function appendNode(xmlEl, out, into, parentRect) {
     const fkey = id != null ? 'key:' + id : 'vrole:' + (vrole || 'opt');
     out.textNodes.push([fkey, node.value]);
   }
-  if (transient) { node.transient = true; into.push(node); return; }
+  if (transient) {
+    node.transient = true;
+    into.push(node);
+    return;
+  }
 
   // CONTENT-BUG oracle (deterministic, label scan): a rendered label carrying a
   // stringify/template artifact ([object Object], whole-word undefined/null/NaN,
@@ -1101,7 +1299,8 @@ function appendNode(xmlEl, out, into, parentRect) {
   const dtext = displayTextOfEl(tag, get, role);
   const cbReason = contentBugReason(dtext);
   // Skip a reflected fuzzer probe (e.g. a typed "{{7*7}}" the app echoes back).
-  if (cbReason && !fromFuzzInjection(dtext)) out.contentBugs.push({ key: okey, reason: cbReason, text: dtext });
+  if (cbReason && !fromFuzzInjection(dtext))
+    out.contentBugs.push({ key: okey, reason: cbReason, text: dtext });
 
   // BROKEN-ASSET oracle (tofu only on native): a rendered U+FFFD is an encoding
   // failure leaked to the screen. Same displayed text and stable key as the
@@ -1109,7 +1308,8 @@ function appendNode(xmlEl, out, into, parentRect) {
   const baReason = tofuReason(dtext);
   // Provenance: skip tofu the fuzzer itself typed (a reflected U+FFFD probe), not
   // an app encoding bug.
-  if (baReason && !fromFuzzInjection(dtext)) out.brokenAssets.push({ key: okey, reason: baReason, detail: dtext });
+  if (baReason && !fromFuzzInjection(dtext))
+    out.brokenAssets.push({ key: okey, reason: baReason, detail: dtext });
 
   // Layer-1 content fingerprint over keyed text-bearing nodes (runner-local, NOT
   // canonical): a keyed text/static element's own value contributes (stable-key,
@@ -1125,14 +1325,24 @@ function appendNode(xmlEl, out, into, parentRect) {
   const name = nameOfEl(get);
   if (name) {
     const lbl = clipLabel(name);
-    if (!out.seenLabel.has(lbl)) { out.seenLabel.add(lbl); out.labels.push(lbl); }
+    if (!out.seenLabel.has(lbl)) {
+      out.seenLabel.add(lbl);
+      out.labels.push(lbl);
+    }
   }
   if (isTappableEl(get, role)) {
     const display = name ? clipLabel(name) : '';
     const idx = out.perRole[role] || 0;
     out.perRole[role] = idx + 1;
     const sel = id != null ? `key:${id}` : `role:${role}#${idx}`;
-    const bounds = rect ? [Math.round(rect.l), Math.round(rect.t), Math.round(rect.r - rect.l), Math.round(rect.b - rect.t)] : null;
+    const bounds = rect
+      ? [
+          Math.round(rect.l),
+          Math.round(rect.t),
+          Math.round(rect.r - rect.l),
+          Math.round(rect.b - rect.t),
+        ]
+      : null;
     const purpose = inputPurposeOfEl(tag, get, role);
     out.elements.push({ sel, role, label: display, bounds, key: id, nokey: id == null, purpose });
     // Tappable frame + its DFS interval, consumed by the SAFE-AREA reducer in
@@ -1145,7 +1355,12 @@ function appendNode(xmlEl, out, into, parentRect) {
   if (name && rect) {
     out.texts.push({
       text: clipLabel(name),
-      bounds: [Math.round(rect.l), Math.round(rect.t), Math.round(rect.r - rect.l), Math.round(rect.b - rect.t)],
+      bounds: [
+        Math.round(rect.l),
+        Math.round(rect.t),
+        Math.round(rect.r - rect.l),
+        Math.round(rect.b - rect.t),
+      ],
     });
   }
 
@@ -1209,10 +1424,17 @@ async function snapshot(driver, valueNodeSelectors, insets) {
   const xmlRoot = parseXml(xml);
   let activity = null;
   try {
-    if (typeof driver.getCurrentActivity === 'function') activity = await driver.getCurrentActivity();
-  } catch { /* iOS / unsupported: anchor stays best-effort */ }
+    if (typeof driver.getCurrentActivity === 'function')
+      activity = await driver.getCurrentActivity();
+  } catch {
+    /* iOS / unsupported: anchor stays best-effort */
+  }
   const out = {
-    labels: [], elements: [], texts: [], seenLabel: new Set(), perRole: {},
+    labels: [],
+    elements: [],
+    texts: [],
+    seenLabel: new Set(),
+    perRole: {},
     // roleSeen: document-order count of elements per canonical role, used to
     // resolve a Layer-3 role:<role>#<idx> value-node selector.
     roleSeen: {},
@@ -1229,7 +1451,11 @@ async function snapshot(driver, valueNodeSelectors, insets) {
     // walkSeq numbers every element's DFS enter/exit so tapRects carry the
     // intervals the safe-area reducer's ancestor exclusion needs. screenRect: the
     // application/window frame used by blank-screen and safe-area checks.
-    contentBugs: [], brokenAssets: [], tapRects: [], walkSeq: 0, screenRect: null,
+    contentBugs: [],
+    brokenAssets: [],
+    tapRects: [],
+    walkSeq: 0,
+    screenRect: null,
   };
   // The top application/window element's frame is the blank-screen scan's
   // non-zero-window guard. Both drivers wrap the page
@@ -1265,7 +1491,9 @@ async function snapshot(driver, valueNodeSelectors, insets) {
   // Layer-1 content fingerprint (runner-local, ephemeral): structural sig plus
   // the sorted (stable-key, trimmed raw text) list. An action is EFFECTIVE iff
   // the structural sig OR this fingerprint changed (see observe/effect checks).
-  out.textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
+  out.textNodes.sort((a, b) =>
+    a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0,
+  );
   const content = sig + '|' + out.textNodes.map((p) => p[0] + '=' + p[1]).join(';');
   return {
     sig,
@@ -1310,7 +1538,9 @@ async function readSafeAreaInsets(driver) {
         right: 0,
       };
     }
-  } catch { /* unsupported / parse failure: no inset ground truth */ }
+  } catch {
+    /* unsupported / parse failure: no inset ground truth */
+  }
   return zero;
 }
 
@@ -1329,8 +1559,15 @@ async function tap(driver, sel, snap) {
       `//*[@content-desc="${id}"]`,
     ];
     for (const s of strategies) {
-      try { const el = await driver.$(s); if (await el.isExisting()) { await el.click(); return true; } }
-      catch { /* next */ }
+      try {
+        const el = await driver.$(s);
+        if (await el.isExisting()) {
+          await el.click();
+          return true;
+        }
+      } catch {
+        /* next */
+      }
     }
     return false;
   }
@@ -1340,11 +1577,25 @@ async function tap(driver, sel, snap) {
     const el = (snap.elements || []).find((e) => e.sel === sel);
     if (!el) return false;
     const candidates = [];
-    if (el.key) candidates.push(`~${el.key}`, `//*[@resource-id="${el.key}"]`, `//*[@name="${el.key}"]`);
-    if (el.label) candidates.push(`~${el.label}`, `//*[@label="${el.label}"]`, `//*[@text="${el.label}"]`, `//*[@content-desc="${el.label}"]`);
+    if (el.key)
+      candidates.push(`~${el.key}`, `//*[@resource-id="${el.key}"]`, `//*[@name="${el.key}"]`);
+    if (el.label)
+      candidates.push(
+        `~${el.label}`,
+        `//*[@label="${el.label}"]`,
+        `//*[@text="${el.label}"]`,
+        `//*[@content-desc="${el.label}"]`,
+      );
     for (const s of candidates) {
-      try { const e = await driver.$(s); if (await e.isExisting()) { await e.click(); return true; } }
-      catch { /* next */ }
+      try {
+        const e = await driver.$(s);
+        if (await e.isExisting()) {
+          await e.click();
+          return true;
+        }
+      } catch {
+        /* next */
+      }
     }
     return false;
   }
@@ -1354,11 +1605,7 @@ async function tap(driver, sel, snap) {
 // The target app's identifier, for the crash oracle.
 function targetAppId() {
   return (
-    CAPS['appium:appPackage'] ||
-    CAPS.appPackage ||
-    CAPS['appium:bundleId'] ||
-    CAPS.bundleId ||
-    ''
+    CAPS['appium:appPackage'] || CAPS.appPackage || CAPS['appium:bundleId'] || CAPS.bundleId || ''
   );
 }
 
@@ -1396,7 +1643,9 @@ async function appCrashed(driver) {
       const pkg = await driver.getCurrentPackage();
       if (pkg && pkg !== wantPkg) return true;
     }
-  } catch { /* probe unavailable; try queryAppState */ }
+  } catch {
+    /* probe unavailable; try queryAppState */
+  }
   return confirmedAppExit(driver, target);
 }
 
@@ -1409,10 +1658,24 @@ async function appCrashed(driver) {
 async function resetToRoot(driver) {
   const appId = isAndroid() ? androidPkg() : targetAppId();
   if (!appId) return;
-  try { await driver.execute('mobile: terminateApp', isAndroid() ? { appId } : { bundleId: appId }); }
-  catch { try { if (typeof driver.terminateApp === 'function') await driver.terminateApp(appId); } catch { /* best-effort */ } }
-  try { await driver.execute('mobile: activateApp', isAndroid() ? { appId } : { bundleId: appId }); }
-  catch { try { if (typeof driver.activateApp === 'function') await driver.activateApp(appId); } catch { /* best-effort */ } }
+  try {
+    await driver.execute('mobile: terminateApp', isAndroid() ? { appId } : { bundleId: appId });
+  } catch {
+    try {
+      if (typeof driver.terminateApp === 'function') await driver.terminateApp(appId);
+    } catch {
+      /* best-effort */
+    }
+  }
+  try {
+    await driver.execute('mobile: activateApp', isAndroid() ? { appId } : { bundleId: appId });
+  } catch {
+    try {
+      if (typeof driver.activateApp === 'function') await driver.activateApp(appId);
+    } catch {
+      /* best-effort */
+    }
+  }
   await driver.pause(1200);
 }
 
@@ -1497,11 +1760,22 @@ async function resetToRoot(driver) {
 // Whether the session targets Android (a `mobile: shell` / adb path exists for
 // the gfxinfo jank + meminfo leak probes) vs iOS (no such path: documented gap).
 function isAndroid() {
-  const p = (CAPS['appium:platformName'] || CAPS.platformName || CAPS['appium:automationName'] || CAPS.automationName || '').toLowerCase();
+  const p = (
+    CAPS['appium:platformName'] ||
+    CAPS.platformName ||
+    CAPS['appium:automationName'] ||
+    CAPS.automationName ||
+    ''
+  ).toLowerCase();
   if (p.includes('android') || p.includes('uiautomator')) return true;
   if (p.includes('ios') || p.includes('xcuitest')) return false;
   // Fall back to the presence of an Android-only cap (appPackage/appActivity).
-  return !!(CAPS['appium:appPackage'] || CAPS.appPackage || CAPS['appium:appActivity'] || CAPS.appActivity);
+  return !!(
+    CAPS['appium:appPackage'] ||
+    CAPS.appPackage ||
+    CAPS['appium:appActivity'] ||
+    CAPS.appActivity
+  );
 }
 function androidPkg() {
   return CAPS['appium:appPackage'] || CAPS.appPackage || targetAppId() || '';
@@ -1541,11 +1815,11 @@ function armClipCapture(fuzz) {
     label: plan.label || plan.oracle || 'finding',
     oracle: plan.oracle || '',
     mov: resolve(dir, 'clip.mov'),
-    rect: null,       // [x,y,w,h] captured at the triggering tap
-    actionAt: 0,      // seconds since capture start of the triggering tap
+    rect: null, // [x,y,w,h] captured at the triggering tap
+    actionAt: 0, // seconds since capture start of the triggering tap
     startAt: 0,
-    recording: null,  // 'ios' | 'android' | null (start failed)
-    proc: null,       // the simctl recordVideo child (iOS)
+    recording: null, // 'ios' | 'android' | null (start failed)
+    proc: null, // the simctl recordVideo child (iOS)
   };
 }
 
@@ -1556,12 +1830,18 @@ function bootedUdid() {
   const capUdid = CAPS['appium:udid'] || CAPS.udid;
   if (capUdid) return capUdid;
   try {
-    const out = execFileSync('xcrun', ['simctl', 'list', 'devices', 'booted', '-j'], { encoding: 'utf8' });
+    const out = execFileSync('xcrun', ['simctl', 'list', 'devices', 'booted', '-j'], {
+      encoding: 'utf8',
+    });
     const j = JSON.parse(out);
     for (const list of Object.values(j.devices || {})) {
-      for (const d of list || []) { if (d && d.state === 'Booted' && d.udid) return d.udid; }
+      for (const d of list || []) {
+        if (d && d.state === 'Booted' && d.udid) return d.udid;
+      }
     }
-  } catch { /* fall through to the literal */ }
+  } catch {
+    /* fall through to the literal */
+  }
   return 'booted';
 }
 
@@ -1569,25 +1849,41 @@ function bootedUdid() {
 // Android: Appium startRecordingScreen (base64 mp4 drained at stop). Best-effort;
 // a failure leaves clip.recording null so finalize still emits FINDING:BOXED.
 async function startClipCapture(driver, clip) {
-  try { mkdirSync(clip.dir, { recursive: true }); } catch { /* ignore */ }
+  try {
+    mkdirSync(clip.dir, { recursive: true });
+  } catch {
+    /* ignore */
+  }
   clip.startAt = Date.now();
   if (isAndroid()) {
     try {
       await driver.startRecordingScreen({ forceRestart: true });
       clip.recording = 'android';
-    } catch { clip.recording = null; }
+    } catch {
+      clip.recording = null;
+    }
     return;
   }
   const udid = bootedUdid();
-  try { rmSync(clip.mov, { force: true }); } catch { /* ignore */ }
+  try {
+    rmSync(clip.mov, { force: true });
+  } catch {
+    /* ignore */
+  }
   try {
     // --codec=h264 for broad ffmpeg/QuickTime compatibility; --force overwrites a
     // stale file. Records until it receives SIGINT (see stopClipCapture).
-    clip.proc = spawn('xcrun', ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', clip.mov], {
-      stdio: 'ignore',
-    });
+    clip.proc = spawn(
+      'xcrun',
+      ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', clip.mov],
+      {
+        stdio: 'ignore',
+      },
+    );
     clip.recording = 'ios';
-  } catch { clip.recording = null; }
+  } catch {
+    clip.recording = null;
+  }
 }
 
 // Stop filming and finalize clip.mov. iOS: SIGINT the recordVideo child so it
@@ -1598,14 +1894,25 @@ async function stopClipCapture(driver, clip) {
     try {
       const b64 = await driver.stopRecordingScreen();
       if (b64) writeFileSync(clip.mov, Buffer.from(b64, 'base64'));
-    } catch { /* leave whatever exists */ }
+    } catch {
+      /* leave whatever exists */
+    }
     return;
   }
   if (clip.recording === 'ios' && clip.proc) {
-    try { clip.proc.kill('SIGINT'); } catch { /* already gone */ }
+    try {
+      clip.proc.kill('SIGINT');
+    } catch {
+      /* already gone */
+    }
     await new Promise((res) => {
       let done = false;
-      const finish = () => { if (!done) { done = true; res(); } };
+      const finish = () => {
+        if (!done) {
+          done = true;
+          res();
+        }
+      };
       clip.proc.on('exit', finish);
       clip.proc.on('error', finish);
       setTimeout(finish, 8000); // never hang the run on a stuck finalize
@@ -1635,9 +1942,18 @@ async function finalizeClipCapture(driver, clip, snap) {
   // (points on iOS, physical px on Android) -- box-overlay scales the recorded
   // pixel size against this so the box lands regardless of Retina/sim scale.
   let win = null;
-  try { win = await driver.getWindowRect(); } catch { /* try size */ }
+  try {
+    win = await driver.getWindowRect();
+  } catch {
+    /* try size */
+  }
   if (!win || !(win.width > 0)) {
-    try { const s = await driver.getWindowSize(); if (s) win = { width: s.width, height: s.height }; } catch { /* none */ }
+    try {
+      const s = await driver.getWindowSize();
+      if (s) win = { width: s.width, height: s.height };
+    } catch {
+      /* none */
+    }
   }
   await stopClipCapture(driver, clip);
   let drew = false;
@@ -1646,18 +1962,25 @@ async function finalizeClipCapture(driver, clip, snap) {
     const spec = {
       videoW: win.width,
       videoH: win.height,
-      boxes: [{
-        x, y, w, h,
-        tStart: Math.max(0, (clip.actionAt || 0) - 0.3),
-        tEnd: 1e9,
-        label: clip.label,
-        color: 'red',
-      }],
+      boxes: [
+        {
+          x,
+          y,
+          w,
+          h,
+          tStart: Math.max(0, (clip.actionAt || 0) - 0.3),
+          tEnd: 1e9,
+          label: clip.label,
+          color: 'red',
+        },
+      ],
     };
     try {
       writeFileSync(resolve(clip.dir, 'box-spec.json'), JSON.stringify(spec));
       drew = true;
-    } catch { drew = false; }
+    } catch {
+      drew = false;
+    }
   }
   log('FINDING:BOXED ' + JSON.stringify({ oracle: clip.oracle, sel: clip.sel, drew }));
 }
@@ -1734,6 +2057,7 @@ async function mobileShell(driver, command, args) {
 // De-dup key set (sig|id|message) so revisiting a state across settles does not
 // re-emit the same violation. Module-scoped for the whole walk.
 const invariantEmitted = new Set();
+export const relationEmitted = new Set();
 const deviceLogEmitted = new Set();
 
 // Read new device-log lines since the last call. Prefers the Appium log API
@@ -1747,17 +2071,26 @@ async function readDeviceLog(driver) {
   // inject stale CAPSULE/EXCHANGE markers into this run.
   if (isAndroid()) {
     try {
-      const pkg = typeof driver.getCurrentPackage === 'function' ? await driver.getCurrentPackage() : null;
+      const pkg =
+        typeof driver.getCurrentPackage === 'function' ? await driver.getCurrentPackage() : null;
       const pidRaw = pkg ? await mobileShell(driver, 'pidof', [pkg]) : null;
-      const pid = String(pidRaw || '').trim().split(/\s+/)[0];
+      const pid = String(pidRaw || '')
+        .trim()
+        .split(/\s+/)[0];
       if (/^\d+$/.test(pid)) {
         const dump = await mobileShell(driver, 'logcat', ['-d', `--pid=${pid}`, '-t', '400']);
-        if (dump) for (const line of dump.split('\n')) {
-          if (line && !deviceLogEmitted.has(line)) { deviceLogEmitted.add(line); out.push(line); }
-        }
+        if (dump)
+          for (const line of dump.split('\n')) {
+            if (line && !deviceLogEmitted.has(line)) {
+              deviceLogEmitted.add(line);
+              out.push(line);
+            }
+          }
         return out;
       }
-    } catch { /* fall back to Appium's log stream */ }
+    } catch {
+      /* fall back to Appium's log stream */
+    }
   }
   const type = isAndroid() ? 'logcat' : 'syslog';
   try {
@@ -1775,12 +2108,17 @@ async function readDeviceLog(driver) {
         }
       }
     }
-  } catch { /* fall through to the adb path on Android */ }
+  } catch {
+    /* fall through to the adb path on Android */
+  }
   if (!out.length && isAndroid()) {
     const dump = await mobileShell(driver, 'logcat', ['-d', '-t', '400']);
-    if (dump) for (const line of dump.split('\n')) if (line && !deviceLogEmitted.has(line)) {
-      deviceLogEmitted.add(line); out.push(line);
-    }
+    if (dump)
+      for (const line of dump.split('\n'))
+        if (line && !deviceLogEmitted.has(line)) {
+          deviceLogEmitted.add(line);
+          out.push(line);
+        }
   }
   return out;
 }
@@ -1799,7 +2137,92 @@ function parseInvariantMarker(line) {
   } catch {
     const end = jsonStr.lastIndexOf('}');
     if (end < 0) return null;
-    try { return JSON.parse(jsonStr.slice(0, end + 1)); } catch { return null; }
+    try {
+      return JSON.parse(jsonStr.slice(0, end + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+// SDK-side mobile relation probes measure framework-native layout objects. The
+// marker is accepted only after the SDK observed two identical, settled samples.
+// This makes animation, unresolved transforms, and one-frame layout intermediate
+// states abstain instead of becoming findings.
+export function parseRelationMarker(line) {
+  const at = line.indexOf('REPROIT_RELATION ');
+  if (at < 0) return null;
+  const braceStart = line.indexOf('{', at);
+  if (braceStart < 0) return null;
+  const jsonStr = line.slice(braceStart);
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    const end = jsonStr.lastIndexOf('}');
+    if (end < 0) return null;
+    try {
+      return JSON.parse(jsonStr.slice(0, end + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function validRelationCheck(it) {
+  if (!it || it.kind !== 'indicator-anchor') return null;
+  const outcome = String(it.outcome || '');
+  if (!['PROVEN', 'VALID', 'UNKNOWN'].includes(outcome)) return null;
+  const dependentKey = String(it.dependentKey || '');
+  const ownerKey = String(it.ownerKey || '');
+  const containerKey = String(it.containerKey || '');
+  if (!dependentKey || !ownerKey || !containerKey) return null;
+  const violation = it.violation == null ? undefined : String(it.violation);
+  if (outcome === 'PROVEN' && !['detached', 'escaped-container'].includes(violation)) return null;
+  return {
+    kind: 'indicator-anchor',
+    dependentKey,
+    ownerKey,
+    containerKey,
+    outcome,
+    ...(violation ? { violation } : {}),
+  };
+}
+
+export async function scrapeRelations(driver, sig, anchor, suppliedLines = null) {
+  let lines = suppliedLines;
+  if (!lines) {
+    try {
+      lines = await readDeviceLog(driver);
+    } catch {
+      return;
+    }
+  }
+  for (const line of lines) {
+    const obj = parseRelationMarker(line);
+    // The proof contract is fail closed: a single sample is never evidence.
+    if (!obj || Number(obj.stableSamples) < 2 || !Array.isArray(obj.checks)) continue;
+    const checks = obj.checks.map(validRelationCheck).filter(Boolean);
+    if (!checks.length) continue;
+    const outcome = checks.some((x) => x.outcome === 'PROVEN')
+      ? 'PROVEN'
+      : checks.every((x) => x.outcome === 'VALID')
+        ? 'VALID'
+        : 'UNKNOWN';
+    const key = sig + '|' + JSON.stringify(checks);
+    if (relationEmitted.has(key)) continue;
+    relationEmitted.add(key);
+    const payload = { sig, ...(anchor ? { route: anchor } : {}), outcome, checks };
+    log('EXPLORE:RELATIONSTATUS ' + JSON.stringify(payload));
+    if (outcome === 'PROVEN') {
+      log(
+        'EXPLORE:RELATION ' +
+          JSON.stringify({
+            sig,
+            ...(anchor ? { route: anchor } : {}),
+            items: checks.filter((x) => x.outcome === 'PROVEN'),
+          }),
+      );
+    }
   }
 }
 
@@ -1809,10 +2232,20 @@ function parseInvariantMarker(line) {
 // settles of the same state. Best-effort; never throws.
 async function scrapeInvariants(driver, sig, anchor) {
   let lines;
-  try { lines = await readDeviceLog(driver); } catch { return; }
+  try {
+    lines = await readDeviceLog(driver);
+  } catch {
+    return;
+  }
   const fresh = [];
+  await scrapeRelations(driver, sig, anchor, lines);
   for (const line of lines) {
-    for (const marker of ['REPROIT:EXCHANGE ', 'REPROIT:CAPABILITIES ', 'CAPSULE:HIT ', 'CAPSULE:MISS ']) {
+    for (const marker of [
+      'REPROIT:EXCHANGE ',
+      'REPROIT:CAPABILITIES ',
+      'CAPSULE:HIT ',
+      'CAPSULE:MISS ',
+    ]) {
       const at = line.indexOf(marker);
       if (at >= 0) log(line.slice(at));
     }
@@ -1830,7 +2263,10 @@ async function scrapeInvariants(driver, sig, anchor) {
     }
   }
   if (fresh.length) {
-    log('EXPLORE:INVARIANT ' + JSON.stringify({ sig, ...(anchor ? { route: anchor } : {}), items: fresh }));
+    log(
+      'EXPLORE:INVARIANT ' +
+        JSON.stringify({ sig, ...(anchor ? { route: anchor } : {}), items: fresh }),
+    );
   }
 }
 
@@ -1841,7 +2277,7 @@ async function scrapeInvariants(driver, sig, anchor) {
 // A clean render stays well under the floor (0-a few %); a dropped-frame storm is
 // tens of percent. Returns { bucket, count } or null. The bucket is the floor
 // (the deterministic detail the marker carries), count is the janky-frame count.
-const JANK_PCT_FLOOR = 30;          // >= 30% janky frames over the window -> jank
+const JANK_PCT_FLOOR = 30; // >= 30% janky frames over the window -> jank
 const JANK_BUCKET = JANK_PCT_FLOOR; // coarse, well-separated detail for the marker
 // BASELINE-RELATIVE jank (FP guard for the software compositor). The absolute
 // 30% floor is right for real hardware, where a settled/trivial transition drops
@@ -1855,8 +2291,8 @@ const JANK_BUCKET = JANK_PCT_FLOOR; // coarse, well-separated detail for the mar
 // On real hardware the baseline is ~0 and no software floor applies, so the
 // behavior is unchanged (>= 30% still fires); a planted long-task jank storm sits
 // near 100% and clears every floor.
-const JANK_BASELINE_MARGIN = 25;    // a transition must beat the device baseline by this much
-const JANK_SOFTWARE_FLOOR = 80;     // under a software GPU, only a near-total frame-drop storm counts
+const JANK_BASELINE_MARGIN = 25; // a transition must beat the device baseline by this much
+const JANK_SOFTWARE_FLOOR = 80; // under a software GPU, only a near-total frame-drop storm counts
 // Parse the raw "Janky frames: <n> (<pct>%)" summary from `dumpsys gfxinfo`.
 // Returns { pct, count } or null. Shared by the calibration read and the
 // per-transition verdict so both key off the SAME number.
@@ -1912,8 +2348,7 @@ function jankFloorFor(baselinePct, softwareRenderer) {
 //      mid-animation can read as a momentary self-loop on the first observe, so we
 //      give it one more frame; only a screen still pinned after the retry is a trap.
 function isBackTrap(before, first, retry, launch) {
-  const nonRoot = before.sig !== launch.sig
-    && !!before.anchor && before.anchor !== launch.anchor;
+  const nonRoot = before.sig !== launch.sig && !!before.anchor && before.anchor !== launch.anchor;
   const swallowed = (o) => o.sig === before.sig && o.content === before.content;
   return nonRoot && swallowed(first) && swallowed(retry);
 }
@@ -1921,7 +2356,10 @@ function isBackTrap(before, first, retry, launch) {
 // really does drop frames on trivial transitions, so we raise the jank floor when
 // one is in use. Shared by the primary (GL renderer string) and fallback (render
 // property) probes below.
-const SOFTWARE_RENDERER_RE = /swiftshader|llvmpipe|softpipe|softwarepipe|software rasteriz|mesa offscreen/;
+const SOFTWARE_RENDERER_RE = new RegExp(
+  'swiftshader|llvmpipe|softpipe|softwarepipe|software rasteriz|mesa ' + 'offscreen',
+  '',
+);
 // Whether this device renders on a SOFTWARE GPU (e.g. the emulator's SwiftShader
 // pipe). Under a software compositor trivial transitions drop frames, so we raise
 // the jank floor there. Best-effort: an unavailable shell channel reports hardware
@@ -1938,7 +2376,7 @@ async function detectSoftwareRenderer(driver) {
   if (!isAndroid()) return false;
   // PRIMARY: SurfaceFlinger's "GLES:" line carries GL_RENDERER (the resolved
   // renderer name). Present on emulators and real devices alike.
-  const sf = (await mobileShell(driver, 'dumpsys', ['SurfaceFlinger']) || '');
+  const sf = (await mobileShell(driver, 'dumpsys', ['SurfaceFlinger'])) || '';
   const gles = (sf.split('\n').find((l) => /GLES:/i.test(l)) || '').toLowerCase();
   if (SOFTWARE_RENDERER_RE.test(gles)) return true;
   if (gles) return false; // a named hardware renderer (host GPU) -> not software.
@@ -1947,7 +2385,7 @@ async function detectSoftwareRenderer(driver) {
   // "goldfish" / "angle" tokens are deliberately NOT here: they are present under
   // `-gpu host` too and would misclassify a hardware-accelerated emulator.
   for (const prop of ['ro.hardware.egl', 'ro.hardware.gpu', 'debug.hwui.renderer']) {
-    const v = (await mobileShell(driver, 'getprop', [prop]) || '').trim().toLowerCase();
+    const v = ((await mobileShell(driver, 'getprop', [prop])) || '').trim().toLowerCase();
     if (SOFTWARE_RENDERER_RE.test(v)) return true;
   }
   return false;
@@ -2042,11 +2480,15 @@ async function sampleAndroidHeap(driver, pkg, tMs) {
 // Wake-lock TYPES that hold the device/CPU awake (the leak-relevant ones); a
 // PROXIMITY_SCREEN_OFF / DRAW lock is not a battery-drain-by-staying-awake lock,
 // so it is not matched.
-const WAKELOCK_TYPE_RE = /(PARTIAL_WAKE_LOCK|FULL_WAKE_LOCK|SCREEN_BRIGHT_WAKE_LOCK|SCREEN_DIM_WAKE_LOCK)/;
+const WAKELOCK_TYPE_RE = new RegExp(
+  '(PARTIAL_WAKE_LOCK|FULL_WAKE_LOCK|SCREEN_BRIGHT_WAKE_LOCK|SCREEN_DIM_W' + 'AKE_LOCK)',
+  '',
+);
 
 // Parse the app-owned held wakelock tags from `dumpsys power`. The output has a
 // "Wake Locks: size=N" block whose held entries look like
-//   PARTIAL_WAKE_LOCK 'com.app:Video' ON_AFTER_RELEASE ACQ=-2s (uid=10234 pid=.. ws=WorkSource{10234 com.app})
+//   PARTIAL_WAKE_LOCK 'com.app:Video' ON_AFTER_RELEASE ACQ=-2s
+//   (uid=10234 pid=.. ws=WorkSource{10234 com.app})
 // We keep only lines that (a) name an awake-holding TYPE, (b) carry a quoted tag,
 // and (c) reference the target package (in the tag or the WorkSource), so a
 // system lock of the same type is excluded. Returns a Set of tag strings.
@@ -2057,7 +2499,7 @@ export function wakelocksFromDumpsysPower(text, pkg) {
   for (const raw of String(text).split('\n')) {
     const line = raw.replace(/\r$/, '');
     if (!WAKELOCK_TYPE_RE.test(line)) continue;
-    if (!line.includes(pkg)) continue;   // only locks owned by the target package
+    if (!line.includes(pkg)) continue; // only locks owned by the target package
     const m = line.match(/'([^']+)'/);
     if (!m) continue;
     held.add(m[1]);
@@ -2084,9 +2526,13 @@ export function keepScreenOnFromDumpsys(text, pkg) {
 }
 
 // The reported kind for a held id: the synthetic screen-on flag vs a real lock.
-export function wakelockKind(id) { return id === 'KEEP_SCREEN_ON' ? 'keep-screen-on' : 'wakelock'; }
+export function wakelockKind(id) {
+  return id === 'KEEP_SCREEN_ON' ? 'keep-screen-on' : 'wakelock';
+}
 // EXPLORE:WAKELOCK `items` entry for a leaked id (tag + kind), sorted upstream.
-export function wakelockItem(id) { return { tag: id, kind: wakelockKind(id) }; }
+export function wakelockItem(id) {
+  return { tag: id, kind: wakelockKind(id) };
+}
 
 // PURE reducer (no device): advance the wakelock-leak state across one
 // transition. `state` is { origin: Map<id,sig>, reported: Set<id> }; `baseline`
@@ -2119,7 +2565,7 @@ export function wakelockLeakStep(state, baseline, heldBefore, heldAfter, fromSig
         reported.add(id);
         origin.delete(id);
       } else if (!origin.has(id)) {
-        origin.set(id, toSig);   // first seen on arrival at Y
+        origin.set(id, toSig); // first seen on arrival at Y
       }
     }
   }
@@ -2158,9 +2604,15 @@ function iosBundleId() {
 // exit, or any spawn error yields null, so the sampler degrades to silence).
 function hostExec(cmd, args) {
   try {
-    const out = execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+    const out = execFileSync(cmd, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
     return out == null ? null : String(out);
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // Resolve the booted-sim app's HOST pid from `simctl spawn booted launchctl list`.
@@ -2210,7 +2662,23 @@ function sampleIosHeap(pidRef, tMs) {
   log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
 }
 
-export { jankFromGfxinfo, jankyPctFromGfxinfo, jankFloorFor, isBackTrap, pssFromMeminfo, contentBugItems, contentBugReason, rectOfEl, hangBucket, tofuReason, brokenAssetItems, blankScreenItems, safeAreaItems, snapshot, loadBatch };
+export {
+  jankFromGfxinfo,
+  jankyPctFromGfxinfo,
+  jankFloorFor,
+  isBackTrap,
+  pssFromMeminfo,
+  contentBugItems,
+  contentBugReason,
+  rectOfEl,
+  hangBucket,
+  tofuReason,
+  brokenAssetItems,
+  blankScreenItems,
+  safeAreaItems,
+  snapshot,
+  loadBatch,
+};
 export { parseInvariantMarker, scrapeInvariants, invariantEmitted };
 
 // ====================================================================
@@ -2362,7 +2830,8 @@ function groundtruthFromFiber(records, nativeIds) {
     // An operable node whose id never appeared in the native a11y tree was not
     // exposed to AT at all -> no role.
     const inNative = rec.id != null && native.has(rec.id);
-    const rolePresent = !hidden && rec.role != null && (rec.id == null || inNative || native.size === 0);
+    const rolePresent =
+      !hidden && rec.role != null && (rec.id == null || inNative || native.size === 0);
     const namePresent = !hidden && rec.label != null;
     els.push({
       id: sel,
@@ -2398,7 +2867,9 @@ async function emitGroundtruth(driver, sig, nativeIds, nativeCandidates) {
     try {
       const r = await fn();
       if (r && typeof r === 'object' && Array.isArray(r.records)) return r;
-    } catch (e) { /* transport unavailable: fall through */ }
+    } catch (e) {
+      /* transport unavailable: fall through */
+    }
     return null;
   };
   // UiAutomator2 cannot execute code in the app's JS runtime. Calling these
@@ -2429,8 +2900,19 @@ async function emitGroundtruth(driver, sig, nativeIds, nativeCandidates) {
   // is clean. This keeps RN operability working live where the fiber path can't.
   const nativeEls = groundtruthFromNative(nativeCandidates);
   if (nativeEls.length > 0) {
-    const reason = result && result.ok ? 'fiber-empty' : (result && result.reason ? result.reason : 'no-js-channel');
-    log('JOURNEY[a] step: groundtruth from native a11y tree (' + reason + '; ' + nativeEls.length + ' operable)');
+    const reason =
+      result && result.ok
+        ? 'fiber-empty'
+        : result && result.reason
+          ? result.reason
+          : 'no-js-channel';
+    log(
+      'JOURNEY[a] step: groundtruth from native a11y tree (' +
+        reason +
+        '; ' +
+        nativeEls.length +
+        ' operable)',
+    );
     log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: nativeEls }));
     return;
   }
@@ -2524,7 +3006,13 @@ function locatorsFor(sel, snap) {
     if (!el) return [];
     const out = [];
     if (el.key) out.push(`~${el.key}`, `//*[@resource-id="${el.key}"]`, `//*[@name="${el.key}"]`);
-    if (el.label) out.push(`~${el.label}`, `//*[@label="${el.label}"]`, `//*[@text="${el.label}"]`, `//*[@content-desc="${el.label}"]`);
+    if (el.label)
+      out.push(
+        `~${el.label}`,
+        `//*[@label="${el.label}"]`,
+        `//*[@text="${el.label}"]`,
+        `//*[@content-desc="${el.label}"]`,
+      );
     return out;
   }
   return [];
@@ -2536,7 +3024,9 @@ async function findEl(driver, sel, snap) {
     try {
       const el = await driver.$(s);
       if (await el.isExisting()) return el;
-    } catch { /* next strategy */ }
+    } catch {
+      /* next strategy */
+    }
   }
   return null;
 }
@@ -2549,7 +3039,11 @@ async function typeInto(driver, sel, value, snap) {
   const el = await findEl(driver, sel, snap);
   if (!el) return false;
   if (value != null && String(value).length > 0) INJECTED_VALUES.add(String(value));
-  try { await el.setValue(value); } catch { return false; }
+  try {
+    await el.setValue(value);
+  } catch {
+    return false;
+  }
   return true;
 }
 
@@ -2564,7 +3058,9 @@ async function countMatching(driver, finder, snap) {
       try {
         const els = await driver.$$(s);
         if (els.length > 0) return els.length;
-      } catch { /* next strategy */ }
+      } catch {
+        /* next strategy */
+      }
     }
     return 0;
   }
@@ -2604,14 +3100,27 @@ async function execScenarioAction(driver, act, who, valueNodeSelectors) {
     if (body.startsWith('text=')) {
       const want = body.slice('text='.length);
       const ok = visibleTextBlob(snap).includes(want);
-      log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who);
+      log(
+        'FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who,
+      );
     } else if (body.startsWith('count:')) {
       const rest = body.slice('count:'.length);
       const eq = rest.lastIndexOf('=');
       const finder = eq >= 0 ? rest.slice(0, eq) : rest;
       const want = eq >= 0 ? parseInt(rest.slice(eq + 1), 10) : 0;
       const got = await countMatching(driver, finder, snap);
-      log('FUZZ:ASSERT ' + (got === want ? 'pass' : 'fail') + ' count ' + finder + ' want=' + want + ' got=' + got + ' actor=' + who);
+      log(
+        'FUZZ:ASSERT ' +
+          (got === want ? 'pass' : 'fail') +
+          ' count ' +
+          finder +
+          ' want=' +
+          want +
+          ' got=' +
+          got +
+          ' actor=' +
+          who,
+      );
     } else {
       log('FUZZ:ASSERT fail unsupported ' + body + ' actor=' + who);
     }
@@ -2619,7 +3128,11 @@ async function execScenarioAction(driver, act, who, valueNodeSelectors) {
     return;
   }
   if (act === 'back') {
-    try { await driver.back(); } catch { /* iOS: no hardware back; harmless */ }
+    try {
+      await driver.back();
+    } catch {
+      /* iOS: no hardware back; harmless */
+    }
     await driver.pause(500);
     return;
   }
@@ -2627,7 +3140,7 @@ async function execScenarioAction(driver, act, who, valueNodeSelectors) {
     // Session-restore login is not wired on the Appium runner; use a
     // `login(<account>)` actor prelude (UI flow) for multi-user auth. No-op so
     // ordering still advances, but flag it loudly.
-    log('JOURNEY[a] step: auth-restore unsupported on appium runner; use login() for ' + act);
+    log('JOURNEY[a] step: auth-restore unsupported on appium runner; use login()' + ' for ' + act);
     await driver.pause(200);
     return;
   }
@@ -2667,7 +3180,11 @@ async function runScenarioActor(driver, valueNodeSelectors) {
   // `b`, ... atomically so two actors can never collide.
   let who = process.env.REPROIT_DEVICE;
   if (!who) {
-    try { who = (await (await fetch(base + '/claim')).text()).trim(); } catch { who = ''; }
+    try {
+      who = (await (await fetch(base + '/claim')).text()).trim();
+    } catch {
+      who = '';
+    }
     if (!who || who.startsWith('ERR')) who = 'a';
   }
   log('JOURNEY claimed role=' + who);
@@ -2676,14 +3193,29 @@ async function runScenarioActor(driver, valueNodeSelectors) {
   let crashed = false;
   for (let guard = 0; guard < 100000; guard++) {
     let body = 'WAIT';
-    try { body = (await (await fetch(base + '/next?device=' + who)).text()).trim(); }
-    catch { await sleep(100); continue; }
+    try {
+      body = (await (await fetch(base + '/next?device=' + who)).text()).trim();
+    } catch {
+      await sleep(100);
+      continue;
+    }
     if (body === 'DONE') break;
-    if (body === 'WAIT') { await sleep(40); continue; }
+    if (body === 'WAIT') {
+      await sleep(40);
+      continue;
+    }
     const act = body.startsWith('ACT\t') ? body.slice(4) : body;
     await execScenarioAction(driver, act, who, valueNodeSelectors);
-    if (await appCrashed(driver)) { emitCrash(act); crashed = true; break; }
-    try { await fetch(base + '/done?device=' + who, { method: 'POST' }); } catch { /* retry via next poll */ }
+    if (await appCrashed(driver)) {
+      emitCrash(act);
+      crashed = true;
+      break;
+    }
+    try {
+      await fetch(base + '/done?device=' + who, { method: 'POST' });
+    } catch {
+      /* retry via next poll */
+    }
   }
   log('JOURNEY DONE');
   log(crashed ? 'Some tests failed' : 'All tests passed');
@@ -2725,7 +3257,10 @@ async function main() {
   // before claiming hermetic replay instead of accepting a bootstrap race.
   const delayedAndroidLaunch = isAndroid() && !!process.env.REPROIT_CAPSULE && !androidCausalStaged;
   if (delayedAndroidLaunch && !androidPackage) {
-    throw new Error('Hermetic Android replay on a remote device requires appium:appPackage (or pre-launch adb access)');
+    throw new Error(
+      'Hermetic Android replay on a remote device requires appium:appPackage ' +
+        '(or pre-launch adb access)',
+    );
   }
   if (delayedAndroidLaunch) caps['appium:autoLaunch'] = false;
   if (!isAndroid()) {
@@ -2735,7 +3270,11 @@ async function main() {
         : {};
     let capsuleJson;
     if (process.env.REPROIT_CAPSULE) {
-      try { capsuleJson = readFileSync(process.env.REPROIT_CAPSULE, 'utf8'); } catch { /* capability gate will explain */ }
+      try {
+        capsuleJson = readFileSync(process.env.REPROIT_CAPSULE, 'utf8');
+      } catch {
+        /* capability gate will explain */
+      }
     }
     pa.env = {
       REPROIT_FUZZ: '1',
@@ -2769,8 +3308,12 @@ async function main() {
         await mobileShell(driver, 'chmod', ['0644', destination]);
         await mobileShell(driver, 'setprop', ['debug.reproit.capsule', destination]);
       } catch (error) {
-        log('REPROIT:CAPABILITIES {"http_replay":{"status":"unsupported","detail":"could not inject Android capsule"}}');
-        if (delayedAndroidLaunch) throw new Error(`Could not inject Android replay capsule before launch: ${error}`);
+        log(
+          'REPROIT:CAPABILITIES {"http_replay":{"status":"unsupported","detail":' +
+            '"could not inject Android capsule"}}',
+        );
+        if (delayedAndroidLaunch)
+          throw new Error(`Could not inject Android replay capsule before launch: ${error}`);
       }
     } else {
       await mobileShell(driver, 'setprop', ['debug.reproit.capsule', '__reproit_none__']);
@@ -2808,9 +3351,11 @@ async function main() {
   const jankBaselinePct = await calibrateJankBaseline(driver, jankPkgId);
   const jankFloor = jankFloorFor(jankBaselinePct, softwareRenderer);
   if (isAndroid()) {
-    log(`JOURNEY[a] step: jank-floor=${jankFloor}` +
+    log(
+      `JOURNEY[a] step: jank-floor=${jankFloor}` +
         (softwareRenderer ? ' (software GPU)' : '') +
-        (Number.isFinite(jankBaselinePct) ? ` baseline=${jankBaselinePct}%` : ''));
+        (Number.isFinite(jankBaselinePct) ? ` baseline=${jankBaselinePct}%` : ''),
+    );
   }
 
   // PERMISSION-WALK: explicitly DENY the named permission so every screen the app
@@ -2832,7 +3377,10 @@ async function main() {
         permissionDenied = true;
         log(`JOURNEY[a] step: denied permission=${denyPermission}`);
       } else {
-        log(`JOURNEY[a] step: permission-walk unsupported on iOS-via-Appium (use Flutter); permission=${denyPermission}`);
+        log(
+          'JOURNEY[a] step: permission-walk unsupported on iOS-via-Appium ' +
+            `(use Flutter); permission=${denyPermission}`,
+        );
       }
     } catch (e) {
       log(`JOURNEY[a] step: permission denial failed (${e && e.message ? e.message : e})`);
@@ -2848,451 +3396,596 @@ async function main() {
   const { seeds, isBatch } = loadBatch();
   let anyCrashed = false;
   for (let seedIdx = 0; seedIdx < seeds.length; seedIdx++) {
-   const fuzz = seeds[seedIdx];
-   if (isBatch) {
-     if (seedIdx > 0) await resetToRoot(driver);
-     log(`SEED:BEGIN ${Number(fuzz.seed || 0)}`);
-   }
-
-  const seenStates = new Set();
-  const triedEdges = new Set();
-  const actionsByState = new Map();
-  const graph = new Map();
-  let launchSig = null;
-  const pick = rng(fuzz.seed || 0);
-
-  // Layer-3 opt-in value-node selectors from reproit.yaml (empty if none).
-  const valueNodeSelectors = loadValueNodes();
-  if (valueNodeSelectors.length) log(`JOURNEY[a] step: value_nodes=${valueNodeSelectors.length}`);
-
-  // Layer-1 hard cap (docs/signature.md "Value-state"): per structural node,
-  // track the DISTINCT value-class combinations seen. Once a node exceeds
-  // VALUE_CLASS_CAP, fall back to its structural-only signature for the rest of
-  // the run so an adversarial value generator cannot explode the graph.
-  const valueCombos = new Map();   // structuralSig -> Set of V: sections
-  const cappedNodes = new Set();   // structuralSig that hit the cap
-  // The EFFECTIVE signature for a snapshot, applying the runner-local cap: the
-  // full value-folded sig unless this structural node is capped, then structural.
-  function effectiveSig(snap) {
-    if (cappedNodes.has(snap.structuralSig)) return snap.structuralSig;
-    if (snap.vsection) {
-      let set = valueCombos.get(snap.structuralSig);
-      if (!set) { set = new Set(); valueCombos.set(snap.structuralSig, set); }
-      set.add(snap.vsection);
-      if (set.size > VALUE_CLASS_CAP) {
-        cappedNodes.add(snap.structuralSig);
-        log(`JOURNEY[a] step: value-cap hit (${snap.structuralSig})`);
-        return snap.structuralSig;
-      }
+    const fuzz = seeds[seedIdx];
+    if (isBatch) {
+      if (seedIdx > 0) await resetToRoot(driver);
+      log(`SEED:BEGIN ${Number(fuzz.seed || 0)}`);
     }
-    return snap.sig;
-  }
 
-  async function observe() {
-    const snap = await snapshot(driver, valueNodeSelectors, safeAreaInsets);
-    snap.sig = effectiveSig(snap);
-    log('FUZZ:OBS ' + JSON.stringify({
-      sig: snap.sig,
-      ...(snap.anchor ? { route: snap.anchor } : {}),
-      labels: snap.labels.slice(0, 24),
-      elements: snap.elements.slice(0, 24).map((e) => ({ role: e.role })),
-    }));
-    if (!seenStates.has(snap.sig)) {
-      seenStates.add(snap.sig);
-      // sig: CANONICAL STRUCTURAL signature (anchor + normalized Node tree),
-      //      locale-invariant.
-      // labels: DISPLAY-ONLY visible text (map show), never in the sig.
-      // elements: structural selectors for replay; `nokey` flags a tappable with
-      //           no stable id so the map layer can warn the developer.
-      log('EXPLORE:STATE ' + JSON.stringify({
-        sig: snap.sig,
-        // route: the foreground activity / screen anchor, so the candidate map
-        // reconciles by route (the reliable join key), consistent with the web
-        // and Flutter runners.
-        ...(snap.anchor ? { route: snap.anchor } : {}),
-        labels: snap.labels.slice(0, 24),
-        elements: snap.elements.slice(0, 24).map((e) => {
-          const o = { sel: e.sel, role: e.role, label: e.label };
-          if (e.purpose) o.inputPurpose = e.purpose;
-          if (e.bounds) o.bounds = e.bounds;
-          if (e.nokey) o.nokey = true;
-          return o;
-        }),
-        texts: (snap.texts || []).slice(0, 48),
-      }));
-      // GRAPH 1 vs GRAPH 2: once per newly-seen state, probe the React fiber
-      // tree for press handlers + exported a11y props and emit EXPLORE:GROUNDTRUTH
-      // so the engine can diff the operable set against the a11y tree. Joined to
-      // the native page source by the stable ids it just saw. Best-effort.
-      const nativeIds = new Set(snap.elements.map((e) => e.key).filter((k) => k != null));
-      await emitGroundtruth(driver, snap.sig, nativeIds, snap.nativeCandidates);
-      // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure label
-      // scan (no pixels, no timing), so it reproduces on replay; only emitted
-      // when a broken-content artifact is actually rendered (clean app stays
-      // silent).
-      if (snap.contentBugs.length) {
-        log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: snap.contentBugs }));
+    const seenStates = new Set();
+    const triedEdges = new Set();
+    const actionsByState = new Map();
+    const graph = new Map();
+    let launchSig = null;
+    const pick = rng(fuzz.seed || 0);
+
+    // Layer-3 opt-in value-node selectors from reproit.yaml (empty if none).
+    const valueNodeSelectors = loadValueNodes();
+    if (valueNodeSelectors.length) log(`JOURNEY[a] step: value_nodes=${valueNodeSelectors.length}`);
+
+    // Layer-1 hard cap (docs/signature.md "Value-state"): per structural node,
+    // track the DISTINCT value-class combinations seen. Once a node exceeds
+    // VALUE_CLASS_CAP, fall back to its structural-only signature for the rest of
+    // the run so an adversarial value generator cannot explode the graph.
+    const valueCombos = new Map(); // structuralSig -> Set of V: sections
+    const cappedNodes = new Set(); // structuralSig that hit the cap
+    // The EFFECTIVE signature for a snapshot, applying the runner-local cap: the
+    // full value-folded sig unless this structural node is capped, then structural.
+    function effectiveSig(snap) {
+      if (cappedNodes.has(snap.structuralSig)) return snap.structuralSig;
+      if (snap.vsection) {
+        let set = valueCombos.get(snap.structuralSig);
+        if (!set) {
+          set = new Set();
+          valueCombos.set(snap.structuralSig, set);
+        }
+        set.add(snap.vsection);
+        if (set.size > VALUE_CLASS_CAP) {
+          cappedNodes.add(snap.structuralSig);
+          log(`JOURNEY[a] step: value-cap hit (${snap.structuralSig})`);
+          return snap.structuralSig;
+        }
       }
-      // STUCK-KEYBOARD for this newly-seen state, keyed by the SAME sig.
-      // Ground truth from the driver: the IME is visible (isKeyboardShown)
-      // while the active element is not an editable. iOS tags are
-      // XCUIElementType roles, Android tags are widget classes; TextView only
-      // counts as editable on iOS but matching it on Android merely suppresses
-      // a finding (safe direction). Only emitted on a violation; any driver
-      // hiccup stays silent so a flaky bridge can never mint a false positive.
-      try {
-        if (await driver.isKeyboardShown()) {
-          let editableFocused = false;
-          try {
-            const active = await driver.getActiveElement();
-            const elId = active && (active['element-6066-11e4-a52e-4f735466cecf'] || active.ELEMENT);
-            if (elId) {
-              const tag = String((await driver.getElementTagName(elId)) || '');
-              editableFocused = /TextField|SecureTextField|SearchField|TextView|EditText|AutoComplete|Input/i.test(tag);
+      return snap.sig;
+    }
+
+    async function observe() {
+      const snap = await snapshot(driver, valueNodeSelectors, safeAreaInsets);
+      snap.sig = effectiveSig(snap);
+      log(
+        'FUZZ:OBS ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            labels: snap.labels.slice(0, 24),
+            elements: snap.elements.slice(0, 24).map((e) => ({ role: e.role })),
+          }),
+      );
+      if (!seenStates.has(snap.sig)) {
+        seenStates.add(snap.sig);
+        // sig: CANONICAL STRUCTURAL signature (anchor + normalized Node tree),
+        //      locale-invariant.
+        // labels: DISPLAY-ONLY visible text (map show), never in the sig.
+        // elements: structural selectors for replay; `nokey` flags a tappable with
+        //           no stable id so the map layer can warn the developer.
+        log(
+          'EXPLORE:STATE ' +
+            JSON.stringify({
+              sig: snap.sig,
+              // route: the foreground activity / screen anchor, so the candidate map
+              // reconciles by route (the reliable join key), consistent with the web
+              // and Flutter runners.
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              labels: snap.labels.slice(0, 24),
+              elements: snap.elements.slice(0, 24).map((e) => {
+                const o = { sel: e.sel, role: e.role, label: e.label };
+                if (e.purpose) o.inputPurpose = e.purpose;
+                if (e.bounds) o.bounds = e.bounds;
+                if (e.nokey) o.nokey = true;
+                return o;
+              }),
+              texts: (snap.texts || []).slice(0, 48),
+            }),
+        );
+        // GRAPH 1 vs GRAPH 2: once per newly-seen state, probe the React fiber
+        // tree for press handlers + exported a11y props and emit EXPLORE:GROUNDTRUTH
+        // so the engine can diff the operable set against the a11y tree. Joined to
+        // the native page source by the stable ids it just saw. Best-effort.
+        const nativeIds = new Set(snap.elements.map((e) => e.key).filter((k) => k != null));
+        await emitGroundtruth(driver, snap.sig, nativeIds, snap.nativeCandidates);
+        // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure label
+        // scan (no pixels, no timing), so it reproduces on replay; only emitted
+        // when a broken-content artifact is actually rendered (clean app stays
+        // silent).
+        if (snap.contentBugs.length) {
+          log(
+            'EXPLORE:CONTENTBUG ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: snap.contentBugs,
+              }),
+          );
+        }
+        // STUCK-KEYBOARD for this newly-seen state, keyed by the SAME sig.
+        // Ground truth from the driver: the IME is visible (isKeyboardShown)
+        // while the active element is not an editable. iOS tags are
+        // XCUIElementType roles, Android tags are widget classes; TextView only
+        // counts as editable on iOS but matching it on Android merely suppresses
+        // a finding (safe direction). Only emitted on a violation; any driver
+        // hiccup stays silent so a flaky bridge can never mint a false positive.
+        try {
+          if (await driver.isKeyboardShown()) {
+            let editableFocused = false;
+            try {
+              const active = await driver.getActiveElement();
+              const elId =
+                active && (active['element-6066-11e4-a52e-4f735466cecf'] || active.ELEMENT);
+              if (elId) {
+                const tag = String((await driver.getElementTagName(elId)) || '');
+                editableFocused = new RegExp(
+                  'TextField|SecureTextField|SearchField|TextView|EditText|AutoComplete|I' + 'nput',
+                  'i',
+                ).test(tag);
+              }
+            } catch (_) {
+              /* no active element => nothing focused */
             }
-          } catch (_) { /* no active element => nothing focused */ }
-          if (!editableFocused) {
-            log('EXPLORE:STUCKKEYBOARD ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}) }));
+            if (!editableFocused) {
+              log(
+                'EXPLORE:STUCKKEYBOARD ' +
+                  JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}) }),
+              );
+            }
+          }
+        } catch (_) {
+          /* driver without IME introspection stays silent */
+        }
+        // SAFE-AREA for this newly-seen state, keyed by the SAME sig. Pure
+        // inset-vs-frame geometry (Android insets from getSystemBars; iOS is
+        // silent for lack of a driver source), no pixels, so it reproduces on
+        // replay; only emitted when a tappable actually sits in an inset.
+        if (snap.safeArea.length) {
+          log(
+            'EXPLORE:SAFEAREA ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: snap.safeArea,
+              }),
+          );
+        }
+        // PERMISSION-WALK: under a denial sweep, mark each newly-seen screen as
+        // reached AFTER the denial. The Rust invariant fires only for a marked
+        // screen that is ALSO a graph dead end. Silent outside a denial sweep.
+        if (permissionDenied) {
+          log(
+            'EXPLORE:PERMISSIONWALK ' +
+              JSON.stringify({
+                sig: snap.sig,
+                permission: denyPermission,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+              }),
+          );
+        }
+        // BROKEN-ASSET (tofu only on native; img/font reasons stay web-only) for
+        // this newly-seen state, keyed by the SAME sig. Pure label scan, so it
+        // reproduces on replay; silent when every label decodes cleanly.
+        if (snap.brokenAssets.length) {
+          log(
+            'EXPLORE:BROKENASSET ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: snap.brokenAssets,
+              }),
+          );
+        }
+        // BLANK-SCREEN (white-screen-of-death) for this newly-seen state, keyed
+        // by the SAME sig. A just-launched app can expose a transiently empty
+        // a11y tree (boot timing), so a blank verdict is CONFIRMED against a
+        // second snapshot after a short settle: only a still-blank tree emits.
+        // Any driver hiccup stays silent so a flaky bridge can never mint a
+        // false positive.
+        if (snap.blank.length) {
+          try {
+            await driver.pause(1500);
+            const again = await snapshot(driver, valueNodeSelectors, safeAreaInsets);
+            if (again.blank.length) {
+              log(
+                'EXPLORE:BLANKSCREEN ' +
+                  JSON.stringify({
+                    sig: snap.sig,
+                    ...(snap.anchor ? { route: snap.anchor } : {}),
+                    items: snap.blank,
+                  }),
+              );
+            }
+          } catch (_) {
+            /* cannot confirm => never guess-and-flag */
           }
         }
-      } catch (_) { /* driver without IME introspection stays silent */ }
-      // SAFE-AREA for this newly-seen state, keyed by the SAME sig. Pure
-      // inset-vs-frame geometry (Android insets from getSystemBars; iOS is
-      // silent for lack of a driver source), no pixels, so it reproduces on
-      // replay; only emitted when a tappable actually sits in an inset.
-      if (snap.safeArea.length) {
-        log('EXPLORE:SAFEAREA ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: snap.safeArea }));
       }
-      // PERMISSION-WALK: under a denial sweep, mark each newly-seen screen as
-      // reached AFTER the denial. The Rust invariant fires only for a marked
-      // screen that is ALSO a graph dead end. Silent outside a denial sweep.
-      if (permissionDenied) {
-        log('EXPLORE:PERMISSIONWALK ' + JSON.stringify({ sig: snap.sig, permission: denyPermission, ...(snap.anchor ? { route: snap.anchor } : {}) }));
+      // APP-INVARIANT: scrape the SDK's self-emitted markers for this state. Runs
+      // every settle (not only newly seen states) so a marker logged after the
+      // first observation is still caught.
+      // Markers are de-duplicated per state, id, and message.
+      await scrapeInvariants(driver, snap.sig, snap.anchor);
+      return snap;
+    }
+
+    let current = await observe();
+    // A just-launched app can expose a not-yet-populated a11y tree on the very
+    // first snapshot (boot-timing dependent; observed with Settings on CI iOS
+    // simulators: valid signature, zero elements). One short settle + re-observe
+    // so the walk starts from the real launch state instead of an empty one.
+    // Cross-platform and cheap; a same-sig retry is a no-op in observe().
+    if (current.elements.length === 0) {
+      await driver.pause(2000);
+      current = await observe();
+    }
+    launchSig = current.sig;
+    // BACK-TRAP: the root/home activity anchor, so a back self-loop THERE (expected:
+    // back exits or no-ops on the launch screen) is never mistaken for a trap.
+    const launchAnchor = current.anchor;
+    let stuck = 0;
+    let crashed = false;
+    const prefix = fuzz.prefix || null;
+    const replay = fuzz.replay || null;
+    const prefixLen = prefix ? prefix.length : 0;
+    const mapMode = !replay && !prefix && !fuzz.seed;
+    const budget = replay
+      ? replay.length
+      : (mapMode && !FUZZ_CONFIGURED ? Number.MAX_SAFE_INTEGER : fuzz.budget || ACTION_BUDGET) +
+        prefixLen;
+
+    // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
+    // sample memory once at the start and after every action so the Rust soak oracle
+    // gets a heap-vs-time series to read the slope from. Off outside replay (a plain
+    // fuzz walk is not a soak). ANDROID samples retained PSS (dumpsys meminfo); iOS
+    // samples the sim app's process RSS (a coarse, session-level signal resolved over
+    // simctl+ps, gated hard on a unique pid). t0 anchors t_ms to walk start; iosPid
+    // is the one-shot pid cache the iOS sampler resolves lazily on first use.
+    const pkg = androidPkg();
+    const iosPid = { pid: null };
+    const sampleHeap = async (tMs) => {
+      await sampleAndroidHeap(driver, pkg, tMs);
+      sampleIosHeap(iosPid, tMs);
+    };
+    const t0 = Date.now();
+    if (replay) await sampleHeap(0);
+
+    // ROTATION / BACKGROUND-RESTORE (lifecycle-metamorphic): each distinct state
+    // sig is transform-tested once. Native device lifecycle via the Appium driver.
+    const rotChecked = new Set();
+    const bgChecked = new Set();
+    // ROTATION-stability: rotate the device to the opposite orientation, settle,
+    // then rotate BACK to the original orientation and re-observe. A correct screen
+    // reflows but rebuilds the SAME structure once the original orientation is
+    // restored; an app that mishandles the configuration change (Android activity
+    // recreation, iOS trait-collection change) and loses content/state that never
+    // comes back regresses the STRUCTURAL signature (value-state excluded).
+    // Round-trip identity is false-positive-free; an app that LOCKS orientation
+    // makes setOrientation a no-op, so the check silently reports nothing. Guarded
+    // on the pre-transform state having content; self-restoring. Returns the
+    // re-observed state.
+    async function rotationCheck(snap) {
+      const expected = snap.structuralSig;
+      let orig = null;
+      try {
+        orig = await driver.getOrientation();
+        const other = orig === 'LANDSCAPE' ? 'PORTRAIT' : 'LANDSCAPE';
+        await driver.setOrientation(other);
+        await driver.pause(700);
+      } catch (_) {
+        orig = null;
       }
-      // BROKEN-ASSET (tofu only on native; img/font reasons stay web-only) for
-      // this newly-seen state, keyed by the SAME sig. Pure label scan, so it
-      // reproduces on replay; silent when every label decodes cleanly.
-      if (snap.brokenAssets.length) {
-        log('EXPLORE:BROKENASSET ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: snap.brokenAssets }));
-      }
-      // BLANK-SCREEN (white-screen-of-death) for this newly-seen state, keyed
-      // by the SAME sig. A just-launched app can expose a transiently empty
-      // a11y tree (boot timing), so a blank verdict is CONFIRMED against a
-      // second snapshot after a short settle: only a still-blank tree emits.
-      // Any driver hiccup stays silent so a flaky bridge can never mint a
-      // false positive.
-      if (snap.blank.length) {
+      if (orig) {
         try {
-          await driver.pause(1500);
-          const again = await snapshot(driver, valueNodeSelectors, safeAreaInsets);
-          if (again.blank.length) {
-            log('EXPLORE:BLANKSCREEN ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: snap.blank }));
+          await driver.setOrientation(orig);
+          await driver.pause(700);
+        } catch (_) {}
+      }
+      const after = await observe();
+      if (snap.elements && snap.elements.length > 0 && after.structuralSig !== expected) {
+        log(
+          'EXPLORE:ROTATION ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              expected,
+              got: after.structuralSig,
+            }),
+        );
+      }
+      return after;
+    }
+    // BACKGROUND-RESTORE-stability: send the app to the background then bring it
+    // back to the foreground (driver.background(seconds) backgrounds for N seconds
+    // then auto-restores), and re-observe. A correct app returns to the SAME
+    // screen with state intact; one that drops you elsewhere or loses state across
+    // the lifecycle regresses the STRUCTURAL signature. No size change; guarded on
+    // the pre-transform state having content. Any driver hiccup stays silent so a
+    // flaky bridge can never mint a false positive. Returns the re-observed state.
+    async function backgroundCheck(snap) {
+      const expected = snap.structuralSig;
+      let ok = false;
+      try {
+        await driver.background(2);
+        ok = true;
+      } catch (_) {
+        ok = false;
+      }
+      if (!ok) return snap;
+      await driver.pause(700);
+      const after = await observe();
+      if (snap.elements && snap.elements.length > 0 && after.structuralSig !== expected) {
+        log(
+          'EXPLORE:BGRESTORE ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              expected,
+              got: after.structuralSig,
+            }),
+        );
+      }
+      return after;
+    }
+    // WAKELOCK-LEAK state (Android only; see the doc block by
+    // wakelocksFromDumpsysPower). wlBaseline = the app-global locks held at the
+    // launch screen (never flagged); wlState threads the per-lock origin screen +
+    // already-reported set through the walk so each leak fires once, attributed to
+    // the screen that acquired it. Empty/no-op on iOS (documented exclusion).
+    const wlBaseline = await sampleWakelocks(driver, pkg);
+    let wlState = { origin: new Map(), reported: new Set() };
+    // Emit an EXPLORE:WAKELOCK finding for any lock acquired on `fromSig` that is
+    // still held after landing on `toSig` (a real navigation away). No-op when the
+    // sets are empty (iOS / clean release), so nothing is faked off-Android.
+    const checkWakelocks = async (fromSig, toSig, heldBefore) => {
+      if (fromSig === toSig) return;
+      const heldAfter = await sampleWakelocks(driver, pkg);
+      const step = wakelockLeakStep(wlState, wlBaseline, heldBefore, heldAfter, fromSig, toSig);
+      wlState = { origin: step.origin, reported: step.reported };
+      if (step.leaks.length) {
+        log(
+          'EXPLORE:WAKELOCK ' +
+            JSON.stringify({ sig: fromSig, items: step.leaks.map(wakelockItem) }),
+        );
+      }
+    };
+
+    // --record clip capture: film the device for the whole replay, then box the
+    // finding's element once it settles (iOS simctl recordVideo / Android Appium
+    // screen recording). Armed only in replay mode with a clip plan + video dir.
+    const clip = replay ? armClipCapture(fuzz) : null;
+    if (clip) {
+      await startClipCapture(driver, clip);
+      await driver.pause(400); // lead-in so the first frames exist before the tap
+    }
+
+    for (let actions = 0; actions < budget && stuck < 3; actions++) {
+      // LEAK sampler: in replay mode, sample memory once per action (BEFORE acting,
+      // so action k's sample reflects the heap after the previous action settled);
+      // together with the start + final samples it forms the monotonic series the
+      // soak slope is read from. No-op outside replay; per-platform inside sampleHeap.
+      if (replay && actions > 0) await sampleHeap(Date.now() - t0);
+      // LIFECYCLE-metamorphic oracles (rotation, background-restore): once per
+      // distinct state, apply a native device-lifecycle transform and assert the
+      // structural signature survives it. Self-restoring, so `current` is refreshed
+      // to the (restored) reality; never in replay (a recorded clip must reproduce
+      // the walk without extra lifecycle events).
+      if (!replay) {
+        if (!rotChecked.has(current.sig)) {
+          rotChecked.add(current.sig);
+          current = await rotationCheck(current);
+        }
+        if (!bgChecked.has(current.sig)) {
+          bgChecked.add(current.sig);
+          current = await backgroundCheck(current);
+        }
+      }
+      let act;
+      if (replay) act = replay[actions];
+      else if (prefix && actions < prefixLen) act = prefix[actions];
+      else if (fuzz.seed) {
+        // Inverse-visit-count weighted pick over STRUCTURAL selectors, plus 'back'.
+        // Seeded + deterministic, so replays reproduce exactly. Candidates are
+        // addressed by selector (key, else role+index), never by visible text.
+        const sels = current.elements.map((e) => e.sel).sort();
+        const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
+        const options = sels.map((s) => 'tap:' + s).concat(['back']);
+        const contractActions = new Set(fuzz.contractActions || []);
+        const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
+        const total = weights.reduce((a, b) => a + b, 0);
+        let r = (pick(1 << 20) / (1 << 20)) * total;
+        act = options[options.length - 1];
+        for (let k = 0; k < options.length; k++) {
+          r -= weights[k];
+          if (r <= 0) {
+            act = options[k];
+            break;
           }
-        } catch (_) { /* cannot confirm => never guess-and-flag */ }
+        }
+      } else {
+        const actions = current.elements
+          .map((el) => 'tap:' + el.sel)
+          .sort()
+          .concat(['back']);
+        rememberActions(actionsByState, current.sig, actions);
+        act = firstUntriedAction(actionsByState, triedEdges, current.sig);
+        if (!act) {
+          const path = pathToFrontier(graph, actionsByState, triedEdges, current.sig);
+          act = path && path.length ? path[0] : null;
+        }
+        if (!act && hasFrontier(actionsByState, triedEdges) && current.sig !== launchSig) break;
+        if (!act) break;
       }
-    }
-    // APP-INVARIANT: scrape the SDK's self-emitted markers for this state. Runs
-    // every settle (not only newly seen states) so a marker logged after the
-    // first observation is still caught.
-    // Markers are de-duplicated per state, id, and message.
-    await scrapeInvariants(driver, snap.sig, snap.anchor);
-    return snap;
-  }
 
-  let current = await observe();
-  // A just-launched app can expose a not-yet-populated a11y tree on the very
-  // first snapshot (boot-timing dependent; observed with Settings on CI iOS
-  // simulators: valid signature, zero elements). One short settle + re-observe
-  // so the walk starts from the real launch state instead of an empty one.
-  // Cross-platform and cheap; a same-sig retry is a no-op in observe().
-  if (current.elements.length === 0) {
-    await driver.pause(2000);
-    current = await observe();
-  }
-  launchSig = current.sig;
-  // BACK-TRAP: the root/home activity anchor, so a back self-loop THERE (expected:
-  // back exits or no-ops on the launch screen) is never mistaken for a trap.
-  const launchAnchor = current.anchor;
-  let stuck = 0;
-  let crashed = false;
-  const prefix = fuzz.prefix || null;
-  const replay = fuzz.replay || null;
-  const prefixLen = prefix ? prefix.length : 0;
-  const mapMode = !replay && !prefix && !fuzz.seed;
-  const budget = replay
-    ? replay.length
-    : (((mapMode && !FUZZ_CONFIGURED) ? Number.MAX_SAFE_INTEGER : (fuzz.budget || ACTION_BUDGET)) + prefixLen);
-
-  // LEAK sampler: in REPLAY mode (the `--soak` tier writes {"replay":[...]}),
-  // sample memory once at the start and after every action so the Rust soak oracle
-  // gets a heap-vs-time series to read the slope from. Off outside replay (a plain
-  // fuzz walk is not a soak). ANDROID samples retained PSS (dumpsys meminfo); iOS
-  // samples the sim app's process RSS (a coarse, session-level signal resolved over
-  // simctl+ps, gated hard on a unique pid). t0 anchors t_ms to walk start; iosPid
-  // is the one-shot pid cache the iOS sampler resolves lazily on first use.
-  const pkg = androidPkg();
-  const iosPid = { pid: null };
-  const sampleHeap = async (tMs) => { await sampleAndroidHeap(driver, pkg, tMs); sampleIosHeap(iosPid, tMs); };
-  const t0 = Date.now();
-  if (replay) await sampleHeap(0);
-
-  // ROTATION / BACKGROUND-RESTORE (lifecycle-metamorphic): each distinct state
-  // sig is transform-tested once. Native device lifecycle via the Appium driver.
-  const rotChecked = new Set();
-  const bgChecked = new Set();
-  // ROTATION-stability: rotate the device to the opposite orientation, settle,
-  // then rotate BACK to the original orientation and re-observe. A correct screen
-  // reflows but rebuilds the SAME structure once the original orientation is
-  // restored; an app that mishandles the configuration change (Android activity
-  // recreation, iOS trait-collection change) and loses content/state that never
-  // comes back regresses the STRUCTURAL signature (value-state excluded).
-  // Round-trip identity is false-positive-free; an app that LOCKS orientation
-  // makes setOrientation a no-op, so the check silently reports nothing. Guarded
-  // on the pre-transform state having content; self-restoring. Returns the
-  // re-observed state.
-  async function rotationCheck(snap) {
-    const expected = snap.structuralSig;
-    let orig = null;
-    try {
-      orig = await driver.getOrientation();
-      const other = orig === 'LANDSCAPE' ? 'PORTRAIT' : 'LANDSCAPE';
-      await driver.setOrientation(other);
-      await driver.pause(700);
-    } catch (_) { orig = null; }
-    if (orig) {
-      try { await driver.setOrientation(orig); await driver.pause(700); } catch (_) {}
-    }
-    const after = await observe();
-    if (snap.elements && snap.elements.length > 0 && after.structuralSig !== expected) {
-      log('EXPLORE:ROTATION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
-    }
-    return after;
-  }
-  // BACKGROUND-RESTORE-stability: send the app to the background then bring it
-  // back to the foreground (driver.background(seconds) backgrounds for N seconds
-  // then auto-restores), and re-observe. A correct app returns to the SAME
-  // screen with state intact; one that drops you elsewhere or loses state across
-  // the lifecycle regresses the STRUCTURAL signature. No size change; guarded on
-  // the pre-transform state having content. Any driver hiccup stays silent so a
-  // flaky bridge can never mint a false positive. Returns the re-observed state.
-  async function backgroundCheck(snap) {
-    const expected = snap.structuralSig;
-    let ok = false;
-    try { await driver.background(2); ok = true; } catch (_) { ok = false; }
-    if (!ok) return snap;
-    await driver.pause(700);
-    const after = await observe();
-    if (snap.elements && snap.elements.length > 0 && after.structuralSig !== expected) {
-      log('EXPLORE:BGRESTORE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
-    }
-    return after;
-  }
-  // WAKELOCK-LEAK state (Android only; see the doc block by
-  // wakelocksFromDumpsysPower). wlBaseline = the app-global locks held at the
-  // launch screen (never flagged); wlState threads the per-lock origin screen +
-  // already-reported set through the walk so each leak fires once, attributed to
-  // the screen that acquired it. Empty/no-op on iOS (documented exclusion).
-  const wlBaseline = await sampleWakelocks(driver, pkg);
-  let wlState = { origin: new Map(), reported: new Set() };
-  // Emit an EXPLORE:WAKELOCK finding for any lock acquired on `fromSig` that is
-  // still held after landing on `toSig` (a real navigation away). No-op when the
-  // sets are empty (iOS / clean release), so nothing is faked off-Android.
-  const checkWakelocks = async (fromSig, toSig, heldBefore) => {
-    if (fromSig === toSig) return;
-    const heldAfter = await sampleWakelocks(driver, pkg);
-    const step = wakelockLeakStep(wlState, wlBaseline, heldBefore, heldAfter, fromSig, toSig);
-    wlState = { origin: step.origin, reported: step.reported };
-    if (step.leaks.length) {
-      log('EXPLORE:WAKELOCK ' + JSON.stringify({ sig: fromSig, items: step.leaks.map(wakelockItem) }));
-    }
-  };
-
-  // --record clip capture: film the device for the whole replay, then box the
-  // finding's element once it settles (iOS simctl recordVideo / Android Appium
-  // screen recording). Armed only in replay mode with a clip plan + video dir.
-  const clip = replay ? armClipCapture(fuzz) : null;
-  if (clip) {
-    await startClipCapture(driver, clip);
-    await driver.pause(400); // lead-in so the first frames exist before the tap
-  }
-
-  for (let actions = 0; actions < budget && stuck < 3; actions++) {
-    // LEAK sampler: in replay mode, sample memory once per action (BEFORE acting,
-    // so action k's sample reflects the heap after the previous action settled);
-    // together with the start + final samples it forms the monotonic series the
-    // soak slope is read from. No-op outside replay; per-platform inside sampleHeap.
-    if (replay && actions > 0) await sampleHeap(Date.now() - t0);
-    // LIFECYCLE-metamorphic oracles (rotation, background-restore): once per
-    // distinct state, apply a native device-lifecycle transform and assert the
-    // structural signature survives it. Self-restoring, so `current` is refreshed
-    // to the (restored) reality; never in replay (a recorded clip must reproduce
-    // the walk without extra lifecycle events).
-    if (!replay) {
-      if (!rotChecked.has(current.sig)) { rotChecked.add(current.sig); current = await rotationCheck(current); }
-      if (!bgChecked.has(current.sig)) { bgChecked.add(current.sig); current = await backgroundCheck(current); }
-    }
-    let act;
-    if (replay) act = replay[actions];
-    else if (prefix && actions < prefixLen) act = prefix[actions];
-    else if (fuzz.seed) {
-      // Inverse-visit-count weighted pick over STRUCTURAL selectors, plus 'back'.
-      // Seeded + deterministic, so replays reproduce exactly. Candidates are
-      // addressed by selector (key, else role+index), never by visible text.
-      const sels = current.elements.map((e) => e.sel).sort();
-      const ew = (fuzz.edgeWeights && fuzz.edgeWeights[current.sig]) || {};
-      const options = sels.map((s) => 'tap:' + s).concat(['back']);
-      const contractActions = new Set(fuzz.contractActions || []);
-      const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
-      const total = weights.reduce((a, b) => a + b, 0);
-      let r = (pick(1 << 20) / (1 << 20)) * total;
-      act = options[options.length - 1];
-      for (let k = 0; k < options.length; k++) { r -= weights[k]; if (r <= 0) { act = options[k]; break; } }
-    } else {
-      const actions = current.elements.map((el) => 'tap:' + el.sel).sort().concat(['back']);
-      rememberActions(actionsByState, current.sig, actions);
-      act = firstUntriedAction(actionsByState, triedEdges, current.sig);
-      if (!act) {
-        const path = pathToFrontier(graph, actionsByState, triedEdges, current.sig);
-        act = path && path.length ? path[0] : null;
+      log('FUZZ:ACT ' + act);
+      await advanceCausalAction(driver);
+      if (act === 'back') {
+        const before = current.sig;
+        const beforeAnchor = current.anchor;
+        triedEdges.add(edgeKey(before, 'back'));
+        const beforeContent = current.content;
+        // WAKELOCK: the locks held ON this screen, sampled just before leaving it.
+        const wlBefore = await sampleWakelocks(driver, pkg);
+        const tHang0 = Date.now();
+        try {
+          await driver.back();
+        } catch {
+          /* ignore */
+        }
+        await driver.pause(700);
+        // HANG watchdog on the back transition (same floor + keying as the tap path).
+        const hb = hangBucket(Date.now() - tHang0 - 700);
+        if (hb != null) {
+          const confirmed = await androidAnrSeen(driver, pkg);
+          log(
+            'EXPLORE:HANG ' +
+              JSON.stringify({
+                from: before,
+                action: 'back',
+                bucket: hb,
+                ...(confirmed ? { anr: true } : {}),
+              }),
+          );
+        }
+        let next = await observe();
+        // BACK-TRAP (Android, narrow): the back press left the structural signature
+        // AND the content fingerprint unchanged -- a pure self-loop, i.e. back was
+        // SWALLOWED (a dialog/sheet dismissal would move one of them). On a NON-root
+        // activity that is a trapped screen. This is the FP-safe, runner-observed
+        // slice of the removed general dead-end oracle; it never fires on the
+        // launch/home activity (back is expected to exit there) and requires the SAME
+        // self-loop to survive ONE retry (an in-flight animation gets another frame).
+        const beforeSnap = { sig: before, content: beforeContent, anchor: beforeAnchor };
+        const launchSnap = { sig: launchSig, anchor: launchAnchor };
+        const firstSwallowed = next.sig === before && next.content === beforeContent;
+        const nonRoot = before !== launchSig && !!beforeAnchor && beforeAnchor !== launchAnchor;
+        if (isAndroid() && firstSwallowed && nonRoot) {
+          // Retry once for animation/transition settle, then let the pure decision
+          // (isBackTrap) make the final call over before/first/retry/launch.
+          try {
+            await driver.back();
+          } catch {
+            /* ignore */
+          }
+          await driver.pause(700);
+          const retry = await observe();
+          if (isBackTrap(beforeSnap, next, retry, launchSnap)) {
+            // ESCAPE: relaunch the target (terminate + activate) so the walk continues
+            // from a clean root instead of ramming the trap until the stuck-counter
+            // kills the walk (the audit's starvation). Reset stuck: escaping is progress.
+            await resetToRoot(driver);
+            current = await observe();
+            stuck = 0;
+            continue;
+          }
+          // The retry moved: it was a slow transition, not a trap. Continue with the
+          // post-retry snapshot as the observed result.
+          next = retry;
+        }
+        if (next.sig !== before) {
+          log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
+          rememberEdge(graph, before, 'back', next.sig);
+          // WAKELOCK: leaving `before` for a different screen; flag locks acquired
+          // on `before` that are still held now (Android only, no-op otherwise).
+          await checkWakelocks(before, next.sig, wlBefore);
+          stuck = 0;
+        } else if (next.content !== beforeContent) {
+          // Layer-1: the action changed on-screen content without moving the
+          // structural sig (a value-state change on a capped node). It is
+          // EFFECTIVE, so do not count it as stuck, but no graph edge is added.
+          stuck = 0;
+        } else stuck++;
+        current = next;
+        continue;
       }
-      if (!act && hasFrontier(actionsByState, triedEdges) && current.sig !== launchSig) break;
-      if (!act) break;
-    }
-
-    log('FUZZ:ACT ' + act);
-    await advanceCausalAction(driver);
-    if (act === 'back') {
+      const sel = act.slice('tap:'.length);
+      // --record: the tap on the finding's element is the moment to box. Grab its
+      // rect + the capture-relative timestamp from THIS snapshot, before the press
+      // may mutate the tree (finalize falls back to the final snapshot).
+      if (clip) noteClipTap(clip, sel, current);
+      triedEdges.add(edgeKey(current.sig, 'tap:' + sel));
       const before = current.sig;
-      const beforeAnchor = current.anchor;
-      triedEdges.add(edgeKey(before, 'back'));
       const beforeContent = current.content;
-      // WAKELOCK: the locks held ON this screen, sampled just before leaving it.
+      // JANK: reset the gfxinfo framestats window so the read after this tap counts
+      // only the frames this action rendered (per-transition, not run-cumulative).
+      await resetGfxinfo(driver, pkg);
+      // WAKELOCK: the locks held ON this screen, sampled before the tap (outside the
+      // HANG timing window below so it doesn't inflate the blocked-time measure).
       const wlBefore = await sampleWakelocks(driver, pkg);
+      // HANG: time the action's blocking wall-clock. We measure tap + settle only
+      // (NOT the subsequent observe, which is a page-source round-trip whose latency
+      // is unrelated to the app's responsiveness), so the floor reflects the app
+      // freezing, not Appium overhead.
       const tHang0 = Date.now();
-      try { await driver.back(); } catch { /* ignore */ }
-      await driver.pause(700);
-      // HANG watchdog on the back transition (same floor + keying as the tap path).
-      const hb = hangBucket((Date.now() - tHang0) - 700);
+      const ok = await tap(driver, sel, current);
+      if (!ok) {
+        log('FUZZ:MISS ' + act);
+        stuck++;
+        continue;
+      }
+      await driver.pause(800);
+      const blockedMs = Date.now() - tHang0 - 800; // subtract the fixed settle pause
+      // Crash oracle: if the target app left the foreground after this tap, the app
+      // crashed (uncaught exception -> process died -> launcher).
+      if (await appCrashed(driver)) {
+        emitCrash(act);
+        crashed = true;
+        break;
+      }
+      // HANG watchdog: did the action block past the freeze floor? Keyed by (from,
+      // action) so the Rust side attributes it to this transition and `check`
+      // re-confirms it. On Android, optionally upgrade-confirm with the ANR trace.
+      const hb = hangBucket(blockedMs);
       if (hb != null) {
         const confirmed = await androidAnrSeen(driver, pkg);
-        log('EXPLORE:HANG ' + JSON.stringify({ from: before, action: 'back', bucket: hb, ...(confirmed ? { anr: true } : {}) }));
+        log(
+          'EXPLORE:HANG ' +
+            JSON.stringify({
+              from: before,
+              action: 'tap:' + sel,
+              bucket: hb,
+              ...(confirmed ? { anr: true } : {}),
+            }),
+        );
       }
-      let next = await observe();
-      // BACK-TRAP (Android, narrow): the back press left the structural signature
-      // AND the content fingerprint unchanged -- a pure self-loop, i.e. back was
-      // SWALLOWED (a dialog/sheet dismissal would move one of them). On a NON-root
-      // activity that is a trapped screen. This is the FP-safe, runner-observed
-      // slice of the removed general dead-end oracle; it never fires on the
-      // launch/home activity (back is expected to exit there) and requires the SAME
-      // self-loop to survive ONE retry (an in-flight animation gets another frame).
-      const beforeSnap = { sig: before, content: beforeContent, anchor: beforeAnchor };
-      const launchSnap = { sig: launchSig, anchor: launchAnchor };
-      const firstSwallowed = next.sig === before && next.content === beforeContent;
-      const nonRoot = before !== launchSig && !!beforeAnchor && beforeAnchor !== launchAnchor;
-      if (isAndroid() && firstSwallowed && nonRoot) {
-        // Retry once for animation/transition settle, then let the pure decision
-        // (isBackTrap) make the final call over before/first/retry/launch.
-        try { await driver.back(); } catch { /* ignore */ }
-        await driver.pause(700);
-        const retry = await observe();
-        if (isBackTrap(beforeSnap, next, retry, launchSnap)) {
-          // ESCAPE: relaunch the target (terminate + activate) so the walk continues
-          // from a clean root instead of ramming the trap until the stuck-counter
-          // kills the walk (the audit's starvation). Reset stuck: escaping is progress.
-          await resetToRoot(driver);
-          current = await observe();
-          stuck = 0;
-          continue;
-        }
-        // The retry moved: it was a slow transition, not a trap. Continue with the
-        // post-retry snapshot as the observed result.
-        next = retry;
+      // JANK watchdog (Android only): did this transition render a dropped-frame
+      // storm? Read the gfxinfo framestats window we reset above. Keyed by (from,
+      // action) like HANG. iOS has no per-frame trace over XCUITest (documented gap).
+      const jk = await drainGfxinfoJank(driver, pkg, jankFloor);
+      if (jk) {
+        log(
+          'EXPLORE:JANK ' +
+            JSON.stringify({
+              from: before,
+              action: 'tap:' + sel,
+              bucket: jk.bucket,
+              count: jk.count,
+            }),
+        );
       }
+      const next = await observe();
       if (next.sig !== before) {
-        log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'back', to: next.sig }));
-        rememberEdge(graph, before, 'back', next.sig);
-        // WAKELOCK: leaving `before` for a different screen; flag locks acquired
-        // on `before` that are still held now (Android only, no-op otherwise).
+        log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
+        rememberEdge(graph, before, 'tap:' + sel, next.sig);
+        // WAKELOCK: this tap navigated away from `before`; flag locks acquired on
+        // `before` that are still held on `next` (Android only, no-op otherwise).
         await checkWakelocks(before, next.sig, wlBefore);
         stuck = 0;
       } else if (next.content !== beforeContent) {
-        // Layer-1: the action changed on-screen content without moving the
-        // structural sig (a value-state change on a capped node). It is
-        // EFFECTIVE, so do not count it as stuck, but no graph edge is added.
+        // Layer-1 effect detection: the tap changed displayed content (a calculator
+        // keypress / counter on a capped display) without a structural move.
+        // EFFECTIVE, so reset stuck and keep driving; no self-edge is recorded.
         stuck = 0;
       } else stuck++;
       current = next;
-      continue;
     }
-    const sel = act.slice('tap:'.length);
-    // --record: the tap on the finding's element is the moment to box. Grab its
-    // rect + the capture-relative timestamp from THIS snapshot, before the press
-    // may mutate the tree (finalize falls back to the final snapshot).
-    if (clip) noteClipTap(clip, sel, current);
-    triedEdges.add(edgeKey(current.sig, 'tap:' + sel));
-    const before = current.sig;
-    const beforeContent = current.content;
-    // JANK: reset the gfxinfo framestats window so the read after this tap counts
-    // only the frames this action rendered (per-transition, not run-cumulative).
-    await resetGfxinfo(driver, pkg);
-    // WAKELOCK: the locks held ON this screen, sampled before the tap (outside the
-    // HANG timing window below so it doesn't inflate the blocked-time measure).
-    const wlBefore = await sampleWakelocks(driver, pkg);
-    // HANG: time the action's blocking wall-clock. We measure tap + settle only
-    // (NOT the subsequent observe, which is a page-source round-trip whose latency
-    // is unrelated to the app's responsiveness), so the floor reflects the app
-    // freezing, not Appium overhead.
-    const tHang0 = Date.now();
-    const ok = await tap(driver, sel, current);
-    if (!ok) { log('FUZZ:MISS ' + act); stuck++; continue; }
-    await driver.pause(800);
-    const blockedMs = (Date.now() - tHang0) - 800; // subtract the fixed settle pause
-    // Crash oracle: if the target app left the foreground after this tap, the app
-    // crashed (uncaught exception -> process died -> launcher).
-    if (await appCrashed(driver)) { emitCrash(act); crashed = true; break; }
-    // HANG watchdog: did the action block past the freeze floor? Keyed by (from,
-    // action) so the Rust side attributes it to this transition and `check`
-    // re-confirms it. On Android, optionally upgrade-confirm with the ANR trace.
-    const hb = hangBucket(blockedMs);
-    if (hb != null) {
-      const confirmed = await androidAnrSeen(driver, pkg);
-      log('EXPLORE:HANG ' + JSON.stringify({ from: before, action: 'tap:' + sel, bucket: hb, ...(confirmed ? { anr: true } : {}) }));
-    }
-    // JANK watchdog (Android only): did this transition render a dropped-frame
-    // storm? Read the gfxinfo framestats window we reset above. Keyed by (from,
-    // action) like HANG. iOS has no per-frame trace over XCUITest (documented gap).
-    const jk = await drainGfxinfoJank(driver, pkg, jankFloor);
-    if (jk) {
-      log('EXPLORE:JANK ' + JSON.stringify({ from: before, action: 'tap:' + sel, bucket: jk.bucket, count: jk.count }));
-    }
-    const next = await observe();
-    if (next.sig !== before) {
-      log('EXPLORE:EDGE ' + JSON.stringify({ from: before, action: 'tap:' + sel, to: next.sig }));
-      rememberEdge(graph, before, 'tap:' + sel, next.sig);
-      // WAKELOCK: this tap navigated away from `before`; flag locks acquired on
-      // `before` that are still held on `next` (Android only, no-op otherwise).
-      await checkWakelocks(before, next.sig, wlBefore);
-      stuck = 0;
-    } else if (next.content !== beforeContent) {
-      // Layer-1 effect detection: the tap changed displayed content (a calculator
-      // keypress / counter on a capped display) without a structural move.
-      // EFFECTIVE, so reset stuck and keep driving; no self-edge is recorded.
-      stuck = 0;
-    } else stuck++;
-    current = next;
-  }
 
-  // LEAK sampler: a final sample after the last action, so the series spans the
-  // whole soak (start ... last action). No-op outside replay; per-platform inside.
-  if (replay) await sampleHeap(Date.now() - t0);
-  // --record clip finalize: resolve the finding's element rect, write box-spec.json
-  // next to clip.mov, finalize the recording, and emit FINDING:BOXED. The host
-  // gates on drew + runs box-overlay.mjs to draw the box (the uniform post-capture
-  // path for every backend that cannot inject a live overlay).
-  if (clip) await finalizeClipCapture(driver, clip, current);
-  log(`JOURNEY[a] step: explored ${seenStates.size} states`);
-   if (crashed) anyCrashed = true;
-   if (isBatch) log(`SEED:END ${Number(fuzz.seed || 0)}`);
+    // LEAK sampler: a final sample after the last action, so the series spans the
+    // whole soak (start ... last action). No-op outside replay; per-platform inside.
+    if (replay) await sampleHeap(Date.now() - t0);
+    // --record clip finalize: resolve the finding's element rect, write box-spec.json
+    // next to clip.mov, finalize the recording, and emit FINDING:BOXED. The host
+    // gates on drew + runs box-overlay.mjs to draw the box (the uniform post-capture
+    // path for every backend that cannot inject a live overlay).
+    if (clip) await finalizeClipCapture(driver, clip, current);
+    log(`JOURNEY[a] step: explored ${seenStates.size} states`);
+    if (crashed) anyCrashed = true;
+    if (isBatch) log(`SEED:END ${Number(fuzz.seed || 0)}`);
   }
 
   log('JOURNEY DONE');

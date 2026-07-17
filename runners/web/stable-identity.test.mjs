@@ -24,10 +24,14 @@ test('auth purposes are structural and locale independent', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
-    await page.setContent(`<label>Número de teléfono<input data-testid="phone" type="tel" autocomplete="tel"></label>`);
+    await page.setContent(
+      `<label>Número de teléfono<input data-testid="phone" type="tel" autocomplete="tel"></label>`,
+    );
     const spanish = await snapshot(page, []);
     assert.equal(spanish.tappables[0].purpose, 'phone');
-    await page.locator('label').evaluate((el) => { el.firstChild.textContent = 'Номер телефона'; });
+    await page.locator('label').evaluate((el) => {
+      el.firstChild.textContent = 'Номер телефона';
+    });
     const russian = await snapshot(page, []);
     assert.equal(russian.tappables[0].purpose, 'phone');
     assert.equal(russian.sig, spanish.sig, 'translated copy cannot change structural identity');
@@ -45,12 +49,19 @@ test('arbitrary DOM id allocator churn is not canonical identity', async () => {
       <a id="x9Q-4f7a-opaque" href="#">FAQ</a>
     `);
     const before = await snapshot(page, []);
-    await page.locator('button').evaluate((el) => { el.id = 'friendly-human-readable-18'; });
-    await page.locator('a').evaluate((el) => { el.id = 'totally-different-shape'; });
+    await page.locator('button').evaluate((el) => {
+      el.id = 'friendly-human-readable-18';
+    });
+    await page.locator('a').evaluate((el) => {
+      el.id = 'totally-different-shape';
+    });
     const after = await snapshot(page, []);
 
     assert.equal(after.sig, before.sig, 'implementation-only id churn is the same screen');
-    assert.deepEqual(after.tappables.map((el) => el.sel), before.tappables.map((el) => el.sel));
+    assert.deepEqual(
+      after.tappables.map((el) => el.sel),
+      before.tappables.map((el) => el.sel),
+    );
     assert.ok(after.tappables.every((el) => !el.sel.startsWith('key:id:')));
     assert.deepEqual(
       (await gtCollect(page)).map((el) => el.sel),
@@ -71,10 +82,10 @@ test('explicit semantic identity remains canonical and replayable', async () => 
       <input id="allocated-2" name="account_email">
     `);
     const before = await snapshot(page, []);
-    assert.deepEqual(before.tappables.map((el) => el.sel), [
-      'key:testid:checkout-step-1',
-      'key:name:account_email',
-    ]);
+    assert.deepEqual(
+      before.tappables.map((el) => el.sel),
+      ['key:testid:checkout-step-1', 'key:name:account_email'],
+    );
 
     await page.locator('button').evaluate((el) => {
       el.id = 'allocated-999';
@@ -84,7 +95,9 @@ test('explicit semantic identity remains canonical and replayable', async () => 
     assert.notEqual(after.sig, before.sig, 'semantic author contract distinguishes real state');
     assert.equal(after.tappables[0].sel, 'key:testid:checkout-step-2');
 
-    await page.locator('input').evaluate((el) => { el.name = 'billing_email'; });
+    await page.locator('input').evaluate((el) => {
+      el.name = 'billing_email';
+    });
     const renamed = await snapshot(page, []);
     assert.notEqual(renamed.sig, after.sig, 'name is also an explicit semantic contract');
     assert.equal(renamed.tappables[1].sel, 'key:name:billing_email');
@@ -106,7 +119,10 @@ test('positional replay identity survives a different viewport height', async ()
     // The production SDK assigns Checkout button#1 across every style-visible
     // control. It is below this runner's fold, but must keep that identity.
     const top = await snapshot(page, []);
-    assert.deepEqual(top.tappables.map((el) => el.sel), ['role:button#0']);
+    assert.deepEqual(
+      top.tappables.map((el) => el.sel),
+      ['role:button#0'],
+    );
 
     await page.locator('#target').evaluate((el) => el.scrollIntoView({ block: 'center' }));
     const scrolled = await snapshot(page, []);

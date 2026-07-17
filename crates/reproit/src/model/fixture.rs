@@ -7,8 +7,8 @@
 //! discriminators and delivers it with a pulled repro; this module is the
 //! reproit-side synthesizer. It generates FEATURES-matching values, not
 //! the user's real data (which is never stored). Synthesis is deterministic
-//! (no RNG): the same spec always yields the same fixture, so a property-matched
-//! replay is as reproducible as an action replay.
+//! (no RNG): the same spec always yields the same fixture, so a
+//! property-matched replay is as reproducible as an action replay.
 //!
 //! Spec shape (from the cloud):
 //!   { "locale": "tr",
@@ -18,10 +18,11 @@
 //!                                 "minBytes": 420, "minGraphemes": 250,
 //!                                 "scripts": ["Latin", "Arabic"],
 //!                                 "combining": true, "zeroWidth": true,
-//!                                 "newline": true, "edgeWhitespace": true } } ] }
+//!                                 "newline": true, "edgeWhitespace": true } }
+//! ] }
 //!
-//! Output (written into `.reproit/tmp/fuzz_config.json`, read by the explorers):
-//!   { "locale": "tr",
+//! Output (written into `.reproit/tmp/fuzz_config.json`, read by the
+//! explorers):   { "locale": "tr",
 //!     "inputs": [ { "field": "name", "value": "<synthesized>" } ] }
 
 use serde_json::{json, Map, Value};
@@ -63,7 +64,8 @@ impl Fixture {
         Value::Object(m)
     }
 
-    /// A human-readable one-line summary for the CLI ("name<-312 unicode chars").
+    /// A human-readable one-line summary for the CLI ("name<-312 unicode
+    /// chars").
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
         if let Some(loc) = &self.locale {
@@ -272,7 +274,8 @@ mod tests {
             { "field": "name", "generate": { "rtl": true, "minLen": 5 } }
         ]});
         let f = synthesize(&spec);
-        // At least one strong-RTL char (Arabic U+0600..U+06FF or Hebrew U+0590..U+05FF).
+        // At least one strong-RTL char (Arabic U+0600..U+06FF or Hebrew
+        // U+0590..U+05FF).
         assert!(f.fields[0]
             .value
             .chars()

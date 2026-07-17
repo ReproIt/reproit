@@ -10,7 +10,7 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -100,10 +100,42 @@ pub struct FindingIdentity {
     pub oracle: String,
     pub invariant: String,
     pub kind: String,
+    #[serde(default)]
+    pub message: String,
     pub frame: String,
     pub trigger: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boundary: Option<String>,
+}
+
+impl FindingIdentity {
+    /// The path-independent identity of the defect itself. Unlike `fnd_...`,
+    /// which identifies one discovered and minimized case, this deliberately
+    /// excludes the seed, action path, build, machine, and evidence. Production
+    /// occurrences carrying the same structured identity therefore join the
+    /// prelaunch finding without fuzzy message matching.
+    pub fn bug_id(&self) -> String {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"reproit-structural-bug-v1\n");
+        for part in [
+            self.oracle.as_str(),
+            self.invariant.as_str(),
+            self.kind.as_str(),
+            self.message.as_str(),
+            self.frame.as_str(),
+            self.trigger.as_str(),
+            self.boundary.as_deref().unwrap_or(""),
+        ] {
+            hasher.update(part.trim().as_bytes());
+            hasher.update(b"\n");
+        }
+        let digest = hasher.finalize();
+        let suffix: String = digest[..6]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("bug_{suffix}")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -125,7 +157,7 @@ pub struct Capsule {
     /// matching HTTP response, then routes it through the same validator during
     /// replay. It never applies the recorded mutation to a real datastore.
     #[serde(default)]
-    pub backend_events: Vec<crate::backend::BackendEvent>,
+    pub backend_events: Vec<crate::model::backend::BackendEvent>,
     pub finding: FindingIdentity,
     #[serde(default)]
     pub redactions: Vec<String>,
@@ -353,14 +385,15 @@ impl Capsule {
                         continue;
                     }
                     parsed.push(
-                        serde_json::from_str::<crate::backend::BackendEvent>(line).with_context(
-                            || format!("parsing {} line {}", path.display(), line_no + 1),
-                        )?,
+                        serde_json::from_str::<crate::model::backend::BackendEvent>(line)
+                            .with_context(|| {
+                                format!("parsing {} line {}", path.display(), line_no + 1)
+                            })?,
                     );
                 }
                 parsed
             } else if name.starts_with("drive-") && name.ends_with(".log") {
-                crate::backend::parse_events(&std::fs::read_to_string(&path)?)
+                crate::model::backend::parse_events(&std::fs::read_to_string(&path)?)
             } else {
                 Vec::new()
             };
@@ -446,7 +479,7 @@ fn maybe_rotate_key(root: &Path) -> Result<()> {
 fn referenced_capsules(root: &Path) -> BTreeSet<String> {
     let mut referenced = BTreeSet::new();
     for parent in [
-        root.join(".reproit/findings"),
+        crate::layout::findings_dir(root),
         crate::layout::repros_dir(root),
     ] {
         let Ok(entries) = std::fs::read_dir(parent) else {
@@ -466,7 +499,8 @@ fn referenced_capsules(root: &Path) -> BTreeSet<String> {
 }
 
 /// Remove only unreferenced encrypted capsules. Findings and kept repros pin
-/// their capsule forever; count/age bounds apply solely to abandoned candidates.
+/// their capsule forever; count/age bounds apply solely to abandoned
+/// candidates.
 pub fn prune_unreferenced(
     root: &Path,
     keep_id: Option<&str>,
@@ -615,7 +649,7 @@ pub fn redact_capsule(capsule: &mut Capsule, policy: &RedactionPolicy) {
 }
 
 pub(crate) fn redact_backend_event(
-    event: &mut crate::backend::BackendEvent,
+    event: &mut crate::model::backend::BackendEvent,
     policy: &RedactionPolicy,
     manifest: &mut Vec<String>,
 ) {
@@ -792,8 +826,8 @@ pub fn json_reductions(value: &Value) -> Vec<Value> {
 }
 
 /// Greedy joint minimization. `reproduces` must perform a clean replay and
-/// return true only for the exact original finding identity. Action removal also
-/// removes its causal exchanges and backend events, then reindexes later
+/// return true only for the exact original finding identity. Action removal
+/// also removes its causal exchanges and backend events, then reindexes later
 /// causal inputs atomically.
 #[cfg(test)]
 pub fn minimize_exact<F>(capsule: &Capsule, mut reproduces: F) -> Result<Capsule>
@@ -878,10 +912,7 @@ where
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    crate::infra::sha256_hex(bytes)
 }
 
 fn capsule_key(root: &Path) -> Result<[u8; 32]> {
@@ -958,10 +989,22 @@ mod tests {
             oracle: "crash".into(),
             invariant: "no-exception".into(),
             kind: "TypeError".into(),
+            message: "cannot read property".into(),
             frame: "FeedItem.fromJson:42".into(),
             trigger: "key:feed".into(),
             boundary: Some("GET /feed".into()),
         }
+    }
+
+    #[test]
+    fn structural_bug_identity_ignores_the_replay_path_and_is_field_sensitive() {
+        let identity = finding();
+        assert_eq!(identity.bug_id(), identity.clone().bug_id());
+        assert!(identity.bug_id().starts_with("bug_"));
+
+        let mut other = identity.clone();
+        other.trigger.push_str("-other");
+        assert_ne!(identity.bug_id(), other.bug_id());
     }
 
     #[test]
@@ -1015,12 +1058,13 @@ mod tests {
                 oracle: "contract".into(),
                 invariant: "backend:response-shape".into(),
                 kind: "response-shape".into(),
+                message: "response omitted account id".into(),
                 frame: "getAccount".into(),
                 trigger: "bootstrap".into(),
                 boundary: None,
             },
         );
-        c.backend_events.push(crate::backend::BackendEvent {
+        c.backend_events.push(crate::model::backend::BackendEvent {
             sequence: 1,
             trace_id: "trace".into(),
             span_id: "span".into(),
@@ -1033,7 +1077,7 @@ mod tests {
             tenant: None,
             idempotency_key: None,
             selections: Vec::new(),
-            event: crate::backend::BackendEventKind::Start { input: Value::Null },
+            event: crate::model::backend::BackendEventKind::Start { input: Value::Null },
         });
         for name in ["ui_actions", "http", "backend_effects"] {
             c.capabilities.insert(
@@ -1066,7 +1110,7 @@ mod tests {
             response_body: None,
             required: true,
         });
-        c.backend_events.push(crate::backend::BackendEvent {
+        c.backend_events.push(crate::model::backend::BackendEvent {
             sequence: 1,
             trace_id: "trace".into(),
             span_id: "span".into(),
@@ -1079,7 +1123,7 @@ mod tests {
             tenant: Some("team".into()),
             idempotency_key: Some("payment-retry-secret".into()),
             selections: Vec::new(),
-            event: crate::backend::BackendEventKind::Start {
+            event: crate::model::backend::BackendEventKind::Start {
                 input: json!({"profile":{"email":"a@example.com"}}),
             },
         });
@@ -1093,7 +1137,8 @@ mod tests {
             json!({"$reproit":{"redacted":true,"type":"string","length":13}})
         );
         assert!(c.redactions.contains(&"$request.profile.email".into()));
-        let crate::backend::BackendEventKind::Start { input } = &c.backend_events[0].event else {
+        let crate::model::backend::BackendEventKind::Start { input } = &c.backend_events[0].event
+        else {
             panic!("expected start event");
         };
         assert_eq!(
@@ -1187,7 +1232,12 @@ mod tests {
         assert!(value.get("responseBody").is_some());
         let legacy = json!({"id":"a-1-0","actor":"a","action_index":1,"ordinal":0,
             "protocol":"https","method":"GET","url":"https://x.test","request_headers":{},
-            "request_body":null,"status":200,"response_headers":{},"response_body":{"ok":true},"required":true});
+            "request_body": null,
+            "status": 200,
+            "response_headers": {},
+            "response_body": {"ok": true},
+            "required": true
+        });
         assert_eq!(
             serde_json::from_value::<Exchange>(legacy)
                 .unwrap()

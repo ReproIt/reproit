@@ -1,17 +1,18 @@
 //! `reproit debug map semantic`: derive the candidate map from app source
-//! with the LLM (offline, no simulator), reconcile against the verified map, and
-//! report coverage. The LLM proposes; only `map --verify` or a driven run ever
-//! promotes a candidate to verified, so nothing here is trusted as ground truth.
-//! The output is a worklist, not an assertion target.
+//! with the LLM (offline, no simulator), reconcile against the verified map,
+//! and report coverage. The LLM proposes; only `map --verify` or a driven run
+//! ever promotes a candidate to verified, so nothing here is trusted as ground
+//! truth. The output is a worklist, not an assertion target.
 
-use crate::appmap::AppMap;
-use crate::candidate::{self, Candidate, CandidateMap, Confidence, GapReason, Status};
 use crate::config;
-use crate::map;
+use crate::model::appmap::AppMap;
+use crate::model::candidate::{self, Candidate, CandidateMap, Confidence, GapReason, Status};
+use crate::model::map;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-/// Cap on source bytes fed to the LLM in one extraction (keeps the prompt sane).
+/// Cap on source bytes fed to the LLM in one extraction (keeps the prompt
+/// sane).
 const MAX_SOURCE_BYTES: usize = 120_000;
 
 pub async fn plan(loaded: &config::Loaded, quiet: bool) -> Result<CandidateMap> {
@@ -63,8 +64,8 @@ pub async fn plan(loaded: &config::Loaded, quiet: bool) -> Result<CandidateMap> 
 }
 
 /// Walk the project's `lib/` for `.dart` files, most-relevant first (routing,
-/// navigation, screens, API), concatenated with a `// FILE:` header per file and
-/// capped so one extraction stays within a sane prompt size.
+/// navigation, screens, API), concatenated with a `// FILE:` header per file
+/// and capped so one extraction stays within a sane prompt size.
 fn gather_source(project: &Path) -> String {
     let lib = project.join("lib");
     let root = if lib.is_dir() {
@@ -122,29 +123,26 @@ fn collect_dart(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Multi-lens prompt: instruct the LLM to read the source through several lenses
-/// and UNION the screens each finds (recall over precision: the simulator is the
-/// precision filter later), each tagged with evidence, confidence and a gap
-/// reason.
+/// Multi-lens prompt: instruct the LLM to read the source through several
+/// lenses and UNION the screens each finds (recall over precision: the
+/// simulator is the precision filter later), each tagged with evidence,
+/// confidence and a gap reason.
 async fn extract(cfg: &config::Config, source: &str) -> Result<CandidateMap> {
     let provider = llm::from_spec(&cfg.llm.to_spec())?;
     let prompt = format!(
-        "You are mapping a mobile app's SCREENS from its source. Read it through \
-these lenses and UNION the screens each finds (bias to recall: a wrong guess is \
-cheap to refute, a missed screen is invisible):\n\
-  - routes: declared route/page tables\n\
-  - push: imperative Navigator.push / context.push call sites\n\
-  - api: API client methods (an endpoint usually backs a screen)\n\
-  - widgets: screen/page-shaped widgets\n\n\
-For each screen output an object with: id (snake_case), purpose (short), \
-evidence (array of {{\"lens\":..,\"ref\":\"file:symbol\"}}), confidence \
-(\"high\"|\"medium\"|\"low\"; high only if anchored to a real route/push/api, \
-low for a genre guess), route (the declared route string or null), \
-preconditions (array of short strings), reach_hint (how to navigate there or \
-null), and gap_reason (\"none\"|\"needs_data\"|\"needs_peer\"|\"needs_login\"|\
-\"frontier\": why a blind single-user crawl might not reach it).\n\n\
-Reply with ONLY a JSON array of these objects: no prose, no code fences.\n\n\
-SOURCE:\n{source}"
+        "You are mapping a mobile app's SCREENS from its source. Read it through these lenses and \
+         UNION the screens each finds (bias to recall: a wrong guess is cheap to refute, a missed \
+         screen is invisible):\n- routes: declared route/page tables\n- push: imperative \
+         Navigator.push / context.push call sites\n- api: API client methods (an endpoint usually \
+         backs a screen)\n- widgets: screen/page-shaped widgets\n\nFor each screen output an \
+         object with: id (snake_case), purpose (short), evidence (array of \
+         {{\"lens\":..,\"ref\":\"file:symbol\"}}), confidence (\"high\"|\"medium\"|\"low\"; high \
+         only if anchored to a real route/push/api, low for a genre guess), route (the declared \
+         route string or null), preconditions (array of short strings), reach_hint (how to \
+         navigate there or null), and gap_reason \
+         (\"none\"|\"needs_data\"|\"needs_peer\"|\"needs_login\"|\"frontier\": why a blind \
+         single-user crawl might not reach it).\n\nReply with ONLY a JSON array of these objects: \
+         no prose, no code fences.\n\nSOURCE:\n{source}"
     );
     let response = provider.complete(&llm::Task::new(prompt)).await?;
     let candidates = parse_candidates(&response)?;
@@ -252,9 +250,9 @@ pub enum Validation {
     Refuted,
 }
 
-/// Something that can attempt to validate a candidate. Abstracted so the loop is
-/// testable without a simulator, and so a future active validator (drive the sim
-/// on demand) can drop in without touching the loop.
+/// Something that can attempt to validate a candidate. Abstracted so the loop
+/// is testable without a simulator, and so a future active validator (drive the
+/// sim on demand) can drop in without touching the loop.
 pub trait Validator {
     fn validate(&mut self, c: &Candidate) -> Validation;
 }
@@ -262,7 +260,8 @@ pub trait Validator {
 /// The passive validator: a candidate is "reached" iff some driven run has
 /// already populated a matching state in the verified map (every run feeds it,
 /// via universal recording). Sound, no sim needed here, the sim's work is
-/// already in appmap.json. Unanchored guesses the map never reached are refuted.
+/// already in appmap.json. Unanchored guesses the map never reached are
+/// refuted.
 pub struct MapValidator<'a> {
     pub map: &'a AppMap,
 }
@@ -290,9 +289,9 @@ pub struct ConvergeReport {
 /// The closed loop: keep validating not-yet-resolved candidates until nothing
 /// new resolves. Guards against spinning and hallucination amplification:
 ///   * status IS the memory: Verified and Refuted are terminal (never retried,
-///     so a refuted hypothesis can't reappear), Pending is tried once, Unreached
-///     is retried ONLY after a round made progress (something else verified,
-///     possibly unblocking it).
+///     so a refuted hypothesis can't reappear), Pending is tried once,
+///     Unreached is retried ONLY after a round made progress (something else
+///     verified, possibly unblocking it).
 ///   * loop-until-dry: stop after `dry_limit` consecutive rounds with no
 ///     progress; `max_rounds` is the hard backstop.
 pub fn converge(
@@ -365,8 +364,8 @@ pub fn converge(
 /// `reproit debug map converge`: run the loop against the verified map
 /// validator), prune hallucinations, and report. The LLM/sim stay out: this
 /// reconciles accumulated verified reality and converges as more runs feed the
-/// map. An active validator (drive the sim per candidate) plugs into `Validator`
-/// later without changing the loop.
+/// map. An active validator (drive the sim per candidate) plugs into
+/// `Validator` later without changing the loop.
 pub fn converge_cmd(loaded: &config::Loaded, json: bool) -> Result<()> {
     let Some(mut cm) = candidate::load(&loaded.root) else {
         if !json {

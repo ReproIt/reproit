@@ -22,7 +22,8 @@
 # purpose; see action.README.md.
 
 name: "reproit"
-description: "Fuzz your app on every PR; auto-upload a minimized repro and post the PR comment on a finding."
+description: >-
+  Fuzz your app on every PR; upload a minimized repro and comment when a finding appears.
 author: "reproit"
 
 branding:
@@ -31,7 +32,8 @@ branding:
 
 inputs:
   app:
-    description: "What to fuzz: a URL (http://localhost:3000) or a build dir. Zero-config; no reproit.yaml needed."
+    description: >-
+      What to fuzz: a URL or build directory. No reproit.yaml is required.
     required: true
   bucket:
     description: "Cloud bucket the finding's evidence is published to (e.g. web-pr)."
@@ -56,7 +58,8 @@ inputs:
     required: false
     default: "latest"
   only:
-    description: "Restrict to these oracle categories (comma list: crash,jank,leak,visual,divergence,a11y,graph). Empty = all on."
+    description: >-
+      Comma-separated oracle categories to run. Empty enables every category.
     required: false
     default: ""
   no:
@@ -64,11 +67,13 @@ inputs:
     required: false
     default: ""
   record:
-    description: "On a finding, confirm and record the minimized repro on the simulator tier. Needs a runner with a simulator (macOS)."
+    description: >-
+      Confirm and record findings on the simulator tier. Requires a macOS simulator runner.
     required: false
     default: "false"
   cloud-app:
-    description: "Cloud app id to attach evidence to. Optional; only needed on CLI versions that still require it alongside the bucket."
+    description: >-
+      Cloud app id for evidence. Only older CLI versions require it with the bucket.
     required: false
     default: ""
 

@@ -55,7 +55,8 @@ namespace ReproIt.Core
         /// <summary>Optional input-type refinement (text, password, email, number, ...).</summary>
         public string Type { get; set; }
 
-        /// <summary>Optional language-independent icon identity (codepoint / symbol / asset).</summary>
+        /// <summary>Optional language-independent icon identity (codepoint / symbol /
+        /// asset).</summary>
         public string Icon { get; set; }
 
         /// <summary>Explicit transient marker (e.g. a transient error banner). Dropped
@@ -94,11 +95,10 @@ namespace ReproIt.Core
     {
         /// <summary>The fixed, language-independent role vocabulary (docs/signature.md
         /// "Roles"). Anything outside this set normalizes to "node".</summary>
-        public static readonly HashSet<string> Roles = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "screen", "header", "text", "button", "link", "textfield", "image",
-            "icon", "list", "listitem", "tab", "switch", "checkbox", "radio",
-            "slider", "menu", "menuitem", "dialog", "group", "node",
+        public static readonly HashSet<string> Roles = new HashSet<string>(StringComparer.Ordinal) {
+            "screen", "header", "text",     "button", "link",   "textfield", "image",
+            "icon",   "list",   "listitem", "tab",    "switch", "checkbox",  "radio",
+            "slider", "menu",   "menuitem", "dialog", "group",  "node",
         };
 
         /// <summary>Roles that flicker in and out of the tree and must be dropped
@@ -106,10 +106,10 @@ namespace ReproIt.Core
         /// banner" is not a distinct role in the vocabulary, so it is expressed via
         /// the <see cref="Node.Transient"/> flag; both paths drop the node and its
         /// whole subtree. "progress" is the role name for spinner/progress.</summary>
-        public static readonly HashSet<string> TransientRoles = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "toast", "snackbar", "spinner", "progress", "tooltip", "badge",
-        };
+        public static readonly HashSet<string> TransientRoles =
+            new HashSet<string>(StringComparer.Ordinal) {
+                "toast", "snackbar", "spinner", "progress", "tooltip", "badge",
+            };
 
         /// <summary>Value-role set (docs/signature.md "Value-state", Layer 2). A node
         /// carries a canonical value-class in the "V:" section only if it has a
@@ -120,10 +120,10 @@ namespace ReproIt.Core
         /// descriptor body; the value-role test therefore uses the RAW role, not the
         /// normalized one. Chrome roles (button/header/text/link) are NEVER
         /// value-bearing, so rule 1's chrome-text exclusion is preserved exactly.</summary>
-        public static readonly HashSet<string> ValueRoles = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "textfield", "status", "log", "progressbar", "meter", "timer", "output",
-        };
+        public static readonly HashSet<string> ValueRoles =
+            new HashSet<string>(StringComparer.Ordinal) {
+                "textfield", "status", "log", "progressbar", "meter", "timer", "output",
+            };
 
         /// <summary>Normalize a role to the fixed vocabulary: known roles pass
         /// through, unknown roles map to "node" (docs/signature.md "Roles").</summary>
@@ -206,7 +206,9 @@ namespace ReproIt.Core
                 // The grammar is a strict subset of InvariantCulture's accepted
                 // double syntax, so this parse never fails; InvariantCulture pins the
                 // period as the decimal separator regardless of the host locale.
-                double num = double.Parse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+                double num =
+                    double.Parse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                                 CultureInfo.InvariantCulture);
                 double a = Math.Abs(num);
                 if (num == 0.0)
                 {
@@ -244,7 +246,8 @@ namespace ReproIt.Core
             {
                 return "key:" + n.Id;
             }
-            return "role:" + NormalizeRole(n.Role) + "#" + structuralIndex.ToString(CultureInfo.InvariantCulture);
+            return "role:" + NormalizeRole(n.Role) + "#" +
+                   structuralIndex.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>Collect (value_key, value_class) pairs for every value-bearing
@@ -252,7 +255,8 @@ namespace ReproIt.Core
         /// "V:" section stays consistent with the structural body. The root has no
         /// peers, so it gets index 0; each keyless child gets its position among
         /// same-(normalized-)role, non-transient siblings under the same parent. The
-        /// result is later sorted by key. Mirrors collect_values + collect_values_children.</summary>
+        /// result is later sorted by key. Mirrors collect_values +
+        /// collect_values_children.</summary>
         private static void CollectValues(Node node, List<KeyValuePair<string, string>> outPairs)
         {
             if (IsTransient(node))
@@ -261,12 +265,14 @@ namespace ReproIt.Core
             }
             if (IsValueBearing(node))
             {
-                outPairs.Add(new KeyValuePair<string, string>(ValueKey(node, 0), ValueClass(node.Value)));
+                outPairs.Add(
+                    new KeyValuePair<string, string>(ValueKey(node, 0), ValueClass(node.Value)));
             }
             CollectValuesChildren(node, outPairs);
         }
 
-        private static void CollectValuesChildren(Node node, List<KeyValuePair<string, string>> outPairs)
+        private static void CollectValuesChildren(Node node,
+                                                  List<KeyValuePair<string, string>> outPairs)
         {
             var roleCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             var children = node.Children ?? EmptyChildren;
@@ -282,7 +288,8 @@ namespace ReproIt.Core
                 roleCounts[role] = idx + 1;
                 if (IsValueBearing(child))
                 {
-                    outPairs.Add(new KeyValuePair<string, string>(ValueKey(child, idx), ValueClass(child.Value)));
+                    outPairs.Add(new KeyValuePair<string, string>(ValueKey(child, idx),
+                                                                  ValueClass(child.Value)));
                 }
                 CollectValuesChildren(child, outPairs);
             }
@@ -376,8 +383,7 @@ namespace ReproIt.Core
                     children.Add(nc);
                 }
             }
-            return new NormNode
-            {
+            return new NormNode {
                 Role = NormalizeRole(node.Role),
                 Type = node.Type,
                 Icon = node.Icon,
@@ -445,7 +451,8 @@ namespace ReproIt.Core
         /// <summary>Walk a run of siblings, collapsing maximal runs of &gt;= 2
         /// consecutive children whose SubtreeKey is identical into a single emission
         /// with the "*" marker (count dropped).</summary>
-        private static void SerializeChildren(List<NormNode> children, int depth, List<string> tokens)
+        private static void SerializeChildren(List<NormNode> children, int depth,
+                                              List<string> tokens)
         {
             int i = 0;
             while (i < children.Count)
@@ -477,7 +484,8 @@ namespace ReproIt.Core
             {
                 SerializeNode(norm, 0, false, tokens);
             }
-            return "A:" + (anchor ?? string.Empty) + "\n" + string.Join(";", tokens) + ValueSection(root);
+            return "A:" + (anchor ?? string.Empty) + "\n" + string.Join(";", tokens) +
+                   ValueSection(root);
         }
 
         /// <summary>THE canonical structural signature: FNV-1a 32-bit over the UTF-8
@@ -528,9 +536,9 @@ namespace ReproIt.Core
             {
                 return new SelectorResult { Selector = "key:" + node.Id, NoKey = false };
             }
-            return new SelectorResult
-            {
-                Selector = "role:" + NormalizeRole(node.Role) + "#" + structuralIndex.ToString(CultureInfo.InvariantCulture),
+            return new SelectorResult {
+                Selector = "role:" + NormalizeRole(node.Role) + "#" +
+                           structuralIndex.ToString(CultureInfo.InvariantCulture),
                 NoKey = true,
             };
         }

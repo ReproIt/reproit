@@ -25,9 +25,7 @@ def _redact(value):
             str(key): (
                 "<reproit:string:length=%d>" % len(child)
                 if _SECRET.search(str(key)) and isinstance(child, str)
-                else "<reproit:secret>"
-                if _SECRET.search(str(key))
-                else _redact(child)
+                else "<reproit:secret>" if _SECRET.search(str(key)) else _redact(child)
             )
             for key, child in sorted(value.items(), key=lambda item: str(item[0]))
         }
@@ -132,7 +130,9 @@ def install_causal_urllib(exclude_prefix=None):
     state = {"action": -1, "ordinal": 0}
 
     def wrapped(value, *args, **kwargs):
-        request = value if isinstance(value, urllib.request.Request) else urllib.request.Request(value)
+        request = (
+            value if isinstance(value, urllib.request.Request) else urllib.request.Request(value)
+        )
         url = request.full_url
         if exclude_prefix and url.startswith(exclude_prefix):
             return original(value, *args, **kwargs)
@@ -165,16 +165,22 @@ def install_causal_urllib(exclude_prefix=None):
                 raise RuntimeError("CAPSULE:MISS %s %s action=%d" % (method, url, action))
             exchange = match[1]
             body = exchange.get("responseBody", exchange.get("response_body", ""))
-            raw = body.encode("utf-8") if isinstance(body, str) else json.dumps(body).encode("utf-8")
-            return _Response(raw, int(exchange.get("status", 200)), exchange.get("responseHeaders", exchange.get("response_headers", {})), url)
+            raw = (
+                body.encode("utf-8") if isinstance(body, str) else json.dumps(body).encode("utf-8")
+            )
+            return _Response(
+                raw,
+                int(exchange.get("status", 200)),
+                exchange.get("responseHeaders", exchange.get("response_headers", {})),
+                url,
+            )
 
         response = original(value, *args, **kwargs)
         raw = response.read()
         response_headers = dict(response.headers.items())
         request_headers = dict(request.header_items())
         safe = lambda headers: {
-            key: "<reproit:secret>" if _SECRET.search(key) else val
-            for key, val in headers.items()
+            key: "<reproit:secret>" if _SECRET.search(key) else val for key, val in headers.items()
         }
         exchange = {
             "id": "%s-%d-%d" % (actor, action, ordinal),

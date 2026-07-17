@@ -12,11 +12,11 @@
 //
 // No em dashes anywhere, per project rules.
 
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   sigOf,
@@ -24,14 +24,14 @@ import {
   contentFingerprint,
   numericValueClasses,
   valueClass,
-} from "../signature.ts";
-import { ScreenContents } from "../screen.ts";
-import { Reporter } from "../reporter.ts";
-import type { ReproitEvent } from "../reporter.ts";
+} from '../signature.ts';
+import { ScreenContents } from '../screen.ts';
+import { Reporter } from '../reporter.ts';
+import type { ReproitEvent } from '../reporter.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // repo root is sdk/reproit-tui-ts/test -> ../../../
-const vectorsPath = join(here, "..", "..", "..", "tui_signature_vectors.json");
+const vectorsPath = join(here, '..', '..', '..', 'tui_signature_vectors.json');
 
 interface Vector {
   name: string;
@@ -40,13 +40,13 @@ interface Vector {
   expected_sig: string;
   expected_fp: string;
 }
-const data = JSON.parse(readFileSync(vectorsPath, "utf8")) as {
+const data = JSON.parse(readFileSync(vectorsPath, 'utf8')) as {
   vectors: Vector[];
 };
 const vectors = data.vectors;
 
-test("golden vectors: structural_sig matches the canonical crate for every vector", () => {
-  assert.ok(vectors.length > 0, "expected golden vectors to load");
+test('golden vectors: structural_sig matches the canonical crate for every ' + 'vector', () => {
+  assert.ok(vectors.length > 0, 'expected golden vectors to load');
   console.log(`  [parity] checking ${vectors.length} golden TUI vectors`);
   for (const v of vectors) {
     const got = structuralSig(v.contents, v.cursor[0], v.cursor[1]);
@@ -58,96 +58,94 @@ test("golden vectors: structural_sig matches the canonical crate for every vecto
   }
 });
 
-test("golden vectors: content_fingerprint matches the canonical crate for every vector", () => {
-  for (const v of vectors) {
-    const got = contentFingerprint(v.contents, v.cursor[0], v.cursor[1]);
-    assert.equal(
-      got,
-      v.expected_fp,
-      `content_fingerprint mismatch for "${v.name}": got ${got}, want ${v.expected_fp}`,
-    );
-  }
-});
+test(
+  'golden vectors: content_fingerprint matches the canonical crate for ' + 'every vector',
+  () => {
+    for (const v of vectors) {
+      const got = contentFingerprint(v.contents, v.cursor[0], v.cursor[1]);
+      assert.equal(
+        got,
+        v.expected_fp,
+        `content_fingerprint mismatch for "${v.name}": got ${got}, want ${v.expected_fp}`,
+      );
+    }
+  },
+);
 
 // The cross-vector facts the spec promises (see the JSON's _relationships).
-test("cross-vector relationships hold", () => {
+test('cross-vector relationships hold', () => {
   const by: Record<string, Vector> = {};
   for (const v of vectors) by[v.name] = v;
   const sig = (v: Vector) => structuralSig(v.contents, v.cursor[0], v.cursor[1]);
-  const fp = (v: Vector) =>
-    contentFingerprint(v.contents, v.cursor[0], v.cursor[1]);
+  const fp = (v: Vector) => contentFingerprint(v.contents, v.cursor[0], v.cursor[1]);
 
   // locale-invariant layout: EN and DE login hash the same structural sig.
-  assert.equal(sig(by.login_en), sig(by.login_de), "login_en == login_de");
+  assert.equal(sig(by.login_en), sig(by.login_de), 'login_en == login_de');
   // but their content fingerprints differ (raw words differ).
-  assert.notEqual(fp(by.login_en), fp(by.login_de), "login fp differs by words");
+  assert.notEqual(fp(by.login_en), fp(by.login_de), 'login fp differs by words');
 
   // value-class bucketing: count1 == count3 == count7 (all POS1), distinct from
   // count0 (ZERO) and count12 (POS2).
-  assert.equal(sig(by.count1), sig(by.count3), "count1 == count3 (POS1)");
-  assert.equal(sig(by.count1), sig(by.count7), "count1 == count7 (POS1)");
-  assert.notEqual(sig(by.count0), sig(by.count1), "count0 != count1");
-  assert.notEqual(sig(by.count1), sig(by.count12), "count1 != count12");
-  assert.notEqual(sig(by.count0), sig(by.count12), "count0 != count12");
+  assert.equal(sig(by.count1), sig(by.count3), 'count1 == count3 (POS1)');
+  assert.equal(sig(by.count1), sig(by.count7), 'count1 == count7 (POS1)');
+  assert.notEqual(sig(by.count0), sig(by.count1), 'count0 != count1');
+  assert.notEqual(sig(by.count1), sig(by.count12), 'count1 != count12');
+  assert.notEqual(sig(by.count0), sig(by.count12), 'count0 != count12');
 
   // value-sensitive fingerprint: hits100 == hits101 sig (same POS3 bucket) but
   // their fingerprints differ (value-only effect).
-  assert.equal(sig(by.hits100), sig(by.hits101), "hits100 == hits101 sig");
-  assert.notEqual(fp(by.hits100), fp(by.hits101), "hits fingerprints differ");
+  assert.equal(sig(by.hits100), sig(by.hits101), 'hits100 == hits101 sig');
+  assert.notEqual(fp(by.hits100), fp(by.hits101), 'hits fingerprints differ');
 
   // cursor cell is structural: same screen, different cursor row -> different sig.
-  assert.notEqual(
-    sig(by.login_en),
-    sig(by.login_en_cur3),
-    "cursor cell is structural",
-  );
+  assert.notEqual(sig(by.login_en), sig(by.login_en_cur3), 'cursor cell is structural');
 });
 
 // Pin the canonical FNV-1a 32-bit known values, so any drift in the hash family
 // away from the oracle's fnv1a32_hex is caught here (matches the crate's test).
-test("FNV-1a known values match the canonical hash family", () => {
-  assert.equal(sigOf(""), "811c9dc5");
-  assert.equal(sigOf("a"), "e40c292c");
+test('FNV-1a known values match the canonical hash family', () => {
+  assert.equal(sigOf(''), '811c9dc5');
+  assert.equal(sigOf('a'), 'e40c292c');
 });
 
 // value_class buckets + bounded numeric extraction, matching the crate's tests.
-test("value_class buckets and bounded numeric extraction", () => {
-  assert.deepEqual(numericValueClasses("0"), ["ZERO"]);
-  assert.deepEqual(numericValueClasses("-3"), ["NEG"]);
-  assert.deepEqual(numericValueClasses("9"), ["POS1"]);
-  assert.deepEqual(numericValueClasses("42"), ["POS2"]);
-  assert.deepEqual(numericValueClasses("100"), ["POS3"]);
-  assert.deepEqual(numericValueClasses("1000"), ["POSL"]);
-  assert.equal(valueClass("1,234"), "NONEMPTY");
-  assert.deepEqual(numericValueClasses("a 7 b 0 c 50"), ["POS1", "POS2", "ZERO"]);
+test('value_class buckets and bounded numeric extraction', () => {
+  assert.deepEqual(numericValueClasses('0'), ['ZERO']);
+  assert.deepEqual(numericValueClasses('-3'), ['NEG']);
+  assert.deepEqual(numericValueClasses('9'), ['POS1']);
+  assert.deepEqual(numericValueClasses('42'), ['POS2']);
+  assert.deepEqual(numericValueClasses('100'), ['POS3']);
+  assert.deepEqual(numericValueClasses('1000'), ['POSL']);
+  assert.equal(valueClass('1,234'), 'NONEMPTY');
+  assert.deepEqual(numericValueClasses('a 7 b 0 c 50'), ['POS1', 'POS2', 'ZERO']);
   // bounded and deduplicated: 0..49 contains ZERO/POS1/POS2 only.
-  let many = "";
-  for (let n = 0; n < 50; n++) many += n + " ";
-  assert.deepEqual(numericValueClasses(many), ["POS1", "POS2", "ZERO"]);
-  assert.deepEqual(numericValueClasses("no numbers here"), []);
+  let many = '';
+  for (let n = 0; n < 50; n++) many += n + ' ';
+  assert.deepEqual(numericValueClasses(many), ['POS1', 'POS2', 'ZERO']);
+  assert.deepEqual(numericValueClasses('no numbers here'), []);
 });
 
 // The cell-grid -> contents renderer matches the vt100 model: a wide CJK cell
 // emits its contents once and skips the spacer, trailing empties/blank rows trim,
 // and the resulting ScreenContents reproduces the golden cjk_word vector sig.
-test("ScreenContents.fromRows reproduces the vt100 text model and the golden sig", () => {
+test('ScreenContents.fromRows reproduces the vt100 text model and the golden ' + 'sig', () => {
   // cjk_word golden: "欢迎 9 items\n" trimmed to "欢迎 9 items", cursor [0,0].
   // Build it as a cell grid: two wide CJK cells (each with a skipped spacer
   // column), a space, '9', a space, then "items".
   const rows: Array<Array<{ contents: string; wide?: boolean }>> = [
     [
-      { contents: "欢", wide: true },
-      { contents: "" }, // spacer for the wide glyph (skipped)
-      { contents: "迎", wide: true },
-      { contents: "" }, // spacer
-      { contents: " " },
-      { contents: "9" },
-      { contents: " " },
-      { contents: "i" },
-      { contents: "t" },
-      { contents: "e" },
-      { contents: "m" },
-      { contents: "s" },
+      { contents: '欢', wide: true },
+      { contents: '' }, // spacer for the wide glyph (skipped)
+      { contents: '迎', wide: true },
+      { contents: '' }, // spacer
+      { contents: ' ' },
+      { contents: '9' },
+      { contents: ' ' },
+      { contents: 'i' },
+      { contents: 't' },
+      { contents: 'e' },
+      { contents: 'm' },
+      { contents: 's' },
     ],
   ];
   const sc = ScreenContents.fromRows(rows, [0, 0]);
@@ -158,57 +156,54 @@ test("ScreenContents.fromRows reproduces the vt100 text model and the golden sig
   // vt100 string which for these vectors retains one trailing '\n', so we compare
   // the rendered text to the trimmed form and verify the golden sig via fromText
   // on the exact golden contents below.)
-  assert.equal(sc.text, "欢迎 9 items", "wide-cell rendering matches vt100");
+  assert.equal(sc.text, '欢迎 9 items', 'wide-cell rendering matches vt100');
 
   // fromText is the verbatim path: hand it the exact golden contents (trailing
   // '\n' included) and it must reproduce the golden sig.
-  const cjk = vectors.find((v) => v.name === "cjk_word")!;
+  const cjk = vectors.find((v) => v.name === 'cjk_word')!;
   const t1 = ScreenContents.fromText(cjk.contents, cjk.cursor);
   assert.equal(
     structuralSig(t1.text, t1.cursorRow, t1.cursorCol),
     cjk.expected_sig,
-    "fromText on the golden cjk contents matches the golden sig",
+    'fromText on the golden cjk contents matches the golden sig',
   );
-  const c0 = vectors.find((v) => v.name === "count0")!;
+  const c0 = vectors.find((v) => v.name === 'count0')!;
   const t2 = ScreenContents.fromText(c0.contents, c0.cursor);
-  assert.equal(
-    structuralSig(t2.text, t2.cursorRow, t2.cursorCol),
-    c0.expected_sig,
-  );
+  assert.equal(structuralSig(t2.text, t2.cursorRow, t2.cursorCol), c0.expected_sig);
 });
 
 // The reporter records an edge only when the structural signature changes, and
 // emits a session event on construction (mirroring the Go/web SDKs).
-test("Reporter records an edge only on structural change", () => {
+test('Reporter records an edge only on structural change', () => {
   const seen: ReproitEvent[] = [];
   const r = new Reporter({
-    appId: "test",
+    appId: 'test',
     endpoint: null,
     onEvent: (ev) => seen.push(ev),
   });
   // session emitted on construction
-  assert.equal(seen.filter((e) => e.kind === "session").length, 1);
+  assert.equal(seen.filter((e) => e.kind === 'session').length, 1);
 
-  r.observe(ScreenContents.fromText("Count: 0\n", [0, 8]), "load");
-  r.observe(ScreenContents.fromText("Count: 0\n", [0, 8]), "noop"); // same sig -> no edge
-  r.observe(ScreenContents.fromText("Count: 1\n", [0, 8]), "key:+"); // POS1 -> new edge
+  r.observe(ScreenContents.fromText('Count: 0\n', [0, 8]), 'load');
+  r.observe(ScreenContents.fromText('Count: 0\n', [0, 8]), 'noop'); // same sig -> no edge
+  r.observe(ScreenContents.fromText('Count: 1\n', [0, 8]), 'key:+'); // POS1 -> new edge
 
-  const edges = seen.filter((e) => e.kind === "edge");
-  assert.equal(edges.length, 2, "two structural changes -> two edges");
-  assert.equal(edges[0].action, "load");
-  assert.equal(edges[1].action, "key:+");
+  const edges = seen.filter((e) => e.kind === 'edge');
+  assert.equal(edges.length, 2, 'two structural changes -> two edges');
+  assert.equal(edges[0].action, 'load');
+  assert.equal(edges[1].action, 'key:+');
 
   // recordError carries the current sig + path.
-  r.recordError(new Error("boom"));
-  const errs = seen.filter((e) => e.kind === "error");
+  r.recordError(new Error('boom'));
+  const errs = seen.filter((e) => e.kind === 'error');
   assert.equal(errs.length, 1);
   assert.equal(errs[0].sig, r.currentSig());
-  assert.ok((errs[0].path?.length ?? 0) >= 1, "error carries the graph path");
-  assert.equal(errs[0].message, "boom");
+  assert.ok((errs[0].path?.length ?? 0) >= 1, 'error carries the graph path');
+  assert.equal(errs[0].message, 'boom');
 });
 
 // flush() POSTs the {appId, sentAt, ctx?, events} batch via the injected fetch.
-test("flush POSTs the {appId, sentAt, ctx?, events} batch", () => {
+test('flush POSTs the {appId, sentAt, ctx?, events} batch', () => {
   const posted: Array<{ url: string; body: string }> = [];
   const fakeFetch = ((url: string, init: { body: string }) => {
     posted.push({ url, body: init.body });
@@ -216,19 +211,19 @@ test("flush POSTs the {appId, sentAt, ctx?, events} batch", () => {
   }) as unknown as typeof fetch;
 
   const r = new Reporter({
-    appId: "myapp",
-    endpoint: "https://ingest.example/v1/events",
-    ctx: { release: "1.2.3" },
+    appId: 'myapp',
+    endpoint: 'https://ingest.example/v1/events',
+    ctx: { release: '1.2.3' },
     fetchImpl: fakeFetch,
   });
-  r.observe(ScreenContents.fromText("Count: 0\n", [0, 8]), "load");
+  r.observe(ScreenContents.fromText('Count: 0\n', [0, 8]), 'load');
   r.flush();
 
-  assert.equal(posted.length, 1, "flush POSTed a batch");
+  assert.equal(posted.length, 1, 'flush POSTed a batch');
   const batch = JSON.parse(posted[0].body);
-  assert.equal(batch.appId, "myapp");
-  assert.equal(typeof batch.sentAt, "number");
-  assert.deepEqual(batch.ctx, { release: "1.2.3" });
+  assert.equal(batch.appId, 'myapp');
+  assert.equal(typeof batch.sentAt, 'number');
+  assert.deepEqual(batch.ctx, { release: '1.2.3' });
   assert.ok(Array.isArray(batch.events) && batch.events.length >= 2);
-  assert.equal(batch.events[0].kind, "session");
+  assert.equal(batch.events[0].kind, 'session');
 });

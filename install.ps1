@@ -2,7 +2,8 @@
 # web runner so `reproit fuzz https://yoursite.com` works link-and-go, with no
 # env vars and no manual `npm install`. (macOS/Linux: use install.sh instead.)
 #
-#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/ReproIt/reproit/main/install.ps1 | iex"
+#   $script = 'https://raw.githubusercontent.com/ReproIt/reproit/main/install.ps1'
+#   powershell -ExecutionPolicy Bypass -c "irm $script | iex"
 #
 # Honors:
 #   REPROIT_BIN_DIR   where reproit.exe lands   (default %LOCALAPPDATA%\Programs\reproit)
@@ -14,11 +15,17 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # Windows PowerShell 5.1 may default to TLS 1.0; GitHub requires TLS 1.2+.
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$protocol = [Net.ServicePointManager]::SecurityProtocol
+[Net.ServicePointManager]::SecurityProtocol = `
+    $protocol -bor [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'ReproIt/reproit'
 $Target = 'x86_64-pc-windows-msvc'
-$BinDir = if ($env:REPROIT_BIN_DIR) { $env:REPROIT_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\reproit' }
+$BinDir = if ($env:REPROIT_BIN_DIR) {
+    $env:REPROIT_BIN_DIR
+} else {
+    Join-Path $env:LOCALAPPDATA 'Programs\reproit'
+}
 
 function Say([string]$Msg) { Write-Host $Msg }
 function Fail([string]$Msg) { Write-Host "error: $Msg" -ForegroundColor Red; exit 1 }
@@ -37,7 +44,9 @@ function Fetch([string]$Url, [string]$Dest, [string]$Label, [switch]$Optional) {
         }
         if ($status -eq 404) {
             if ($Optional) { Remove-Item -Path $Dest -ErrorAction SilentlyContinue; return $false }
-            Fail "$Label not found (HTTP 404) at $Url`n       the release may not carry this asset; check https://github.com/$Repo/releases"
+            $message = "$Label not found (HTTP 404) at $Url`n"
+            $message += "       the release may not carry this asset; "
+            Fail ($message + "check https://github.com/$Repo/releases")
         } elseif ($status) {
             Fail "download failed for $Label (HTTP $status) from $Url"
         } else {
@@ -52,7 +61,9 @@ function VerifySha256([string]$File, [string]$SumFile, [string]$Label) {
     $want = ((Get-Content -Path $SumFile -Raw).Trim() -split '\s+')[0].ToLower()
     if (-not $want) { Fail "empty checksum file for $Label" }
     $got = (Get-FileHash -Algorithm SHA256 -Path $File).Hash.ToLower()
-    if ($got -ne $want) { Fail "checksum mismatch for $Label (expected $want, got $got); refusing to install" }
+    if ($got -ne $want) {
+        Fail "checksum mismatch for $Label (expected $want, got $got); refusing to install"
+    }
     Say "  verified sha256: $Label"
 }
 
@@ -68,16 +79,24 @@ if (-not $Tag) {
     }
     Say 'resolving the latest release...'
     try {
-        $Tag = (Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing).tag_name
+        $latestUrl = "https://api.github.com/repos/$Repo/releases/latest"
+        $Tag = (Invoke-RestMethod -Uri $latestUrl -UseBasicParsing).tag_name
     } catch {
-        Fail "could not reach the GitHub API to resolve the latest release (network problem or rate limit); retry, or pin a tag with `$env:REPROIT_VERSION = 'vX.Y.Z'"
+        $message = 'could not reach the GitHub API to resolve the latest release '
+        $message += '(network problem or rate limit); retry, or pin a tag with '
+        Fail ($message + "`$env:REPROIT_VERSION = 'vX.Y.Z'")
     }
     if (-not $Tag) { Fail 'could not resolve the latest release tag from the GitHub API response' }
 }
 Say "installing reproit $Tag ($Target)"
 
-$Dl = if ($env:REPROIT_RELEASE_BASE) { $env:REPROIT_RELEASE_BASE.TrimEnd('/') } else { "https://github.com/$Repo/releases/download/$Tag" }
-$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("reproit-install-" + [System.IO.Path]::GetRandomFileName())
+$Dl = if ($env:REPROIT_RELEASE_BASE) {
+    $env:REPROIT_RELEASE_BASE.TrimEnd('/')
+} else {
+    "https://github.com/$Repo/releases/download/$Tag"
+}
+$randomName = "reproit-install-" + [System.IO.Path]::GetRandomFileName()
+$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) $randomName
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 
 try {
@@ -143,7 +162,9 @@ $onPath = ($env:Path -split ';') -contains $BinDir
 if (-not $onPath) {
     Say ''
     Say "Add $BinDir to your PATH (run once, then open a new terminal):"
-    Say "  [Environment]::SetEnvironmentVariable('Path', `"$BinDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+    $pathCommand = "  [Environment]::SetEnvironmentVariable('Path', `"$BinDir;`" +"
+    $pathCommand += " [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+    Say $pathCommand
 }
 
 Say ''

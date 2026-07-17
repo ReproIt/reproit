@@ -5,9 +5,203 @@
 // (like `choice-oracle.mjs`) means the occlusion + security oracles are defined
 // ONCE and shared across runners instead of copy-pasted per platform.
 //
-// Both are pure, deterministic DOM/URL predicates (no pixels, no wall-clock), so
+// These are pure, deterministic DOM/URL predicates (no pixels, no wall-clock), so
 // a finding reproduces identically on any machine. Callers wrap the result in the
-// per-state marker: `EXPLORE:OCCLUSION` / `EXPLORE:SECURITY`.
+// per-state marker: `EXPLORE:OCCLUSION` / `EXPLORE:SECURITY` /
+// `EXPLORE:RELATION`.
+
+// DETACHED INDICATOR: an explicit structural relationship contract. This scan
+// never guesses that a red/circular/small element is a badge. It evaluates only
+// elements whose application author declared all three roles:
+//
+//   <nav id="main-nav" data-reproit-indicator-container>
+//     <button id="inbox" data-reproit-indicator-owner
+//             data-reproit-indicator-max-gap="8">Inbox</button>
+//     <span id="inbox-unread" data-reproit-indicator-for="inbox"></span>
+//   </nav>
+//
+// The indicator-for value is an exact DOM id reference. The referenced owner
+// must opt in with data-reproit-indicator-owner, and its closest declared
+// container must have a stable id and contain both nodes. Missing/ambiguous/
+// hidden/animating relationships are UNKNOWN and stay silent. A settled,
+// uniquely-resolved relationship is VALID when the indicator is within the
+// declared max gap (8 CSS px by default) and inside the container, otherwise it
+// is PROVEN. Callers confirm a PROVEN item in a second settled sample before
+// emitting a marker.
+export function indicatorRelationshipScan() {
+  const indicators = [...document.querySelectorAll('[data-reproit-indicator-for]')];
+  const result = { outcome: 'UNKNOWN', items: [], checks: [], proven: 0, valid: 0, unknown: 0 };
+  const visible = (el) => {
+    if (!el || !el.isConnected) return false;
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return false;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse')
+        return false;
+      if (parseFloat(s.opacity) === 0 || s.contentVisibility === 'hidden') return false;
+      if (
+        n.hasAttribute('hidden') ||
+        n.hasAttribute('inert') ||
+        n.getAttribute('aria-hidden') === 'true'
+      )
+        return false;
+    }
+    return true;
+  };
+  const stable = (nodes) =>
+    !nodes.some((node) => {
+      try {
+        return node
+          .getAnimations({ subtree: true })
+          .some(
+            (animation) => animation.playState === 'running' || animation.playState === 'pending',
+          );
+      } catch (_) {
+        return true;
+      }
+    });
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+      width: r.width,
+      height: r.height,
+    };
+  };
+  const gap = (a, b) => {
+    const dx = Math.max(a.left - b.right, b.left - a.right, 0);
+    const dy = Math.max(a.top - b.bottom, b.top - a.bottom, 0);
+    return Math.hypot(dx, dy);
+  };
+  const contains = (outer, inner, epsilon = 1) =>
+    inner.left >= outer.left - epsilon &&
+    inner.top >= outer.top - epsilon &&
+    inner.right <= outer.right + epsilon &&
+    inner.bottom <= outer.bottom + epsilon;
+
+  for (const indicator of indicators) {
+    const ownerId = (indicator.getAttribute('data-reproit-indicator-for') || '').trim();
+    // Stable structural identities are mandatory. CSS selectors, visible text,
+    // and generated array indices are deliberately unsupported.
+    if (!indicator.id || !ownerId) {
+      result.unknown++;
+      continue;
+    }
+    const owner = document.getElementById(ownerId);
+    if (!owner || !owner.hasAttribute('data-reproit-indicator-owner')) {
+      result.unknown++;
+      continue;
+    }
+    // getElementById returns one node even for malformed duplicate ids. Refuse
+    // to prove ownership unless both identities are globally unique.
+    const esc = (value) => {
+      try {
+        return CSS.escape(value);
+      } catch (_) {
+        return null;
+      }
+    };
+    const ownerEsc = esc(ownerId),
+      indicatorEsc = esc(indicator.id);
+    if (
+      !ownerEsc ||
+      !indicatorEsc ||
+      document.querySelectorAll('#' + ownerEsc).length !== 1 ||
+      document.querySelectorAll('#' + indicatorEsc).length !== 1
+    ) {
+      result.unknown++;
+      continue;
+    }
+    const container = owner.closest('[data-reproit-indicator-container]');
+    if (
+      !container ||
+      !container.id ||
+      !container.contains(owner) ||
+      !container.contains(indicator)
+    ) {
+      result.unknown++;
+      continue;
+    }
+    const containerEsc = esc(container.id);
+    if (!containerEsc || document.querySelectorAll('#' + containerEsc).length !== 1) {
+      result.unknown++;
+      continue;
+    }
+    if (
+      !visible(indicator) ||
+      !visible(owner) ||
+      !visible(container) ||
+      !stable([indicator, owner, container])
+    ) {
+      result.unknown++;
+      continue;
+    }
+    const rawGap = owner.getAttribute('data-reproit-indicator-max-gap');
+    const maxGap = rawGap == null || rawGap.trim() === '' ? 8 : Number(rawGap);
+    if (!Number.isInteger(maxGap) || maxGap < 0 || maxGap > 64) {
+      result.unknown++;
+      continue;
+    }
+    const indicatorRect = rect(indicator),
+      ownerRect = rect(owner),
+      containerRect = rect(container);
+    const distance = gap(indicatorRect, ownerRect);
+    const violation = !contains(containerRect, indicatorRect)
+      ? 'escaped-container'
+      : distance > maxGap
+        ? 'detached'
+        : null;
+    const identity = {
+      kind: 'indicator-anchor',
+      dependentKey: 'key:id:' + indicator.id,
+      ownerKey: 'key:id:' + owner.id,
+      containerKey: 'key:id:' + container.id,
+    };
+    if (!violation) {
+      result.valid++;
+      result.checks.push({ ...identity, outcome: 'VALID' });
+      continue;
+    }
+    result.proven++;
+    result.checks.push({ ...identity, outcome: 'PROVEN', violation });
+    result.items.push({
+      ...identity,
+      violation,
+      maxGap,
+      gap: Math.round(distance * 100) / 100,
+    });
+  }
+  result.items.sort((a, b) =>
+    (a.dependentKey + '\0' + a.ownerKey).localeCompare(b.dependentKey + '\0' + b.ownerKey),
+  );
+  result.checks.sort((a, b) =>
+    (a.dependentKey + '\0' + a.ownerKey).localeCompare(b.dependentKey + '\0' + b.ownerKey),
+  );
+  result.outcome =
+    result.proven > 0
+      ? 'PROVEN'
+      : result.unknown > 0
+        ? 'UNKNOWN'
+        : result.valid > 0
+          ? 'VALID'
+          : 'UNKNOWN';
+  return result;
+}
+
+// Require the exact same structural relationship and violation in two settled
+// samples. Geometry is evidence, not identity, so harmless sub-pixel jitter does
+// not flip a proof; a changing violation is an unstable layout and is dropped.
+export function confirmRelationshipViolations(first, second) {
+  if (!first || !second || !Array.isArray(first.items) || !Array.isArray(second.items)) return [];
+  const identity = (item) =>
+    [item.kind, item.dependentKey, item.ownerKey, item.containerKey, item.violation].join('\0');
+  const confirmed = new Set(second.items.map(identity));
+  return first.items.filter((item) => confirmed.has(identity(item)));
+}
 
 // OCCLUSION: an interactive element presented as usable (visible, in the
 // viewport, effectively rendered) whose CENTER is covered by a FOREIGN, OPAQUE
@@ -38,25 +232,46 @@
 //     sticky bar over the page, never a foreign overlay).
 // Returns [{target, cover}]. Only a genuine foreign opaque cover survives.
 export function occlusionScan() {
-  const SEL = 'a[href], button, input:not([type=hidden]), select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [onclick]';
-  const OVERLAY_SEL = '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog, iframe, [class*="modal" i], [class*="backdrop" i], [class*="overlay" i], [class*="mask" i], [class*="scrim" i], [class*="popover" i], [class*="drawer" i], [class*="lightbox" i]';
+  const SEL =
+    'a[href], button, input:not([type=hidden]), select, textarea, ' +
+    '[role="button"], [role="link"], [role="checkbox"], [role="tab"], ' +
+    '[role="menuitem"], [onclick]';
+  const OVERLAY_SEL =
+    '[role="dialog"], [role="alertdialog"], [aria-modal="true"], dialog, ' +
+    'iframe, [class*="modal" i], [class*="backdrop" i], [class*="overlay" i]' +
+    ', [class*="mask" i], [class*="scrim" i], [class*="popover" i], ' +
+    '[class*="drawer" i], [class*="lightbox" i]';
   // Site chrome + page furniture the elementFromPoint mismatch is INTENDED for: a
   // sticky/fixed header or nav dropdown / flyout over scrolled content; a footer;
   // an ad / promo / cookie / sponsor placement band (MDN's <mdn-placement-top>, a
   // page-layout banner); and prose formatting (a <code>/<pre> token over a link).
   // None is a foreign occluding overlay -- covering here is by design.
-  const CHROME_SEL = 'nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"], [role="menubar"], [role="menu"], [role="toolbar"], pre, code, kbd, samp, [class*="nav" i], [class*="header" i], [class*="footer" i], [class*="flyout" i], [class*="menu" i], [class*="navbar" i], [class*="toolbar" i], [class*="dropdown" i], [class*="banner" i], [class*="placement" i], [class*="advert" i], [class*="promo" i], [class*="sponsor" i], [class*="cookie" i]';
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const CHROME_SEL =
+    'nav, header, footer, [role="navigation"], [role="banner"], ' +
+    '[role="contentinfo"], [role="menubar"], [role="menu"], [role="toolbar"]' +
+    ', pre, code, kbd, samp, [class*="nav" i], [class*="header" i], ' +
+    '[class*="footer" i], [class*="flyout" i], [class*="menu" i], ' +
+    '[class*="navbar" i], [class*="toolbar" i], [class*="dropdown" i], ' +
+    '[class*="banner" i], [class*="placement" i], [class*="advert" i], ' +
+    '[class*="promo" i], [class*="sponsor" i], [class*="cookie" i]';
+  const vw = window.innerWidth,
+    vh = window.innerHeight;
   // Ancestor-aware "effectively not rendered": any ancestor that hides the subtree
   // (closed flyout / collapsed disclosure / aria-hidden region) means the control
   // is not presented as clickable right now.
   const effHidden = (el) => {
     for (let a = el; a && a.nodeType === 1; a = a.parentElement) {
       const s = getComputedStyle(a);
-      if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse') return true;
+      if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse')
+        return true;
       if (parseFloat(s.opacity) === 0) return true;
       if (s.contentVisibility === 'hidden') return true;
-      if (a.hasAttribute('hidden') || a.getAttribute('aria-hidden') === 'true' || a.hasAttribute('inert')) return true;
+      if (
+        a.hasAttribute('hidden') ||
+        a.getAttribute('aria-hidden') === 'true' ||
+        a.hasAttribute('inert')
+      )
+        return true;
       // A CLOSED <details> collapses everything but its <summary>. A control in the
       // collapsed body is NOT presented as clickable, even when the page keeps it
       // laid out (custom disclosures animate height and leave the content with a
@@ -117,7 +332,8 @@ export function occlusionScan() {
   // with real alpha, to count as an occlusion.
   const opaqueCover = (h) => {
     const tag = (h.tagName || '').toLowerCase();
-    if (['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'picture'].includes(tag)) return true;
+    if (['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'picture'].includes(tag))
+      return true;
     const cs = getComputedStyle(h);
     if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
     const m = (cs.backgroundColor || '').match(/rgba?\(([^)]+)\)/);
@@ -132,7 +348,8 @@ export function occlusionScan() {
   for (const el of document.querySelectorAll(SEL)) {
     const r = el.getBoundingClientRect();
     if (r.width < 4 || r.height < 4) continue;
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const cx = r.left + r.width / 2,
+      cy = r.top + r.height / 2;
     if (cx < 0 || cy < 0 || cx > vw || cy > vh) continue;
     if (effHidden(el)) continue;
     if (clippedOut(el, cx, cy)) continue;
@@ -152,13 +369,26 @@ export function occlusionScan() {
     // visually-hidden native input (the styled-checkbox / radio / toggle pattern,
     // e.g. Bootstrap's .btn-check + label.btn) -- the "covered" input is meant to
     // be driven through its label, not a bug.
-    if (hit.closest('label') && el.matches('input, select, textarea, [role="checkbox"], [role="radio"], [role="switch"]')) continue;
+    if (
+      hit.closest('label') &&
+      el.matches('input, select, textarea, [role="checkbox"], [role="radio"], ' + '[role="switch"]')
+    )
+      continue;
     // The cover must actually PAINT over the control (opaque). A transparent text
     // element on top (an intended stretched-link / overlapping-link / code-editor
     // overlap) leaves the control fully visible -- not an occlusion.
     if (!opaqueCover(hit)) continue;
-    const key = el.id ? 'key:id:' + el.id : (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase();
-    const cover = hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : (hit.className && typeof hit.className === 'string' ? '.' + hit.className.trim().split(/\s+/)[0] : ''));
+    const key = el.id
+      ? 'key:id:' + el.id
+      : (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40) ||
+        el.tagName.toLowerCase();
+    const cover =
+      hit.tagName.toLowerCase() +
+      (hit.id
+        ? '#' + hit.id
+        : hit.className && typeof hit.className === 'string'
+          ? '.' + hit.className.trim().split(/\s+/)[0]
+          : '');
     out.push({ target: key, cover: cover.slice(0, 60) });
   }
   return out.slice(0, 20);
@@ -200,7 +430,13 @@ export function confirmOcclusions(first, second) {
 export function securityScan() {
   const out = [];
   const seen = new Set();
-  const add = (kind, target) => { const k = kind + '|' + target; if (!seen.has(k)) { seen.add(k); out.push({ kind, target }); } };
+  const add = (kind, target) => {
+    const k = kind + '|' + target;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push({ kind, target });
+    }
+  };
   const https = location.protocol === 'https:';
   for (const a of document.querySelectorAll('a[target="_blank"][href][rel]')) {
     const rel = (a.getAttribute('rel') || '').toLowerCase();
@@ -216,11 +452,21 @@ export function securityScan() {
   }
   if (https) {
     for (const f of document.querySelectorAll('form[action]')) {
-      try { if (new URL(f.action, location.href).protocol === 'http:') add('insecure-form', f.getAttribute('action').slice(0, 60)); } catch (_) {}
+      try {
+        if (new URL(f.action, location.href).protocol === 'http:')
+          add('insecure-form', f.getAttribute('action').slice(0, 60));
+      } catch (_) {}
     }
-    for (const el of document.querySelectorAll('img[src], script[src], iframe[src], link[rel~="stylesheet"][href]')) {
+    for (const el of document.querySelectorAll(
+      'img[src], script[src], iframe[src], link[rel~="stylesheet"][href]',
+    )) {
       const src = el.getAttribute('src') || el.getAttribute('href') || '';
-      try { if (new URL(src, location.href).protocol === 'http:') { add('mixed-content', src.slice(0, 60)); break; } } catch (_) {}
+      try {
+        if (new URL(src, location.href).protocol === 'http:') {
+          add('mixed-content', src.slice(0, 60));
+          break;
+        }
+      } catch (_) {}
     }
   }
   return out.slice(0, 10);
@@ -238,7 +484,8 @@ export function securityScan() {
 // the scanned root and the viewport -- or [] when any content is visible.
 export function blankScreenScan() {
   if (!document.body) return [];
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const vw = window.innerWidth,
+    vh = window.innerHeight;
   if (!(vw > 0 && vh > 0)) return [];
   const br = document.body.getBoundingClientRect();
   if (br.width <= 0 && br.height <= 0) return [];
@@ -259,15 +506,24 @@ export function blankScreenScan() {
     if (el.closest('script, style, noscript, template')) continue;
     if (visible(el)) return [];
   }
-  const SEL = 'a[href], button, input:not([type=hidden]), select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [onclick]';
+  const SEL =
+    'a[href], button, input:not([type=hidden]), select, textarea, ' +
+    '[role="button"], [role="link"], [role="checkbox"], [role="tab"], ' +
+    '[role="menuitem"], [onclick]';
   for (const el of document.body.querySelectorAll(SEL)) if (visible(el)) return [];
-  for (const el of document.body.querySelectorAll('img, svg, canvas, video, picture, object, embed')) if (visible(el)) return [];
+  for (const el of document.body.querySelectorAll(
+    'img, svg, canvas, video, picture, object, embed',
+  ))
+    if (visible(el)) return [];
   // A visible LOADING / spinner / skeleton / progress indicator means the screen is
   // MID-LOAD, not a permanently-blank WSOD -- never fire while one is shown. Reached
   // only when the page has no text/control/media, so the DOM is tiny and this walk
   // is cheap. Matches an aria-busy region, a progressbar/status role, <progress>, or
   // a class token like loading/loader/spinner/skeleton/shimmer/placeholder.
-  const LOADING_RE = /(^|[\s_-])(loading|loader|spinner|skeleton|shimmer|placeholder|busy)([\s_-]|$)/i;
+  const LOADING_RE = new RegExp(
+    '(^|[\\s_-])(loading|loader|spinner|skeleton|shimmer|placeholder|busy)' + '([\\s_-]|$)',
+    'i',
+  );
   for (const el of document.body.querySelectorAll('*')) {
     if (!visible(el)) continue;
     if (el.tagName === 'PROGRESS') return [];
@@ -284,7 +540,8 @@ export function blankScreenScan() {
   // trapped-text blob. So a page whose <style> text is disproportionately large is
   // a markup/CSS bug, not blank.
   let styleTextLen = 0;
-  for (const st of document.querySelectorAll('style')) styleTextLen += (st.textContent || '').length;
+  for (const st of document.querySelectorAll('style'))
+    styleTextLen += (st.textContent || '').length;
   if (styleTextLen > 10000) return [];
   return [{ key: 'tag:body', w: Math.round(vw), h: Math.round(vh) }];
 }
@@ -325,8 +582,11 @@ export function brokenAssetScan(injectedValues) {
   };
   // A favicon / touch-icon / manifest icon is BROWSER CHROME, never painted into
   // page content, so a broken one is not a rendered-content bug. Skip by src.
-  const isChromeIcon = (src) => /(^|\/)(favicon(\.ico)?|apple-touch-icon[\w-]*\.png|mstile[\w-]*\.png)(\?|#|$)/i.test(src)
-    || /\.ico(\?|#|$)/i.test(src);
+  const isChromeIcon = (src) =>
+    new RegExp(
+      '(^|\\/)(favicon(\\.ico)?|apple-touch-icon[\\w-]*\\.png|mstile[\\w-]*\\.png)' + '(\\?|#|$)',
+      'i',
+    ).test(src) || /\.ico(\?|#|$)/i.test(src);
   for (const img of document.querySelectorAll('img[src]')) {
     const src = img.getAttribute('src') || '';
     if (!src.trim()) continue;
@@ -342,9 +602,16 @@ export function brokenAssetScan(injectedValues) {
     // img must have a non-zero on-screen box and not be hidden.
     const r = img.getBoundingClientRect();
     if (r.width <= 1 || r.height <= 1) continue;
-    if (r.bottom <= 0 || r.top >= (window.innerHeight || 0) || r.right <= 0 || r.left >= (window.innerWidth || 0)) continue;
+    if (
+      r.bottom <= 0 ||
+      r.top >= (window.innerHeight || 0) ||
+      r.right <= 0 ||
+      r.left >= (window.innerWidth || 0)
+    )
+      continue;
     const ics = getComputedStyle(img);
-    if (ics.visibility === 'hidden' || ics.display === 'none' || parseFloat(ics.opacity) === 0) continue;
+    if (ics.visibility === 'hidden' || ics.display === 'none' || parseFloat(ics.opacity) === 0)
+      continue;
     if ((img.getAttribute('loading') || '').toLowerCase() === 'lazy' && !img.complete) continue;
     push(img.id ? 'key:id:' + img.id : 'tag:img', 'img', src);
   }
@@ -367,8 +634,13 @@ export function brokenAssetScan(injectedValues) {
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
     const cs = getComputedStyle(el);
-    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) continue;
-    push(el.id ? 'key:id:' + el.id : 'tag:' + el.tagName.toLowerCase(), 'tofu', text.trim().slice(0, 60));
+    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0)
+      continue;
+    push(
+      el.id ? 'key:id:' + el.id : 'tag:' + el.tagName.toLowerCase(),
+      'tofu',
+      text.trim().slice(0, 60),
+    );
   }
   return out;
 }
@@ -388,23 +660,30 @@ export function installCriticalResourceObserver() {
   const bindLoad = (el) => {
     if (!el || el.nodeType !== 1 || el.__reproitCriticalBound) return;
     const tag = (el.tagName || '').toLowerCase();
-    const critical = (tag === 'script' && el.src)
-      || (tag === 'link' && (el.rel || '').toLowerCase().split(/\s+/).includes('stylesheet'));
+    const critical =
+      (tag === 'script' && el.src) ||
+      (tag === 'link' && (el.rel || '').toLowerCase().split(/\s+/).includes('stylesheet'));
     if (!critical) return;
     el.__reproitCriticalBound = true;
-    el.addEventListener('load', () => window.__reproitCriticalResourceLoaded.add(el), { once: true });
+    el.addEventListener('load', () => window.__reproitCriticalResourceLoaded.add(el), {
+      once: true,
+    });
   };
   new MutationObserver((records) => {
-    for (const record of records) for (const node of record.addedNodes) {
-      bindLoad(node);
-      if (node && node.querySelectorAll) for (const el of node.querySelectorAll('script[src], link[rel~="stylesheet"][href]')) bindLoad(el);
-    }
+    for (const record of records)
+      for (const node of record.addedNodes) {
+        bindLoad(node);
+        if (node && node.querySelectorAll)
+          for (const el of node.querySelectorAll('script[src], link[rel~="stylesheet"][href]'))
+            bindLoad(el);
+      }
   }).observe(document, { childList: true, subtree: true });
   const record = (event) => {
     const el = event && event.target;
     if (!el || el.nodeType !== 1) return;
     const tag = (el.tagName || '').toLowerCase();
-    const isCss = tag === 'link' && (el.rel || '').toLowerCase().split(/\s+/).includes('stylesheet');
+    const isCss =
+      tag === 'link' && (el.rel || '').toLowerCase().split(/\s+/).includes('stylesheet');
     const isScript = tag === 'script' && !!el.src;
     if (!isCss && !isScript) return;
     const url = isCss ? el.href : el.src;
@@ -419,16 +698,26 @@ export function criticalResourceScan(networkFacts) {
   const out = [];
   const origin = location.origin;
   const norm = (value) => {
-    try { const u = new URL(value, location.href); u.hash = ''; return u.href; } catch (_) { return ''; }
+    try {
+      const u = new URL(value, location.href);
+      u.hash = '';
+      return u.href;
+    } catch (_) {
+      return '';
+    }
   };
   const facts = new Map();
-  for (const fact of (Array.isArray(networkFacts) ? networkFacts : [])) {
+  for (const fact of Array.isArray(networkFacts) ? networkFacts : []) {
     const url = norm(fact && fact.url);
     if (url) facts.set(url, fact);
   }
   const failedElements = window.__reproitCriticalResourceFailed || new WeakSet();
   const loadedElements = window.__reproitCriticalResourceLoaded || new WeakSet();
-  const loadedSheets = new Set(Array.from(document.styleSheets || []).map((sheet) => norm(sheet.href)).filter(Boolean));
+  const loadedSheets = new Set(
+    Array.from(document.styleSheets || [])
+      .map((sheet) => norm(sheet.href))
+      .filter(Boolean),
+  );
   const refs = [];
   for (const link of document.querySelectorAll('link[href]')) {
     const rel = (link.rel || '').toLowerCase().split(/\s+/);
@@ -436,15 +725,33 @@ export function criticalResourceScan(networkFacts) {
     const media = link.media || '';
     if (media && media.toLowerCase() !== 'all' && !matchMedia(media).matches) continue;
     const url = norm(link.href);
-    try { if (!url || new URL(url).origin !== origin) continue; } catch (_) { continue; }
-    refs.push({ type: 'stylesheet', url, key: link.id ? 'key:id:' + link.id : 'tag:link', element: link });
+    try {
+      if (!url || new URL(url).origin !== origin) continue;
+    } catch (_) {
+      continue;
+    }
+    refs.push({
+      type: 'stylesheet',
+      url,
+      key: link.id ? 'key:id:' + link.id : 'tag:link',
+      element: link,
+    });
   }
   for (const script of document.querySelectorAll('script[src]')) {
     const type = (script.getAttribute('type') || '').trim().toLowerCase();
     if (type && type !== 'module' && !/(java|ecma)script/.test(type)) continue;
     const url = norm(script.src);
-    try { if (!url || new URL(url).origin !== origin) continue; } catch (_) { continue; }
-    refs.push({ type: 'script', url, key: script.id ? 'key:id:' + script.id : 'tag:script', element: script });
+    try {
+      if (!url || new URL(url).origin !== origin) continue;
+    } catch (_) {
+      continue;
+    }
+    refs.push({
+      type: 'script',
+      url,
+      key: script.id ? 'key:id:' + script.id : 'tag:script',
+      element: script,
+    });
   }
   // CSSOM exposes the import graph on every engine. Walk same-origin active
   // stylesheets recursively so a failed @import is attributed to the exact URL,
@@ -454,14 +761,29 @@ export function criticalResourceScan(networkFacts) {
     if (!sheet || seenSheets.has(sheet)) return;
     seenSheets.add(sheet);
     let rules;
-    try { rules = sheet.cssRules; } catch (_) { return; }
+    try {
+      rules = sheet.cssRules;
+    } catch (_) {
+      return;
+    }
     for (const rule of Array.from(rules || [])) {
       if (rule.type !== 3 || !rule.href) continue; // CSSRule.IMPORT_RULE
-      const media = rule.media && rule.media.mediaText || '';
+      const media = (rule.media && rule.media.mediaText) || '';
       if (media && media.toLowerCase() !== 'all' && !matchMedia(media).matches) continue;
       const url = norm(rule.href);
-      try { if (!url || new URL(url).origin !== origin) continue; } catch (_) { continue; }
-      refs.push({ type: 'stylesheet', url, key: rootKey, parent: parentUrl, imported: true, element: null });
+      try {
+        if (!url || new URL(url).origin !== origin) continue;
+      } catch (_) {
+        continue;
+      }
+      refs.push({
+        type: 'stylesheet',
+        url,
+        key: rootKey,
+        parent: parentUrl,
+        imported: true,
+        element: null,
+      });
       walkImports(rule.styleSheet, rootKey, url);
     }
   };
@@ -471,7 +793,9 @@ export function criticalResourceScan(networkFacts) {
     const media = link.media || '';
     if (media && media.toLowerCase() !== 'all' && !matchMedia(media).matches) continue;
     const href = norm(link.href);
-    const sheet = Array.from(document.styleSheets || []).find((candidate) => norm(candidate.href) === href);
+    const sheet = Array.from(document.styleSheets || []).find(
+      (candidate) => norm(candidate.href) === href,
+    );
     walkImports(sheet, link.id ? 'key:id:' + link.id : 'tag:link', href);
   }
   // The DOM has no standard JavaScript module-graph API. A root module's error
@@ -481,16 +805,40 @@ export function criticalResourceScan(networkFacts) {
   // with a root only when exactly one root failed; otherwise say unavailable
   // instead of guessing.
   const directUrls = new Set(refs.map((ref) => ref.url));
-  const rejectedRoots = refs.filter((ref) => ref.type === 'script' && ref.element && failedElements.has(ref.element));
+  const rejectedRoots = refs.filter(
+    (ref) => ref.type === 'script' && ref.element && failedElements.has(ref.element),
+  );
   if (rejectedRoots.length) {
     const root = rejectedRoots.length === 1 ? rejectedRoots[0] : null;
     for (const fact of facts.values()) {
       const url = norm(fact && fact.url);
-      const hardFailure = fact && (fact.status === 404 || fact.status === 410 || fact.status >= 500
-        || (fact.failure && !fact.cancelled));
-      if (!url || directUrls.has(url) || fact.resourceType !== 'script' || fact.optional || !hardFailure) continue;
-      try { if (new URL(url).origin !== origin) continue; } catch (_) { continue; }
-      refs.push({ type: 'script', url, key: root ? root.key : 'tag:script', parent: root && root.url, dependency: true, element: null });
+      const hardFailure =
+        fact &&
+        (fact.status === 404 ||
+          fact.status === 410 ||
+          fact.status >= 500 ||
+          (fact.failure && !fact.cancelled));
+      if (
+        !url ||
+        directUrls.has(url) ||
+        fact.resourceType !== 'script' ||
+        fact.optional ||
+        !hardFailure
+      )
+        continue;
+      try {
+        if (new URL(url).origin !== origin) continue;
+      } catch (_) {
+        continue;
+      }
+      refs.push({
+        type: 'script',
+        url,
+        key: root ? root.key : 'tag:script',
+        parent: root && root.url,
+        dependency: true,
+        element: null,
+      });
       directUrls.add(url);
     }
   }
@@ -499,28 +847,68 @@ export function criticalResourceScan(networkFacts) {
     const id = ref.type + '|' + ref.url;
     if (seen.has(id) || out.length >= 20) return;
     seen.add(id);
-    const detail = [ref.url, ref.parent ? 'root=' + ref.parent : '', ref.dependency ? 'parent=unavailable' : '', fact && fact.status != null ? 'status=' + fact.status : '', fact && fact.contentType ? 'content-type=' + fact.contentType : '', fact && fact.failure ? 'failure=' + fact.failure : ''].filter(Boolean).join(' ');
+    const detail = [
+      ref.url,
+      ref.parent ? 'root=' + ref.parent : '',
+      ref.dependency ? 'parent=unavailable' : '',
+      fact && fact.status != null ? 'status=' + fact.status : '',
+      fact && fact.contentType ? 'content-type=' + fact.contentType : '',
+      fact && fact.failure ? 'failure=' + fact.failure : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     out.push({ key: ref.key, reason, detail: detail.slice(0, 240) });
   };
   for (const ref of refs) {
     const fact = facts.get(ref.url);
     if (fact && fact.optional) continue;
-    const sameUrlLoaded = refs.some((other) => other.url === ref.url && loadedElements.has(other.element));
+    const sameUrlLoaded = refs.some(
+      (other) => other.url === ref.url && loadedElements.has(other.element),
+    );
     const browserRejected = failedElements.has(ref.element) && !sameUrlLoaded;
     if (fact && (fact.status === 404 || fact.status === 410 || fact.status >= 500)) {
-      add(ref, ref.imported ? 'stylesheet-import-http' : (ref.dependency ? 'module-dependency-http' : ref.type + '-http'), fact);
+      add(
+        ref,
+        ref.imported
+          ? 'stylesheet-import-http'
+          : ref.dependency
+            ? 'module-dependency-http'
+            : ref.type + '-http',
+        fact,
+      );
       continue;
     }
-    if (fact && fact.failure && !/(ERR_ABORTED|NS_BINDING_ABORTED|cancelled|canceled)/i.test(fact.failure)) {
-      add(ref, ref.imported ? 'stylesheet-import-request' : (ref.dependency ? 'module-dependency-request' : ref.type + '-request'), fact);
+    if (
+      fact &&
+      fact.failure &&
+      !/(ERR_ABORTED|NS_BINDING_ABORTED|cancelled|canceled)/i.test(fact.failure)
+    ) {
+      add(
+        ref,
+        ref.imported
+          ? 'stylesheet-import-request'
+          : ref.dependency
+            ? 'module-dependency-request'
+            : ref.type + '-request',
+        fact,
+      );
       continue;
     }
-    const mime = String(fact && fact.contentType || '').split(';')[0].trim().toLowerCase();
-    if (ref.type === 'stylesheet' && mime && mime !== 'text/css' && (browserRejected || !loadedSheets.has(ref.url))) {
+    const mime = String((fact && fact.contentType) || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (
+      ref.type === 'stylesheet' &&
+      mime &&
+      mime !== 'text/css' &&
+      (browserRejected || !loadedSheets.has(ref.url))
+    ) {
       add(ref, 'stylesheet-mime', fact);
       continue;
     }
-    const jsMime = /^(text|application)\/(x-)?(java|ecma)script$/.test(mime) || mime === 'application/node';
+    const jsMime =
+      /^(text|application)\/(x-)?(java|ecma)script$/.test(mime) || mime === 'application/node';
     if (ref.type === 'script' && mime && !jsMime && browserRejected) {
       add(ref, 'script-mime', fact);
       continue;
@@ -529,8 +917,13 @@ export function criticalResourceScan(networkFacts) {
     const exactChildFailure = refs.some((child) => {
       if (child.parent !== ref.url || (!child.imported && !child.dependency)) return false;
       const childFact = facts.get(child.url);
-      return childFact && (childFact.status === 404 || childFact.status === 410 || childFact.status >= 500
-        || (childFact.failure && !childFact.cancelled));
+      return (
+        childFact &&
+        (childFact.status === 404 ||
+          childFact.status === 410 ||
+          childFact.status >= 500 ||
+          (childFact.failure && !childFact.cancelled))
+      );
     });
     if (browserRejected && exactChildFailure) continue;
     if (browserRejected) add(ref, ref.type + '-load', fact);
@@ -573,7 +966,10 @@ export function criticalResourceScan(networkFacts) {
 // Both are pure layout facts at fixed viewports (no pixels, no timing), so a
 // finding reproduces identically on any machine. Returns [{key, kind, by}].
 export function zoomTappableKeys() {
-  const SEL = 'a[href], button, input:not([type=hidden]), select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [onclick]';
+  const SEL =
+    'a[href], button, input:not([type=hidden]), select, textarea, ' +
+    '[role="button"], [role="link"], [role="checkbox"], [role="tab"], ' +
+    '[role="menuitem"], [onclick]';
   const keys = [];
   for (const el of document.querySelectorAll(SEL)) {
     const r = el.getBoundingClientRect();
@@ -583,11 +979,13 @@ export function zoomTappableKeys() {
     // keep rendered controls far off-canvas until focus/animation brings them in.
     if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) continue;
     const cs = getComputedStyle(el);
-    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) continue;
+    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0)
+      continue;
     if (el.closest('[aria-hidden="true"], [inert]')) continue;
     const key = el.id
       ? 'key:id:' + el.id
-      : ((el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40) || 'tag:' + el.tagName.toLowerCase());
+      : (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40) ||
+        'tag:' + el.tagName.toLowerCase();
     keys.push({ key, x: Math.round(r.left), y: Math.round(r.top) });
     if (keys.length >= 200) break;
   }
@@ -611,7 +1009,10 @@ export function zoomReflowScan(preKeys) {
     // break (that was the false positive). So hscroll fires ONLY when a NON-exempt,
     // non-locally-scrollable element itself exceeds the viewport width -- a
     // fixed-width layout container that genuinely failed to reflow.
-    const EXEMPT = 'pre, code, table, thead, tbody, tr, td, th, figure, img, svg, video, canvas, iframe, object, embed, map, [class*="highlight" i], [class*="code" i], [class*="carousel" i], [class*="marquee" i]';
+    const EXEMPT =
+      'pre, code, table, thead, tbody, tr, td, th, figure, img, svg, video, ' +
+      'canvas, iframe, object, embed, map, [class*="highlight" i], ' +
+      '[class*="code" i], [class*="carousel" i], [class*="marquee" i]';
     const vw = window.innerWidth;
     let culprit = false;
     const all = document.body ? document.body.querySelectorAll('*') : [];
@@ -619,7 +1020,7 @@ export function zoomReflowScan(preKeys) {
     for (const el of all) {
       if (scanned++ > 4000) break;
       const r = el.getBoundingClientRect();
-      if (r.width < vw) continue;                      // not itself wider than the viewport
+      if (r.width < vw) continue; // not itself wider than the viewport
       if (r.right <= vw + 16 && r.left >= -16) continue; // fully on-screen (no sideways spill)
       if (el.matches(EXEMPT) || el.closest(EXEMPT)) continue; // 2D-layout-exempt content
       // Inside a horizontal-scroll region -> intended local scrolling, not a
@@ -627,7 +1028,13 @@ export function zoomReflowScan(preKeys) {
       let local = false;
       for (let a = el.parentElement; a; a = a.parentElement) {
         const s = getComputedStyle(a);
-        if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && a.scrollWidth > a.clientWidth + 4) { local = true; break; }
+        if (
+          (s.overflowX === 'auto' || s.overflowX === 'scroll') &&
+          a.scrollWidth > a.clientWidth + 4
+        ) {
+          local = true;
+          break;
+        }
       }
       if (local) continue;
       culprit = true;
@@ -635,15 +1042,21 @@ export function zoomReflowScan(preKeys) {
     }
     if (culprit) out.push({ key: 'tag:html', kind: 'hscroll', by: over });
   }
-  const pre = new Map((preKeys || []).map((v) => typeof v === 'string'
-    ? [v, null]
-    : [v && v.key, v]).filter(([k]) => k));
-  const SEL = 'a[href], button, input:not([type=hidden]), select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [onclick]';
+  const pre = new Map(
+    (preKeys || [])
+      .map((v) => (typeof v === 'string' ? [v, null] : [v && v.key, v]))
+      .filter(([k]) => k),
+  );
+  const SEL =
+    'a[href], button, input:not([type=hidden]), select, textarea, ' +
+    '[role="button"], [role="link"], [role="checkbox"], [role="tab"], ' +
+    '[role="menuitem"], [onclick]';
   const seen = new Set();
   for (const el of document.querySelectorAll(SEL)) {
     const key = el.id
       ? 'key:id:' + el.id
-      : ((el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40) || 'tag:' + el.tagName.toLowerCase());
+      : (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40) ||
+        'tag:' + el.tagName.toLowerCase();
     if (!pre.has(key) || seen.has(key)) continue;
     // A collapsed control is only a reportable USABILITY loss if it is a NAMED
     // control (an id, an accessible name, or visible text). A bare, empty anchor
@@ -656,7 +1069,8 @@ export function zoomReflowScan(preKeys) {
     // zero client rects; visibility inherits) -> responsive design, skip.
     if (!el.getClientRects().length) continue;
     const cs = getComputedStyle(el);
-    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) continue;
+    if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0)
+      continue;
     if (el.closest('[aria-hidden="true"], [inert]')) continue;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) {
@@ -690,13 +1104,22 @@ export function zoomReflowScan(preKeys) {
 // no scroller to drive.
 export async function scrollRoundTripScan() {
   const raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  const norm = (s) => String(s || '').replace(/\d[\d.,:]*/g, '#').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const norm = (s) =>
+    String(s || '')
+      .replace(/\d[\d.,:]*/g, '#')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
   const MARGIN = 200; // a scroller must have this much hidden content to test
   // Find the primary vertical scroller: the largest by area, document included.
   const candidates = [];
   const de = document.scrollingElement || document.documentElement;
   if (de && de.scrollHeight - de.clientHeight > MARGIN) {
-    candidates.push({ el: de, doc: true, area: (de.clientWidth || window.innerWidth) * (de.clientHeight || window.innerHeight) });
+    candidates.push({
+      el: de,
+      doc: true,
+      area: (de.clientWidth || window.innerWidth) * (de.clientHeight || window.innerHeight),
+    });
   }
   let scanned = 0;
   for (const el of document.querySelectorAll('*')) {
@@ -733,23 +1156,33 @@ export async function scrollRoundTripScan() {
     // manufactured list-recycling findings. A real recycled row presents the
     // same element shape at the same point with different bound content.
     const shape = [
-      e.tagName.toLowerCase(), role, Math.min(e.childElementCount, 9),
+      e.tagName.toLowerCase(),
+      role,
+      Math.min(e.childElementCount, 9),
       Math.round(Math.min(r.width, 1000) / 20),
       Math.round(Math.min(r.height, 1000) / 10),
     ].join('|');
     return { text, shape };
   };
-  const startTop = sc.doc ? (window.scrollY || de.scrollTop || 0) : el.scrollTop;
-  const toTop = () => { if (sc.doc) window.scrollTo(0, 0); else el.scrollTop = 0; };
+  const startTop = sc.doc ? window.scrollY || de.scrollTop || 0 : el.scrollTop;
+  const toTop = () => {
+    if (sc.doc) window.scrollTo(0, 0);
+    else el.scrollTop = 0;
+  };
   const toBottom = () => {
     if (sc.doc) window.scrollTo(0, de.scrollHeight);
     else el.scrollTop = el.scrollHeight;
   };
   try {
-    toTop(); await raf();
+    toTop();
+    await raf();
     const before = pts.map(sampleAt);
-    toBottom(); await raf(); await raf();
-    toTop(); await raf(); await raf();
+    toBottom();
+    await raf();
+    await raf();
+    toTop();
+    await raf();
+    await raf();
     const after = pts.map(sampleAt);
     await raf();
     const confirmed = pts.map(sampleAt);
@@ -772,7 +1205,10 @@ export async function scrollRoundTripScan() {
     return out;
   } finally {
     // Restore the original scroll offset so the walk continues undisturbed.
-    try { if (sc.doc) window.scrollTo(0, startTop); else el.scrollTop = startTop; } catch (_) {}
+    try {
+      if (sc.doc) window.scrollTo(0, startTop);
+      else el.scrollTop = startTop;
+    } catch (_) {}
   }
 }
 
@@ -795,8 +1231,10 @@ export function dupSubmitEligible() {
     if (tag === 'button' && (type === '' || type === 'submit')) return true;
   }
   const role = ((el.getAttribute && el.getAttribute('role')) || '').toLowerCase();
-  const isButton = tag === 'button' || role === 'button'
-    || (tag === 'input' && (type === 'submit' || type === 'button'));
+  const isButton =
+    tag === 'button' ||
+    role === 'button' ||
+    (tag === 'input' && (type === 'submit' || type === 'button'));
   if (!isButton) return false;
   const name = (el.getAttribute('aria-label') || el.value || el.textContent || '').trim();
   return /submit|save|pay|order|confirm|checkout|send|post|buy/i.test(name);
@@ -827,11 +1265,15 @@ export function focusLossArm() {
   // that a tap then shows must register as a count CHANGE, or the guard misses
   // the open. (Kept inline: every helper here must be self-contained.)
   let dialogs = 0;
-  for (const d of document.querySelectorAll('[aria-modal="true"], dialog[open], [role="dialog"], [role="alertdialog"]')) {
+  for (const d of document.querySelectorAll(
+    '[aria-modal="true"], dialog[open], [role="dialog"], ' + '[role="alertdialog"]',
+  )) {
     const cs = getComputedStyle(d);
     if (d.getClientRects().length && cs.visibility !== 'hidden' && cs.display !== 'none') dialogs++;
   }
-  try { dialogs += document.querySelectorAll(':popover-open').length; } catch (_) {}
+  try {
+    dialogs += document.querySelectorAll(':popover-open').length;
+  } catch (_) {}
   window.__reproitDialogsPre = dialogs;
 }
 
@@ -845,11 +1287,15 @@ export function focusLossCheck() {
   if (tapped.hasAttribute('href') || tapped.hasAttribute('target')) return false;
   // Rendered dialogs/popovers only, mirroring focusLossArm's count.
   let dialogs = 0;
-  for (const d of document.querySelectorAll('[aria-modal="true"], dialog[open], [role="dialog"], [role="alertdialog"]')) {
+  for (const d of document.querySelectorAll(
+    '[aria-modal="true"], dialog[open], [role="dialog"], ' + '[role="alertdialog"]',
+  )) {
     const cs = getComputedStyle(d);
     if (d.getClientRects().length && cs.visibility !== 'hidden' && cs.display !== 'none') dialogs++;
   }
-  try { dialogs += document.querySelectorAll(':popover-open').length; } catch (_) {}
+  try {
+    dialogs += document.querySelectorAll(':popover-open').length;
+  } catch (_) {}
   if (dialogs !== (window.__reproitDialogsPre | 0)) return false;
   // The TAPPED control itself must have held focus BEFORE activation -- the exact
   // keyboard flow this oracle exists for: a user TABS to a control (so the control
@@ -899,11 +1345,15 @@ export function installListenerLeakCounter() {
     const origAdd = EP.addEventListener;
     const origRemove = EP.removeEventListener;
     EP.addEventListener = function () {
-      try { window.__reproitLL.adds++; } catch (_) {}
+      try {
+        window.__reproitLL.adds++;
+      } catch (_) {}
       return origAdd.apply(this, arguments);
     };
     EP.removeEventListener = function () {
-      try { window.__reproitLL.removes++; } catch (_) {}
+      try {
+        window.__reproitLL.removes++;
+      } catch (_) {}
       return origRemove.apply(this, arguments);
     };
   } catch (_) {}
@@ -912,6 +1362,8 @@ export function installListenerLeakCounter() {
 export function listenerLeakSample() {
   const ll = window.__reproitLL || { adds: 0, removes: 0 };
   let nodes = 0;
-  try { nodes = document.getElementsByTagName('*').length; } catch (_) {}
+  try {
+    nodes = document.getElementsByTagName('*').length;
+  } catch (_) {}
   return { live: (ll.adds | 0) - (ll.removes | 0), nodes };
 }

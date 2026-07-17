@@ -77,10 +77,12 @@ async function main() {
 
   if (!isolated) {
     console.error(
-      'NOTE: mode A (transform sampling) catches animation-clock jank, NOT compositor presentation stutter.',
+      'NOTE: mode A (transform sampling) catches animation-clock jank, NOT ' +
+        'compositor presentation stutter.',
     );
     console.error(
-      'For the faithful detector run on an ISOLATED display (CI/Xvfb) with REPROIT_JANK_DISPLAY=isolated.',
+      'For the faithful detector run on an ISOLATED display (CI/Xvfb) with ' +
+        'REPROIT_JANK_DISPLAY=isolated.',
     );
   }
 
@@ -96,7 +98,8 @@ async function main() {
     const j = trajectoryJank(xs);
     rows.push({ e, j });
     console.log(
-      `  ${e.padEnd(9)} frames=${j.frames} meanStep=${j.meanV.toFixed(2)} stalls=${j.stalls} jumps=${j.jumps} jank=${j.score.toFixed(3)}`,
+      `  ${e.padEnd(9)} frames=${j.frames} meanStep=${j.meanV.toFixed(2)} ` +
+        `stalls=${j.stalls} jumps=${j.jumps} jank=${j.score.toFixed(3)}`,
     );
   }
   const scored = rows.filter((r) => r.j.meanV > 0);
@@ -105,7 +108,9 @@ async function main() {
     let flagged = false;
     for (const r of scored) {
       if (r.e !== best.e && r.j.score > best.j.score + 0.2) {
-        console.log(`  ⚠ ${r.e}: jank ${r.j.score.toFixed(3)} vs ${best.e} ${best.j.score.toFixed(3)}`);
+        console.log(
+          `  ⚠ ${r.e}: jank ${r.j.score.toFixed(3)} vs ${best.e} ${best.j.score.toFixed(3)}`,
+        );
         flagged = true;
       }
     }

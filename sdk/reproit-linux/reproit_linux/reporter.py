@@ -75,9 +75,18 @@ class Reporter:
 
     BATCH_FLUSH_AT = 50
 
-    def __init__(self, app_id, endpoint=None, api_key=None, on_event=None,
-                 flush_ms=5000, path_cap=60, redact_labels=False,
-                 build_version=None, build_commit=None):
+    def __init__(
+        self,
+        app_id,
+        endpoint=None,
+        api_key=None,
+        on_event=None,
+        flush_ms=5000,
+        path_cap=60,
+        redact_labels=False,
+        build_version=None,
+        build_commit=None,
+    ):
         if not app_id:
             raise ValueError("Reporter: app_id is required")
         self.app_id = app_id
@@ -90,8 +99,8 @@ class Reporter:
 
         self._lock = threading.RLock()
         self._buf = []
-        self._path = []          # the graph trail: list of {sig, action}
-        self._cur = None         # current state signature
+        self._path = []  # the graph trail: list of {sig, action}
+        self._cur = None  # current state signature
         self._ctx = auto_context()
         build = {}
         if build_version:
@@ -180,11 +189,16 @@ class Reporter:
         the in-flight action (the one that threw); it is appended to the path so a
         path-based replay fires the bug, not stop one step short of it."""
         import traceback
+
         if message is None:
             message = "%s: %s" % (type(exc).__name__, exc) if exc else "unknown error"
         stack = []
         try:
-            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) if exc else ""
+            tb = (
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                if exc
+                else ""
+            )
             stack = [ln.strip() for ln in tb.splitlines() if ln.strip()][-8:]
         except Exception:
             pass
@@ -207,6 +221,34 @@ class Reporter:
                 ev["stack"] = stack
         self._emit(ev)
         self.flush()
+
+    def capture_bug(self):
+        """Capture the current structural state as a tester-observed bug."""
+        with self._lock:
+            if not self._cur:
+                return False
+            captured_path = [dict(p) for p in self._path]
+            trigger = captured_path[-1]["action"] if captured_path else "load"
+            ev = {
+                "kind": "error",
+                "oracle": "tester-capture",
+                "sig": self._cur,
+                "path": captured_path,
+                "message": "Tester observed a bug in this state",
+                "findingIdentity": {
+                    "oracle": "tester-capture",
+                    "invariant": "tester-observed-failure",
+                    "kind": "structural-state",
+                    "message": "",
+                    "frame": "",
+                    "trigger": trigger,
+                    "boundary": self._cur,
+                },
+                "t": _now_ms(),
+            }
+        self._emit(ev)
+        self.flush()
+        return True
 
     # ---- transport ---------------------------------------------------------
 
@@ -250,7 +292,9 @@ class Reporter:
         try:
             req = urllib.request.Request(
                 endpoint.rstrip("/") + "/v1/events",
-                data=body, headers=headers, method="POST",
+                data=body,
+                headers=headers,
+                method="POST",
             )
             urllib.request.urlopen(req, timeout=5)
         except Exception:
@@ -260,11 +304,11 @@ class Reporter:
 
     def install_crash_handler(self):
         """Install handlers so a fatal crash flushes the session:
-          - sys.excepthook for uncaught Python exceptions (records an error event
-            then chains to the prior hook so the app's own logging still runs);
-          - SIGSEGV / SIGABRT / SIGBUS / SIGFPE for native crashes (records a
-            signal error then re-raises the default disposition so the crash is
-            not swallowed and any core dump still happens)."""
+        - sys.excepthook for uncaught Python exceptions (records an error event
+          then chains to the prior hook so the app's own logging still runs);
+        - SIGSEGV / SIGABRT / SIGBUS / SIGFPE for native crashes (records a
+          signal error then re-raises the default disposition so the crash is
+          not swallowed and any core dump still happens)."""
         prior_excepthook = sys.excepthook
 
         def excepthook(exc_type, exc, tb):

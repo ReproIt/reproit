@@ -106,7 +106,8 @@ pub fn process(run_dir: &Path, label: &str, log: &str) -> Option<FrameSummary> {
     );
     let _ = std::fs::write(run_dir.join(format!("frames-{label}.svg")), chart(&frames));
     println!(
-        "  frames device {label}: {} frames, p90 build {:.1}ms raster {:.1}ms, jank {} ({:.1}%), worst {:.0}ms @t+{:.1}s",
+        "  frames device {label}: {} frames, p90 build {:.1}ms raster {:.1}ms, jank {} ({:.1}%), \
+         worst {:.0}ms @t+{:.1}s",
         summary.frames,
         summary.p90_build_ms,
         summary.p90_raster_ms,
@@ -149,17 +150,24 @@ fn chart(frames: &[Frame]) -> String {
     }
     let budget_y = h - scale(BUDGET_US);
     format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w:.0} {total_h:.0}" font-family="monospace" font-size="9">
+        concat!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" "##,
+            r##"viewBox="0 0 {w:.0} {total_h:.0}" "##,
+            r##"font-family="monospace" font-size="9">
 <rect width="100%" height="100%" fill="#0e0d0b"/>
-<text x="40" y="14" fill="#ede6d6">frame times (max of build/raster per frame, {count} frames{sampled_note})</text>
+<text x="40" y="14" fill="#ede6d6">frame times "##,
+            r##"(max of build/raster per frame, {count} frames{sampled_note})</text>
 {bars}
-<line x1="40" y1="{budget_y:.1}" x2="{w:.0}" y2="{budget_y:.1}" stroke="#a89e8a" stroke-dasharray="4 3"/>
+<line x1="40" y1="{budget_y:.1}" x2="{w:.0}" y2="{budget_y:.1}" "##,
+            r##"stroke="#a89e8a" stroke-dasharray="4 3"/>
 <text x="2" y="{budget_label_y:.1}" fill="#a89e8a">16.7ms</text>
 <text x="40" y="{legend_y:.0}" fill="#54d17a">within budget</text>
 <text x="140" y="{legend_y:.0}" fill="#ffb000">build jank</text>
 <text x="230" y="{legend_y:.0}" fill="#e5533c">raster jank</text>
 </svg>
-"##,
+"##
+        ),
+        w = w,
         total_h = h + 20.0,
         count = frames.len(),
         sampled_note = if stride > 1 {
@@ -167,6 +175,8 @@ fn chart(frames: &[Frame]) -> String {
         } else {
             String::new()
         },
+        bars = bars,
+        budget_y = budget_y,
         budget_label_y = budget_y + 3.0,
         legend_y = h + 14.0,
     )

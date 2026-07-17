@@ -148,8 +148,7 @@ class _BackgroundLosingState extends State<BackgroundLosing>
         );
 }
 
-Widget fixture(Widget child) =>
-    MaterialApp(home: Scaffold(body: child));
+Widget fixture(Widget child) => MaterialApp(home: Scaffold(body: child));
 
 void main() {
   testWidgets('rotation-losing screen fires (structure not restored)',

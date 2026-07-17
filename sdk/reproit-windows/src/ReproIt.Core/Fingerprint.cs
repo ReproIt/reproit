@@ -74,7 +74,8 @@ namespace ReproIt.Core
         /// not a locale-dependent Trim).</summary>
         private static bool IsWs(char c)
         {
-            return c == 0x09 || c == 0x0a || c == 0x0b || c == 0x0c || c == 0x0d || c == 0x20 || c == 0xa0;
+            return c == 0x09 || c == 0x0a || c == 0x0b || c == 0x0c || c == 0x0d || c == 0x20 ||
+                   c == 0xa0;
         }
 
         /// <summary>Sorted unique Unicode SCRIPT buckets present. Mixed-script
@@ -86,16 +87,24 @@ namespace ReproIt.Core
             foreach (int c in codePoints)
             {
                 if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) ||
-                    (c >= 0xc0 && c <= 0x24f) || (c >= 0x1e00 && c <= 0x1eff)) found.Add("Latin");
-                else if (c >= 0x370 && c <= 0x3ff) found.Add("Greek");
-                else if (c >= 0x400 && c <= 0x4ff) found.Add("Cyrillic");
-                else if (c >= 0x590 && c <= 0x5ff) found.Add("Hebrew");
+                    (c >= 0xc0 && c <= 0x24f) || (c >= 0x1e00 && c <= 0x1eff))
+                    found.Add("Latin");
+                else if (c >= 0x370 && c <= 0x3ff)
+                    found.Add("Greek");
+                else if (c >= 0x400 && c <= 0x4ff)
+                    found.Add("Cyrillic");
+                else if (c >= 0x590 && c <= 0x5ff)
+                    found.Add("Hebrew");
                 else if ((c >= 0x600 && c <= 0x6ff) || (c >= 0x750 && c <= 0x77f) ||
-                         (c >= 0x8a0 && c <= 0x8ff)) found.Add("Arabic");
-                else if (c >= 0x900 && c <= 0x97f) found.Add("Devanagari");
-                else if (c >= 0xe00 && c <= 0xe7f) found.Add("Thai");
+                         (c >= 0x8a0 && c <= 0x8ff))
+                    found.Add("Arabic");
+                else if (c >= 0x900 && c <= 0x97f)
+                    found.Add("Devanagari");
+                else if (c >= 0xe00 && c <= 0xe7f)
+                    found.Add("Thai");
                 else if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x3400 && c <= 0x9fff) ||
-                         (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff)) found.Add("CJK");
+                         (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff))
+                    found.Add("CJK");
             }
             return found.ToList();
         }
@@ -115,7 +124,8 @@ namespace ReproIt.Core
             return false;
         }
 
-        /// <summary>Zero-width / invisible code points (injection + normalization breakers).</summary>
+        /// <summary>Zero-width / invisible code points (injection + normalization
+        /// breakers).</summary>
         private static bool HasZeroWidth(int[] codePoints)
         {
             foreach (int c in codePoints)
@@ -162,7 +172,8 @@ namespace ReproIt.Core
 
         /// <summary>Fingerprint a list of (field, value) pairs, discarding each value.
         /// The platform layer supplies labels + values; raw values never escape.</summary>
-        public static List<Dictionary<string, object>> FingerprintFields(IEnumerable<KeyValuePair<string, string>> fields)
+        public static List<Dictionary<string, object>> FingerprintFields(
+            IEnumerable<KeyValuePair<string, string>> fields)
         {
             var outList = new List<Dictionary<string, object>>();
             foreach (var f in fields)

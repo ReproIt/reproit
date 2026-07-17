@@ -16,12 +16,13 @@ namespace ReproIt.ParityTests
         private sealed class LiveHandler : HttpMessageHandler
         {
             public int Calls;
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                                                                   CancellationToken token)
             {
                 Calls++;
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)
-                {
-                    Content = new StringContent("{\"email\":\"a@b.c\",\"ok\":true}", Encoding.UTF8, "application/json")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created) {
+                    Content = new StringContent("{\"email\":\"a@b.c\",\"ok\":true}", Encoding.UTF8,
+                                                "application/json")
                 });
             }
         }
@@ -34,7 +35,8 @@ namespace ReproIt.ParityTests
             string network = Path.Combine(dir, "network.jsonl");
             string action = Path.Combine(dir, "action");
             string capabilities = Path.Combine(dir, "capabilities.json");
-            File.WriteAllText(action, "1"); File.WriteAllText(capabilities, "{}");
+            File.WriteAllText(action, "1");
+            File.WriteAllText(capabilities, "{}");
             Environment.SetEnvironmentVariable("REPROIT_NETWORK_FILE", network);
             Environment.SetEnvironmentVariable("REPROIT_ACTION_FILE", action);
             Environment.SetEnvironmentVariable("REPROIT_CAPABILITIES_FILE", capabilities);
@@ -46,34 +48,66 @@ namespace ReproIt.ParityTests
                 {
                     var request = new HttpRequestMessage(HttpMethod.Post, "https://api.test/send");
                     request.Headers.TryAddWithoutValidation("Authorization", "raw");
-                    request.Content = new StringContent("{\"token\":\"raw\",\"apiKey\":\"raw-api\",\"publishable-key\":\"raw-pub\",\"private_key\":\"raw-private\",\"access.key\":\"raw-access\",\"signing key\":\"raw-signing\",\"keyboardLayout\":\"dvorak\",\"key\":\"ordinary\",\"kind\":\"message\"}", Encoding.UTF8, "application/json");
-                    Assert.Equal(HttpStatusCode.Created, (await client.SendAsync(request)).StatusCode);
+                    request.Content =
+                        new StringContent("{\"token\":\"raw\",\"apiKey\":\"raw-api\"," +
+                                          "\"publishable-key\":\"raw-pub\",\"private_key\":\"raw-" +
+                                          "private\",\"access.key\":\"raw-access\",\"signing " +
+                                          "key\":\"raw-signing\",\"keyboardLayout\":\"dvorak\"," +
+                                          "\"key\":\"ordinary\",\"kind\":\"message\"}",
+                                          Encoding.UTF8, "application/json");
+                    Assert.Equal(HttpStatusCode.Created,
+                                 (await client.SendAsync(request)).StatusCode);
                 }
                 string captured = File.ReadAllText(network);
                 using (JsonDocument document = JsonDocument.Parse(captured))
                 {
-                    Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestHeaders").GetProperty("Authorization").GetString());
-                    Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestBody").GetProperty("token").GetString());
-                    foreach (string name in new[] { "apiKey", "publishable-key", "private_key", "access.key", "signing key" })
-                        Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestBody").GetProperty(name).GetString());
-                    Assert.Equal("dvorak", document.RootElement.GetProperty("requestBody").GetProperty("keyboardLayout").GetString());
-                    Assert.Equal("ordinary", document.RootElement.GetProperty("requestBody").GetProperty("key").GetString());
+                    Assert.Equal("<reproit:secret>",
+                                 document.RootElement.GetProperty("requestHeaders")
+                                     .GetProperty("Authorization")
+                                     .GetString());
+                    Assert.Equal("<reproit:secret>", document.RootElement.GetProperty("requestBody")
+                                                         .GetProperty("token")
+                                                         .GetString());
+                    foreach (string name in new[] { "apiKey", "publishable-key", "private_key",
+                                                    "access.key", "signing key" })
+                        Assert.Equal("<reproit:secret>",
+                                     document.RootElement.GetProperty("requestBody")
+                                         .GetProperty(name)
+                                         .GetString());
+                    Assert.Equal("dvorak", document.RootElement.GetProperty("requestBody")
+                                               .GetProperty("keyboardLayout")
+                                               .GetString());
+                    Assert.Equal("ordinary", document.RootElement.GetProperty("requestBody")
+                                                 .GetProperty("key")
+                                                 .GetString());
                 }
                 Assert.DoesNotContain("a@b.c", captured);
-                foreach (string raw in new[] { "raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing" }) Assert.DoesNotContain(raw, captured);
+                foreach (string raw in new[] { "raw-api", "raw-pub", "raw-private", "raw-access",
+                                               "raw-signing" })
+                    Assert.DoesNotContain(raw, captured);
 
                 string capsule = Path.Combine(dir, "capsule.json");
-                File.WriteAllText(capsule, "{\"exchanges\":[{\"id\":\"a-1-0\",\"actor\":\"a\",\"actionIndex\":1,\"ordinal\":0,\"protocol\":\"https\",\"method\":\"GET\",\"url\":\"https://api.test/config?a=1&b=2\",\"status\":200,\"responseHeaders\":{\"content-type\":\"application/json\"},\"responseBody\":{\"enabled\":true},\"required\":true}]}");
+                File.WriteAllText(
+                    capsule, "{\"exchanges\":[{\"id\":\"a-1-0\",\"actor\":\"a\",\"actionIndex\":" +
+                             "1,\"ordinal\":0,\"protocol\":\"https\",\"method\":\"GET\",\"url\":" +
+                             "\"https://api.test/" +
+                             "config?a=1&b=2\",\"status\":200,\"responseHeaders\":{\"content-" +
+                             "type\":\"application/" +
+                             "json\"},\"responseBody\":{\"enabled\":true},\"required\":true}]}");
                 Environment.SetEnvironmentVariable("REPROIT_CAPSULE", capsule);
                 var forbidden = new LiveHandler();
                 using var replay = new HttpClient(new ReproItCausalHandler(forbidden));
-                Assert.Contains("enabled", await replay.GetStringAsync("https://api.test/config?b=2&a=1"));
-                await Assert.ThrowsAsync<HttpRequestException>(() => replay.GetAsync("https://api.test/miss"));
+                Assert.Contains("enabled",
+                                await replay.GetStringAsync("https://api.test/config?b=2&a=1"));
+                await Assert.ThrowsAsync<HttpRequestException>(
+                    () => replay.GetAsync("https://api.test/miss"));
                 Assert.Equal(0, forbidden.Calls);
             }
             finally
             {
-                foreach (string name in new[] { "REPROIT_NETWORK_FILE", "REPROIT_ACTION_FILE", "REPROIT_CAPABILITIES_FILE", "REPROIT_DEVICE", "REPROIT_CAPSULE" })
+                foreach (string name in new[] { "REPROIT_NETWORK_FILE", "REPROIT_ACTION_FILE",
+                                                "REPROIT_CAPABILITIES_FILE", "REPROIT_DEVICE",
+                                                "REPROIT_CAPSULE" })
                     Environment.SetEnvironmentVariable(name, null);
                 Directory.Delete(dir, true);
             }

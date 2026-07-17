@@ -5,8 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import {
-  gridPoints, changedFraction, classifyPoint, probeRegionsToGroundtruth,
-  DEFAULT_CHANGE_FRACTION, PIXEL_DELTA,
+  gridPoints,
+  changedFraction,
+  classifyPoint,
+  probeRegionsToGroundtruth,
+  DEFAULT_CHANGE_FRACTION,
+  PIXEL_DELTA,
 } from './probe.mjs';
 
 test('gridPoints is bounded, deterministic, and inset from edges', () => {
@@ -24,7 +28,12 @@ test('gridPoints is bounded, deterministic, and inset from edges', () => {
 // Build a flat RGBA buffer of `n` pixels, all the given [r,g,b].
 function rgba(n, r, g, b) {
   const buf = new Uint8ClampedArray(n * 4);
-  for (let i = 0; i < n; i++) { buf[i * 4] = r; buf[i * 4 + 1] = g; buf[i * 4 + 2] = b; buf[i * 4 + 3] = 255; }
+  for (let i = 0; i < n; i++) {
+    buf[i * 4] = r;
+    buf[i * 4 + 1] = g;
+    buf[i * 4 + 2] = b;
+    buf[i * 4 + 3] = 255;
+  }
   return buf;
 }
 
@@ -56,7 +65,7 @@ test('the canvas hit-area case: an operable region with no control is a gap', ()
   // DOM/a11y node there -> the floor reports it where the a11y walk is blind.
   const points = [
     { x: 300, y: 200, changed: 0.5, a11yCovered: false }, // the canvas button -> gap
-    { x: 50, y: 50, changed: 0.6, a11yCovered: true },    // a real <button> -> covered, not a gap
+    { x: 50, y: 50, changed: 0.6, a11yCovered: true }, // a real <button> -> covered, not a gap
     { x: 700, y: 400, changed: 0.0001, a11yCovered: false }, // dead background -> inert
   ];
   const els = probeRegionsToGroundtruth(points);
@@ -77,5 +86,8 @@ test('probe output is deterministic and sorted by selector', () => {
   const a = probeRegionsToGroundtruth(points);
   const b = probeRegionsToGroundtruth(points);
   assert.deepStrictEqual(a, b);
-  assert.deepStrictEqual(a.map((e) => e.id), ['probe:@100,100', 'probe:@900,100']);
+  assert.deepStrictEqual(
+    a.map((e) => e.id),
+    ['probe:@100,100', 'probe:@900,100'],
+  );
 });

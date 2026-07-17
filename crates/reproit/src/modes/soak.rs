@@ -6,23 +6,23 @@
 //! v0 takes the cycle as CLI actions; once map cycles carry verified
 //! reversibility, soak enumerates them automatically.
 
+use crate::backends::orchestrator;
 use crate::config::Config;
-use crate::orchestrator;
 use anyhow::{ensure, Result};
 use serde_json::json;
 use std::path::Path;
 
 /// Read the heap-vs-time series for a soak run, from whichever source produced
 /// it. `memory-a.jsonl` (the Dart VM-service sampler) is authoritative when
-/// present; otherwise the WEB runner's `MEMORY:SAMPLE {"t_ms":..,"heap_used":..}`
-/// markers in `drive-a.log` are parsed (the web heap sampler, since the web
-/// target exposes no VM service). Each entry is `(t_ms, heap_used)`. An empty
-/// result means neither source had samples (the caller then errors honestly).
-/// Reconstruct a `(t_ms, value)` series for one numeric `field` of the memory
-/// samples, from the VM-service jsonl (Flutter tier) or the web `MEMORY:SAMPLE`
-/// markers. A field a source doesn't emit (e.g. `dom_nodes` in the Flutter VM
-/// jsonl) yields an empty series, so a caller keying on it simply gets no signal
-/// there rather than a wrong one.
+/// present; otherwise the WEB runner's `MEMORY:SAMPLE
+/// {"t_ms":..,"heap_used":..}` markers in `drive-a.log` are parsed (the web
+/// heap sampler, since the web target exposes no VM service). Each entry is
+/// `(t_ms, heap_used)`. An empty result means neither source had samples (the
+/// caller then errors honestly). Reconstruct a `(t_ms, value)` series for one
+/// numeric `field` of the memory samples, from the VM-service jsonl (Flutter
+/// tier) or the web `MEMORY:SAMPLE` markers. A field a source doesn't emit
+/// (e.g. `dom_nodes` in the Flutter VM jsonl) yields an empty series, so a
+/// caller keying on it simply gets no signal there rather than a wrong one.
 fn read_series(run_dir: &Path, field: &str) -> Vec<(u64, u64)> {
     let parse_line = |l: &str| -> Option<(u64, u64)> {
         let v: serde_json::Value = serde_json::from_str(l).ok()?;
@@ -51,10 +51,10 @@ fn read_memory_series(run_dir: &Path) -> Vec<(u64, u64)> {
     read_series(run_dir, "heap_used")
 }
 
-/// Least-squares slope (heap units per sample index) of a heap series. `x` is the
-/// 0-based sample index, `y` the heap value; returns `dy/dx` of the best-fit line,
-/// 0.0 for a degenerate (<2 distinct-x) series. Robust to endpoint noise in a way
-/// `(last - first)` is not.
+/// Least-squares slope (heap units per sample index) of a heap series. `x` is
+/// the 0-based sample index, `y` the heap value; returns `dy/dx` of the
+/// best-fit line, 0.0 for a degenerate (<2 distinct-x) series. Robust to
+/// endpoint noise in a way `(last - first)` is not.
 fn least_squares_slope(series: &[(u64, u64)]) -> f64 {
     let n = series.len() as f64;
     if n < 2.0 {
@@ -80,16 +80,18 @@ fn least_squares_slope(series: &[(u64, u64)]) -> f64 {
 /// and warmup allocations are real; a true leak scales linearly.
 const LEAK_BYTES_PER_CYCLE: f64 = 262_144.0;
 
-/// Live DOM-element growth per cycle above this is a DETERMINISTIC leak verdict.
-/// Unlike the byte threshold, the node count is machine-invariant: identical
-/// cycles build identical DOM, so a monotonic node climb reproduces on any
-/// runner. Small (a few nodes/cycle) but above transient ±1 jitter, so a real
-/// unbounded-DOM leak (a list/modal that never clears) is caught with no flake.
+/// Live DOM-element growth per cycle above this is a DETERMINISTIC leak
+/// verdict. Unlike the byte threshold, the node count is machine-invariant:
+/// identical cycles build identical DOM, so a monotonic node climb reproduces
+/// on any runner. Small (a few nodes/cycle) but above transient ±1 jitter, so a
+/// real unbounded-DOM leak (a list/modal that never clears) is caught with no
+/// flake.
 const LEAK_DOM_NODES_PER_CYCLE: f64 = 3.0;
 
 pub struct SoakArgs {
     pub journey: String,
-    /// Semicolon-separated actions, e.g. "tap:Compose;tap:New post;tap:Publish".
+    /// Semicolon-separated actions, e.g. "tap:Compose;tap:New
+    /// post;tap:Publish".
     pub cycle: String,
     pub repeats: u32,
     pub warm: bool,
@@ -181,7 +183,7 @@ pub async fn soak(cfg: &Config, root: &Path, args: &SoakArgs) -> Result<bool> {
     // A DOM-node leak is a deterministic verdict; a byte-only leak (no node growth)
     // is machine-dependent, so it is reported but labeled advisory.
     let leak = dom_leak || byte_leak;
-    let exceptions = crate::fuzz::app_exceptions(&outcome.run_dir).len();
+    let exceptions = crate::modes::fuzz::app_exceptions(&outcome.run_dir).len();
     let verdict = if dom_leak {
         "LEAK"
     } else if byte_leak {
@@ -212,7 +214,8 @@ pub async fn soak(cfg: &Config, root: &Path, args: &SoakArgs) -> Result<bool> {
     );
 
     let mut md = format!(
-        "# soak report\n\ncycle: `{}`\nrepeats: {}\nverdict: **{verdict}** ({:+.0}KB/cycle)\n\n## heap samples\n\n| t (s) | heap (MB) |\n|---|---|\n",
+        "# soak report\n\ncycle: `{}`\nrepeats: {}\nverdict: **{verdict}** ({:+.0}KB/cycle)\n\n## \
+         heap samples\n\n| t (s) | heap (MB) |\n|---|---|\n",
         actions.join(" ; "),
         args.repeats,
         per_cycle / 1024.0,

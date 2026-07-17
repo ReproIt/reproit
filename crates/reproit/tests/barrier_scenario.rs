@@ -1,14 +1,14 @@
 //! End-to-end multi-actor barrier: the TUI backend's scenario client speaks
 //! the conductor protocol (`GET /claim` + `GET /next` + `POST /done`) through
 //! the real binary. A tiny in-test conductor serves an interleaved two-actor
-//! script; two `reproit __tui` processes (driving `sleep`, a blank inert
-//! screen, same trick as the determinism e2e) must each pull exactly their own
-//! actions, in the global order, and ack every step. This pins the wire
+//! script; two `reproit __tui` processes (driving a platform-native inert
+//! process and blank screen) must each pull exactly their own actions, in the
+//! global order, and ack every step. This pins the wire
 //! contract every backend's runner implements (web/electron/tauri/flutter/
 //! appium/desktop-ax/desktop-uia/desktop-atspi/instrumented/tui), from the
 //! runner side; modes/barrier.rs pins the conductor side.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -30,16 +30,18 @@ fn start_conductor(script: Vec<(usize, &'static str)>, n: usize) -> (u16, Arc<Mu
     let port = listener.local_addr().unwrap().port();
     let observed = Arc::new(Mutex::new(Observed::default()));
     let obs = observed.clone();
-    let state = Arc::new(Mutex::new((0usize, false, vec![false; n], 0usize))); // (cursor, served, joined, claimed)
+    // (cursor, served, joined, claimed)
+    let state = Arc::new(Mutex::new((0usize, false, vec![false; n], 0usize)));
     std::thread::spawn(move || {
         for sock in listener.incoming() {
             let Ok(mut sock) = sock else { break };
-            let mut buf = [0u8; 1024];
-            let Ok(len) = sock.read(&mut buf) else {
+            let mut line = String::new();
+            let Ok(len) = BufReader::new(&mut sock).read_line(&mut line) else {
                 continue;
             };
-            let req = String::from_utf8_lossy(&buf[..len]).to_string();
-            let line = req.lines().next().unwrap_or("").to_string();
+            if len == 0 {
+                continue;
+            }
             let mut parts = line.split_whitespace();
             let method = parts.next().unwrap_or("").to_string();
             let path = parts.next().unwrap_or("").to_string();
@@ -112,9 +114,14 @@ fn start_conductor(script: Vec<(usize, &'static str)>, n: usize) -> (u16, Arc<Mu
 /// Spawn one `reproit __tui` scenario actor against the conductor. `label` is
 /// the per-process device env (None exercises the `/claim` path).
 fn spawn_actor(port: u16, label: Option<&str>) -> std::process::Child {
+    #[cfg(windows)]
+    const INERT_TUI_CMD: &str = "ping.exe -n 31 127.0.0.1";
+    #[cfg(not(windows))]
+    const INERT_TUI_CMD: &str = "sleep 30";
+
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_reproit"));
     cmd.arg("__tui")
-        .env("REPROIT_TUI_CMD", "sleep 30")
+        .env("REPROIT_TUI_CMD", INERT_TUI_CMD)
         .env(
             "REPROIT_SCENARIO_BARRIER",
             format!("http://127.0.0.1:{port}"),
@@ -133,9 +140,35 @@ fn spawn_actor(port: u16, label: Option<&str>) -> std::process::Child {
     cmd.spawn().expect("spawn reproit __tui actor")
 }
 
-fn stdout_of(child: std::process::Child) -> String {
+struct ActorOutput {
+    status: std::process::ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+impl ActorOutput {
+    fn contains(&self, needle: &str) -> bool {
+        self.stdout.contains(needle)
+    }
+}
+
+impl std::fmt::Display for ActorOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "status: {}\nstdout:\n{}\nstderr:\n{}",
+            self.status, self.stdout, self.stderr
+        )
+    }
+}
+
+fn stdout_of(child: std::process::Child) -> ActorOutput {
     let out = child.wait_with_output().expect("actor output");
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    ActorOutput {
+        status: out.status,
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
 }
 
 #[test]
@@ -188,24 +221,35 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
         .expect("repo root")
         .to_path_buf();
     let clients = [
-        ("templates/explorer.dart", "FlutterDrive"),
-        ("runners/web/runner.mjs", "WebCdp (web)"),
-        ("runners/electron.mjs", "WebCdp (electron)"),
-        ("runners/tauri.mjs", "WebCdp (tauri)"),
+        ("templates/explorer.dart", "", "FlutterDrive"),
+        ("runners/web/runner.mjs", "", "WebCdp (web)"),
+        ("runners/electron.mjs", "", "WebCdp (electron)"),
+        ("runners/tauri.mjs", "", "WebCdp (tauri)"),
         (
             "runners/rn/runner.mjs",
+            "",
             "Appium (react-native/swift-ios/android)",
         ),
-        ("runners/macos-ax.swift", "DesktopAx"),
-        ("crates/reproit/src/backends/uia.rs", "DesktopUia"),
-        ("crates/reproit/src/backends/atspi.rs", "DesktopAtspi"),
-        ("runners/reproit_imgui.h", "Instrumented (imgui)"),
-        ("runners/reproit_clay.h", "Instrumented (clay)"),
-        ("crates/reproit/src/backends/tui.rs", "Tui"),
+        ("runners/macos-ax.swift", "", "DesktopAx"),
+        ("crates/reproit/src/backends/uia/mod.rs", "", "DesktopUia"),
+        (
+            "crates/reproit/src/backends/atspi/session.rs",
+            "crates/reproit/src/backends/atspi/mod.rs",
+            "DesktopAtspi",
+        ),
+        ("runners/reproit_imgui.h", "", "Instrumented (imgui)"),
+        ("runners/reproit_clay.h", "", "Instrumented (clay)"),
+        ("crates/reproit/src/backends/tui/mod.rs", "", "Tui"),
     ];
-    for (rel, backend) in clients {
-        let src = std::fs::read_to_string(root.join(rel))
+    for (rel, companion, backend) in clients {
+        let mut src = std::fs::read_to_string(root.join(rel))
             .unwrap_or_else(|e| panic!("reading {rel}: {e}"));
+        if !companion.is_empty() {
+            src.push_str(
+                &std::fs::read_to_string(root.join(companion))
+                    .unwrap_or_else(|e| panic!("reading {companion}: {e}")),
+            );
+        }
         assert!(
             src.contains("REPROIT_SCENARIO_BARRIER"),
             "{backend} runner {rel} lost the conductor URL hookup"

@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 final RegExp _secret = RegExp(
-  r'password|passwd|secret|token|authorization|cookie|email|phone|api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|access[-_. ]?key|signing[-_. ]?key',
+  r'password|passwd|secret|token|authorization|cookie|email|phone|'
+  r'api[-_. ]?key|publishable[-_. ]?key|private[-_. ]?key|'
+  r'access[-_. ]?key|signing[-_. ]?key',
   caseSensitive: false,
 );
 
@@ -16,9 +18,14 @@ Object? redactCausal(Object? value) {
     for (final entry in entries) {
       final key = entry.key.toString();
       final child = entry.value;
-      out[key] = _secret.hasMatch(key)
-          ? '<reproit:${child is String ? 'string:length=${child.runes.length}' : child.runtimeType.toString().toLowerCase()}>'
-          : redactCausal(child);
+      if (_secret.hasMatch(key)) {
+        final type = child is String
+            ? 'string:length=${child.runes.length}'
+            : child.runtimeType.toString().toLowerCase();
+        out[key] = '<reproit:$type>';
+      } else {
+        out[key] = redactCausal(child);
+      }
     }
     return out;
   }
@@ -43,7 +50,12 @@ String _canonicalUrl(Uri uri) {
   });
   final base = uri.replace(query: '').toString();
   if (pairs.isEmpty) return base;
-  return '$base?${pairs.map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}').join('&')}';
+  final query = pairs.map((entry) {
+    final key = Uri.encodeQueryComponent(entry.key);
+    final value = Uri.encodeQueryComponent(entry.value);
+    return '$key=$value';
+  }).join('&');
+  return '$base?$query';
 }
 
 class ReproItCausalClient extends http.BaseClient {

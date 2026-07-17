@@ -131,6 +131,127 @@ class _Snapshot {
   _Snapshot(this.sig, this.labels);
 }
 
+/// Global-coordinate geometry for an explicitly owned indicator.
+class ReproItIndicatorGeometry {
+  final Rect indicator;
+  final Rect owner;
+  final Rect container;
+  final bool animating;
+  final bool transformsResolved;
+  const ReproItIndicatorGeometry(
+      {required this.indicator,
+      required this.owner,
+      required this.container,
+      this.animating = false,
+      this.transformsResolved = true});
+}
+
+class ReproItFocusObservation {
+  final String key;
+  final bool focusedEditable,
+      exactKeyboardRect,
+      animating,
+      transformsResolved,
+      intentionalHiddenEditor,
+      systemUi;
+  final Rect field, usableViewport;
+  const ReproItFocusObservation(
+      {required this.key,
+      required this.focusedEditable,
+      required this.field,
+      required this.usableViewport,
+      required this.exactKeyboardRect,
+      this.animating = false,
+      this.transformsResolved = true,
+      this.intentionalHiddenEditor = false,
+      this.systemUi = false});
+}
+
+class _FocusContract {
+  final ReproItFocusObservation? Function() sample;
+  final bool Function() reveal;
+  const _FocusContract(this.sample, this.reveal);
+}
+
+enum ReproItContractStatus { proven, valid, unknown }
+
+enum ReproItStateBoundary {
+  rotation,
+  backgroundForeground,
+  navigationRoundTrip,
+  processRecreation
+}
+
+enum ReproItBoundaryPhase { before, after }
+
+class ReproItStructuralObservation {
+  final String key, state;
+  final bool authoritative, settled;
+  const ReproItStructuralObservation(
+      {required this.key,
+      required this.state,
+      required this.authoritative,
+      required this.settled});
+}
+
+class ReproItContractResult {
+  final ReproItContractStatus status;
+  final String id;
+  final String? message;
+  const ReproItContractResult(this.status, this.id, [this.message]);
+}
+
+class ReproItStatePreservationContract {
+  final Set<ReproItStateBoundary> boundaries;
+  final ReproItStructuralObservation? Function() sample;
+  final bool Function(ReproItStateBoundary, ReproItStructuralObservation)?
+      saveBaseline;
+  final ReproItStructuralObservation? Function(ReproItStateBoundary)?
+      loadBaseline;
+  const ReproItStatePreservationContract(
+      {required this.boundaries,
+      required this.sample,
+      this.saveBaseline,
+      this.loadBaseline});
+}
+
+class ReproItActionEffectObservation {
+  final String? route, state;
+  final bool authoritative, settled;
+  const ReproItActionEffectObservation(
+      {this.route,
+      this.state,
+      required this.authoritative,
+      required this.settled});
+}
+
+class ReproItTargetEffect {
+  final String target;
+  const ReproItTargetEffect(this.target);
+}
+
+class ReproItChangeEffect {
+  final String? target;
+  final bool? changed;
+  const ReproItChangeEffect({this.target, this.changed});
+}
+
+class ReproItActionEffectContract {
+  final ReproItActionEffectObservation? Function() sample;
+  final ReproItTargetEffect? route;
+  final ReproItChangeEffect? state;
+  const ReproItActionEffectContract(
+      {required this.sample, this.route, this.state});
+}
+
+class _IndicatorContract {
+  final String dependentKey, ownerKey, containerKey;
+  final double maxGap;
+  final ReproItIndicatorGeometry? Function() sample;
+  const _IndicatorContract(this.dependentKey, this.ownerKey, this.containerKey,
+      this.maxGap, this.sample);
+}
+
 /// PII-safe input fingerprinting (tier-3 on-error context).
 ///
 /// Some bugs only reproduce with a specific INPUT property: a 312-char name, an
@@ -430,6 +551,9 @@ class ReproIt {
   /// Flush queued events immediately (e.g. before a known teardown).
   static Future<void> flush() => _i?._flush() ?? Future.value();
 
+  /// Capture the current structural state as a tester-observed bug.
+  static bool captureBug() => _i?._captureBug() ?? false;
+
   /// The current context dimensions sent with each batch (read-only view).
   @visibleForTesting
   static Map<String, Object?> get context =>
@@ -472,6 +596,437 @@ class ReproIt {
   /// [_maybeEmitInvariants]), so registration is zero-overhead.
   static final Map<String, Object? Function()> _invariants =
       <String, Object? Function()>{};
+  static final Map<String, _IndicatorContract> _indicatorContracts = {};
+  static final Map<String, String> _indicatorPrior = {};
+  static final Map<String, int> _indicatorCounts = {};
+  static Timer? _indicatorRetry;
+  static final Map<String, _FocusContract> _focusContracts = {};
+  static final Set<String> _focusAttempted = {};
+  static final Map<String, String> _focusPrior = {};
+  static final Map<String, int> _focusCounts = {};
+  static final Map<String, ReproItStatePreservationContract> _stateContracts =
+      {};
+  static final Map<String, ReproItStructuralObservation> _stateBaselines = {};
+  static final Map<String, ReproItActionEffectContract> _actionContracts = {};
+  static final Map<String, ReproItActionEffectObservation> _actionBefore = {};
+  static void focusedInput(String id,
+      {required ReproItFocusObservation? Function() sample,
+      required bool Function() reveal}) {
+    if (id.isNotEmpty) _focusContracts[id] = _FocusContract(sample, reveal);
+  }
+
+  static void preserveState(
+      String id, ReproItStatePreservationContract contract) {
+    if (id.isNotEmpty && contract.boundaries.isNotEmpty) {
+      _stateContracts[id] = contract;
+    }
+  }
+
+  static List<ReproItContractResult> stateBoundary(
+      ReproItStateBoundary kind, ReproItBoundaryPhase phase) {
+    final out = <ReproItContractResult>[];
+    final ids = _stateContracts.keys.toList()..sort();
+    for (final id in ids) {
+      final c = _stateContracts[id]!;
+      if (!c.boundaries.contains(kind)) continue;
+      final wire = _boundaryWire(kind);
+      final identity = 'state-preservation:$wire:$id';
+      final key = '$wire:$id';
+      if (phase == ReproItBoundaryPhase.before) {
+        final value = _sampleState(c.sample);
+        if (!_validState(value)) {
+          out.add(_unknown(identity));
+          continue;
+        }
+        _stateBaselines[key] = value!;
+        if (kind == ReproItStateBoundary.processRecreation &&
+            (c.saveBaseline == null ||
+                _safeBool(() => c.saveBaseline!(kind, value)) != true)) {
+          _stateBaselines.remove(key);
+          out.add(_unknown(identity));
+        } else {
+          out.add(_validResult(identity));
+        }
+        continue;
+      }
+      final before = kind == ReproItStateBoundary.processRecreation
+          ? (c.loadBaseline == null
+              ? null
+              : _sampleState(() => c.loadBaseline!(kind)))
+          : _stateBaselines[key];
+      final after = _sampleState(c.sample);
+      _stateBaselines.remove(key);
+      if (!_validState(before) || !_validState(after)) {
+        out.add(_unknown(identity));
+      } else if (before!.key == after!.key && before.state == after.state) {
+        out.add(_validResult(identity));
+      } else {
+        out.add(_proven(identity,
+            'declared structural state was not preserved across $wire'));
+      }
+    }
+    _publishContracts(out);
+    return out;
+  }
+
+  static void actionEffect(String id, ReproItActionEffectContract contract) {
+    if (id.isNotEmpty) _actionContracts[id] = contract;
+  }
+
+  static List<ReproItContractResult> actionBegin(String id) {
+    final c = _actionContracts[id];
+    final value = c == null ? null : _sampleAction(c.sample);
+    final out = !_validAction(value)
+        ? [_unknown('action-effect:$id')]
+        : [_validResult('action-effect:$id')];
+    if (_validAction(value)) _actionBefore[id] = value!;
+    _publishContracts(out);
+    return out;
+  }
+
+  static List<ReproItContractResult> actionEnd(String id) {
+    final c = _actionContracts[id];
+    final before = _actionBefore.remove(id);
+    final after = c == null ? null : _sampleAction(c.sample);
+    if (c == null || !_validAction(before) || !_validAction(after)) {
+      final out = [_unknown('action-effect:$id')];
+      _publishContracts(out);
+      return out;
+    }
+    final out = <ReproItContractResult>[];
+    if (c.route != null) {
+      _checkTarget(out, id, 'route', c.route!.target, after!.route);
+    }
+    if (c.state != null) {
+      _checkChange(out, id, 'state', c.state!, before!.state, after!.state);
+    }
+    if (out.isEmpty) out.add(_unknown('action-effect:$id'));
+    _publishContracts(out);
+    return out;
+  }
+
+  static void _publishContracts(List<ReproItContractResult> results) {
+    final marker = _contractMarker(results);
+    if (marker == null) return;
+    final path = invchan.invariantFilePath();
+    if (path != null) {
+      invchan.appendInvariantLine(path, marker);
+    } else {
+      for (final result
+          in results.where((r) => r.status == ReproItContractStatus.proven)) {
+        _i?._captureContractBug(result);
+      }
+    }
+  }
+
+  static String _boundaryWire(ReproItStateBoundary kind) {
+    switch (kind) {
+      case ReproItStateBoundary.rotation:
+        return 'rotation';
+      case ReproItStateBoundary.backgroundForeground:
+        return 'background-foreground';
+      case ReproItStateBoundary.navigationRoundTrip:
+        return 'navigation-round-trip';
+      case ReproItStateBoundary.processRecreation:
+        return 'process-recreation';
+    }
+  }
+
+  static ReproItStructuralObservation? _sampleState(
+      ReproItStructuralObservation? Function() f) {
+    try {
+      return f();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static ReproItActionEffectObservation? _sampleAction(
+      ReproItActionEffectObservation? Function() f) {
+    try {
+      return f();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _safeBool(bool Function() f) {
+    try {
+      return f();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _validState(ReproItStructuralObservation? o) =>
+      o != null &&
+      o.authoritative &&
+      o.settled &&
+      o.key.isNotEmpty &&
+      o.state.isNotEmpty;
+  static bool _validAction(ReproItActionEffectObservation? o) =>
+      o != null && o.authoritative && o.settled;
+  static ReproItContractResult _unknown(String id) =>
+      ReproItContractResult(ReproItContractStatus.unknown, id);
+  static ReproItContractResult _validResult(String id) =>
+      ReproItContractResult(ReproItContractStatus.valid, id);
+  static ReproItContractResult _proven(String id, String message) =>
+      ReproItContractResult(ReproItContractStatus.proven, id, message);
+
+  static void _checkTarget(List<ReproItContractResult> out, String id,
+      String kind, String target, String? after) {
+    final identity = 'action-effect:$id:$kind';
+    out.add(target.isEmpty || after == null
+        ? _unknown(identity)
+        : after == target
+            ? _validResult(identity)
+            : _proven(identity, 'declared $kind effect did not occur'));
+  }
+
+  static void _checkChange(List<ReproItContractResult> out, String id,
+      String kind, ReproItChangeEffect effect, String? before, String? after) {
+    final identity = 'action-effect:$id:$kind';
+    if (after == null ||
+        (effect.target == null && (effect.changed == null || before == null))) {
+      out.add(_unknown(identity));
+      return;
+    }
+    final ok = effect.target != null
+        ? after == effect.target
+        : (after != before) == effect.changed;
+    out.add(ok
+        ? _validResult(identity)
+        : _proven(identity, 'declared $kind effect did not occur'));
+  }
+
+  static String? _contractMarker(List<ReproItContractResult> results) {
+    final items = results
+        .where((r) => r.status == ReproItContractStatus.proven)
+        .map((r) => {'id': r.id, 'message': r.message ?? r.id})
+        .toList();
+    return items.isEmpty
+        ? null
+        : 'REPROIT_INVARIANT ${jsonEncode({'sig': '', 'items': items})}';
+  }
+
+  @visibleForTesting
+  static void debugClearStructuralContracts() {
+    _stateContracts.clear();
+    _stateBaselines.clear();
+    _actionContracts.clear();
+    _actionBefore.clear();
+  }
+
+  static String? _focusMarker() {
+    final items = <Map<String, String>>[];
+    for (final id in _focusContracts.keys.toList()..sort()) {
+      final c = _focusContracts[id]!;
+      ReproItFocusObservation? o;
+      try {
+        o = c.sample();
+      } catch (_) {
+        o = null;
+      }
+      final valid = o != null &&
+          o.key.isNotEmpty &&
+          o.focusedEditable &&
+          o.exactKeyboardRect &&
+          !o.animating &&
+          o.transformsResolved &&
+          !o.intentionalHiddenEditor &&
+          !o.systemUi &&
+          <double>[
+            o.field.left,
+            o.field.top,
+            o.field.width,
+            o.field.height,
+            o.usableViewport.left,
+            o.usableViewport.top,
+            o.usableViewport.width,
+            o.usableViewport.height
+          ].every((value) => value.isFinite) &&
+          o.field.width > 0 &&
+          o.field.height > 0 &&
+          o.usableViewport.width > 0 &&
+          o.usableViewport.height > 0;
+      if (!valid) {
+        _focusAttempted.remove(id);
+        _focusPrior.remove(id);
+        _focusCounts.remove(id);
+        continue;
+      }
+      if (o!.field.overlaps(o.usableViewport)) {
+        _focusAttempted.remove(id);
+        _focusPrior.remove(id);
+        _focusCounts.remove(id);
+        continue;
+      }
+      if (!_focusAttempted.contains(id)) {
+        bool safe = false;
+        try {
+          safe = c.reveal();
+        } catch (_) {}
+        if (!safe) continue;
+        _focusAttempted.add(id);
+        continue;
+      }
+      final fp = [o.field, o.usableViewport]
+          .expand((r) => [r.left, r.top, r.width, r.height])
+          .map((v) => (v * 2).round())
+          .join(',');
+      final n = _focusPrior[id] == fp ? (_focusCounts[id] ?? 0) + 1 : 1;
+      _focusPrior[id] = fp;
+      _focusCounts[id] = n;
+      if (n >= 2)
+        items.add({
+          'id': 'focused-input-obscured:${o.key}',
+          'message': 'focused editable has no usable visible rectangle after '
+              'its owning scroll container attempted reveal'
+        });
+    }
+    return items.isEmpty
+        ? null
+        : 'REPROIT_INVARIANT ${jsonEncode({'sig': '', 'items': items})}';
+  }
+
+  @visibleForTesting
+  static String? debugFocusMarker() => _focusMarker();
+
+  @visibleForTesting
+  static void debugClearFocusedInputs() {
+    _focusContracts.clear();
+    _focusAttempted.clear();
+    _focusPrior.clear();
+    _focusCounts.clear();
+  }
+
+  /// Declare an indicator's semantic owner and container. The callback returns
+  /// global rectangles, normally from `RenderBox.localToGlobal`. ReproIt waits
+  /// for two identical settled samples and abstains while animated or unresolved.
+  static void indicator(String id,
+      {required String dependentKey,
+      required String ownerKey,
+      required String containerKey,
+      double maxGap = 8,
+      required ReproItIndicatorGeometry? Function() sample}) {
+    if (id.isEmpty ||
+        dependentKey.isEmpty ||
+        ownerKey.isEmpty ||
+        containerKey.isEmpty ||
+        !maxGap.isFinite ||
+        maxGap < 0) return;
+    _indicatorContracts[id] = _IndicatorContract(
+        dependentKey, ownerKey, containerKey, maxGap, sample);
+  }
+
+  static String? _relationMarker() {
+    final checks = <Map<String, Object>>[];
+    for (final id in _indicatorContracts.keys.toList()..sort()) {
+      final c = _indicatorContracts[id]!;
+      ReproItIndicatorGeometry? g;
+      try {
+        g = c.sample();
+      } catch (_) {
+        g = null;
+      }
+      var outcome = 'UNKNOWN';
+      String? violation;
+      var fp = 'UNKNOWN';
+      bool validRect(Rect r) =>
+          r.left.isFinite &&
+          r.top.isFinite &&
+          r.width.isFinite &&
+          r.height.isFinite &&
+          r.width > 0 &&
+          r.height > 0;
+      if (g != null &&
+          !g.animating &&
+          g.transformsResolved &&
+          validRect(g.indicator) &&
+          validRect(g.owner) &&
+          validRect(g.container)) {
+        final i = g.indicator, o = g.owner, box = g.container;
+        final escaped = i.left < box.left - .5 ||
+            i.top < box.top - .5 ||
+            i.right > box.right + .5 ||
+            i.bottom > box.bottom + .5;
+        final dx = max(0.0, max(o.left - i.right, i.left - o.right));
+        final dy = max(0.0, max(o.top - i.bottom, i.top - o.bottom));
+        final detached = sqrt(dx * dx + dy * dy) > c.maxGap + .5;
+        violation =
+            escaped ? 'escaped-container' : (detached ? 'detached' : null);
+        outcome = violation == null ? 'VALID' : 'PROVEN';
+        fp = [i, o, box]
+                .expand((r) => [r.left, r.top, r.width, r.height])
+                .map((v) => (v * 2).round())
+                .join(',') +
+            '|${violation ?? 'valid'}';
+      }
+      final count =
+          _indicatorPrior[id] == fp ? (_indicatorCounts[id] ?? 0) + 1 : 1;
+      _indicatorPrior[id] = fp;
+      _indicatorCounts[id] = count;
+      if (count < 2) continue;
+      checks.add(<String, Object>{
+        'kind': 'indicator-anchor',
+        'dependentKey': c.dependentKey,
+        'ownerKey': c.ownerKey,
+        'containerKey': c.containerKey,
+        'outcome': outcome,
+        if (violation != null) 'violation': violation
+      });
+    }
+    if (checks.isEmpty) return null;
+    return 'REPROIT_RELATION ${jsonEncode({
+          'stableSamples': 2,
+          'checks': checks
+        })}';
+  }
+
+  @visibleForTesting
+  static String? debugIndicatorMarker() => _relationMarker();
+
+  @visibleForTesting
+  static void debugClearIndicators() {
+    _indicatorContracts.clear();
+    _indicatorPrior.clear();
+    _indicatorCounts.clear();
+    _indicatorRetry?.cancel();
+    _indicatorRetry = null;
+  }
+
+  static void _maybeEmitRelations() {
+    if (_indicatorContracts.isEmpty && _focusContracts.isEmpty) return;
+    final path = invchan.invariantFilePath();
+    if (path == null) return;
+    final marker = _relationMarker();
+    final focusMarker = _focusMarker();
+    if (focusMarker != null) invchan.appendInvariantLine(path, focusMarker);
+    if (marker != null) {
+      invchan.appendInvariantLine(path, marker);
+    }
+    if (_indicatorRetry == null &&
+        (marker == null || _focusContracts.isNotEmpty)) {
+      final retryRelation = marker == null;
+      _indicatorRetry = Timer(const Duration(milliseconds: 50), () {
+        _indicatorRetry = null;
+        if (retryRelation) {
+          final confirmed = _relationMarker();
+          if (confirmed != null) invchan.appendInvariantLine(path, confirmed);
+        }
+        final focusConfirmed = _focusMarker();
+        if (focusConfirmed != null) {
+          invchan.appendInvariantLine(path, focusConfirmed);
+        } else {
+          Timer(const Duration(milliseconds: 50), () {
+            final finalFocus = _focusMarker();
+            if (finalFocus != null)
+              invchan.appendInvariantLine(path, finalFocus);
+          });
+        }
+      });
+    }
+  }
 
   /// Register an app invariant: a predicate that must hold in EVERY visited
   /// state (a running total never negative, the selected tab always
@@ -574,8 +1129,7 @@ class ReproIt {
         'build': <String, String>{
           if ((_cfg.buildVersion ?? '').isNotEmpty)
             'version': _cfg.buildVersion!,
-          if ((_cfg.buildCommit ?? '').isNotEmpty)
-            'commit': _cfg.buildCommit!,
+          if ((_cfg.buildCommit ?? '').isNotEmpty) 'commit': _cfg.buildCommit!,
         },
     });
     // Force the semantics tree on even with no a11y service attached; this is
@@ -926,6 +1480,7 @@ class ReproIt {
     // settle (independent of whether the signature changed); inert in
     // production (no such file), a no-op on web.
     _maybeEmitInvariants();
+    _maybeEmitRelations();
     if (_currentSig == null) {
       // initial state
       _currentSig = snap.sig;
@@ -1037,6 +1592,93 @@ class ReproIt {
     _enqueue(ev);
     // Errors are worth shipping promptly.
     scheduleMicrotask(_flush);
+  }
+
+  bool _captureBug() {
+    if (_disposed) return false;
+    final snap = _snapshot();
+    if (snap == null) return false;
+    if (_currentSig == null) {
+      _currentSig = snap.sig;
+      _path.add(_Step(snap.sig, 'load'));
+    } else if (_currentSig != snap.sig) {
+      final step = _pendingStep ?? _PendingStep('auto');
+      _path.add(step.toStep(_currentSig!, _cfg.redactLabels));
+      _currentSig = snap.sig;
+      _pendingStep = null;
+    }
+    if (_path.length > _cfg.pathCap) {
+      _path.removeRange(0, _path.length - _cfg.pathCap);
+    }
+    final trigger = _path.isEmpty ? 'load' : _path.last.action;
+    final ev = <String, dynamic>{
+      'kind': 'error',
+      'oracle': 'tester-capture',
+      'sig': snap.sig,
+      'path': _path.map((s) => s.toJson()).toList(),
+      'message': 'Tester observed a bug in this state',
+      'findingIdentity': {
+        'oracle': 'tester-capture',
+        'invariant': 'tester-observed-failure',
+        'kind': 'structural-state',
+        'message': '',
+        'frame': '',
+        'trigger': trigger,
+        'boundary': snap.sig,
+      },
+      't': DateTime.now().millisecondsSinceEpoch,
+    };
+    try {
+      final fp = _collectFields();
+      if (fp.isNotEmpty) {
+        ev['context'] = {
+          'fingerprint': fp,
+          'fpVersion': ReproItFingerprint.fpVersion,
+        };
+      }
+    } catch (_) {}
+    _enqueue(ev);
+    scheduleMicrotask(_flush);
+    return true;
+  }
+
+  bool _captureContractBug(ReproItContractResult result) {
+    if (_disposed || result.status != ReproItContractStatus.proven)
+      return false;
+    final snap = _snapshot();
+    if (snap == null) return false;
+    if (_currentSig == null) {
+      _currentSig = snap.sig;
+      _path.add(_Step(snap.sig, 'load'));
+    } else if (_currentSig != snap.sig) {
+      final step = _pendingStep ?? _PendingStep('auto');
+      _path.add(step.toStep(_currentSig!, _cfg.redactLabels));
+      _currentSig = snap.sig;
+      _pendingStep = null;
+    }
+    if (_path.length > _cfg.pathCap) {
+      _path.removeRange(0, _path.length - _cfg.pathCap);
+    }
+    final trigger = _path.isEmpty ? 'load' : _path.last.action;
+    _enqueue({
+      'kind': 'error',
+      'oracle': 'invariant',
+      'sig': snap.sig,
+      'path': _path.map((s) => s.toJson()).toList(),
+      'message': result.message ?? result.id,
+      'findingIdentity': {
+        'oracle': 'invariant',
+        'invariant': result.id,
+        'kind': 'structural-contract',
+        'message': result.message ?? result.id,
+        'frame': '',
+        'trigger': trigger,
+        'boundary': snap.sig,
+      },
+      't': DateTime.now().millisecondsSinceEpoch,
+    });
+    scheduleMicrotask(_flush);
+    return true;
   }
 
   void _enqueue(Map<String, dynamic> ev) {

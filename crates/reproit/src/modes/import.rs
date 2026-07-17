@@ -1,11 +1,11 @@
-//! `reproit import maestro <flow.yaml>`: translate a Maestro flow into a reproit
-//! journey, so switching off Maestro costs ~0. The common commands map onto the
-//! reproit action/assert grammar (tap:/type:/back/shoot:/assert:); `runFlow`
-//! sub-flows are inlined and literal `repeat` loops unrolled, so real (modular)
-//! suites convert, not just toy flows. Anything without a faithful reproit
-//! equivalent is emitted as a `# TODO(maestro): ...` line so a command is never
-//! silently dropped, and an import summary (mapped vs unsupported) prints at the
-//! end.
+//! `reproit import maestro <flow.yaml>`: translate a Maestro flow into a
+//! reproit journey, so switching off Maestro costs ~0. The common commands map
+//! onto the reproit action/assert grammar (tap:/type:/back/shoot:/assert:);
+//! `runFlow` sub-flows are inlined and literal `repeat` loops unrolled, so real
+//! (modular) suites convert, not just toy flows. Anything without a faithful
+//! reproit equivalent is emitted as a `# TODO(maestro): ...` line so a command
+//! is never silently dropped, and an import summary (mapped vs unsupported)
+//! prints at the end.
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -13,15 +13,16 @@ use serde_yaml::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::appmap::AppMap;
+use crate::cli::context::Ctx;
 use crate::layout;
-use crate::Ctx;
+use crate::model::appmap::AppMap;
 
 /// One line of the generated journey.
 #[derive(Debug, PartialEq)]
 enum Line {
-    /// A real step body, e.g. `tap:key:testid:sign-in` or `assert: textPresent:Hi`.
-    /// The leading `do: ` / `assert: ` is part of the string so render is dumb.
+    /// A real step body, e.g. `tap:key:testid:sign-in` or `assert:
+    /// textPresent:Hi`. The leading `do: ` / `assert: ` is part of the
+    /// string so render is dumb.
     Step(String),
     /// A command with no faithful reproit equivalent: emitted as a comment. The
     /// string starts with the Maestro command name (used by the report).
@@ -127,9 +128,11 @@ fn bounds_match(element: [i64; 4], text: [i64; 4]) -> bool {
     text_area > 0 && intersection * 2 >= text_area
 }
 
-/// Cap on runFlow include depth, so a cyclic `runFlow` chain cannot loop forever.
+/// Cap on runFlow include depth, so a cyclic `runFlow` chain cannot loop
+/// forever.
 const MAX_DEPTH: usize = 8;
-/// Cap on `repeat` unrolling, so a huge literal count cannot explode the journey.
+/// Cap on `repeat` unrolling, so a huge literal count cannot explode the
+/// journey.
 const MAX_REPEAT: u64 = 20;
 
 pub fn run(
@@ -198,10 +201,10 @@ pub fn run(
             ctx.say(format!("    {cmd} x{n}"));
         }
         ctx.say(
-            "  fixes: run the import again after reproit refreshes its internal model so unique text taps resolve to \
-             structural selectors, or give tapped elements stable ids; replace \
-             scroll/swipe with a goto: or a keyed tap:; port runScript logic into \
-             a reset: step or an invariant.",
+            "  fixes: run the import again after reproit refreshes its internal model so unique \
+             text taps resolve to structural selectors, or give tapped elements stable ids; \
+             replace scroll/swipe with a goto: or a keyed tap:; port runScript logic into a \
+             reset: step or an invariant.",
         );
     }
     // The handoff: a converted flow isn't just a replayable script, it's a
@@ -209,8 +212,8 @@ pub fn run(
     // it never covered. (Only meaningful once the journey lives on disk.)
     if out.is_some() {
         ctx.say(format!(
-            "\nNext: `reproit check {journey_name}` to replay it, or \
-             `reproit fuzz --from {journey_name}` to find the bugs it never covered."
+            "\nNext: `reproit check {journey_name}` to replay it, or `reproit fuzz --from \
+             {journey_name}` to find the bugs it never covered."
         ));
     }
     Ok(())
@@ -223,8 +226,9 @@ fn load_flow(path: &Path) -> Result<(Option<String>, Vec<Value>)> {
 }
 
 /// Split a Maestro flow into (appId, command list): the config mapping (appId,
-/// tags, ...), a `---` separator, then a sequence of commands. We take appId from
-/// the first mapping and commands from the first sequence (either may be absent).
+/// tags, ...), a `---` separator, then a sequence of commands. We take appId
+/// from the first mapping and commands from the first sequence (either may be
+/// absent).
 fn parse_maestro(raw: &str) -> Result<(Option<String>, Vec<Value>)> {
     let mut app_id = None;
     let mut commands = Vec::new();
@@ -243,7 +247,10 @@ fn parse_maestro(raw: &str) -> Result<(Option<String>, Vec<Value>)> {
         }
     }
     if commands.is_empty() {
-        bail!("no command sequence found (expected a Maestro flow: config, `---`, then a list of commands)");
+        bail!(
+            "no command sequence found (expected a Maestro flow: config, `---`, then a list of \
+             commands)"
+        );
     }
     Ok((app_id, commands))
 }
@@ -331,12 +338,13 @@ fn random_input(literal: &str, cmd: &str) -> Vec<Line> {
     ]
 }
 
-/// `runFlow` -> inline a sub-flow in place, bounded by note comments. Maestro has
-/// three shapes: a bare `runFlow: sub.yaml`, `runFlow: {file: sub.yaml, env: ...}`,
-/// and an inline `runFlow: {commands: [...]}`. An optional `when:` makes it
-/// conditional, which is a runtime decision reproit cannot make deterministically,
-/// so the body is inlined unconditionally with a note. A missing file / too-deep
-/// chain becomes a TODO so it is never silently dropped.
+/// `runFlow` -> inline a sub-flow in place, bounded by note comments. Maestro
+/// has three shapes: a bare `runFlow: sub.yaml`, `runFlow: {file: sub.yaml,
+/// env: ...}`, and an inline `runFlow: {commands: [...]}`. An optional `when:`
+/// makes it conditional, which is a runtime decision reproit cannot make
+/// deterministically, so the body is inlined unconditionally with a note. A
+/// missing file / too-deep chain becomes a TODO so it is never silently
+/// dropped.
 fn run_flow(v: &Value, base: &Path, depth: usize, resolver: &TapResolver) -> Vec<Line> {
     if depth >= MAX_DEPTH {
         return vec![Line::Todo(format!(
@@ -398,8 +406,8 @@ fn run_flow(v: &Value, base: &Path, depth: usize, resolver: &TapResolver) -> Vec
     out.push(Line::Note(format!("runFlow {sub} (inlined)")));
     if has_env {
         out.push(Line::Note(format!(
-            "runFlow {sub} passed env: vars; reproit journeys have no per-flow env, \
-             wire them via config defines/secrets if needed"
+            "runFlow {sub} passed env: vars; reproit journeys have no per-flow env, wire them via \
+             config defines/secrets if needed"
         )));
     }
     let inner_base = full.parent().unwrap_or(base).to_path_buf();
@@ -408,9 +416,9 @@ fn run_flow(v: &Value, base: &Path, depth: usize, resolver: &TapResolver) -> Vec
     out
 }
 
-/// `repeat: {times: N, commands: [...]}` -> unroll N times (literal N only, capped
-/// at MAX_REPEAT). A `while:` condition cannot be unrolled deterministically, so
-/// the body is inlined once with a note.
+/// `repeat: {times: N, commands: [...]}` -> unroll N times (literal N only,
+/// capped at MAX_REPEAT). A `while:` condition cannot be unrolled
+/// deterministically, so the body is inlined once with a note.
 fn repeat_block(v: &Value, base: &Path, depth: usize, resolver: &TapResolver) -> Vec<Line> {
     let Value::Mapping(m) = v else {
         return vec![Line::Todo(format!("repeat {}", summarize(v)))];
@@ -573,19 +581,19 @@ mod tests {
     fn resolver_with_element_and_text(
         element_label: &str,
         sel: &str,
-        texts: Vec<crate::appmap::StateText>,
+        texts: Vec<crate::model::appmap::StateText>,
     ) -> TapResolver {
         let mut states = BTreeMap::new();
         states.insert(
             "home".to_string(),
-            crate::appmap::State {
+            crate::model::appmap::State {
                 description: "home".to_string(),
-                signature: crate::appmap::StateSignature {
+                signature: crate::model::appmap::StateSignature {
                     screenshot_phash: None,
                     semantics_hash: Some("sig-home".to_string()),
                     route: None,
                 },
-                elements: vec![crate::appmap::StateElement {
+                elements: vec![crate::model::appmap::StateElement {
                     sel: sel.to_string(),
                     role: "button".to_string(),
                     label: element_label.to_string(),
@@ -657,7 +665,7 @@ mod tests {
         let resolver = resolver_with_element_and_text(
             "",
             "role:button#0",
-            vec![crate::appmap::StateText {
+            vec![crate::model::appmap::StateText {
                 text: "Sign in".to_string(),
                 bounds: Some([25, 16, 50, 14]),
             }],
@@ -718,7 +726,8 @@ mod tests {
 
     #[test]
     fn parses_two_doc_flow_and_renders() {
-        let flow = "appId: com.example.app\n---\n- launchApp\n- tapOn: \"Sign in\"\n- inputText: user@example.com\n- assertVisible: Welcome\n- takeScreenshot: home\n";
+        let flow = "appId: com.example.app\n---\n- launchApp\n- tapOn: \"Sign in\"\n- inputText: \
+                    user@example.com\n- assertVisible: Welcome\n- takeScreenshot: home\n";
         let (app_id, cmds) = parse_maestro(flow).unwrap();
         assert_eq!(app_id.as_deref(), Some("com.example.app"));
         let lines = translate_all(&cmds, Path::new("."), 0, &TapResolver::default());

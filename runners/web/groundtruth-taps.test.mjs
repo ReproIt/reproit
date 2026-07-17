@@ -30,31 +30,34 @@ const FIXTURE = `<!doctype html><html><body style="margin:0;font:16px sans-serif
 
 const EXPECTED_TESTID_SELS = [
   'key:testid:clickdiv', // cursor:pointer + keyed -> added
-  'key:testid:native',   // native button -> already a candidate
-  'key:testid:opt',      // delegated option + keyed -> added (the motivating case)
+  'key:testid:native', // native button -> already a candidate
+  'key:testid:opt', // delegated option + keyed -> added (the motivating case)
   // 'key:testid:decor' is deliberately ABSENT: no role/cursor/tabindex.
 ];
 
-test('snapshot tappables include keyed pointer-operable controls interactive() drops', async () => {
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    await page.setContent(FIXTURE);
-    const snap = await snapshot(page, []);
-    const sels = snap.tappables.map((t) => t.sel);
+test(
+  'snapshot tappables include keyed pointer-operable controls ' + 'interactive() drops',
+  async () => {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      await page.setContent(FIXTURE);
+      const snap = await snapshot(page, []);
+      const sels = snap.tappables.map((t) => t.sel);
 
-    // Exact set of testid-keyed candidates: native + opt + clickdiv present,
-    // decor absent. The keyless operable <div> contributes no testid selector
-    // (correctly excluded: a repro could not address it anyway).
-    const testidSels = sels.filter((s) => s.startsWith('key:testid:')).sort();
-    assert.deepStrictEqual(testidSels, EXPECTED_TESTID_SELS);
+      // Exact set of testid-keyed candidates: native + opt + clickdiv present,
+      // decor absent. The keyless operable <div> contributes no testid selector
+      // (correctly excluded: a repro could not address it anyway).
+      const testidSels = sels.filter((s) => s.startsWith('key:testid:')).sort();
+      assert.deepStrictEqual(testidSels, EXPECTED_TESTID_SELS);
 
-    // No selector appears twice (dedup against the role-indexed tappables).
-    assert.strictEqual(new Set(sels).size, sels.length, 'no duplicate selectors');
-  } finally {
-    await browser.close();
-  }
-});
+      // No selector appears twice (dedup against the role-indexed tappables).
+      assert.strictEqual(new Set(sels).size, sels.length, 'no duplicate selectors');
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 test('snapshot tappables are deterministic across repeated captures', async () => {
   const browser = await chromium.launch();
@@ -69,7 +72,7 @@ test('snapshot tappables are deterministic across repeated captures', async () =
   }
 });
 
-test('Tab-order audit restores focus-driven contextual UI and scroll position', async () => {
+test('Tab-order audit restores focus-driven contextual UI and scroll ' + 'position', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 800, height: 300 } });
@@ -93,33 +96,46 @@ test('Tab-order audit restores focus-driven contextual UI and scroll position', 
     const result = await gtTabOrder(page, 1, 1);
 
     assert.deepStrictEqual([...result.inTab], [0]);
-    assert.equal(await page.locator('#ContextualLayerRoot').count(), 0, 'focus portal is torn down');
+    assert.equal(
+      await page.locator('#ContextualLayerRoot').count(),
+      0,
+      'focus portal is torn down',
+    );
     assert.equal(await page.evaluate(() => window.scrollY), 120, 'audit restores the app viewport');
   } finally {
     await browser.close();
   }
 });
 
-test('ground truth excludes a huge offscreen native tree but keeps reachable controls', async () => {
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    await page.setContent('<!doctype html><body style="margin:0"><button id="shown">Shown</button><div id="far" style="margin-top:2000px"></div>');
-    await page.locator('#far').evaluate((far) => {
-      const frag = document.createDocumentFragment();
-      for (let i = 0; i < 20000; i++) {
-        const button = document.createElement('button');
-        button.id = 'off-' + i;
-        button.textContent = 'Offscreen ' + i;
-        frag.appendChild(button);
-      }
-      far.appendChild(frag);
-    });
-    const started = Date.now();
-    const els = await gtCollect(page);
-    assert.deepStrictEqual(els.map((e) => e.sel), ['role:button#0']);
-    assert.ok(Date.now() - started < 3000, 'collection remains bounded');
-  } finally {
-    await browser.close();
-  }
-});
+test(
+  'ground truth excludes a huge offscreen native tree but keeps reachable ' + 'controls',
+  async () => {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      await page.setContent(
+        '<!doctype html><body style="margin:0"><button id="shown">Shown</' +
+          'button><div id="far" style="margin-top:2000px"></div>',
+      );
+      await page.locator('#far').evaluate((far) => {
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < 20000; i++) {
+          const button = document.createElement('button');
+          button.id = 'off-' + i;
+          button.textContent = 'Offscreen ' + i;
+          frag.appendChild(button);
+        }
+        far.appendChild(frag);
+      });
+      const started = Date.now();
+      const els = await gtCollect(page);
+      assert.deepStrictEqual(
+        els.map((e) => e.sel),
+        ['role:button#0'],
+      );
+      assert.ok(Date.now() - started < 3000, 'collection remains bounded');
+    } finally {
+      await browser.close();
+    }
+  },
+);

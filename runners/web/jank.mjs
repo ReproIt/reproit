@@ -7,7 +7,9 @@
 // Gecko/WebKit is exactly the bug class the user hit.
 import { chromium, firefox, webkit } from 'playwright';
 const URL = process.env.REPROIT_URL || 'https://example.com/';
-const ENGINES = (process.env.REPROIT_ENGINES || 'chromium,firefox,webkit').split(',').map((s) => s.trim());
+const ENGINES = (process.env.REPROIT_ENGINES || 'chromium,firefox,webkit')
+  .split(',')
+  .map((s) => s.trim());
 const SECONDS = parseFloat(process.env.REPROIT_JANK_SECONDS || '4');
 const HEADLESS = process.env.REPROIT_HEADLESS === '1';
 const BY = { chromium, firefox, webkit };
@@ -41,13 +43,25 @@ function summarize(iv) {
   // jerkiness = how variable the cadence is (0 = perfectly even).
   const mean = iv.reduce((a, b) => a + b, 0) / iv.length;
   const sd = Math.sqrt(iv.reduce((a, b) => a + (b - mean) ** 2, 0) / iv.length);
-  return { frames: iv.length, fps, medMs: med, p95Ms: p95, maxMs: max, dropped, dropPct: (100 * dropped) / iv.length, jerk: sd / mean };
+  return {
+    frames: iv.length,
+    fps,
+    medMs: med,
+    p95Ms: p95,
+    maxMs: max,
+    dropped,
+    dropPct: (100 * dropped) / iv.length,
+    jerk: sd / mean,
+  };
 }
 
 console.log(`JOURNEY[a] step: jank probe: ${ENGINES.join(', ')} @ ${URL}`);
 const rows = [];
 for (const e of ENGINES) {
-  if (!BY[e]) { console.log(`  skip ${e}`); continue; }
+  if (!BY[e]) {
+    console.log(`  skip ${e}`);
+    continue;
+  }
   const b = await BY[e].launch({ headless: HEADLESS });
   const p = await (await b.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
   await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
@@ -58,7 +72,12 @@ for (const e of ENGINES) {
   rows.push({ e, s });
   if (s)
     console.log(
-      `  ${e.padEnd(9)} fps=${s.fps.toFixed(1).padStart(5)}  median=${s.medMs.toFixed(1)}ms  p95=${s.p95Ms.toFixed(1)}ms  max=${s.maxMs.toFixed(0)}ms  dropped=${s.dropped} (${s.dropPct.toFixed(1)}%)  jerkiness=${s.jerk.toFixed(2)}`,
+      [
+        `  ${e.padEnd(9)} fps=${s.fps.toFixed(1).padStart(5)}`,
+        `median=${s.medMs.toFixed(1)}ms  p95=${s.p95Ms.toFixed(1)}ms`,
+        `max=${s.maxMs.toFixed(0)}ms  dropped=${s.dropped} (${s.dropPct.toFixed(1)}%)`,
+        `jerkiness=${s.jerk.toFixed(2)}`,
+      ].join('  '),
     );
 }
 // verdict: flag engines whose smoothness is materially worse than the best.
@@ -70,7 +89,10 @@ if (ok.length >= 2) {
   for (const r of ok) {
     if (r.e === best.e) continue;
     if (r.s.dropPct > best.s.dropPct + 5 || r.s.p95Ms > best.s.p95Ms * 2) {
-      console.log(`  ⚠ ${r.e}: ${r.s.dropPct.toFixed(1)}% dropped vs ${best.s.dropPct.toFixed(1)}%, janky relative to ${best.e}`);
+      console.log(
+        `  ⚠ ${r.e}: ${r.s.dropPct.toFixed(1)}% dropped vs ` +
+          `${best.s.dropPct.toFixed(1)}%, janky relative to ${best.e}`,
+      );
       flagged = true;
     }
   }

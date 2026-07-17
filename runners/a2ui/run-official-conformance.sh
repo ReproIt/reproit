@@ -7,7 +7,10 @@ checkout="${1:-${A2UI_CHECKOUT:-}}"
 checkout="$(cd "$checkout" && pwd)"
 actual="$(git -C "$checkout" rev-parse HEAD)"
 expected="${A2UI_EXPECTED_COMMIT:-$actual}"
-[[ "$actual" == "$expected" ]] || { echo "A2UI checkout must be at $expected (got $actual)" >&2; exit 1; }
+[[ "$actual" == "$expected" ]] || {
+  echo "A2UI checkout must be at $expected (got $actual)" >&2
+  exit 1
+}
 
 artifacts="${A2UI_ARTIFACT_DIR:-${TMPDIR:-/tmp}/a2ui-conformance-$actual}"
 mkdir -p "$artifacts/corpus"

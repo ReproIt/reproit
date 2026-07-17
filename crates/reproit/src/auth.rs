@@ -48,7 +48,8 @@ const ARGON2_MEM_KIB: u32 = 19 * 1024;
 const ARGON2_ITERS: u32 = 2;
 const ARGON2_LANES: u32 = 1;
 
-/// Which source the key material came from, so save() can pick the matching KDF.
+/// Which source the key material came from, so save() can pick the matching
+/// KDF.
 enum Material {
     /// REPROIT_VAULT_KEY passphrase (low-entropy human secret -> Argon2id).
     Passphrase(Vec<u8>),
@@ -173,7 +174,8 @@ fn derive_key_from(kdf_id: u8, salt: &[u8], material: &Material) -> Result<[u8; 
     }
 }
 
-/// Fast derivation for high-entropy (random keyfile) material: SHA256(salt||material).
+/// Fast derivation for high-entropy (random keyfile) material:
+/// SHA256(salt||material).
 fn derive_sha256(salt: &[u8], material: &[u8]) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
@@ -182,8 +184,8 @@ fn derive_sha256(salt: &[u8], material: &[u8]) -> [u8; 32] {
     h.finalize().into()
 }
 
-/// Memory-hard derivation for low-entropy passphrase material: Argon2id with the
-/// recorded params, keyed by the per-vault salt.
+/// Memory-hard derivation for low-entropy passphrase material: Argon2id with
+/// the recorded params, keyed by the per-vault salt.
 fn derive_argon2id(salt: &[u8], material: &[u8]) -> Result<[u8; 32]> {
     use argon2::{Algorithm, Argon2, Params, Version};
     let params = Params::new(ARGON2_MEM_KIB, ARGON2_ITERS, ARGON2_LANES, Some(32))
@@ -355,11 +357,12 @@ pub fn secret_env(auth: &AuthCfg, root: &Path) -> Result<Vec<(String, String)>> 
     Ok(out)
 }
 
-/// Resolve `${REPROIT_SECRET_*}` placeholders in an action string to their vault
-/// values, host-side, so a runner types the real value without ever touching the
-/// vault, env, or any framework-specific secret transport. `secrets` is the
-/// `secret_env` output. This is what makes the vault framework-agnostic: the only
-/// secret-aware code is here in the host, not duplicated per runner language.
+/// Resolve `${REPROIT_SECRET_*}` placeholders in an action string to their
+/// vault values, host-side, so a runner types the real value without ever
+/// touching the vault, env, or any framework-specific secret transport.
+/// `secrets` is the `secret_env` output. This is what makes the vault
+/// framework-agnostic: the only secret-aware code is here in the host, not
+/// duplicated per runner language.
 pub fn resolve_placeholders(action: &str, secrets: &[(String, String)]) -> String {
     if !action.contains("${") {
         return action.to_string();
@@ -373,7 +376,8 @@ pub fn resolve_placeholders(action: &str, secrets: &[(String, String)]) -> Strin
 
 /// The inverse of `resolve_placeholders`: replace any secret VALUE with its
 /// `${KEY}` placeholder. Applied as the host captures a runner's log so a
-/// resolved secret never persists in `drive-*.log` / evidence, on any framework.
+/// resolved secret never persists in `drive-*.log` / evidence, on any
+/// framework.
 pub fn redact(line: &str, secrets: &[(String, String)]) -> String {
     let mut out = line.to_string();
     for (key, value) in secrets {
@@ -499,7 +503,8 @@ mod tests {
     fn resolve_is_noop_without_placeholders_and_redact_skips_short_values() {
         let secrets = vec![("REPROIT_SECRET_X_CODE".to_string(), "42".to_string())];
         assert_eq!(resolve_placeholders("tap:key:go", &secrets), "tap:key:go");
-        // A 2-char value is too collision-prone to redact (would scrub "42" everywhere).
+        // A 2-char value is too collision-prone to redact (would scrub "42"
+        // everywhere).
         assert_eq!(redact("seed 42 items", &secrets), "seed 42 items");
     }
 }

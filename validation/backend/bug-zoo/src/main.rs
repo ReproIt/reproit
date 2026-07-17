@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
-#[path = "../../../../crates/reproit/src/model/backend.rs"]
-mod backend;
-
-use backend::{evaluate, import_service_schema, parse_events, BackendConfig};
+use reproit::backend_contracts::{
+    evaluate, import_service_schema, parse_events, BackendConfig, BackendEvent,
+};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -21,7 +20,7 @@ fn events_with_outcome(
     output: &Value,
     status: u16,
     success: bool,
-) -> Vec<backend::BackendEvent> {
+) -> Vec<BackendEvent> {
     let log = format!(
         concat!(
             "REPROIT:BACKEND {{\"sequence\":1,\"traceId\":\"bug-zoo\",",
@@ -37,7 +36,7 @@ fn events_with_outcome(
     parse_events(&log)
 }
 
-fn events(operation: &str, output: &Value) -> Vec<backend::BackendEvent> {
+fn events(operation: &str, output: &Value) -> Vec<BackendEvent> {
     events_with_outcome(operation, output, 200, true)
 }
 

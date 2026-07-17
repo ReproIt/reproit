@@ -1,53 +1,66 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {A2uiPreflightError, instrumentA2ui, preflightA2ui} from './integration.mjs';
+import { A2uiPreflightError, instrumentA2ui, preflightA2ui } from './integration.mjs';
 
 const catalogId = 'https://a2ui.org/test/catalog.json';
 const common = {
   protocolVersion: 'v0.9',
-  protocolDocument: {$id: 'server_to_client.json'},
-  catalog: {id: catalogId, document: {catalogId}},
-  renderer: {name: 'GenUI', version: 'test-fixture', platform: 'flutter'},
-  oracle: {kind: 'data-model-value', surfaceId: 'main', path: '/total', expected: 100},
+  protocolDocument: { $id: 'server_to_client.json' },
+  catalog: { id: catalogId, document: { catalogId } },
+  renderer: { name: 'GenUI', version: 'test-fixture', platform: 'flutter' },
+  oracle: { kind: 'data-model-value', surfaceId: 'main', path: '/total', expected: 100 },
   validateMessages: async () => [],
 };
 
 function totalStream(value) {
   return [
-    {version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}},
-    {version: 'v0.9', updateDataModel: {surfaceId: 'main', path: '/total', value}},
+    { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } },
+    { version: 'v0.9', updateDataModel: { surfaceId: 'main', path: '/total', value } },
   ];
 }
 
-test('wrapper preserves an ADK-like event stream and captures only extracted A2UI messages', async () => {
-  const input = [
-    {id: 'text', a2ui: []},
-    {id: 'create', a2ui: [{version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}}]},
-    {id: 'data', a2ui: [{version: 'v0.9', updateDataModel: {surfaceId: 'main', path: '/total', value: 99}}]},
-  ];
-  let callback;
-  const {events, result} = instrumentA2ui(input, {
-    ...common,
-    extractMessages: event => event.a2ui,
-    onResult: evidence => { callback = evidence; },
-  });
-  const observed = [];
-  for await (const event of events) observed.push(event);
-  const evidence = await result;
-  assert.deepEqual(observed, input);
-  assert.equal(evidence, callback);
-  assert.equal(evidence.replay.status, 'fail');
-  assert.equal(evidence.feedback.actual, 99);
-  assert.equal(evidence.feedback.reproduction.minimizedMessages, 2);
-  assert.equal(evidence.feedback.reproduction.messages.length, 2);
-});
+test(
+  'wrapper preserves an ADK-like event stream and captures only extracted ' + 'A2UI messages',
+  async () => {
+    const input = [
+      { id: 'text', a2ui: [] },
+      {
+        id: 'create',
+        a2ui: [{ version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } }],
+      },
+      {
+        id: 'data',
+        a2ui: [
+          { version: 'v0.9', updateDataModel: { surfaceId: 'main', path: '/total', value: 99 } },
+        ],
+      },
+    ];
+    let callback;
+    const { events, result } = instrumentA2ui(input, {
+      ...common,
+      extractMessages: (event) => event.a2ui,
+      onResult: (evidence) => {
+        callback = evidence;
+      },
+    });
+    const observed = [];
+    for await (const event of events) observed.push(event);
+    const evidence = await result;
+    assert.deepEqual(observed, input);
+    assert.equal(evidence, callback);
+    assert.equal(evidence.replay.status, 'fail');
+    assert.equal(evidence.feedback.actual, 99);
+    assert.equal(evidence.feedback.reproduction.minimizedMessages, 2);
+    assert.equal(evidence.feedback.reproduction.messages.length, 2);
+  },
+);
 
 test('wrapper stays transparent for a passing stream', async () => {
   const source = [
-    {version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}},
-    {version: 'v0.9', updateDataModel: {surfaceId: 'main', path: '/total', value: 100}},
+    { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } },
+    { version: 'v0.9', updateDataModel: { surfaceId: 'main', path: '/total', value: 100 } },
   ];
-  const {events, result} = instrumentA2ui(source, common);
+  const { events, result } = instrumentA2ui(source, common);
   const output = [];
   for await (const event of events) output.push(event);
   const evidence = await result;
@@ -58,12 +71,12 @@ test('wrapper stays transparent for a passing stream', async () => {
 
 test('capture-only sanitizer never changes yielded events', async () => {
   const source = [
-    {version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}},
-    {version: 'v0.9', updateDataModel: {surfaceId: 'main', path: '/total', value: 100}},
+    { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } },
+    { version: 'v0.9', updateDataModel: { surfaceId: 'main', path: '/total', value: 100 } },
   ];
-  const {events, result} = instrumentA2ui(source, {
+  const { events, result } = instrumentA2ui(source, {
     ...common,
-    oracle: {...common.oracle, expected: '[number]'},
+    oracle: { ...common.oracle, expected: '[number]' },
     sanitizeMessage(message) {
       const safe = structuredClone(message);
       if (safe.updateDataModel) safe.updateDataModel.value = '[number]';
@@ -80,18 +93,21 @@ test('capture-only sanitizer never changes yielded events', async () => {
 
 test('partial consumption rejects incomplete evidence', async () => {
   const source = [
-    {version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}},
-    {version: 'v0.9', updateDataModel: {surfaceId: 'main', path: '/total', value: 100}},
+    { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } },
+    { version: 'v0.9', updateDataModel: { surfaceId: 'main', path: '/total', value: 100 } },
   ];
   const observed = instrumentA2ui(source, common);
   for await (const _event of observed.events) break;
   await assert.rejects(observed.result, /not fully consumed/);
 });
 
-test('stream observation fails closed without an exact protocol and catalog validator', () => {
+test('stream observation fails closed without an exact protocol and catalog ' + 'validator', () => {
   assert.throws(
-    () => instrumentA2ui(totalStream(100), {...common, validateMessages: undefined}),
-    /observer requires an exact protocol and catalog validateMessages callback/,
+    () => instrumentA2ui(totalStream(100), { ...common, validateMessages: undefined }),
+    new RegExp(
+      'observer requires an exact protocol and catalog validateMessages ' + 'callback',
+      '',
+    ),
   );
 });
 
@@ -101,8 +117,12 @@ test('preflight releases an already-passing stream once and in source order', as
   let repairs = 0;
   const result = await preflightA2ui(source, {
     ...common,
-    repair() { repairs++; },
-    release(messages) { releases.push(messages); },
+    repair() {
+      repairs++;
+    },
+    release(messages) {
+      releases.push(messages);
+    },
   });
   assert.equal(result.replay.status, 'pass');
   assert.equal(result.repairAttempts, 0);
@@ -111,25 +131,31 @@ test('preflight releases an already-passing stream once and in source order', as
   assert.deepEqual(releases, [source]);
 });
 
-test('preflight supplies exact minimized feedback and releases only an independently verified repair', async () => {
-  const releases = [];
-  const result = await preflightA2ui(totalStream(99), {
-    ...common,
-    maxRepairs: 1,
-    repair({attempt, feedback, oracleIdentity}) {
-      assert.equal(attempt, 1);
-      assert.equal(feedback.code, 'REPROIT_A2UI_FAILURE');
-      assert.equal(feedback.actual, 99);
-      assert.equal(feedback.oracle.identity, oracleIdentity);
-      assert.equal(feedback.reproduction.minimizedMessages, 2);
-      return totalStream(100);
-    },
-    release(messages) { releases.push(messages); },
-  });
-  assert.equal(result.replay.status, 'pass');
-  assert.equal(result.repairAttempts, 1);
-  assert.deepEqual(releases, [totalStream(100)]);
-});
+test(
+  'preflight supplies exact minimized feedback and releases only an ' +
+    'independently verified repair',
+  async () => {
+    const releases = [];
+    const result = await preflightA2ui(totalStream(99), {
+      ...common,
+      maxRepairs: 1,
+      repair({ attempt, feedback, oracleIdentity }) {
+        assert.equal(attempt, 1);
+        assert.equal(feedback.code, 'REPROIT_A2UI_FAILURE');
+        assert.equal(feedback.actual, 99);
+        assert.equal(feedback.oracle.identity, oracleIdentity);
+        assert.equal(feedback.reproduction.minimizedMessages, 2);
+        return totalStream(100);
+      },
+      release(messages) {
+        releases.push(messages);
+      },
+    });
+    assert.equal(result.replay.status, 'pass');
+    assert.equal(result.repairAttempts, 1);
+    assert.deepEqual(releases, [totalStream(100)]);
+  },
+);
 
 test('preflight rejects an unverified repair without releasing it', async () => {
   const releases = [];
@@ -138,9 +164,11 @@ test('preflight rejects an unverified repair without releasing it', async () => 
       ...common,
       maxRepairs: 1,
       repair: () => totalStream(98),
-      release(messages) { releases.push(messages); },
+      release(messages) {
+        releases.push(messages);
+      },
     }),
-    error => {
+    (error) => {
       assert.ok(error instanceof A2uiPreflightError);
       assert.equal(error.detail.repairAttempts, 1);
       assert.equal(error.detail.lastReplay.status, 'fail');
@@ -150,26 +178,28 @@ test('preflight rejects an unverified repair without releasing it', async () => 
   assert.deepEqual(releases, []);
 });
 
-test('preflight stops at the repair bound and never releases failed candidates', async () => {
+test('preflight stops at the repair bound and never releases failed ' + 'candidates', async () => {
   const releases = [];
   const attempts = [];
   await assert.rejects(
     preflightA2ui(totalStream(99), {
       ...common,
       maxRepairs: 2,
-      repair({attempt}) {
+      repair({ attempt }) {
         attempts.push(attempt);
         return totalStream(99 - attempt);
       },
-      release(messages) { releases.push(messages); },
+      release(messages) {
+        releases.push(messages);
+      },
     }),
-    error => error instanceof A2uiPreflightError && error.detail.repairAttempts === 2,
+    (error) => error instanceof A2uiPreflightError && error.detail.repairAttempts === 2,
   );
   assert.deepEqual(attempts, [1, 2]);
   assert.deepEqual(releases, []);
 });
 
-test('preflight never partially releases a source that fails during buffering', async () => {
+test('preflight never partially releases a source that fails during ' + 'buffering', async () => {
   const releases = [];
   let repairs = 0;
   async function* interrupted() {
@@ -179,8 +209,12 @@ test('preflight never partially releases a source that fails during buffering', 
   await assert.rejects(
     preflightA2ui(interrupted(), {
       ...common,
-      repair() { repairs++; },
-      release(messages) { releases.push(messages); },
+      repair() {
+        repairs++;
+      },
+      release(messages) {
+        releases.push(messages);
+      },
     }),
     /transport interrupted/,
   );
@@ -198,63 +232,90 @@ test('preflight fails closed without an exact protocol and catalog validator', a
   );
 });
 
-test('preflight rejects a component outside the exact catalog without releasing it', async () => {
-  const releases = [];
-  const source = [
-    {version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}},
-    {version: 'v0.9', updateComponents: {surfaceId: 'main', components: [{id: 'root', component: 'DefinitelyNotInCatalog'}]}},
-  ];
-  await assert.rejects(
-    preflightA2ui(source, {
-      ...common,
-      oracle: {kind: 'protocol-valid'},
-      validateMessages(messages, {catalog}) {
-        const allowed = new Set(Object.keys(catalog.document.components || {}));
-        const invalid = messages.flatMap(message => message.updateComponents?.components || [])
-          .find(component => !allowed.has(component.component));
-        return invalid ? [`component ${invalid.component} is not in catalog`] : [];
+test(
+  'preflight rejects a component outside the exact catalog without ' + 'releasing it',
+  async () => {
+    const releases = [];
+    const source = [
+      { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } },
+      {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId: 'main',
+          components: [{ id: 'root', component: 'DefinitelyNotInCatalog' }],
+        },
       },
-      catalog: {id: catalogId, document: {components: {Column: {}}}},
-      release(messages) { releases.push(messages); },
-    }),
-    error => error instanceof A2uiPreflightError
-      && error.detail.lastReplay.protocolErrors[0] === 'component DefinitelyNotInCatalog is not in catalog',
-  );
-  assert.deepEqual(releases, []);
-});
+    ];
+    await assert.rejects(
+      preflightA2ui(source, {
+        ...common,
+        oracle: { kind: 'protocol-valid' },
+        validateMessages(messages, { catalog }) {
+          const allowed = new Set(Object.keys(catalog.document.components || {}));
+          const invalid = messages
+            .flatMap((message) => message.updateComponents?.components || [])
+            .find((component) => !allowed.has(component.component));
+          return invalid ? [`component ${invalid.component} is not in catalog`] : [];
+        },
+        catalog: { id: catalogId, document: { components: { Column: {} } } },
+        release(messages) {
+          releases.push(messages);
+        },
+      }),
+      (error) =>
+        error instanceof A2uiPreflightError &&
+        error.detail.lastReplay.protocolErrors[0] ===
+          'component DefinitelyNotInCatalog is not in catalog',
+    );
+    assert.deepEqual(releases, []);
+  },
+);
 
-test('preflight rejects non-JSON values instead of verifying a normalized copy', async () => {
+test('preflight rejects non-JSON values instead of verifying a normalized ' + 'copy', async () => {
   const releases = [];
   await assert.rejects(
     preflightA2ui(totalStream(Number.NaN), {
       ...common,
-      oracle: {...common.oracle, expected: null},
-      release(messages) { releases.push(messages); },
+      oracle: { ...common.oracle, expected: null },
+      release(messages) {
+        releases.push(messages);
+      },
     }),
     /finite JSON numbers/,
   );
   assert.deepEqual(releases, []);
 });
 
-test('preflight shrinking rejects reductions that violate the exact catalog validator', async () => {
-  const source = [
-    {version: 'v0.9', createSurface: {surfaceId: 'main', catalogId}},
-    {version: 'v0.9', updateComponents: {surfaceId: 'main', components: [{id: 'root', component: 'Column', children: []}]}},
-    {version: 'v0.9', updateDataModel: {surfaceId: 'main', path: '/total', value: 99}},
-  ];
-  await assert.rejects(
-    preflightA2ui(source, {
-      ...common,
-      maxRepairs: 0,
-      validateMessages(messages) {
-        return messages.some(message => message.updateComponents) ? [] : ['catalog requires a root component update'];
+test(
+  'preflight shrinking rejects reductions that violate the exact catalog ' + 'validator',
+  async () => {
+    const source = [
+      { version: 'v0.9', createSurface: { surfaceId: 'main', catalogId } },
+      {
+        version: 'v0.9',
+        updateComponents: {
+          surfaceId: 'main',
+          components: [{ id: 'root', component: 'Column', children: [] }],
+        },
       },
-    }),
-    error => {
-      assert.ok(error instanceof A2uiPreflightError);
-      assert.equal(error.detail.feedback.reproduction.originalMessages, 3);
-      assert.equal(error.detail.feedback.reproduction.minimizedMessages, 3);
-      return true;
-    },
-  );
-});
+      { version: 'v0.9', updateDataModel: { surfaceId: 'main', path: '/total', value: 99 } },
+    ];
+    await assert.rejects(
+      preflightA2ui(source, {
+        ...common,
+        maxRepairs: 0,
+        validateMessages(messages) {
+          return messages.some((message) => message.updateComponents)
+            ? []
+            : ['catalog requires a root component update'];
+        },
+      }),
+      (error) => {
+        assert.ok(error instanceof A2uiPreflightError);
+        assert.equal(error.detail.feedback.reproduction.originalMessages, 3);
+        assert.equal(error.detail.feedback.reproduction.minimizedMessages, 3);
+        return true;
+      },
+    );
+  },
+);

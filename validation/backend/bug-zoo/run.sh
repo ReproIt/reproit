@@ -24,7 +24,8 @@ for revision in buggy fixed; do
     -v "$REPROIT_BUG_ZOO_TMP/$revision:/out" \
     -e PYTHONPATH=/src \
     "$IMAGE" sh -c \
-    'pip install -q --disable-pip-version-check pydantic==1.5.1 starlette==0.12.9 requests==2.23.0 && python /probe.py /out'
+    'pip install -q --disable-pip-version-check pydantic==1.5.1 \
+starlette==0.12.9 requests==2.23.0 && python /probe.py /out'
 done
 
 NULL_BUGGY="12f60cac7a2262231374404c538f0b227f9b9496"
@@ -42,7 +43,8 @@ for revision in buggy fixed; do
     -v "$REPROIT_BUG_ZOO_TMP/fastapi-2719/$revision:/out" \
     -e PYTHONPATH=/src \
     "$IMAGE" sh -c \
-    'pip install -q --disable-pip-version-check anyio==3.6.2 pydantic==1.9.2 starlette==0.19.1 requests==2.28.1 && python /probe.py /out'
+    'pip install -q --disable-pip-version-check anyio==3.6.2 pydantic==1.9.2 \
+starlette==0.19.1 requests==2.28.1 && python /probe.py /out'
 done
 
 cargo run --locked --quiet --manifest-path "$ROOT/validation/backend/bug-zoo/Cargo.toml"

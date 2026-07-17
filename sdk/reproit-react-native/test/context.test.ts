@@ -9,17 +9,15 @@
 // RN is a peer dependency and not installed in the node test env, so stub the
 // `Platform` module the context collector reads. (The signature parity test
 // deliberately touches only pure modules and needs no RN.)
-jest.mock(
-  'react-native',
-  () => ({ Platform: { OS: 'ios', Version: '17.4' }, View: 'View' }),
-  { virtual: true }
-);
+jest.mock('react-native', () => ({ Platform: { OS: 'ios', Version: '17.4' }, View: 'View' }), {
+  virtual: true,
+});
 // `react` is likewise a peer dep, not installed in this pure-JS test env. The
 // provider only references React at call-time, so an import-time stub suffices.
 jest.mock(
   'react',
   () => ({ useEffect: () => {}, useCallback: (f: unknown) => f, createElement: () => null }),
-  { virtual: true }
+  { virtual: true },
 );
 
 import { ReproIt } from '../src/index';
@@ -43,11 +41,9 @@ describe('autoContext, tier-1 auto dimensions (zero-PII)', () => {
 describe('sha256 / hashUid', () => {
   test('sha256 matches the known RFC vector', () => {
     expect(sha256Hex('abc')).toBe(
-      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
     );
-    expect(sha256Hex('')).toBe(
-      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-    );
+    expect(sha256Hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   });
 
   test('hashUid is 16 lowercase hex chars and stable', () => {
@@ -100,7 +96,13 @@ describe('ReproIt context API (mirrors Flutter)', () => {
     ReproIt.identify('u1');
     // Manually contribute a snapshot so there's an event to flush.
     ReproIt.recordSnapshot(
-      { role: 'screen', children: [{ role: 'header', id: 'title' }, { role: 'button', id: 'settings' }] },
+      {
+        role: 'screen',
+        children: [
+          { role: 'header', id: 'title' },
+          { role: 'button', id: 'settings' },
+        ],
+      },
       'load',
     );
     ReproIt.flush();

@@ -20,7 +20,9 @@ async function boxLabels(page) {
   return await page.evaluate(() => {
     const layer = document.getElementById('__reproit_boxes');
     if (!layer) return [];
-    return Array.from(layer.children).map((box) => (box.firstChild ? box.firstChild.textContent : ''));
+    return Array.from(layer.children).map((box) =>
+      box.firstChild ? box.firstChild.textContent : '',
+    );
   });
 }
 
@@ -39,14 +41,19 @@ test('boxes the content-bug from the settled DOM', async () => {
   await withPage(async (page) => {
     await drawFindingBoxes(page);
     const labels = await boxLabels(page);
-    assert.ok(labels.some((l) => l.includes('[object Object]')), 'expected a content box: ' + JSON.stringify(labels));
+    assert.ok(
+      labels.some((l) => l.includes('[object Object]')),
+      'expected a content box: ' + JSON.stringify(labels),
+    );
   });
 });
 
-test("tap(mark) tags the clicked control, and the crash box points at it", async () => {
+test('tap(mark) tags the clicked control, and the crash box points at it', async () => {
   await withPage(async (page) => {
     let crashes = 0;
-    page.on('pageerror', () => { crashes++; });
+    page.on('pageerror', () => {
+      crashes++;
+    });
     const tapped = await tap(page, 'key:id:boom', { mark: true });
     assert.equal(tapped, true);
     await page.waitForTimeout(200);
@@ -65,7 +72,9 @@ test("tap(mark) tags the clicked control, and the crash box points at it", async
 test('tap box mode draws a labeled highlight on the target WITHOUT clicking', async () => {
   await withPage(async (page) => {
     let crashes = 0;
-    page.on('pageerror', () => { crashes++; });
+    page.on('pageerror', () => {
+      crashes++;
+    });
     // `box` previews the target (pre-tap annotation) instead of clicking it. The
     // fixture's Submit throws on click, so a click would crash; box mode must not.
     const ok = await tap(page, 'key:id:boom', { box: 'tap  Submit', boxColor: '#e21f1f' });
@@ -74,7 +83,9 @@ test('tap box mode draws a labeled highlight on the target WITHOUT clicking', as
     assert.equal(crashes, 0, 'box mode must NOT click the element');
     const caption = await page.evaluate(() => {
       const l = document.getElementById('__reproit_tapbox');
-      return l && l.firstChild && l.firstChild.firstChild ? l.firstChild.firstChild.textContent : null;
+      return l && l.firstChild && l.firstChild.firstChild
+        ? l.firstChild.firstChild.textContent
+        : null;
     });
     assert.ok(caption && caption.includes('Submit'), 'expected a labeled tapbox: ' + caption);
   });
@@ -86,12 +97,17 @@ test('only the LAST tapped control keeps the trigger tag', async () => {
     await tap(page, 'key:id:boom', { mark: true }).catch(() => {}); // throws, but tags first
     await page.waitForTimeout(100);
     const ids = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-reproit-trigger]')).map((e) => e.id));
-    assert.deepEqual(ids, ['boom'], 'exactly the last clicked element is tagged: ' + JSON.stringify(ids));
+      Array.from(document.querySelectorAll('[data-reproit-trigger]')).map((e) => e.id),
+    );
+    assert.deepEqual(
+      ids,
+      ['boom'],
+      'exactly the last clicked element is tagged: ' + JSON.stringify(ids),
+    );
   });
 });
 
-test('tap WITHOUT mark never tags (a normal fuzz walk does not touch the DOM)', async () => {
+test('tap WITHOUT mark never tags (a normal fuzz walk does not touch the DOM)' + '', async () => {
   await withPage(async (page) => {
     await tap(page, 'key:id:safe');
     const n = await page.evaluate(() => document.querySelectorAll('[data-reproit-trigger]').length);
@@ -103,7 +119,10 @@ test('resolves a churned-anchor key back to its node and boxes it (flicker)', as
   await withPage(async (page) => {
     await drawFindingBoxes(page, { flickerKeys: ['id:site-header'] });
     const labels = await boxLabels(page);
-    assert.ok(labels.some((l) => l.includes('flicker')), 'expected a flicker box: ' + JSON.stringify(labels));
+    assert.ok(
+      labels.some((l) => l.includes('flicker')),
+      'expected a flicker box: ' + JSON.stringify(labels),
+    );
   });
 });
 
@@ -112,7 +131,10 @@ test('oracle=broken-render boxes ONLY the content bug, a single box', async () =
     await drawFindingBoxes(page, { oracle: 'broken-render' });
     const labels = await boxLabels(page);
     assert.equal(labels.length, 1, 'exactly one box: ' + JSON.stringify(labels));
-    assert.ok(labels[0].includes('[object Object]'), 'the box is the content bug: ' + JSON.stringify(labels));
+    assert.ok(
+      labels[0].includes('[object Object]'),
+      'the box is the content bug: ' + JSON.stringify(labels),
+    );
   });
 });
 
@@ -144,7 +166,10 @@ test('broken-route boxes the dead link, never a same-page #fragment', async () =
     const ownPath = await page.evaluate(() => location.pathname);
     await drawFindingBoxes(page, { oracle: 'broken-route', linkHref: ownPath });
     const labels = await boxLabels(page);
-    assert.ok(!labels.some((l) => l.includes('broken')), 'fragment link must not match: ' + JSON.stringify(labels));
+    assert.ok(
+      !labels.some((l) => l.includes('broken')),
+      'fragment link must not match: ' + JSON.stringify(labels),
+    );
   });
 });
 

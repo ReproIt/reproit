@@ -1,11 +1,14 @@
-import {createHash} from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 const MESSAGE_KEYS = ['createSurface', 'updateComponents', 'updateDataModel', 'deleteSurface'];
 
 export function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(',')}}`;
 }
 
 export function sha256(value) {
@@ -34,11 +37,13 @@ function requiredString(value, name) {
 function cloneJson(value, path = '$', seen = new Set()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError(`${path} must contain only finite JSON numbers`);
+    if (!Number.isFinite(value))
+      throw new TypeError(`${path} must contain only finite JSON numbers`);
     return value;
   }
   if (value === undefined) return undefined;
-  if (typeof value !== 'object') throw new TypeError(`${path} contains a non-JSON ${typeof value} value`);
+  if (typeof value !== 'object')
+    throw new TypeError(`${path} contains a non-JSON ${typeof value} value`);
   if (seen.has(value)) throw new TypeError(`${path} contains a cycle`);
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null && !Array.isArray(value)) {
@@ -49,7 +54,8 @@ function cloneJson(value, path = '$', seen = new Set()) {
     if (Array.isArray(value)) {
       const result = [];
       for (let index = 0; index < value.length; index++) {
-        if (!Object.hasOwn(value, index)) throw new TypeError(`${path}[${index}] is a sparse array entry`);
+        if (!Object.hasOwn(value, index))
+          throw new TypeError(`${path}[${index}] is a sparse array entry`);
         const item = value[index];
         if (item === undefined) throw new TypeError(`${path}[${index}] is undefined`);
         result.push(cloneJson(item, `${path}[${index}]`, seen));
@@ -73,8 +79,12 @@ function clone(value) {
 
 function pointerParts(path) {
   if (path === undefined || path === '' || path === '/') return [];
-  if (typeof path !== 'string' || !path.startsWith('/')) throw new Error(`invalid JSON pointer: ${String(path)}`);
-  return path.slice(1).split('/').map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'));
+  if (typeof path !== 'string' || !path.startsWith('/'))
+    throw new Error(`invalid JSON pointer: ${String(path)}`);
+  return path
+    .slice(1)
+    .split('/')
+    .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'));
 }
 
 function pointerGet(root, path) {
@@ -114,42 +124,56 @@ export function oracleIdentity(oracle) {
   return `a2ui:${sha256(oracleDescriptor(oracle))}`;
 }
 
-export function capture({protocolVersion, protocolDocument, catalog, stream, renderer, clientDataSnapshots = [], actions = [], oracle, agent = {}, observation}) {
+export function capture({
+  protocolVersion,
+  protocolDocument,
+  catalog,
+  stream,
+  renderer,
+  clientDataSnapshots = [],
+  actions = [],
+  oracle,
+  agent = {},
+  observation,
+}) {
   requiredString(protocolVersion, 'protocolVersion');
-  if (!protocolDocument || typeof protocolDocument !== 'object' || Array.isArray(protocolDocument)) throw new Error('protocolDocument must be an object');
+  if (!protocolDocument || typeof protocolDocument !== 'object' || Array.isArray(protocolDocument))
+    throw new Error('protocolDocument must be an object');
   if (!catalog || typeof catalog !== 'object') throw new Error('catalog must be an object');
   requiredString(catalog.id, 'catalog.id');
-  if (!catalog.document || typeof catalog.document !== 'object') throw new Error('catalog.document must be an object');
+  if (!catalog.document || typeof catalog.document !== 'object')
+    throw new Error('catalog.document must be an object');
   if (!Array.isArray(stream)) throw new Error('stream must be an array');
   if (!renderer || typeof renderer !== 'object') throw new Error('renderer must be an object');
   requiredString(renderer.name, 'renderer.name');
   requiredString(renderer.version, 'renderer.version');
   requiredString(renderer.platform, 'renderer.platform');
   const identity = oracleIdentity(oracle);
-  if (oracle.identity && oracle.identity !== identity) throw new Error('oracle.identity does not match its structural descriptor');
+  if (oracle.identity && oracle.identity !== identity)
+    throw new Error('oracle.identity does not match its structural descriptor');
   const normalizedObservation = observation ? clone(observation) : undefined;
   if (normalizedObservation?.oracleIdentity && normalizedObservation.oracleIdentity !== identity) {
     throw new Error('observation.oracleIdentity does not match the capture oracle');
   }
   if (normalizedObservation) normalizedObservation.oracleIdentity = identity;
-  const ordered = stream.map((message, index) => ({sequence: index, message: clone(message)}));
+  const ordered = stream.map((message, index) => ({ sequence: index, message: clone(message) }));
   const catalogHash = sha256(catalog.document);
   const protocolHash = sha256(protocolDocument);
-  const streamHash = sha256(ordered.map(item => item.message));
+  const streamHash = sha256(ordered.map((item) => item.message));
   const capsule = {
     format: 'reproit-a2ui-capture',
     formatVersion: 1,
     protocolVersion,
     protocolSha256: protocolHash,
     protocolDocument: clone(protocolDocument),
-    catalog: {id: catalog.id, sha256: catalogHash, document: clone(catalog.document)},
+    catalog: { id: catalog.id, sha256: catalogHash, document: clone(catalog.document) },
     stream: ordered,
     streamSha256: streamHash,
     renderer: clone(renderer),
     clientDataSnapshots: clone(clientDataSnapshots),
     actions: clone(actions),
     agent: clone(agent),
-    oracle: {...clone(oracle), identity},
+    oracle: { ...clone(oracle), identity },
     observation: normalizedObservation,
   };
   capsule.evidenceSha256 = sha256({
@@ -168,13 +192,17 @@ export function capture({protocolVersion, protocolDocument, catalog, stream, ren
 
 export function validateCapture(capsule) {
   const errors = [];
-  if (capsule?.format !== 'reproit-a2ui-capture' || capsule?.formatVersion !== 1) errors.push('unsupported capture format');
-  if (capsule?.protocolSha256 !== sha256(capsule?.protocolDocument)) errors.push('protocol hash mismatch');
-  if (capsule?.catalog?.sha256 !== sha256(capsule?.catalog?.document)) errors.push('catalog hash mismatch');
-  const messages = Array.isArray(capsule?.stream) ? capsule.stream.map(item => item.message) : [];
+  if (capsule?.format !== 'reproit-a2ui-capture' || capsule?.formatVersion !== 1)
+    errors.push('unsupported capture format');
+  if (capsule?.protocolSha256 !== sha256(capsule?.protocolDocument))
+    errors.push('protocol hash mismatch');
+  if (capsule?.catalog?.sha256 !== sha256(capsule?.catalog?.document))
+    errors.push('catalog hash mismatch');
+  const messages = Array.isArray(capsule?.stream) ? capsule.stream.map((item) => item.message) : [];
   if (capsule?.streamSha256 !== sha256(messages)) errors.push('stream hash mismatch');
   try {
-    if (capsule?.oracle?.identity !== oracleIdentity(capsule?.oracle)) errors.push('oracle identity mismatch');
+    if (capsule?.oracle?.identity !== oracleIdentity(capsule?.oracle))
+      errors.push('oracle identity mismatch');
   } catch (error) {
     errors.push(error.message);
   }
@@ -208,15 +236,19 @@ function replayStream(capsule) {
       errors.push(`message ${item.sequence}: envelope must be an object`);
       continue;
     }
-    if (message.version !== capsule.protocolVersion) errors.push(`message ${item.sequence}: version does not match capture`);
-    const keys = MESSAGE_KEYS.filter(key => Object.hasOwn(message, key));
+    if (message.version !== capsule.protocolVersion)
+      errors.push(`message ${item.sequence}: version does not match capture`);
+    const keys = MESSAGE_KEYS.filter((key) => Object.hasOwn(message, key));
     if (keys.length !== 1) {
       errors.push(`message ${item.sequence}: envelope must contain exactly one A2UI message`);
       continue;
     }
     const key = keys[0];
-    const unexpected = Object.keys(message).filter(name => name !== 'version' && name !== key);
-    if (unexpected.length) errors.push(`message ${item.sequence}: unexpected envelope properties: ${unexpected.join(', ')}`);
+    const unexpected = Object.keys(message).filter((name) => name !== 'version' && name !== key);
+    if (unexpected.length)
+      errors.push(
+        `message ${item.sequence}: unexpected envelope properties: ${unexpected.join(', ')}`,
+      );
     const payload = message[key];
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       errors.push(`message ${item.sequence}: ${key} must be an object`);
@@ -232,9 +264,16 @@ function replayStream(capsule) {
         errors.push(`message ${item.sequence}: surface ${surfaceId} already exists`);
         continue;
       }
-      if (typeof payload.catalogId !== 'string' || !payload.catalogId) errors.push(`message ${item.sequence}: createSurface.catalogId is required`);
-      if (payload.catalogId !== capsule.catalog.id) errors.push(`message ${item.sequence}: catalogId does not match captured catalog`);
-      surfaces.set(surfaceId, {catalogId: payload.catalogId, sendDataModel: payload.sendDataModel === true, components: new Map(), data: {}});
+      if (typeof payload.catalogId !== 'string' || !payload.catalogId)
+        errors.push(`message ${item.sequence}: createSurface.catalogId is required`);
+      if (payload.catalogId !== capsule.catalog.id)
+        errors.push(`message ${item.sequence}: catalogId does not match captured catalog`);
+      surfaces.set(surfaceId, {
+        catalogId: payload.catalogId,
+        sendDataModel: payload.sendDataModel === true,
+        components: new Map(),
+        data: {},
+      });
       continue;
     }
     const surface = surfaces.get(surfaceId);
@@ -250,7 +289,12 @@ function replayStream(capsule) {
         continue;
       }
       for (const component of payload.components) {
-        if (!component || typeof component !== 'object' || typeof component.id !== 'string' || !component.id) {
+        if (
+          !component ||
+          typeof component !== 'object' ||
+          typeof component.id !== 'string' ||
+          !component.id
+        ) {
           errors.push(`message ${item.sequence}: every component requires an id`);
           continue;
         }
@@ -265,21 +309,37 @@ function replayStream(capsule) {
     }
   }
   for (const [surfaceId, surface] of surfaces) {
-    if (surface.components.size && !surface.components.has('root')) errors.push(`surface ${surfaceId}: component graph has no root`);
+    if (surface.components.size && !surface.components.has('root'))
+      errors.push(`surface ${surfaceId}: component graph has no root`);
     for (const component of surface.components.values()) {
       const references = [];
       if (typeof component.child === 'string') references.push(component.child);
-      if (Array.isArray(component.children)) references.push(...component.children.filter(value => typeof value === 'string'));
-      for (const reference of references) if (!surface.components.has(reference)) errors.push(`surface ${surfaceId}: component ${component.id} references missing component ${reference}`);
+      if (Array.isArray(component.children))
+        references.push(...component.children.filter((value) => typeof value === 'string'));
+      for (const reference of references)
+        if (!surface.components.has(reference))
+          errors.push(
+            `surface ${surfaceId}: component ${component.id} references ` +
+              `missing component ${reference}`,
+          );
     }
   }
-  const state = Object.fromEntries([...surfaces].sort(([a], [b]) => a.localeCompare(b)).map(([surfaceId, surface]) => [surfaceId, {
-    catalogId: surface.catalogId,
-    sendDataModel: surface.sendDataModel,
-    components: Object.fromEntries([...surface.components].sort(([a], [b]) => a.localeCompare(b))),
-    data: surface.data,
-  }]));
-  return {errors: [...new Set(errors)], state};
+  const state = Object.fromEntries(
+    [...surfaces]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([surfaceId, surface]) => [
+        surfaceId,
+        {
+          catalogId: surface.catalogId,
+          sendDataModel: surface.sendDataModel,
+          components: Object.fromEntries(
+            [...surface.components].sort(([a], [b]) => a.localeCompare(b)),
+          ),
+          data: surface.data,
+        },
+      ]),
+  );
+  return { errors: [...new Set(errors)], state };
 }
 
 function evaluateOracle(capsule, state) {
@@ -288,7 +348,7 @@ function evaluateOracle(capsule, state) {
   let actual;
   switch (oracle.kind) {
     case 'protocol-valid':
-      return {matches: true, actual: true};
+      return { matches: true, actual: true };
     case 'component-present':
       actual = Boolean(surface?.components?.[oracle.componentId]);
       break;
@@ -299,20 +359,32 @@ function evaluateOracle(capsule, state) {
       actual = pointerGet(surface?.data, oracle.path);
       break;
     case 'action-context': {
-      const action = (capsule.actions || []).find(item => item.surfaceId === oracle.surfaceId && item.action?.name === oracle.actionName);
+      const action = (capsule.actions || []).find(
+        (item) => item.surfaceId === oracle.surfaceId && item.action?.name === oracle.actionName,
+      );
       actual = pointerGet(action?.action?.context, oracle.path);
       break;
     }
     default:
       throw new Error(`unsupported structural oracle kind: ${oracle.kind}`);
   }
-  return {matches: canonicalJson(actual) === canonicalJson(oracle.expected), actual: clone(actual)};
+  return {
+    matches: canonicalJson(actual) === canonicalJson(oracle.expected),
+    actual: clone(actual),
+  };
 }
 
 export function replay(capsule) {
-  const {errors, state} = replayStream(capsule);
+  const { errors, state } = replayStream(capsule);
   if (errors.length) {
-    return {classification: 'protocol_invalidity', status: 'invalid', oracleIdentity: capsule?.oracle?.identity, protocolErrors: errors, state, stateSha256: sha256(state)};
+    return {
+      classification: 'protocol_invalidity',
+      status: 'invalid',
+      oracleIdentity: capsule?.oracle?.identity,
+      protocolErrors: errors,
+      state,
+      stateSha256: sha256(state),
+    };
   }
   const evaluated = evaluateOracle(capsule, state);
   const status = evaluated.matches ? 'pass' : 'fail';
@@ -334,7 +406,7 @@ export function shrink(capsule) {
   // but they are different violations. Preserve the observed value as well as
   // the oracle descriptor so deletion cannot "shrink" a mismatch into absence.
   const originalActual = canonicalJson(original.actual);
-  let stream = capsule.stream.map(item => item.message);
+  let stream = capsule.stream.map((item) => item.message);
   let granularity = 2;
   let replays = 0;
   while (stream.length >= 2) {
@@ -346,7 +418,7 @@ export function shrink(capsule) {
       const candidate = capture({
         protocolVersion: capsule.protocolVersion,
         protocolDocument: capsule.protocolDocument,
-        catalog: {id: capsule.catalog.id, document: capsule.catalog.document},
+        catalog: { id: capsule.catalog.id, document: capsule.catalog.document },
         stream: candidateMessages,
         renderer: capsule.renderer,
         clientDataSnapshots: capsule.clientDataSnapshots,
@@ -356,7 +428,11 @@ export function shrink(capsule) {
       });
       const result = replay(candidate);
       replays++;
-      if (result.status === 'fail' && result.oracleIdentity === identity && canonicalJson(result.actual) === originalActual) {
+      if (
+        result.status === 'fail' &&
+        result.oracleIdentity === identity &&
+        canonicalJson(result.actual) === originalActual
+      ) {
         stream = candidateMessages;
         reduced = true;
         granularity = Math.max(2, granularity - 1);
@@ -371,7 +447,7 @@ export function shrink(capsule) {
   const minimized = capture({
     protocolVersion: capsule.protocolVersion,
     protocolDocument: capsule.protocolDocument,
-    catalog: {id: capsule.catalog.id, document: capsule.catalog.document},
+    catalog: { id: capsule.catalog.id, document: capsule.catalog.document },
     stream,
     renderer: capsule.renderer,
     clientDataSnapshots: capsule.clientDataSnapshots,
@@ -379,7 +455,13 @@ export function shrink(capsule) {
     oracle: capsule.oracle,
     agent: capsule.agent,
   });
-  return {capsule: minimized, originalMessages: capsule.stream.length, minimizedMessages: stream.length, replays, oracleIdentity: identity};
+  return {
+    capsule: minimized,
+    originalMessages: capsule.stream.length,
+    minimizedMessages: stream.length,
+    replays,
+    oracleIdentity: identity,
+  };
 }
 
 function observationFor(capsule, result) {
@@ -392,11 +474,17 @@ function observationFor(capsule, result) {
 }
 
 export function rendererMatrix(capsules) {
-  const runs = capsules.map(capsule => {
+  const runs = capsules.map((capsule) => {
     const result = replay(capsule);
-    return {renderer: capsule.renderer, streamSha256: capsule.streamSha256, agent: capsule.agent || {}, result, observation: observationFor(capsule, result)};
+    return {
+      renderer: capsule.renderer,
+      streamSha256: capsule.streamSha256,
+      agent: capsule.agent || {},
+      result,
+      observation: observationFor(capsule, result),
+    };
   });
-  const protocolInvalidity = runs.filter(run => run.result.status === 'invalid');
+  const protocolInvalidity = runs.filter((run) => run.result.status === 'invalid');
   const agentGroups = new Map();
   for (const run of runs) {
     if (!run.agent.inputSha256) continue;
@@ -404,9 +492,11 @@ export function rendererMatrix(capsules) {
     hashes.add(run.streamSha256);
     agentGroups.set(run.agent.inputSha256, hashes);
   }
-  const agentNondeterminism = [...agentGroups].filter(([, hashes]) => hashes.size > 1).map(([inputSha256, hashes]) => ({inputSha256, streamSha256: [...hashes]}));
+  const agentNondeterminism = [...agentGroups]
+    .filter(([, hashes]) => hashes.size > 1)
+    .map(([inputSha256, hashes]) => ({ inputSha256, streamSha256: [...hashes] }));
   const streamGroups = new Map();
-  for (const run of runs.filter(item => item.result.status !== 'invalid')) {
+  for (const run of runs.filter((item) => item.result.status !== 'invalid')) {
     const key = `${run.streamSha256}|${run.observation.oracleIdentity}`;
     const group = streamGroups.get(key) || [];
     group.push(run);
@@ -416,16 +506,32 @@ export function rendererMatrix(capsules) {
   const appUiFailure = [];
   for (const group of streamGroups.values()) {
     if (group.length < 2) continue;
-    const signatures = new Set(group.map(run => canonicalJson(run.observation)));
+    const signatures = new Set(group.map((run) => canonicalJson(run.observation)));
     if (signatures.size > 1) {
-      rendererDivergence.push({streamSha256: group[0].streamSha256, renderers: group.map(run => ({renderer: run.renderer, observation: run.observation}))});
-    } else if (group.every(run => run.observation.status === 'fail')) {
-      appUiFailure.push({streamSha256: group[0].streamSha256, oracleIdentity: group[0].observation.oracleIdentity, renderers: group.map(run => run.renderer)});
+      rendererDivergence.push({
+        streamSha256: group[0].streamSha256,
+        renderers: group.map((run) => ({ renderer: run.renderer, observation: run.observation })),
+      });
+    } else if (group.every((run) => run.observation.status === 'fail')) {
+      appUiFailure.push({
+        streamSha256: group[0].streamSha256,
+        oracleIdentity: group[0].observation.oracleIdentity,
+        renderers: group.map((run) => run.renderer),
+      });
     }
   }
   return {
-    status: protocolInvalidity.length || agentNondeterminism.length || rendererDivergence.length || appUiFailure.length ? 'fail' : 'pass',
-    protocolInvalidity: protocolInvalidity.map(run => ({renderer: run.renderer, errors: run.result.protocolErrors})),
+    status:
+      protocolInvalidity.length ||
+      agentNondeterminism.length ||
+      rendererDivergence.length ||
+      appUiFailure.length
+        ? 'fail'
+        : 'pass',
+    protocolInvalidity: protocolInvalidity.map((run) => ({
+      renderer: run.renderer,
+      errors: run.result.protocolErrors,
+    })),
     agentNondeterminism,
     rendererDivergence,
     appUiFailure,

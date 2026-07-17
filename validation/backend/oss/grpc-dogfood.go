@@ -20,7 +20,10 @@ func main() {
 	if output == "" {
 		panic("REPROIT_OSS_TMP is required")
 	}
-	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(
+		"localhost:50051",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -35,7 +38,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := os.WriteFile(filepath.Join(output, "grpc-helloworld-response.json"), response, 0o600); err != nil {
+	responsePath := filepath.Join(output, "grpc-helloworld-response.json")
+	if err := os.WriteFile(responsePath, response, 0o600); err != nil {
 		panic(err)
 	}
 	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{
@@ -45,7 +49,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := os.WriteFile(filepath.Join(output, "grpc-helloworld-descriptor.json"), descriptor, 0o600); err != nil {
+	descriptorPath := filepath.Join(output, "grpc-helloworld-descriptor.json")
+	if err := os.WriteFile(descriptorPath, descriptor, 0o600); err != nil {
 		panic(err)
 	}
 	fmt.Println(string(response))

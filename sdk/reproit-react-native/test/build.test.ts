@@ -11,15 +11,13 @@
 
 // RN is a peer dependency and not installed in the node test env, so stub the
 // `Platform` module the context collector reads (same stub as context.test.ts).
-jest.mock(
-  'react-native',
-  () => ({ Platform: { OS: 'ios', Version: '17.4' }, View: 'View' }),
-  { virtual: true }
-);
+jest.mock('react-native', () => ({ Platform: { OS: 'ios', Version: '17.4' }, View: 'View' }), {
+  virtual: true,
+});
 jest.mock(
   'react',
   () => ({ useEffect: () => {}, useCallback: (f: unknown) => f, createElement: () => null }),
-  { virtual: true }
+  { virtual: true },
 );
 
 import { ReproIt } from '../src/index';
@@ -33,10 +31,7 @@ function flushOneBatch(opts: Parameters<typeof ReproIt.init>[0]): {
   const fetchMock = jest.fn(() => Promise.resolve({} as Response));
   (globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
   ReproIt.init({ ...opts, endpoint: 'https://ingest.example' });
-  ReproIt.recordSnapshot(
-    { role: 'screen', children: [{ role: 'header', id: 'title' }] },
-    'load'
-  );
+  ReproIt.recordSnapshot({ role: 'screen', children: [{ role: 'header', id: 'title' }] }, 'load');
   ReproIt.flush();
   const [, fetchOpts] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
   delete (globalThis as { fetch?: typeof fetch }).fetch;
@@ -79,4 +74,54 @@ describe('developer-provided build identity (context.build)', () => {
     ReproIt.init({ appId: 'b', onEvent: () => {}, build: { version: '', commit: '' } });
     expect(ReproIt.context().build).toBeUndefined();
   });
+});
+
+test('captureBug emits a structurally identified tester capture', () => {
+  const events: Array<Record<string, unknown>> = [];
+  ReproIt.init({
+    appId: 'b',
+    onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+  });
+  ReproIt.recordSnapshot(
+    { role: 'screen', children: [{ role: 'button', id: 'checkout' }] },
+    'load',
+  );
+  expect(ReproIt.captureBug()).toBe(true);
+  const event = events.find((item) => item.oracle === 'tester-capture');
+  expect(event).toBeDefined();
+  expect((event!.findingIdentity as Record<string, unknown>).boundary).toBe(event!.sig);
+  expect((event!.findingIdentity as Record<string, unknown>).invariant).toBe(
+    'tester-observed-failure',
+  );
+});
+
+test('production contract capture keeps its exact invariant identity', () => {
+  const events: Array<Record<string, unknown>> = [];
+  ReproIt.init({
+    appId: 'b',
+    onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+  });
+  ReproIt.recordSnapshot(
+    { role: 'screen', children: [{ role: 'button', id: 'checkout' }] },
+    'load',
+  );
+  let state = 'present';
+  ReproIt.preserveState('draft', {
+    boundaries: ['rotation'],
+    sample: () => ({
+      key: 'checkout',
+      state,
+      authoritative: true,
+      settled: true,
+    }),
+  });
+  ReproIt.stateBoundary('rotation', 'before');
+  state = 'empty';
+  ReproIt.stateBoundary('rotation', 'after');
+  const event = events.find((item) => item.oracle === 'invariant');
+  expect(event).toBeDefined();
+  expect((event!.findingIdentity as Record<string, unknown>).invariant).toBe(
+    'state-preservation:rotation:draft',
+  );
+  expect((event!.findingIdentity as Record<string, unknown>).boundary).toBe(event!.sig);
 });

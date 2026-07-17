@@ -1,29 +1,30 @@
 //! Suppress the OS crash-reporter dialog for the duration of a NATIVE fuzz run.
 //!
 //! A fuzz that finds N crashes in a native app pops N OS crash dialogs (the
-//! macOS "AppName quit unexpectedly" panel, the Windows Error Reporting prompt).
-//! On an unattended/CI run that wedges the machine. So for native backends that
-//! drive a real app process which can crash (desktop AX/UIA/AT-SPI, Appium), we
-//! turn the dialog off for the run and RESTORE the prior setting afterward, even
-//! if the run panics or is interrupted (RAII / Drop).
+//! macOS "AppName quit unexpectedly" panel, the Windows Error Reporting
+//! prompt). On an unattended/CI run that wedges the machine. So for native
+//! backends that drive a real app process which can crash (desktop
+//! AX/UIA/AT-SPI, Appium), we turn the dialog off for the run and RESTORE the
+//! prior setting afterward, even if the run panics or is interrupted (RAII /
+//! Drop).
 //!
 //! This is SCOPED: only native/desktop+appium runs touch a system setting. A
-//! web/headless run (Playwright, Flutter headless) never does, since there is no
-//! OS crash dialog to suppress there.
+//! web/headless run (Playwright, Flutter headless) never does, since there is
+//! no OS crash dialog to suppress there.
 //!
 //! Per-OS knobs:
 //!   - macOS (implemented): `com.apple.CrashReporter DialogType`. We read the
 //!     current value (which may be UNSET), set it to `none` for the run, and on
 //!     teardown restore the prior value (or DELETE the key if it was unset).
 //!   - Windows (implemented): Windows Error Reporting's per-user
-//!     `HKCU\Software\Microsoft\Windows\Windows Error Reporting\DontShowUI`.
-//!     We set only the UI suppression flag, not global WER `Disabled`, then
+//!     `HKCU\Software\Microsoft\Windows\Windows Error Reporting\DontShowUI`. We
+//!     set only the UI suppression flag, not global WER `Disabled`, then
 //!     restore the prior value (or delete it again if it was unset).
 //!   - Linux (no action needed): a headless run under Xvfb has no GUI crash
 //!     dialog. apport/abrt are daemons that log rather than block, so there is
 //!     no modal to suppress for our purpose.
 
-use crate::platform::Backend;
+use crate::backends::platform::Backend;
 
 /// Whether a backend runs a NATIVE target process whose crash would pop an OS
 /// crash-reporter dialog, so the suppression guard should engage. Web/headless
@@ -92,10 +93,11 @@ impl CrashReporterGuard {
         Self { restore: None }
     }
 
-    /// macOS: read the current `com.apple.CrashReporter DialogType` (which may be
-    /// unset), set it to `none`, and remember the prior state for restore. A
-    /// failure to read/write is non-fatal: we just leave the guard inert rather
-    /// than failing the fuzz run over a cosmetic setting.
+    /// macOS: read the current `com.apple.CrashReporter DialogType` (which may
+    /// be unset), set it to `none`, and remember the prior state for
+    /// restore. A failure to read/write is non-fatal: we just leave the
+    /// guard inert rather than failing the fuzz run over a cosmetic
+    /// setting.
     #[cfg(target_os = "macos")]
     fn engage_macos() -> Self {
         let prior = read_dialog_type();
@@ -159,8 +161,8 @@ impl Drop for CrashReporterGuard {
     }
 }
 
-/// Read `com.apple.CrashReporter DialogType`. Returns the trimmed value, or None
-/// when the key is unset (the common default).
+/// Read `com.apple.CrashReporter DialogType`. Returns the trimmed value, or
+/// None when the key is unset (the common default).
 #[cfg(target_os = "macos")]
 fn read_dialog_type() -> Option<String> {
     let out = std::process::Command::new("defaults")

@@ -22,14 +22,10 @@
 //
 // No em dashes anywhere, per project rules.
 
-import {
-  structuralSig,
-  contentFingerprint,
-  labelsOf,
-} from "./signature.ts";
-import { ScreenContents } from "./screen.ts";
-import { installCausalFetch } from "./causal.ts";
-import type { Cursor, Row } from "./screen.ts";
+import { structuralSig, contentFingerprint, labelsOf } from './signature.ts';
+import { ScreenContents } from './screen.ts';
+import { installCausalFetch } from './causal.ts';
+import type { Cursor, Row } from './screen.ts';
 
 // ReproitEvent is one reported telemetry record. Mirrors the {kind, ...} event
 // shape the other SDKs emit (reproit-web.js _emit / edge, reporter.go Event):
@@ -38,7 +34,7 @@ import type { Cursor, Row } from "./screen.ts";
 //   error:   a record_error() call (current sig + graph path + message)
 //   crash:   a process crash handler fired (current sig + message), flushed last
 export interface ReproitEvent {
-  kind: "session" | "edge" | "error" | "crash";
+  kind: 'session' | 'edge' | 'error' | 'crash';
   t: number; // ms epoch
   from?: string; // edge: previous signature
   action?: string; // edge: the action that caused the move
@@ -74,13 +70,11 @@ export interface ReporterConfig {
 
 // Reporter is the embeddable session/coverage/crash reporter.
 export class Reporter {
-  private cfg: Required<
-    Omit<ReporterConfig, "endpoint" | "ctx" | "onEvent" | "fetchImpl">
-  > &
-    Pick<ReporterConfig, "endpoint" | "ctx" | "onEvent" | "fetchImpl">;
+  private cfg: Required<Omit<ReporterConfig, 'endpoint' | 'ctx' | 'onEvent' | 'fetchImpl'>> &
+    Pick<ReporterConfig, 'endpoint' | 'ctx' | 'onEvent' | 'fetchImpl'>;
   private buf: ReproitEvent[] = [];
-  private cur = ""; // current structural signature
-  private curFP = ""; // current content fingerprint (Layer-1 effect token, ephemeral)
+  private cur = ''; // current structural signature
+  private curFP = ''; // current content fingerprint (Layer-1 effect token, ephemeral)
   private path: Array<{ sig: string; action: string }> = [];
   private crashInstalled = false;
   private handlers: Array<{ event: string; fn: (...a: unknown[]) => void }> = [];
@@ -90,7 +84,7 @@ export class Reporter {
 
   constructor(cfg: ReporterConfig) {
     this.cfg = {
-      appId: cfg.appId ?? "app",
+      appId: cfg.appId ?? 'app',
       endpoint: cfg.endpoint ?? null,
       ctx: cfg.ctx,
       onEvent: cfg.onEvent,
@@ -99,7 +93,7 @@ export class Reporter {
       redactLabels: !!cfg.redactLabels,
       fetchImpl: cfg.fetchImpl,
     };
-    this.emit({ kind: "session", t: 0 });
+    this.emit({ kind: 'session', t: 0 });
     installCausalFetch(this.cfg.endpoint);
   }
 
@@ -112,37 +106,27 @@ export class Reporter {
   //
   // `action` is the user/agent action that produced this screen (e.g. "key:Down",
   // "key:Enter"); pass "" for an unattributed observation (records as "auto").
-  observe(screen: ScreenContents, action = ""): void {
-    this.observeContents(
-      screen.text,
-      screen.cursorRow,
-      screen.cursorCol,
-      action,
-    );
+  observe(screen: ScreenContents, action = ''): void {
+    this.observeContents(screen.text, screen.cursorRow, screen.cursorCol, action);
   }
 
   // observeText is a convenience for the Ink path: hand the rendered frame string
   // (and optionally a cursor) directly. Equivalent to
   // observe(ScreenContents.fromText(text, cursor), action).
-  observeText(text: string, cursor: Cursor = [0, 0], action = ""): void {
+  observeText(text: string, cursor: Cursor = [0, 0], action = ''): void {
     this.observeContents(text, cursor[0], cursor[1], action);
   }
 
   // observeRows is a convenience for the cell-grid path: hand a row-major cell
   // grid. Equivalent to observe(ScreenContents.fromRows(rows, cursor), action).
-  observeRows(rows: Row[], cursor: Cursor = [0, 0], action = ""): void {
+  observeRows(rows: Row[], cursor: Cursor = [0, 0], action = ''): void {
     const sc = ScreenContents.fromRows(rows, cursor);
     this.observeContents(sc.text, sc.cursorRow, sc.cursorCol, action);
   }
 
   // observeContents is the low-level path: the exact vt100-style contents string
   // plus the 0-based cursor cell.
-  observeContents(
-    contents: string,
-    cursorRow: number,
-    cursorCol: number,
-    action = "",
-  ): void {
+  observeContents(contents: string, cursorRow: number, cursorCol: number, action = ''): void {
     const sig = structuralSig(contents, cursorRow, cursorCol);
     const fp = contentFingerprint(contents, cursorRow, cursorCol);
     // App-invariant oracle (SDK-self-triggered): under the fuzzer, evaluate the
@@ -160,11 +144,11 @@ export class Reporter {
       // match that and keep the cloud graph identical.
       return;
     }
-    const act = action === "" ? "auto" : action;
+    const act = action === '' ? 'auto' : action;
     this.path.push({ sig, action: act });
     if (this.path.length > (this.cfg.pathCap as number)) this.path.shift();
     const labels = this.cfg.redactLabels ? undefined : labelsOf(contents);
-    this.emit({ kind: "edge", t: 0, from, action: act, to: sig, labels });
+    this.emit({ kind: 'edge', t: 0, from, action: act, to: sig, labels });
   }
 
   // currentSig returns the last observed structural signature (the state to
@@ -185,7 +169,7 @@ export class Reporter {
   // zero-overhead until a run reproduces it. Registration is idempotent by id, so
   // re-registering an id replaces it. Returns `this` for chaining.
   invariant(id: string, test: () => unknown): this {
-    if (typeof id === "string" && typeof test === "function") {
+    if (typeof id === 'string' && typeof test === 'function') {
       this.invariants.set(id, test);
     }
     return this;
@@ -212,7 +196,7 @@ export class Reporter {
       if (message !== null) items.push({ id, message });
     }
     if (items.length === 0) return;
-    const line = "REPROIT_INVARIANT " + JSON.stringify({ sig, items }) + "\n";
+    const line = 'REPROIT_INVARIANT ' + JSON.stringify({ sig, items }) + '\n';
     // The fuzzer only runs in Node. Prefer a sync require (CJS / tsx), and fall
     // back to a cached dynamic import for Node ESM (node --test .ts), where no
     // global `require` exists. The dynamic write still lands well before the
@@ -220,14 +204,14 @@ export class Reporter {
     // (which never sets the env var and so never reaches here) never touches fs.
     try {
       const req = (globalThis as { require?: (m: string) => unknown }).require;
-      if (typeof req === "function") {
-        (req("fs") as { appendFileSync(p: string, d: string): void }).appendFileSync(path, line);
+      if (typeof req === 'function') {
+        (req('fs') as { appendFileSync(p: string, d: string): void }).appendFileSync(path, line);
         return;
       }
     } catch {
       // fall through to the dynamic import path
     }
-    void import("node:fs")
+    void import('node:fs')
       .then((fs) => {
         try {
           fs.appendFileSync(path, line);
@@ -248,11 +232,9 @@ export class Reporter {
     // an action whose handler throws stops the path one step short of the bug, so
     // a path-based replay would never fire it. Mirrors the GUI SDKs' in-flight
     // append, keeping the repro path complete across every platform.
-    const path = action
-      ? [...this.path, { sig: this.cur, action }]
-      : this.path.slice();
+    const path = action ? [...this.path, { sig: this.cur, action }] : this.path.slice();
     this.emit({
-      kind: "error",
+      kind: 'error',
       t: 0,
       sig: this.cur,
       to: this.cur,
@@ -269,7 +251,7 @@ export class Reporter {
   reportCrash(err: unknown): void {
     const { message, stack } = describe(err);
     this.emit({
-      kind: "crash",
+      kind: 'crash',
       t: 0,
       sig: this.cur,
       to: this.cur,
@@ -290,10 +272,8 @@ export class Reporter {
   // re-throws / re-raises so the app's own crash semantics (exit code, default
   // signal disposition) are preserved.
   installCrashHandler(): () => void {
-    const proc: NodeProcess | undefined = (
-      globalThis as { process?: NodeProcess }
-    ).process;
-    if (this.crashInstalled || !proc || typeof proc.on !== "function") {
+    const proc: NodeProcess | undefined = (globalThis as { process?: NodeProcess }).process;
+    if (this.crashInstalled || !proc || typeof proc.on !== 'function') {
       return () => {};
     }
     this.crashInstalled = true;
@@ -306,13 +286,11 @@ export class Reporter {
       throw err;
     };
     const onRejection = (reason: unknown) => {
-      this.reportCrash(
-        reason instanceof Error ? reason : "unhandledRejection: " + str(reason),
-      );
+      this.reportCrash(reason instanceof Error ? reason : 'unhandledRejection: ' + str(reason));
       // Do not throw here (would itself be uncaught); flush already ran.
     };
     const onSignal = (sig: string) => () => {
-      this.reportCrash("signal: " + sig);
+      this.reportCrash('signal: ' + sig);
       // re-raise with default disposition so the OS exit code is honest
       this.removeHandlers();
       try {
@@ -323,28 +301,22 @@ export class Reporter {
     };
     const onBeforeExit = () => this.flush();
 
-    this.register(proc, "uncaughtException", onUncaught as (...a: unknown[]) => void);
-    this.register(proc, "unhandledRejection", onRejection as (...a: unknown[]) => void);
-    this.register(proc, "SIGINT", onSignal("SIGINT"));
-    this.register(proc, "SIGTERM", onSignal("SIGTERM"));
-    this.register(proc, "beforeExit", onBeforeExit);
+    this.register(proc, 'uncaughtException', onUncaught as (...a: unknown[]) => void);
+    this.register(proc, 'unhandledRejection', onRejection as (...a: unknown[]) => void);
+    this.register(proc, 'SIGINT', onSignal('SIGINT'));
+    this.register(proc, 'SIGTERM', onSignal('SIGTERM'));
+    this.register(proc, 'beforeExit', onBeforeExit);
 
     return () => this.removeHandlers();
   }
 
-  private register(
-    proc: NodeProcess,
-    event: string,
-    fn: (...a: unknown[]) => void,
-  ): void {
+  private register(proc: NodeProcess, event: string, fn: (...a: unknown[]) => void): void {
     proc.on(event, fn);
     this.handlers.push({ event, fn });
   }
   private removeHandlers(): void {
-    const proc: NodeProcess | undefined = (
-      globalThis as { process?: NodeProcess }
-    ).process;
-    if (proc && typeof proc.removeListener === "function") {
+    const proc: NodeProcess | undefined = (globalThis as { process?: NodeProcess }).process;
+    if (proc && typeof proc.removeListener === 'function') {
       for (const h of this.handlers) proc.removeListener(h.event, h.fn);
     }
     this.handlers = [];
@@ -384,17 +356,17 @@ export class Reporter {
     }
     const body = JSON.stringify(batch);
     const f = this.cfg.fetchImpl ?? (globalThis as { fetch?: typeof fetch }).fetch;
-    if (typeof f !== "function") return; // no transport available
+    if (typeof f !== 'function') return; // no transport available
     try {
       // keepalive lets the POST survive a process that is about to exit.
       const p = f(this.cfg.endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
       });
       // swallow async transport errors; reporting must never throw into the app.
-      if (p && typeof (p as Promise<unknown>).catch === "function") {
+      if (p && typeof (p as Promise<unknown>).catch === 'function') {
         (p as Promise<unknown>).catch(() => {});
       }
     } catch {
@@ -406,16 +378,14 @@ export class Reporter {
 // describe extracts a message + trimmed stack from any thrown value.
 function describe(err: unknown): { message: string; stack?: string[] } {
   if (err instanceof Error) {
-    const stack = err.stack
-      ? String(err.stack).split("\n").slice(0, 8)
-      : undefined;
+    const stack = err.stack ? String(err.stack).split('\n').slice(0, 8) : undefined;
     return { message: err.message || err.name, stack };
   }
   return { message: str(err) };
 }
 
 function str(v: unknown): string {
-  if (typeof v === "string") return v;
+  if (typeof v === 'string') return v;
   try {
     return JSON.stringify(v);
   } catch {
@@ -445,9 +415,9 @@ function evalInvariant(test: () => unknown): string | null {
   } catch (err) {
     return describe(err).message;
   }
-  if (result && typeof result === "object" && "ok" in result) {
+  if (result && typeof result === 'object' && 'ok' in result) {
     const obj = result as { ok?: unknown; message?: unknown };
-    return obj.ok === false ? str(obj.message ?? "") : null;
+    return obj.ok === false ? str(obj.message ?? '') : null;
   }
-  return result ? null : "";
+  return result ? null : '';
 }

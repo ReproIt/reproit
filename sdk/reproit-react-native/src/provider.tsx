@@ -71,7 +71,7 @@ export function ReproItProvider(props: ReproItProviderProps): React.ReactElement
       // also fire on move-start so taps that begin as scrolls are still seen
       onMoveShouldSetResponderCapture: () => false,
     },
-    children
+    children,
   );
 }
 

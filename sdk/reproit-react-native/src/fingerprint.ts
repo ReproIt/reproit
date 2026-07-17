@@ -230,8 +230,7 @@ export function fingerprintValue(value: string | null | undefined): ValueFingerp
     cc === 0x0d ||
     cc === 0x20 ||
     cc === 0xa0;
-  const edgeWs =
-    s.length > 0 && (isWs(s.charCodeAt(0)) || isWs(s.charCodeAt(s.length - 1)));
+  const edgeWs = s.length > 0 && (isWs(s.charCodeAt(0)) || isWs(s.charCodeAt(s.length - 1)));
   return {
     len,
     bytes: byteLen(s),
@@ -254,7 +253,7 @@ export function fingerprintValue(value: string | null | undefined): ValueFingerp
  * retains a raw value. Returns one {field, ...features} per input.
  */
 export function fingerprintFields(
-  fields: ReadonlyArray<{ field: string; value: string | null | undefined }>
+  fields: ReadonlyArray<{ field: string; value: string | null | undefined }>,
 ): FieldFingerprint[] {
   return fields.map((f) => ({ field: f.field, ...fingerprintValue(f.value) }));
 }

@@ -304,7 +304,10 @@ PORT=8765
 python3 conductor.py script.json "$PORT" 2> conductor.err &
 CONDUCTOR_PID=$!
 for _ in $(seq 1 50); do
-  if python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:$PORT/observed',timeout=1)" 2>/dev/null; then
+  observed_url="http://127.0.0.1:$PORT/observed"
+  if python3 -c \
+    "import urllib.request;urllib.request.urlopen('$observed_url',timeout=1)" \
+    2>/dev/null; then
     break
   fi
   sleep 0.2
@@ -328,7 +331,9 @@ A_PID=$!
 A_RC=0; wait "$A_PID" || A_RC=$?
 B_RC=0; wait "$B_PID" || B_RC=$?
 
-python3 -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:$PORT/observed',timeout=5).read().decode())" > observed.json
+python3 -c \
+  "import urllib.request;print(urllib.request.urlopen('$observed_url',timeout=5).read().decode())" \
+  > observed.json
 kill "$CONDUCTOR_PID" 2>/dev/null || true
 
 echo "=== actor a (claimed) rc=$A_RC ==="; cat a.log

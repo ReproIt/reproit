@@ -37,6 +37,17 @@ import {
 import type { Node } from './signature';
 import { installCausalFetch, nativeCausalCapsule } from './causal';
 import { fingerprintFields, FP_VERSION } from './fingerprint';
+import { IndicatorRelations, type ReproItIndicatorContract } from './indicator-relation';
+import { FocusVisibilityOracle, type FocusVisibilityContract } from './focus-visibility';
+import {
+  ActionEffectOracle,
+  StatePreservationOracle,
+  contractMarker,
+  type ActionEffectContract,
+  type ContractResult,
+  type StateBoundary,
+  type StatePreservationContract,
+} from './structural-contracts';
 import {
   DEFAULTS,
   type Batch,
@@ -50,14 +61,7 @@ import {
   type ResolvedConfig,
 } from './types';
 
-export type {
-  ReproItConfig,
-  ReproItEvent,
-  EdgeEvent,
-  ErrorEvent,
-  PathStep,
-  Batch,
-} from './types';
+export type { ReproItConfig, ReproItEvent, EdgeEvent, ErrorEvent, PathStep, Batch } from './types';
 export { signatureOf, descriptorOf, valueClass, type Node } from './signature';
 export { setValueNodeSelectors } from './snapshot';
 export { ReproItProvider } from './provider';
@@ -65,6 +69,21 @@ export type { Context, ContextValue } from './context';
 export { fingerprintValue, fingerprintFields, FP_VERSION } from './fingerprint';
 export type { ValueFingerprint, FieldFingerprint } from './fingerprint';
 export type { ErrorContext, InvariantResult, InvariantPredicate } from './types';
+export type {
+  ReproItRect,
+  ReproItIndicatorGeometry,
+  ReproItIndicatorContract,
+} from './indicator-relation';
+export type { FocusVisibilityObservation, FocusVisibilityContract } from './focus-visibility';
+export type {
+  ActionEffectContract,
+  ActionEffectObservation,
+  ContractResult,
+  ContractStatus,
+  StateBoundary,
+  StatePreservationContract,
+  StructuralObservation,
+} from './structural-contracts';
 export { installCausalFetch, redactCausal } from './causal';
 
 function resolveConfig(opts: ReproItConfig): ResolvedConfig {
@@ -84,7 +103,7 @@ function resolveConfig(opts: ReproItConfig): ResolvedConfig {
  * build object is stamped into the context.
  */
 function normalizeBuild(
-  build: ReproItConfig['build']
+  build: ReproItConfig['build'],
 ): { version?: string; commit?: string } | null {
   if (!build) return null;
   const out: { version?: string; commit?: string } = {};
@@ -119,6 +138,11 @@ class ReproItImpl {
   // web SDK's `window.__reproit_invariants`.
   private invariants: Array<{ id: string; test: InvariantPredicate }> = [];
   private causalActionIndex = 0;
+  private indicatorRelations = new IndicatorRelations();
+  private relationRetryPending = false;
+  private focusVisibility = new FocusVisibilityOracle();
+  private statePreservation = new StatePreservationOracle();
+  private actionEffects = new ActionEffectOracle();
 
   /** Initialize telemetry. Safe to call once; later calls are ignored. */
   init(opts: ReproItConfig): ReproItImpl {
@@ -182,7 +206,8 @@ class ReproItImpl {
     // Only skip when explicitly a release build (`__DEV__ === false`); an
     // undefined flag (plain Node/tests, non-RN host) is treated as dev.
     if (dev === false && !opts.enableInRelease) return this;
-    const { enableInRelease: _enableInRelease, ...cfg } = opts;
+    const cfg = { ...opts };
+    delete cfg.enableInRelease;
     return this.init({ appId: 'app', ...cfg } as ReproItConfig);
   }
 
@@ -210,6 +235,94 @@ class ReproItImpl {
         /* best-effort: drop on failure (matches web SDK) */
       });
     }
+  }
+
+  /** Capture the current structural state as a tester-observed bug. */
+  captureBug(): boolean {
+    if (!this.on || !this.cfg) return false;
+    const snap = snapshot(this.cfg);
+    if (!this.cur) {
+      this.cur = snap.sig;
+      this.path.push({ sig: snap.sig, action: 'load' });
+    } else if (snap.sig !== this.cur) {
+      const step = this.pendingStep ?? { action: 'auto' };
+      this.path.push({
+        sig: snap.sig,
+        action: step.action,
+        ...(step.label && !this.cfg.redactLabels ? { label: step.label } : {}),
+      });
+      this.cur = snap.sig;
+      this.pendingStep = null;
+    }
+    if (this.path.length > this.cfg.pathCap) {
+      this.path.splice(0, this.path.length - this.cfg.pathCap);
+    }
+    const trigger = this.path.length ? this.path[this.path.length - 1].action : 'load';
+    const ev: ErrorEvent = {
+      kind: 'error',
+      oracle: 'tester-capture',
+      sig: snap.sig,
+      path: this.path.slice(),
+      message: 'Tester observed a bug in this state',
+      findingIdentity: {
+        oracle: 'tester-capture',
+        invariant: 'tester-observed-failure',
+        kind: 'structural-state',
+        message: '',
+        frame: '',
+        trigger,
+        boundary: snap.sig,
+      },
+      t: Date.now(),
+    };
+    const ctx = this.errorContext();
+    if (ctx) ev.context = ctx;
+    this.emit(ev);
+    this.flush();
+    return true;
+  }
+
+  private captureContractBug(result: ContractResult): boolean {
+    if (!this.on || !this.cfg || result.status !== 'PROVEN') return false;
+    const snap = snapshot(this.cfg);
+    if (!this.cur) {
+      this.cur = snap.sig;
+      this.path.push({ sig: snap.sig, action: 'load' });
+    } else if (snap.sig !== this.cur) {
+      const step = this.pendingStep ?? { action: 'auto' };
+      this.path.push({
+        sig: snap.sig,
+        action: step.action,
+        ...(step.label && !this.cfg.redactLabels ? { label: step.label } : {}),
+      });
+      this.cur = snap.sig;
+      this.pendingStep = null;
+    }
+    if (this.path.length > this.cfg.pathCap)
+      this.path.splice(0, this.path.length - this.cfg.pathCap);
+    const trigger = this.path.length ? this.path[this.path.length - 1].action : 'load';
+    const ev: ErrorEvent = {
+      kind: 'error',
+      oracle: 'invariant',
+      sig: snap.sig,
+      path: this.path.slice(),
+      message: result.message ?? result.id,
+      findingIdentity: {
+        oracle: 'invariant',
+        invariant: result.id,
+        kind: 'structural-contract',
+        message: result.message ?? result.id,
+        frame: '',
+        trigger,
+        boundary: snap.sig,
+      },
+      t: Date.now(),
+    };
+    const ctx = this.errorContext();
+    if (ctx) ev.context = ctx;
+    this.emit(ev);
+    this.flush();
+    return true;
   }
 
   // ---- context API (mirrors the Flutter SDK) -------------------------------
@@ -269,6 +382,62 @@ class ReproItImpl {
     return this;
   }
 
+  /** Declare an explicit indicator owner using global screen rectangles, normally
+   * populated from `measureInWindow`. Ambiguous or moving geometry abstains. */
+  indicator(id: string, contract: ReproItIndicatorContract): ReproItImpl {
+    this.indicatorRelations.register(id, contract);
+    return this;
+  }
+
+  /** Register the focused editable, exact usable viewport, and its owning
+   * ScrollView reveal operation. Without a safe reveal provider this abstains. */
+  focusedInput(id: string, contract: FocusVisibilityContract): ReproItImpl {
+    this.focusVisibility.register(id, contract);
+    return this;
+  }
+
+  /** Declare structural state that must survive an explicit platform boundary. */
+  preserveState(id: string, contract: StatePreservationContract): ReproItImpl {
+    this.statePreservation.register(id, contract);
+    return this;
+  }
+
+  /** Report an authoritative lifecycle boundary. Platform adapters call before
+   * and after only after the UI has settled; unsupported boundaries abstain. */
+  stateBoundary(kind: StateBoundary, phase: 'before' | 'after'): ContractResult[] {
+    const results = this.statePreservation.boundary(kind, phase);
+    this.publishContractResults(results);
+    return results;
+  }
+
+  /** Declare the exact route and local-state effects of an action. */
+  actionEffect(id: string, contract: ActionEffectContract): ReproItImpl {
+    this.actionEffects.register(id, contract);
+    return this;
+  }
+
+  actionBegin(id: string): ContractResult[] {
+    const results = this.actionEffects.begin(id);
+    this.publishContractResults(results);
+    return results;
+  }
+
+  actionEnd(id: string): ContractResult[] {
+    const results = this.actionEffects.end(id);
+    this.publishContractResults(results);
+    return results;
+  }
+
+  private publishContractResults(results: ContractResult[]): void {
+    const marker = contractMarker(results);
+    if (!marker) return;
+    if (this.underFuzzer()) {
+      if (typeof console !== 'undefined') console.log(marker);
+    } else if (this.on) {
+      for (const result of results) this.captureContractBug(result);
+    }
+  }
+
   // ---- capture hooks (called by ReproItProvider) ---------------------------
 
   /** @internal Called by the provider when a touch lands, to record the edge. */
@@ -318,7 +487,8 @@ class ReproItImpl {
     if (!this.on || !this.cfg) return;
     const snap = snapshotFromTree(tree, anchor);
     this.commit(snap, action);
-    this.checkInvariants(snap.sig);
+    this.checkInvariants();
+    this.checkIndicatorRelations();
   }
 
   // ---- internals -----------------------------------------------------------
@@ -339,7 +509,30 @@ class ReproItImpl {
     // the app's predicates, so the SDK evaluates its OWN registered invariants
     // on each settled state and emits a marker for the violations. Runs only
     // under the fuzzer; a no-op (and zero-cost) in production.
-    this.checkInvariants(snap.sig);
+    this.checkInvariants();
+    this.checkIndicatorRelations();
+  }
+
+  private checkIndicatorRelations(): void {
+    if (!this.underFuzzer()) return;
+    const marker = this.indicatorRelations.marker();
+    if (marker && typeof console !== 'undefined') console.log(marker);
+    const focusMarker = this.focusVisibility.marker();
+    if (focusMarker && typeof console !== 'undefined') console.log(focusMarker);
+    if (this.relationRetryPending) return;
+    this.relationRetryPending = true;
+    setTimeout(() => {
+      const confirmed = this.indicatorRelations.marker();
+      if (confirmed && typeof console !== 'undefined') console.log(confirmed);
+      const focusConfirmed = this.focusVisibility.marker();
+      if (focusConfirmed && typeof console !== 'undefined') console.log(focusConfirmed);
+      const delay = this.cfg?.debounceMs ?? 350;
+      setTimeout(() => {
+        this.relationRetryPending = false;
+        const finalFocus = this.focusVisibility.marker();
+        if (finalFocus && typeof console !== 'undefined') console.log(finalFocus);
+      }, delay);
+    }, this.cfg?.debounceMs ?? 350);
   }
 
   /**
@@ -354,8 +547,8 @@ class ReproItImpl {
     const g = globalThis as { __reproit_fuzz?: unknown };
     const flag = g.__reproit_fuzz;
     if (flag === true || flag === 1 || flag === '1') return true;
-    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
-      .process?.env;
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+      ?.env;
     if (env && (env.REPROIT_FUZZ === '1' || env.REPROIT_FUZZ === 'true')) return true;
     return false;
   }
@@ -369,7 +562,7 @@ class ReproItImpl {
    * isolated in try/catch so one throwing predicate cannot suppress the others.
    * Silent when no invariant was registered or all held.
    */
-  private checkInvariants(_sig: string): void {
+  private checkInvariants(): void {
     if (!this.on || !this.invariants.length) return;
     if (!this.underFuzzer()) return;
     const items: Array<{ id: string; message: string }> = [];
@@ -407,7 +600,11 @@ class ReproItImpl {
     const label = typeof step === 'string' ? undefined : step.label;
     const from = this.cur;
     this.cur = snap.sig;
-    this.path.push({ sig: snap.sig, action, ...(label && !this.cfg.redactLabels ? { label } : {}) });
+    this.path.push({
+      sig: snap.sig,
+      action,
+      ...(label && !this.cfg.redactLabels ? { label } : {}),
+    });
     if (this.path.length > this.cfg.pathCap) this.path.shift();
     const ev: EdgeEvent = {
       kind: 'edge',
@@ -423,12 +620,14 @@ class ReproItImpl {
   }
 
   private installErrorHook(): void {
-    const eu = (globalThis as {
-      ErrorUtils?: {
-        getGlobalHandler?: () => (e: unknown, isFatal?: boolean) => void;
-        setGlobalHandler?: (h: (e: unknown, isFatal?: boolean) => void) => void;
-      };
-    }).ErrorUtils;
+    const eu = (
+      globalThis as {
+        ErrorUtils?: {
+          getGlobalHandler?: () => (e: unknown, isFatal?: boolean) => void;
+          setGlobalHandler?: (h: (e: unknown, isFatal?: boolean) => void) => void;
+        };
+      }
+    ).ErrorUtils;
     if (eu && typeof eu.setGlobalHandler === 'function') {
       this.priorGlobalHandler = eu.getGlobalHandler?.() ?? null;
       eu.setGlobalHandler((e: unknown, isFatal?: boolean) => {
@@ -452,8 +651,7 @@ class ReproItImpl {
   private recordError(e: unknown, prefix = ''): void {
     if (!this.on || !this.cfg) return;
     const err = e as { message?: string; stack?: string } | undefined;
-    const message =
-      prefix + (err?.message ? String(err.message) : String(e));
+    const message = prefix + (err?.message ? String(err.message) : String(e));
     const stackLines = err?.stack
       ? String(err.stack)
           .split('\n')
@@ -479,7 +677,9 @@ class ReproItImpl {
       errPath.push({
         sig: this.cur ?? '',
         action: this.pendingStep.action,
-        ...(this.pendingStep.label && !this.cfg.redactLabels ? { label: this.pendingStep.label } : {}),
+        ...(this.pendingStep.label && !this.cfg.redactLabels
+          ? { label: this.pendingStep.label }
+          : {}),
       });
     }
     const ev: ErrorEvent = {
@@ -544,6 +744,11 @@ class ReproItImpl {
     this.cur = null;
     this.pendingStep = null;
     this.invariants = [];
+    this.indicatorRelations.clear();
+    this.relationRetryPending = false;
+    this.focusVisibility.clear();
+    this.statePreservation.clear();
+    this.actionEffects.clear();
   }
 
   /** @internal test/inspection accessor. */

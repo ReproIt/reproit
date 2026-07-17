@@ -10,7 +10,6 @@ import time
 import urllib.parse
 import uuid
 
-
 BASE = os.environ["REPROIT_BENCH_BASE"].rstrip("/")
 APP = os.environ["REPROIT_BENCH_APP"]
 PROJECT_KEY = os.environ["REPROIT_BENCH_PROJECT_KEY"]
@@ -120,9 +119,7 @@ for batch_index in range(BATCHES):
     latencies.append(elapsed_ms)
 elapsed_all = time.perf_counter() - started_all
 
-buckets, bucket_list_ms = request_json(
-    "GET", f"/v1/apps/{APP}/buckets", PROJECT_KEY
-)
+buckets, bucket_list_ms = request_json("GET", f"/v1/apps/{APP}/buckets", PROJECT_KEY)
 bucket = next(
     (
         item
@@ -135,7 +132,9 @@ bucket = next(
 if not bucket:
     raise RuntimeError(f"contract bucket missing: {buckets}")
 bucket_id = bucket["bucketId"]
-package, package_ms = request_json("GET", f"/v1/buckets/{bucket_id}", os.environ.get("REPROIT_CLOUD_KEY", PROJECT_KEY))
+package, package_ms = request_json(
+    "GET", f"/v1/buckets/{bucket_id}", os.environ.get("REPROIT_CLOUD_KEY", PROJECT_KEY)
+)
 encoded_package = json.dumps(package, separators=(",", ":"))
 if SENTINEL in encoded_package:
     raise RuntimeError("raw sensitive sentinel escaped into the production replay package")

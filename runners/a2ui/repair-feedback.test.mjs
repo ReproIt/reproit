@@ -1,57 +1,88 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {exactRepairFeedback} from './repair-feedback.mjs';
+import { exactRepairFeedback } from './repair-feedback.mjs';
 
-test('deduplicates component schemas and caps minimized reproduction payloads', () => {
-  const schema = {type: 'object', properties: {action: {type: 'object'}}};
+test('deduplicates component schemas and caps minimized reproduction ' + 'payloads', () => {
+  const schema = { type: 'object', properties: { action: { type: 'object' } } };
   const report = {
-    repairContract: {protocolVersion: 'v0.9'},
-    findings: [0, 1].map(index => ({
+    repairContract: { protocolVersion: 'v0.9' },
+    findings: [0, 1].map((index) => ({
       kind: 'protocol-invalid',
       renderer: 'protocol',
       reason: 'Invalid input',
       path: `1.updateComponents.components.${index}.action`,
       signature: String(index),
-      minimalMessages: [{payload: 'x'.repeat(100)}],
-      repairContext: {component: {type: 'Button', path: String(index), schema}},
+      minimalMessages: [{ payload: 'x'.repeat(100) }],
+      repairContext: { component: { type: 'Button', path: String(index), schema } },
     })),
   };
-  const feedback = JSON.parse(exactRepairFeedback(report, {reproductionBudget: 130}));
-  assert.deepEqual(feedback.componentSchemas, {Button: schema});
+  const feedback = JSON.parse(exactRepairFeedback(report, { reproductionBudget: 130 }));
+  assert.deepEqual(feedback.componentSchemas, { Button: schema });
   assert.equal(feedback.findings[0].repairContext.component.schema, undefined);
   assert.equal(feedback.findings[0].repairContext.component.schemaRef, '#/componentSchemas/Button');
-  assert.equal(feedback.findings.filter(finding => finding.minimalReproduction.included).length, 1);
+  assert.equal(
+    feedback.findings.filter((finding) => finding.minimalReproduction.included).length,
+    1,
+  );
 });
 
-test('deduplicates message operation schemas and leaves an exact schema reference', () => {
+test('deduplicates message operation schemas and leaves an exact schema ' + 'reference', () => {
   const schema = {
     type: 'object',
     properties: {
       updateDataModel: {
         type: 'object',
-        properties: {surfaceId: {type: 'string'}, path: {type: 'string'}, value: {}},
+        properties: { surfaceId: { type: 'string' }, path: { type: 'string' }, value: {} },
         required: ['surfaceId'],
       },
     },
   };
   const report = {
-    repairContract: {protocolVersion: 'v0.9'},
-    findings: [{
-      kind: 'protocol-invalid',
-      renderer: 'protocol',
-      reason: 'Unrecognized key: data',
-      path: '1.updateDataModel',
-      signature: 'operation-schema',
-      repairContext: {
-        message: {operation: 'updateDataModel', schema},
+    repairContract: { protocolVersion: 'v0.9' },
+    findings: [
+      {
+        kind: 'protocol-invalid',
+        renderer: 'protocol',
+        reason: 'Unrecognized key: data',
+        path: '1.updateDataModel',
+        signature: 'operation-schema',
+        repairContext: {
+          message: { operation: 'updateDataModel', schema },
+        },
       },
-    }],
+    ],
   };
   const feedback = JSON.parse(exactRepairFeedback(report));
-  assert.deepEqual(feedback.messageSchemas, {updateDataModel: schema});
+  assert.deepEqual(feedback.messageSchemas, { updateDataModel: schema });
   assert.equal(feedback.findings[0].repairContext.message.schema, undefined);
   assert.equal(
     feedback.findings[0].repairContext.message.schemaRef,
     '#/messageSchemas/updateDataModel',
   );
+});
+
+test('preserves behavioral oracle, observed value, and action reproduction', () => {
+  const finding = {
+    kind: 'bound-action-coherence',
+    renderer: 'lit',
+    reason: 'stale action context',
+    signature: 'bound-action',
+    oracle: {
+      kind: 'bound-action-coherence',
+      textFieldId: 'email',
+      buttonId: 'submit',
+      violation: 'action-context-mismatch',
+    },
+    actual: 'before@example.test',
+    reproductionActions: [
+      { kind: 'fill', componentId: 'email', value: 'reproit+fixed@example.test' },
+      { kind: 'activate', componentId: 'submit' },
+    ],
+    minimalMessages: [{ version: 'v0.9' }],
+    repairContext: { repairability: 'renderer-change-required', owner: '@a2ui/lit' },
+  };
+  const feedback = JSON.parse(exactRepairFeedback({ repairContract: {}, findings: [finding] }));
+  assert.deepEqual(feedback.findings[0].oracle, finding.oracle);
+  assert.equal(feedback.findings[0].actual, finding.actual);
+  assert.deepEqual(feedback.findings[0].reproductionActions, finding.reproductionActions);
 });

@@ -1,218 +1,244 @@
-# Oracles by backend
+# Oracle reference
 
-An *oracle* is one named class of bug the fuzzer can catch. The oracle core is
-platform-agnostic: each per-backend runner
-emits the same `EXPLORE:*` / `MEMORY:*` markers, and the Rust core
-(`crates/reproit/src/model/{map,invariants}.rs`) evaluates them identically no
-matter which UI framework produced them. That is the point of the marker
-contract: one finding shape, one shrink/reproduce/report pipeline, every
-platform.
+An oracle is a rule ReproIt uses to decide whether an observation is a bug. ReproIt separates
+finding unusual behavior from proving incorrect behavior. This is the boundary that keeps normal
+product behavior out of the confirmed bug list.
 
-But a marker can only be emitted where the platform actually exposes the signal.
-A browser exposes a Long Tasks trace and a precise V8 heap; an accessibility tree
-does not. So coverage is not uniform, and faking a signal a platform cannot
-deliver would mean false positives, which are worse than a missing oracle. This
-page records, honestly, what fires where and why the gaps exist.
+## The proof model
 
-## Stable defaults
+Every proof-capable oracle has three outcomes:
 
-Reproit distinguishes observation from confirmation: a detector may observe a
-candidate, but the product should call it a bug only when the same detector and
-symptom replay. The default `run`/`fuzz` surface therefore enables only objective
-failures with direct replay predicates: `crash`, `content-bug`, `hang`,
-`broken-route`, `blank-screen`, and `broken-asset`.
+| Outcome   | Meaning                                                                                                           |
+| --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `PROVEN`  | Authoritative evidence violates an exact rule. ReproIt may save, shrink, replay, and report the bug.              |
+| `VALID`   | The same evidence channel proves the rule currently holds. A replay that becomes `VALID` proves the bug is fixed. |
+| `UNKNOWN` | Evidence is missing, ambiguous, unsupported, or not authoritative. ReproIt stays silent.                          |
 
-Timing-sensitive, environment-dependent, and heuristic detectors remain
-available through `--only <oracle>`. They are useful research and specialist
-suites, but they do not create noisy default findings.
+`UNKNOWN` is not success and is not failure. It is an abstention. A failing test, unusual
+screenshot, timing spike, or different implementation is not automatically a bug.
 
-## The oracle catalog
+## What runs by default
 
-| Oracle | Marker | Catches |
-|---|---|---|
-| crash | exception block | an uncaught exception / signal |
-| choice-anomaly | `EXPLORE:CHOICEBUG` | one option of a multi-choice component (ARIA tab/radio group, button-cluster picker, or native `<select>`) shifts the global layout when its siblings do not (Web / Electron / Tauri) |
-| permission-walk | `EXPLORE:PERMISSIONWALK` | a permission-denial screen with no way forward |
-| contract | `contracts` in `reproit.yaml` | a declared structural state or temporal property failed |
-| flicker | `EXPLORE:FLICKER` | a transient presented frame that diverges then resolves |
-| content-bug | `EXPLORE:CONTENTBUG` | `[object Object]`, `undefined`, `{{unrendered}}`, NaN on screen |
-| jank | `EXPLORE:JANK` / sim frame manifest | a transition that drops frames |
-| hang | `EXPLORE:HANG` | an action that freezes the UI |
-| leak | `MEMORY:SAMPLE` (`--soak`) | memory that grows and never comes back |
-| broken-route | `EXPLORE:BROKENROUTE` | the app links to a URL whose document returns 404 / 410 / 5xx (a dead route). Not 401/403/429 (intentional auth gates / rate limits) (Web + Electron; Tauri gap, no document-status stream over WebDriver) |
+The default confirmed set is intentionally small:
 
-The **choice-anomaly** oracle is differential, not absolute, which is what keeps
-it false-positive-free. When the fuzzer finds a multi-choice component (an ARIA
-`tab`/`radio` group, or a cluster of sibling buttons where exactly
-one is selected, e.g. a code-block language picker), it exercises *every* choice
-and measures each one's effect on the GLOBAL layout (page horizontal-overflow +
-the page-absolute displacement of chrome anchors outside the component). The
-expected behavior is the COMMON effect across choices (every language resizes the
-code block a bit); a bug is the choice whose effect is an OUTLIER versus its
-siblings (only one language also shifts the whole page). It fires only when one
-choice's effect is >= 3x the sibling median and above a floor, so uniform choices
-produce nothing. It needs the live layout, so it runs on the three browser-backed
-backends -- Web, Electron (CDP, same as Web Chromium), and Tauri (the same in-page
-pass injected via WebDriver `execute()`) -- and the differencing/threshold rule is
-ONE shared implementation (`runners/web/choice-oracle.mjs`), so a finding means the
-same thing on every backend. A multi-choice component is selected by accessible
-label so below-fold pickers are scrolled into view and exercised. A native
-`<select>` is now treated as a choice component too: its `<option>`s are
-enumerated, each is selected (setting `.value` + dispatching `change`/`input` so
-frameworks react) and differenced with the SAME global-layout measurement and the
-SAME outlier rule, then the original value is restored (non-destructive). That
-closes the most common real-world picker, which the snapshot otherwise maps to a
-text field and never differences.
+| Oracle               | What proves the bug                                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `crash`              | An uncaught exception, fatal assertion, signal, or native crash occurred.                                                           |
+| `detached-indicator` | An application-declared indicator escaped its owner/container relationship in two settled samples.                                  |
+| `contract`           | An application-declared structural or temporal contract failed with the same contract identity and violation fingerprint on replay. |
 
-The general graph-sink oracle was removed engine-wide because crawler coverage
-cannot prove that a screen has no exit. **permission-walk** is a separate,
-environment-anchored oracle: after the runner denies one named runtime
-permission, it reports only when the resulting screen has no working forward
-exit. It is gated by `cfg.no_permission_dead_end` and is emitted only by runners
-that can drive a permission-denial sweep: React Native / native iOS+Android
-(Appium) and Flutter sim+headless.
+Other detectors are specialist observations or require explicit configuration. They can be selected
+with `--only`, but selecting one does not make a heuristic authoritative:
 
-## Coverage matrix
+```sh
+reproit fuzz --only crash,jank
+reproit fuzz --no visual,occlusion
+```
 
-`Y` = fires. `Y*` = fires, but coarse (session/process-level, not per-transition):
-leak via process-RSS sampling under `--soak`. `~` = best-effort with a documented
-caveat. `gap` = the platform does not expose a reliable signal; not emitted
-(never faked). `n/a` = the bug class cannot exist on that surface. `choice` =
-choice-anomaly; `route` = broken-route.
+## UI oracles
 
-| Backend (driver) | crash | choice | permission-walk | flicker | content-bug | jank | hang | leak | route |
-|---|---|---|---|---|---|---|---|---|---|
-| Web Chromium (CDP) | Y | Y | gap | Y (+pixel) | Y | Y | Y | Y | Y |
-| Web Firefox/WebKit | Y | Y | gap | Y | Y | Y | Y | gap | Y |
-| Electron (CDP) | Y | Y | gap | Y (+pixel) | Y | Y | Y | Y | Y |
-| Tauri (WebDriver) | Y | Y | gap | Y (DOM) | Y | Y | Y | Y* | gap |
-| Flutter sim | Y | gap | Y | Y | Y | Y | Y | Y | n/a |
-| Flutter headless | Y | gap | Y | gap | Y | n/a | n/a | ~ | n/a |
-| RN / native Android (Appium) | Y | gap | Y | gap | Y | Y | Y | Y | n/a |
-| RN / native iOS (Appium) | Y | gap | Y | gap | Y | gap | Y | Y* | n/a |
-| Desktop macOS (AX) | Y | gap | gap | gap | Y | n/a | ~ | Y | n/a |
-| Desktop Windows (UIA) | Y | gap | gap | gap | Y | gap | Y | Y | n/a |
-| Desktop Linux (AT-SPI) | Y | gap | gap | gap | Y | n/a | ~ | Y | n/a |
-| TUI (PTY) | Y | n/a | gap | Y | Y | n/a | Y | Y* | n/a |
-| Dear ImGui / Clay (instrumented) | Y | n/a | gap | gap | Y | Y | gap | Y* | n/a |
+The IDs below are the canonical CLI and Cloud categories. Confidence describes what a result means,
+not how interesting it looks.
 
+| ID                   | Confidence            | Detects                                                                                | Primary support                                                               |
+| -------------------- | --------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `unknown`            | telemetry only        | An unregistered or newer marker                                                        | all, never confirmed                                                          |
+| `crash`              | confirmed             | Unhandled exceptions and process crashes                                               | all runners                                                                   |
+| `detached-indicator` | declared proof        | An opted-in badge or indicator detached from its owner                                 | web, React Native, Flutter, iOS, Android                                      |
+| `contract`           | declared proof        | A failed structural or temporal contract                                               | every instrumented SDK                                                        |
+| `invariant`          | declared proof        | An application predicate returned false or threw                                       | every SDK with a state hook                                                   |
+| `visual`             | baseline proof        | Pixels differ from an approved, pinned baseline beyond its tolerance                   | screenshot-capable runners                                                    |
+| `jank`               | environment-dependent | Dropped or excessively late frames                                                     | browser, Electron, Tauri, Android, Flutter simulator, instrumented ImGui/Clay |
+| `leak`               | environment-dependent | Retained memory grows across a repeated workload                                       | precise heap or attributable process sampling                                 |
+| `flicker`            | environment-dependent | A presented frame diverges and then resolves                                           | runners with a frame or DOM presentation stream                               |
+| `divergence`         | specialist            | The same flow differs across targets or engines                                        | multi-target runs                                                             |
+| `content-bug`        | heuristic             | Visible stringify or template artifacts such as `[object Object]`                      | DOM, accessibility labels, TUI grid, instrumented labels                      |
+| `hang`               | environment-dependent | An action makes no progress beyond a high threshold                                    | runners with an attributable progress signal                                  |
+| `occlusion`          | heuristic             | A visible control's hit target is covered by a foreign element                         | geometry-capable UI runners                                                   |
+| `choice-anomaly`     | heuristic             | One sibling choice changes global layout unlike the others                             | browser, Electron, Tauri                                                      |
+| `broken-route`       | policy-dependent      | A real document navigation returns HTTP 404 or 410                                     | web and HTTP-backed Electron                                                  |
+| `security`           | specialist            | Deterministic client markup hazards such as reverse tabnabbing or mixed content        | web                                                                           |
+| `stuck-keyboard`     | environment-dependent | The soft keyboard remains visible without an editable focus owner                      | native mobile                                                                 |
+| `duplicate-submit`   | specialist            | An opt-in double activation causes the same first-party mutation twice                 | web                                                                           |
+| `focus-loss`         | specialist            | An already-focused control survives an action but keyboard focus falls to the document | web, Electron, Tauri                                                          |
+| `blank-screen`       | specialist            | A settled route has no visible content or controls                                     | web                                                                           |
+| `broken-asset`       | specialist            | A required same-origin image, stylesheet, script, or imported dependency failed        | web                                                                           |
+| `zoom-reflow`        | specialist            | At 200% zoom, content requires two-dimensional scrolling or a control collapses        | web                                                                           |
+| `rotation`           | environment-dependent | A round trip through orientation permanently changes the screen structure              | mobile and browser-backed surfaces                                            |
+| `background-restore` | environment-dependent | Background and foreground changes the restored screen                                  | mobile and browser-backed surfaces                                            |
+| `scroll-round-trip`  | environment-dependent | Returning to a pinned list offset yields different structural content                  | web and Flutter                                                               |
+| `wakelock`           | environment-dependent | An Android wakelock remains held after leaving its owning screen                       | Android                                                                       |
+| `safe-area`          | environment-dependent | An interactive control intersects an authoritative device inset                        | native mobile                                                                 |
+| `permission-walk`    | environment-dependent | A controlled permission denial leaves no working forward exit                          | native mobile                                                                 |
 
-## Recently closed (and how)
+Heuristic and environment-dependent categories are not promoted into confirmed bugs merely because
+they repeat. Repetition proves repeatability, not product intent.
 
-These were gaps that turned out to have a real, deterministic signal available.
-Each holds the same false-positive bar as the rest.
+### Structural contract identities
 
-- **jank + hang on Firefox/WebKit** (`Y`): the Long Tasks trace is Chromium-only,
-  so a cross-engine `requestAnimationFrame` frame-drop detector now covers the
-  non-Chromium engines (Chromium keeps the more precise Long Tasks path). FP-safe:
-  a lone late frame counts only past 350ms (well above GC blips) or as a sustained
-  run of long frames; a single GC pause is dropped. The classifier is unit-tested
-  in both directions, and the no-false-positive behavior is runtime-validated on
-  real firefox and webkit (clean static and animated sites stay silent).
-- **leak via process-RSS sampling under `--soak`** (`Y*`, coarse): a leaked process
-  still grows its resident set, so where there is no precise heap readout, the
-  runner samples the target process's RSS per soak cycle and emits the same
-  `MEMORY:SAMPLE` series the slope oracle reads. Now covers Tauri (the webview
-  process, replacing the quantized `performance.memory` fallback), iOS (the sim
-  app's host pid via `simctl launchctl list`), the TUI (the child pid), and
-  ImGui/Clay (self RSS). Coarse (per-cycle, not per-transition) and gated on a
-  *uniquely resolvable* pid, so any ambiguity stays silent rather than guessing.
-- **content-bug on the TUI, ImGui, and Clay** (`Y`): the TUI runner scans the
-  settled VT grid; the instrumented ImGui/Clay runners scan the actual label
-  strings the app draws (`ImGui::Text`/button labels, Clay text commands). All use
-  the same artifact tokens as the DOM scanner (`[object Object]`, whole-word
-  `undefined`/`null`/`NaN`, unrendered `{{...}}`/`${...}`), keyed by a stable
-  position / widget id.
-- **jank on ImGui/Clay** (`Y`): these are instrumented and render real frames, so
-  per-frame durations are timed directly and fed the same jank/hang floors as the
-  web runner. (Their leak is the coarse RSS path above.)
-- **jank + hang on Tauri** (`Y`): Long Tasks is Chromium-only (so silent on Tauri's
-  WebKit webview on mac/Linux). The same cross-engine `requestAnimationFrame`
-  detector built for Firefox/WebKit is injected into the webview via `execute()`;
-  Chromium/WebView2 keeps the precise Long Tasks path. Reuses the FP-validated
-  classifier verbatim.
-- **choice-anomaly on Electron and Tauri** (`Y`): the differential outlier rule and
-  the global-layout measurement now live in ONE shared module
-  (`runners/web/choice-oracle.mjs`), with a self-contained in-page pass that finds
-  the page's choice components (native `<select>`, ARIA tab/radio groups, button-
-  cluster pickers), exercises each option, and flags the one whose effect on the
-  page outside the component is an outlier (>= 3x the sibling median and above the
-  floor). Electron is Chromium, so it runs that pass over CDP (`page.evaluate`)
-  exactly like Web; Tauri has no CDP, so the SAME pass is injected via WebDriver
-  `executeAsync()`. It is non-destructive (each component is restored) and stays
-  differential, so it inherits the no-false-positive bar verbatim. The unit test
-  (`runners/web/choice-oracle.test.mjs`) drives the exact in-page function on a
-  real Chromium fixture, covering all three ports' detector.
-- **broken-route on Electron** (`Y`): Electron's renderer is Chromium with the same
-  Playwright `response` events as Web, so the web runner's broken-route oracle ports
-  directly: record the HTTP status of main-frame document navigations (origin pinned
-  from the first document response), fire on 404/410/5xx, and run the same end-of-
-  crawl two-stage link check (HEAD filter, then real-navigation verify) that avoids
-  the SPA fetch-vs-navigation false positive. Excludes 401/403/429 (intentional auth
-  gates / rate limits) exactly as on Web. Gated on an http(s) app origin: a packaged
-  `file://` Electron app has no server status to read, so it stays silent there.
+Several exact contracts are reported through the top-level `contract` category and retain a more
+specific identity:
 
-## Remaining gaps (why)
+| Identity                             | Proof                                                                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `focused-input-obscured:<field>`     | An explicitly focused editable remains fully unusable after the framework-standard reveal request and two settled measurements. |
+| `state-preservation:<boundary>:<id>` | An authoritative state token changed across rotation, background/foreground, navigation round trip, or process recreation.      |
+| `action-effect:<id>:route`           | The observed route differs from the route declared for the action.                                                              |
+| `action-effect:<id>:state`           | The observed application state differs from the declared exact or changed state.                                                |
+| `detached-indicator:<id>`            | The declared owner, container, maximum gap, and global rectangles prove detachment.                                             |
 
-These are genuine platform limits, not unfinished work. Each is documented in-code
-at the runner that would emit it.
+These contracts never infer intent from visible language, color, proximity, handler names, or
+screenshots. Missing ownership, duplicate identities, animation, unresolved geometry, missing state
+samples, or unsupported lifecycle boundaries produce `UNKNOWN`.
 
-- **leak on Firefox/WebKit browsers** (`gap`): the precise heap readout comes from
-  the CDP `Runtime.getHeapUsage` domain, which is Chromium-only. The cross-engine
-  fallback is `performance.memory`, a non-standard API that Firefox and WebKit do
-  not implement, so the read returns nothing and NO `MEMORY:SAMPLE` is emitted (a
-  quantized, leak-blind number would be worse than silence). Run `--soak` on
-  Chromium for the heap-slope leak oracle; the other engines still get every other
-  oracle.
-- **broken-route on Tauri** (`gap`): broken-route needs the document's HTTP STATUS
-  for a navigation, and the WebDriver surface Tauri drives over exposes no such
-  stream -- there is no CDP `response`/`Network` domain, and Tauri serves its app
-  over a custom protocol (`tauri://` / the asset protocol), not HTTP with a status
-  the driver surfaces. An in-page `fetch().status` probe is exactly the
-  fetch-vs-navigation false positive the web runner guards against with a real
-  navigation that re-reads the status, and WebDriver `url()` navigates but cannot
-  read the resulting status. So a 404/410/5xx cannot be told from a working route
-  FP-free here; emitting a guessed signal would break the no-false-positive bar, so
-  it stays silent. (choice-anomaly DID port to Tauri -- it runs entirely in-page, so
-  it needs no status stream; broken-route on Electron ported too, since Electron's
-  Chromium renderer surfaces real HTTP responses.) Native, Flutter, TUI, and
-  ImGui/Clay surfaces have no URL-addressable routes (broken-route `n/a`) and, for
-  the immediate-mode TUI/ImGui/Clay, no stable layout box to difference (choice
-  `n/a`).
-- **dead-end outside mobile permission-capable runners** (`gap`): with the general non-terminal-sink oracle retired, only the permission-denial walk remains. Desktop, browser, TUI, and immediate-mode runners cannot drive runtime mobile permission denial, so they stay silent.
-- **jank on accessibility trees, the TUI/PTY, and Flutter-headless** (`n/a`): jank
-  is dropped frames, and an a11y tree or a VT character grid has no frame timeline;
-  the headless Flutter tier runs on a fake clock. Nothing to read, so nothing is
-  emitted. (Flutter sim reads a real per-frame manifest; ImGui/Clay are
-  instrumented and now do emit jank.)
-- **jank on iOS (Appium)** (`gap`): no sim-attributable frame source exists (tried
-  against a real booted sim): xctrace's `Animation Hitches` template is unsupported
-  on the simulator, `Metal System Trace` captures host-wide GPU (the sim app fuses
-  into the host, so it is unattributable), and `xctrace --attach` cannot target an
-  in-simulator process. (iOS *leak* is covered by the RSS sampler above; Android
-  gets both via `dumpsys`.)
-- **jank on Windows desktop (UIA)** (`gap`): a real signal exists but only
-  in-process. Post-Win8.1 `DwmGetCompositionTimingInfo` accepts only `HWND=NULL` and
-  returns desktop-global counters (another app's animation reads as your jank; your
-  frozen app reads as clean), and the clean per-window `IDXGISwapChain::GetFrameStatistics`
-  needs the app's own swapchain. So the out-of-process UIA driver cannot reach it
-  FP-free; an in-process Windows agent could. (Hang is covered by `IsHungAppWindow`.)
-- **flicker on Tauri**: the oracle needs a presented-frame stream. DOM identity
-  churn alone is not treated as a visible defect, so Tauri stays silent when its
-  WebDriver backend cannot supply those frames.
-- **hang on macOS / Linux desktop** (`~`): a host-side wall-clock watchdog around
-  the synchronous AX / AT-SPI round trip. It is host wall time, perturbable by
-  scheduling, so a high 2000ms floor keeps it false-positive-free. Windows uses the
-  OS `IsHungAppWindow` signal directly and has no such caveat.
-- **overflow on TUI / Clay** (`gap`): a VT grid clips rather than overflowing, and
-  Clay's render-command stream is flat with no parent linkage, so a child-exceeds-
-  parent check would need version-fragile parentage reconstruction. ImGui overflow
-  is `n/a` (immediate-mode clips/auto-sizes, no stable container box).
+### Detached indicator example
 
-## Determinism bar
+Web applications opt in with stable structural IDs:
 
-Every oracle keys its finding off structure (element ids, roles, keys, bounds),
-never visible text, uses coarse far-apart thresholds, and degrades to silence
-when the signal channel is absent. The same seed reproduces the same finding id
-on replay across every backend, which is what makes a finding shrinkable and a
-regression test stable.
+```html
+<nav id="bottom-nav" data-reproit-indicator-container>
+  <button id="liked-you" data-reproit-indicator-owner
+    data-reproit-indicator-max-gap="8">
+    Liked You
+  </button>
+  <span id="liked-you-badge"
+    data-reproit-indicator-for="liked-you"></span>
+</nav>
+```
+
+React Native, Flutter, iOS, and Android expose the same relationship through their SDKs using stable
+keys and global rectangles. Every implementation requires two identical settled samples.
+
+## Backend oracles
+
+Backend support is experimental. A finding requires a schema-owned or authored contract plus a
+runtime event correlated to the exact operation. Framework names and function names are not evidence
+of intent.
+
+OpenAPI, GraphQL, and protobuf describe shapes. Stronger behavior such as idempotency,
+authorization, transactionality, ordering, or consistency must be declared explicitly.
+
+### Request and response
+
+| Finding                        | Proves                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `openapi-parameter-uniqueness` | One OpenAPI Path Item or Operation declares the same `(name, in)` parameter more than once after local reference resolution.         |
+| `server-error`                 | A contract-valid request produced a repeatable 5xx response.                                                                         |
+| `response-status`              | A successful result used a status outside the declared success set.                                                                  |
+| `accepted-invalid-input`       | A successful operation accepted input outside its declared domain.                                                                   |
+| `response-shape`               | A successful response contradicted its schema or closed response contract.                                                           |
+| `response-selection`           | A GraphQL response contradicted the exact normalized selection mapping.                                                              |
+| `http-byte-range`              | A single byte-range response contradicts an authored exact representation in its status, `Content-Range`, length, or raw body bytes. |
+| `http-redirect-transition`     | A captured redirect hop violates the method and body transition required by its HTTP status.                                         |
+
+### WebSockets
+
+| Finding                   | Proves                                                                                       |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `websocket-authorization` | A principal explicitly declared as allowed or denied received the opposite handshake result. |
+| `websocket-message`       | A captured client or server message contradicted every authored schema for that direction.   |
+| `websocket-close`         | A captured connection used a close code explicitly forbidden by the contract.                |
+
+OpenAPI parameter uniqueness and HTTP redirect transitions are standards-backed. Byte-range
+validation also requires exact authoritative representation bytes. WebSocket checks require an
+authored route, principal, message, or close-code contract. Missing raw bytes, unresolved
+references, unlisted principals, and undeclared message directions produce no finding.
+
+### Effects, tenancy, and resources
+
+| Finding                   | Proves                                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------------------------- |
+| `read-only-mutation`      | A declared read-only operation performed a durable write or delete.                             |
+| `missing-effect`          | Complete effect telemetry omitted a required authored effect.                                   |
+| `excess-effect`           | An operation exceeded the declared maximum effect count.                                        |
+| `tenant-isolation`        | An operation wrote across its declared tenant boundary.                                         |
+| `resource-create-missing` | A strongly consistent resource was absent after a successful create.                            |
+| `resource-delete-visible` | A strongly consistent resource remained readable after delete.                                  |
+| `resource-identity`       | A read returned a different identity from the one requested.                                    |
+| `resource-state`          | A read contradicted an exact field written by create or update.                                 |
+| `resource-round-trip`     | A strong write/read pair contradicted an authored exact value, hash, size, or media-type check. |
+
+### Queries, invariants, and deployment
+
+| Finding                      | Proves                                                                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `authored-invariant`         | A declared range, equality, uniqueness, filter, sort, limit, conservation, bound, or transition rule failed.                |
+| `query-pagination`           | A complete pinned cursor chain repeated an identity or repeated a nonterminal cursor without progress.                      |
+| `query-pagination-reference` | Complete pinned pages differed from the declared reference operation for the same snapshot.                                 |
+| `idempotency`                | Repeating the same authored request and idempotency key changed the declared durable final effect or exact replay response. |
+| `fleet-consistency`          | One evidence set mixed declared build or configuration-contract identities.                                                 |
+
+### Authorization, transactions, and concurrency
+
+| Finding                   | Proves                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `authorization-matrix`    | A principal explicitly declared as denied received protected data for the same resource identity and snapshot. |
+| `transaction-atomicity`   | A controlled failed operation left a declared durable value different from its exact before value.             |
+| `concurrent-update`       | Two overlapping updates using the same authored version both committed to the same resource.                   |
+| `concurrent-conservation` | Overlapping committed updates contradicted an authored conservation transition.                                |
+
+Backend evaluation returns `UNKNOWN` when it lacks strong consistency, a stable operation or
+resource identity, complete effects, an exact snapshot, an authoritative schema, or an authored
+behavioral contract. It does not derive semantics from names such as `admin`, `sort`, `cursor`,
+`balance`, or `submitOrder`.
+
+Detailed event and configuration examples live in
+[`validation/backend/README.md`](../validation/backend/README.md).
+
+## A2UI oracles
+
+An A2UI target is validated as a v0.9 message stream and rendered through the official React and Lit
+integrations. ReproIt checks protocol structure, renderer behavior, and equivalence under
+transformations that should preserve meaning.
+
+| Finding                  | Proves                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `protocol-invalid`       | A message violates the official schema, catalog, operation count, component shape, or surface lifecycle.                 |
+| `renderer-error`         | A schema-valid stream causes a captured renderer exception.                                                              |
+| `unlabeled-input`        | A rendered visible form control has no accessible name.                                                                  |
+| `unlabeled-button`       | A rendered visible button has no accessible name.                                                                        |
+| `stream-convergence`     | Official message replay, cross-renderer replay, or idempotent update normalization produces different structural state.  |
+| `default-conformance`    | React and Lit resolve an official schema default differently.                                                            |
+| `bound-action-coherence` | A declared input binding, edited model value, action identity, or action context fails an exact edit-and-activate trace. |
+
+Every A2UI finding stores the minimized message stream, structural signature, renderer identity,
+exact repair context, and replay predicate. Unsupported catalog behavior and ambiguous component
+mapping abstain instead of guessing.
+
+Detailed integration, conformance, and CI examples live in
+[`runners/a2ui/README.md`](../runners/a2ui/README.md).
+
+## Scan, fuzz, shrink, and replay
+
+The command changes how ReproIt obtains evidence, not what an oracle means:
+
+| Command                | Role                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `reproit scan`         | Walk each reachable state or operation once and evaluate applicable oracles.                                  |
+| `reproit fuzz`         | Explore deeper sequences and generated structural inputs, then evaluate the same oracles.                     |
+| `reproit <finding-id>` | Rebuild the saved setup, replay the minimized sequence, and require the same oracle identity and fingerprint. |
+
+Shrinking may remove actions, messages, or requests only while the same proof still reproduces. A
+shorter sequence that produces a different failure is not accepted as the same bug.
+
+## Platform limitations
+
+ReproIt never fabricates a signal a platform does not expose. Important limits include:
+
+- Firefox and WebKit do not expose Chromium's precise heap domain, so browser leak confirmation uses
+  Chromium.
+- Tauri WebDriver cannot provide authoritative document HTTP status, so it does not emit
+  `broken-route`.
+- Accessibility trees and terminal grids do not expose a frame timeline, so they cannot prove jank.
+- iOS simulators do not expose an attributable per-app animation-hitch stream through the current
+  out-of-process driver.
+- Out-of-process Windows UI Automation cannot attribute compositor frame statistics to one window.
+- Backend eventual consistency remains `UNKNOWN` without an authored observation boundary.
+
+## Source of truth
+
+The top-level CLI and Cloud category registry is
+[`crates/reproit/oracle-registry.json`](../crates/reproit/oracle-registry.json). Backend and A2UI
+finding subtypes retain their exact subtype inside the saved contract evidence. Registry drift is
+tested so Cloud must handle every category and must preserve unknown future categories rather than
+dropping them.

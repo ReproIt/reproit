@@ -5,7 +5,10 @@ export interface EdgeEvent {
   kind: 'edge';
   /** Previous state signature; omitted on the initial `load`. */
   from?: string;
-  /** Structural replay action: `tap:key:<id>` / `tap:role:<role>#<idx>` / `nav:<route>` / `load` / `auto`. */
+  /**
+   * Structural replay action: `tap:key:<id>`, `tap:role:<role>#<idx>`,
+   * `nav:<route>`, `load`, or `auto`.
+   */
   action: string;
   /** Human-readable display label for the action, omitted when redactLabels. */
   label?: string;
@@ -53,7 +56,7 @@ export interface ErrorContext {
 export interface ErrorEvent {
   kind: 'error';
   /** The oracle this finding fired: a genuine uncaught error IS the `crash` oracle. */
-  oracle: 'crash';
+  oracle: 'crash' | 'tester-capture' | 'invariant';
   /** State signature where the error happened. */
   sig: string;
   /** The graph trail leading here. */
@@ -65,6 +68,16 @@ export interface ErrorEvent {
   line?: number;
   /** PII-safe on-error context (input fingerprints under `fingerprint`). */
   context?: ErrorContext;
+  /** Stable structural identity used to verify an explicit tester capture. */
+  findingIdentity?: {
+    oracle: 'tester-capture' | 'invariant';
+    invariant: string;
+    kind: 'structural-state' | 'structural-contract';
+    message: string;
+    frame: '';
+    trigger: string;
+    boundary: string;
+  };
   t: number;
 }
 

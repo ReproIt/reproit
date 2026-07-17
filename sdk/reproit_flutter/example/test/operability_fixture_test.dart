@@ -1652,9 +1652,10 @@ void main() {
         final finder = eq >= 0 ? r.substring(0, eq) : r;
         final want = eq >= 0 ? (int.tryParse(r.substring(eq + 1)) ?? 0) : 0;
         final ok = await waitFor(() => countMatching(finder) == want);
+        final result = ok ? "pass" : "fail";
+        final got = countMatching(finder);
         emit(
-          'FUZZ:ASSERT ${ok ? "pass" : "fail"} count $finder want=$want got=${countMatching(finder)} actor=$who',
-        );
+            'FUZZ:ASSERT $result count $finder want=$want got=$got actor=$who');
       }
     }
 

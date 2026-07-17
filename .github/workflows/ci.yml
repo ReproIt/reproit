@@ -105,7 +105,10 @@ jobs:
       - name: Unit-test the detectors + browser-backed runner behaviour
         run: node --test
       - name: Backend browser to service transport gate
-        run: node --test ../../validation/backend/sdk-node.test.mjs ../../validation/backend/web-e2e.test.mjs
+        run: |
+          node --test \
+            ../../validation/backend/sdk-node.test.mjs \
+            ../../validation/backend/web-e2e.test.mjs
       - name: Prepare the pinned official A2UI validator and corpus
         run: |
           git clone --filter=blob:none https://github.com/a2ui-project/a2ui.git "$RUNNER_TEMP/a2ui"
@@ -249,7 +252,8 @@ jobs:
           echo "a chosen fixture under real Chromium."
           echo "appkit/wpf/qt/gtk are recaptured LIVE by the operability-golden-* jobs."
           echo "Steps: crates/reproit/tests/golden/operability/README.md"
-          echo "Diff a captured marker with: node crates/reproit/tests/golden/operability/canonicalize-diff.mjs <platform> <file>"
+          echo "Diff a captured marker with:"
+          echo "node crates/reproit/tests/golden/operability/canonicalize-diff.mjs PLATFORM FILE"
 
   # Live re-capture-and-diff for the four desktop operability goldens that used
   # to be "manual re-capture only". Each job builds + runs the REAL in-process
@@ -325,7 +329,8 @@ jobs:
           node-version: "24"
       - name: Enable KVM group perms (hardware-accelerated emulator)
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          rule='KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'
+          printf '%s\n' "$rule" | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Install runner deps (webdriverio, pinned by the lockfile)
@@ -458,7 +463,8 @@ jobs:
           gradle-version: "8.14"
       - name: Install Kotlin compiler
         run: |
-          curl -sSLO https://github.com/JetBrains/kotlin/releases/download/v2.0.20/kotlin-compiler-2.0.20.zip
+          base=https://github.com/JetBrains/kotlin/releases/download/v2.0.20
+          curl -sSLO "$base/kotlin-compiler-2.0.20.zip"
           unzip -q kotlin-compiler-2.0.20.zip -d "$HOME/kotlin"
           echo "$HOME/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
       - name: Android SDK signature parity (host JVM, no Android SDK)
@@ -527,5 +533,7 @@ jobs:
         run: dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj
       - name: Validate the NuGet packages
         run: |
-          dotnet pack sdk/reproit-windows/src/ReproIt.Core/ReproIt.Core.csproj --configuration Release --output /tmp/reproit-nuget
-          dotnet pack sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj --configuration Release --output /tmp/reproit-nuget
+          dotnet pack sdk/reproit-windows/src/ReproIt.Core/ReproIt.Core.csproj \
+            --configuration Release --output /tmp/reproit-nuget
+          dotnet pack sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj \
+            --configuration Release --output /tmp/reproit-nuget

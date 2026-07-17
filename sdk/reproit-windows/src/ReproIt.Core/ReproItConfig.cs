@@ -9,10 +9,12 @@ namespace ReproIt.Core
 {
     public sealed class ReproItConfig
     {
-        /// <summary>Identifies the app in the cloud (the "appId" in every batch). Required.</summary>
+        /// <summary>Identifies the app in the cloud (the "appId" in every batch).
+        /// Required.</summary>
         public string AppId { get; set; }
 
-        /// <summary>POST &lt;endpoint&gt;/v1/events. If null, events go only to OnEvent/log.</summary>
+        /// <summary>POST &lt;endpoint&gt;/v1/events. If null, events go only to
+        /// OnEvent/log.</summary>
         public string Endpoint { get; set; }
 
         /// <summary>Bearer token sent as "Authorization: Bearer &lt;apiKey&gt;" when set.</summary>

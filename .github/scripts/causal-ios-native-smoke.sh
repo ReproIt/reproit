@@ -2,7 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-UDID="${REPROIT_IOS_SIM_UDID:-$(xcrun simctl list devices booted | grep -E 'iPhone|App-' | head -1 | grep -oE '[0-9A-F-]{36}')}"
+default_udid="$(
+  xcrun simctl list devices booted | grep -E 'iPhone|App-' |
+    head -1 | grep -oE '[0-9A-F-]{36}'
+)"
+UDID="${REPROIT_IOS_SIM_UDID:-$default_udid}"
 [ -n "$UDID" ] || { echo "no booted iOS simulator" >&2; exit 1; }
 
 BUILD="$(mktemp -d)"
@@ -24,12 +28,17 @@ rm -f "$NETWORK" "$CAPTURE_RESULT" "$REPLAY_RESULT"
 python3 -c 'from http.server import BaseHTTPRequestHandler,HTTPServer
 class H(BaseHTTPRequestHandler):
  def do_GET(self):
-  b=b"{\"ok\":true,\"email\":\"native@example.test\"}"; self.send_response(200); self.send_header("content-type","application/json"); self.end_headers(); self.wfile.write(b)
+  b=b"{\"ok\":true,\"email\":\"native@example.test\"}"
+  self.send_response(200)
+  self.send_header("content-type","application/json")
+  self.end_headers()
+  self.wfile.write(b)
  def log_message(self,*a): pass
 HTTPServer(("127.0.0.1",18766),H).serve_forever()' &
 SERVER_PID=$!
 SIMCTL_CHILD_REPROIT_CAUSAL=1 SIMCTL_CHILD_REPROIT_DEVICE=a \
-  SIMCTL_CHILD_REPROIT_NETWORK_FILE="$NETWORK" SIMCTL_CHILD_REPROIT_NATIVE_RESULT_FILE="$CAPTURE_RESULT" \
+  SIMCTL_CHILD_REPROIT_NETWORK_FILE="$NETWORK" \
+  SIMCTL_CHILD_REPROIT_NATIVE_RESULT_FILE="$CAPTURE_RESULT" \
   xcrun simctl launch --terminate-running-process \
   "$UDID" com.reproit.swiftuifixture >/dev/null
 sleep 3
@@ -43,10 +52,19 @@ kill "$SERVER_PID"
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=""
 cat >"$CAPSULE" <<'JSON'
-{"exchanges":[{"id":"a-0-0","actor":"a","actionIndex":0,"ordinal":0,"protocol":"http","method":"GET","url":"http://127.0.0.1:18766/bootstrap","requestHeaders":{},"status":200,"responseHeaders":{"content-type":"application/json"},"responseBody":{"ok":true,"source":"capsule"},"required":true}]}
+{
+  "exchanges": [{
+    "id": "a-0-0", "actor": "a", "actionIndex": 0, "ordinal": 0,
+    "protocol": "http", "method": "GET",
+    "url": "http://127.0.0.1:18766/bootstrap", "requestHeaders": {},
+    "status": 200, "responseHeaders": {"content-type": "application/json"},
+    "responseBody": {"ok": true, "source": "capsule"}, "required": true
+  }]
+}
 JSON
 RAW="$(tr -d '\n' <"$CAPSULE")"
-SIMCTL_CHILD_REPROIT_CAUSAL=1 SIMCTL_CHILD_REPROIT_DEVICE=a SIMCTL_CHILD_REPROIT_CAPSULE_JSON="$RAW" \
+SIMCTL_CHILD_REPROIT_CAUSAL=1 SIMCTL_CHILD_REPROIT_DEVICE=a \
+  SIMCTL_CHILD_REPROIT_CAPSULE_JSON="$RAW" \
   SIMCTL_CHILD_REPROIT_NATIVE_RESULT_FILE="$REPLAY_RESULT" \
   xcrun simctl launch --terminate-running-process \
   "$UDID" com.reproit.swiftuifixture >/dev/null

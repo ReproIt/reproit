@@ -25,20 +25,46 @@ on any host. The live AT-SPI / GTK capture lives in capture.py.
 
 # The fixed, language-independent role vocabulary (docs/signature.md "Roles").
 # Anything outside this set normalizes to `node`.
-ROLES = frozenset([
-    "screen", "header", "text", "button", "link", "textfield", "image", "icon",
-    "list", "listitem", "tab", "switch", "checkbox", "radio", "slider", "menu",
-    "menuitem", "dialog", "group", "node",
-])
+ROLES = frozenset(
+    [
+        "screen",
+        "header",
+        "text",
+        "button",
+        "link",
+        "textfield",
+        "image",
+        "icon",
+        "list",
+        "listitem",
+        "tab",
+        "switch",
+        "checkbox",
+        "radio",
+        "slider",
+        "menu",
+        "menuitem",
+        "dialog",
+        "group",
+        "node",
+    ]
+)
 
 # Roles that flicker in and out of the tree and must be dropped before hashing
 # (docs/signature.md normalization rule 2). "transient error banner" is not a
 # distinct role in the vocabulary, so it is expressed via the `transient` flag on
 # a node; both paths drop the node and its whole subtree. `progress` is the role
 # name for spinner/progress.
-TRANSIENT_ROLES = frozenset([
-    "toast", "snackbar", "spinner", "progress", "tooltip", "badge",
-])
+TRANSIENT_ROLES = frozenset(
+    [
+        "toast",
+        "snackbar",
+        "spinner",
+        "progress",
+        "tooltip",
+        "badge",
+    ]
+)
 
 # Value-role set (docs/signature.md "Value-state", Layer 2). A node is
 # value-bearing only if it has a `value` AND its RAW role is one of these (or it
@@ -48,9 +74,17 @@ TRANSIENT_ROLES = frozenset([
 # are NOT in the structural ROLES vocabulary, so they normalize to `node` in the
 # token body; the value-role test therefore uses the RAW role, not the
 # normalized one.
-VALUE_ROLES = frozenset([
-    "textfield", "status", "log", "progressbar", "meter", "timer", "output",
-])
+VALUE_ROLES = frozenset(
+    [
+        "textfield",
+        "status",
+        "log",
+        "progressbar",
+        "meter",
+        "timer",
+        "output",
+    ]
+)
 
 
 class Node:
@@ -71,8 +105,17 @@ class Node:
 
     __slots__ = ("role", "id", "type", "icon", "transient", "value", "value_node", "children")
 
-    def __init__(self, role, id=None, type=None, icon=None, transient=False,
-                 value=None, value_node=False, children=None):
+    def __init__(
+        self,
+        role,
+        id=None,
+        type=None,
+        icon=None,
+        transient=False,
+        value=None,
+        value_node=False,
+        children=None,
+    ):
         self.role = role
         self.id = id
         self.type = type
@@ -190,6 +233,7 @@ def _serialize_children(children, depth, tokens):
 
 # --- Layer 2: value-state (docs/signature.md "Value-state") -----------------
 
+
 def is_value_bearing(node):
     """True iff this node carries a canonical value-class in the V: section: it
     has a `value` AND it is value-bearing, i.e. its RAW role is a value-role OR
@@ -281,7 +325,12 @@ def _collect_values_children(node, out):
         idx = role_counts.get(role, 0)
         role_counts[role] = idx + 1
         if is_value_bearing(child):
-            out.append((_value_key(child, idx), value_class(child.value if child.value is not None else "")))
+            out.append(
+                (
+                    _value_key(child, idx),
+                    value_class(child.value if child.value is not None else ""),
+                )
+            )
         _collect_values_children(child, out)
 
 

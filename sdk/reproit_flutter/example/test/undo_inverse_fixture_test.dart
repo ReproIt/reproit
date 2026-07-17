@@ -38,7 +38,8 @@ String structSig(WidgetTester t) {
 // undoAffordanceSel, resolved here by visible text over the live tree).
 final RegExp _undoWordRe = RegExp(r'\bundo\b', caseSensitive: false);
 bool hasUndoAffordance(WidgetTester t) => find
-    .byWidgetPredicate((w) => w is Text && w.data != null && _undoWordRe.hasMatch(w.data!))
+    .byWidgetPredicate(
+        (w) => w is Text && w.data != null && _undoWordRe.hasMatch(w.data!))
     .evaluate()
     .isNotEmpty;
 
@@ -124,8 +125,7 @@ class _UndoFixtureState extends State<UndoFixture> {
               }),
               child: const Text('Undo'),
             ),
-          if (_residue)
-            const _Item('leftover', key: Key('residue')),
+          if (_residue) const _Item('leftover', key: Key('residue')),
         ]),
       ),
     );
@@ -185,7 +185,8 @@ void main() {
     await t.tap(find.text('Delete')); // X
     await t.pumpAndSettle();
     final post = structSig(t);
-    expect(hasUndoAffordance(t), isTrue, reason: 'X created an Undo affordance');
+    expect(hasUndoAffordance(t), isTrue,
+        reason: 'X created an Undo affordance');
     await t.tap(find.text('Undo')); // the inverse that appeared because of X
     await t.pumpAndSettle();
     final after = structSig(t);

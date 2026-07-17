@@ -7,8 +7,8 @@ export REPROIT_OSS_TMP="$WORK/captured"
 mkdir -p "$REPROIT_OSS_TMP"
 PIDS=()
 cleanup() {
-  for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
-  for pid in "${PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
+  for pid in ${PIDS[@]+"${PIDS[@]}"}; do kill "$pid" 2>/dev/null || true; done
+  for pid in ${PIDS[@]+"${PIDS[@]}"}; do wait "$pid" 2>/dev/null || true; done
   docker rm -f reproit-backend-oss-petstore >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -24,7 +24,8 @@ wait_http() {
   return 1
 }
 
-PETSTORE_IMAGE="swaggerapi/petstore3@sha256:7013040e865d642be5ddafd113116710acdb16addb0c4c59d29f0a6d68d2aa93"
+PETSTORE_IMAGE='swaggerapi/petstore3@sha256:'
+PETSTORE_IMAGE+='7013040e865d642be5ddafd113116710acdb16addb0c4c59d29f0a6d68d2aa93'
 docker run --rm -d --platform linux/amd64 --name reproit-backend-oss-petstore \
   -p 18080:8080 "$PETSTORE_IMAGE" >/dev/null
 wait_http http://127.0.0.1:18080/api/v3/openapi.json
@@ -36,8 +37,10 @@ curl -fsS -H 'content-type: application/x-www-form-urlencoded' \
   --data 'id=987654322&name=FormDog&photoUrls=https%3A%2F%2Fexample.test%2Fdog.png' \
   http://127.0.0.1:18080/api/v3/pet -o "$REPROIT_OSS_TMP/petstore-form.json"
 curl -fsS http://127.0.0.1:18080/api/v3/pet/987654321 -o "$REPROIT_OSS_TMP/petstore-get.json"
-curl -fsS 'http://127.0.0.1:18080/api/v3/pet/findByStatus?status=available' -o "$REPROIT_OSS_TMP/petstore-list.json"
-curl -fsS http://127.0.0.1:18080/api/v3/store/inventory -o "$REPROIT_OSS_TMP/petstore-inventory.json"
+curl -fsS 'http://127.0.0.1:18080/api/v3/pet/findByStatus?status=available' \
+  -o "$REPROIT_OSS_TMP/petstore-list.json"
+curl -fsS http://127.0.0.1:18080/api/v3/store/inventory \
+  -o "$REPROIT_OSS_TMP/petstore-inventory.json"
 curl -fsS -D "$REPROIT_OSS_TMP/petstore-xml.headers" -H 'accept: application/xml' \
   http://127.0.0.1:18080/api/v3/pet/987654321 -o "$REPROIT_OSS_TMP/petstore-get.xml"
 grep -qi '^content-type: application/xml' "$REPROIT_OSS_TMP/petstore-xml.headers"
@@ -58,16 +61,28 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 
-INTROSPECTION='query IntrospectionQuery { __schema { queryType { name } mutationType { name } subscriptionType { name } types { kind name fields(includeDeprecated: true) { name args { name type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } } inputFields { name type { kind name ofType { kind name ofType { kind name } } } } enumValues(includeDeprecated: true) { name } possibleTypes { name } } } }'
+INTROSPECTION='query IntrospectionQuery { __schema { queryType { name } '
+INTROSPECTION+='mutationType { name } subscriptionType { name } types { kind name '
+INTROSPECTION+='fields(includeDeprecated: true) { name args { name type { kind name '
+INTROSPECTION+='ofType { kind name ofType { kind name ofType { kind name } } } } } '
+INTROSPECTION+='type { kind name ofType { kind name ofType { kind name '
+INTROSPECTION+='ofType { kind name } } } } } inputFields { name type { kind name '
+INTROSPECTION+='ofType { kind name ofType { kind name } } } } '
+INTROSPECTION+='enumValues(includeDeprecated: true) { name } possibleTypes { name } } } }'
 post_graphql() {
   local url="$1" query="$2" output="$3" variables='{}'
   if [[ $# -ge 4 ]]; then variables="$4"; fi
-  jq -cn --arg query "$query" --argjson variables "$variables" '{query:$query,variables:$variables}' |
+  jq -cn --arg query "$query" --argjson variables "$variables" \
+    '{query:$query,variables:$variables}' |
     curl -fsS "$url" -H 'content-type: application/json' --data-binary @- -o "$output"
 }
-post_graphql http://127.0.0.1:18787/graphql "$INTROSPECTION" "$REPROIT_OSS_TMP/countries-introspection.json"
+post_graphql http://127.0.0.1:18787/graphql "$INTROSPECTION" \
+  "$REPROIT_OSS_TMP/countries-introspection.json"
+alias_query='query Aliased($code: ID!) { nation: country(code: $code) { '
+alias_query+='...CountryBits } } fragment CountryBits on Country { code name '
+alias_query+='languages { code name } }'
 post_graphql http://127.0.0.1:18787/graphql \
-  'query Aliased($code: ID!) { nation: country(code: $code) { ...CountryBits } } fragment CountryBits on Country { code name languages { code name } }' \
+  "$alias_query" \
   "$WORK/countries-alias.json" '{"code":"US"}'
 jq '.data.nation' "$WORK/countries-alias.json" > "$REPROIT_OSS_TMP/countries-alias-output.json"
 post_graphql http://127.0.0.1:18787/graphql \
@@ -89,16 +104,22 @@ for _ in $(seq 1 30); do
     --data-binary '{"query":"{ __typename }"}' >/dev/null 2>&1; then break; fi
   sleep 1
 done
-post_graphql http://127.0.0.1:18788/graphql "$INTROSPECTION" "$REPROIT_OSS_TMP/graphql-shapes-introspection.json"
+post_graphql http://127.0.0.1:18788/graphql "$INTROSPECTION" \
+  "$REPROIT_OSS_TMP/graphql-shapes-introspection.json"
+shape_query='query($kind:String!){ subject:node(kind:$kind){ __typename '
+shape_query+='... on User { id name nickname } ... on Service { id endpoint } } }'
 post_graphql http://127.0.0.1:18788/graphql \
-  'query($kind:String!){ subject:node(kind:$kind){ __typename ... on User { id name nickname } ... on Service { id endpoint } } }' \
+  "$shape_query" \
   "$WORK/graphql-interface.json" '{"kind":"user"}'
 jq '.data.subject' "$WORK/graphql-interface.json" > "$REPROIT_OSS_TMP/graphql-interface-output.json"
+search_query='query { search { __typename ... on User { id name nickname } '
+search_query+='... on Service { id endpoint } } }'
 post_graphql http://127.0.0.1:18788/graphql \
-  'query { search { __typename ... on User { id name nickname } ... on Service { id endpoint } } }' \
+  "$search_query" \
   "$WORK/graphql-union.json"
 jq '.data.search' "$WORK/graphql-union.json" > "$REPROIT_OSS_TMP/graphql-union-output.json"
-post_graphql http://127.0.0.1:18788/graphql 'query { nullableNode { __typename } }' "$WORK/graphql-null.json"
+post_graphql http://127.0.0.1:18788/graphql \
+  'query { nullableNode { __typename } }' "$WORK/graphql-null.json"
 jq -e '.data.nullableNode == null' "$WORK/graphql-null.json" >/dev/null
 post_graphql http://127.0.0.1:18788/graphql 'query { explode }' "$WORK/graphql-error.json"
 jq -e '.data.explode == null and (.errors|length == 1)' "$WORK/graphql-error.json" >/dev/null
@@ -126,7 +147,8 @@ REPROIT_BACKEND_URL=http://127.0.0.1:50051 \
 jq -e '.complete == true and .exercised == 1 and (.findings | length) == 0' \
   "$WORK/grpc-headless-fuzz.json" >/dev/null
 echo "CLEAN grpc-go public headless fuzz operations=1"
-cp "$ROOT/validation/backend/oss/grpc-int64-descriptor.json" "$REPROIT_OSS_TMP/grpc-int64-descriptor.json"
+cp "$ROOT/validation/backend/oss/grpc-int64-descriptor.json" \
+  "$REPROIT_OSS_TMP/grpc-int64-descriptor.json"
 
 cargo run --quiet --manifest-path "$ROOT/validation/backend/oss/Cargo.toml"
 echo "OSS backend contract gate passed"

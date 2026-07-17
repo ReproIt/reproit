@@ -91,8 +91,16 @@ class Reporter:
 
     BATCH_FLUSH_AT = 50
 
-    def __init__(self, app_id, endpoint=None, api_key=None, on_event=None,
-                 flush_ms=5000, path_cap=60, redact_labels=False):
+    def __init__(
+        self,
+        app_id,
+        endpoint=None,
+        api_key=None,
+        on_event=None,
+        flush_ms=5000,
+        path_cap=60,
+        redact_labels=False,
+    ):
         if not app_id:
             raise ValueError("Reporter: app_id is required")
         self.app_id = app_id
@@ -105,13 +113,13 @@ class Reporter:
 
         self._lock = threading.RLock()
         self._buf = []
-        self._path = []          # the graph trail: list of {sig, action}
-        self._cur = None         # current structural signature
-        self._cur_fp = None      # current content fingerprint (Layer-1, ephemeral)
+        self._path = []  # the graph trail: list of {sig, action}
+        self._cur = None  # current structural signature
+        self._cur_fp = None  # current content fingerprint (Layer-1, ephemeral)
         self._ctx = auto_context()
         self._flush_timer = None
         self._on = True
-        self._invariants = {}    # id -> predicate (idempotent by id)
+        self._invariants = {}  # id -> predicate (idempotent by id)
         self._causal_restore = install_causal_urllib(endpoint)
 
     # ---- app invariants ----------------------------------------------------
@@ -232,11 +240,16 @@ class Reporter:
         immediately). Matches the other SDKs' error shape (sig + path + message +
         stack)."""
         import traceback
+
         if message is None:
             message = "%s: %s" % (type(exc).__name__, exc) if exc else "unknown error"
         stack = []
         try:
-            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) if exc else ""
+            tb = (
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                if exc
+                else ""
+            )
             stack = [ln.strip() for ln in tb.splitlines() if ln.strip()][-8:]
         except Exception:
             pass
@@ -301,7 +314,9 @@ class Reporter:
         try:
             req = urllib.request.Request(
                 endpoint.rstrip("/") + "/v1/events",
-                data=body, headers=headers, method="POST",
+                data=body,
+                headers=headers,
+                method="POST",
             )
             urllib.request.urlopen(req, timeout=5)
         except Exception:
@@ -384,6 +399,7 @@ class Reporter:
 # crates/reproit/src/backends/tui.rs. The env var is also the fuzzer-detection
 # gate: absent in production, the registry stays inert.
 
+
 def _eval_invariant(predicate):
     """Evaluate one predicate. Returns None when it HOLDS, or a failure message
     string when it is VIOLATED. Mirrors the web SDK: truthy holds; falsy / raises
@@ -418,9 +434,6 @@ def _report_invariants(invariants, sig):
         return
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write(
-                "REPROIT_INVARIANT %s\n"
-                % json.dumps({"sig": sig or "", "items": items})
-            )
+            f.write("REPROIT_INVARIANT %s\n" % json.dumps({"sig": sig or "", "items": items}))
     except OSError:
         pass

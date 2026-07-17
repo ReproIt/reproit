@@ -4,7 +4,12 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$root"
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "missing required validator: $1" >&2; exit 1; }; }
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required validator: $1" >&2
+    exit 1
+  }
+}
 need cargo
 need node
 need npm
@@ -29,7 +34,13 @@ node --test runners/web/capsule.test.mjs runners/electron-capsule.test.mjs
 node --test sdk/reproit-tauri/test/init.test.mjs
 cargo check --manifest-path sdk/reproit-tauri/Cargo.toml
 
-(cd sdk/reproit-react-native && npm test -- --runInBand && npm run typecheck && npm run build && pod ipc spec reproit-react-native.podspec >/dev/null)
+(
+  cd sdk/reproit-react-native
+  npm test -- --runInBand
+  npm run typecheck
+  npm run build
+  pod ipc spec reproit-react-native.podspec >/dev/null
+)
 (cd sdk/reproit-linux && pytest_run -q)
 (cd sdk/reproit_flutter && flutter test test/causal_test.dart)
 (cd sdk/reproit-ios && swift test)
@@ -42,6 +53,7 @@ cc -std=c11 -Wall -Wextra -Werror runners/test_causal.c -o /tmp/reproit-test-cau
 /tmp/reproit-test-causal
 
 dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj
-dotnet build sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj -p:EnableWindowsTargeting=true
+dotnet build sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj \
+  -p:EnableWindowsTargeting=true
 
 echo "causal validation matrix passed"

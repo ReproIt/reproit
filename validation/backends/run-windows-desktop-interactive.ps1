@@ -29,11 +29,28 @@ try {
         $code = 124
     }
     else {
+        $child.WaitForExit()
+        $child.Refresh()
         $code = $child.ExitCode
     }
-    if (Test-Path $stdout) { Get-Content -Raw $stdout | Set-Content -Encoding UTF8 $log }
+    $stdoutText = if (Test-Path $stdout) { Get-Content -Raw $stdout } else { "" }
+    $stdoutText | Set-Content -Encoding UTF8 $log
     if (Test-Path $stderr) { Get-Content -Raw $stderr | Add-Content -Encoding UTF8 $log }
-    if ($timedOut) { "Windows desktop gate timed out after 12 minutes" | Add-Content -Encoding UTF8 $log }
+    if ($timedOut) {
+        "Windows desktop gate timed out after 12 minutes" |
+            Add-Content -Encoding UTF8 $log
+    }
+    if (-not $timedOut -and $null -eq $code) {
+        $terminalMarker = "Windows DesktopUia backend passed WPF, Avalonia, and WinUI"
+        if ($stdoutText.Contains($terminalMarker)) {
+            $code = 0
+            "WARNING: child exit code was unavailable; accepting the exact terminal matrix marker" |
+                Add-Content -Encoding UTF8 $log
+        }
+        else {
+            $code = 1
+        }
+    }
 }
 catch {
     $_ | Out-String | Add-Content -Encoding UTF8 $log

@@ -2,14 +2,14 @@
 
 **Find a UI bug once, reproduce it forever.**
 
-[**reproit.com**](https://reproit.com) · [CLI guide](docs/cli.md) · [production SDKs](sdk/README.md)
+[**reproit.com**](https://reproit.com) · [CLI guide](docs/cli.md) ·
+[production SDKs](sdk/README.md)
 
 ![reproit finds a bug and reproduces it every run](docs/demo.gif)
 
-reproit drives your app like a user, finds bugs your tests missed, and gives you
-a replayable repro: the exact steps needed to make the bug happen again. That
-turns "cannot reproduce" into a local command you can run before and after the
-fix.
+reproit drives your app like a user, finds bugs your tests missed, and gives you a replayable repro:
+the exact steps needed to make the bug happen again. That turns "cannot reproduce" into a local
+command you can run before and after the fix.
 
 The small loop is:
 
@@ -23,39 +23,39 @@ reproit keep fnd_...   # keep it as a regression guard
 reproit check          # run the saved suite after the fix
 ```
 
-`reproit scan` audits visible screen-level problems. `reproit fuzz` explores
-deeper action sequences. Its default detectors have direct replay predicates: crash, broken
-content, hang, broken route, blank screen, and broken asset. Specialist and
-experimental detectors remain available explicitly with `--only`.
+`reproit scan` audits visible screen-level problems. `reproit fuzz` explores deeper action
+sequences. The default confirmed set is deliberately small: objective crashes, explicit structural
+contracts, and explicitly declared indicator relationships. Built-in layout, content, routing,
+timing, accessibility, and lifecycle detectors remain available explicitly with `--only`, but are
+specialist signals unless application-owned intent makes the result authoritative.
 
-ReproIt maintains its internal screen graph automatically. Before a command
-uses it, reproit fingerprints the actual source, configuration, lockfiles, and
-CLI version; changed inputs trigger a refresh. Git revision and dirty state are
-stored as provenance, but uncommitted work is handled correctly too.
+ReproIt maintains its internal screen graph automatically. Before a command uses it, reproit
+fingerprints the actual source, configuration, lockfiles, and CLI version; changed inputs trigger a
+refresh. Git revision and dirty state are stored as provenance, but uncommitted work is handled
+correctly too.
 
 ## Supported platforms
 
-reproit uses the same workflow across web, mobile, desktop, terminal, and
-instrumented native UI. Each platform has a live backend, and the saved repros
-stay portable enough for local runs, CI, and production crash replay.
+reproit uses the same workflow across web, mobile, desktop, terminal, and instrumented native UI.
+Each platform has a live backend, and the saved repros stay portable enough for local runs, CI, and
+production crash replay.
 
-| Platform | Backend |
-|---|---|
-| Web (DOM apps) | Playwright Chromium, Firefox, and WebKit |
-| Flutter | flutter drive + VM service |
-| React Native / native mobile | Appium |
-| macOS native | AX (validated with SwiftUI) |
-| Windows native | UI Automation (validated with WPF, Avalonia, WinUI 3) |
-| Linux native | AT-SPI (validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets) |
-| Terminal UIs | PTY + VT parser |
-| Electron | Chromium/CDP |
-| Tauri | system WebKit webview through `tauri-driver` |
-| Dear ImGui / Clay | in-app instrumentation header |
+| Platform                     | Backend                                                          |
+| ---------------------------- | ---------------------------------------------------------------- |
+| Web (DOM apps)               | Playwright Chromium, Firefox, and WebKit                         |
+| Flutter                      | flutter drive + VM service                                       |
+| React Native / native mobile | Appium                                                           |
+| macOS native                 | AX (validated with SwiftUI)                                      |
+| Windows native               | UI Automation (validated with WPF, Avalonia, WinUI 3)            |
+| Linux native                 | AT-SPI (validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets) |
+| Terminal UIs                 | PTY + VT parser                                                  |
+| Electron                     | Chromium/CDP                                                     |
+| Tauri                        | system WebKit webview through `tauri-driver`                     |
+| Dear ImGui / Clay            | in-app instrumentation header                                    |
 
-`reproit platforms` prints the routing matrix. The exact native fixtures,
-commands, and pass contract are documented in
-[`validation/backends/README.md`](validation/backends/README.md); registered
-platform ids are checked against that evidence manifest in the Rust test suite.
+`reproit platforms` prints the routing matrix. The exact native fixtures, commands, and pass
+contract are documented in [`validation/backends/README.md`](validation/backends/README.md);
+registered platform ids are checked against that evidence manifest in the Rust test suite.
 
 ## Install
 
@@ -83,12 +83,12 @@ Once installed, update explicitly with:
 reproit update
 ```
 
-ReproIt checks for a newer release without delaying commands and shows a cached
-notice at most once per day. It never replaces the CLI without this command.
-Set `REPROIT_NO_UPDATE_CHECK=1` to disable the check. Checks are disabled in CI.
+ReproIt checks for a newer release without delaying commands and shows a cached notice at most once
+per day. It never replaces the CLI without this command. Set `REPROIT_NO_UPDATE_CHECK=1` to disable
+the check. Checks are disabled in CI.
 
-The web runner needs Node.js 18+. Playwright and the headless browser are
-provisioned on first web run, so there is no manual `npm install` step.
+The web runner needs Node.js 18+. Playwright and the headless browser are provisioned on first web
+run, so there is no manual `npm install` step.
 
 ## Quickstart
 
@@ -103,32 +103,31 @@ reproit keep fnd_...                   # keep it as a regression guard
 reproit check                          # verify the suite after the fix
 ```
 
-Use the same flow for every platform in the table above. The target changes
-(`https://...`, simulator/device, native app, terminal command, or instrumented
-binary), but the loop stays `doctor`, optional `auth`, `scan`, `fuzz`, direct
-bug id, `keep`, then `check` again after the fix.
+Use the same flow for every platform in the table above. The target changes (`https://...`,
+simulator/device, native app, terminal command, or instrumented binary), but the loop stays
+`doctor`, optional `auth`, `scan`, `fuzz`, direct bug id, `keep`, then `check` again after the fix.
 
-`scan` checks each reachable screen for visible problems like overflow, broken
-content, missing labels, and odd layout choices. `--record` turns boxable scan
-findings into clips. `fuzz` explores longer action sequences and emits the
-replayable `fnd_...` findings you can run directly and `keep`.
+`scan` checks each reachable screen for visible problems like overflow, broken content, missing
+labels, and odd layout choices. `--record` turns boxable scan findings into clips. `fuzz` explores
+longer action sequences and emits the replayable `fnd_...` findings you can run directly and `keep`.
 
-A finding is not useful until it replays. `reproit <id>` proves that the bug still
-happens on your machine. `keep <id>` saves the repro locally as a non-blocking
-guard; once you fix the bug, `check` flips it to PASS and makes it part of the
-required suite.
+A finding is not useful until it replays. `reproit <id>` proves that the bug still happens on your
+machine. `keep <id>` saves the repro locally as a non-blocking guard; once you fix the bug, `check`
+flips it to PASS and makes it part of the required suite.
 
-There are two recording paths on purpose:
+There are three recording paths on purpose:
 
-- `scan --record` is an audit convenience: after scan finds visible, boxable
-  issues, it saves one short clip per issue into `.reproit/recordings/scan/`.
-- `record <id>` is repro evidence: after `fuzz` prints an `fnd_...` id, or after
-  you keep a repro, it replays that exact bug once and saves the annotated video
-  that `watch <id>` opens later.
+- `scan --record` is an audit convenience: after scan finds visible, boxable issues, it saves one
+  short clip per issue into `.reproit/recordings/scan/`.
+- `record <id>` is repro evidence: after `fuzz` prints an `fnd_...` id, or after you keep a repro,
+  it replays that exact bug once and saves the annotated video that `watch <id>` opens later.
+- `record` is exploratory testing: it waits for a tester to press the SDK's capture button,
+  clean-launch replays the rolling structural path, verifies the exact captured state, and
+  automatically shrinks it before showing a bug.
 
-`.reproit/` is organized by concept: `map/` is the internal versioned app model,
-`runs/` is raw local evidence, `recordings/` is generated video, `tmp/` is
-ignored runner scratch, and `repros/` is the saved regression suite.
+`.reproit/` is organized by concept: `map/` is the internal versioned app model, `runs/` is raw
+local evidence, `recordings/` is generated video, `tmp/` is ignored runner scratch, and `repros/` is
+the saved regression suite.
 
 ## Commands
 
@@ -138,6 +137,7 @@ reproit scan [target]                 # scan every screen for visible bugs (--re
 reproit fuzz [target]                 # find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>           # reproduce one bug
 reproit check                         # verify the whole saved suite
+reproit record                        # turn the next tester capture into a verified, minimal repro
 reproit record <id>                   # annotated repro video (--flicker also scans it)
 reproit baseline [--update]           # visual-regression diff vs the committed baseline
 reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices
@@ -164,22 +164,19 @@ reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit resolution-events
 ```
 
-`reproit login` can run from any directory. It stores an account credential and
-lets bucket ids resolve across every project you can access. A bucket needs a
-runnable app configuration, not necessarily source. For a deployed web app,
-create a small workspace with `reproit init https://app.example.com`, then run
-`reproit bkt_...` there. To reproduce against current local code, run it inside
-the app checkout. From another directory, pass
+`reproit login` can run from any directory. It stores an account credential and lets bucket ids
+resolve across every project you can access. A bucket needs a runnable app configuration, not
+necessarily source. For a deployed web app, create a small workspace with
+`reproit init https://app.example.com`, then run `reproit bkt_...` there. To reproduce against
+current local code, run it inside the app checkout. From another directory, pass
 `--config /path/to/app/reproit.yaml`.
 
-Cloud does not upload or clone source code. A URL-backed web configuration owns
-the deployed target and browser runner. A source-backed web, Flutter, iOS,
-Android, or desktop configuration owns the build command, runtime, simulator or
-device, and auth. Cloud supplies the confirmed production actions, failure
-signature, safe fixture properties, and replay capsule when one exists. A
-bucket replay executes those actions directly; it does not download a source
-tree or a second app graph. Scan and fuzz maintain the local app model
-automatically for discovery.
+Cloud does not upload or clone source code. A URL-backed web configuration owns the deployed target
+and browser runner. A source-backed web, Flutter, iOS, Android, or desktop configuration owns the
+build command, runtime, simulator or device, and auth. Cloud supplies the confirmed production
+actions, failure signature, safe fixture properties, and replay capsule when one exists. A bucket
+replay executes those actions directly; it does not download a source tree or a second app graph.
+Scan and fuzz maintain the local app model automatically for discovery.
 
 Cross-cutting flags on `fuzz`/`check`:
 
@@ -192,9 +189,9 @@ Cross-cutting flags on `fuzz`/`check`:
 --json --quiet --yes  # CI
 ```
 
-`import` + `fuzz --from` is the switch path: convert a Maestro flow to a journey,
-then fuzz *from* it. Reaching a valid deep state is the costly part, so an
-imported flow becomes a launchpad for the bugs it never covered.
+`import` + `fuzz --from` is the switch path: convert a Maestro flow to a journey, then fuzz _from_
+it. Reaching a valid deep state is the costly part, so an imported flow becomes a launchpad for the
+bugs it never covered.
 
 ## Web apps
 
@@ -206,8 +203,8 @@ reproit scan
 reproit fuzz
 ```
 
-`scan` checks the current UI. `fuzz` explores deeper interactions and saves every
-confirmed finding for exact replay with `reproit fnd_...`.
+`scan` checks the current UI. `fuzz` explores deeper interactions and saves every confirmed finding
+for exact replay with `reproit fnd_...`.
 
 For A2UI-generated interfaces, pass the generated JSON or JSONL stream directly:
 
@@ -217,32 +214,31 @@ reproit fuzz generated-ui.jsonl
 reproit fnd_...
 ```
 
-ReproIt validates the official v0.9 basic catalog, runs the stream through the
-official React and Lit renderers, minimizes a failure while preserving its exact
-signature, and stores the result under the same `fnd_...` workflow.
+ReproIt validates the official v0.9 basic catalog, runs the stream through the official React and
+Lit renderers, minimizes a failure while preserving its exact signature, and stores the result under
+the same `fnd_...` workflow.
 
 ## Cloud
 
-A worker pool runs the **same `reproit` binary** across shards (one seed/device
-each): orchestration, fleet, and storage around the CLI, not a reimplementation.
-The headline use case is a **production crash reproduced on your machine**: the
-SDK reports the real session and `reproit bkt_...` reproduces it locally.
-Self-hosted or managed.
+A worker pool runs the **same `reproit` binary** across shards (one seed/device each):
+orchestration, fleet, and storage around the CLI, not a reimplementation. The headline use case is a
+**production crash reproduced on your machine**: the SDK reports the real session and
+`reproit bkt_...` reproduces it locally. Self-hosted or managed.
 
-The SDK captures the *structure* of a session, not user data: input values and
-personal data never leave your app (an error attaches only PII-safe derived
-features). Details: [docs/data-handling.md](docs/data-handling.md).
+The SDK captures the _structure_ of a session, not user data: input values and personal data never
+leave your app (an error attaches only PII-safe derived features). Details:
+[docs/data-handling.md](docs/data-handling.md).
 
 Choose a production integration and follow its working install command in the
-[SDK guide](sdk/README.md). Client applications use a write-only `pk_live_...`
-project key and the full `https://ingest.reproit.com/v1/events` endpoint. Secret
-`sk_live_...` keys stay in the CLI, CI, or trusted server code.
+[SDK guide](sdk/README.md). Client applications use a write-only `pk_live_...` project key and the
+full `https://ingest.reproit.com/v1/events` endpoint. Secret `sk_live_...` keys stay in the CLI, CI,
+or trusted server code.
 
 ## MCP
 
-reproit ships **no bundled LLM**: the core (`map`/`fuzz`/`check`) runs key-free
-and offline, and the AI lives in *your* agent. `reproit mcp` exposes the engine
-so the agent can loop: fuzz → read the repro → fix → `check` to prove it.
+reproit ships **no bundled LLM**: the core (`map`/`fuzz`/`check`) runs key-free and offline, and the
+AI lives in _your_ agent. `reproit mcp` exposes the engine so the agent can loop: fuzz → read the
+repro → fix → `check` to prove it.
 
 **Claude Code:**
 
@@ -272,4 +268,5 @@ Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 
-Internals: `docs/cli.md`, `docs/signature.md`, `docs/oracles.md`, `docs/operability-graph.md`.
+Reference: [CLI](docs/cli.md), [oracles](docs/oracles.md),
+[structural signatures](docs/signature.md), and [operability graph](docs/operability-graph.md).

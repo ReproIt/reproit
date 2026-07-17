@@ -8,13 +8,22 @@ from reproit_tui_py.causal import _redact, install_causal_urllib
 
 
 def test_explicit_secret_keys_redact_without_hiding_ordinary_keys():
-    safe = _redact({
-        "apiKey": "raw-api", "publishable-key": "raw-pub", "private_key": "raw-private",
-        "access.key": "raw-access", "signing key": "raw-signing",
-        "keyboardLayout": "dvorak", "key": "ordinary",
-    })
+    safe = _redact(
+        {
+            "apiKey": "raw-api",
+            "publishable-key": "raw-pub",
+            "private_key": "raw-private",
+            "access.key": "raw-access",
+            "signing key": "raw-signing",
+            "keyboardLayout": "dvorak",
+            "key": "ordinary",
+        }
+    )
     assert safe["keyboardLayout"] == "dvorak" and safe["key"] == "ordinary"
-    assert not any(raw in json.dumps(safe) for raw in ["raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing"])
+    assert not any(
+        raw in json.dumps(safe)
+        for raw in ["raw-api", "raw-pub", "raw-private", "raw-access", "raw-signing"]
+    )
 
 
 class FakeResponse:
@@ -40,12 +49,14 @@ def test_capture_uses_side_files_and_redacts_before_persistence():
             handle.write("{}")
         prior = urllib.request.urlopen
         urllib.request.urlopen = lambda *_a, **_k: FakeResponse()
-        os.environ.update({
-            "REPROIT_NETWORK_FILE": network,
-            "REPROIT_ACTION_FILE": action,
-            "REPROIT_CAPABILITIES_FILE": capabilities,
-            "REPROIT_DEVICE": "b",
-        })
+        os.environ.update(
+            {
+                "REPROIT_NETWORK_FILE": network,
+                "REPROIT_ACTION_FILE": action,
+                "REPROIT_CAPABILITIES_FILE": capabilities,
+                "REPROIT_DEVICE": "b",
+            }
+        )
         restore = install_causal_urllib()
         try:
             request = urllib.request.Request(
@@ -65,5 +76,10 @@ def test_capture_uses_side_files_and_redacts_before_persistence():
         finally:
             restore()
             urllib.request.urlopen = prior
-            for key in ["REPROIT_NETWORK_FILE", "REPROIT_ACTION_FILE", "REPROIT_CAPABILITIES_FILE", "REPROIT_DEVICE"]:
+            for key in [
+                "REPROIT_NETWORK_FILE",
+                "REPROIT_ACTION_FILE",
+                "REPROIT_CAPABILITIES_FILE",
+                "REPROIT_DEVICE",
+            ]:
                 os.environ.pop(key, None)

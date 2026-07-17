@@ -54,6 +54,22 @@ pub(crate) fn repros_dir(root: &Path) -> PathBuf {
     reproit_dir(root).join("repros")
 }
 
+pub(crate) fn findings_dir(root: &Path) -> PathBuf {
+    reproit_dir(root).join("findings")
+}
+
+pub(crate) fn finding_dir(root: &Path, id: &str) -> PathBuf {
+    findings_dir(root).join(id)
+}
+
+pub(crate) fn tools_dir(root: &Path) -> PathBuf {
+    reproit_dir(root).join("tools")
+}
+
+pub(crate) fn tool_dir(root: &Path, name: &str) -> PathBuf {
+    tools_dir(root).join(name)
+}
+
 pub(crate) fn capsules_dir(root: &Path) -> PathBuf {
     reproit_dir(root).join("capsules")
 }
@@ -121,6 +137,14 @@ mod tests {
             PathBuf::from("/project/.reproit/recordings/repro/abc123/video.webm")
         );
         assert_eq!(repros_dir(root), PathBuf::from("/project/.reproit/repros"));
+        assert_eq!(
+            finding_dir(root, "abc123"),
+            PathBuf::from("/project/.reproit/findings/abc123")
+        );
+        assert_eq!(
+            tool_dir(root, "grpcurl-1.9.3"),
+            PathBuf::from("/project/.reproit/tools/grpcurl-1.9.3")
+        );
         assert_eq!(
             capsules_dir(root),
             PathBuf::from("/project/.reproit/capsules")

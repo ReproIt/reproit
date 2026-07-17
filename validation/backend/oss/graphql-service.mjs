@@ -16,15 +16,18 @@ const schema = buildSchema(`
   }
 `);
 const rootValue = {
-  node: ({ kind }) => kind === 'user'
-    ? { __typename: 'User', id: 'u1', name: 'Ada', nickname: null }
-    : { __typename: 'Service', id: 's1', endpoint: 'https://example.test' },
+  node: ({ kind }) =>
+    kind === 'user'
+      ? { __typename: 'User', id: 'u1', name: 'Ada', nickname: null }
+      : { __typename: 'Service', id: 's1', endpoint: 'https://example.test' },
   search: () => [
     { __typename: 'User', id: 'u1', name: 'Ada', nickname: null },
     { __typename: 'Service', id: 's1', endpoint: 'https://example.test' },
   ],
   nullableNode: () => null,
-  explode: () => { throw new Error('intentional dogfood resolver error'); },
+  explode: () => {
+    throw new Error('intentional dogfood resolver error');
+  },
 };
 const server = createServer(async (request, response) => {
   if (request.method !== 'POST' || request.url !== '/graphql') {

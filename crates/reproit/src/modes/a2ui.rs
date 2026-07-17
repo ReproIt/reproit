@@ -1,4 +1,6 @@
-use crate::{config, repro, Ctx, Exit};
+use crate::cli::context::{Ctx, Exit};
+use crate::model::repro;
+use crate::{config, layout};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -152,7 +154,7 @@ fn persist_findings(root: &Path, target: &Path, seed: u64, report: &mut Value) -
             .cloned()
             .or_else(|| original_messages.clone())
             .context("A2UI finding has no reproducible message stream")?;
-        let directory = root.join(".reproit/findings").join(&raw_id);
+        let directory = layout::finding_dir(root, &raw_id);
         std::fs::create_dir_all(&directory)?;
         let artifact = json!({
             "format": "reproit-a2ui-finding",
@@ -168,14 +170,42 @@ fn persist_findings(root: &Path, target: &Path, seed: u64, report: &mut Value) -
         )?;
         std::fs::write(
             directory.join("fuzz.md"),
-            format!(
-                "# A2UI finding (seed {seed})\n\n<!-- finding-id: {raw_id} -->\n\n## confirmed repro (0 actions)\n\n```\n```\n\nReplay: `reproit {public_id}`\n"
-            ),
+            reproduction_markdown(finding, seed, &raw_id, &public_id),
         )?;
         public_ids.push(Value::String(public_id));
     }
     report["findingIds"] = Value::Array(public_ids);
     Ok(())
+}
+
+fn reproduction_markdown(finding: &Value, seed: u64, raw_id: &str, public_id: &str) -> String {
+    let actions = finding
+        .get("reproductionActions")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let steps = actions
+        .iter()
+        .filter_map(|action| {
+            let kind = action.get("kind")?.as_str()?;
+            let component = action.get("componentId")?.as_str()?;
+            match kind {
+                "fill" => Some(format!(
+                    "fill {component} with {}",
+                    action.get("value").and_then(Value::as_str).unwrap_or("")
+                )),
+                "activate" => Some(format!("activate {component}")),
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+    let body = steps.join("\n");
+    format!(
+        "# A2UI finding (seed {seed})\n\n<!-- finding-id: {raw_id} -->\n\n## confirmed repro ({} \
+         actions)\n\n```\n{}\n```\n\nReplay: `reproit {public_id}`\n",
+        steps.len(),
+        body
+    )
 }
 
 fn emit_report(ctx: &Ctx, command: &str, report: &Value) {
@@ -271,10 +301,7 @@ pub fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
 fn find_artifact(raw_id: &str) -> Result<Option<(PathBuf, PathBuf)>> {
     let cwd = std::env::current_dir()?;
     for root in cwd.ancestors() {
-        let artifact = root
-            .join(".reproit/findings")
-            .join(raw_id)
-            .join("a2ui.json");
+        let artifact = layout::finding_dir(root, raw_id).join("a2ui.json");
         if artifact.is_file() {
             return Ok(Some((root.to_path_buf(), artifact)));
         }
@@ -291,9 +318,19 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("reproit-a2ui-detect-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for (name, text) in [
-            ("array.json", r#"[{"version":"v0.9","createSurface":{"surfaceId":"x"}}]"#),
-            ("object.json", r#"{"messages":[{"version":"v0.9","deleteSurface":{"surfaceId":"x"}}]}"#),
-            ("stream.jsonl", "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"x\"}}\n{\"version\":\"v0.9\",\"deleteSurface\":{\"surfaceId\":\"x\"}}\n"),
+            (
+                "array.json",
+                r#"[{"version":"v0.9","createSurface":{"surfaceId":"x"}}]"#,
+            ),
+            (
+                "object.json",
+                r#"{"messages":[{"version":"v0.9","deleteSurface":{"surfaceId":"x"}}]}"#,
+            ),
+            (
+                "stream.jsonl",
+                "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"x\"}}\n{\"version\":\"\
+                 v0.9\",\"deleteSurface\":{\"surfaceId\":\"x\"}}\n",
+            ),
         ] {
             let path = dir.join(name);
             std::fs::write(&path, text).unwrap();
@@ -346,5 +383,20 @@ mod tests {
             assert!(!looks_like_target(&path), "{name}");
         }
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn writes_behavioral_actions_into_the_saved_reproduction() {
+        let finding = json!({
+            "reproductionActions": [
+                {"kind": "fill", "componentId": "email", "value": "reproit+fixed@example.test"},
+                {"kind": "activate", "componentId": "submit"}
+            ]
+        });
+        let markdown = reproduction_markdown(&finding, 7, "raw", "fnd_public");
+        assert!(markdown.contains("confirmed repro (2 actions)"));
+        assert!(markdown.contains("fill email with reproit+fixed@example.test"));
+        assert!(markdown.contains("activate submit"));
+        assert!(markdown.contains("reproit fnd_public"));
     }
 }

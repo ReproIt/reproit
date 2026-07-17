@@ -104,7 +104,9 @@ function firstDiff(a, b, path = '') {
 
 const [platform, liveArg] = process.argv.slice(2);
 if (!platform || !liveArg) fail('usage: canonicalize-diff.mjs <platform> <liveMarkerFile|->');
-if (!PLATFORMS.includes(platform)) fail(`unknown platform "${platform}" (expected one of ${PLATFORMS.join(', ')})`);
+if (!PLATFORMS.includes(platform)) {
+  fail(`unknown platform "${platform}" (expected one of ${PLATFORMS.join(', ')})`);
+}
 
 const goldenPath = join(HERE, `${platform}.json`);
 let goldenText;
@@ -140,8 +142,10 @@ function normalize(platformId, gt) {
   };
 }
 
-const golden = canonicalize(normalize(platform, extractGroundtruth(goldenText, `golden:${platform}`)), true);
-const live = canonicalize(normalize(platform, extractGroundtruth(liveText, `live:${platform}`)), true);
+const goldenGroundtruth = extractGroundtruth(goldenText, `golden:${platform}`);
+const liveGroundtruth = extractGroundtruth(liveText, `live:${platform}`);
+const golden = canonicalize(normalize(platform, goldenGroundtruth), true);
+const live = canonicalize(normalize(platform, liveGroundtruth), true);
 
 const diff = firstDiff(golden, live);
 if (!diff) {
@@ -154,5 +158,8 @@ console.error(
     `golden=${JSON.stringify(diff.golden)} live=${JSON.stringify(diff.live)}`,
 );
 console.error(`  golden: ${goldenPath}`);
-console.error('  Re-capture the agent, confirm the contract still holds, then update the golden + the engine test assertions.');
+console.error(
+  '  Re-capture the agent, confirm the contract still holds, then update the ' +
+    'golden + the engine test assertions.',
+);
 process.exit(1);

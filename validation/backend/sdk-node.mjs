@@ -8,18 +8,33 @@ import { createHash } from 'node:crypto';
 let sequence = 0;
 
 const SECRET_NAMES = [
-  'password', 'passwd', 'secret', 'token', 'authorization', 'cookie', 'email', 'phone',
-  'apikey', 'publishablekey', 'privatekey', 'accesskey', 'signingkey', 'idempotencykey',
+  'password',
+  'passwd',
+  'secret',
+  'token',
+  'authorization',
+  'cookie',
+  'email',
+  'phone',
+  'apikey',
+  'publishablekey',
+  'privatekey',
+  'accesskey',
+  'signingkey',
+  'idempotencykey',
 ];
 const secretField = (name) => {
-  const canonical = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const canonical = String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
   return SECRET_NAMES.some((part) => canonical.includes(part));
 };
 
 function redactedMetadata(value) {
   let type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
   if (type === 'object') type = 'object';
-  const length = type === 'string' ? [...value].length : type === 'array' ? value.length : undefined;
+  const length =
+    type === 'string' ? [...value].length : type === 'array' ? value.length : undefined;
   return { $reproit: { redacted: true, type, ...(length == null ? {} : { length }) } };
 }
 
@@ -28,9 +43,7 @@ function redact(value) {
   if (!value || typeof value !== 'object') return value;
   const out = {};
   for (const [key, child] of Object.entries(value)) {
-    out[key] = secretField(key)
-      ? redactedMetadata(child)
-      : redact(child);
+    out[key] = secretField(key) ? redactedMetadata(child) : redact(child);
   }
   return out;
 }
@@ -48,22 +61,29 @@ function identity(value) {
 
 function normalizeSelections(value) {
   if (!Array.isArray(value)) return [];
-  const path = /^[A-Za-z_][A-Za-z0-9_]*(?:\[\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)*$/;
+  const path = new RegExp(
+    '^[A-Za-z_][A-Za-z0-9_]*(?:\\[\\])?(?:\\.[A-Za-z_][A-Za-z0-9_]*(?:\\[\\])?)' + '*$',
+    '',
+  );
   return value.slice(0, 256).flatMap((selection) => {
     const schemaPath = String(selection?.schemaPath || '');
     const responsePath = String(selection?.responsePath || '');
     const typeCondition = selection?.typeCondition == null ? '' : String(selection.typeCondition);
-    return path.test(schemaPath) && path.test(responsePath)
-      && (!typeCondition || /^[A-Za-z_][A-Za-z0-9_]*$/.test(typeCondition))
+    return path.test(schemaPath) &&
+      path.test(responsePath) &&
+      (!typeCondition || /^[A-Za-z_][A-Za-z0-9_]*$/.test(typeCondition))
       ? [{ schemaPath, responsePath, ...(typeCondition ? { typeCondition } : {}) }]
       : [];
   });
 }
 
 export function backendHttpInput({ body, path = {}, query = {}, headers = {} } = {}) {
-  const sorted = (value, lower = false) => Object.fromEntries(Object.entries(value || {})
-    .map(([key, child]) => [lower ? key.toLowerCase() : key, child])
-    .sort(([a], [b]) => a.localeCompare(b)));
+  const sorted = (value, lower = false) =>
+    Object.fromEntries(
+      Object.entries(value || {})
+        .map(([key, child]) => [lower ? key.toLowerCase() : key, child])
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
   return {
     ...(body === undefined ? {} : { body }),
     ...(Object.keys(path).length ? { path: sorted(path) } : {}),
@@ -95,7 +115,9 @@ export function beginBackendTrace(requestHeaders, options) {
     ...(options.idempotencyKey ? { idempotencyKey: identity(options.idempotencyKey) } : {}),
     ...(selections.length ? { selections } : {}),
   };
-  const events = [{ sequence: ++sequence, ...common, kind: 'start', input: redact(options.input ?? null) }];
+  const events = [
+    { sequence: ++sequence, ...common, kind: 'start', input: redact(options.input ?? null) },
+  ];
   let returned = false;
   return {
     effect(effect, detail = {}) {

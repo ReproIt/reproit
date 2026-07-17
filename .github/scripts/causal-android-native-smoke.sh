@@ -18,7 +18,12 @@ trap cleanup EXIT
 python3 -c 'from http.server import BaseHTTPRequestHandler,HTTPServer
 class H(BaseHTTPRequestHandler):
  def do_GET(self):
-  b=b"{\"ok\":true,\"token\":\"native-secret\"}"; self.send_response(200); self.send_header("content-type","application/json"); self.send_header("content-length",str(len(b))); self.end_headers(); self.wfile.write(b)
+  b=b"{\"ok\":true,\"token\":\"native-secret\"}"
+  self.send_response(200)
+  self.send_header("content-type","application/json")
+  self.send_header("content-length",str(len(b)))
+  self.end_headers()
+  self.wfile.write(b)
  def log_message(self,*a): pass
 HTTPServer(("0.0.0.0",18765),H).serve_forever()' &
 SERVER_PID=$!
@@ -44,7 +49,15 @@ kill "$SERVER_PID"
 wait "$SERVER_PID" 2>/dev/null || true
 SERVER_PID=""
 cat >"$CAPSULE" <<'JSON'
-{"exchanges":[{"id":"a-0-0","actor":"a","actionIndex":0,"ordinal":0,"protocol":"http","method":"GET","url":"http://10.0.2.2:18765/bootstrap","requestHeaders":{},"status":200,"responseHeaders":{"content-type":"application/json"},"responseBody":{"ok":true,"source":"capsule"},"required":true}]}
+{
+  "exchanges": [{
+    "id": "a-0-0", "actor": "a", "actionIndex": 0, "ordinal": 0,
+    "protocol": "http", "method": "GET",
+    "url": "http://10.0.2.2:18765/bootstrap", "requestHeaders": {},
+    "status": 200, "responseHeaders": {"content-type": "application/json"},
+    "responseBody": {"ok": true, "source": "capsule"}, "required": true
+  }]
+}
 JSON
 "$ADB" push "$CAPSULE" /data/local/tmp/reproit-capsule.json >/dev/null
 "$ADB" shell chmod 0644 /data/local/tmp/reproit-capsule.json

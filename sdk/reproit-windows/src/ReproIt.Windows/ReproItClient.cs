@@ -42,8 +42,8 @@ namespace ReproIt.Windows
     {
         private static Engine _engine;
         private static ReproItConfig _cfg;
-        private static object _root;            // the attached Window / root element
-        private static string _anchor;          // developer-supplied screen anchor
+        private static object _root;   // the attached Window / root element
+        private static string _anchor; // developer-supplied screen anchor
         private static bool _firstObserved;
         private static Timer _debounceTimer;
         private static Timer _flushTimer;
@@ -68,15 +68,13 @@ namespace ReproIt.Windows
                 }
                 _cfg = config;
                 _engine = new Engine(
-                    cfg: config,
-                    now: () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    cfg: config, now: () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     transport: body => Post(config, body),
                     log: msg => System.Diagnostics.Debug.WriteLine("reproit " + msg));
 
                 // Tier-1 auto dimensions: zero-PII, high-signal for "works for me but
                 // not for them" bugs. Mirrors the other SDKs' init-time dimensions.
-                _engine.SetContexts(new Dictionary<string, object>
-                {
+                _engine.SetContexts(new Dictionary<string, object> {
                     { "platform", "winui" },
                     { "os", Environment.OSVersion.Version.ToString() },
                     { "locale", CultureInfo.CurrentUICulture.Name },
@@ -84,7 +82,8 @@ namespace ReproIt.Windows
                 });
 
                 InstallCrashHandlers();
-                _flushTimer = new Timer(_ => Flush(), null, config.FlushMs, config.FlushMs);
+                _flushTimer = new Timer(
+                    _ => Flush(), null, config.FlushMs, config.FlushMs);
             }
         }
 
@@ -154,7 +153,8 @@ namespace ReproIt.Windows
 
         // ---- developer annotation helpers (attached marks) ----------------------
 
-        /// <summary>Tag an element with a stable structural id (overrides AutomationId / x:Name).</summary>
+        /// <summary>Tag an element with a stable structural id (overrides AutomationId /
+        /// x:Name).</summary>
         public static void TagId(object element, string id)
         {
             Capture.MarksFor(element, true).Id = id;
@@ -166,7 +166,8 @@ namespace ReproIt.Windows
             Capture.MarksFor(element, true).Icon = icon;
         }
 
-        /// <summary>Mark an element (and its subtree) transient so it is dropped from the hash.</summary>
+        /// <summary>Mark an element (and its subtree) transient so it is dropped from the
+        /// hash.</summary>
         public static void TagTransient(object element)
         {
             Capture.MarksFor(element, true).Transient = true;
@@ -188,6 +189,15 @@ namespace ReproIt.Windows
         public static void Flush()
         {
             _engine?.Flush();
+        }
+
+        /// <summary>Capture the current structural state as a tester-observed bug.</summary>
+        public static bool CaptureBug()
+        {
+            var captured = _engine?.CaptureBug() != null;
+            if (captured)
+                _engine.Flush();
+            return captured;
         }
 
         /// <summary>Create an HttpClient that automatically participates in a
@@ -229,7 +239,8 @@ namespace ReproIt.Windows
             lock (_gate)
             {
                 _debounceTimer?.Dispose();
-                _debounceTimer = new Timer(_ => RunOnUi(TakeSnapshot), null, cfg.DebounceMs, Timeout.Infinite);
+                _debounceTimer = new Timer(
+                    _ => RunOnUi(TakeSnapshot), null, cfg.DebounceMs, Timeout.Infinite);
             }
         }
 
@@ -303,7 +314,8 @@ namespace ReproIt.Windows
                 // Best-effort target: the event source's structural selector plus
                 // accessible name. Full hit-testing differs per stack; unresolved
                 // sources become tap:? rather than a non-replayable label action.
-                object source = GetProperty(args, "OriginalSource") ?? GetProperty(args, "Source") ?? sender;
+                object source =
+                    GetProperty(args, "OriginalSource") ?? GetProperty(args, "Source") ?? sender;
                 string label = source != null ? Capture.NameOf(source) : null;
                 string clean = _engine?.CleanLabel(label);
                 string selector = source != null ? Capture.SelectorOf(source) : null;
@@ -318,7 +330,8 @@ namespace ReproIt.Windows
         /// <summary>Subscribe a (object,object) handler to an event by name via
         /// reflection, adapting it to whatever delegate the event declares. Silently
         /// no-ops if the event does not exist on this framework/element.</summary>
-        private static void HookEvent(object target, string eventName, Action<object, object> handler)
+        private static void HookEvent(object target, string eventName,
+                                      Action<object, object> handler)
         {
             if (target == null)
             {
@@ -326,7 +339,8 @@ namespace ReproIt.Windows
             }
             try
             {
-                EventInfo ev = target.GetType().GetEvent(eventName, BindingFlags.Public | BindingFlags.Instance);
+                EventInfo ev = target.GetType().GetEvent(eventName, BindingFlags.Public |
+                                                                        BindingFlags.Instance);
                 if (ev == null)
                 {
                     return;
@@ -344,7 +358,8 @@ namespace ReproIt.Windows
             }
         }
 
-        private static Delegate BuildForwarder(Type handlerType, int paramCount, Action<object, object> handler)
+        private static Delegate BuildForwarder(Type handlerType, int paramCount,
+                                               Action<object, object> handler)
         {
             // Most XAML events are (object sender, TArgs e). We create a matching
             // delegate through a small closure forwarder. For the common 2-arg shape
@@ -356,7 +371,8 @@ namespace ReproIt.Windows
             // is (object, object); the runtime will adapt T (a reference type) to
             // object for delegate creation when T is a reference type. XAML event arg
             // types are reference types, so this binds for the standard shape.
-            MethodInfo handle = typeof(Forwarder).GetMethod(nameof(Forwarder.Handle), BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo handle = typeof(Forwarder).GetMethod(
+                nameof(Forwarder.Handle), BindingFlags.Public | BindingFlags.Instance);
             try
             {
                 return Delegate.CreateDelegate(handlerType, fwd, handle);
@@ -365,7 +381,8 @@ namespace ReproIt.Windows
             {
                 // If the exact arg type is not object-assignable for delegate binding,
                 // fall back to a parameterless adapter where the event allows it.
-                MethodInfo handle0 = typeof(Forwarder).GetMethod(nameof(Forwarder.Handle0), BindingFlags.Public | BindingFlags.Instance);
+                MethodInfo handle0 = typeof(Forwarder).GetMethod(
+                    nameof(Forwarder.Handle0), BindingFlags.Public | BindingFlags.Instance);
                 return Delegate.CreateDelegate(handlerType, fwd, handle0);
             }
         }
@@ -395,7 +412,8 @@ namespace ReproIt.Windows
         private static void RunOnUi(Action action)
         {
             object root = _root;
-            object dispatcher = GetProperty(root, "Dispatcher") ?? GetProperty(RootContent(), "Dispatcher");
+            object dispatcher =
+                GetProperty(root, "Dispatcher") ?? GetProperty(RootContent(), "Dispatcher");
             if (dispatcher == null)
             {
                 action();
@@ -404,8 +422,10 @@ namespace ReproIt.Windows
             try
             {
                 // WPF: Dispatcher.BeginInvoke(Action). WinUI: DispatcherQueue.TryEnqueue.
-                MethodInfo begin = dispatcher.GetType().GetMethod("BeginInvoke", new[] { typeof(Delegate), typeof(object[]) })
-                                   ?? dispatcher.GetType().GetMethod("BeginInvoke", new[] { typeof(Action) });
+                MethodInfo begin =
+                    dispatcher.GetType().GetMethod("BeginInvoke",
+                                                   new[] { typeof(Delegate), typeof(object[]) }) ??
+                    dispatcher.GetType().GetMethod("BeginInvoke", new[] { typeof(Action) });
                 if (begin != null)
                 {
                     if (begin.GetParameters().Length == 2)
@@ -418,7 +438,8 @@ namespace ReproIt.Windows
                     }
                     return;
                 }
-                MethodInfo tryEnqueue = dispatcher.GetType().GetMethod("TryEnqueue", new[] { typeof(Action) });
+                MethodInfo tryEnqueue =
+                    dispatcher.GetType().GetMethod("TryEnqueue", new[] { typeof(Action) });
                 if (tryEnqueue != null)
                 {
                     tryEnqueue.Invoke(dispatcher, new object[] { action });
@@ -444,7 +465,8 @@ namespace ReproIt.Windows
                 _engine?.Flush(); // synchronous best-effort flush before the process dies
             };
 
-            // 2. The XAML DispatcherUnhandledException (WPF Application.DispatcherUnhandledException
+            // 2. The XAML DispatcherUnhandledException (WPF
+            // Application.DispatcherUnhandledException
             //    or WinUI Application.UnhandledException), wired reflectively against the
             //    current Application instance so we do not hard-link either framework.
             try
@@ -463,9 +485,7 @@ namespace ReproIt.Windows
 
             // 3. Unobserved task exceptions, so async faults are captured too.
             System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (sender, e) =>
-            {
-                RecordCrash(e.Exception, "UnobservedTaskException");
-            };
+            { RecordCrash(e.Exception, "UnobservedTaskException"); };
         }
 
         private static void OnDispatcherUnhandled(object sender, object args)
@@ -487,12 +507,8 @@ namespace ReproIt.Windows
                 }
                 var stack = SplitStack(ex);
                 string top = stack.Count > 0 ? stack[0] : string.Empty;
-                _engine?.RecordError(
-                    message: ex.GetType().Name + ": " + ex.Message,
-                    stack: stack,
-                    source: top,
-                    line: 0,
-                    context: null);
+                _engine?.RecordError(message: ex.GetType().Name + ": " + ex.Message, stack: stack,
+                                     source: top, line: 0, context: null);
             }
             catch
             {
@@ -521,9 +537,9 @@ namespace ReproIt.Windows
 
         private static object CurrentApplication()
         {
-            // WPF: System.Windows.Application.Current. WinUI: Microsoft.UI.Xaml.Application.Current.
-            string[] candidates =
-            {
+            // WPF: System.Windows.Application.Current. WinUI:
+            // Microsoft.UI.Xaml.Application.Current.
+            string[] candidates = {
                 "System.Windows.Application, PresentationFramework",
                 "Microsoft.UI.Xaml.Application, Microsoft.WinUI",
             };
@@ -532,7 +548,8 @@ namespace ReproIt.Windows
                 try
                 {
                     Type t = Type.GetType(name, false);
-                    PropertyInfo cur = t?.GetProperty("Current", BindingFlags.Public | BindingFlags.Static);
+                    PropertyInfo cur =
+                        t?.GetProperty("Current", BindingFlags.Public | BindingFlags.Static);
                     object app = cur?.GetValue(null);
                     if (app != null)
                     {
@@ -549,9 +566,11 @@ namespace ReproIt.Windows
             {
                 try
                 {
-                    Type t = asm.GetType("System.Windows.Application", false)
-                             ?? asm.GetType("Microsoft.UI.Xaml.Application", false);
-                    object app = t?.GetProperty("Current", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+                    Type t = asm.GetType("System.Windows.Application", false) ??
+                             asm.GetType("Microsoft.UI.Xaml.Application", false);
+                    object app =
+                        t?.GetProperty("Current", BindingFlags.Public | BindingFlags.Static)
+                            ?.GetValue(null);
                     if (app != null)
                     {
                         return app;
@@ -575,7 +594,8 @@ namespace ReproIt.Windows
             }
             try
             {
-                var req = new HttpRequestMessage(HttpMethod.Post, config.Endpoint.TrimEnd('/') + "/v1/events");
+                var req = new HttpRequestMessage(HttpMethod.Post,
+                                                 config.Endpoint.TrimEnd('/') + "/v1/events");
                 req.Content = new StringContent(body, Encoding.UTF8, "application/json");
                 if (!string.IsNullOrEmpty(config.ApiKey))
                 {
@@ -602,7 +622,8 @@ namespace ReproIt.Windows
             }
             try
             {
-                PropertyInfo pi = o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo pi =
+                    o.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
                 return pi != null && pi.CanRead ? pi.GetValue(o) : null;
             }
             catch

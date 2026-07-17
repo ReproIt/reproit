@@ -3,27 +3,27 @@
 //! can actually do) minus graph 2 (the accessibility/keyboard-operable subset)
 //! = the operability gaps already recorded per screen in the app map. This
 //! module reads those gaps and renders them as a focused, GROUNDED report (WCAG
-//! 2.1.1 / 4.1.2 + focus traps): for humans (`reproit debug map accessibility`) and
-//! for agents (the `reproit_accessibility` MCP tool, via `--json`).
+//! 2.1.1 / 4.1.2 + focus traps): for humans (`reproit debug map accessibility`)
+//! and for agents (the `reproit_accessibility` MCP tool, via `--json`).
 //!
 //! No analysis happens here. The diff is computed deterministically by the
 //! engine when the map is built (`map::gaps_from_groundtruth`; see
 //! docs/operability-graph.md). This is a pure view that CLOSES THE LOOP for a
-//! fixer: each gap carries the selector that failed and which dimension(s), plus
-//! a static source location (file:line, via `attribute`) to fix it and the
+//! fixer: each gap carries the selector that failed and which dimension(s),
+//! plus a static source location (file:line, via `attribute`) to fix it and the
 //! action path to reach its screen. find -> locate -> fix -> reproit_check.
 
-use crate::appmap::{Action, AppMap};
-use crate::attribute;
-use crate::Ctx;
+use crate::cli::context::Ctx;
+use crate::model::appmap::{Action, AppMap};
+use crate::model::attribute;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
 /// Render the accessibility diff. `root` (when known) is the project root we
 /// attribute selectors into for file:line; `state` filters to one screen
-/// (signature id or human name); `kind` filters to one dimension (`pointer_only`
-/// | `keyboard_unreachable` | `no_role` | `focus_trap`).
+/// (signature id or human name); `kind` filters to one dimension
+/// (`pointer_only` | `keyboard_unreachable` | `no_role` | `focus_trap`).
 pub(crate) fn report(
     map: &AppMap,
     root: Option<&Path>,
@@ -195,12 +195,13 @@ pub(crate) fn report(
         }
     }
     ctx.say(format!(
-        "\n  totals: pointer_only={t_po} keyboard_unreachable={t_ku} no_role={t_nr} focus_traps={t_ft}"
+        "\n  totals: pointer_only={t_po} keyboard_unreachable={t_ku} no_role={t_nr} \
+         focus_traps={t_ft}"
     ));
 }
 
-/// The set of gaps in a map as `(state, selector, kind)` tuples, for diffing two
-/// builds. A screen-level focus trap is keyed with an empty selector.
+/// The set of gaps in a map as `(state, selector, kind)` tuples, for diffing
+/// two builds. A screen-level focus trap is keyed with an empty selector.
 fn gap_set(map: &AppMap) -> BTreeSet<(String, String, String)> {
     let mut s = BTreeSet::new();
     for (sig, st) in &map.states {
@@ -217,9 +218,9 @@ fn gap_set(map: &AppMap) -> BTreeSet<(String, String, String)> {
 }
 
 /// Compare a `baseline` map against the `current` one and report the gaps that
-/// are NEW (a regression) and the ones resolved. Returns true if any new gap was
-/// introduced, so a caller can fail CI. This is the build-vs-build gate: same
-/// engine, two maps.
+/// are NEW (a regression) and the ones resolved. Returns true if any new gap
+/// was introduced, so a caller can fail CI. This is the build-vs-build gate:
+/// same engine, two maps.
 pub(crate) fn regression(baseline: &AppMap, current: &AppMap, ctx: &Ctx) -> bool {
     let base = gap_set(baseline);
     let cur = gap_set(current);
@@ -277,8 +278,8 @@ fn wcag_label(kind: &str) -> &'static str {
     }
 }
 
-/// Render the diff as an exportable, WCAG-cited Markdown report. `screens` is the
-/// per-screen JSON built in `report`.
+/// Render the diff as an exportable, WCAG-cited Markdown report. `screens` is
+/// the per-screen JSON built in `report`.
 fn markdown_report(
     app: &str,
     screens: &[serde_json::Value],
@@ -291,9 +292,8 @@ fn markdown_report(
     let mut out = String::new();
     out.push_str(&format!("# Accessibility report: {app}\n\n"));
     out.push_str(
-        "Controls a pointer user can operate but the keyboard or assistive tech cannot, \
-         found by driving the app and comparing the two (deterministic; see \
-         docs/operability-graph.md).\n\n",
+        "Controls a pointer user can operate but the keyboard or assistive tech cannot, found by \
+         driving the app and comparing the two (deterministic; see docs/operability-graph.md).\n\n",
     );
     out.push_str("## Summary\n\n");
     out.push_str("| Issue | WCAG | Count |\n| --- | --- | --- |\n");
@@ -447,7 +447,10 @@ mod tests {
                     "description": "d",
                     "signature": { "screenshot_phash": null, "semantics_hash": "h", "route": null },
                     "operability_gaps": {
-                        "pointer_only": 1, "keyboard_unreachable": 0, "no_role": 0, "focus_trap": false,
+                        "pointer_only": 1,
+                        "keyboard_unreachable": 0,
+                        "no_role": 0,
+                        "focus_trap": false,
                         "items": [{ "selector": sel, "kinds": ["pointer_only"] }]
                     }
                 }},

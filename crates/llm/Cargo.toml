@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
-description = "Provider-agnostic LLM seam: hot-swappable backends (codex-cli, claude-cli, claude-api, openai-api)"
+description = "Provider-agnostic LLM interface with interchangeable backends"
 
 [dependencies]
 anyhow = { workspace = true }

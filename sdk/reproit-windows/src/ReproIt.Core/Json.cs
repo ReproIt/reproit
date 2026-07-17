@@ -35,42 +35,42 @@ namespace ReproIt.Core
         {
             switch (value)
             {
-                case null:
-                    sb.Append("null");
-                    break;
-                case string s:
-                    WriteString(sb, s);
-                    break;
-                case bool b:
-                    sb.Append(b ? "true" : "false");
-                    break;
-                case int i:
-                    sb.Append(i.ToString(CultureInfo.InvariantCulture));
-                    break;
-                case long l:
-                    sb.Append(l.ToString(CultureInfo.InvariantCulture));
-                    break;
-                case double d:
-                    // Emit integral doubles without a trailing ".0" so timestamps and
-                    // counts read as plain integers, matching the other SDKs.
-                    if (d == Math.Floor(d) && !double.IsInfinity(d))
-                    {
-                        sb.Append(((long)d).ToString(CultureInfo.InvariantCulture));
-                    }
-                    else
-                    {
-                        sb.Append(d.ToString("R", CultureInfo.InvariantCulture));
-                    }
-                    break;
-                case IDictionary<string, object> map:
-                    WriteMap(sb, map);
-                    break;
-                case IEnumerable seq:
-                    WriteArray(sb, seq);
-                    break;
-                default:
-                    WriteString(sb, value.ToString());
-                    break;
+            case null:
+                sb.Append("null");
+                break;
+            case string s:
+                WriteString(sb, s);
+                break;
+            case bool b:
+                sb.Append(b ? "true" : "false");
+                break;
+            case int i:
+                sb.Append(i.ToString(CultureInfo.InvariantCulture));
+                break;
+            case long l:
+                sb.Append(l.ToString(CultureInfo.InvariantCulture));
+                break;
+            case double d:
+                // Emit integral doubles without a trailing ".0" so timestamps and
+                // counts read as plain integers, matching the other SDKs.
+                if (d == Math.Floor(d) && !double.IsInfinity(d))
+                {
+                    sb.Append(((long)d).ToString(CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    sb.Append(d.ToString("R", CultureInfo.InvariantCulture));
+                }
+                break;
+            case IDictionary<string, object> map:
+                WriteMap(sb, map);
+                break;
+            case IEnumerable seq:
+                WriteArray(sb, seq);
+                break;
+            default:
+                WriteString(sb, value.ToString());
+                break;
             }
         }
 
@@ -119,38 +119,38 @@ namespace ReproIt.Core
             {
                 switch (c)
                 {
-                    case '"':
-                        sb.Append("\\\"");
-                        break;
-                    case '\\':
-                        sb.Append("\\\\");
-                        break;
-                    case '\n':
-                        sb.Append("\\n");
-                        break;
-                    case '\r':
-                        sb.Append("\\r");
-                        break;
-                    case '\t':
-                        sb.Append("\\t");
-                        break;
-                    case '\b':
-                        sb.Append("\\b");
-                        break;
-                    case '\f':
-                        sb.Append("\\f");
-                        break;
-                    default:
-                        if (c < ' ')
-                        {
-                            sb.Append("\\u");
-                            sb.Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
-                        }
-                        else
-                        {
-                            sb.Append(c);
-                        }
-                        break;
+                case '"':
+                    sb.Append("\\\"");
+                    break;
+                case '\\':
+                    sb.Append("\\\\");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                case '\b':
+                    sb.Append("\\b");
+                    break;
+                case '\f':
+                    sb.Append("\\f");
+                    break;
+                default:
+                    if (c < ' ')
+                    {
+                        sb.Append("\\u");
+                        sb.Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        sb.Append(c);
+                    }
+                    break;
                 }
             }
             sb.Append('"');
@@ -217,19 +217,19 @@ namespace ReproIt.Core
                 char c = _s[Pos];
                 switch (c)
                 {
-                    case '{':
-                        return ParseObject();
-                    case '[':
-                        return ParseArray();
-                    case '"':
-                        return ParseString();
-                    case 't':
-                    case 'f':
-                        return ParseBool();
-                    case 'n':
-                        return ParseNull();
-                    default:
-                        return ParseNumber();
+                case '{':
+                    return ParseObject();
+                case '[':
+                    return ParseArray();
+                case '"':
+                    return ParseString();
+                case 't':
+                case 'f':
+                    return ParseBool();
+                case 'n':
+                    return ParseNull();
+                default:
+                    return ParseNumber();
                 }
             }
 
@@ -261,7 +261,8 @@ namespace ReproIt.Core
                     {
                         break;
                     }
-                    throw new FormatException("expected ',' or '}' but got '" + c + "' at " + (Pos - 1));
+                    throw new FormatException("expected ',' or '}' but got '" + c + "' at " +
+                                              (Pos - 1));
                 }
                 return outMap;
             }
@@ -289,7 +290,8 @@ namespace ReproIt.Core
                     {
                         break;
                     }
-                    throw new FormatException("expected ',' or ']' but got '" + c + "' at " + (Pos - 1));
+                    throw new FormatException("expected ',' or ']' but got '" + c + "' at " +
+                                              (Pos - 1));
                 }
                 return outList;
             }
@@ -310,37 +312,38 @@ namespace ReproIt.Core
                         char e = Next();
                         switch (e)
                         {
-                            case '"':
-                                sb.Append('"');
-                                break;
-                            case '\\':
-                                sb.Append('\\');
-                                break;
-                            case '/':
-                                sb.Append('/');
-                                break;
-                            case 'n':
-                                sb.Append('\n');
-                                break;
-                            case 'r':
-                                sb.Append('\r');
-                                break;
-                            case 't':
-                                sb.Append('\t');
-                                break;
-                            case 'b':
-                                sb.Append('\b');
-                                break;
-                            case 'f':
-                                sb.Append('\f');
-                                break;
-                            case 'u':
-                                string hex = _s.Substring(Pos, 4);
-                                Pos += 4;
-                                sb.Append((char)int.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture));
-                                break;
-                            default:
-                                throw new FormatException("bad escape '\\" + e + "' at " + (Pos - 1));
+                        case '"':
+                            sb.Append('"');
+                            break;
+                        case '\\':
+                            sb.Append('\\');
+                            break;
+                        case '/':
+                            sb.Append('/');
+                            break;
+                        case 'n':
+                            sb.Append('\n');
+                            break;
+                        case 'r':
+                            sb.Append('\r');
+                            break;
+                        case 't':
+                            sb.Append('\t');
+                            break;
+                        case 'b':
+                            sb.Append('\b');
+                            break;
+                        case 'f':
+                            sb.Append('\f');
+                            break;
+                        case 'u':
+                            string hex = _s.Substring(Pos, 4);
+                            Pos += 4;
+                            sb.Append((char)int.Parse(hex, NumberStyles.HexNumber,
+                                                      CultureInfo.InvariantCulture));
+                            break;
+                        default:
+                            throw new FormatException("bad escape '\\" + e + "' at " + (Pos - 1));
                         }
                     }
                     else

@@ -140,7 +140,8 @@ if [ -z "$tag" ]; then
     || die "REPROIT_VERSION is required with REPROIT_RELEASE_BASE"
   say "resolving the latest release..."
   api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
-    || die "could not reach the GitHub API to resolve the latest release (network problem or rate limit); retry, or pin a tag with REPROIT_VERSION=vX.Y.Z"
+    || die "could not reach the GitHub API to resolve the latest release "\
+"(network problem or rate limit); retry, or pin a tag with REPROIT_VERSION=vX.Y.Z"
   tag="$(printf '%s\n' "$api" \
     | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
   [ -n "$tag" ] || die "could not resolve the latest release tag from the GitHub API response"

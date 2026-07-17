@@ -42,7 +42,11 @@ type causalRoundTripper struct {
 func secretKey(key string) bool {
 	k := strings.ToLower(key)
 	k = strings.NewReplacer("-", "", "_", "", ".", "", " ", "").Replace(k)
-	for _, s := range []string{"password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone", "apikey", "publishablekey", "privatekey", "accesskey", "signingkey"} {
+	sensitiveKeys := []string{
+		"password", "passwd", "secret", "token", "authorization", "cookie", "email", "phone",
+		"apikey", "publishablekey", "privatekey", "accesskey", "signingkey",
+	}
+	for _, s := range sensitiveKeys {
 		if strings.Contains(k, s) {
 			return true
 		}
@@ -126,7 +130,10 @@ func (c *causalRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	c.ordinal++
 	if c.replay != nil {
 		for i, e := range c.replay {
-			if !c.used[i] && e.Required && e.Actor == c.actor && e.ActionIndex == action && strings.EqualFold(e.Method, req.Method) && canonicalGoURL(e.URL) == canonicalGoURL(req.URL.String()) {
+			matches := !c.used[i] && e.Required && e.Actor == c.actor &&
+				e.ActionIndex == action && strings.EqualFold(e.Method, req.Method) &&
+				canonicalGoURL(e.URL) == canonicalGoURL(req.URL.String())
+			if matches {
 				c.used[i] = true
 				body, _ := json.Marshal(e.ResponseBody)
 				if s, ok := e.ResponseBody.(string); ok {
@@ -136,7 +143,13 @@ func (c *causalRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 				for k, v := range e.ResponseHeaders {
 					h.Set(k, v)
 				}
-				return &http.Response{StatusCode: e.Status, Status: fmt.Sprintf("%d replay", e.Status), Header: h, Body: io.NopCloser(bytes.NewReader(body)), Request: req}, nil
+				return &http.Response{
+					StatusCode: e.Status,
+					Status:     fmt.Sprintf("%d replay", e.Status),
+					Header:     h,
+					Body:       io.NopCloser(bytes.NewReader(body)),
+					Request:    req,
+				}, nil
 			}
 		}
 		return nil, fmt.Errorf("CAPSULE:MISS %s %s action=%d", req.Method, req.URL, action)
@@ -163,12 +176,27 @@ func (c *causalRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
 	var responseBody interface{}
-	if strings.Contains(resp.Header.Get("content-type"), "json") && json.Unmarshal(raw, &responseBody) == nil {
+	isJSON := strings.Contains(resp.Header.Get("content-type"), "json")
+	if isJSON && json.Unmarshal(raw, &responseBody) == nil {
 		responseBody = redactGo(responseBody)
 	} else {
 		responseBody = fmt.Sprintf("<reproit:body:length=%d>", len(raw))
 	}
-	e := causalExchange{ID: fmt.Sprintf("%s-%d-%d", c.actor, action, ordinal), Actor: c.actor, ActionIndex: action, Ordinal: ordinal, Protocol: req.URL.Scheme, Method: req.Method, URL: canonicalGoURL(req.URL.String()), RequestHeaders: redactedHeaders(req.Header), RequestBody: requestBody, Status: resp.StatusCode, ResponseHeaders: redactedHeaders(resp.Header), ResponseBody: responseBody, Required: true}
+	e := causalExchange{
+		ID:              fmt.Sprintf("%s-%d-%d", c.actor, action, ordinal),
+		Actor:           c.actor,
+		ActionIndex:     action,
+		Ordinal:         ordinal,
+		Protocol:        req.URL.Scheme,
+		Method:          req.Method,
+		URL:             canonicalGoURL(req.URL.String()),
+		RequestHeaders:  redactedHeaders(req.Header),
+		RequestBody:     requestBody,
+		Status:          resp.StatusCode,
+		ResponseHeaders: redactedHeaders(resp.Header),
+		ResponseBody:    responseBody,
+		Required:        true,
+	}
 	if line, err := json.Marshal(e); err == nil {
 		if f, err := os.OpenFile(c.network, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); err == nil {
 			fmt.Fprintln(f, string(line))
@@ -195,7 +223,15 @@ func InstallCausalHTTP(excludePrefix string) func() {
 		}
 	}
 	prior := http.DefaultTransport
-	http.DefaultTransport = &causalRoundTripper{inner: prior, network: network, action: os.Getenv("REPROIT_ACTION_FILE"), actor: envOr("REPROIT_DEVICE", "a"), exclude: excludePrefix, replay: replay, used: map[int]bool{}}
+	http.DefaultTransport = &causalRoundTripper{
+		inner:   prior,
+		network: network,
+		action:  os.Getenv("REPROIT_ACTION_FILE"),
+		actor:   envOr("REPROIT_DEVICE", "a"),
+		exclude: excludePrefix,
+		replay:  replay,
+		used:    map[int]bool{},
+	}
 	mergeGoCapabilities(capsulePath != "")
 	return func() { http.DefaultTransport = prior }
 }
@@ -216,7 +252,10 @@ func mergeGoCapabilities(replay bool) {
 		json.Unmarshal(raw, &value)
 	}
 	value["http"] = map[string]string{"status": "captured", "detail": "Go http.DefaultTransport"}
-	value["http_replay"] = map[string]string{"status": "captured", "detail": "Go fail-closed RoundTripper"}
+	value["http_replay"] = map[string]string{
+		"status": "captured",
+		"detail": "Go fail-closed RoundTripper",
+	}
 	raw, _ := json.Marshal(value)
 	os.WriteFile(path, raw, 0600)
 }

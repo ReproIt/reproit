@@ -60,8 +60,7 @@ namespace ReproIt.ParityTests
             // signature_vectors.json lives at the repo root. The test runs with CWD
             // somewhere under sdk/reproit-windows/test/...; probe a few candidates so
             // it also works from the repo root.
-            string[] candidates =
-            {
+            string[] candidates = {
                 "signature_vectors.json",
                 "../../signature_vectors.json",
                 "../../../signature_vectors.json",
@@ -80,8 +79,8 @@ namespace ReproIt.ParityTests
             }
             if (path == null)
             {
-                throw new FileNotFoundException(
-                    "could not locate signature_vectors.json (cwd=" + Directory.GetCurrentDirectory() + ")");
+                throw new FileNotFoundException("could not locate signature_vectors.json (cwd=" +
+                                                Directory.GetCurrentDirectory() + ")");
             }
             var raw = File.ReadAllText(path);
             var list = (List<object>)Json.Decode(raw);
@@ -89,8 +88,7 @@ namespace ReproIt.ParityTests
             foreach (var item in list)
             {
                 var j = (IDictionary<string, object>)item;
-                vectors.Add(new Vector
-                {
+                vectors.Add(new Vector {
                     Description = (string)j["description"],
                     Anchor = j.TryGetValue("anchor", out var a) ? a as string : null,
                     Tree = NodeFromJson((IDictionary<string, object>)j["tree"]),
@@ -108,11 +106,10 @@ namespace ReproIt.ParityTests
             foreach (var v in vectors)
             {
                 string got = Signature.Of(v.Anchor, v.Tree);
-                Assert.True(
-                    got == v.ExpectedSig,
-                    "vector '" + v.Description + "' mismatch.\n" +
-                    "  descriptor = " + Signature.Descriptor(v.Anchor, v.Tree) + "\n" +
-                    "  expected " + v.ExpectedSig + " got " + got);
+                Assert.True(got == v.ExpectedSig,
+                            "vector '" + v.Description + "' mismatch.\n" +
+                                "  descriptor = " + Signature.Descriptor(v.Anchor, v.Tree) +
+                                "\n" + "  expected " + v.ExpectedSig + " got " + got);
             }
         }
 
@@ -163,30 +160,50 @@ namespace ReproIt.ParityTests
             Assert.NotEqual(vGrouped, vPos1);
             Assert.NotEqual(vGrouped, vZero);
             // two different POS1 values (3 vs 7) bucket the same.
-            Assert.Equal(
-                By("two different POS1 values bucket the same (3)"),
-                By("two different POS1 values bucket the same (7)"));
+            Assert.Equal(By("two different POS1 values bucket the same (3)"),
+                         By("two different POS1 values bucket the same (7)"));
         }
 
         [Fact]
         public void ValueClassBucketsMatchOracle()
         {
-            var cases = new (string Input, string Expected)[]
-            {
-                ("", "EMPTY"), ("   ", "EMPTY"), ("0", "ZERO"), ("0.0", "ZERO"), ("-0", "ZERO"),
-                ("-3", "NEG"), ("-0.5", "NEG"), ("3", "POS1"), ("9.99", "POS1"), ("+7", "POS1"),
-                ("10", "POS2"), ("99", "POS2"), ("100", "POS3"), ("999.99", "POS3"),
-                ("1000", "POSL"), ("123456", "POSL"), ("  42  ", "POS2"),
-                ("1,234", "NONEMPTY"), ("1.234.567", "NONEMPTY"), ("1 234", "NONEMPTY"),
-                ("$5", "NONEMPTY"), ("5%", "NONEMPTY"), ("1e3", "NONEMPTY"), ("0x10", "NONEMPTY"),
-                (".", "NONEMPTY"), ("3.", "NONEMPTY"), (".5", "NONEMPTY"), ("--5", "NONEMPTY"),
-                ("hello", "NONEMPTY"), ("١٢٣", "NONEMPTY"), // non-ASCII (Arabic) digits
+            var cases = new(string Input, string Expected)[] {
+                ("", "EMPTY"),
+                ("   ", "EMPTY"),
+                ("0", "ZERO"),
+                ("0.0", "ZERO"),
+                ("-0", "ZERO"),
+                ("-3", "NEG"),
+                ("-0.5", "NEG"),
+                ("3", "POS1"),
+                ("9.99", "POS1"),
+                ("+7", "POS1"),
+                ("10", "POS2"),
+                ("99", "POS2"),
+                ("100", "POS3"),
+                ("999.99", "POS3"),
+                ("1000", "POSL"),
+                ("123456", "POSL"),
+                ("  42  ", "POS2"),
+                ("1,234", "NONEMPTY"),
+                ("1.234.567", "NONEMPTY"),
+                ("1 234", "NONEMPTY"),
+                ("$5", "NONEMPTY"),
+                ("5%", "NONEMPTY"),
+                ("1e3", "NONEMPTY"),
+                ("0x10", "NONEMPTY"),
+                (".", "NONEMPTY"),
+                ("3.", "NONEMPTY"),
+                (".5", "NONEMPTY"),
+                ("--5", "NONEMPTY"),
+                ("hello", "NONEMPTY"),
+                ("١٢٣", "NONEMPTY"), // non-ASCII (Arabic) digits
             };
             foreach (var c in cases)
             {
-                Assert.True(
-                    Signature.ValueClass(c.Input) == c.Expected,
-                    "value_class(" + Json.Encode(c.Input) + ") expected " + c.Expected + " got " + Signature.ValueClass(c.Input));
+                Assert.True(Signature.ValueClass(c.Input) == c.Expected,
+                            "value_class(" + Json.Encode(c.Input) + ") expected " + c.Expected +
+                                " got " + Signature.ValueClass(c.Input));
             }
         }
 
@@ -224,7 +241,8 @@ namespace ReproIt.ParityTests
                 return list;
             }
             Assert.Equal("A:\n0:list;1:listitem*;2:text", Signature.Descriptor(null, MkList(3)));
-            Assert.Equal(Signature.Descriptor(null, MkList(3)), Signature.Descriptor(null, MkList(5)));
+            Assert.Equal(Signature.Descriptor(null, MkList(3)),
+                         Signature.Descriptor(null, MkList(5)));
 
             // Non-consecutive identical siblings are NOT collapsed.
             var g = new Node("group");
@@ -241,7 +259,8 @@ namespace ReproIt.ParityTests
             withSpinner.Children.Add(spinner);
             var withoutSpinner = new Node("screen");
             withoutSpinner.Children.Add(new Node("text"));
-            Assert.Equal(Signature.Descriptor(null, withoutSpinner), Signature.Descriptor(null, withSpinner));
+            Assert.Equal(Signature.Descriptor(null, withoutSpinner),
+                         Signature.Descriptor(null, withSpinner));
         }
 
         [Fact]
@@ -249,15 +268,18 @@ namespace ReproIt.ParityTests
         {
             // A textfield WITHOUT a value -> no V: section (byte-identical to before).
             Assert.Equal("A:\n0:textfield@email",
-                Signature.Descriptor(null, new Node("textfield") { Id = "email" }));
+                         Signature.Descriptor(null, new Node("textfield") { Id = "email" }));
             // A chrome node WITH a value is still not value-bearing: no V: section.
-            Assert.Equal("A:\n0:header@title",
+            Assert.Equal(
+                "A:\n0:header@title",
                 Signature.Descriptor(null, new Node("header") { Id = "title", Value = "Welcome" }));
             // A value-bearing textfield adds the V: section.
             Assert.Equal("A:\n0:textfield@email\nV:key:email=NONEMPTY",
-                Signature.Descriptor(null, new Node("textfield") { Id = "email", Value = "a@b.com" }));
+                         Signature.Descriptor(
+                             null, new Node("textfield") { Id = "email", Value = "a@b.com" }));
             // status is a value-role but not in ROLES, so the body token is `node`.
-            Assert.Equal("A:\n0:node@count\nV:key:count=POS1",
+            Assert.Equal(
+                "A:\n0:node@count\nV:key:count=POS1",
                 Signature.Descriptor(null, new Node("status") { Id = "count", Value = "5" }));
 
             // V: section is sorted by key (independent of document order).
@@ -272,15 +294,16 @@ namespace ReproIt.ParityTests
             var keyless = new Node("screen");
             keyless.Children.Add(new Node("textfield") { Value = "3" });
             keyless.Children.Add(new Node("textfield") { Value = "99" });
-            Assert.Equal(
-                "A:\n0:screen;1:textfield*\nV:role:textfield#0=POS1;role:textfield#1=POS2",
-                Signature.Descriptor(null, keyless));
+            Assert.Equal("A:\n0:screen;1:textfield*\nV:role:textfield#0=POS1;role:textfield#1=POS2",
+                         Signature.Descriptor(null, keyless));
 
             // Layer 3 opt-in: a chrome `text` role becomes value-bearing when flagged.
-            Assert.Equal("A:\n0:text@display",
+            Assert.Equal(
+                "A:\n0:text@display",
                 Signature.Descriptor(null, new Node("text") { Id = "display", Value = "42" }));
             Assert.Equal("A:\n0:text@display\nV:key:display=POS2",
-                Signature.Descriptor(null, new Node("text") { Id = "display", Value = "42", ValueNode = true }));
+                         Signature.Descriptor(null, new Node("text") { Id = "display", Value = "42",
+                                                                       ValueNode = true }));
 
             // Transient value subtree is dropped from both body and V: section.
             var transientVal = new Node("screen");

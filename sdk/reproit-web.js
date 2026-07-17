@@ -22,7 +22,13 @@
  *
  * Usage (script tag):
  *   <script src="reproit-web.js"></script>
- *   <script>ReproIt.init({ appId: "app_...", endpoint: "https://ingest.reproit.com/v1/events", key: "pk_live_..." })</script>
+ *   <script>
+ *     ReproIt.init({
+ *       appId: "app_...",
+ *       endpoint: "https://ingest.reproit.com/v1/events",
+ *       key: "pk_live_..."
+ *     })
+ *   </script>
  *
  * Or as a module:  import "./reproit-web.js"; ReproIt.init({...})
  *
@@ -39,10 +45,10 @@
  *   See sdk/reproit-web.README.md for the full embedding guide.
  */
 (function (global) {
-  "use strict";
+  'use strict';
 
   var DEFAULTS = {
-    appId: "app",
+    appId: 'app',
     endpoint: null, // POST target; if null, events go to opts.onEvent / console
     key: null, // write-only project key (pk_live_...); sent as `Authorization: Bearer`
     reportAutomation: false, // report webdriver-driven sessions (test rigs opt in)
@@ -57,52 +63,59 @@
     valueNodes: [], // Layer-3 opt-in selectors marking EXTRA value-bearing nodes
     build: null, // developer-provided { version, commit }; stamped as context.build
     context: null, // optional bounded, PII-safe session context stamped on every event
+    testerCaptureShortcut: false, // debug builds: Alt+Shift+B marks the current state
   };
 
   // Keep only the provided string fields of a developer-supplied build identity
   // ({version, commit}). Returns null when neither is a non-empty string, so no
   // build object is stamped into the batch context.
   function normalizeBuild(build) {
-    if (!build || typeof build !== "object") return null;
+    if (!build || typeof build !== 'object') return null;
     var out = {};
-    if (typeof build.version === "string" && build.version.length) out.version = build.version;
-    if (typeof build.commit === "string" && build.commit.length) out.commit = build.commit;
+    if (typeof build.version === 'string' && build.version.length) out.version = build.version;
+    if (typeof build.commit === 'string' && build.commit.length) out.commit = build.commit;
     return out.version || out.commit ? out : null;
   }
 
   function environmentContext() {
-    var nav = typeof navigator !== "undefined" ? navigator : {};
-    var win = typeof window !== "undefined" ? window : {};
-    var doc = typeof document !== "undefined" ? document : {};
+    var nav = typeof navigator !== 'undefined' ? navigator : {};
+    var win = typeof window !== 'undefined' ? window : {};
+    var doc = typeof document !== 'undefined' ? document : {};
     var root = doc.documentElement || {};
-    var ua = nav.userAgent || "";
-    var browser = "Other";
-    var browserMajor = "";
+    var ua = nav.userAgent || '';
+    var browser = 'Other';
+    var browserMajor = '';
     var match;
     if ((match = ua.match(/Edg\/(\d+)/))) {
-      browser = "Edge"; browserMajor = match[1];
+      browser = 'Edge';
+      browserMajor = match[1];
     } else if ((match = ua.match(/Firefox\/(\d+)/))) {
-      browser = "Firefox"; browserMajor = match[1];
+      browser = 'Firefox';
+      browserMajor = match[1];
     } else if ((match = ua.match(/(?:Chrome|CriOS)\/(\d+)/))) {
-      browser = "Chrome"; browserMajor = match[1];
+      browser = 'Chrome';
+      browserMajor = match[1];
     } else if ((match = ua.match(/Version\/(\d+).+Safari/))) {
-      browser = "Safari"; browserMajor = match[1];
+      browser = 'Safari';
+      browserMajor = match[1];
     }
 
-    var os = "Other";
-    if (/Windows NT/.test(ua)) os = "Windows";
-    else if (/Android/.test(ua)) os = "Android";
-    else if (/iPhone|iPad|iPod/.test(ua)) os = "iOS";
-    else if (/Mac OS X/.test(ua)) os = "macOS";
-    else if (/Linux/.test(ua)) os = "Linux";
+    var os = 'Other';
+    if (/Windows NT/.test(ua)) os = 'Windows';
+    else if (/Android/.test(ua)) os = 'Android';
+    else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
+    else if (/Mac OS X/.test(ua)) os = 'macOS';
+    else if (/Linux/.test(ua)) os = 'Linux';
 
     var width = Math.round(win.innerWidth || root.clientWidth || 0);
     var height = Math.round(win.innerHeight || root.clientHeight || 0);
     var device = /Mobi|Android|iPhone|iPod/.test(ua)
-      ? "mobile"
-      : (/iPad/.test(ua) || (width > 0 && width < 1024) ? "tablet" : "desktop");
+      ? 'mobile'
+      : /iPad/.test(ua) || (width > 0 && width < 1024)
+        ? 'tablet'
+        : 'desktop';
     return {
-      platform: "web",
+      platform: 'web',
       browser: browser,
       browserMajor: browserMajor || undefined,
       os: os,
@@ -138,16 +151,20 @@
   }
   // Test one element against one value-node selector (key:/role:/raw CSS).
   function elMatchesSelector(el, sel) {
-    if (!sel || typeof sel !== "string") return false;
-    if (sel.indexOf("key:") === 0) {
+    if (!sel || typeof sel !== 'string') return false;
+    if (sel.indexOf('key:') === 0) {
       var id = sel.slice(4);
       if (!id) return false;
-      var got = (el.getAttribute("data-testid") || el.getAttribute("data-test-id") ||
-        el.getAttribute("id") || el.getAttribute("name") || "");
+      var got =
+        el.getAttribute('data-testid') ||
+        el.getAttribute('data-test-id') ||
+        el.getAttribute('id') ||
+        el.getAttribute('name') ||
+        '';
       return got.trim() === id;
     }
-    if (sel.indexOf("role:") === 0) {
-      var hash = sel.indexOf("#");
+    if (sel.indexOf('role:') === 0) {
+      var hash = sel.indexOf('#');
       if (hash < 0) return false;
       var role = sel.slice(5, hash);
       var idx = parseInt(sel.slice(hash + 1), 10);
@@ -155,17 +172,28 @@
       // Resolve the idx-th element of this canonical role in document order.
       var root = document.body || document.documentElement;
       if (!root) return false;
-      var seen = -1, target = null;
+      var seen = -1,
+        target = null;
       (function walk(node) {
         if (target) return;
-        if (roleOf(node) === role) { seen++; if (seen === idx) { target = node; return; } }
+        if (roleOf(node) === role) {
+          seen++;
+          if (seen === idx) {
+            target = node;
+            return;
+          }
+        }
         var kids = node.children || [];
         for (var k = 0; k < kids.length; k++) walk(kids[k]);
       })(root);
       return target === el;
     }
     // raw CSS selector
-    try { return el.matches && el.matches(sel); } catch (e) { return false; }
+    try {
+      return el.matches && el.matches(sel);
+    } catch (e) {
+      return false;
+    }
   }
 
   // ====================================================================
@@ -185,9 +213,26 @@
 
   // Fixed, language-independent role vocabulary. Anything else -> "node".
   var ROLES = {
-    screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-    icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-    slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+    screen: 1,
+    header: 1,
+    text: 1,
+    button: 1,
+    link: 1,
+    textfield: 1,
+    image: 1,
+    icon: 1,
+    list: 1,
+    listitem: 1,
+    tab: 1,
+    switch: 1,
+    checkbox: 1,
+    radio: 1,
+    slider: 1,
+    menu: 1,
+    menuitem: 1,
+    dialog: 1,
+    group: 1,
+    node: 1,
   };
   // Roles that flicker in/out and are dropped before hashing (rule 2).
   // "progress" is the role name for spinner/progress.
@@ -201,10 +246,18 @@
   // value-role test deliberately uses the RAW role, not the normalized one.
   // Chrome roles (button/label/header/text/link) are NEVER value-bearing, so the
   // chrome-text exclusion (rule 1) is preserved exactly.
-  var VALUE_ROLES = { textfield: 1, status: 1, log: 1, progressbar: 1, meter: 1, timer: 1, output: 1 };
+  var VALUE_ROLES = {
+    textfield: 1,
+    status: 1,
+    log: 1,
+    progressbar: 1,
+    meter: 1,
+    timer: 1,
+    output: 1,
+  };
 
   function normalizeRole(role) {
-    return ROLES[role] ? role : "node";
+    return ROLES[role] ? role : 'node';
   }
   function isTransientNode(node) {
     return !!node.transient || !!TRANSIENT_ROLES[node.role];
@@ -233,7 +286,7 @@
       h ^= bytes[i];
       h = Math.imul(h, 0x01000193) >>> 0;
     }
-    return ("0000000" + (h >>> 0).toString(16)).slice(-8);
+    return ('0000000' + (h >>> 0).toString(16)).slice(-8);
   }
 
   // Lexicographic comparison of two strings by their UTF-8 byte sequence, to
@@ -273,9 +326,9 @@
   //   <role>[:<type>][#<icon>][@<id>]
   function tokenBody(n) {
     var s = n.role;
-    if (n.type != null) s += ":" + n.type;
-    if (n.icon != null) s += "#" + n.icon;
-    if (n.id != null) s += "@" + n.id;
+    if (n.type != null) s += ':' + n.type;
+    if (n.icon != null) s += '#' + n.icon;
+    if (n.id != null) s += '@' + n.id;
     return s;
   }
 
@@ -284,15 +337,15 @@
   function subtreeKey(n) {
     var tokens = [];
     (function walk(node, depth) {
-      tokens.push(depth + ":" + tokenBody(node));
+      tokens.push(depth + ':' + tokenBody(node));
       for (var i = 0; i < node.children.length; i++) walk(node.children[i], depth + 1);
     })(n, 0);
-    return tokens.join(";");
+    return tokens.join(';');
   }
 
   function serializeNode(n, depth, repeated, tokens) {
-    var tok = depth + ":" + tokenBody(n);
-    if (repeated) tok += "*";
+    var tok = depth + ':' + tokenBody(n);
+    if (repeated) tok += '*';
     tokens.push(tok);
     serializeChildren(n.children, depth + 1, tokens);
   }
@@ -304,7 +357,7 @@
       var key = subtreeKey(children[i]);
       var j = i + 1;
       while (j < children.length && subtreeKey(children[j]) === key) j++;
-      serializeNode(children[i], depth, (j - i) >= 2, tokens);
+      serializeNode(children[i], depth, j - i >= 2, tokens);
       i = j;
     }
   }
@@ -321,7 +374,8 @@
     var intStart = i;
     while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
     if (i === intStart) return false; // need at least one integer digit
-    if (i < n && s.charCodeAt(i) === 46) { // '.'
+    if (i < n && s.charCodeAt(i) === 46) {
+      // '.'
       i++;
       var fracStart = i;
       while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
@@ -336,19 +390,19 @@
   // NONEMPTY. Anything ambiguously formatted (grouped/locale numbers, currency,
   // exponent, non-ASCII digits) falls to NONEMPTY because we do not guess locale.
   function valueClass(s) {
-    var t = (s == null ? "" : String(s)).replace(/^\s+|\s+$/g, "");
-    if (t.length === 0) return "EMPTY";
+    var t = (s == null ? '' : String(s)).replace(/^\s+|\s+$/g, '');
+    if (t.length === 0) return 'EMPTY';
     if (isStrictDecimal(t)) {
       var num = parseFloat(t);
       var a = Math.abs(num);
-      if (num === 0) return "ZERO";
-      if (num < 0) return "NEG";
-      if (a < 10) return "POS1";
-      if (a < 100) return "POS2";
-      if (a < 1000) return "POS3";
-      return "POSL";
+      if (num === 0) return 'ZERO';
+      if (num < 0) return 'NEG';
+      if (a < 10) return 'POS1';
+      if (a < 100) return 'POS2';
+      if (a < 1000) return 'POS3';
+      return 'POSL';
     }
-    return "NONEMPTY";
+    return 'NONEMPTY';
   }
 
   // The V:-section key for a value-bearing node: its stable `id` rendered as
@@ -356,8 +410,8 @@
   // NORMALIZED role and the per-parent structural index among same-role
   // non-transient siblings (matching the selector grammar). Mirrors value_key.
   function valueKeyOf(node, structuralIndex) {
-    if (node.id != null) return "key:" + node.id;
-    return "role:" + normalizeRole(node.role) + "#" + structuralIndex;
+    if (node.id != null) return 'key:' + node.id;
+    return 'role:' + normalizeRole(node.role) + '#' + structuralIndex;
   }
 
   // Collect (value_key, value_class) pairs for every value-bearing node in the
@@ -390,10 +444,16 @@
   function valueSection(root) {
     var pairs = [];
     collectValues(root, pairs);
-    if (pairs.length === 0) return "";
-    pairs.sort(function (a, b) { return reproitCmpUtf8(a[0], b[0]); });
-    var body = pairs.map(function (p) { return p[0] + "=" + p[1]; }).join(";");
-    return "\nV:" + body;
+    if (pairs.length === 0) return '';
+    pairs.sort(function (a, b) {
+      return reproitCmpUtf8(a[0], b[0]);
+    });
+    var body = pairs
+      .map(function (p) {
+        return p[0] + '=' + p[1];
+      })
+      .join(';');
+    return '\nV:' + body;
   }
 
   // The exact UTF-8 descriptor string that gets hashed. The V: section (Layer 2)
@@ -403,7 +463,7 @@
     var tokens = [];
     var norm = normalizeNode(root);
     if (norm) serializeNode(norm, 0, false, tokens);
-    return "A:" + (anchor == null ? "" : anchor) + "\n" + tokens.join(";") + valueSection(root);
+    return 'A:' + (anchor == null ? '' : anchor) + '\n' + tokens.join(';') + valueSection(root);
   }
 
   // Canonical structural signature: FNV-1a over the descriptor.
@@ -416,58 +476,62 @@
   // input type, NEVER from visible text. Most-specific first.
   function roleOf(el) {
     var tag = el.tagName.toLowerCase();
-    var ariaRole = (el.getAttribute("role") || "").toLowerCase();
+    var ariaRole = (el.getAttribute('role') || '').toLowerCase();
     // explicit aria role wins when it is in (or maps into) the vocabulary
     if (ariaRole) {
-      if (ariaRole === "textbox" || ariaRole === "searchbox" || ariaRole === "combobox") return "textfield";
-      if (ariaRole === "heading") return "header";
-      if (ariaRole === "img") return "image";
-      if (ariaRole === "switch") return "switch";
-      if (ariaRole === "link") return "link";
-      if (ariaRole === "button") return "button";
+      if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+        return 'textfield';
+      if (ariaRole === 'heading') return 'header';
+      if (ariaRole === 'img') return 'image';
+      if (ariaRole === 'switch') return 'switch';
+      if (ariaRole === 'link') return 'link';
+      if (ariaRole === 'button') return 'button';
       if (ROLES[ariaRole]) return ariaRole;
     }
-    if (tag === "input") {
-      var t = (el.getAttribute("type") || "text").toLowerCase();
-      if (t === "checkbox") return "checkbox";
-      if (t === "radio") return "radio";
-      if (t === "range") return "slider";
-      if (["button", "submit", "reset", "image"].indexOf(t) >= 0) return "button";
-      return "textfield";
+    if (tag === 'input') {
+      var t = (el.getAttribute('type') || 'text').toLowerCase();
+      if (t === 'checkbox') return 'checkbox';
+      if (t === 'radio') return 'radio';
+      if (t === 'range') return 'slider';
+      if (['button', 'submit', 'reset', 'image'].indexOf(t) >= 0) return 'button';
+      return 'textfield';
     }
-    if (tag === "textarea" || tag === "select") return "textfield";
-    if (tag === "a") return "link";
-    if (tag === "button") return "button";
-    if (tag === "img" || tag === "svg") return "image";
-    if (/^h[1-6]$/.test(tag) || tag === "header") return "header";
-    if (tag === "ul" || tag === "ol") return "list";
-    if (tag === "li") return "listitem";
-    if (tag === "dialog") return "dialog";
-    if (tag === "nav" || tag === "menu") return "menu";
-    if (ariaRole) return "node"; // an aria role outside vocabulary
-    return "node";
+    if (tag === 'textarea' || tag === 'select') return 'textfield';
+    if (tag === 'a') return 'link';
+    if (tag === 'button') return 'button';
+    if (tag === 'img' || tag === 'svg') return 'image';
+    if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+    if (tag === 'ul' || tag === 'ol') return 'list';
+    if (tag === 'li') return 'listitem';
+    if (tag === 'dialog') return 'dialog';
+    if (tag === 'nav' || tag === 'menu') return 'menu';
+    if (ariaRole) return 'node'; // an aria role outside vocabulary
+    return 'node';
   }
 
   // Optional input type refinement, only for textfield-ish controls.
   function typeOf(el, role) {
-    if (role !== "textfield") return null;
+    if (role !== 'textfield') return null;
     var tag = el.tagName.toLowerCase();
-    if (tag !== "input") return null;
-    var t = (el.getAttribute("type") || "text").toLowerCase();
+    if (tag !== 'input') return null;
+    var t = (el.getAttribute('type') || 'text').toLowerCase();
     var allowed = { text: 1, password: 1, email: 1, number: 1, search: 1 };
-    return allowed[t] ? t : "text";
+    return allowed[t] ? t : 'text';
   }
 
   // Language-independent icon identity: an icon-font codepoint or an svg <use>
   // href / data-icon asset name. Never localized text.
   function iconOf(el) {
-    var di = el.getAttribute && (el.getAttribute("data-icon") || el.getAttribute("data-icon-name"));
+    var di = el.getAttribute && (el.getAttribute('data-icon') || el.getAttribute('data-icon-name'));
     if (di && di.trim()) return di.trim();
     // svg <use xlink:href="#icon-x"> / <use href="#icon-x">
-    var use = el.querySelector ? el.querySelector("use[href], use[xlink\\:href]") : null;
+    var use = el.querySelector ? el.querySelector('use[href], use[xlink\\:href]') : null;
     if (use) {
-      var href = use.getAttribute("href") || use.getAttributeNS("http://www.w3.org/1999/xlink", "href") || use.getAttribute("xlink:href");
-      if (href && href.trim()) return href.trim().replace(/^#/, "");
+      var href =
+        use.getAttribute('href') ||
+        use.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
+        use.getAttribute('xlink:href');
+      if (href && href.trim()) return href.trim().replace(/^#/, '');
     }
     // icon-font convention: <i class="material-icons">codepoint/name</i> with a
     // data attribute, or a ligature. We only read a stable data-attr, not text.
@@ -476,11 +540,11 @@
 
   // Stable developer identifier: data-testid > id > name. Omitted if none.
   function idOf(el) {
-    var testid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
+    var testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
     if (testid && testid.trim()) return testid.trim();
-    var id = el.getAttribute("id");
+    var id = el.getAttribute('id');
     if (id && id.trim()) return id.trim();
-    var name = el.getAttribute("name");
+    var name = el.getAttribute('name');
     if (name && name.trim()) return name.trim();
     return null;
   }
@@ -489,26 +553,26 @@
   // specific than `idOf`: web replay resolves key:testid:/key:id:/key:name:
   // selectors differently, so preserve the source kind.
   function actionKeyOf(el) {
-    var testid = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
-    if (testid && testid.trim()) return "key:testid:" + testid.trim();
-    var id = el.getAttribute("id");
-    if (id && id.trim()) return "key:id:" + id.trim();
-    var name = el.getAttribute("name");
-    if (name && name.trim()) return "key:name:" + name.trim();
+    var testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+    if (testid && testid.trim()) return 'key:testid:' + testid.trim();
+    var id = el.getAttribute('id');
+    if (id && id.trim()) return 'key:id:' + id.trim();
+    var name = el.getAttribute('name');
+    if (name && name.trim()) return 'key:name:' + name.trim();
     return null;
   }
 
   // Heuristic: is this element a transient node (toast/snackbar/spinner/
   // progress/tooltip/badge) by role, aria-live, or class name? Dropped from hash.
   function isTransientEl(el) {
-    var ariaRole = (el.getAttribute("role") || "").toLowerCase();
+    var ariaRole = (el.getAttribute('role') || '').toLowerCase();
     if (TRANSIENT_ROLES[ariaRole]) return true;
-    if (ariaRole === "alert" || ariaRole === "status") return true;
-    var live = (el.getAttribute("aria-live") || "").toLowerCase();
-    if (live === "assertive" || live === "polite") return true;
-    var cls = (el.getAttribute("class") || "").toLowerCase();
+    if (ariaRole === 'alert' || ariaRole === 'status') return true;
+    var live = (el.getAttribute('aria-live') || '').toLowerCase();
+    if (live === 'assertive' || live === 'polite') return true;
+    var cls = (el.getAttribute('class') || '').toLowerCase();
     if (/\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test(cls)) return true;
-    if (el.hasAttribute && el.hasAttribute("data-transient")) return true;
+    if (el.hasAttribute && el.hasAttribute('data-transient')) return true;
     return false;
   }
 
@@ -521,24 +585,44 @@
   // region becomes value-bearing WITHOUT any opt-in. Returns null for chrome.
   function valueRoleOf(el) {
     var tag = el.tagName.toLowerCase();
-    var ariaRole = (el.getAttribute("role") || "").toLowerCase();
-    if (ariaRole === "status" || ariaRole === "log" || ariaRole === "progressbar" ||
-        ariaRole === "meter" || ariaRole === "timer") {
+    var ariaRole = (el.getAttribute('role') || '').toLowerCase();
+    if (
+      ariaRole === 'status' ||
+      ariaRole === 'log' ||
+      ariaRole === 'progressbar' ||
+      ariaRole === 'meter' ||
+      ariaRole === 'timer'
+    ) {
       return ariaRole;
     }
-    if (tag === "output" || ariaRole === "output") return "output";
+    if (tag === 'output' || ariaRole === 'output') return 'output';
     // aria-live region (polite/assertive) -> a value-role status node.
-    var live = (el.getAttribute("aria-live") || "").toLowerCase();
-    if (live === "polite" || live === "assertive") return "status";
+    var live = (el.getAttribute('aria-live') || '').toLowerCase();
+    if (live === 'polite' || live === 'assertive') return 'status';
     // form fields hold a .value: they are textfield value-roles.
-    if (tag === "input") {
-      var t = (el.getAttribute("type") || "text").toLowerCase();
+    if (tag === 'input') {
+      var t = (el.getAttribute('type') || 'text').toLowerCase();
       // Non-text inputs (checkbox/radio/range/buttons) are not text value fields.
-      if (["checkbox", "radio", "range", "button", "submit", "reset", "image", "hidden", "file", "password"].indexOf(t) >= 0) return null;
-      return "textfield";
+      if (
+        [
+          'checkbox',
+          'radio',
+          'range',
+          'button',
+          'submit',
+          'reset',
+          'image',
+          'hidden',
+          'file',
+          'password',
+        ].indexOf(t) >= 0
+      )
+        return null;
+      return 'textfield';
     }
-    if (tag === "textarea" || tag === "select") return "textfield";
-    if (ariaRole === "textbox" || ariaRole === "searchbox" || ariaRole === "combobox") return "textfield";
+    if (tag === 'textarea' || tag === 'select') return 'textfield';
+    if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+      return 'textfield';
     return null;
   }
 
@@ -547,10 +631,10 @@
   // Password fields are never read (valueRoleOf already excludes them).
   function valueOf(el) {
     var tag = el.tagName.toLowerCase();
-    if (tag === "input" || tag === "textarea" || tag === "select") {
-      return el.value != null ? String(el.value) : "";
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      return el.value != null ? String(el.value) : '';
     }
-    return (el.textContent != null ? el.textContent : "").trim();
+    return (el.textContent != null ? el.textContent : '').trim();
   }
 
   // Build the canonical Node tree from a DOM root. Invisible elements are
@@ -565,9 +649,9 @@
   // transient heuristic would otherwise drop is kept as a value node instead, so
   // a counter/stopwatch live region produces distinct value-states.
   function domToNode(root, isRoot) {
-    var role = isRoot ? "screen" : roleOf(root);
+    var role = isRoot ? 'screen' : roleOf(root);
     var vrole = isRoot ? null : valueRoleOf(root);
-    var optIn = !isRoot && typeof matchesValueNode === "function" && matchesValueNode(root);
+    var optIn = !isRoot && typeof matchesValueNode === 'function' && matchesValueNode(root);
     var valueBearing = !isRoot && (!!vrole || optIn);
     var transient = !isRoot && !valueBearing && isTransientEl(root);
     var node = {
@@ -602,7 +686,10 @@
     var kids = el.children || [];
     for (var i = 0; i < kids.length; i++) {
       var c = kids[i];
-      if (!visible(c)) { collectVisibleInto(c, out); continue; }
+      if (!visible(c)) {
+        collectVisibleInto(c, out);
+        continue;
+      }
       out.push(domToNode(c, false));
     }
   }
@@ -614,9 +701,9 @@
   // "byte-identical to the runner's signature" contract on every hash-router SPA.
   function anchorOf() {
     try {
-      if (typeof location !== "undefined" && location.pathname) {
-        var hash = location.hash || "";
-        var q = hash.indexOf("?");
+      if (typeof location !== 'undefined' && location.pathname) {
+        var hash = location.hash || '';
+        var q = hash.indexOf('?');
         if (q >= 0) hash = hash.slice(0, q);
         return location.pathname + hash;
       }
@@ -626,10 +713,10 @@
 
   function interactive(el) {
     var tag = el.tagName.toLowerCase();
-    var role = el.getAttribute("role") || "";
-    if (["a", "button", "input", "select", "textarea"].indexOf(tag) >= 0) return true;
-    if (["button", "link", "menuitem", "tab", "checkbox", "switch"].indexOf(role) >= 0) return true;
-    return el.hasAttribute("onclick") || el.tabIndex >= 0;
+    var role = el.getAttribute('role') || '';
+    if (['a', 'button', 'input', 'select', 'textarea'].indexOf(tag) >= 0) return true;
+    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch'].indexOf(role) >= 0) return true;
+    return el.hasAttribute('onclick') || el.tabIndex >= 0;
   }
 
   function actionSelectorOf(el) {
@@ -652,13 +739,15 @@
       var kids = node.children || [];
       for (var k = 0; k < kids.length; k++) walk(kids[k]);
     })(root);
-    return found ? "role:" + role + "#" + idx : null;
+    return found ? 'role:' + role + '#' + idx : null;
   }
 
   function nameOf(el) {
-    var a = el.getAttribute && (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("alt"));
+    var a =
+      el.getAttribute &&
+      (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt'));
     if (a && a.trim()) return a.trim();
-    var t = (el.innerText || el.textContent || "").trim().split("\n")[0].trim();
+    var t = (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
     return t;
   }
 
@@ -666,7 +755,7 @@
     var r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
     var st = getComputedStyle(el);
-    return st.visibility !== "hidden" && st.display !== "none";
+    return st.visibility !== 'hidden' && st.display !== 'none';
   }
 
   // ---- PII-safe input fingerprinting (tier-3 context) ---------------------
@@ -690,7 +779,7 @@
         (c >= 0x08a0 && c <= 0x08ff) || // Arabic Extended-A
         (c >= 0xfb1d && c <= 0xfb4f) || // Hebrew presentation forms
         (c >= 0xfb50 && c <= 0xfdff) || // Arabic presentation forms-A
-        (c >= 0xfe70 && c <= 0xfeff)    // Arabic presentation forms-B
+        (c >= 0xfe70 && c <= 0xfeff) // Arabic presentation forms-B
       ) {
         return true;
       }
@@ -707,10 +796,10 @@
       if (
         (c >= 0x1f000 && c <= 0x1faff) || // pictographs, emoji, symbols, etc.
         (c >= 0x1f1e6 && c <= 0x1f1ff) || // regional indicators (flags)
-        (c >= 0x2600 && c <= 0x27bf) ||   // misc symbols + dingbats
-        c === 0x2764 ||                    // heavy black heart
-        c === 0xfe0f ||                    // variation selector-16 (emoji style)
-        c === 0x200d ||                    // zero-width joiner (emoji sequences)
+        (c >= 0x2600 && c <= 0x27bf) || // misc symbols + dingbats
+        c === 0x2764 || // heavy black heart
+        c === 0xfe0f || // variation selector-16 (emoji style)
+        c === 0x200d || // zero-width joiner (emoji sequences)
         (c >= 0x2190 && c <= 0x21ff && false) // (arrows: not emoji) placeholder
       ) {
         return true;
@@ -769,11 +858,13 @@
   }
 
   function reproitIsCombiningCp(c) {
-    return (c >= 0x0300 && c <= 0x036f) ||
+    return (
+      (c >= 0x0300 && c <= 0x036f) ||
       (c >= 0x1ab0 && c <= 0x1aff) ||
       (c >= 0x1dc0 && c <= 0x1dff) ||
       (c >= 0x20d0 && c <= 0x20ff) ||
-      (c >= 0xfe20 && c <= 0xfe2f);
+      (c >= 0xfe20 && c <= 0xfe2f)
+    );
   }
 
   function reproitGraphemeCount(str) {
@@ -802,17 +893,31 @@
     var found = {};
     for (var i = 0; i < str.length; i++) {
       var c = str.charCodeAt(i);
-      if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) ||
-          (c >= 0xc0 && c <= 0x24f) || (c >= 0x1e00 && c <= 0x1eff)) found["Latin"] = 1;
-      else if (c >= 0x370 && c <= 0x3ff) found["Greek"] = 1;
-      else if (c >= 0x400 && c <= 0x4ff) found["Cyrillic"] = 1;
-      else if (c >= 0x590 && c <= 0x5ff) found["Hebrew"] = 1;
-      else if ((c >= 0x600 && c <= 0x6ff) || (c >= 0x750 && c <= 0x77f) ||
-               (c >= 0x8a0 && c <= 0x8ff)) found["Arabic"] = 1;
-      else if (c >= 0x900 && c <= 0x97f) found["Devanagari"] = 1;
-      else if (c >= 0xe00 && c <= 0xe7f) found["Thai"] = 1;
-      else if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x3400 && c <= 0x9fff) ||
-               (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff)) found["CJK"] = 1;
+      if (
+        (c >= 0x41 && c <= 0x5a) ||
+        (c >= 0x61 && c <= 0x7a) ||
+        (c >= 0xc0 && c <= 0x24f) ||
+        (c >= 0x1e00 && c <= 0x1eff)
+      )
+        found['Latin'] = 1;
+      else if (c >= 0x370 && c <= 0x3ff) found['Greek'] = 1;
+      else if (c >= 0x400 && c <= 0x4ff) found['Cyrillic'] = 1;
+      else if (c >= 0x590 && c <= 0x5ff) found['Hebrew'] = 1;
+      else if (
+        (c >= 0x600 && c <= 0x6ff) ||
+        (c >= 0x750 && c <= 0x77f) ||
+        (c >= 0x8a0 && c <= 0x8ff)
+      )
+        found['Arabic'] = 1;
+      else if (c >= 0x900 && c <= 0x97f) found['Devanagari'] = 1;
+      else if (c >= 0xe00 && c <= 0xe7f) found['Thai'] = 1;
+      else if (
+        (c >= 0x3040 && c <= 0x30ff) ||
+        (c >= 0x3400 && c <= 0x9fff) ||
+        (c >= 0xac00 && c <= 0xd7a3) ||
+        (c >= 0xf900 && c <= 0xfaff)
+      )
+        found['CJK'] = 1;
     }
     return Object.keys(found).sort();
   }
@@ -828,10 +933,10 @@
   //   isRtl        : contains a right-to-left script char
   //   hasCombiningMarks / hasZeroWidth / hasNewline / leadingTrailingWhitespace
   function fingerprintValue(str) {
-    var s = str == null ? "" : String(str);
+    var s = str == null ? '' : String(str);
     // Code-point length (Array.from splits on code points, not UTF-16 units).
     var len = Array.from(s).length;
-    var trimmed = s.replace(/^\s+|\s+$/g, "");
+    var trimmed = s.replace(/^\s+|\s+$/g, '');
     var isEmpty = trimmed.length === 0;
     var hasUnicode = false;
     var allDigits = !isEmpty;
@@ -842,11 +947,18 @@
       if (c < 0x30 || c > 0x39) allDigits = false;
       if (c === 0x0a || c === 0x0d) hasNewline = true;
     }
-    var charset = hasUnicode ? "unicode" : allDigits ? "numeric" : "ascii";
+    var charset = hasUnicode ? 'unicode' : allDigits ? 'numeric' : 'ascii';
     // Edge whitespace: a fixed whitespace set (parity-safe, not locale trim).
     function isWs(cc) {
-      return cc === 0x09 || cc === 0x0a || cc === 0x0b || cc === 0x0c ||
-             cc === 0x0d || cc === 0x20 || cc === 0xa0;
+      return (
+        cc === 0x09 ||
+        cc === 0x0a ||
+        cc === 0x0b ||
+        cc === 0x0c ||
+        cc === 0x0d ||
+        cc === 0x20 ||
+        cc === 0xa0
+      );
     }
     var edgeWs = s.length > 0 && (isWs(s.charCodeAt(0)) || isWs(s.charCodeAt(s.length - 1)));
     return {
@@ -870,40 +982,39 @@
   // from the field's VALUE.
   function fieldLabel(el, index) {
     var lbl =
-      (el.getAttribute && (el.getAttribute("aria-label") ||
-        el.getAttribute("name") ||
-        el.getAttribute("id") ||
-        el.getAttribute("placeholder"))) ||
-      "";
+      (el.getAttribute &&
+        (el.getAttribute('aria-label') ||
+          el.getAttribute('name') ||
+          el.getAttribute('id') ||
+          el.getAttribute('placeholder'))) ||
+      '';
     lbl = lbl && lbl.trim();
     if (!lbl && el.labels && el.labels.length) {
-      lbl = (el.labels[0].innerText || el.labels[0].textContent || "").trim();
+      lbl = (el.labels[0].innerText || el.labels[0].textContent || '').trim();
     }
-    return lbl || "#" + index;
+    return lbl || '#' + index;
   }
 
   // Walk visible text inputs/fields, fingerprinting each VALUE then discarding
   // it. Returns an array of {field, len, charset, hasEmoji, isEmpty, isRtl}.
   function collectFieldFingerprints() {
     var out = [];
-    if (typeof document === "undefined") return out;
+    if (typeof document === 'undefined') return out;
     var nodes = document.querySelectorAll(
-      "input, textarea, [contenteditable='true'], [contenteditable='']"
+      "input, textarea, [contenteditable='true'], [contenteditable='']",
     );
     var skipTypes = { password: 1, hidden: 1, file: 1, submit: 1, button: 1, image: 1, reset: 1 };
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
       var tag = el.tagName.toLowerCase();
-      if (tag === "input") {
-        var type = (el.getAttribute("type") || "text").toLowerCase();
+      if (tag === 'input') {
+        var type = (el.getAttribute('type') || 'text').toLowerCase();
         // Never even READ password fields; skip non-text controls.
         if (skipTypes[type]) continue;
       }
       if (!visible(el)) continue;
       var value =
-        tag === "input" || tag === "textarea"
-          ? el.value
-          : el.innerText || el.textContent || "";
+        tag === 'input' || tag === 'textarea' ? el.value : el.innerText || el.textContent || '';
       var fp = fingerprintValue(value);
       // Explicitly drop the raw value before it can leave this function.
       value = null;
@@ -925,14 +1036,14 @@
   // text never enters the hash; it is kept only as display-only `labels`.
   function snapshot(cfg) {
     var root = document.body || document.documentElement;
-    var tree = root ? domToNode(root, true) : { role: "screen", children: [] };
+    var tree = root ? domToNode(root, true) : { role: 'screen', children: [] };
     var anchor = anchorOf();
     var sig = signatureOf(anchor, tree);
 
     // display-only labels for `map --show` (never folded into the hash)
     var labels = [];
     var seen = {};
-    var nodes = document.querySelectorAll("*");
+    var nodes = document.querySelectorAll('*');
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
       if (!visible(el)) continue;
@@ -952,14 +1063,14 @@
   // through window.onerror is NOT the app crashing, carries no actionable info,
   // and is dropped AT THE SOURCE. Substring match on the lowercased message:
   var CRASH_NOISE = [
-    "script error",                  // cross-origin, opaque: no stack, not ours
-    "resizeobserver loop",           // benign layout notification, not a crash
-    "failed to fetch",               // network flake, not a code defect
-    "networkerror when attempting",  // network flake
-    "load failed",                   // network flake (Safari fetch)
-    "aborterror",                    // a request the app itself aborted
-    "the operation was aborted",
-    "the user aborted a request",
+    'script error', // cross-origin, opaque: no stack, not ours
+    'resizeobserver loop', // benign layout notification, not a crash
+    'failed to fetch', // network flake, not a code defect
+    'networkerror when attempting', // network flake
+    'load failed', // network flake (Safari fetch)
+    'aborterror', // a request the app itself aborted
+    'the operation was aborted',
+    'the user aborted a request',
   ];
   // Script URLs that are never the app's own code: browser extensions and
   // internal browser pages. An error sourced here is not a finding about the app.
@@ -967,8 +1078,10 @@
   // True when an uncaught error is environment/third-party noise rather than the
   // app crashing, so the SDK drops it instead of shipping a low-signal bucket.
   function isCrashNoise(message, source) {
-    var m = String(message == null ? "" : message).toLowerCase().trim();
-    if (!m || m === "script error." || m === "script error") return true;
+    var m = String(message == null ? '' : message)
+      .toLowerCase()
+      .trim();
+    if (!m || m === 'script error.' || m === 'script error') return true;
     for (var i = 0; i < CRASH_NOISE.length; i++) {
       if (m.indexOf(CRASH_NOISE[i]) !== -1) return true;
     }
@@ -980,17 +1093,17 @@
   // values and quoted user-facing labels cannot split one defect into multiple
   // identities or leak into the production join key.
   function structuralMessage(message) {
-    var input = String(message == null ? "" : message);
-    var out = "";
+    var input = String(message == null ? '' : message);
+    var out = '';
     for (var i = 0; i < input.length; i++) {
       var c = input[i];
       if (c === '"' || c === "'") {
         var quote = c;
         while (i + 1 < input.length && input[i + 1] !== quote) i++;
         if (i + 1 < input.length) i++;
-        out += "<q>";
-      } else if (c >= "0" && c <= "9") {
-        out += "#";
+        out += '<q>';
+      } else if (c >= '0' && c <= '9') {
+        out += '#';
         while (i + 1 < input.length && /[0-9.,]/.test(input[i + 1])) i++;
       } else {
         out += c;
@@ -1001,12 +1114,12 @@
 
   function crashIdentity(message) {
     return {
-      oracle: "crash",
-      invariant: "no-exception",
-      kind: "exception",
+      oracle: 'crash',
+      invariant: 'no-exception',
+      kind: 'exception',
       message: structuralMessage(message),
-      frame: "",
-      trigger: "",
+      frame: '',
+      trigger: '',
     };
   }
 
@@ -1020,7 +1133,6 @@
     _timer: null,
     _on: false,
     _build: null, // developer-provided { version, commit } or null
-
     init: function (opts) {
       if (this._on) return this;
       var cfg = Object.assign({}, DEFAULTS, opts || {});
@@ -1041,7 +1153,9 @@
 
       var self = this;
       // 1. observe an initial state once the DOM settles
-      this._settle(function () { self._observe("load"); });
+      this._settle(function () {
+        self._observe('load');
+      });
 
       // 2. navigations (SPA + classic)
       this._wrapHistory();
@@ -1049,66 +1163,90 @@
       // structural click instead of replacing it with a generic `nav`, or the
       // cloud replay loses the control that opened the destination screen.
       var observeNavigation = function () {
-        self._settle(function () { self._observe(self._pending || "nav"); });
+        self._settle(function () {
+          self._observe(self._pending || 'nav');
+        });
       };
-      addEventListener("popstate", observeNavigation);
-      addEventListener("hashchange", observeNavigation);
+      addEventListener('popstate', observeNavigation);
+      addEventListener('hashchange', observeNavigation);
 
       // 3. interactions -> remember structural action + display label, then re-snapshot
       addEventListener(
-        "click",
+        'click',
         function (e) {
           var t = e.target;
           while (t && t !== document && !interactive(t)) t = t.parentElement;
-          var label = t && t !== document ? nameOf(t) || "" : "";
+          var label = t && t !== document ? nameOf(t) || '' : '';
           var sel = t && t !== document ? actionSelectorOf(t) : null;
-          self._pending = { action: sel ? "tap:" + sel : "tap:?", label: label || undefined };
-          self._settle(function () { self._observe(self._pending); });
+          self._pending = { action: sel ? 'tap:' + sel : 'tap:?', label: label || undefined };
+          self._settle(function () {
+            self._observe(self._pending);
+          });
         },
-        true
+        true,
       );
 
       // 4. crash oracle: a genuine uncaught error is the `crash` oracle firing,
       //    tagged so, carrying the graph PATH to it (the seed of a deterministic
       //    repro). Environment/third-party noise is dropped so only oracle-grade
       //    findings ship. General (non-oracle) error capture is a future opt-in.
-      addEventListener("error", function (e) {
+      addEventListener('error', function (e) {
         var message = e.message || String(e);
         if (isCrashNoise(message, e.filename)) return;
         self._emit({
-          kind: "error",
-          oracle: "crash",
+          kind: 'error',
+          oracle: 'crash',
           findingIdentity: crashIdentity(message),
           sig: self._cur,
           path: self._errorPath(),
           message: message,
-          stack: e.error && e.error.stack ? String(e.error.stack).split("\n").slice(0, 8) : undefined,
+          stack:
+            e.error && e.error.stack ? String(e.error.stack).split('\n').slice(0, 8) : undefined,
           source: e.filename,
           line: e.lineno,
           context: self._errorContext(),
         });
       });
-      addEventListener("unhandledrejection", function (e) {
+      addEventListener('unhandledrejection', function (e) {
         var r = e.reason || {};
         var reason = r.message || String(r);
         if (isCrashNoise(reason, undefined)) return;
         self._emit({
-          kind: "error",
-          oracle: "crash",
-          findingIdentity: crashIdentity("unhandledrejection: " + reason),
+          kind: 'error',
+          oracle: 'crash',
+          findingIdentity: crashIdentity('unhandledrejection: ' + reason),
           sig: self._cur,
           path: self._errorPath(),
-          message: "unhandledrejection: " + reason,
-          stack: r.stack ? String(r.stack).split("\n").slice(0, 8) : undefined,
+          message: 'unhandledrejection: ' + reason,
+          stack: r.stack ? String(r.stack).split('\n').slice(0, 8) : undefined,
           context: self._errorContext(),
         });
       });
 
+      // Optional debug-build capture gesture. It is off by default so a shipped
+      // production app never turns an arbitrary user key chord into a finding.
+      if (cfg.testerCaptureShortcut) {
+        addEventListener(
+          'keydown',
+          function (e) {
+            if (e.altKey && e.shiftKey && String(e.key).toLowerCase() === 'b') {
+              if (e.preventDefault) e.preventDefault();
+              self.captureBug();
+            }
+          },
+          true,
+        );
+      }
+
       // 5. flush on a timer and when the page goes away
-      this._timer = setInterval(function () { self._flush(); }, cfg.flushMs);
-      addEventListener("pagehide", function () { self._flush(true); });
-      addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "hidden") self._flush(true);
+      this._timer = setInterval(function () {
+        self._flush();
+      }, cfg.flushMs);
+      addEventListener('pagehide', function () {
+        self._flush(true);
+      });
+      addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') self._flush(true);
       });
       return this;
     },
@@ -1125,11 +1263,11 @@
     start: function (opts) {
       var o = opts || {};
       if (o.appId == null) {
-        var host = "";
+        var host = '';
         try {
-          if (typeof location !== "undefined" && location.hostname) host = location.hostname;
+          if (typeof location !== 'undefined' && location.hostname) host = location.hostname;
         } catch (e) {}
-        o = Object.assign({}, o, { appId: host || "app" });
+        o = Object.assign({}, o, { appId: host || 'app' });
       }
       return this.init(o);
     },
@@ -1146,14 +1284,52 @@
     // Stored on a stable global (window.__reproit_invariants) so reproit reads
     // it without coupling to this SDK's internals.
     invariant: function (id, test) {
-      if (typeof id !== "string" || typeof test !== "function") return this;
-      if (typeof window === "undefined") return this;
+      if (typeof id !== 'string' || typeof test !== 'function') return this;
+      if (typeof window === 'undefined') return this;
       var reg = window.__reproit_invariants || (window.__reproit_invariants = []);
       for (var i = 0; i < reg.length; i++) {
-        if (reg[i].id === id) { reg[i].test = test; return this; }
+        if (reg[i].id === id) {
+          reg[i].test = test;
+          return this;
+        }
       }
       reg.push({ id: id, test: test });
       return this;
+    },
+
+    // Mark the current structural state as a tester-observed bug. This is not a
+    // confirmed finding yet: Cloud keeps it in pending captures until the CLI
+    // replays the path and reaches this exact state on a clean launch.
+    captureBug: function () {
+      if (!this._on || !this._cfg) return false;
+      var snap;
+      try {
+        snap = snapshot(this._cfg);
+      } catch (e) {
+        return false;
+      }
+      this._cur = snap.sig;
+      var path = this._errorPath();
+      var last = path.length ? path[path.length - 1].action : 'load';
+      this._emit({
+        kind: 'error',
+        oracle: 'tester-capture',
+        findingIdentity: {
+          oracle: 'tester-capture',
+          invariant: 'tester-observed-failure',
+          kind: 'structural-state',
+          message: '',
+          frame: '',
+          trigger: last,
+          boundary: snap.sig,
+        },
+        sig: snap.sig,
+        path: path,
+        message: 'Tester marked this structural state as incorrect',
+        context: this._errorContext(),
+      });
+      this._flush();
+      return true;
     },
 
     _settle: function (fn) {
@@ -1163,11 +1339,13 @@
 
     _wrapHistory: function () {
       var self = this;
-      ["pushState", "replaceState"].forEach(function (m) {
+      ['pushState', 'replaceState'].forEach(function (m) {
         var orig = history[m];
         history[m] = function () {
           var r = orig.apply(this, arguments);
-          self._settle(function () { self._observe(self._pending || "nav"); });
+          self._settle(function () {
+            self._observe(self._pending || 'nav');
+          });
           return r;
         };
       });
@@ -1183,7 +1361,7 @@
         // the signature ignores (e.g. "add to cart" only bumps a counter, yet
         // the later crash needs that item in the cart). Recorded as a self-loop
         // path step only; no edge event (the map has nothing new to learn).
-        if (step && typeof step === "object" && step.action) {
+        if (step && typeof step === 'object' && step.action) {
           var selfStep = { sig: snap.sig, action: step.action };
           if (!this._cfg.redactLabels && step.label) selfStep.label = step.label;
           this._path.push(selfStep);
@@ -1192,8 +1370,8 @@
         }
         return;
       }
-      var action = (step && typeof step === "object") ? step.action : step;
-      var label = (step && typeof step === "object") ? step.label : undefined;
+      var action = step && typeof step === 'object' ? step.action : step;
+      var label = step && typeof step === 'object' ? step.label : undefined;
       var from = this._cur;
       this._cur = snap.sig;
       var pathStep = { sig: snap.sig, action: action };
@@ -1201,9 +1379,9 @@
       this._path.push(pathStep);
       if (this._path.length > this._cfg.pathCap) this._path.shift();
       var ev = {
-        kind: "edge",
+        kind: 'edge',
         from: from,
-        action: action || "auto",
+        action: action || 'auto',
         to: snap.sig,
         labels: this._cfg.redactLabels ? undefined : snap.labels,
       };
@@ -1232,7 +1410,7 @@
             this._cur = sig;
           } catch (e) {}
         }
-        var step = { sig: sig || "?", action: this._pending.action };
+        var step = { sig: sig || '?', action: this._pending.action };
         if (!this._cfg.redactLabels && this._pending.label) step.label = this._pending.label;
         path.push(step);
       }
@@ -1253,7 +1431,9 @@
     _emit: function (ev) {
       ev.t = Date.now();
       if (this._cfg.onEvent) {
-        try { this._cfg.onEvent(ev); } catch (e) {}
+        try {
+          this._cfg.onEvent(ev);
+        } catch (e) {}
       }
       this._buf.push(ev);
       if (this._buf.length >= 50) this._flush();
@@ -1263,7 +1443,11 @@
       if (!this._buf.length) return;
       var batch = { appId: this._cfg.appId, sentAt: Date.now(), events: this._buf };
       batch.ctx = environmentContext();
-      if (this._cfg.context && typeof this._cfg.context === "object" && !Array.isArray(this._cfg.context)) {
+      if (
+        this._cfg.context &&
+        typeof this._cfg.context === 'object' &&
+        !Array.isArray(this._cfg.context)
+      ) {
         batch.ctx = Object.assign(batch.ctx, this._cfg.context);
       }
       // Stamp the developer-provided build identity as context.build (only the
@@ -1272,7 +1456,7 @@
       this._buf = [];
       var cfg = this._cfg;
       if (!cfg.endpoint) {
-        if (!cfg.onEvent && typeof console !== "undefined") console.debug("[reproit]", batch);
+        if (!cfg.onEvent && typeof console !== 'undefined') console.debug('[reproit]', batch);
         return;
       }
       var body = JSON.stringify(batch);
@@ -1281,10 +1465,10 @@
       if (useBeacon && navigator.sendBeacon && !cfg.key) {
         navigator.sendBeacon(cfg.endpoint, body);
       } else {
-        var headers = { "Content-Type": "application/json" };
-        if (cfg.key) headers["Authorization"] = "Bearer " + cfg.key;
+        var headers = { 'Content-Type': 'application/json' };
+        if (cfg.key) headers['Authorization'] = 'Bearer ' + cfg.key;
         fetch(cfg.endpoint, {
-          method: "POST",
+          method: 'POST',
           headers: headers,
           body: body,
           keepalive: true,
@@ -1320,5 +1504,5 @@
   ReproIt._actionKeyOf = actionKeyOf;
 
   global.ReproIt = ReproIt;
-  if (typeof module !== "undefined" && module.exports) module.exports = ReproIt;
-})(typeof window !== "undefined" ? window : this);
+  if (typeof module !== 'undefined' && module.exports) module.exports = ReproIt;
+})(typeof window !== 'undefined' ? window : this);

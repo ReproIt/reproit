@@ -81,7 +81,9 @@ const String envBarrier = String.fromEnvironment('REPROIT_SCENARIO_BARRIER');
 /// permanentlyDenied and marks each screen reached AFTER a denial with
 /// EXPLORE:PERMISSIONWALK; the Rust invariant then fires only for a marked screen
 /// that is also a graph dead end. Empty for ordinary runs (no denial sweep).
-const String envDenyPermission = String.fromEnvironment('REPROIT_DENY_PERMISSION');
+const String envDenyPermission = String.fromEnvironment(
+  'REPROIT_DENY_PERMISSION',
+);
 
 /// Parse a BCP47 string like "de", "pt-BR", or "zh_Hant_TW" into a Flutter
 /// [Locale]. Splits on '-' or '_'; uses the first subtag as the language and a
@@ -179,7 +181,8 @@ class FuzzCfg {
       replay: (j['replay'] as List?)?.cast<String>(),
       prefix: (j['prefix'] as List?)?.cast<String>(),
       edgeWeights: ew,
-      contractActions: (j['contractActions'] as List?)?.cast<String>() ?? const [],
+      contractActions:
+          (j['contractActions'] as List?)?.cast<String>() ?? const [],
       inputs: inputs,
       locale: j['locale'] as String?,
     );
@@ -823,7 +826,14 @@ void visit(SemanticsNode node, void Function(SemanticsData) f) {
 ///   label  the visible (localized) text, DISPLAY-ONLY: shown in map --show,
 ///          never folded into the signature or into `sel`.
 class Tappable {
-  Tappable(this.sel, this.role, this.index, this.key, this.label, this.inputPurpose);
+  Tappable(
+    this.sel,
+    this.role,
+    this.index,
+    this.key,
+    this.label,
+    this.inputPurpose,
+  );
   final String sel;
   final String role;
   final int index;
@@ -1034,7 +1044,8 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
     final sel = key != null ? 'key:$key' : 'role:${tn.role}#$idx';
     String? purpose;
     final marker = key?.split('reproit-purpose-');
-    if (marker != null && marker.length > 1) purpose = marker[1].split('--').first;
+    if (marker != null && marker.length > 1)
+      purpose = marker[1].split('--').first;
     if (purpose == null && tn.type == 'password') purpose = 'password';
     tappables.add(Tappable(sel, tn.role, idx, key, tn.label, purpose));
   }
@@ -1055,6 +1066,28 @@ class _TapNode {
 /// `print` lands in the drive-a.log the Rust side parses (no `flutter: `
 /// prefix, which the parser already tolerates).
 void emit(String line) => print(line);
+
+void emitJson(String marker, Map<String, dynamic> payload) {
+  emit('$marker ${jsonEncode(payload)}');
+}
+
+List<Map<String, dynamic>> roleElements(Snapshot snap) => snap.tappables
+    .take(maxLabelsPerState)
+    .map((element) => {"role": element.role})
+    .toList();
+
+List<Map<String, dynamic>> stateElements(Snapshot snap) => snap.tappables
+    .take(maxLabelsPerState)
+    .map(
+      (element) => {
+        "sel": element.sel,
+        "role": element.role,
+        "label": element.label,
+        if (element.inputPurpose != null) "inputPurpose": element.inputPurpose,
+        if (!element.hasKey) "nokey": true,
+      },
+    )
+    .toList();
 
 /// Drain the test framework's latched exception (if any) and re-emit it in the
 /// SAME block shape the simulator path produces, so modes/fuzz.rs
@@ -1124,7 +1157,13 @@ bool drainException(WidgetTester t, {String? phase}) {
 /// attribution); `point` is its on-screen hit-test centre in SEMANTICS (physical)
 /// space, used to join it to a semantics node.
 class _Operable {
-  _Operable(this.gestureKind, this.role, this.keyString, this.element, this.point);
+  _Operable(
+    this.gestureKind,
+    this.role,
+    this.keyString,
+    this.element,
+    this.point,
+  );
   final String gestureKind;
   final String role;
   final String? keyString;
@@ -1155,7 +1194,8 @@ Offset? _hitPoint(Element e) {
 /// other live callback) is correctly NOT operable.
 String? _operableKind(Widget w) {
   if (w is GestureDetector) {
-    final live = w.onTap != null ||
+    final live =
+        w.onTap != null ||
         w.onDoubleTap != null ||
         w.onLongPress != null ||
         w.onTapDown != null ||
@@ -1164,7 +1204,8 @@ String? _operableKind(Widget w) {
   }
   if (w is InkResponse) {
     // InkWell extends InkResponse.
-    final live = w.onTap != null ||
+    final live =
+        w.onTap != null ||
         w.onDoubleTap != null ||
         w.onLongPress != null ||
         w.onTapDown != null;
@@ -1300,8 +1341,13 @@ Map<String, dynamic> groundTruth(WidgetTester t, String sig) {
       final pt = _hitPoint(e);
       if (pt != null) {
         operables.add(
-          _Operable(kind, _operableRole(e.widget), keyStringOf(e.widget), e,
-              pt * dpr),
+          _Operable(
+            kind,
+            _operableRole(e.widget),
+            keyStringOf(e.widget),
+            e,
+            pt * dpr,
+          ),
         );
       }
     }
@@ -1318,7 +1364,8 @@ Map<String, dynamic> groundTruth(WidgetTester t, String sig) {
     void semWalk(SemanticsNode n) {
       final d = n.getSemanticsData();
       if (!d.hasFlag(SemanticsFlag.isHidden)) {
-        final named = d.label.trim().isNotEmpty ||
+        final named =
+            d.label.trim().isNotEmpty ||
             d.tooltip.trim().isNotEmpty ||
             d.value.trim().isNotEmpty;
         semNodes.add(_SemRect(n.id, _globalRect(n), roleOf(d), named));
@@ -1541,7 +1588,9 @@ List<Map<String, dynamic>> detectContentBugs(WidgetTester t) {
       final idx = perRoleId[role] ?? 0;
       perRoleId[role] = idx + 1;
       final roleIds = keyedIdsByRole[role];
-      final id = (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
+      final id = (roleIds != null && idx < roleIds.length)
+          ? roleIds[idx]
+          : null;
       final label = data.label.trim();
       final value = data.value.trim();
       String? reason = contentBugReason(label);
@@ -1598,7 +1647,8 @@ List<Map<String, dynamic>> detectBlankScreen(WidgetTester t) {
     if (content) return;
     final data = node.getSemanticsData();
     if (!data.hasFlag(SemanticsFlag.isHidden)) {
-      final named = data.label.trim().isNotEmpty ||
+      final named =
+          data.label.trim().isNotEmpty ||
           data.value.trim().isNotEmpty ||
           data.tooltip.trim().isNotEmpty;
       if (named ||
@@ -1673,26 +1723,40 @@ List<Map<String, dynamic>> detectSafeArea(WidgetTester t) {
       final idx = perRoleId[role] ?? 0;
       perRoleId[role] = idx + 1;
       final roleIds = keyedIdsByRole[role];
-      final id = (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
+      final id = (roleIds != null && idx < roleIds.length)
+          ? roleIds[idx]
+          : null;
       if (data.hasAction(SemanticsAction.tap)) {
         final r = _globalRect(node); // physical px
         if (r.width > 0 && r.height > 0) {
-          final key =
-              id != null ? 'key:$id' : 'role:${normalizeRole(role)}#$idx';
+          final key = id != null
+              ? 'key:$id'
+              : 'role:${normalizeRole(role)}#$idx';
           if (insetTop > 0) {
-            add(key, 'top', (r.bottom < insetTop ? r.bottom : insetTop) - r.top);
+            add(
+              key,
+              'top',
+              (r.bottom < insetTop ? r.bottom : insetTop) - r.top,
+            );
           }
           if (insetBottom > 0) {
             final bandTop = size.height - insetBottom;
-            add(key, 'bottom',
-                r.bottom - (r.top > bandTop ? r.top : bandTop));
+            add(key, 'bottom', r.bottom - (r.top > bandTop ? r.top : bandTop));
           }
           if (insetLeft > 0) {
-            add(key, 'left', (r.right < insetLeft ? r.right : insetLeft) - r.left);
+            add(
+              key,
+              'left',
+              (r.right < insetLeft ? r.right : insetLeft) - r.left,
+            );
           }
           if (insetRight > 0) {
             final bandLeft = size.width - insetRight;
-            add(key, 'right', r.right - (r.left > bandLeft ? r.left : bandLeft));
+            add(
+              key,
+              'right',
+              r.right - (r.left > bandLeft ? r.left : bandLeft),
+            );
           }
         }
       }
@@ -1740,7 +1804,9 @@ List<Map<String, dynamic>> detectTofu(WidgetTester t) {
       final idx = perRoleId[role] ?? 0;
       perRoleId[role] = idx + 1;
       final roleIds = keyedIdsByRole[role];
-      final id = (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
+      final id = (roleIds != null && idx < roleIds.length)
+          ? roleIds[idx]
+          : null;
       // A broken decode can surface in the label or the displayed value.
       final label = data.label.trim();
       final value = data.value.trim();
@@ -1789,6 +1855,7 @@ int _invariantFileOffset = 0;
 /// (sig id) pairs already emitted, so the same violation is not re-emitted
 /// across settles of one state.
 final Set<String> _emittedInvariants = <String>{};
+final Set<String> _emittedRelations = <String>{};
 
 /// Parse one line for the SDK marker `REPROIT_INVARIANT {json}`; returns its
 /// `{id,message}` items (message defaults to ""), or an empty list when the
@@ -1841,14 +1908,63 @@ void scrapeInvariants(String sig, String? route) {
   final items = <Map<String, String>>[];
   for (final line in utf8.decode(bytes).split('\n')) {
     if (line.trim().isEmpty) continue;
+    const relationMark = 'REPROIT_RELATION ';
+    final relationAt = line.indexOf(relationMark);
+    if (relationAt >= 0) {
+      try {
+        final obj = jsonDecode(
+          line.substring(relationAt + relationMark.length),
+        );
+        if (obj is Map &&
+            (obj['stableSamples'] as num?)?.toInt() != null &&
+            (obj['stableSamples'] as num).toInt() >= 2 &&
+            obj['checks'] is List) {
+          final checks = (obj['checks'] as List)
+              .whereType<Map>()
+              .map((x) => Map<String, dynamic>.from(x))
+              .where(
+                (x) =>
+                    x['kind'] == 'indicator-anchor' &&
+                    x['dependentKey'] is String &&
+                    x['ownerKey'] is String &&
+                    x['containerKey'] is String &&
+                    const ['PROVEN', 'VALID', 'UNKNOWN'].contains(x['outcome']),
+              )
+              .toList();
+          if (checks.isNotEmpty &&
+              _emittedRelations.add('$sig ${jsonEncode(checks)}')) {
+            final outcome = checks.any((x) => x['outcome'] == 'PROVEN')
+                ? 'PROVEN'
+                : (checks.every((x) => x['outcome'] == 'VALID')
+                      ? 'VALID'
+                      : 'UNKNOWN');
+            emitJson('EXPLORE:RELATIONSTATUS', {
+              "sig": sig,
+              if (route != null) "route": route,
+              "outcome": outcome,
+              "checks": checks,
+            });
+            if (outcome == 'PROVEN') {
+              emitJson('EXPLORE:RELATION', {
+                "sig": sig,
+                if (route != null) "route": route,
+                "items": checks.where((x) => x['outcome'] == 'PROVEN').toList(),
+              });
+            }
+          }
+        }
+      } catch (_) {}
+    }
     for (final it in parseInvariantItems(line)) {
       if (_emittedInvariants.add('$sig ${it['id']}')) items.add(it);
     }
   }
   if (items.isEmpty) return;
-  emit(
-    'EXPLORE:INVARIANT ${jsonEncode({"sig": sig, if (route != null) "route": route, "items": items})}',
-  );
+  emitJson('EXPLORE:INVARIANT', {
+    "sig": sig,
+    if (route != null) "route": route,
+    "items": items,
+  });
 }
 
 // NOTE: HANG is intentionally NOT implemented headless. A hang oracle needs a
@@ -2014,9 +2130,15 @@ Future<List<Map<String, dynamic>>> detectScrollRoundTrip(WidgetTester t) async {
 
   final pos = target.position;
   final start = pos.pixels;
-  final bandH =
-      viewport.height < scrollRoundTripBandPx ? viewport.height : scrollRoundTripBandPx;
-  final band = Rect.fromLTWH(viewport.left, viewport.top, viewport.width, bandH);
+  final bandH = viewport.height < scrollRoundTripBandPx
+      ? viewport.height
+      : scrollRoundTripBandPx;
+  final band = Rect.fromLTWH(
+    viewport.left,
+    viewport.top,
+    viewport.width,
+    bandH,
+  );
   try {
     final before = bandText(band).join('|');
     pos.jumpTo(pos.maxScrollExtent);
@@ -2031,7 +2153,7 @@ Future<List<Map<String, dynamic>>> detectScrollRoundTrip(WidgetTester t) async {
         'pos': 'y=${band.top.round()}',
         'before': clip(before),
         'after': clip(after),
-      }
+      },
     ];
   } finally {
     try {
@@ -2323,8 +2445,10 @@ void main() {
         final finder = eq >= 0 ? r.substring(0, eq) : r;
         final want = eq >= 0 ? (int.tryParse(r.substring(eq + 1)) ?? 0) : 0;
         final ok = await waitFor(() => countMatching(finder) == want);
+        final result = ok ? "pass" : "fail";
+        final got = countMatching(finder);
         emit(
-          'FUZZ:ASSERT ${ok ? "pass" : "fail"} count $finder want=$want got=${countMatching(finder)} actor=$who',
+          'FUZZ:ASSERT $result count $finder want=$want got=$got actor=$who',
         );
       }
     }
@@ -2361,22 +2485,23 @@ void main() {
       Future<Snapshot> observe() async {
         final snap = snapshotWith(tester, valueSelectors);
         final sig = effectiveSigOf(snap);
-        emit(
-          'FUZZ:OBS ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "labels": snap.labels.take(maxLabelsPerState).toList(), "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"role": e.role}).toList()})}',
-        );
+        emitJson('FUZZ:OBS', {
+          "sig": sig,
+          if (snap.anchor != null) "route": snap.anchor,
+          "labels": snap.labels.take(maxLabelsPerState).toList(),
+          "elements": roleElements(snap),
+        });
         if (seenStates.add(sig)) {
           // sig: STRUCTURAL + value-state (roles + shape + keys + V: classes),
           // locale-invariant. labels: DISPLAY-ONLY visible text (map --show),
           // never in the sig. elements: structural selectors for replay; `nokey`
           // flags a tappable that has no developer key (the map layer can warn).
-          emit(
-            'EXPLORE:STATE ${jsonEncode({
-              "sig": sig,
-              if (snap.anchor != null) "route": snap.anchor,
-              "labels": snap.labels.take(maxLabelsPerState).toList(),
-              "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"sel": e.sel, "role": e.role, "label": e.label, if (e.inputPurpose != null) "inputPurpose": e.inputPurpose, if (!e.hasKey) "nokey": true}).toList(),
-            })}',
-          );
+          emitJson('EXPLORE:STATE', {
+            "sig": sig,
+            if (snap.anchor != null) "route": snap.anchor,
+            "labels": snap.labels.take(maxLabelsPerState).toList(),
+            "elements": stateElements(snap),
+          });
           // Operability/a11y ground-truth for the SAME sig: graph1 (operable) x
           // graph2 (semantics role/name) + keyboard reachability/activation.
           emit('EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, sig))}');
@@ -2384,18 +2509,21 @@ void main() {
           // semantics-label scan (no timing), valid headless. Silent when clean.
           final cbug = detectContentBugs(tester);
           if (cbug.isNotEmpty) {
-            emit(
-              'EXPLORE:CONTENTBUG ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": cbug})}',
-            );
+            emitJson('EXPLORE:CONTENTBUG', {
+              "sig": sig,
+              if (snap.anchor != null) "route": snap.anchor,
+              "items": cbug,
+            });
           }
           // STUCK-KEYBOARD for this newly-seen state, keyed by the SAME sig.
           // Headless view insets are only non-zero when the harness simulates
           // an IME, so this is silent in plain widget-test runs. Silent when
           // the screen is clean.
           if (detectStuckKeyboard(tester)) {
-            emit(
-              'EXPLORE:STUCKKEYBOARD ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor})}',
-            );
+            emitJson('EXPLORE:STUCKKEYBOARD', {
+              "sig": sig,
+              if (snap.anchor != null) "route": snap.anchor,
+            });
           }
           // SAFE-AREA for this newly-seen state, keyed by the SAME sig. Pure
           // inset-vs-rect geometry in logical px (no timing), valid headless and
@@ -2403,18 +2531,22 @@ void main() {
           // (and always silent on a device/test with no insets at all).
           final safeArea = detectSafeArea(tester);
           if (safeArea.isNotEmpty) {
-            emit(
-              'EXPLORE:SAFEAREA ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": safeArea})}',
-            );
+            emitJson('EXPLORE:SAFEAREA', {
+              "sig": sig,
+              if (snap.anchor != null) "route": snap.anchor,
+              "items": safeArea,
+            });
           }
           // PERMISSION-WALK: under a denial sweep, once a permission request has
           // actually been denied, mark each newly-seen screen as reached AFTER
           // the denial. The Rust invariant fires only for a marked screen that is
           // ALSO a graph dead end. Silent outside a denial sweep.
           if (permissionDeny && permissionDenialSeen) {
-            emit(
-              'EXPLORE:PERMISSIONWALK ${jsonEncode({"sig": sig, "permission": envDenyPermission, if (snap.anchor != null) "route": snap.anchor})}',
-            );
+            emitJson('EXPLORE:PERMISSIONWALK', {
+              "sig": sig,
+              "permission": envDenyPermission,
+              if (snap.anchor != null) "route": snap.anchor,
+            });
           }
           // BLANK-SCREEN for this newly-seen state, keyed by the SAME sig.
           // Fires only when the settled tree shows NOTHING (no labels, no
@@ -2423,18 +2555,22 @@ void main() {
           // semantics tree.
           final blank = detectBlankScreen(tester);
           if (blank.isNotEmpty) {
-            emit(
-              'EXPLORE:BLANKSCREEN ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": blank})}',
-            );
+            emitJson('EXPLORE:BLANKSCREEN', {
+              "sig": sig,
+              if (snap.anchor != null) "route": snap.anchor,
+              "items": blank,
+            });
           }
           // BROKEN-ASSET (tofu) for this newly-seen state, keyed by the SAME
           // sig. A rendered U+FFFD is an encoding failure leaked to the
           // screen; pure label scan, silent when every label is clean.
           final tofu = detectTofu(tester);
           if (tofu.isNotEmpty) {
-            emit(
-              'EXPLORE:BROKENASSET ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": tofu})}',
-            );
+            emitJson('EXPLORE:BROKENASSET', {
+              "sig": sig,
+              if (snap.anchor != null) "route": snap.anchor,
+              "items": tofu,
+            });
           }
           if (fuzz.replay == null) {
             // SCROLL ROUND-TRIP for this newly-seen state, keyed by the SAME sig.
@@ -2445,9 +2581,11 @@ void main() {
             // stable or nothing scrolls.
             final srt = await detectScrollRoundTrip(tester);
             if (srt.isNotEmpty) {
-              emit(
-                'EXPLORE:SCROLLROUNDTRIP ${jsonEncode({"sig": sig, if (snap.anchor != null) "route": snap.anchor, "items": srt})}',
-              );
+              emitJson('EXPLORE:SCROLLROUNDTRIP', {
+                "sig": sig,
+                if (snap.anchor != null) "route": snap.anchor,
+                "items": srt,
+              });
             }
           }
         }
@@ -2502,12 +2640,16 @@ void main() {
         final after = await observe();
         final got = structuralSignature(after.anchor, after.tree);
         if (hadContent && got != expected) {
-          emit(
-            'EXPLORE:ROTATION ${jsonEncode({"sig": sigOf(snap), if (snap.anchor != null) "route": snap.anchor, "expected": expected, "got": got})}',
-          );
+          emitJson('EXPLORE:ROTATION', {
+            "sig": sigOf(snap),
+            if (snap.anchor != null) "route": snap.anchor,
+            "expected": expected,
+            "got": got,
+          });
         }
         return after;
       }
+
       // BACKGROUND-RESTORE-stability: drive the app lifecycle to the background
       // (inactive -> paused) then restore it (inactive -> resumed) and re-observe.
       // A correct app returns to the SAME screen with state intact; one that drops
@@ -2528,21 +2670,29 @@ void main() {
           // pump; we settle only once the app is resumed and frames are enabled
           // again. This is version-robust: pumping only in a frame-enabled state
           // is always safe on older Flutter too.
-          tester.binding
-              .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-          tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-          tester.binding
-              .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-          tester.binding
-              .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.paused,
+          );
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
           await settle(tester, 600);
         } catch (_) {}
         final after = await observe();
         final got = structuralSignature(after.anchor, after.tree);
         if (hadContent && got != expected) {
-          emit(
-            'EXPLORE:BGRESTORE ${jsonEncode({"sig": sigOf(snap), if (snap.anchor != null) "route": snap.anchor, "expected": expected, "got": got})}',
-          );
+          emitJson('EXPLORE:BGRESTORE', {
+            "sig": sigOf(snap),
+            if (snap.anchor != null) "route": snap.anchor,
+            "expected": expected,
+            "got": got,
+          });
         }
         return after;
       }
@@ -2587,8 +2737,10 @@ void main() {
         // refreshed to the (restored) reality; skipped in replay so a recorded
         // clip is not perturbed.
         if (fuzz.replay == null) {
-          if (rotChecked.add(sigOf(current))) current = await rotationCheck(current);
-          if (bgChecked.add(sigOf(current))) current = await backgroundCheck(current);
+          if (rotChecked.add(sigOf(current)))
+            current = await rotationCheck(current);
+          if (bgChecked.add(sigOf(current)))
+            current = await backgroundCheck(current);
         }
         // Choose: exact replay > frontier prefix > seeded random > systematic.
         String? act;
@@ -2604,7 +2756,11 @@ void main() {
           final ew = fuzz.edgeWeights[sigOf(current)] ?? const {};
           final options = [...taps.map((s) => 'tap:$s'), 'back'];
           final weights = options
-              .map((o) => (fuzz.contractActions.contains(o) ? 4.0 : 1.0) / (1 + (ew[o] ?? 0)))
+              .map(
+                (o) =>
+                    (fuzz.contractActions.contains(o) ? 4.0 : 1.0) /
+                    (1 + (ew[o] ?? 0)),
+              )
               .toList();
           final total = weights.fold<double>(0, (a, b) => a + b);
           var r = (rng.next(1 << 20) / (1 << 20)) * total;
@@ -2634,9 +2790,11 @@ void main() {
           // stuck counter resets on any EFFECTIVE action (state OR content moved),
           // so a value-state screen (counter/calculator) does not stall the walk.
           if (popped && sigOf(next) != sigOf(current)) {
-            emit(
-              'EXPLORE:EDGE ${jsonEncode({"from": sigOf(current), "action": "back", "to": sigOf(next)})}',
-            );
+            emitJson('EXPLORE:EDGE', {
+              "from": sigOf(current),
+              "action": "back",
+              "to": sigOf(next),
+            });
           }
           if (popped && effective(current, next)) {
             stuck = 0;
@@ -2684,9 +2842,11 @@ void main() {
         drainException(tester, phase: 'during the walk');
         final next = await observe();
         if (sigOf(next) != sigOf(current)) {
-          emit(
-            'EXPLORE:EDGE ${jsonEncode({"from": sigOf(current), "action": "tap:$sel", "to": sigOf(next)})}',
-          );
+          emitJson('EXPLORE:EDGE', {
+            "from": sigOf(current),
+            "action": "tap:$sel",
+            "to": sigOf(next),
+          });
         }
         // Layer 1: reset the stall counter on any EFFECTIVE action, even when
         // the state key is unchanged (e.g. 41 -> 42 keeps POS2 but content moved).
@@ -2741,19 +2901,22 @@ void main() {
       final scenarioSeen = <String>{};
       String observeScenario() {
         final snap = snapshot(tester);
-        emit(
-          'FUZZ:OBS ${jsonEncode({"sig": snap.sig, if (snap.anchor != null) "route": snap.anchor, "labels": snap.labels.take(maxLabelsPerState).toList(), "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"role": e.role}).toList()})}',
-        );
+        emitJson('FUZZ:OBS', {
+          "sig": snap.sig,
+          if (snap.anchor != null) "route": snap.anchor,
+          "labels": snap.labels.take(maxLabelsPerState).toList(),
+          "elements": roleElements(snap),
+        });
         if (scenarioSeen.add(snap.sig)) {
+          emitJson('EXPLORE:STATE', {
+            "sig": snap.sig,
+            if (snap.anchor != null) "route": snap.anchor,
+            "labels": snap.labels.take(maxLabelsPerState).toList(),
+            "elements": stateElements(snap),
+          });
           emit(
-            'EXPLORE:STATE ${jsonEncode({
-              "sig": snap.sig,
-              if (snap.anchor != null) "route": snap.anchor,
-              "labels": snap.labels.take(maxLabelsPerState).toList(),
-              "elements": snap.tappables.take(maxLabelsPerState).map((e) => {"sel": e.sel, "role": e.role, "label": e.label, if (e.inputPurpose != null) "inputPurpose": e.inputPurpose, if (!e.hasKey) "nokey": true}).toList(),
-            })}',
+            'EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, snap.sig))}',
           );
-          emit('EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, snap.sig))}');
         }
         return snap.sig;
       }
@@ -2832,9 +2995,11 @@ void main() {
         final newSig = observeScenario();
         final isEdge = act == 'back' || act.startsWith('tap:');
         if (isEdge && lastSig != null && newSig != lastSig) {
-          emit(
-            'EXPLORE:EDGE ${jsonEncode({"from": lastSig, "action": act == 'back' ? 'back' : act, "to": newSig})}',
-          );
+          emitJson('EXPLORE:EDGE', {
+            "from": lastSig,
+            "action": act == 'back' ? 'back' : act,
+            "to": newSig,
+          });
         }
         lastSig = newSig;
         try {

@@ -1,15 +1,15 @@
 //! Flicker oracle: an INTRA-run visual-jank detector. Where the `visual` oracle
 //! diffs a settled capture against a committed baseline (cross-run regression),
-//! this looks for a transient bad frame WITHIN a single run: a flash, an unstyled
-//! frame, a layout that jumps and snaps back during a transition. It needs no
-//! baseline, so it fits the "automatic, no curated goldens" model.
+//! this looks for a transient bad frame WITHIN a single run: a flash, an
+//! unstyled frame, a layout that jumps and snaps back during a transition. It
+//! needs no baseline, so it fits the "automatic, no curated goldens" model.
 //!
 //! Source: the repro video (already recorded for `--record`). We sample frames
-//! with ffmpeg (already a runner dependency), downscale them (robust to AA noise
-//! and cheap), and flag any frame i that is far from BOTH neighbors while the
-//! neighbors are close to each other, i.e. the screen jumped away at frame i and
-//! came back. That "spike that resolves" is exactly a flicker; a real navigation
-//! is a jump that does NOT come back, so it does not trip.
+//! with ffmpeg (already a runner dependency), downscale them (robust to AA
+//! noise and cheap), and flag any frame i that is far from BOTH neighbors while
+//! the neighbors are close to each other, i.e. the screen jumped away at frame
+//! i and came back. That "spike that resolves" is exactly a flicker; a real
+//! navigation is a jump that does NOT come back, so it does not trip.
 //!
 //! Caveat: pixels are not deterministic across machines/GPUs/fonts the way the
 //! structural signature is, so this is a tolerance-based advisory signal, not a

@@ -25,17 +25,15 @@ namespace ReproIt.ParityTests
         {
             var cfg = new ReproItConfig("t") { MaxLabels = 2, MaxLabelLen = 40 };
             var engine = new Engine(cfg);
-            var nodes = new List<RawNode>
-            {
+            var nodes = new List<RawNode> {
                 new RawNode("Home", true),
-                new RawNode("Home", true),     // dup -> collapsed
+                new RawNode("Home", true), // dup -> collapsed
                 new RawNode("Settings", true),
-                new RawNode("Profile", true),  // over MaxLabels cap of 2
-                new RawNode("", true),         // unnamed -> omitted from display labels
+                new RawNode("Profile", true), // over MaxLabels cap of 2
+                new RawNode("", true),        // unnamed -> omitted from display labels
             };
-            var tree = Screen(
-                new Node("button") { Id = "home" },
-                new Node("button") { Id = "settings" });
+            var tree =
+                Screen(new Node("button") { Id = "home" }, new Node("button") { Id = "settings" });
             var snap = engine.Reduce(nodes, tree, "/home");
             Assert.Equal(2, snap.Labels.Count);
             Assert.Equal(Signature.Of("/home", tree), snap.Sig);
@@ -45,11 +43,14 @@ namespace ReproIt.ParityTests
         public void SignatureExcludesLocalizedText()
         {
             var engine = new Engine(new ReproItConfig("t"));
-            var tree = Screen(
-                new Node("header") { Id = "title" },
-                new Node("button") { Id = "go" });
-            var en = engine.Reduce(new List<RawNode> { new RawNode("Welcome", false), new RawNode("Continue", false) }, tree, "/login");
-            var ja = engine.Reduce(new List<RawNode> { new RawNode("ようこそ", false), new RawNode("続ける", false) }, tree, "/login");
+            var tree =
+                Screen(new Node("header") { Id = "title" }, new Node("button") { Id = "go" });
+            var en = engine.Reduce(
+                new List<RawNode> { new RawNode("Welcome", false), new RawNode("Continue", false) },
+                tree, "/login");
+            var ja = engine.Reduce(
+                new List<RawNode> { new RawNode("ようこそ", false), new RawNode("続ける", false) },
+                tree, "/login");
             Assert.Equal(en.Sig, ja.Sig);
         }
 
@@ -63,15 +64,18 @@ namespace ReproIt.ParityTests
 
             var home = Screen(new Node("header") { Id = "home" });
             string homeSig = Signature.Of("/home", home);
-            var settings = Screen(
-                new Node("header") { Id = "title" },
-                new Node("switch") { Id = "notifications" });
+            var settings = Screen(new Node("header") { Id = "title" },
+                                  new Node("switch") { Id = "notifications" });
             string settingsSig = Signature.Of("/settings", settings);
 
-            engine.Observe(engine.Reduce(new List<RawNode> { new RawNode("Home Screen", false) }, home, "/home"), "load");
+            engine.Observe(engine.Reduce(new List<RawNode> { new RawNode("Home Screen", false) },
+                                         home, "/home"),
+                           "load");
             engine.NoteTap("key:open-settings", "Open Settings");
             clock = 2000L;
-            engine.Observe(engine.Reduce(new List<RawNode> { new RawNode("Settings", false), new RawNode("Back", false) }, settings, "/settings"));
+            engine.Observe(engine.Reduce(
+                new List<RawNode> { new RawNode("Settings", false), new RawNode("Back", false) },
+                settings, "/settings"));
 
             Assert.Equal(2, captured.Count);
             var load = captured[0];
@@ -87,12 +91,19 @@ namespace ReproIt.ParityTests
             Assert.Equal(settingsSig, tap["to"]);
 
             clock = 3000L;
-            var err = engine.RecordError("boom", new List<string> { "a", "b" }, source: "X.cs", line: 9);
+            var err =
+                engine.RecordError("boom", new List<string> { "a", "b" }, source: "X.cs", line: 9);
             Assert.Equal("error", err["kind"]);
             Assert.Equal(settingsSig, err["sig"]);
             Assert.Equal(9, err["line"]);
             var path = (List<object>)err["path"];
             Assert.Equal(2, path.Count);
+
+            var capture = engine.CaptureBug();
+            Assert.Equal("tester-capture", capture["oracle"]);
+            var identity = (IDictionary<string, object>)capture["findingIdentity"];
+            Assert.Equal(settingsSig, identity["boundary"]);
+            Assert.Equal("tester-observed-failure", identity["invariant"]);
         }
 
         [Fact]
@@ -107,34 +118,32 @@ namespace ReproIt.ParityTests
         public void BatchEnvelopeIncludesCtxWhenSetWithExactShape()
         {
             var engine = new Engine(new ReproItConfig("example"), now: () => 1_717_939_200_123L);
-            engine.SetContexts(new Dictionary<string, object>
-            {
+            engine.SetContexts(new Dictionary<string, object> {
                 { "platform", "winui" },
                 { "locale", "en-US" },
                 { "tz", "America/New_York" },
             });
-            var ev = new Dictionary<string, object>
-            {
+            var ev = new Dictionary<string, object> {
                 { "kind", "edge" },
                 { "action", "load" },
                 { "to", "811c9dc5" },
                 { "t", 1_717_939_200_123L },
             };
             string body = engine.BuildBatch(new List<IDictionary<string, object>> { ev });
-            Assert.Equal(
-                "{\"appId\":\"example\",\"sentAt\":1717939200123," +
-                "\"ctx\":{\"platform\":\"winui\",\"locale\":\"en-US\"," +
-                "\"tz\":\"America/New_York\"}," +
-                "\"events\":[{\"kind\":\"edge\",\"action\":\"load\"," +
-                "\"to\":\"811c9dc5\",\"t\":1717939200123}]}",
-                body);
+            Assert.Equal("{\"appId\":\"example\",\"sentAt\":1717939200123," +
+                             "\"ctx\":{\"platform\":\"winui\",\"locale\":\"en-US\"," +
+                             "\"tz\":\"America/New_York\"}," +
+                             "\"events\":[{\"kind\":\"edge\",\"action\":\"load\"," +
+                             "\"to\":\"811c9dc5\",\"t\":1717939200123}]}",
+                         body);
         }
 
         [Fact]
         public void IdentifyHashesUserIdAndMergesContext()
         {
             var engine = new Engine(new ReproItConfig("example"));
-            engine.Identify("user-42", new Dictionary<string, object> { { "plan", "pro" }, { "role", "admin" } });
+            engine.Identify("user-42", new Dictionary<string, object> { { "plan", "pro" },
+                                                                        { "role", "admin" } });
             var ctx = engine.Context();
             var uid = (string)ctx["uid"];
             Assert.NotEqual("user-42", uid);
@@ -147,8 +156,7 @@ namespace ReproIt.ParityTests
         [Fact]
         public void ConfiguredBuildIdentityIsAddedToContext()
         {
-            var engine = new Engine(new ReproItConfig("example")
-            {
+            var engine = new Engine(new ReproItConfig("example") {
                 BuildVersion = "1.4.2",
                 BuildCommit = "abc123",
             });
@@ -171,8 +179,7 @@ namespace ReproIt.ParityTests
         public void JsonEncodingEscapesAndOmitsNulls()
         {
             var engine = new Engine(new ReproItConfig("example"), now: () => 1_717_939_200_123L);
-            var ev = new Dictionary<string, object>
-            {
+            var ev = new Dictionary<string, object> {
                 { "kind", "edge" },
                 { "action", "tap:key:open-settings" },
                 { "label", "Open \"Settings\"" },
@@ -184,9 +191,10 @@ namespace ReproIt.ParityTests
             string body = engine.BuildBatch(new List<IDictionary<string, object>> { ev });
             Assert.Equal(
                 "{\"appId\":\"example\",\"sentAt\":1717939200123,\"events\":" +
-                "[{\"kind\":\"edge\",\"action\":\"tap:key:open-settings\"," +
-                "\"label\":\"Open \\\"Settings\\\"\",\"to\":\"054d1bbf\",\"labels\":[\"Settings\",\"Back\"]," +
-                "\"t\":1717939200123}]}",
+                    "[{\"kind\":\"edge\",\"action\":\"tap:key:open-settings\"," +
+                    "\"label\":\"Open " +
+                    "\\\"Settings\\\"\",\"to\":\"054d1bbf\",\"labels\":[\"Settings\",\"Back\"]," +
+                    "\"t\":1717939200123}]}",
                 body);
         }
 
@@ -214,8 +222,7 @@ namespace ReproIt.ParityTests
             string json = Json.Encode(Fingerprint.FingerprintValue(raw));
             Assert.DoesNotContain(raw, json);
 
-            var fields = Fingerprint.FingerprintFields(new List<KeyValuePair<string, string>>
-            {
+            var fields = Fingerprint.FingerprintFields(new List<KeyValuePair<string, string>> {
                 new KeyValuePair<string, string>("email", "a@b.co"),
                 new KeyValuePair<string, string>("#1", "12345"),
                 new KeyValuePair<string, string>("note", ""),
@@ -238,13 +245,20 @@ namespace ReproIt.ParityTests
             Assert.Equal(5, (int)Fingerprint.FingerprintValue("hello")["graphemes"]);
             Assert.Equal(2, (int)Fingerprint.FingerprintValue("e\u0301")["len"]);
             Assert.Equal(1, (int)Fingerprint.FingerprintValue("e\u0301")["graphemes"]);
-            Assert.Equal(1, (int)Fingerprint.FingerprintValue("👨‍👩‍👧‍👦")["graphemes"]);
+            Assert.Equal(
+                1, (int)Fingerprint.FingerprintValue("👨‍👩‍👧‍👦")["graphemes"]);
 
             // scripts: sorted unique buckets present.
-            Assert.Equal(new List<string> { "Latin" }, (List<string>)Fingerprint.FingerprintValue("hello")["scripts"]);
-            Assert.Equal(new List<string> { "Arabic" }, (List<string>)Fingerprint.FingerprintValue("\u0645\u0631\u062D\u0628\u0627")["scripts"]);
-            Assert.Equal(new List<string> { "Arabic", "Latin" }, (List<string>)Fingerprint.FingerprintValue("hi \u0645\u0631\u062D\u0628\u0627")["scripts"]);
-            Assert.Equal(new List<string> { "CJK" }, (List<string>)Fingerprint.FingerprintValue("\u65E5\u672C\u8A9E")["scripts"]);
+            Assert.Equal(new List<string> { "Latin" },
+                         (List<string>)Fingerprint.FingerprintValue("hello")["scripts"]);
+            Assert.Equal(new List<string> { "Arabic" },
+                         (List<string>)Fingerprint.FingerprintValue(
+                             "\u0645\u0631\u062D\u0628\u0627")["scripts"]);
+            Assert.Equal(new List<string> { "Arabic", "Latin" },
+                         (List<string>)Fingerprint.FingerprintValue(
+                             "hi \u0645\u0631\u062D\u0628\u0627")["scripts"]);
+            Assert.Equal(new List<string> { "CJK" }, (List<string>)Fingerprint.FingerprintValue(
+                                                         "\u65E5\u672C\u8A9E")["scripts"]);
             Assert.Empty((List<string>)Fingerprint.FingerprintValue("12345")["scripts"]);
 
             // hasNewline
@@ -277,8 +291,8 @@ namespace ReproIt.ParityTests
         {
             var prev = System.Console.Error;
             var sw = new System.IO.StringWriter();
-            System.Environment.SetEnvironmentVariable(
-                "REPROIT_UNDER_FUZZER", underFuzzer ? "1" : null);
+            System.Environment.SetEnvironmentVariable("REPROIT_UNDER_FUZZER",
+                                                      underFuzzer ? "1" : null);
             System.Console.SetError(sw);
             try
             {
@@ -308,7 +322,8 @@ namespace ReproIt.ParityTests
             engine.Invariant("throws", () => throw new System.InvalidOperationException("kaboom"));
 
             var tree = Screen(new Node("button") { Id = "home" });
-            var snap = engine.Reduce(new List<RawNode> { new RawNode("Home", true) }, tree, "/home");
+            var snap =
+                engine.Reduce(new List<RawNode> { new RawNode("Home", true) }, tree, "/home");
 
             var marker = CaptureObserve(engine, snap, underFuzzer: true);
             Assert.NotNull(marker);
@@ -332,7 +347,8 @@ namespace ReproIt.ParityTests
             var engine = new Engine(new ReproItConfig("t"));
             engine.Invariant("holds", () => InvariantResult.Ok());
             var tree = Screen(new Node("button") { Id = "home" });
-            var snap = engine.Reduce(new List<RawNode> { new RawNode("Home", true) }, tree, "/home");
+            var snap =
+                engine.Reduce(new List<RawNode> { new RawNode("Home", true) }, tree, "/home");
             // A satisfied registry writes nothing even under the fuzzer.
             Assert.Null(CaptureObserve(engine, snap, underFuzzer: true));
 

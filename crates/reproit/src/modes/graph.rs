@@ -1,13 +1,13 @@
 //! App-map visualization: render the state graph for humans.
 //!
-//! - mermaid: paste into FigJam (native Mermaid import), GitHub markdown,
-//!   or docs. The design-team artifact: a living user-flow diagram.
+//! - mermaid: paste into FigJam (native Mermaid import), GitHub markdown, or
+//!   docs. The design-team artifact: a living user-flow diagram.
 //! - dot: Graphviz for pipelines that want it.
 //!
 //! The input is reproit's learned internal app model or explicit appmap JSON
 //! (schema: src/appmap.rs); see examples/appmap.example.json.
 
-use crate::appmap::{Action, AppMap, InterruptPolicy, Reversibility};
+use crate::model::appmap::{Action, AppMap, InterruptPolicy, Reversibility};
 use anyhow::{Context, Result};
 use std::path::Path;
 

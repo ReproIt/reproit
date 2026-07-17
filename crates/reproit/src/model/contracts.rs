@@ -1,8 +1,7 @@
 //! Portable temporal contracts over normalized Reproit observations.
 
-use crate::observation::Observation;
+use crate::model::observation::Observation;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -418,10 +417,7 @@ fn collect_action_hints(formula: &Formula, actions: &mut BTreeSet<String>) {
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    crate::infra::sha256_hex(bytes)
 }
 
 #[cfg(test)]

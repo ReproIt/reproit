@@ -47,7 +47,8 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 fn common() -> &'static str {
-    "devices:\n  namePrefix: Smoke\njourneys:\n  driver: \"\"\n  doneMarkers: [\"All tests passed\"]\n"
+    "devices:\n  namePrefix: Smoke\njourneys:\n  driver: \"\"\n  doneMarkers: [\"All tests \
+     passed\"]\n"
 }
 
 fn config_for(platform: &str) -> String {
@@ -56,7 +57,10 @@ fn config_for(platform: &str) -> String {
     let web_runner = root.join("runners/web").display().to_string();
     match platform {
         "flutter-ios-sim" => format!(
-            "app:\n  platform: flutter-ios-sim\n  projectDir: frontend\n  bundleId: com.example.smoke\n{}",
+            concat!(
+                "app:\n  platform: flutter-ios-sim\n",
+                "  projectDir: frontend\n  bundleId: com.example.smoke\n{}"
+            ),
             common()
         ),
         "web" => format!(
@@ -64,30 +68,65 @@ fn config_for(platform: &str) -> String {
             common()
         ),
         "rn-appium" => format!(
-            "app:\n  platform: rn-appium\n  rnRunnerDir: {}/runners/rn\n  appiumUrl: http://127.0.0.1:4723\n  appiumCaps:\n    platformName: Android\n    appium:automationName: UiAutomator2\n    appium:app: ./app-debug.apk\n{}",
+            concat!(
+                "app:\n  platform: rn-appium\n  rnRunnerDir: {}/runners/rn\n",
+                "  appiumUrl: http://127.0.0.1:4723\n  appiumCaps:\n",
+                "    platformName: Android\n",
+                "    appium:automationName: UiAutomator2\n",
+                "    appium:app: ./app-debug.apk\n{}"
+            ),
             root.display(),
             common()
         ),
         "swift-ios" => format!(
-            "app:\n  platform: swift-ios\n  appiumUrl: http://127.0.0.1:4723\n  appiumCaps:\n    platformName: iOS\n    appium:automationName: XCUITest\n    appium:bundleId: com.example.smoke\n{}",
+            concat!(
+                "app:\n  platform: swift-ios\n",
+                "  appiumUrl: http://127.0.0.1:4723\n  appiumCaps:\n",
+                "    platformName: iOS\n",
+                "    appium:automationName: XCUITest\n",
+                "    appium:bundleId: com.example.smoke\n{}"
+            ),
             common()
         ),
         "android" => format!(
-            "app:\n  platform: android\n  appiumUrl: http://127.0.0.1:4723\n  appiumCaps:\n    platformName: Android\n    appium:automationName: UiAutomator2\n    appium:app: ./app-debug.apk\n{}",
+            concat!(
+                "app:\n  platform: android\n",
+                "  appiumUrl: http://127.0.0.1:4723\n  appiumCaps:\n",
+                "    platformName: Android\n",
+                "    appium:automationName: UiAutomator2\n",
+                "    appium:app: ./app-debug.apk\n{}"
+            ),
             common()
         ),
         "electron" | "tauri" | "imgui" | "clay" | "tui" | "qt" | "gtk" | "avalonia"
         | "wxwidgets" => format!(
-            "app:\n  platform: {platform}\n  executable: ./missing-smoke-target\n  runnerDir: {runners}\n{}",
-            common()
+            concat!(
+                "app:\n  platform: {platform}\n",
+                "  executable: ./missing-smoke-target\n",
+                "  runnerDir: {runners}\n{}"
+            ),
+            common(),
+            platform = platform,
+            runners = runners
         ),
         "swift-macos" => format!(
-            "app:\n  platform: swift-macos\n  executable: /Applications/MissingSmokeTarget.app\n  bundleId: com.example.smoke\n  runnerDir: {runners}\n{}",
-            common()
+            concat!(
+                "app:\n  platform: swift-macos\n",
+                "  executable: /Applications/MissingSmokeTarget.app\n",
+                "  bundleId: com.example.smoke\n",
+                "  runnerDir: {runners}\n{}"
+            ),
+            common(),
+            runners = runners
         ),
         "winui" => format!(
-            "app:\n  platform: winui\n  executable: C:/MissingSmokeTarget/Smoke.exe\n  runnerDir: {runners}\n{}",
-            common()
+            concat!(
+                "app:\n  platform: winui\n",
+                "  executable: C:/MissingSmokeTarget/Smoke.exe\n",
+                "  runnerDir: {runners}\n{}"
+            ),
+            common(),
+            runners = runners
         ),
         other => panic!("missing config template for {other}"),
     }
@@ -153,11 +192,13 @@ fn every_supported_platform_doctor_exits_before_timeout() {
         );
         assert!(
             matches!(code, Some(0) | Some(1)),
-            "unexpected exit for platform {platform}: {code:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            "unexpected exit for platform {platform}: \
+             {code:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
         assert!(
             stdout.contains("\"command\": \"doctor\""),
-            "doctor did not emit JSON for platform {platform}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            "doctor did not emit JSON for platform \
+             {platform}\nstdout:\n{stdout}\nstderr:\n{stderr}"
         );
         assert!(
             !stderr.contains("panicked at"),

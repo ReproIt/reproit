@@ -83,22 +83,28 @@ pub struct Meta {
     /// The last check outcome as a string (pass/fail/flaky/stale), or None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_result: Option<String>,
-    /// The finding's TRIGGER POINT: the count of actions that must replay before
-    /// the original finding fired (i.e. the position of the last action in the
-    /// saved, minimized sequence). A replay that performs this many actions
-    /// without an earlier miss has REACHED the trigger context, so a clean run
-    /// is a real PASS (the fix held) and any miss AFTER this point is just the
-    /// fix's downstream effect, not a stale path. A miss BEFORE this point means
-    /// the path to the trigger no longer exists -> STALE. None for older repros
-    /// kept before this field existed (handled by the fallback heuristic).
+    /// The finding's TRIGGER POINT: the count of actions that must replay
+    /// before the original finding fired (i.e. the position of the last
+    /// action in the saved, minimized sequence). A replay that performs
+    /// this many actions without an earlier miss has REACHED the trigger
+    /// context, so a clean run is a real PASS (the fix held) and any miss
+    /// AFTER this point is just the fix's downstream effect, not a stale
+    /// path. A miss BEFORE this point means the path to the trigger no
+    /// longer exists -> STALE. None for older repros kept before this field
+    /// existed (handled by the fallback heuristic).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_index: Option<usize>,
-    /// The state signature that was active when the original finding fired, if it
-    /// was recoverable at keep time. Optional companion to `trigger_index`: when
-    /// present, reaching this sig in the replay log also counts as reaching the
-    /// trigger context. None when the report carried no sig.
+    /// The state signature that was active when the original finding fired, if
+    /// it was recoverable at keep time. Optional companion to
+    /// `trigger_index`: when present, reaching this sig in the replay log
+    /// also counts as reaching the trigger context. None when the report
+    /// carried no sig.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_sig: Option<String>,
+    /// Stable structural selector for the exact offending relationship member.
+    /// Optional for older and non-relational repros.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_selector: Option<String>,
     /// The ORACLE category the finding belongs to (crash/jank/leak/occlusion/
     /// divergence/i18n), recorded at `keep` so `check` re-confirms the SAME
     /// finding by its oracle rather than only scanning for exceptions. A
@@ -279,18 +285,18 @@ impl Outcome {
 /// This is the crux of distinguishing flaky from stale. The signals come from
 /// the runner's existing log protocol (templates/explorer*.dart):
 ///   - `Broke`   = the oracle tripped (an exception block fired, or the run
-///                 reported a FAIL verdict): the actions REPLAYED and the app
-///                 broke -> a real regression (the original finding reproduced).
-///   - `CouldNotReplay` = a `FUZZ:MISS <act>` occurred BEFORE the replay reached
-///                 the finding's TRIGGER CONTEXT, so the path to the bug no
-///                 longer exists and the repro could not be meaningfully
-///                 attempted -> the early UI changed (stale), NOT a failure.
+///     reported a FAIL verdict): the actions REPLAYED and the app broke -> a
+///     real regression (the original finding reproduced).
+///   - `CouldNotReplay` = a `FUZZ:MISS <act>` occurred BEFORE the replay
+///     reached the finding's TRIGGER CONTEXT, so the path to the bug no longer
+///     exists and the repro could not be meaningfully attempted -> the early UI
+///     changed (stale), NOT a failure.
 ///   - `Green`   = the original finding did NOT fire AND the replay reached the
-///                 trigger context (it performed the actions up to the trigger
-///                 index, or hit the trigger sig, before any miss). A miss AFTER
-///                 the trigger is fine: that is the fix's downstream effect (the
-///                 button that used to crash now navigates elsewhere), so the
-///                 repro still PASSES as a green regression guard.
+///     trigger context (it performed the actions up to the trigger index, or
+///     hit the trigger sig, before any miss). A miss AFTER the trigger is fine:
+///     that is the fix's downstream effect (the button that used to crash now
+///     navigates elsewhere), so the repro still PASSES as a green regression
+///     guard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunVerdict {
     Green,
@@ -322,6 +328,7 @@ impl RunVerdict {
 pub struct Trigger {
     pub index: Option<usize>,
     pub sig: Option<String>,
+    pub selector: Option<String>,
     /// The oracle category the original finding belonged to (e.g. `crash`,
     /// `graph`). Selects how `check` re-confirms the finding: crash-class uses
     /// the exception/process-death path; graph-class re-evaluates the graph
@@ -336,6 +343,7 @@ impl Trigger {
         Trigger {
             index: None,
             sig: None,
+            selector: None,
             oracle: None,
         }
     }
@@ -356,10 +364,14 @@ impl Trigger {
     }
 
     /// Whether this finding is a CONTENT-BUG finding (a broken rendered label).
-    /// Like overflow it does not throw, so it is re-confirmed by re-evaluating the
-    /// EXPLORE:CONTENTBUG records over the replay graph.
+    /// Like overflow it does not throw, so it is re-confirmed by re-evaluating
+    /// the EXPLORE:CONTENTBUG records over the replay graph.
     fn is_content_bug(&self) -> bool {
         self.oracle.as_deref() == Some("content-bug")
+    }
+
+    fn is_detached_indicator(&self) -> bool {
+        self.oracle.as_deref() == Some("detached-indicator")
     }
 
     /// Whether this finding is a JANK finding (a main-thread stall on a
@@ -372,6 +384,12 @@ impl Trigger {
     /// block). Re-confirmed by re-evaluating the EXPLORE:HANG records.
     fn is_hang(&self) -> bool {
         self.oracle.as_deref() == Some("hang")
+    }
+
+    /// A tester explicitly marked the captured structural state as broken. It
+    /// is confirmed only when a clean replay reaches that exact state again.
+    fn is_tester_capture(&self) -> bool {
+        self.oracle.as_deref() == Some("tester-capture")
     }
 }
 
@@ -395,17 +413,18 @@ pub fn verdict_from_log(log: &str, passed: bool) -> RunVerdict {
 ///      never downgrades a live regression to stale on account of a later miss.
 ///   2. No finding, and the replay REACHED the trigger context (it performed at
 ///      least `trigger.index` actions before the first miss, or the log carried
-///      the `trigger.sig` state) -> Green. A miss AFTER the trigger is the fix's
-///      downstream effect, not staleness: the fixed bug's repro stays green.
+///      the `trigger.sig` state) -> Green. A miss AFTER the trigger is the
+///      fix's downstream effect, not staleness: the fixed bug's repro stays
+///      green.
 ///   3. No finding, and a miss happened BEFORE reaching the trigger context ->
 ///      CouldNotReplay (stale): the early path to the bug no longer exists, so
 ///      the repro could not be meaningfully attempted.
 ///
 /// Fallback heuristic (no trigger context recorded, e.g. an older repro): treat
-/// "no finding fired and at least the first action replayed" as Green, reserving
-/// CouldNotReplay for a miss on the VERY FIRST action (or a failure to perform
-/// any action at all). This keeps a fixed-bug repro green by default and only
-/// calls stale when the replay could not even get off the ground.
+/// "no finding fired and at least the first action replayed" as Green,
+/// reserving CouldNotReplay for a miss on the VERY FIRST action (or a failure
+/// to perform any action at all). This keeps a fixed-bug repro green by default
+/// and only calls stale when the replay could not even get off the ground.
 pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger) -> RunVerdict {
     // Hermetic replay is fail-closed. A request absent from the causal capsule
     // means the environment could not be reconstructed; any resulting app error
@@ -448,11 +467,17 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     if trigger.is_content_bug() {
         return content_bug_verdict(log, trigger);
     }
+    if trigger.is_detached_indicator() {
+        return detached_indicator_verdict(log, trigger);
+    }
     if trigger.is_jank() {
         return jank_verdict(log, trigger);
     }
     if trigger.is_hang() {
         return hang_verdict(log, trigger);
+    }
+    if trigger.is_tester_capture() {
+        return tester_capture_verdict(log, trigger);
     }
 
     // Count actions performed before the first miss, and whether any miss
@@ -538,6 +563,28 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     }
 }
 
+/// Re-confirm an exploratory tester capture. The human supplied the bug signal;
+/// the engine supplies reproducibility by requiring the captured structural
+/// state to be reached again. A different or unreachable state remains pending
+/// rather than becoming a confirmed bug.
+fn tester_capture_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let Some(sig) = trigger.sig.as_deref().filter(|sig| !sig.is_empty()) else {
+        return RunVerdict::CouldNotReplay;
+    };
+    let required_actions = trigger.index.unwrap_or(0);
+    let mut actions_seen = 0usize;
+    for line in log.lines() {
+        if line.starts_with("FUZZ:ACT ") {
+            actions_seen += 1;
+            continue;
+        }
+        if actions_seen >= required_actions && state_sig_matches(line, sig) {
+            return RunVerdict::Broke;
+        }
+    }
+    RunVerdict::CouldNotReplay
+}
+
 /// Whether an `EXPLORE:STATE` marker line carries the recorded trigger state
 /// signature `want`, by EQUALITY of the parsed sig token (never an unanchored
 /// substring of the line). Only `EXPLORE:STATE` lines carry a state signature,
@@ -563,8 +610,8 @@ fn state_sig_matches(line: &str, want: &str) -> bool {
 /// performed/missed action, a state/edge explore marker, or a drive-completion
 /// line. Used by the no-verdict guard to tell a crashed/setup-errored run (a
 /// bare non-zero exit with a signal-less log) from a real replay. The markers
-/// come from the runner's log protocol (templates/explorer*.dart), the same ones
-/// the per-run classifiers below already key on.
+/// come from the runner's log protocol (templates/explorer*.dart), the same
+/// ones the per-run classifiers below already key on.
 fn has_replay_signal(log: &str) -> bool {
     log.lines().any(|line| {
         line.contains("FUZZ:ACT ")
@@ -586,8 +633,8 @@ fn has_app_exception(log: &str) -> bool {
     })
 }
 
-/// Re-confirm an older flicker finding over a replay log. Parses presented-frame
-/// EXPLORE markers and re-evaluates the visual predicate (via
+/// Re-confirm an older flicker finding over a replay log. Parses
+/// presented-frame EXPLORE markers and re-evaluates the visual predicate (via
 /// `invariants::recheck_rerender_flicker`) against the recorded violating state
 /// sig (`trigger.sig`, the transition's FROM state):
 ///   - the same transition still has a transient divergent frame -> Broke
@@ -598,18 +645,18 @@ fn has_app_exception(log: &str) -> bool {
 /// remains in the replay graph: any -> Broke, none -> Green, empty graph (no
 /// states observed) -> CouldNotReplay.
 fn flicker_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
-    let obs = crate::map::parse_run(log);
+    let obs = crate::model::map::parse_run(log);
     if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
-        return match crate::invariants::recheck_rerender_flicker(&obs, sig) {
-            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
-            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
-            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        return match crate::model::invariants::recheck_rerender_flicker(&obs, sig) {
+            crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
         };
     }
     if obs.states.is_empty() {
         return RunVerdict::CouldNotReplay;
     }
-    if crate::invariants::any_rerender_flicker(&obs) {
+    if crate::model::invariants::any_rerender_flicker(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green
@@ -618,43 +665,69 @@ fn flicker_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
 
 /// Re-confirm a `no-broken-render` (content-bug) finding over a replay log,
 /// mirroring `overflow_verdict`: re-evaluate the EXPLORE:CONTENTBUG records
-/// against the recorded violating state sig, falling back to "any broken content
-/// remains" when no sig was recorded.
+/// against the recorded violating state sig, falling back to "any broken
+/// content remains" when no sig was recorded.
 fn content_bug_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
-    let obs = crate::map::parse_run(log);
+    let obs = crate::model::map::parse_run(log);
     if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
-        return match crate::invariants::recheck_content_bug(&obs, sig) {
-            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
-            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
-            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        return match crate::model::invariants::recheck_content_bug(&obs, sig) {
+            crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
         };
     }
     if obs.states.is_empty() {
         return RunVerdict::CouldNotReplay;
     }
-    if crate::invariants::any_content_bug(&obs) {
+    if crate::model::invariants::any_content_bug(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green
     }
 }
 
-/// Re-confirm a `no-jank` (web jank) finding over a replay log. A jank stall is
-/// keyed by the transition's FROM state, so re-evaluate the EXPLORE:JANK records
-/// against the recorded sig; fall back to "any jank remains" with no sig.
-fn jank_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
-    let obs = crate::map::parse_run(log);
+fn detached_indicator_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::model::map::parse_run(log);
     if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
-        return match crate::invariants::recheck_jank(&obs, sig) {
-            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
-            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
-            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        return match crate::model::invariants::recheck_detached_indicator(
+            &obs,
+            sig,
+            trigger.selector.as_deref(),
+        ) {
+            crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
         };
     }
     if obs.states.is_empty() {
         return RunVerdict::CouldNotReplay;
     }
-    if crate::invariants::any_jank(&obs) {
+    if crate::model::invariants::any_detached_indicator(&obs) {
+        RunVerdict::Broke
+    } else {
+        // Without a recorded state and exact member, silence is UNKNOWN rather
+        // than proof that the old relationship became valid.
+        RunVerdict::CouldNotReplay
+    }
+}
+
+/// Re-confirm a `no-jank` (web jank) finding over a replay log. A jank stall is
+/// keyed by the transition's FROM state, so re-evaluate the EXPLORE:JANK
+/// records against the recorded sig; fall back to "any jank remains" with no
+/// sig.
+fn jank_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::model::map::parse_run(log);
+    if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
+        return match crate::model::invariants::recheck_jank(&obs, sig) {
+            crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        };
+    }
+    if obs.states.is_empty() {
+        return RunVerdict::CouldNotReplay;
+    }
+    if crate::model::invariants::any_jank(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green
@@ -664,18 +737,18 @@ fn jank_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
 /// Re-confirm a `no-hang` (freeze) finding over a replay log, mirroring
 /// `jank_verdict` against the EXPLORE:HANG records.
 fn hang_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
-    let obs = crate::map::parse_run(log);
+    let obs = crate::model::map::parse_run(log);
     if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
-        return match crate::invariants::recheck_hang(&obs, sig) {
-            crate::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
-            crate::invariants::GraphRecheck::Fixed => RunVerdict::Green,
-            crate::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+        return match crate::model::invariants::recheck_hang(&obs, sig) {
+            crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+            crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+            crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
         };
     }
     if obs.states.is_empty() {
         return RunVerdict::CouldNotReplay;
     }
-    if crate::invariants::any_hang(&obs) {
+    if crate::model::invariants::any_hang(&obs) {
         RunVerdict::Broke
     } else {
         RunVerdict::Green
@@ -690,10 +763,11 @@ fn hang_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
 ///   - all Broke                         -> Fail (deterministic regression)
 ///
 /// Stale now means specifically "the replay could not REACH the finding's
-/// trigger context" (a miss before the trigger), not "some later action missed".
-/// A fixed bug whose fix changes downstream navigation (so a recorded action
-/// misses AFTER the trigger) classifies Green per `verdict_from_log_with_trigger`
-/// and so stays a required regression guard rather than dropping to stale.
+/// trigger context" (a miss before the trigger), not "some later action
+/// missed". A fixed bug whose fix changes downstream navigation (so a recorded
+/// action misses AFTER the trigger) classifies Green per
+/// `verdict_from_log_with_trigger` and so stays a required regression guard
+/// rather than dropping to stale.
 ///
 /// Stale still takes precedence over a fail mix: if some runs could not even
 /// reach the trigger, the right message is "the early path moved, re-record",
@@ -810,6 +884,7 @@ mod tests {
             last_result: None,
             trigger_index: Some(1),
             trigger_sig: None,
+            trigger_selector: None,
             oracle: Some("crash".to_string()),
             record_url: None,
             record_action: None,
@@ -847,7 +922,8 @@ mod tests {
 
     #[test]
     fn unmatched_capsule_request_is_stale_even_if_it_causes_an_error() {
-        let log = "CAPSULE:MISS GET /api action=0\nEXCEPTION CAUGHT BY WEB PAGE\nTypeError: failed fetch\n";
+        let log = "CAPSULE:MISS GET /api action=0\nEXCEPTION CAUGHT BY WEB PAGE\nTypeError: \
+                   failed fetch\n";
         assert_eq!(
             verdict_from_log_with_trigger(log, false, &Trigger::unknown()),
             RunVerdict::CouldNotReplay
@@ -992,6 +1068,7 @@ flutter: ═══════════════════════�
         Trigger {
             index: Some(index),
             sig: None,
+            selector: None,
             oracle: None,
         }
     }
@@ -1085,6 +1162,7 @@ JOURNEY DONE
         let trigger = Trigger {
             index: Some(9),
             sig: Some("SIG:checkout".to_string()),
+            selector: None,
             oracle: None,
         };
         let log = "\
@@ -1112,6 +1190,7 @@ JOURNEY DONE
         let trigger = Trigger {
             index: Some(9),
             sig: Some("checkout".to_string()),
+            selector: None,
             oracle: None,
         };
         let log = "\
@@ -1163,12 +1242,82 @@ JOURNEY DONE
     }
 
     #[test]
+    fn tester_capture_confirms_only_the_exact_structural_state() {
+        let trigger = Trigger {
+            index: Some(1),
+            sig: Some("broken-checkout".to_string()),
+            selector: None,
+            oracle: Some("tester-capture".to_string()),
+        };
+        let reached = "FUZZ:ACT tap:key:checkout\nEXPLORE:STATE \
+                       {\"sig\":\"broken-checkout\"}\nJOURNEY DONE\n";
+        let changed =
+            "FUZZ:ACT tap:key:checkout\nEXPLORE:STATE {\"sig\":\"fixed-checkout\"}\nJOURNEY DONE\n";
+        let premature = "EXPLORE:STATE {\"sig\":\"broken-checkout\"}\nFUZZ:ACT \
+                         tap:key:checkout\nEXPLORE:STATE {\"sig\":\"fixed-checkout\"}\n";
+        assert_eq!(
+            verdict_from_log_with_trigger(reached, true, &trigger),
+            RunVerdict::Broke
+        );
+        assert_eq!(
+            verdict_from_log_with_trigger(changed, true, &trigger),
+            RunVerdict::CouldNotReplay
+        );
+        assert_eq!(
+            verdict_from_log_with_trigger(premature, true, &trigger),
+            RunVerdict::CouldNotReplay
+        );
+    }
+
+    #[test]
+    fn detached_indicator_replay_requires_exact_relationship_and_proof() {
+        let trigger = Trigger {
+            index: Some(0),
+            sig: Some("nav".into()),
+            selector: Some("key:id:dot".into()),
+            oracle: Some("detached-indicator".into()),
+        };
+        let proven = concat!(
+            "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[]}\n",
+            "EXPLORE:RELATIONSTATUS {\"sig\":\"nav\",\"outcome\":\"PROVEN\",\"checks\":[",
+            "{\"kind\":\"indicator-anchor\",\"dependentKey\":\"key:id:dot\",",
+            "\"ownerKey\":\"key:id:tab\",\"containerKey\":\"key:id:tabs\",",
+            "\"outcome\":\"PROVEN\",\"violation\":\"detached\"}]}\n",
+            "EXPLORE:RELATION {\"sig\":\"nav\",\"items\":[",
+            "{\"kind\":\"indicator-anchor\",\"dependentKey\":\"key:id:dot\",",
+            "\"ownerKey\":\"key:id:tab\",\"containerKey\":\"key:id:tabs\",",
+            "\"violation\":\"detached\",\"maxGap\":8,\"gap\":90}]}\n",
+        );
+        assert_eq!(
+            verdict_from_log_with_trigger(proven, true, &trigger),
+            RunVerdict::Broke
+        );
+        let valid = proven
+            .replace("\"outcome\":\"PROVEN\"", "\"outcome\":\"VALID\"")
+            .lines()
+            .filter(|line| !line.starts_with("EXPLORE:RELATION "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            verdict_from_log_with_trigger(&valid, true, &trigger),
+            RunVerdict::Green
+        );
+        let unknown = "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[]}\nEXPLORE:RELATIONSTATUS \
+                       {\"sig\":\"nav\",\"outcome\":\"UNKNOWN\",\"checks\":[]}";
+        assert_eq!(
+            verdict_from_log_with_trigger(unknown, true, &trigger),
+            RunVerdict::CouldNotReplay
+        );
+    }
+
+    #[test]
     fn crash_repro_unaffected_by_graph_path() {
         // A crash-oracle repro (or one with no oracle) is untouched: it still
         // uses the exception path, never the graph re-evaluation.
         let crash = Trigger {
             index: Some(2),
             sig: None,
+            selector: None,
             oracle: Some("crash".to_string()),
         };
         let clean = "FUZZ:ACT tap:A\nFUZZ:ACT tap:B\nJOURNEY DONE\n";

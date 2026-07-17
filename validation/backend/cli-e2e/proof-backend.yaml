@@ -1,0 +1,28 @@
+app:
+  platform: web
+  webRunnerDir: ../../../runners/web
+  url: http://127.0.0.1:19877/proof
+devices:
+  namePrefix: BackendProofValidation
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]
+backend:
+  enabled: true
+  operations:
+    - id: getOrder
+      authority: declared
+      successStatuses: [200]
+      readOnly: true
+  proofs:
+    - kind: authorization-matrix
+      operation: getOrder
+      identityInputPath: $.id
+      snapshotInputPath: $.revision
+      consistency: strong
+      principals:
+        - { actor: "a", tenant: team-a, decision: allow }
+        - { actor: "a", tenant: team-b, decision: deny }
+      deny:
+        statuses: [401, 403, 404]
+        redactedOutputPaths: [$.secret]

@@ -18,7 +18,15 @@
 // playwright is imported dynamically inside main() so this module stays
 // import-safe (the parity test imports the host-pure signature functions
 // below without needing the heavy runtime dependency installed).
-import { readFileSync, statSync, existsSync, mkdirSync, writeFileSync, rmSync, appendFileSync } from 'node:fs';
+import {
+  readFileSync,
+  statSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  appendFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,15 +37,31 @@ import { spawnSync } from 'node:child_process';
 // + dependency-free, so a static import keeps this module import-safe (the parity
 // test that imports the signature functions pulls this in without side effects).
 import {
-  choiceAnomalyInPage, CHOICE_OUTLIER_RATIO, CHOICE_MIN_MAGNITUDE, CHOICE_ROLES,
+  choiceAnomalyInPage,
+  CHOICE_OUTLIER_RATIO,
+  CHOICE_MIN_MAGNITUDE,
+  CHOICE_ROLES,
 } from './web/choice-oracle.mjs';
-import { redactNetworkHeaders, redactNetworkValue, parseNetworkBody, redactSse } from './web/runner.mjs';
 import {
-  occlusionScan, confirmOcclusions, securityScan,
-  dupSubmitEligible, focusLossArm, focusLossCheck,
-  blankScreenScan, brokenAssetScan, zoomTappableKeys, zoomReflowScan,
+  redactNetworkHeaders,
+  redactNetworkValue,
+  parseNetworkBody,
+  redactSse,
+} from './web/runner.mjs';
+import {
+  occlusionScan,
+  confirmOcclusions,
+  securityScan,
+  dupSubmitEligible,
+  focusLossArm,
+  focusLossCheck,
+  blankScreenScan,
+  brokenAssetScan,
+  zoomTappableKeys,
+  zoomReflowScan,
   scrollRoundTripScan,
-  installListenerLeakCounter, listenerLeakSample,
+  installListenerLeakCounter,
+  listenerLeakSample,
 } from './web/hygiene-oracles.mjs';
 // Shared FP-hardening helpers, imported from the web runner so the exact SAME
 // stabilization/guards apply to the Electron (Chromium) backend (fix across all
@@ -45,8 +69,13 @@ import {
 // gate, the SPA soft-404 guard, the route-link filter, and the bot-wall detector.
 // runner.mjs's main() is guarded by an import.meta check, so importing it is inert.
 import {
-  settleForSignature, soft404View, isSoftHandled,
-  collectRouteLinks, normalizePathname, detectBotWall, ASSET_EXT_SOURCE,
+  settleForSignature,
+  soft404View,
+  isSoftHandled,
+  collectRouteLinks,
+  normalizePathname,
+  detectBotWall,
+  ASSET_EXT_SOURCE,
 } from './web/runner.mjs';
 
 const APP = process.env.REPROIT_APP_DIR || process.env.REPROIT_APP;
@@ -64,44 +93,86 @@ const NETWORK_ACTOR = process.env.REPROIT_DEVICE || 'a';
 let causalActionIndex = 0;
 let causalOrdinal = 0;
 function log(line) {
-  if (String(line).startsWith('FUZZ:ACT ')) { causalActionIndex++; causalOrdinal = 0; }
+  if (String(line).startsWith('FUZZ:ACT ')) {
+    causalActionIndex++;
+    causalOrdinal = 0;
+  }
   process.stdout.write(line + '\n');
 }
 function appendNetworkFact(value) {
   if (!NETWORK_FILE) return;
-  try { appendFileSync(NETWORK_FILE, JSON.stringify(value) + '\n', { encoding: 'utf8', mode: 0o600 }); } catch (_) {}
+  try {
+    appendFileSync(NETWORK_FILE, JSON.stringify(value) + '\n', { encoding: 'utf8', mode: 0o600 });
+  } catch (_) {}
 }
 function canonicalNetworkUrl(raw) {
   try {
-    const u = new URL(raw); const pairs = [...u.searchParams.entries()].sort(([ak,av],[bk,bv]) => ak.localeCompare(bk) || av.localeCompare(bv));
-    u.search = ''; for (const [k,v] of pairs) u.searchParams.append(k,v); return u.toString();
-  } catch (_) { return String(raw); }
+    const u = new URL(raw);
+    const pairs = [...u.searchParams.entries()].sort(
+      ([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv),
+    );
+    u.search = '';
+    for (const [k, v] of pairs) u.searchParams.append(k, v);
+    return u.toString();
+  } catch (_) {
+    return String(raw);
+  }
 }
 function wsFrame(message) {
   if (typeof message !== 'string') return null;
-  try { return redactNetworkValue(JSON.parse(message)); } catch (_) { return null; }
+  try {
+    return redactNetworkValue(JSON.parse(message));
+  } catch (_) {
+    return null;
+  }
 }
 export async function installElectronWebSockets(context, capsulePath) {
   const exchanges = capsulePath
-    ? (JSON.parse(readFileSync(capsulePath, 'utf8')).exchanges || []).filter((e) => e.required && /^(ws|wss)$/.test(e.protocol))
+    ? (JSON.parse(readFileSync(capsulePath, 'utf8')).exchanges || []).filter(
+        (e) => e.required && /^(ws|wss)$/.test(e.protocol),
+      )
     : [];
   const used = new Set();
   await context.routeWebSocket(/.*/, (socket) => {
     const url = socket.url();
-    const next = () => exchanges.map((exchange, index) => ({ exchange, index }))
-      .filter(({ exchange, index }) => !used.has(index) && exchange.actor === NETWORK_ACTOR &&
-        exchange.actionIndex === causalActionIndex && canonicalNetworkUrl(exchange.url) === canonicalNetworkUrl(url))
-      .sort((a, b) => a.exchange.ordinal - b.exchange.ordinal)[0];
+    const next = () =>
+      exchanges
+        .map((exchange, index) => ({ exchange, index }))
+        .filter(
+          ({ exchange, index }) =>
+            !used.has(index) &&
+            exchange.actor === NETWORK_ACTOR &&
+            exchange.actionIndex === causalActionIndex &&
+            canonicalNetworkUrl(exchange.url) === canonicalNetworkUrl(url),
+        )
+        .sort((a, b) => a.exchange.ordinal - b.exchange.ordinal)[0];
     if (capsulePath) {
-      const deliver = () => { for (;;) { const item = next(); if (!item || item.exchange.method !== 'RECV') break;
-        used.add(item.index); socket.send(JSON.stringify(item.exchange.responseBody)); log(`CAPSULE:HIT ${item.exchange.id}`); } };
+      const deliver = () => {
+        for (;;) {
+          const item = next();
+          if (!item || item.exchange.method !== 'RECV') break;
+          used.add(item.index);
+          socket.send(JSON.stringify(item.exchange.responseBody));
+          log(`CAPSULE:HIT ${item.exchange.id}`);
+        }
+      };
       queueMicrotask(deliver);
       socket.onMessage((message) => {
-        const item = next(); const value = wsFrame(message);
-        if (!item || item.exchange.method !== 'SEND' || value == null || JSON.stringify(value) !== JSON.stringify(item.exchange.requestBody)) {
-          log(`CAPSULE:MISS WS SEND ${url} action=${causalActionIndex}`); socket.close({ code: 1008, reason: 'reproit capsule miss' }); return;
+        const item = next();
+        const value = wsFrame(message);
+        if (
+          !item ||
+          item.exchange.method !== 'SEND' ||
+          value == null ||
+          JSON.stringify(value) !== JSON.stringify(item.exchange.requestBody)
+        ) {
+          log(`CAPSULE:MISS WS SEND ${url} action=${causalActionIndex}`);
+          socket.close({ code: 1008, reason: 'reproit capsule miss' });
+          return;
         }
-        used.add(item.index); log(`CAPSULE:HIT ${item.exchange.id}`); deliver();
+        used.add(item.index);
+        log(`CAPSULE:HIT ${item.exchange.id}`);
+        deliver();
       });
       return;
     }
@@ -109,20 +180,39 @@ export async function installElectronWebSockets(context, capsulePath) {
     const capture = (method, message, forward) => {
       const value = wsFrame(message);
       if (value == null) {
-        log('REPROIT:CAPABILITIES {"websocket":{"status":"unsupported","detail":"non-JSON frame"},"websocket_replay":{"status":"unsupported"}}');
-        forward(message); return;
+        log(
+          'REPROIT:CAPABILITIES {"websocket":{"status":"unsupported","detail":' +
+            '"non-JSON frame"},"websocket_replay":{"status":"unsupported"}}',
+        );
+        forward(message);
+        return;
       }
       const ordinal = causalOrdinal++;
-      appendNetworkFact({ id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`, actor: NETWORK_ACTOR,
-        actionIndex: causalActionIndex, ordinal, protocol: new URL(url).protocol.replace(':',''), method, url,
-        requestHeaders: {}, requestBody: method === 'SEND' ? value : undefined, status: 101,
-        responseHeaders: {}, responseBody: method === 'RECV' ? value : undefined, required: true });
+      appendNetworkFact({
+        id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`,
+        actor: NETWORK_ACTOR,
+        actionIndex: causalActionIndex,
+        ordinal,
+        protocol: new URL(url).protocol.replace(':', ''),
+        method,
+        url,
+        requestHeaders: {},
+        requestBody: method === 'SEND' ? value : undefined,
+        status: 101,
+        responseHeaders: {},
+        responseBody: method === 'RECV' ? value : undefined,
+        required: true,
+      });
       forward(message);
     };
     socket.onMessage((message) => capture('SEND', message, (value) => server.send(value)));
     server.onMessage((message) => capture('RECV', message, (value) => socket.send(value)));
   });
-  log('REPROIT:CAPABILITIES {"websocket":{"status":"captured"},"websocket_replay":{"status":"captured"},"sse":{"status":"captured"},"sse_replay":{"status":"captured"}}');
+  log(
+    'REPROIT:CAPABILITIES {"websocket":{"status":"captured"},' +
+      '"websocket_replay":{"status":"captured"},"sse":{"status":"captured"},' +
+      '"sse_replay":{"status":"captured"}}',
+  );
 }
 
 // Screenshot-capture contract (drive.rs): on a named "shoot" point, capture the
@@ -142,7 +232,9 @@ async function shoot(page, name) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(joinPath(dir, name + '.png'), Buffer.from(data, 'base64'));
       await cdp.detach().catch(() => {});
-    } catch (e) { /* capture is best-effort; still emit the marker below */ }
+    } catch (e) {
+      /* capture is best-effort; still emit the marker below */
+    }
   }
   log('SHOOT:' + name);
 }
@@ -155,10 +247,17 @@ async function shoot(page, name) {
 // so value-state is strictly opt-in.
 function loadValueNodes() {
   let p = (process.env.REPROIT_CONFIG || '').trim();
-  if (!p) { const def = resolvePath(process.cwd(), 'reproit.yaml'); if (existsSync(def)) p = def; }
+  if (!p) {
+    const def = resolvePath(process.cwd(), 'reproit.yaml');
+    if (existsSync(def)) p = def;
+  }
   if (!p || !existsSync(p)) return [];
   let text = '';
-  try { text = readFileSync(p, 'utf8'); } catch { return []; }
+  try {
+    text = readFileSync(p, 'utf8');
+  } catch {
+    return [];
+  }
   return parseValueNodes(text);
 }
 // Extract the `value_nodes:` list items from a YAML document. Supports the two
@@ -170,8 +269,10 @@ function parseValueNodes(text) {
   const out = [];
   const clean = (s) => {
     let v = s.trim();
-    const h = v.indexOf('#'); if (h >= 0) v = v.slice(0, h).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    const h = v.indexOf('#');
+    if (h >= 0) v = v.slice(0, h).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))
+      v = v.slice(1, -1);
     return v.trim();
   };
   for (let i = 0; i < lines.length; i++) {
@@ -181,7 +282,10 @@ function parseValueNodes(text) {
     const inline = m[2].trim();
     if (inline.startsWith('[')) {
       const body = inline.replace(/^\[/, '').replace(/\].*$/, '');
-      for (const part of body.split(',')) { const v = clean(part); if (v) out.push(v); }
+      for (const part of body.split(',')) {
+        const v = clean(part);
+        if (v) out.push(v);
+      }
       return out;
     }
     for (let j = i + 1; j < lines.length; j++) {
@@ -225,7 +329,9 @@ function reproitCmpUtf8(a, b) {
   const ab = REPROIT_UTF8.encode(a);
   const bb = REPROIT_UTF8.encode(b);
   const n = Math.min(ab.length, bb.length);
-  for (let i = 0; i < n; i++) { if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1; }
+  for (let i = 0; i < n; i++) {
+    if (ab[i] !== bb[i]) return ab[i] < bb[i] ? -1 : 1;
+  }
   return ab.length === bb.length ? 0 : ab.length < bb.length ? -1 : 1;
 }
 
@@ -238,9 +344,26 @@ function reproitCmpUtf8(a, b) {
 //  page context and feeds it here in Node.
 // ====================================================================
 const ROLES = {
-  screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-  icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-  slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+  screen: 1,
+  header: 1,
+  text: 1,
+  button: 1,
+  link: 1,
+  textfield: 1,
+  image: 1,
+  icon: 1,
+  list: 1,
+  listitem: 1,
+  tab: 1,
+  switch: 1,
+  checkbox: 1,
+  radio: 1,
+  slider: 1,
+  menu: 1,
+  menuitem: 1,
+  dialog: 1,
+  group: 1,
+  node: 1,
 };
 const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1 };
 // Value-role set (docs/signature.md "Value-state", Layer 2). A node is value-
@@ -249,10 +372,22 @@ const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, toolti
 // timer/output are NOT in the structural vocabulary so they normalize to "node"
 // in the body; the value-role test uses the RAW role on purpose. Chrome roles
 // (button/header/text/link) are NEVER value-bearing (rule 1 preserved).
-const VALUE_ROLES = { textfield: 1, status: 1, log: 1, progressbar: 1, meter: 1, timer: 1, output: 1 };
+const VALUE_ROLES = {
+  textfield: 1,
+  status: 1,
+  log: 1,
+  progressbar: 1,
+  meter: 1,
+  timer: 1,
+  output: 1,
+};
 
-function normalizeRole(role) { return ROLES[role] ? role : 'node'; }
-function isTransientNode(node) { return !!node.transient || !!TRANSIENT_ROLES[node.role]; }
+function normalizeRole(role) {
+  return ROLES[role] ? role : 'node';
+}
+function isTransientNode(node) {
+  return !!node.transient || !!TRANSIENT_ROLES[node.role];
+}
 function isValueBearing(node) {
   return node.value != null && (!!VALUE_ROLES[node.role] || !!node.value_node);
 }
@@ -261,7 +396,10 @@ function normalizeNode(node) {
   if (isTransientNode(node)) return null;
   const kids = [];
   const children = node.children || [];
-  for (const c of children) { const n = normalizeNode(c); if (n) kids.push(n); }
+  for (const c of children) {
+    const n = normalizeNode(c);
+    if (n) kids.push(n);
+  }
   return {
     role: normalizeRole(node.role),
     type: node.type != null ? node.type : null,
@@ -297,7 +435,7 @@ function serializeChildren(children, depth, tokens) {
     const key = subtreeKey(children[i]);
     let j = i + 1;
     while (j < children.length && subtreeKey(children[j]) === key) j++;
-    serializeNode(children[i], depth, (j - i) >= 2, tokens);
+    serializeNode(children[i], depth, j - i >= 2, tokens);
     i = j;
   }
 }
@@ -305,13 +443,15 @@ function serializeChildren(children, depth, tokens) {
 // Strict ^[+-]?[0-9]+(\.[0-9]+)?$: optional sign, >=1 ASCII digits, optional
 // period + >=1 ASCII digits. No grouping, no exponent, no leading/trailing dot.
 function isStrictDecimal(s) {
-  let i = 0; const n = s.length;
+  let i = 0;
+  const n = s.length;
   if (i < n && (s.charCodeAt(i) === 43 || s.charCodeAt(i) === 45)) i++;
   const intStart = i;
   while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
   if (i === intStart) return false;
   if (i < n && s.charCodeAt(i) === 46) {
-    i++; const fracStart = i;
+    i++;
+    const fracStart = i;
     while (i < n && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) i++;
     if (i === fracStart) return false;
   }
@@ -371,19 +511,32 @@ function descriptorOf(anchor, root) {
   if (norm) serializeNode(norm, 0, false, tokens);
   return 'A:' + (anchor == null ? '' : anchor) + '\n' + tokens.join(';') + valueSection(root);
 }
-function signatureOf(anchor, root) { return fnv1a(descriptorOf(anchor, root)); }
+function signatureOf(anchor, root) {
+  return fnv1a(descriptorOf(anchor, root));
+}
 
 export { signatureOf, descriptorOf, valueClass };
 
 function loadFuzz() {
   const p = process.env.REPROIT_FUZZ_CONFIG;
   if (!p) return {};
-  try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; }
+  try {
+    return JSON.parse(readFileSync(p, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 function rng(seed) {
-  let s = (seed >>> 0) || 1;
-  return (n) => { s ^= (s << 13); s >>>= 0; s ^= (s >> 17); s ^= (s << 5); s >>>= 0; return (s & 0x7fffffff) % n; };
+  let s = seed >>> 0 || 1;
+  return (n) => {
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    return (s & 0x7fffffff) % n;
+  };
 }
 
 // Determine launch mode: dev directory vs packaged executable.
@@ -392,7 +545,11 @@ function rng(seed) {
 function resolveElectronLaunch(app) {
   if (!app) return null;
   let isDir = false;
-  try { isDir = statSync(app).isDirectory(); } catch { return null; }
+  try {
+    isDir = statSync(app).isDirectory();
+  } catch {
+    return null;
+  }
   if (!isDir) {
     // Packaged executable path - existing behaviour, unchanged.
     return { executablePath: app, args: undefined };
@@ -411,7 +568,9 @@ function resolveElectronLaunch(app) {
       if (typeof electronBin === 'string') {
         return { executablePath: electronBin, args: [app] };
       }
-    } catch { /* try next */ }
+    } catch {
+      /* try next */
+    }
   }
   // Fallback: try resolving 'electron' from the app dir directly.
   try {
@@ -420,7 +579,9 @@ function resolveElectronLaunch(app) {
     if (typeof electronBin === 'string') {
       return { executablePath: electronBin, args: [app] };
     }
-  } catch { /* not found */ }
+  } catch {
+    /* not found */
+  }
   return null;
 }
 
@@ -435,321 +596,406 @@ function resolveElectronLaunch(app) {
 // a tappable lacking any stable id falls back to role+index and is flagged
 // `nokey`.
 async function snapshot(page, valueNodeSelectors) {
-  const snap = await page.evaluate(({ maxLen, valueNodeSelectors }) => {
-    const labels = [];          // DISPLAY-ONLY visible text
-    const rawTaps = [];         // tappable nodes in document order
-    const textNodes = [];       // (stable-key, trimmed text) for the Layer-1 fingerprint
+  const snap = await page.evaluate(
+    ({ maxLen, valueNodeSelectors }) => {
+      const labels = []; // DISPLAY-ONLY visible text
+      const rawTaps = []; // tappable nodes in document order
+      const textNodes = []; // (stable-key, trimmed text) for the Layer-1 fingerprint
 
-    // Fixed canonical role vocabulary (docs/signature.md "Roles").
-    const ROLES = {
-      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-    };
-    const TRANSIENT_ROLES = { toast: 1, snackbar: 1, spinner: 1, progress: 1, tooltip: 1, badge: 1 };
+      // Fixed canonical role vocabulary (docs/signature.md "Roles").
+      const ROLES = {
+        screen: 1,
+        header: 1,
+        text: 1,
+        button: 1,
+        link: 1,
+        textfield: 1,
+        image: 1,
+        icon: 1,
+        list: 1,
+        listitem: 1,
+        tab: 1,
+        switch: 1,
+        checkbox: 1,
+        radio: 1,
+        slider: 1,
+        menu: 1,
+        menuitem: 1,
+        dialog: 1,
+        group: 1,
+        node: 1,
+      };
+      const TRANSIENT_ROLES = {
+        toast: 1,
+        snackbar: 1,
+        spinner: 1,
+        progress: 1,
+        tooltip: 1,
+        badge: 1,
+      };
 
-    // DOM -> canonical role, from tag + aria role + input type, NEVER text.
-    const roleOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (ariaRole) {
-        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-        if (ariaRole === 'heading') return 'header';
-        if (ariaRole === 'img') return 'image';
-        if (ariaRole === 'switch') return 'switch';
-        if (ariaRole === 'link') return 'link';
-        if (ariaRole === 'button') return 'button';
-        if (ROLES[ariaRole]) return ariaRole;
-      }
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (t === 'checkbox') return 'checkbox';
-        if (t === 'radio') return 'radio';
-        if (t === 'range') return 'slider';
-        if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-        return 'textfield';
-      }
-      if (tag === 'textarea' || tag === 'select') return 'textfield';
-      if (tag === 'a') return 'link';
-      if (tag === 'button') return 'button';
-      if (tag === 'img' || tag === 'svg') return 'image';
-      if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-      if (tag === 'ul' || tag === 'ol') return 'list';
-      if (tag === 'li') return 'listitem';
-      if (tag === 'dialog') return 'dialog';
-      if (tag === 'nav' || tag === 'menu') return 'menu';
-      return 'node';
-    };
-
-    // Optional input type refinement (textfield only).
-    const typeOf = (el, role) => {
-      if (role !== 'textfield') return null;
-      if (el.tagName.toLowerCase() !== 'input') return null;
-      const t = (el.getAttribute('type') || 'text').toLowerCase();
-      const allowed = { text: 1, password: 1, email: 1, number: 1, search: 1 };
-      return allowed[t] ? t : 'text';
-    };
-
-    // Language-independent icon identity: svg <use> href / data-icon. No text.
-    const iconOf = (el) => {
-      const di = el.getAttribute('data-icon') || el.getAttribute('data-icon-name');
-      if (di && di.trim()) return di.trim();
-      const use = el.querySelector ? el.querySelector('use[href], use[xlink\\:href]') : null;
-      if (use) {
-        const href = use.getAttribute('href') || use.getAttribute('xlink:href');
-        if (href && href.trim()) return href.trim().replace(/^#/, '');
-      }
-      return null;
-    };
-
-    // Stable developer id: data-testid > id > name (for the descriptor token).
-    const idOf = (el) => {
-      const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
-      if (testid && testid.trim()) return testid.trim();
-      const id = el.getAttribute('id');
-      if (id && id.trim()) return id.trim();
-      const name = el.getAttribute('name');
-      if (name && name.trim()) return name.trim();
-      return null;
-    };
-
-    // Selector KEY (for replay): kind-tagged so tap() can resolve it.
-    const keyOf = (el) => {
-      const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
-      if (testid && testid.trim()) return 'testid:' + testid.trim();
-      const id = el.getAttribute('id');
-      if (id && id.trim()) return 'id:' + id.trim();
-      const name = el.getAttribute('name');
-      if (name && name.trim()) return 'name:' + name.trim();
-      return null;
-    };
-
-    // Elements running an INFINITE animation, computed ONCE per snapshot from a
-    // single document.getAnimations() call (a per-node call is O(nodes) on a large
-    // DOM and dominates the crawl; mirrors the web runner).
-    const infiniteAnimEls = new Set();
-    try {
-      const all = document.getAnimations ? document.getAnimations() : [];
-      for (const a of all) {
-        if (a.playState !== 'running') continue;
-        const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
-        if (t && t.iterations === Infinity && a.effect && a.effect.target) infiniteAnimEls.add(a.effect.target);
-      }
-    } catch (_) {}
-
-    // Transient heuristic: role / aria-live / class flag a flickering node.
-    const isTransientEl = (el) => {
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (TRANSIENT_ROLES[ariaRole]) return true;
-      if (ariaRole === 'alert' || ariaRole === 'status') return true;
-      const live = (el.getAttribute('aria-live') || '').toLowerCase();
-      if (live === 'assertive' || live === 'polite') return true;
-      const cls = (el.getAttribute('class') || '').toLowerCase();
-      if (/\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test(cls)) return true;
-      if (el.hasAttribute('data-transient')) return true;
-      // A node mid-INFINITE-animation samples a different frame every capture, so
-      // exclude it. Membership in a per-snapshot precomputed Set (one
-      // document.getAnimations() call) instead of a per-node call (mirrors web).
-      if (infiniteAnimEls.has(el)) return true;
-      return false;
-    };
-
-    // RAW value-role (docs/signature.md "Value-state"): the value-role name for
-    // a value-bearing DOM element, NEVER from text. role=status/log/progressbar/
-    // meter/timer pass through; <output>/role=output -> output; an aria-live
-    // region (polite/assertive) -> status (so a live counter is value-bearing
-    // WITHOUT opt-in); text form fields -> textfield. null for chrome / non-text
-    // inputs (password is never read). Identical to the web runner.
-    const valueRoleOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      const ar = (el.getAttribute('role') || '').toLowerCase();
-      if (ar === 'status' || ar === 'log' || ar === 'progressbar' || ar === 'meter' || ar === 'timer') return ar;
-      if (tag === 'output' || ar === 'output') return 'output';
-      const live = (el.getAttribute('aria-live') || '').toLowerCase();
-      if (live === 'polite' || live === 'assertive') return 'status';
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image', 'hidden', 'file', 'password'].includes(t)) return null;
-        return 'textfield';
-      }
-      if (tag === 'textarea' || tag === 'select') return 'textfield';
-      if (ar === 'textbox' || ar === 'searchbox' || ar === 'combobox') return 'textfield';
-      return null;
-    };
-    // The displayed value: the field .value for form controls, else trimmed
-    // textContent for output/status/live nodes.
-    const valueOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return el.value != null ? String(el.value) : '';
-      return (el.textContent != null ? el.textContent : '').trim();
-    };
-    // Layer-3 opt-in: does this element match one of the value_nodes selectors?
-    // key:<id> | role:<role>#<idx> | raw CSS. Same grammar as reproit.yaml.
-    const selList = valueNodeSelectors || [];
-    const matchesValueNode = (el) => {
-      for (const sel of selList) {
-        if (!sel) continue;
-        if (sel.indexOf('key:') === 0) {
-          const id = sel.slice(4);
-          const got = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') ||
-            el.getAttribute('id') || el.getAttribute('name') || '').trim();
-          if (id && got === id) return true;
-        } else if (sel.indexOf('role:') === 0) {
-          const hash = sel.indexOf('#');
-          if (hash < 0) continue;
-          const role = sel.slice(5, hash);
-          const idx = parseInt(sel.slice(hash + 1), 10);
-          if (!(idx >= 0)) continue;
-          let seen = -1, target = null;
-          const root = document.body || document.documentElement;
-          (function walk(node) {
-            if (target || !node) return;
-            if (roleOf(node) === role) { seen++; if (seen === idx) { target = node; return; } }
-            for (const c of node.children) walk(c);
-          })(root);
-          if (target === el) return true;
-        } else {
-          try { if (el.matches && el.matches(sel)) return true; } catch (e) {}
+      // DOM -> canonical role, from tag + aria role + input type, NEVER text.
+      const roleOf = (el) => {
+        const tag = el.tagName.toLowerCase();
+        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+        if (ariaRole) {
+          if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+            return 'textfield';
+          if (ariaRole === 'heading') return 'header';
+          if (ariaRole === 'img') return 'image';
+          if (ariaRole === 'switch') return 'switch';
+          if (ariaRole === 'link') return 'link';
+          if (ariaRole === 'button') return 'button';
+          if (ROLES[ariaRole]) return ariaRole;
         }
-      }
-      return false;
-    };
-
-    const interactive = (el, role) => {
-      const tag = el.tagName.toLowerCase();
-      if (['a', 'button', 'select'].includes(tag)) return true;
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        return !['text', 'password', 'email', 'number', 'search'].includes(t);
-      }
-      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
-      if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-      return false;
-    };
-
-    const nameOf = (el) => {
-      const aria = el.getAttribute('aria-label');
-      if (aria && aria.trim()) return aria.trim();
-      const title = el.getAttribute('title');
-      if (title && title.trim()) return title.trim();
-      const alt = el.getAttribute('alt');
-      if (alt && alt.trim()) return alt.trim();
-      const text = (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
-      return text;
-    };
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
-      const st = getComputedStyle(el);
-      return st.visibility !== 'hidden' && st.display !== 'none';
-    };
-    const fnvLbl = (name) => {
-      let h = 0x811c9dc5;
-      for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
-      return (h >>> 0).toString(16).padStart(8, '0');
-    };
-    const clipLabel = (name) => {
-      if (name.length <= maxLen) return name;
-      const suffix = '#' + fnvLbl(name);
-      return name.slice(0, maxLen - suffix.length) + suffix;
-    };
-
-    // Build the canonical Node tree (role + id + type + icon + children). The
-    // root is the screen; invisible wrappers are skipped but their visible
-    // descendants are hoisted; transient subtrees carry transient:true so the
-    // host-side normalizer drops them. We also collect labels + tappables for
-    // the display/elements list along the way.
-    const buildNode = (el, isRoot) => {
-      const role = isRoot ? 'screen' : roleOf(el);
-      // Value-state (Layer 2): a value-role element (by tag/aria), an aria-live
-      // region, or a Layer-3 opt-in node is value-bearing. Value-bearing WINS
-      // over the transient heuristic, so a role=status / aria-live counter that
-      // the transient heuristic would otherwise drop is kept as a value node and
-      // its keypresses produce DISTINCT value-states.
-      const vrole = !isRoot ? valueRoleOf(el) : null;
-      const optIn = !isRoot && matchesValueNode(el);
-      const valueBearing = !isRoot && (!!vrole || optIn);
-      const transient = !isRoot && !valueBearing && isTransientEl(el);
-      const node = { role: role };
-      const id = idOf(el); if (id != null) node.id = id;
-      const type = typeOf(el, role); if (type != null) node.type = type;
-      const icon = iconOf(el); if (icon != null) node.icon = icon;
-      if (valueBearing) {
-        node.value = valueOf(el);
-        // The flag makes the canonical is_value_bearing accept the node even
-        // when roleOf normalized its raw value-role (status/output/...) to node.
-        node.value_node = true;
-        // Layer-1 content fingerprint: a value node's stable key + its raw value.
-        const fkey = id != null ? 'key:' + id : 'vrole:' + (vrole || 'opt');
-        textNodes.push([fkey, node.value]);
-      }
-      if (transient) { node.transient = true; node.children = []; return node; }
-
-      // Layer-1 content fingerprint over text-bearing nodes (runner-local, NOT
-      // canonical): any keyed element's own (non-child) trimmed text contributes
-      // (stable-key, text). This catches a display whose textContent changes
-      // without any structural move (a calculator/counter), so the action is seen
-      // as EFFECTIVE even when the value node itself was not detected as a
-      // value-role. The raw text never enters the canonical key.
-      if (!isRoot && id != null && !valueBearing) {
-        let own = '';
-        for (const c of el.childNodes) { if (c.nodeType === 3) own += c.textContent; }
-        own = own.trim();
-        if (own) textNodes.push(['text:' + id, own]);
-      }
-
-      // labels + tappables (display/elements list; never in the hash)
-      if (!isRoot) {
-        const name = nameOf(el);
-        if (name) labels.push(clipLabel(name));
-        if (interactive(el, role)) {
-          rawTaps.push({
-            role, key: keyOf(el),
-            label: name ? clipLabel(name) : '',
-          });
+        if (tag === 'input') {
+          const t = (el.getAttribute('type') || 'text').toLowerCase();
+          if (t === 'checkbox') return 'checkbox';
+          if (t === 'radio') return 'radio';
+          if (t === 'range') return 'slider';
+          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+          return 'textfield';
         }
-      }
+        if (tag === 'textarea' || tag === 'select') return 'textfield';
+        if (tag === 'a') return 'link';
+        if (tag === 'button') return 'button';
+        if (tag === 'img' || tag === 'svg') return 'image';
+        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+        if (tag === 'ul' || tag === 'ol') return 'list';
+        if (tag === 'li') return 'listitem';
+        if (tag === 'dialog') return 'dialog';
+        if (tag === 'nav' || tag === 'menu') return 'menu';
+        return 'node';
+      };
 
-      node.children = [];
-      collectChildren(el, node.children);
-      return node;
-    };
-    const collectChildren = (el, out) => {
-      for (const child of el.children) {
-        if (!visible(child)) { collectChildren(child, out); continue; }
-        out.push(buildNode(child, false));
-      }
-    };
+      // Optional input type refinement (textfield only).
+      const typeOf = (el, role) => {
+        if (role !== 'textfield') return null;
+        if (el.tagName.toLowerCase() !== 'input') return null;
+        const t = (el.getAttribute('type') || 'text').toLowerCase();
+        const allowed = { text: 1, password: 1, email: 1, number: 1, search: 1 };
+        return allowed[t] ? t : 'text';
+      };
 
-    const root = document.body || document.documentElement;
-    const tree = root ? buildNode(root, true) : { role: 'screen', children: [] };
+      // Language-independent icon identity: svg <use> href / data-icon. No text.
+      const iconOf = (el) => {
+        const di = el.getAttribute('data-icon') || el.getAttribute('data-icon-name');
+        if (di && di.trim()) return di.trim();
+        const use = el.querySelector ? el.querySelector('use[href], use[xlink\\:href]') : null;
+        if (use) {
+          const href = use.getAttribute('href') || use.getAttribute('xlink:href');
+          if (href && href.trim()) return href.trim().replace(/^#/, '');
+        }
+        return null;
+      };
 
-    // Structural selectors for replay (key, else role+per-role index).
-    const perRole = {};
-    const tappables = rawTaps.map((tn) => {
-      const idx = perRole[tn.role] || 0;
-      perRole[tn.role] = idx + 1;
-      const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
-      return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label };
-    });
+      // Stable developer id: data-testid > id > name (for the descriptor token).
+      const idOf = (el) => {
+        const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+        if (testid && testid.trim()) return testid.trim();
+        const id = el.getAttribute('id');
+        if (id && id.trim()) return id.trim();
+        const name = el.getAttribute('name');
+        if (name && name.trim()) return name.trim();
+        return null;
+      };
 
-    // Anchor: route/path of the current screen.
-    let anchor = null;
-    try {
-      if (location && location.pathname) {
-        let pth = location.pathname;
-        // Trailing-slash route normalization: /a/ and /a are the same screen.
-        if (pth.length > 1) pth = pth.replace(/\/+$/, '') || '/';
-        anchor = pth;
-      }
-    } catch (e) {}
+      // Selector KEY (for replay): kind-tagged so tap() can resolve it.
+      const keyOf = (el) => {
+        const testid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+        if (testid && testid.trim()) return 'testid:' + testid.trim();
+        const id = el.getAttribute('id');
+        if (id && id.trim()) return 'id:' + id.trim();
+        const name = el.getAttribute('name');
+        if (name && name.trim()) return 'name:' + name.trim();
+        return null;
+      };
 
-    // Layer-1 content fingerprint source: sorted (stable-key, trimmed text) over
-    // value + keyed-text nodes. Sorted here so it is order-independent.
-    textNodes.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)));
+      // Elements running an INFINITE animation, computed ONCE per snapshot from a
+      // single document.getAnimations() call (a per-node call is O(nodes) on a large
+      // DOM and dominates the crawl; mirrors the web runner).
+      const infiniteAnimEls = new Set();
+      try {
+        const all = document.getAnimations ? document.getAnimations() : [];
+        for (const a of all) {
+          if (a.playState !== 'running') continue;
+          const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+          if (t && t.iterations === Infinity && a.effect && a.effect.target)
+            infiniteAnimEls.add(a.effect.target);
+        }
+      } catch (_) {}
 
-    return { tree, anchor, labels: [...new Set(labels)], tappables, textNodes };
-  }, { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [] });
+      // Transient heuristic: role / aria-live / class flag a flickering node.
+      const isTransientEl = (el) => {
+        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+        if (TRANSIENT_ROLES[ariaRole]) return true;
+        if (ariaRole === 'alert' || ariaRole === 'status') return true;
+        const live = (el.getAttribute('aria-live') || '').toLowerCase();
+        if (live === 'assertive' || live === 'polite') return true;
+        const cls = (el.getAttribute('class') || '').toLowerCase();
+        if (/\b(toast|snackbar|spinner|progress|loader|loading|tooltip|badge)\b/.test(cls))
+          return true;
+        if (el.hasAttribute('data-transient')) return true;
+        // A node mid-INFINITE-animation samples a different frame every capture, so
+        // exclude it. Membership in a per-snapshot precomputed Set (one
+        // document.getAnimations() call) instead of a per-node call (mirrors web).
+        if (infiniteAnimEls.has(el)) return true;
+        return false;
+      };
+
+      // RAW value-role (docs/signature.md "Value-state"): the value-role name for
+      // a value-bearing DOM element, NEVER from text. role=status/log/progressbar/
+      // meter/timer pass through; <output>/role=output -> output; an aria-live
+      // region (polite/assertive) -> status (so a live counter is value-bearing
+      // WITHOUT opt-in); text form fields -> textfield. null for chrome / non-text
+      // inputs (password is never read). Identical to the web runner.
+      const valueRoleOf = (el) => {
+        const tag = el.tagName.toLowerCase();
+        const ar = (el.getAttribute('role') || '').toLowerCase();
+        if (
+          ar === 'status' ||
+          ar === 'log' ||
+          ar === 'progressbar' ||
+          ar === 'meter' ||
+          ar === 'timer'
+        )
+          return ar;
+        if (tag === 'output' || ar === 'output') return 'output';
+        const live = (el.getAttribute('aria-live') || '').toLowerCase();
+        if (live === 'polite' || live === 'assertive') return 'status';
+        if (tag === 'input') {
+          const t = (el.getAttribute('type') || 'text').toLowerCase();
+          if (
+            [
+              'checkbox',
+              'radio',
+              'range',
+              'button',
+              'submit',
+              'reset',
+              'image',
+              'hidden',
+              'file',
+              'password',
+            ].includes(t)
+          )
+            return null;
+          return 'textfield';
+        }
+        if (tag === 'textarea' || tag === 'select') return 'textfield';
+        if (ar === 'textbox' || ar === 'searchbox' || ar === 'combobox') return 'textfield';
+        return null;
+      };
+      // The displayed value: the field .value for form controls, else trimmed
+      // textContent for output/status/live nodes.
+      const valueOf = (el) => {
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select')
+          return el.value != null ? String(el.value) : '';
+        return (el.textContent != null ? el.textContent : '').trim();
+      };
+      // Layer-3 opt-in: does this element match one of the value_nodes selectors?
+      // key:<id> | role:<role>#<idx> | raw CSS. Same grammar as reproit.yaml.
+      const selList = valueNodeSelectors || [];
+      const matchesValueNode = (el) => {
+        for (const sel of selList) {
+          if (!sel) continue;
+          if (sel.indexOf('key:') === 0) {
+            const id = sel.slice(4);
+            const got = (
+              el.getAttribute('data-testid') ||
+              el.getAttribute('data-test-id') ||
+              el.getAttribute('id') ||
+              el.getAttribute('name') ||
+              ''
+            ).trim();
+            if (id && got === id) return true;
+          } else if (sel.indexOf('role:') === 0) {
+            const hash = sel.indexOf('#');
+            if (hash < 0) continue;
+            const role = sel.slice(5, hash);
+            const idx = parseInt(sel.slice(hash + 1), 10);
+            if (!(idx >= 0)) continue;
+            let seen = -1,
+              target = null;
+            const root = document.body || document.documentElement;
+            (function walk(node) {
+              if (target || !node) return;
+              if (roleOf(node) === role) {
+                seen++;
+                if (seen === idx) {
+                  target = node;
+                  return;
+                }
+              }
+              for (const c of node.children) walk(c);
+            })(root);
+            if (target === el) return true;
+          } else {
+            try {
+              if (el.matches && el.matches(sel)) return true;
+            } catch (e) {}
+          }
+        }
+        return false;
+      };
+
+      const interactive = (el, role) => {
+        const tag = el.tagName.toLowerCase();
+        if (['a', 'button', 'select'].includes(tag)) return true;
+        if (tag === 'input') {
+          const t = (el.getAttribute('type') || 'text').toLowerCase();
+          return !['text', 'password', 'email', 'number', 'search'].includes(t);
+        }
+        if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+          return true;
+        if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+        return false;
+      };
+
+      const nameOf = (el) => {
+        const aria = el.getAttribute('aria-label');
+        if (aria && aria.trim()) return aria.trim();
+        const title = el.getAttribute('title');
+        if (title && title.trim()) return title.trim();
+        const alt = el.getAttribute('alt');
+        if (alt && alt.trim()) return alt.trim();
+        const text = (el.innerText || el.textContent || '').trim().split('\n')[0].trim();
+        return text;
+      };
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return false;
+        const st = getComputedStyle(el);
+        return st.visibility !== 'hidden' && st.display !== 'none';
+      };
+      const fnvLbl = (name) => {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < name.length; i++) {
+          h ^= name.charCodeAt(i);
+          h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return (h >>> 0).toString(16).padStart(8, '0');
+      };
+      const clipLabel = (name) => {
+        if (name.length <= maxLen) return name;
+        const suffix = '#' + fnvLbl(name);
+        return name.slice(0, maxLen - suffix.length) + suffix;
+      };
+
+      // Build the canonical Node tree (role + id + type + icon + children). The
+      // root is the screen; invisible wrappers are skipped but their visible
+      // descendants are hoisted; transient subtrees carry transient:true so the
+      // host-side normalizer drops them. We also collect labels + tappables for
+      // the display/elements list along the way.
+      const buildNode = (el, isRoot) => {
+        const role = isRoot ? 'screen' : roleOf(el);
+        // Value-state (Layer 2): a value-role element (by tag/aria), an aria-live
+        // region, or a Layer-3 opt-in node is value-bearing. Value-bearing WINS
+        // over the transient heuristic, so a role=status / aria-live counter that
+        // the transient heuristic would otherwise drop is kept as a value node and
+        // its keypresses produce DISTINCT value-states.
+        const vrole = !isRoot ? valueRoleOf(el) : null;
+        const optIn = !isRoot && matchesValueNode(el);
+        const valueBearing = !isRoot && (!!vrole || optIn);
+        const transient = !isRoot && !valueBearing && isTransientEl(el);
+        const node = { role: role };
+        const id = idOf(el);
+        if (id != null) node.id = id;
+        const type = typeOf(el, role);
+        if (type != null) node.type = type;
+        const icon = iconOf(el);
+        if (icon != null) node.icon = icon;
+        if (valueBearing) {
+          node.value = valueOf(el);
+          // The flag makes the canonical is_value_bearing accept the node even
+          // when roleOf normalized its raw value-role (status/output/...) to node.
+          node.value_node = true;
+          // Layer-1 content fingerprint: a value node's stable key + its raw value.
+          const fkey = id != null ? 'key:' + id : 'vrole:' + (vrole || 'opt');
+          textNodes.push([fkey, node.value]);
+        }
+        if (transient) {
+          node.transient = true;
+          node.children = [];
+          return node;
+        }
+
+        // Layer-1 content fingerprint over text-bearing nodes (runner-local, NOT
+        // canonical): any keyed element's own (non-child) trimmed text contributes
+        // (stable-key, text). This catches a display whose textContent changes
+        // without any structural move (a calculator/counter), so the action is seen
+        // as EFFECTIVE even when the value node itself was not detected as a
+        // value-role. The raw text never enters the canonical key.
+        if (!isRoot && id != null && !valueBearing) {
+          let own = '';
+          for (const c of el.childNodes) {
+            if (c.nodeType === 3) own += c.textContent;
+          }
+          own = own.trim();
+          if (own) textNodes.push(['text:' + id, own]);
+        }
+
+        // labels + tappables (display/elements list; never in the hash)
+        if (!isRoot) {
+          const name = nameOf(el);
+          if (name) labels.push(clipLabel(name));
+          if (interactive(el, role)) {
+            rawTaps.push({
+              role,
+              key: keyOf(el),
+              label: name ? clipLabel(name) : '',
+            });
+          }
+        }
+
+        node.children = [];
+        collectChildren(el, node.children);
+        return node;
+      };
+      const collectChildren = (el, out) => {
+        for (const child of el.children) {
+          if (!visible(child)) {
+            collectChildren(child, out);
+            continue;
+          }
+          out.push(buildNode(child, false));
+        }
+      };
+
+      const root = document.body || document.documentElement;
+      const tree = root ? buildNode(root, true) : { role: 'screen', children: [] };
+
+      // Structural selectors for replay (key, else role+per-role index).
+      const perRole = {};
+      const tappables = rawTaps.map((tn) => {
+        const idx = perRole[tn.role] || 0;
+        perRole[tn.role] = idx + 1;
+        const sel = tn.key ? 'key:' + tn.key : 'role:' + tn.role + '#' + idx;
+        return { sel, role: tn.role, index: idx, key: tn.key, label: tn.label };
+      });
+
+      // Anchor: route/path of the current screen.
+      let anchor = null;
+      try {
+        if (location && location.pathname) {
+          let pth = location.pathname;
+          // Trailing-slash route normalization: /a/ and /a are the same screen.
+          if (pth.length > 1) pth = pth.replace(/\/+$/, '') || '/';
+          anchor = pth;
+        }
+      } catch (e) {}
+
+      // Layer-1 content fingerprint source: sorted (stable-key, trimmed text) over
+      // value + keyed-text nodes. Sorted here so it is order-independent.
+      textNodes.sort((a, b) =>
+        a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0,
+      );
+
+      return { tree, anchor, labels: [...new Set(labels)], tappables, textNodes };
+    },
+    { maxLen: MAX_LABEL_LEN, valueNodeSelectors: valueNodeSelectors || [] },
+  );
 
   // Hash the canonical Node tree with the host-pure canonical signature, exactly
   // like the Rust oracle and the golden vectors. Text never contributes.
@@ -807,9 +1053,13 @@ function markAnchors(sel) {
     if (!visible(el)) continue;
     const r = el.getBoundingClientRect();
     anchors.push({
-      key: keyOf(el), node: el,
+      key: keyOf(el),
+      node: el,
       text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256),
-      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+      x: Math.round(r.x),
+      y: Math.round(r.y),
+      w: Math.round(r.width),
+      h: Math.round(r.height),
     });
   }
   window.__reproitAnchors = anchors;
@@ -820,7 +1070,10 @@ function markAnchors(sel) {
 function churnedAnchors(sel) {
   const old = window.__reproitAnchors;
   // No mark, or the document was replaced (navigation): not a flicker candidate.
-  if (!old || window.__reproitAnchorDoc !== document) { window.__reproitAnchors = null; return null; }
+  if (!old || window.__reproitAnchorDoc !== document) {
+    window.__reproitAnchors = null;
+    return null;
+  }
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
@@ -840,19 +1093,24 @@ function churnedAnchors(sel) {
   for (const el of document.querySelectorAll(sel)) {
     if (!visible(el)) continue;
     const k = keyOf(el);
-    if (cur.has(k)) { dup.add(k); continue; }
+    if (cur.has(k)) {
+      dup.add(k);
+      continue;
+    }
     cur.set(k, el);
   }
   const churned = [];
   for (const a of old) {
-    if (dup.has(a.key)) continue;        // ambiguous key -> skip
+    if (dup.has(a.key)) continue; // ambiguous key -> skip
     const now = cur.get(a.key);
-    if (!now) continue;                  // gone in the new state -> a real removal, not flicker
-    if (now === a.node) continue;        // same node survived -> reconciled, no churn (good)
+    if (!now) continue; // gone in the new state -> a real removal, not flicker
+    if (now === a.node) continue; // same node survived -> reconciled, no churn (good)
     const r = now.getBoundingClientRect();
     const sameBox =
-      Math.round(r.x) === a.x && Math.round(r.y) === a.y &&
-      Math.round(r.width) === a.w && Math.round(r.height) === a.h;
+      Math.round(r.x) === a.x &&
+      Math.round(r.y) === a.y &&
+      Math.round(r.width) === a.w &&
+      Math.round(r.height) === a.h;
     const sameText = (now.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 256) === a.text;
     if (sameBox && sameText) churned.push(a.key); // unchanged yet rebuilt = flicker
   }
@@ -881,12 +1139,15 @@ function detectContentBugs(injectedValues) {
   const fromFuzzInjection = (text) => {
     const n = String(text || '').toLowerCase();
     if (!n) return false;
-    if (injected.some((v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1))) return true;
+    if (injected.some((v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1)))
+      return true;
     // Fragmented reflection: the browser parsed markup out of the probe, so the
     // visible text is a fragment; check the specific artifact tokens for provenance.
     const arts = [];
-    const tm = n.match(/\{\{[^}]*\}\}/g); if (tm) arts.push(...tm);
-    const dm = n.match(/\$\{[^}]*\}/g); if (dm) arts.push(...dm);
+    const tm = n.match(/\{\{[^}]*\}\}/g);
+    if (tm) arts.push(...tm);
+    const dm = n.match(/\$\{[^}]*\}/g);
+    if (dm) arts.push(...dm);
     if (n.indexOf('[object object]') !== -1) arts.push('[object object]');
     return arts.some((a) => injected.some((v) => v.indexOf(a) !== -1));
   };
@@ -924,11 +1185,18 @@ function detectContentBugs(injectedValues) {
   const reasonOf = (text) => {
     if (!text) return null;
     if (text.includes('[object Object]')) {
-      const s = text.replace(/\[object Object\]/g, ' ').replace(/\s+/g, ' ').trim();
+      const s = text
+        .replace(/\[object Object\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       if (dominates(s)) return 'object-object';
     }
     if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) {
-      const s = text.replace(/\{\{[^}]*\}\}/g, ' ').replace(/\$\{[^}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+      const s = text
+        .replace(/\{\{[^}]*\}\}/g, ' ')
+        .replace(/\$\{[^}]*\}/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       if (dominates(s)) return 'unrendered-template';
     }
     return null;
@@ -950,7 +1218,9 @@ function detectContentBugs(injectedValues) {
     seen.add(dedup);
     out.push({ key, reason, text: text.slice(0, 80) });
   }
-  out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)));
+  out.sort((a, b) =>
+    a.key < b.key ? -1 : a.key > b.key ? 1 : a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0,
+  );
   return out;
 }
 
@@ -966,22 +1236,28 @@ function detectContentBugs(injectedValues) {
 const JANK_FLOOR_MS = 200;
 const HANG_FLOOR_MS = 2000;
 async function installLongTaskObserver(page) {
-  await page.addInitScript(() => {
-    try {
-      window.__reproitLongTasks = [];
-      const obs = new PerformanceObserver((list) => {
-        for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
-      });
-      obs.observe({ entryTypes: ['longtask'] });
-    } catch (_) { /* no Long Tasks API: jank/hang silent on this engine */ }
-  }).catch(() => {});
+  await page
+    .addInitScript(() => {
+      try {
+        window.__reproitLongTasks = [];
+        const obs = new PerformanceObserver((list) => {
+          for (const e of list.getEntries()) window.__reproitLongTasks.push(Math.round(e.duration));
+        });
+        obs.observe({ entryTypes: ['longtask'] });
+      } catch (_) {
+        /* no Long Tasks API: jank/hang silent on this engine */
+      }
+    })
+    .catch(() => {});
 }
 async function drainJank(page) {
-  const tasks = await page.evaluate(() => {
-    const t = window.__reproitLongTasks || [];
-    window.__reproitLongTasks = [];
-    return t;
-  }).catch(() => []);
+  const tasks = await page
+    .evaluate(() => {
+      const t = window.__reproitLongTasks || [];
+      window.__reproitLongTasks = [];
+      return t;
+    })
+    .catch(() => []);
   if (!tasks || !tasks.length) return null;
   const max = Math.max(...tasks);
   if (max >= HANG_FLOOR_MS) {
@@ -1009,7 +1285,9 @@ async function sampleHeap(page, cdp, tMs) {
       await cdp.send('HeapProfiler.collectGarbage').catch(() => {});
       const r = await cdp.send('Runtime.getHeapUsage');
       if (r && typeof r.usedSize === 'number') used = Math.round(r.usedSize);
-    } catch (_) { used = null; }
+    } catch (_) {
+      used = null;
+    }
   }
   if (used == null) {
     try {
@@ -1019,7 +1297,9 @@ async function sampleHeap(page, cdp, tMs) {
         }
         return null;
       });
-    } catch (_) { used = null; }
+    } catch (_) {
+      used = null;
+    }
   }
   if (used == null) return;
   log('MEMORY:SAMPLE ' + JSON.stringify({ t_ms: tMs, heap_used: used }));
@@ -1064,13 +1344,19 @@ async function startScreencastCapture(cdp) {
       maxHeight: 240,
     });
   } catch (_) {
-    try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+    try {
+      cdp.off('Page.screencastFrame', onFrame);
+    } catch (_) {}
     return null;
   }
   return {
     async stop() {
-      try { await cdp.send('Page.stopScreencast'); } catch (_) {}
-      try { cdp.off('Page.screencastFrame', onFrame); } catch (_) {}
+      try {
+        await cdp.send('Page.stopScreencast');
+      } catch (_) {}
+      try {
+        cdp.off('Page.screencastFrame', onFrame);
+      } catch (_) {}
       return frames;
     },
   };
@@ -1078,14 +1364,26 @@ async function startScreencastCapture(cdp) {
 async function finishScreencastCapture(cap, from, action) {
   if (!cap) return;
   let frames;
-  try { frames = await cap.stop(); } catch (_) { return; }
+  try {
+    frames = await cap.stop();
+  } catch (_) {
+    return;
+  }
   if (!frames || frames.length < 3) return;
   let rgbas;
-  try { rgbas = frames.map(pngToRgba); } catch (_) { return; }
+  try {
+    rgbas = frames.map(pngToRgba);
+  } catch (_) {
+    return;
+  }
   const final = rgbas[rgbas.length - 1];
   const diffs = [];
   for (const f of rgbas) {
-    if (f.width !== final.width || f.height !== final.height || f.data.length !== final.data.length) {
+    if (
+      f.width !== final.width ||
+      f.height !== final.height ||
+      f.data.length !== final.data.length
+    ) {
       continue;
     }
     diffs.push(PIXEL.changedFraction(f.data, final.data));
@@ -1129,15 +1427,33 @@ async function finishScreencastCapture(cap, from, action) {
 async function gtCollect(page) {
   return page.evaluate(() => {
     const ROLES = {
-      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
+      screen: 1,
+      header: 1,
+      text: 1,
+      button: 1,
+      link: 1,
+      textfield: 1,
+      image: 1,
+      icon: 1,
+      list: 1,
+      listitem: 1,
+      tab: 1,
+      switch: 1,
+      checkbox: 1,
+      radio: 1,
+      slider: 1,
+      menu: 1,
+      menuitem: 1,
+      dialog: 1,
+      group: 1,
+      node: 1,
     };
     const roleOf = (el) => {
       const tag = el.tagName.toLowerCase();
       const ariaRole = (el.getAttribute('role') || '').toLowerCase();
       if (ariaRole) {
-        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
+        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+          return 'textfield';
         if (ariaRole === 'heading') return 'header';
         if (ariaRole === 'img') return 'image';
         if (ariaRole === 'switch') return 'switch';
@@ -1169,7 +1485,8 @@ async function gtCollect(page) {
       if (['a', 'button', 'select'].includes(tag)) return true;
       if (tag === 'input' || tag === 'textarea') return true;
       if (role === 'textfield') return true;
-      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)) return true;
+      if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+        return true;
       if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
       return false;
     };
@@ -1215,15 +1532,49 @@ async function gtCollect(page) {
     // (docDelegates) and surfaces as a phantom pointer-only/keyboard gap.
     const NON_INTERACTIVE_ROLES = new Set([
       // landmarks
-      'banner', 'complementary', 'contentinfo', 'form', 'main', 'navigation',
-      'region', 'search',
+      'banner',
+      'complementary',
+      'contentinfo',
+      'form',
+      'main',
+      'navigation',
+      'region',
+      'search',
       // document structure
-      'article', 'definition', 'directory', 'document', 'feed', 'figure', 'group',
-      'heading', 'img', 'list', 'listitem', 'math', 'none', 'note', 'presentation',
-      'separator', 'table', 'term', 'toolbar', 'tooltip', 'caption', 'rowgroup',
-      'row', 'cell', 'columnheader', 'rowheader',
+      'article',
+      'definition',
+      'directory',
+      'document',
+      'feed',
+      'figure',
+      'group',
+      'heading',
+      'img',
+      'list',
+      'listitem',
+      'math',
+      'none',
+      'note',
+      'presentation',
+      'separator',
+      'table',
+      'term',
+      'toolbar',
+      'tooltip',
+      'caption',
+      'rowgroup',
+      'row',
+      'cell',
+      'columnheader',
+      'rowheader',
       // containers + live regions / status
-      'dialog', 'alertdialog', 'alert', 'log', 'marquee', 'status', 'timer',
+      'dialog',
+      'alertdialog',
+      'alert',
+      'log',
+      'marquee',
+      'status',
+      'timer',
       'application',
     ]);
     const hasDelegationMarker = (el) => {
@@ -1308,7 +1659,8 @@ async function gtCollect(page) {
     };
 
     // Clear any stale tags from a prior state, then re-tag in document order.
-    for (const e of document.querySelectorAll('[data-reproit-gt]')) e.removeAttribute('data-reproit-gt');
+    for (const e of document.querySelectorAll('[data-reproit-gt]'))
+      e.removeAttribute('data-reproit-gt');
     const out = [];
     // perRole counts ONLY tappable-walk elements, so role:<role>#<idx> selectors
     // match snapshot()/EXPLORE:STATE byte-for-byte. The ground truth also covers
@@ -1319,7 +1671,10 @@ async function gtCollect(page) {
     const perRole = {};
     const root = document.body || document.documentElement;
     const walk = (el, isRoot) => {
-      if (!isRoot && !visible(el)) { for (const c of el.children) walk(c, false); return; }
+      if (!isRoot && !visible(el)) {
+        for (const c of el.children) walk(c, false);
+        return;
+      }
       if (!isRoot) {
         const role = roleOf(el);
         const inTappableWalk = interactive(el, role);
@@ -1354,7 +1709,11 @@ async function gtCollect(page) {
           const i = out.length;
           el.setAttribute('data-reproit-gt', String(i));
           out.push({
-            sel, role, native, cursor, deleg,
+            sel,
+            role,
+            native,
+            cursor,
+            deleg,
             reachable: reachable(el),
             rolePresent: rolePresent(el),
             namePresent: namePresent(el),
@@ -1379,9 +1738,18 @@ async function gtDocDelegates(cdp) {
     try {
       const { result } = await cdp.send('Runtime.evaluate', { expression: expr });
       if (!result || !result.objectId) continue;
-      const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
-      if ((listeners || []).some((l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown')) return true;
-    } catch (e) { /* CDP best-effort */ }
+      const { listeners } = await cdp.send('DOMDebugger.getEventListeners', {
+        objectId: result.objectId,
+      });
+      if (
+        (listeners || []).some(
+          (l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown',
+        )
+      )
+        return true;
+    } catch (e) {
+      /* CDP best-effort */
+    }
   }
   return false;
 }
@@ -1396,13 +1764,19 @@ async function gtElementListeners(cdp, i) {
       expression: 'document.querySelector(\'[data-reproit-gt="' + i + '"]\')',
     });
     if (!result || !result.objectId) return { pointer: false, key: false };
-    const { listeners } = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
+    const { listeners } = await cdp.send('DOMDebugger.getEventListeners', {
+      objectId: result.objectId,
+    });
     const ls = listeners || [];
     return {
-      pointer: ls.some((l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown'),
+      pointer: ls.some(
+        (l) => l.type === 'click' || l.type === 'pointerdown' || l.type === 'mousedown',
+      ),
       key: ls.some((l) => l.type === 'keydown' || l.type === 'keypress' || l.type === 'keyup'),
     };
-  } catch (e) { return { pointer: false, key: false }; }
+  } catch (e) {
+    return { pointer: false, key: false };
+  }
 }
 
 // GRAPH 2 part A: a real Tab traversal from document.body. Press Tab up to
@@ -1413,7 +1787,12 @@ async function gtElementListeners(cdp, i) {
 // never reached again after leaving it). Returns { inTab:Set<int>, focusTrap }.
 async function gtTabOrder(page, count, steps) {
   // Start from a clean baseline: blur whatever is focused onto body.
-  await page.evaluate(() => { try { if (document.activeElement) document.activeElement.blur(); document.body.focus(); } catch (e) {} });
+  await page.evaluate(() => {
+    try {
+      if (document.activeElement) document.activeElement.blur();
+      document.body.focus();
+    } catch (e) {}
+  });
   const inTab = new Set();
   const visited = [];
   for (let k = 0; k < steps; k++) {
@@ -1433,12 +1812,15 @@ async function gtTabOrder(page, count, steps) {
   let firstReal = visited.findIndex((v) => v >= 0 || v === -1);
   let returnedToBody = false;
   if (firstReal >= 0) {
-    for (let k = firstReal + 1; k < visited.length; k++) if (visited[k] === -2) { returnedToBody = true; break; }
+    for (let k = firstReal + 1; k < visited.length; k++)
+      if (visited[k] === -2) {
+        returnedToBody = true;
+        break;
+      }
   }
   const focusTrap = firstReal >= 0 && !returnedToBody && inTab.size > 0 && inTab.size < count;
   return { inTab, focusTrap };
 }
-
 
 // Build and emit the EXPLORE:GROUNDTRUTH record for the current state. `sig` is
 // the SAME signature the EXPLORE:STATE for this state carried. `cdp` may be null
@@ -1446,7 +1828,11 @@ async function gtTabOrder(page, count, steps) {
 // fails is simply omitted, so we never emit a dimension we did not measure.
 async function emitGroundtruth(page, cdp, sig) {
   let els;
-  try { els = await gtCollect(page); } catch (e) { return; }
+  try {
+    els = await gtCollect(page);
+  } catch (e) {
+    return;
+  }
   if (!els || !els.length) {
     log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap: false, elements: [] }));
     return;
@@ -1466,8 +1852,11 @@ async function emitGroundtruth(page, cdp, sig) {
     }
   }
   // GRAPH 2 part A: Tab traversal.
-  let inTab = new Set(), focusTrap = false;
-  try { ({ inTab, focusTrap } = await gtTabOrder(page, els.length, 60)); } catch (e) {}
+  let inTab = new Set(),
+    focusTrap = false;
+  try {
+    ({ inTab, focusTrap } = await gtTabOrder(page, els.length, 60));
+  } catch (e) {}
 
   const records = [];
   for (let i = 0; i < els.length; i++) {
@@ -1506,13 +1895,18 @@ async function emitGroundtruth(page, cdp, sig) {
       a11y.keyboardActivatable = e.adManaged
         ? focusableOnscreen
         : cdpListeners
-        ? focusableOnscreen && (e.native || keyListener[i])
-        : focusableOnscreen;
+          ? focusableOnscreen && (e.native || keyListener[i])
+          : focusableOnscreen;
     }
     records.push({ id: e.sel, operable, gestureKind: e.gestureKind, a11y });
   }
   // Clean up the tagging so it never leaks into a later snapshot/signature.
-  try { await page.evaluate(() => { for (const el of document.querySelectorAll('[data-reproit-gt]')) el.removeAttribute('data-reproit-gt'); }); } catch (e) {}
+  try {
+    await page.evaluate(() => {
+      for (const el of document.querySelectorAll('[data-reproit-gt]'))
+        el.removeAttribute('data-reproit-gt');
+    });
+  } catch (e) {}
 
   log('EXPLORE:GROUNDTRUTH ' + JSON.stringify({ sig, focusTrap, elements: records }));
 }
@@ -1525,126 +1919,164 @@ async function emitGroundtruth(page, cdp, sig) {
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
 async function tap(page, sel) {
-  const ok = await page.evaluate(({ s }) => {
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
-      const st = getComputedStyle(el);
-      return st.visibility !== 'hidden' && st.display !== 'none';
-    };
-    const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
+  const ok = await page
+    .evaluate(
+      ({ s }) => {
+        const visible = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        const cssEscape = (v) =>
+          window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
 
-    const doClick = (el) => {
-      // Stash the clicked element for the post-tap oracle probes (the
-      // duplicate-submit eligibility check and the focus-loss guards read it
-      // in-page). A window ref only, never a DOM mutation, so the signature/
-      // content/mutation oracles are untouched.
-      try {
-        window.__reproitLastTap = el;
-        // FOCUS-LOSS probe: a real user click gives the control keyboard focus
-        // before activating it; el.click() alone does not. When the walk armed
-        // the probe pre-tap (focusLossArm), focus first (no scroll, so the
-        // viewport-dependent snapshot is untouched) so the oracle can observe
-        // whether the app's re-render then drops focus back to <body>.
-        if (window.__reproitFocusProbe) {
-          try { el.focus({ preventScroll: true }); } catch (_) {}
-          window.__reproitTapFocused = document.activeElement === el;
-        }
-      } catch (_) {}
-      el.click();
-      return true;
-    };
+        const doClick = (el) => {
+          // Stash the clicked element for the post-tap oracle probes (the
+          // duplicate-submit eligibility check and the focus-loss guards read it
+          // in-page). A window ref only, never a DOM mutation, so the signature/
+          // content/mutation oracles are untouched.
+          try {
+            window.__reproitLastTap = el;
+            // FOCUS-LOSS probe: a real user click gives the control keyboard focus
+            // before activating it; el.click() alone does not. When the walk armed
+            // the probe pre-tap (focusLossArm), focus first (no scroll, so the
+            // viewport-dependent snapshot is untouched) so the oracle can observe
+            // whether the app's re-render then drops focus back to <body>.
+            if (window.__reproitFocusProbe) {
+              try {
+                el.focus({ preventScroll: true });
+              } catch (_) {}
+              window.__reproitTapFocused = document.activeElement === el;
+            }
+          } catch (_) {}
+          el.click();
+          return true;
+        };
 
-    if (s.startsWith('key:')) {
-      const body = s.slice(4);
-      const ci = body.indexOf(':');
-      if (ci < 0) return false;
-      const kind = body.slice(0, ci);
-      const val = body.slice(ci + 1);
-      let el = null;
-      if (kind === 'testid') {
-        el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-          || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-      } else if (kind === 'id') {
-        el = document.getElementById(val);
-      } else if (kind === 'name') {
-        el = document.querySelector('[name="' + cssEscape(val) + '"]');
-      }
-      if (!el) return false;
-      return doClick(el);
-    }
+        if (s.startsWith('key:')) {
+          const body = s.slice(4);
+          const ci = body.indexOf(':');
+          if (ci < 0) return false;
+          const kind = body.slice(0, ci);
+          const val = body.slice(ci + 1);
+          let el = null;
+          if (kind === 'testid') {
+            el =
+              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+          } else if (kind === 'id') {
+            el = document.getElementById(val);
+          } else if (kind === 'name') {
+            el = document.querySelector('[name="' + cssEscape(val) + '"]');
+          }
+          if (!el) return false;
+          return doClick(el);
+        }
 
-    if (s.startsWith('role:')) {
-      const hash = s.indexOf('#');
-      if (hash < 0) return false;
-      const role = s.slice('role:'.length, hash);
-      const idx = parseInt(s.slice(hash + 1), 10);
-      if (!(idx >= 0)) return false;
-      // Re-derive document-order tappables of this role from the live tree using
-      // the SAME canonical role logic as snapshot(), and click the idx-th. No text.
-      const ROLES = {
-        screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-        icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-        slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-      };
-      const roleOf = (el) => {
-        const tag = el.tagName.toLowerCase();
-        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-        if (ariaRole) {
-          if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-          if (ariaRole === 'heading') return 'header';
-          if (ariaRole === 'img') return 'image';
-          if (ariaRole === 'switch') return 'switch';
-          if (ariaRole === 'link') return 'link';
-          if (ariaRole === 'button') return 'button';
-          if (ROLES[ariaRole]) return ariaRole;
+        if (s.startsWith('role:')) {
+          const hash = s.indexOf('#');
+          if (hash < 0) return false;
+          const role = s.slice('role:'.length, hash);
+          const idx = parseInt(s.slice(hash + 1), 10);
+          if (!(idx >= 0)) return false;
+          // Re-derive document-order tappables of this role from the live tree using
+          // the SAME canonical role logic as snapshot(), and click the idx-th. No text.
+          const ROLES = {
+            screen: 1,
+            header: 1,
+            text: 1,
+            button: 1,
+            link: 1,
+            textfield: 1,
+            image: 1,
+            icon: 1,
+            list: 1,
+            listitem: 1,
+            tab: 1,
+            switch: 1,
+            checkbox: 1,
+            radio: 1,
+            slider: 1,
+            menu: 1,
+            menuitem: 1,
+            dialog: 1,
+            group: 1,
+            node: 1,
+          };
+          const roleOf = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+            if (ariaRole) {
+              if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+                return 'textfield';
+              if (ariaRole === 'heading') return 'header';
+              if (ariaRole === 'img') return 'image';
+              if (ariaRole === 'switch') return 'switch';
+              if (ariaRole === 'link') return 'link';
+              if (ariaRole === 'button') return 'button';
+              if (ROLES[ariaRole]) return ariaRole;
+            }
+            if (tag === 'input') {
+              const t = (el.getAttribute('type') || 'text').toLowerCase();
+              if (t === 'checkbox') return 'checkbox';
+              if (t === 'radio') return 'radio';
+              if (t === 'range') return 'slider';
+              if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+              return 'textfield';
+            }
+            if (tag === 'textarea' || tag === 'select') return 'textfield';
+            if (tag === 'a') return 'link';
+            if (tag === 'button') return 'button';
+            if (tag === 'img' || tag === 'svg') return 'image';
+            if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+            if (tag === 'ul' || tag === 'ol') return 'list';
+            if (tag === 'li') return 'listitem';
+            if (tag === 'dialog') return 'dialog';
+            if (tag === 'nav' || tag === 'menu') return 'menu';
+            return 'node';
+          };
+          const interactive = (el, r) => {
+            const tag = el.tagName.toLowerCase();
+            if (['a', 'button', 'select'].includes(tag)) return true;
+            if (tag === 'input') {
+              const t = (el.getAttribute('type') || 'text').toLowerCase();
+              return !['text', 'password', 'email', 'number', 'search'].includes(t);
+            }
+            if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r))
+              return true;
+            if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+            return false;
+          };
+          let seen = -1,
+            target = null;
+          const walk = (el) => {
+            if (target) return;
+            if (!visible(el)) {
+              for (const c of el.children) walk(c);
+              return;
+            }
+            const r = roleOf(el);
+            if (interactive(el, r) && r === role) {
+              seen++;
+              if (seen === idx) {
+                target = el;
+                return;
+              }
+            }
+            for (const c of el.children) walk(c);
+          };
+          const root = document.body || document.documentElement;
+          if (root) walk(root);
+          if (!target) return false;
+          return doClick(target);
         }
-        if (tag === 'input') {
-          const t = (el.getAttribute('type') || 'text').toLowerCase();
-          if (t === 'checkbox') return 'checkbox';
-          if (t === 'radio') return 'radio';
-          if (t === 'range') return 'slider';
-          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-          return 'textfield';
-        }
-        if (tag === 'textarea' || tag === 'select') return 'textfield';
-        if (tag === 'a') return 'link';
-        if (tag === 'button') return 'button';
-        if (tag === 'img' || tag === 'svg') return 'image';
-        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-        if (tag === 'ul' || tag === 'ol') return 'list';
-        if (tag === 'li') return 'listitem';
-        if (tag === 'dialog') return 'dialog';
-        if (tag === 'nav' || tag === 'menu') return 'menu';
-        return 'node';
-      };
-      const interactive = (el, r) => {
-        const tag = el.tagName.toLowerCase();
-        if (['a', 'button', 'select'].includes(tag)) return true;
-        if (tag === 'input') {
-          const t = (el.getAttribute('type') || 'text').toLowerCase();
-          return !['text', 'password', 'email', 'number', 'search'].includes(t);
-        }
-        if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)) return true;
-        if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
+
         return false;
-      };
-      let seen = -1, target = null;
-      const walk = (el) => {
-        if (target) return;
-        if (!visible(el)) { for (const c of el.children) walk(c); return; }
-        const r = roleOf(el);
-        if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
-        for (const c of el.children) walk(c);
-      };
-      const root = document.body || document.documentElement;
-      if (root) walk(root);
-      if (!target) return false;
-      return doClick(target);
-    }
-
-    return false;
-  }, { s: sel }).catch(() => false);
+      },
+      { s: sel },
+    )
+    .catch(() => false);
   return !!ok;
 }
 
@@ -1665,122 +2097,166 @@ async function tap(page, sel) {
 // returns). Returns { x, y, w, h, videoW, videoH } or null if unresolved.
 async function resolveClipBox(page, sel) {
   return await page
-    .evaluate(async ({ s }) => {
-      const visible = (el) => {
+    .evaluate(
+      async ({ s }) => {
+        const visible = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        const cssEscape = (v) =>
+          window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
+        // Locate the element with the identical grammar tap() resolves, so the box
+        // lands on exactly the control the replay tapped.
+        let el = null;
+        if (s.startsWith('key:')) {
+          const body = s.slice(4);
+          const ci = body.indexOf(':');
+          const kind = ci >= 0 ? body.slice(0, ci) : '';
+          const val = ci >= 0 ? body.slice(ci + 1) : body;
+          if (kind === 'testid') {
+            el =
+              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+          } else if (kind === 'id') {
+            el = document.getElementById(val);
+          } else if (kind === 'name') {
+            el = document.querySelector('[name="' + cssEscape(val) + '"]');
+          }
+        } else if (s.startsWith('role:')) {
+          const hash = s.indexOf('#');
+          if (hash >= 0) {
+            const role = s.slice('role:'.length, hash);
+            const idx = parseInt(s.slice(hash + 1), 10);
+            const ROLES = {
+              screen: 1,
+              header: 1,
+              text: 1,
+              button: 1,
+              link: 1,
+              textfield: 1,
+              image: 1,
+              icon: 1,
+              list: 1,
+              listitem: 1,
+              tab: 1,
+              switch: 1,
+              checkbox: 1,
+              radio: 1,
+              slider: 1,
+              menu: 1,
+              menuitem: 1,
+              dialog: 1,
+              group: 1,
+              node: 1,
+            };
+            const roleOf = (n) => {
+              const tag = n.tagName.toLowerCase();
+              const ariaRole = (n.getAttribute('role') || '').toLowerCase();
+              if (ariaRole) {
+                if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+                  return 'textfield';
+                if (ariaRole === 'heading') return 'header';
+                if (ariaRole === 'img') return 'image';
+                if (ariaRole === 'switch') return 'switch';
+                if (ariaRole === 'link') return 'link';
+                if (ariaRole === 'button') return 'button';
+                if (ROLES[ariaRole]) return ariaRole;
+              }
+              if (tag === 'input') {
+                const t = (n.getAttribute('type') || 'text').toLowerCase();
+                if (t === 'checkbox') return 'checkbox';
+                if (t === 'radio') return 'radio';
+                if (t === 'range') return 'slider';
+                if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
+                return 'textfield';
+              }
+              if (tag === 'textarea' || tag === 'select') return 'textfield';
+              if (tag === 'a') return 'link';
+              if (tag === 'button') return 'button';
+              if (tag === 'img' || tag === 'svg') return 'image';
+              if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
+              if (tag === 'ul' || tag === 'ol') return 'list';
+              if (tag === 'li') return 'listitem';
+              if (tag === 'dialog') return 'dialog';
+              if (tag === 'nav' || tag === 'menu') return 'menu';
+              return 'node';
+            };
+            const interactive = (n, r) => {
+              const tag = n.tagName.toLowerCase();
+              if (['a', 'button', 'select'].includes(tag)) return true;
+              if (tag === 'input') {
+                const t = (n.getAttribute('type') || 'text').toLowerCase();
+                return !['text', 'password', 'email', 'number', 'search'].includes(t);
+              }
+              if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r))
+                return true;
+              if (n.hasAttribute('onclick') || n.tabIndex >= 0) return true;
+              return false;
+            };
+            let seen = -1;
+            const walk = (n) => {
+              if (el) return;
+              if (!visible(n)) {
+                for (const c of n.children) walk(c);
+                return;
+              }
+              const r = roleOf(n);
+              if (interactive(n, r) && r === role) {
+                seen++;
+                if (seen === idx) {
+                  el = n;
+                  return;
+                }
+              }
+              for (const c of n.children) walk(c);
+            };
+            const root = document.body || document.documentElement;
+            if (root && idx >= 0) walk(root);
+          }
+        }
+        if (!el) return null;
+        // Bring the element into the recorded frame INSTANTLY (not smooth): a
+        // smooth animation is still moving when we measure, so the rect would
+        // diverge from the settled frame the video holds -- the box lands off the
+        // element. An instant scroll settles in one frame, so the measured rect
+        // equals the held frame. Wait a couple of frames for any reflow.
+        try {
+          el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+        } catch (_) {
+          try {
+            el.scrollIntoView({ block: 'center', inline: 'center' });
+          } catch (__) {}
+        }
+        let lastY = -1,
+          stable = 0;
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          const y = window.scrollY;
+          if (y === lastY) {
+            if (++stable >= 2) break;
+          } else {
+            stable = 0;
+            lastY = y;
+          }
+        }
         const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) return false;
-        const st = getComputedStyle(el);
-        return st.visibility !== 'hidden' && st.display !== 'none';
-      };
-      const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
-      // Locate the element with the identical grammar tap() resolves, so the box
-      // lands on exactly the control the replay tapped.
-      let el = null;
-      if (s.startsWith('key:')) {
-        const body = s.slice(4);
-        const ci = body.indexOf(':');
-        const kind = ci >= 0 ? body.slice(0, ci) : '';
-        const val = ci >= 0 ? body.slice(ci + 1) : body;
-        if (kind === 'testid') {
-          el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-            || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-        } else if (kind === 'id') {
-          el = document.getElementById(val);
-        } else if (kind === 'name') {
-          el = document.querySelector('[name="' + cssEscape(val) + '"]');
-        }
-      } else if (s.startsWith('role:')) {
-        const hash = s.indexOf('#');
-        if (hash >= 0) {
-          const role = s.slice('role:'.length, hash);
-          const idx = parseInt(s.slice(hash + 1), 10);
-          const ROLES = {
-            screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-            icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-            slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-          };
-          const roleOf = (n) => {
-            const tag = n.tagName.toLowerCase();
-            const ariaRole = (n.getAttribute('role') || '').toLowerCase();
-            if (ariaRole) {
-              if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-              if (ariaRole === 'heading') return 'header';
-              if (ariaRole === 'img') return 'image';
-              if (ariaRole === 'switch') return 'switch';
-              if (ariaRole === 'link') return 'link';
-              if (ariaRole === 'button') return 'button';
-              if (ROLES[ariaRole]) return ariaRole;
-            }
-            if (tag === 'input') {
-              const t = (n.getAttribute('type') || 'text').toLowerCase();
-              if (t === 'checkbox') return 'checkbox';
-              if (t === 'radio') return 'radio';
-              if (t === 'range') return 'slider';
-              if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-              return 'textfield';
-            }
-            if (tag === 'textarea' || tag === 'select') return 'textfield';
-            if (tag === 'a') return 'link';
-            if (tag === 'button') return 'button';
-            if (tag === 'img' || tag === 'svg') return 'image';
-            if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-            if (tag === 'ul' || tag === 'ol') return 'list';
-            if (tag === 'li') return 'listitem';
-            if (tag === 'dialog') return 'dialog';
-            if (tag === 'nav' || tag === 'menu') return 'menu';
-            return 'node';
-          };
-          const interactive = (n, r) => {
-            const tag = n.tagName.toLowerCase();
-            if (['a', 'button', 'select'].includes(tag)) return true;
-            if (tag === 'input') {
-              const t = (n.getAttribute('type') || 'text').toLowerCase();
-              return !['text', 'password', 'email', 'number', 'search'].includes(t);
-            }
-            if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)) return true;
-            if (n.hasAttribute('onclick') || n.tabIndex >= 0) return true;
-            return false;
-          };
-          let seen = -1;
-          const walk = (n) => {
-            if (el) return;
-            if (!visible(n)) { for (const c of n.children) walk(c); return; }
-            const r = roleOf(n);
-            if (interactive(n, r) && r === role) { seen++; if (seen === idx) { el = n; return; } }
-            for (const c of n.children) walk(c);
-          };
-          const root = document.body || document.documentElement;
-          if (root && idx >= 0) walk(root);
-        }
-      }
-      if (!el) return null;
-      // Bring the element into the recorded frame INSTANTLY (not smooth): a
-      // smooth animation is still moving when we measure, so the rect would
-      // diverge from the settled frame the video holds -- the box lands off the
-      // element. An instant scroll settles in one frame, so the measured rect
-      // equals the held frame. Wait a couple of frames for any reflow.
-      try { el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' }); }
-      catch (_) { try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (__) {} }
-      let lastY = -1, stable = 0;
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 50));
-        const y = window.scrollY;
-        if (y === lastY) { if (++stable >= 2) break; } else { stable = 0; lastY = y; }
-      }
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return null;
-      const vw = window.innerWidth || document.documentElement.clientWidth || 1;
-      const vh = window.innerHeight || document.documentElement.clientHeight || 1;
-      // Clamp the box inside the viewport (an inset) so a box always lands on
-      // camera even when the element sits flush to an edge -- mirrors the web
-      // overlay's clamp. box-overlay draws exactly this rect (scaled to pixels).
-      const ins = 4;
-      const left = Math.min(Math.max(r.left - 2, ins), Math.max(ins, vw - ins - 8));
-      const top = Math.min(Math.max(r.top - 2, ins), Math.max(ins, vh - ins - 8));
-      const w = Math.max(8, Math.min(r.width + 4, vw - left - ins));
-      const h = Math.max(8, Math.min(r.height + 4, vh - top - ins));
-      return { x: left, y: top, w, h, videoW: vw, videoH: vh };
-    }, { s: sel })
+        if (r.width === 0 || r.height === 0) return null;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+        // Clamp the box inside the viewport (an inset) so a box always lands on
+        // camera even when the element sits flush to an edge -- mirrors the web
+        // overlay's clamp. box-overlay draws exactly this rect (scaled to pixels).
+        const ins = 4;
+        const left = Math.min(Math.max(r.left - 2, ins), Math.max(ins, vw - ins - 8));
+        const top = Math.min(Math.max(r.top - 2, ins), Math.max(ins, vh - ins - 8));
+        const w = Math.max(8, Math.min(r.width + 4, vw - left - ins));
+        const h = Math.max(8, Math.min(r.height + 4, vh - top - ins));
+        return { x: left, y: top, w, h, videoW: vw, videoH: vh };
+      },
+      { s: sel },
+    )
     .catch(() => null);
 }
 
@@ -1790,10 +2266,24 @@ async function resolveClipBox(page, sel) {
 // returns true on success.
 function remuxToMov(webm, mov) {
   if (!webm || !existsSync(webm)) return false;
-  const r = spawnSync('ffmpeg', [
-    '-hide_banner', '-loglevel', 'error', '-y', '-i', webm,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-an', mov,
-  ], { stdio: ['ignore', 'inherit', 'inherit'] });
+  const r = spawnSync(
+    'ffmpeg',
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-i',
+      webm,
+      '-c:v',
+      'libx264',
+      '-pix_fmt',
+      'yuv420p',
+      '-an',
+      mov,
+    ],
+    { stdio: ['ignore', 'inherit', 'inherit'] },
+  );
   return r.status === 0 && existsSync(mov);
 }
 
@@ -1822,12 +2312,17 @@ function countMatching(finder) {
     const ci = body.indexOf(':');
     const kind = ci >= 0 ? body.slice(0, ci) : '';
     const val = ci >= 0 ? body.slice(ci + 1) : body;
-    if (kind === 'testid') sel = '[data-testid="' + esc(val) + '"],[data-test-id="' + esc(val) + '"]';
+    if (kind === 'testid')
+      sel = '[data-testid="' + esc(val) + '"],[data-test-id="' + esc(val) + '"]';
     else if (kind === 'id') sel = '#' + esc(val);
     else if (kind === 'name') sel = '[name="' + esc(val) + '"]';
   }
   let els;
-  try { els = document.querySelectorAll(sel); } catch (_) { return -1; }
+  try {
+    els = document.querySelectorAll(sel);
+  } catch (_) {
+    return -1;
+  }
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
@@ -1850,72 +2345,97 @@ function countMatching(finder) {
 const INJECTED_VALUES = new Set();
 async function typeInto(page, sel, value) {
   if (value != null && String(value).length > 0) INJECTED_VALUES.add(String(value));
-  const found = await page.evaluate(({ s }) => {
-    const visible = (el) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return false;
-      const st = getComputedStyle(el);
-      return st.visibility !== 'hidden' && st.display !== 'none';
-    };
-    const cssEscape = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&'));
-    let el = null;
-    if (s.startsWith('key:')) {
-      const body = s.slice(4);
-      const ci = body.indexOf(':');
-      if (ci < 0) return false;
-      const kind = body.slice(0, ci);
-      const val = body.slice(ci + 1);
-      if (kind === 'testid') {
-        el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-          || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-      } else if (kind === 'id') {
-        el = document.getElementById(val);
-      } else if (kind === 'name') {
-        el = document.querySelector('[name="' + cssEscape(val) + '"]');
-      }
-    } else if (s.startsWith('role:')) {
-      const hash = s.indexOf('#');
-      if (hash < 0) return false;
-      const role = s.slice('role:'.length, hash);
-      const idx = parseInt(s.slice(hash + 1), 10);
-      if (!(idx >= 0)) return false;
-      const roleOf = (el) => {
-        const tag = el.tagName.toLowerCase();
-        const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-        if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox') return 'textfield';
-        if (tag === 'input') {
-          const t = (el.getAttribute('type') || 'text').toLowerCase();
-          if (['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image'].includes(t)) return t;
-          return 'textfield';
+  const found = await page
+    .evaluate(
+      ({ s }) => {
+        const visible = (el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return false;
+          const st = getComputedStyle(el);
+          return st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        const cssEscape = (v) =>
+          window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
+        let el = null;
+        if (s.startsWith('key:')) {
+          const body = s.slice(4);
+          const ci = body.indexOf(':');
+          if (ci < 0) return false;
+          const kind = body.slice(0, ci);
+          const val = body.slice(ci + 1);
+          if (kind === 'testid') {
+            el =
+              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
+              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
+          } else if (kind === 'id') {
+            el = document.getElementById(val);
+          } else if (kind === 'name') {
+            el = document.querySelector('[name="' + cssEscape(val) + '"]');
+          }
+        } else if (s.startsWith('role:')) {
+          const hash = s.indexOf('#');
+          if (hash < 0) return false;
+          const role = s.slice('role:'.length, hash);
+          const idx = parseInt(s.slice(hash + 1), 10);
+          if (!(idx >= 0)) return false;
+          const roleOf = (el) => {
+            const tag = el.tagName.toLowerCase();
+            const ariaRole = (el.getAttribute('role') || '').toLowerCase();
+            if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
+              return 'textfield';
+            if (tag === 'input') {
+              const t = (el.getAttribute('type') || 'text').toLowerCase();
+              if (['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image'].includes(t))
+                return t;
+              return 'textfield';
+            }
+            if (tag === 'textarea' || tag === 'select') return 'textfield';
+            return ariaRole || tag;
+          };
+          let seen = -1,
+            target = null;
+          const walk = (el) => {
+            if (target) return;
+            if (!visible(el)) {
+              for (const c of el.children) walk(c);
+              return;
+            }
+            if (roleOf(el) === role) {
+              seen++;
+              if (seen === idx) {
+                target = el;
+                return;
+              }
+            }
+            for (const c of el.children) walk(c);
+          };
+          const root = document.body || document.documentElement;
+          if (root) walk(root);
+          el = target;
         }
-        if (tag === 'textarea' || tag === 'select') return 'textfield';
-        return ariaRole || tag;
-      };
-      let seen = -1, target = null;
-      const walk = (el) => {
-        if (target) return;
-        if (!visible(el)) { for (const c of el.children) walk(c); return; }
-        if (roleOf(el) === role) { seen++; if (seen === idx) { target = el; return; } }
-        for (const c of el.children) walk(c);
-      };
-      const root = document.body || document.documentElement;
-      if (root) walk(root);
-      el = target;
-    }
-    if (!el || !visible(el)) return false;
-    // Only type into things that hold text; a non-text target is a miss so the
-    // caller treats it like a failed action rather than silently no-op'ing.
-    const tag = el.tagName.toLowerCase();
-    const isText = tag === 'textarea'
-      || (el.getAttribute && (el.getAttribute('role') || '').toLowerCase().match(/textbox|searchbox|combobox/))
-      || el.isContentEditable
-      || (tag === 'input' && !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image']
-        .includes((el.getAttribute('type') || 'text').toLowerCase()));
-    if (!isText) return false;
-    try { el.focus(); } catch (e) {}
-    el.setAttribute('data-reproit-typed', '1');
-    return true;
-  }, { s: sel }).catch(() => false);
+        if (!el || !visible(el)) return false;
+        // Only type into things that hold text; a non-text target is a miss so the
+        // caller treats it like a failed action rather than silently no-op'ing.
+        const tag = el.tagName.toLowerCase();
+        const isText =
+          tag === 'textarea' ||
+          (el.getAttribute &&
+            (el.getAttribute('role') || '').toLowerCase().match(/textbox|searchbox|combobox/)) ||
+          el.isContentEditable ||
+          (tag === 'input' &&
+            !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image'].includes(
+              (el.getAttribute('type') || 'text').toLowerCase(),
+            ));
+        if (!isText) return false;
+        try {
+          el.focus();
+        } catch (e) {}
+        el.setAttribute('data-reproit-typed', '1');
+        return true;
+      },
+      { s: sel },
+    )
+    .catch(() => false);
   if (!found) return false;
   // Type via the real keyboard so framework input handlers fire, then commit
   // with Enter. Clear any existing content first for determinism.
@@ -1937,7 +2457,9 @@ async function typeInto(page, sel, value) {
       ae.dispatchEvent(new Event('change', { bubbles: true }));
     }, value);
     await page.keyboard.press('Enter');
-  } catch (e) { return false; }
+  } catch (e) {
+    return false;
+  }
   return true;
 }
 
@@ -1956,27 +2478,48 @@ async function execScenarioAction(page, act, who) {
     const body = act.slice('assert:'.length);
     if (body.startsWith('text=')) {
       const want = body.slice('text='.length);
-      const ok = await page.evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want).catch(() => false);
-      log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who);
+      const ok = await page
+        .evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want)
+        .catch(() => false);
+      log(
+        'FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want) + ' actor=' + who,
+      );
     } else if (body.startsWith('count:')) {
       const rest = body.slice('count:'.length);
       const eq = rest.lastIndexOf('=');
       const finder = eq >= 0 ? rest.slice(0, eq) : rest;
       const want = eq >= 0 ? parseInt(rest.slice(eq + 1), 10) : 0;
       const got = await page.evaluate(countMatching, finder).catch(() => -1);
-      log('FUZZ:ASSERT ' + (got === want ? 'pass' : 'fail') + ' count ' + finder + ' want=' + want + ' got=' + got + ' actor=' + who);
+      log(
+        'FUZZ:ASSERT ' +
+          (got === want ? 'pass' : 'fail') +
+          ' count ' +
+          finder +
+          ' want=' +
+          want +
+          ' got=' +
+          got +
+          ' actor=' +
+          who,
+      );
     } else {
       log('FUZZ:ASSERT fail unsupported ' + body + ' actor=' + who);
     }
     await page.waitForTimeout(300);
     return;
   }
-  if (act === 'back') { await page.goBack({ timeout: 3000 }).catch(() => {}); await page.waitForTimeout(400); return; }
+  if (act === 'back') {
+    await page.goBack({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    return;
+  }
   if (act.startsWith('auth:')) {
     // Session-restore login is not wired on the Electron runner; use a
     // `login(<account>)` actor prelude (UI flow) for multi-user auth. No-op so
     // ordering still advances, but flag it loudly.
-    log('JOURNEY[a] step: auth-restore unsupported on electron runner; use login() for ' + act);
+    log(
+      'JOURNEY[a] step: auth-restore unsupported on electron runner; use ' + 'login() for ' + act,
+    );
     await page.waitForTimeout(200);
     return;
   }
@@ -2008,7 +2551,11 @@ async function runScenarioActor(page) {
   // ... atomically so two actors can never collide.
   let who = process.env.REPROIT_DEVICE;
   if (!who) {
-    try { who = (await (await fetch(base + '/claim')).text()).trim(); } catch (_) { who = ''; }
+    try {
+      who = (await (await fetch(base + '/claim')).text()).trim();
+    } catch (_) {
+      who = '';
+    }
     if (!who || who.startsWith('ERR')) who = 'a';
   }
   log('JOURNEY claimed role=' + who);
@@ -2016,13 +2563,22 @@ async function runScenarioActor(page) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let guard = 0; guard < 100000; guard++) {
     let body = 'WAIT';
-    try { body = (await (await fetch(base + '/next?device=' + who)).text()).trim(); }
-    catch { await sleep(100); continue; }
+    try {
+      body = (await (await fetch(base + '/next?device=' + who)).text()).trim();
+    } catch {
+      await sleep(100);
+      continue;
+    }
     if (body === 'DONE') break;
-    if (body === 'WAIT') { await sleep(40); continue; }
+    if (body === 'WAIT') {
+      await sleep(40);
+      continue;
+    }
     const act = body.startsWith('ACT\t') ? body.slice(4) : body;
     await execScenarioAction(page, act, who);
-    try { await fetch(base + '/done?device=' + who, { method: 'POST' }); } catch (_) {}
+    try {
+      await fetch(base + '/done?device=' + who, { method: 'POST' });
+    } catch (_) {}
   }
   await page.waitForTimeout(500); // flush a trailing pageerror before teardown
   log('JOURNEY DONE');
@@ -2030,14 +2586,24 @@ async function runScenarioActor(page) {
 }
 
 async function main() {
-  if (!APP) { log('EXCEPTION CAUGHT BY REPROIT'); log('REPROIT_APP (executable path or dev dir) required'); log('═'.repeat(8)); process.exit(0); }
+  if (!APP) {
+    log('EXCEPTION CAUGHT BY REPROIT');
+    log('REPROIT_APP (executable path or dev dir) required');
+    log('═'.repeat(8));
+    process.exit(0);
+  }
   const launch = resolveElectronLaunch(APP);
-  if (!launch) { log('EXCEPTION CAUGHT BY REPROIT'); log('Could not resolve Electron binary from: ' + APP); log('═'.repeat(8)); process.exit(0); }
+  if (!launch) {
+    log('EXCEPTION CAUGHT BY REPROIT');
+    log('Could not resolve Electron binary from: ' + APP);
+    log('═'.repeat(8));
+    process.exit(0);
+  }
   const fuzz = loadFuzz();
   // --record clip capture (route B): arm when this is a replay with a clip plan
   // {sel,label,oracle} + REPROIT_VIDEO_DIR. Playwright's recordVideo films the
   // renderer window (window-only, never the desktop -- the hard privacy rule).
-  const clipPlan = (fuzz.clip && typeof fuzz.clip.sel === 'string') ? fuzz.clip : null;
+  const clipPlan = fuzz.clip && typeof fuzz.clip.sel === 'string' ? fuzz.clip : null;
   const clipArmed = !!(VIDEO_DIR && fuzz.replay && clipPlan);
   // Pin the recorded video to a FIXED size AND emulate the renderer to the SAME
   // size (below) when filming a clip: without this, Playwright's Electron video
@@ -2045,7 +2611,8 @@ async function main() {
   // bottom padding), but the host box-overlay scales the box's x/y independently
   // (no padding model) -- so the box lands off the element. Equal capture and
   // renderer sizes give a 1:1 mapping (no letterbox), so the box lands exactly.
-  const CLIP_W = 1200, CLIP_H = 800;
+  const CLIP_W = 1200,
+    CLIP_H = 800;
   const launchOpts = {
     executablePath: launch.executablePath,
     recordVideo: VIDEO_DIR
@@ -2065,20 +2632,33 @@ async function main() {
   await installElectronWebSockets(electronContext, capsulePath);
   if (capsulePath) {
     const capsule = JSON.parse(readFileSync(capsulePath, 'utf8'));
-    const exchanges = (capsule.exchanges || []).filter((e) => e.required && /^(https?|sse)$/.test(e.protocol));
+    const exchanges = (capsule.exchanges || []).filter(
+      (e) => e.required && /^(https?|sse)$/.test(e.protocol),
+    );
     const used = new Set();
     await electronContext.route('**/*', async (route) => {
       const req = route.request();
       if (!['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) return route.continue();
       const wanted = canonicalNetworkUrl(req.url());
-      const idx = exchanges.findIndex((e, i) => !used.has(i) && e.actor === NETWORK_ACTOR &&
-        e.actionIndex === causalActionIndex && String(e.method).toUpperCase() === req.method().toUpperCase() &&
-        canonicalNetworkUrl(e.url) === wanted);
-      if (idx < 0) { log(`CAPSULE:MISS ${req.method()} ${req.url()} action=${causalActionIndex}`); return route.abort('blockedbyclient'); }
-      used.add(idx); const e = exchanges[idx];
+      const idx = exchanges.findIndex(
+        (e, i) =>
+          !used.has(i) &&
+          e.actor === NETWORK_ACTOR &&
+          e.actionIndex === causalActionIndex &&
+          String(e.method).toUpperCase() === req.method().toUpperCase() &&
+          canonicalNetworkUrl(e.url) === wanted,
+      );
+      if (idx < 0) {
+        log(`CAPSULE:MISS ${req.method()} ${req.url()} action=${causalActionIndex}`);
+        return route.abort('blockedbyclient');
+      }
+      used.add(idx);
+      const e = exchanges[idx];
       const headers = { ...(e.responseHeaders || {}) };
-      const body = typeof e.responseBody === 'string' ? e.responseBody : JSON.stringify(e.responseBody ?? '');
-      if (typeof e.responseBody !== 'string' && !headers['content-type']) headers['content-type'] = 'application/json';
+      const body =
+        typeof e.responseBody === 'string' ? e.responseBody : JSON.stringify(e.responseBody ?? '');
+      if (typeof e.responseBody !== 'string' && !headers['content-type'])
+        headers['content-type'] = 'application/json';
       log(`CAPSULE:HIT ${e.id}`);
       return route.fulfill({ status: e.status, headers, body });
     });
@@ -2086,33 +2666,64 @@ async function main() {
   }
   log(`REPROIT:CAPABILITIES {"http":{"status":"captured"},"http_replay":{"status":"captured"}}`);
   electronContext.on('request', (req) => {
-    if (!NETWORK_FILE || capsulePath || !['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) return;
+    if (
+      !NETWORK_FILE ||
+      capsulePath ||
+      !['xhr', 'fetch', 'eventsource'].includes(req.resourceType())
+    )
+      return;
     try {
       const u = new URL(req.url());
       if (!/^https?:$/.test(u.protocol)) return;
-      const headers = req.headers(); const ordinal = causalOrdinal++;
-      causalRequests.set(req, { id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`,
-        actionIndex: causalActionIndex, ordinal, headers: redactNetworkHeaders(headers),
-        body: parseNetworkBody(req.postData(), headers['content-type'] || '') });
+      const headers = req.headers();
+      const ordinal = causalOrdinal++;
+      causalRequests.set(req, {
+        id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`,
+        actionIndex: causalActionIndex,
+        ordinal,
+        headers: redactNetworkHeaders(headers),
+        body: parseNetworkBody(req.postData(), headers['content-type'] || ''),
+      });
     } catch (_) {}
   });
   electronContext.on('response', async (resp) => {
     try {
-      const req = resp.request(); const causal = causalRequests.get(req);
+      const req = resp.request();
+      const causal = causalRequests.get(req);
       if (!causal || !NETWORK_FILE || capsulePath) return;
       const headers = await resp.allHeaders().catch(() => ({}));
       const contentType = headers['content-type'] || '';
       let body;
       if (/text\/event-stream/i.test(contentType)) {
-        const sse = redactSse(await resp.text().catch(() => '')); body = sse.body;
-        if (!sse.supported) log('REPROIT:CAPABILITIES {"sse":{"status":"unsupported","detail":"non-JSON event cannot be safely persisted"},"sse_replay":{"status":"unsupported"}}');
-      }
-      else if (/json/i.test(contentType)) body = parseNetworkBody(await resp.text().catch(() => ''), contentType);
-      else if (headers['content-length']) body = `<reproit:body:length=${headers['content-length']}>`;
-      appendNetworkFact({ id: causal.id, actor: NETWORK_ACTOR, actionIndex: causal.actionIndex,
-        ordinal: causal.ordinal, protocol: /text\/event-stream/i.test(contentType) ? 'sse' : new URL(resp.url()).protocol.replace(':',''),
-        method: req.method(), url: resp.url(), requestHeaders: causal.headers, requestBody: causal.body,
-        status: resp.status(), responseHeaders: redactNetworkHeaders(headers), responseBody: body, required: true });
+        const sse = redactSse(await resp.text().catch(() => ''));
+        body = sse.body;
+        if (!sse.supported)
+          log(
+            'REPROIT:CAPABILITIES {"sse":{"status":"unsupported","detail":"non-JSON ' +
+              'event cannot be safely persisted"},"sse_replay":{"status":' +
+              '"unsupported"}}',
+          );
+      } else if (/json/i.test(contentType))
+        body = parseNetworkBody(await resp.text().catch(() => ''), contentType);
+      else if (headers['content-length'])
+        body = `<reproit:body:length=${headers['content-length']}>`;
+      appendNetworkFact({
+        id: causal.id,
+        actor: NETWORK_ACTOR,
+        actionIndex: causal.actionIndex,
+        ordinal: causal.ordinal,
+        protocol: /text\/event-stream/i.test(contentType)
+          ? 'sse'
+          : new URL(resp.url()).protocol.replace(':', ''),
+        method: req.method(),
+        url: resp.url(),
+        requestHeaders: causal.headers,
+        requestBody: causal.body,
+        status: resp.status(),
+        responseHeaders: redactNetworkHeaders(headers),
+        responseBody: body,
+        required: true,
+      });
     } catch (_) {}
   });
   const page = await app.firstWindow();
@@ -2123,7 +2734,9 @@ async function main() {
     // mechanism the zoom-reflow check uses on Electron) so the film is 1:1 with
     // the element rects we measure. Best-effort: if it does not take, the box is
     // still drawn, just with the framework's own scaling.
-    try { await page.setViewportSize({ width: CLIP_W, height: CLIP_H }); } catch (_) {}
+    try {
+      await page.setViewportSize({ width: CLIP_W, height: CLIP_H });
+    } catch (_) {}
     // Small lead-in so the first frames exist before the replay drives the app.
     await page.waitForTimeout(400);
   }
@@ -2131,7 +2744,10 @@ async function main() {
     log('EXCEPTION CAUGHT BY ELECTRON RENDERER');
     log('The following error was thrown:');
     log(String(err && err.message ? err.message : err));
-    for (const line of String(err && err.stack ? err.stack : '').split('\n').slice(0, 8)) log(line);
+    for (const line of String(err && err.stack ? err.stack : '')
+      .split('\n')
+      .slice(0, 8))
+      log(line);
     log('═'.repeat(8));
   });
 
@@ -2139,7 +2755,11 @@ async function main() {
   // (page.emulateMedia drives the same CDP media emulation the web tier uses on
   // its context; Electron's renderer is Chromium), pinning animation-dependent
   // layout so snapshots/pixels are stable across runs. Best-effort.
-  try { await page.emulateMedia({ reducedMotion: 'reduce' }); } catch (e) { /* best-effort */ }
+  try {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  } catch (e) {
+    /* best-effort */
+  }
 
   // Multi-actor scenario: this process plays one actor, pulling from the
   // conductor; the fuzz walk and its oracles do not run.
@@ -2172,7 +2792,9 @@ async function main() {
       if (appOrigin == null) appOrigin = u.origin; // pin from the first document
       if (u.origin !== appOrigin) return;
       navStatus[normalizePathname(u.pathname)] = resp.status();
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   });
 
   // DUPLICATE-SUBMIT probe support, OPT-IN per run via REPROIT_DUPSUBMIT=1
@@ -2204,7 +2826,9 @@ async function main() {
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
       if (appOrigin && u.origin !== appOrigin) return;
       dupReqLog.push(method + ' ' + req.url());
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
   });
 
   // Install the Long Tasks observer (jank/hang watchdog) BEFORE the renderer
@@ -2229,8 +2853,14 @@ async function main() {
         import('./web/probe.mjs'),
         import('./web/flicker-oracle.mjs'),
       ]);
-      PIXEL = { PNG, changedFraction: probe.changedFraction, transientDivergence: flick.transientDivergence };
-    } catch (_) { PIXEL = null; /* pixel-flicker unavailable: stays silent */ }
+      PIXEL = {
+        PNG,
+        changedFraction: probe.changedFraction,
+        transientDivergence: flick.transientDivergence,
+      };
+    } catch (_) {
+      PIXEL = null; /* pixel-flicker unavailable: stays silent */
+    }
   }
 
   log('JOURNEY claimed role=a');
@@ -2242,22 +2872,39 @@ async function main() {
   {
     const wall = await detectBotWall(page);
     if (wall) {
-      const diag = `target is behind a ${wall.vendor} bot-challenge (${wall.marker}); reproit could not reach the app.`;
-      log('EXPLORE:UNSCANNABLE ' + JSON.stringify({ reason: 'bot-wall', vendor: wall.vendor, marker: wall.marker, diagnostic: diag }));
+      const diag =
+        `target is behind a ${wall.vendor} bot-challenge (${wall.marker}); ` +
+        'reproit could not reach the app.';
+      log(
+        'EXPLORE:UNSCANNABLE ' +
+          JSON.stringify({
+            reason: 'bot-wall',
+            vendor: wall.vendor,
+            marker: wall.marker,
+            diagnostic: diag,
+          }),
+      );
       log('JOURNEY[a] step: UNSCANNABLE - ' + diag);
       log('JOURNEY DONE');
       log('All tests passed');
-      try { await app.close(); } catch (_) {}
+      try {
+        await app.close();
+      } catch (_) {}
       return;
     }
   }
-  const seen = new Set(), tried = new Set();
+  const seen = new Set(),
+    tried = new Set();
   const pick = rng(fuzz.seed || 0);
   // CDP session on the renderer (Electron's renderer is Chromium) for the
   // ground-truth operability probe: real click/pointer listeners on elements and
   // the document/body delegation pattern via DOMDebugger.getEventListeners.
   let gtCdp = null;
-  try { gtCdp = await page.context().newCDPSession(page); } catch (e) { gtCdp = null; }
+  try {
+    gtCdp = await page.context().newCDPSession(page);
+  } catch (e) {
+    gtCdp = null;
+  }
 
   // Layer-3 opt-in value-node selectors from reproit.yaml (empty if none).
   const valueNodeSelectors = loadValueNodes();
@@ -2267,15 +2914,18 @@ async function main() {
   // track the DISTINCT value-class combinations seen. Once a node exceeds
   // VALUE_CLASS_CAP, fall back to its structural-only signature for the rest of
   // the run so an adversarial value generator cannot explode the graph.
-  const valueCombos = new Map();   // structuralSig -> Set of V: sections
-  const cappedNodes = new Set();   // structuralSig that hit the cap
+  const valueCombos = new Map(); // structuralSig -> Set of V: sections
+  const cappedNodes = new Set(); // structuralSig that hit the cap
   // The EFFECTIVE signature for a snapshot, applying the runner-local cap: the
   // full value-folded sig unless this structural node is capped, then structural.
   function effectiveSig(snap) {
     if (cappedNodes.has(snap.structuralSig)) return snap.structuralSig;
     if (snap.vsection) {
       let set = valueCombos.get(snap.structuralSig);
-      if (!set) { set = new Set(); valueCombos.set(snap.structuralSig, set); }
+      if (!set) {
+        set = new Set();
+        valueCombos.set(snap.structuralSig, set);
+      }
       set.add(snap.vsection);
       if (set.size > VALUE_CLASS_CAP) {
         cappedNodes.add(snap.structuralSig);
@@ -2289,12 +2939,15 @@ async function main() {
   const observe = async () => {
     const snap = await snapshot(page, valueNodeSelectors);
     snap.sig = effectiveSig(snap);
-    log('FUZZ:OBS ' + JSON.stringify({
-      sig: snap.sig,
-      ...(snap.anchor ? { route: snap.anchor } : {}),
-      labels: snap.labels.slice(0, 24),
-      elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
-    }));
+    log(
+      'FUZZ:OBS ' +
+        JSON.stringify({
+          sig: snap.sig,
+          ...(snap.anchor ? { route: snap.anchor } : {}),
+          labels: snap.labels.slice(0, 24),
+          elements: snap.tappables.slice(0, 24).map((e) => ({ role: e.role })),
+        }),
+    );
     if (!seen.has(snap.sig)) {
       seen.add(snap.sig);
       // sig: STRUCTURAL (roles + tree shape + stable developer keys),
@@ -2302,18 +2955,21 @@ async function main() {
       // labels: DISPLAY-ONLY visible text (map show), never in the sig.
       // elements: structural selectors for replay; `nokey` flags a tappable
       //           with no stable id (data-testid/id/name).
-      log('EXPLORE:STATE ' + JSON.stringify({
-        sig: snap.sig,
-        // route: the URL path, so the candidate map reconciles by route (the
-        // reliable join key), consistent with the web and Flutter runners.
-        ...(snap.anchor ? { route: snap.anchor } : {}),
-        labels: snap.labels.slice(0, 24),
-        elements: snap.tappables.slice(0, 24).map((e) => {
-          const o = { sel: e.sel, role: e.role, label: e.label };
-          if (!e.key) o.nokey = true;
-          return o;
-        }),
-      }));
+      log(
+        'EXPLORE:STATE ' +
+          JSON.stringify({
+            sig: snap.sig,
+            // route: the URL path, so the candidate map reconciles by route (the
+            // reliable join key), consistent with the web and Flutter runners.
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            labels: snap.labels.slice(0, 24),
+            elements: snap.tappables.slice(0, 24).map((e) => {
+              const o = { sel: e.sel, role: e.role, label: e.label };
+              if (!e.key) o.nokey = true;
+              return o;
+            }),
+          }),
+      );
       // Operability/accessibility ground truth for this newly-seen state, keyed
       // by the SAME sig (alongside the EXPLORE:STATE line). The keyboard probe
       // can mutate the DOM, so it runs AFTER the snapshot is captured/recorded.
@@ -2327,7 +2983,14 @@ async function main() {
       // emitted when a broken-content artifact is actually rendered.
       const cbug = await page.evaluate(detectContentBugs, [...INJECTED_VALUES]).catch(() => null);
       if (cbug && cbug.length) {
-        log('EXPLORE:CONTENTBUG ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: cbug }));
+        log(
+          'EXPLORE:CONTENTBUG ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: cbug,
+            }),
+        );
       }
       // OCCLUSION + SECURITY: same pure-DOM hygiene scans as the web runner,
       // shared from web/hygiene-oracles.mjs (Chromium renderer, identical API).
@@ -2339,11 +3002,25 @@ async function main() {
         occ = confirmOcclusions(occ1, occ2 || []);
       }
       if (occ && occ.length) {
-        log('EXPLORE:OCCLUSION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: occ }));
+        log(
+          'EXPLORE:OCCLUSION ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: occ,
+            }),
+        );
       }
       const sec = await page.evaluate(securityScan).catch(() => null);
       if (sec && sec.length) {
-        log('EXPLORE:SECURITY ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: sec }));
+        log(
+          'EXPLORE:SECURITY ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: sec,
+            }),
+        );
       }
       // BLANK-SCREEN: the state rendered NOTHING -- zero visible text nodes,
       // zero tappable controls, zero visible media -- in a non-empty viewport
@@ -2360,7 +3037,14 @@ async function main() {
         blank = await page.evaluate(blankScreenScan).catch(() => null);
       }
       if (blank && blank.length) {
-        log('EXPLORE:BLANKSCREEN ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: blank }));
+        log(
+          'EXPLORE:BLANKSCREEN ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: blank,
+            }),
+        );
       }
       // APP-INVARIANT: the app's OWN predicates, registered via the SDK
       // (ReproIt.invariant, pushed to window.__reproit_invariants). Same
@@ -2368,24 +3052,41 @@ async function main() {
       // Chromium, so page.evaluate reads the page global directly. Each test is
       // isolated; falsy/throw/{ok:false} is a violation. FP-free (the app owns
       // the ground truth); silent when none registered or all held.
-      const invViolations = await page.evaluate(() => {
-        const reg = window.__reproit_invariants || [];
-        const out = [];
-        for (let i = 0; i < reg.length; i++) {
-          const it = reg[i];
-          if (!it || typeof it.test !== 'function') continue;
-          let ok = true, message = '';
-          try {
-            const r = it.test();
-            if (r && typeof r === 'object') { ok = !!r.ok; message = r.message ? String(r.message) : ''; }
-            else { ok = !!r; }
-          } catch (e) { ok = false; message = (e && e.message) ? String(e.message) : String(e); }
-          if (!ok) out.push({ id: String(it.id), message });
-        }
-        return out;
-      }).catch(() => null);
+      const invViolations = await page
+        .evaluate(() => {
+          const reg = window.__reproit_invariants || [];
+          const out = [];
+          for (let i = 0; i < reg.length; i++) {
+            const it = reg[i];
+            if (!it || typeof it.test !== 'function') continue;
+            let ok = true,
+              message = '';
+            try {
+              const r = it.test();
+              if (r && typeof r === 'object') {
+                ok = !!r.ok;
+                message = r.message ? String(r.message) : '';
+              } else {
+                ok = !!r;
+              }
+            } catch (e) {
+              ok = false;
+              message = e && e.message ? String(e.message) : String(e);
+            }
+            if (!ok) out.push({ id: String(it.id), message });
+          }
+          return out;
+        })
+        .catch(() => null);
       if (invViolations && invViolations.length) {
-        log('EXPLORE:INVARIANT ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: invViolations }));
+        log(
+          'EXPLORE:INVARIANT ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: invViolations,
+            }),
+        );
       }
       // BROKEN-ASSET: dead subresources rendered in this state -- an img that
       // completed with no pixels, a FontFace whose load errored, rendered
@@ -2394,7 +3095,14 @@ async function main() {
       // asset never false-positives. Silent when every asset is healthy.
       const assets = await page.evaluate(brokenAssetScan, [...INJECTED_VALUES]).catch(() => null);
       if (assets && assets.length) {
-        log('EXPLORE:BROKENASSET ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: assets }));
+        log(
+          'EXPLORE:BROKENASSET ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: assets,
+            }),
+        );
       }
       // DYNAMIC-TYPE clip (the OS-text-scale sibling of zoom-reflow): bump the
       // root font-size (the rem/em scale) and flag content that then clips or a
@@ -2409,7 +3117,14 @@ async function main() {
         // stable or there is no scroller.
         const srt = await page.evaluate(scrollRoundTripScan).catch(() => null);
         if (srt && srt.length) {
-          log('EXPLORE:SCROLLROUNDTRIP ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), items: srt }));
+          log(
+            'EXPLORE:SCROLLROUNDTRIP ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: srt,
+              }),
+          );
         }
       }
       // BROKEN-ROUTE: this state's document came back with a status that means the
@@ -2425,11 +3140,14 @@ async function main() {
         // not-found heading), the 404 status is not a broken route (mirrors web).
         const view = await page.evaluate(soft404View).catch(() => null);
         if (!isSoftHandled(view)) {
-          log('EXPLORE:BROKENROUTE ' + JSON.stringify({
-            sig: snap.sig,
-            ...(snap.anchor ? { route: snap.anchor } : {}),
-            status,
-          }));
+          log(
+            'EXPLORE:BROKENROUTE ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                status,
+              }),
+          );
         }
       }
     }
@@ -2447,10 +3165,12 @@ async function main() {
     return snap;
   };
 
-  let current = await observe(), stuck = 0;
-  const prefix = fuzz.prefix || null, replay = fuzz.replay || null;
+  let current = await observe(),
+    stuck = 0;
+  const prefix = fuzz.prefix || null,
+    replay = fuzz.replay || null;
   const prefixLen = prefix ? prefix.length : 0;
-  const budget = replay ? replay.length : ((fuzz.budget || ACTION_BUDGET) + prefixLen);
+  const budget = replay ? replay.length : (fuzz.budget || ACTION_BUDGET) + prefixLen;
   const exercisedChoiceStates = new Set(); // sigs whose choice components were exercised
   // A recorded replay clip (the annotate tier replays with video): the
   // duplicate-submit double dispatch must never fire on a clip -- the clip has
@@ -2477,7 +3197,10 @@ async function main() {
     let vp = null;
     try {
       vp = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
-      if (!vp || !(vp.w > 0 && vp.h > 0)) { vp = null; return; }
+      if (!vp || !(vp.w > 0 && vp.h > 0)) {
+        vp = null;
+        return;
+      }
       const preKeys = await page.evaluate(zoomTappableKeys);
       await page.setViewportSize({ width: Math.round(vp.w / 2), height: Math.round(vp.h / 2) });
       await page.waitForTimeout(350);
@@ -2523,8 +3246,9 @@ async function main() {
     let vp = null;
     try {
       vp = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
-      if (!vp || !(vp.w > 0 && vp.h > 0)) { vp = null; }
-      else {
+      if (!vp || !(vp.w > 0 && vp.h > 0)) {
+        vp = null;
+      } else {
         await page.setViewportSize({ width: vp.h, height: vp.w });
         await page.waitForTimeout(350);
       }
@@ -2537,7 +3261,15 @@ async function main() {
     }
     const after = await observe();
     if (snap.tappables && snap.tappables.length > 0 && after.structuralSig !== expected) {
-      log('EXPLORE:ROTATION ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
+      log(
+        'EXPLORE:ROTATION ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            expected,
+            got: after.structuralSig,
+          }),
+      );
     }
     return after;
   }
@@ -2551,16 +3283,30 @@ async function main() {
     const expected = snap.structuralSig;
     try {
       await page.evaluate(() => {
-        try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); } catch (_) {}
-        try { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); } catch (_) {}
+        try {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'hidden',
+          });
+        } catch (_) {}
+        try {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+        } catch (_) {}
         document.dispatchEvent(new Event('visibilitychange'));
         window.dispatchEvent(new Event('pagehide'));
         window.dispatchEvent(new Event('blur'));
       });
       await page.waitForTimeout(300);
       await page.evaluate(() => {
-        try { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); } catch (_) {}
-        try { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); } catch (_) {}
+        try {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'visible',
+          });
+        } catch (_) {}
+        try {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+        } catch (_) {}
         document.dispatchEvent(new Event('visibilitychange'));
         window.dispatchEvent(new Event('pageshow'));
         window.dispatchEvent(new Event('focus'));
@@ -2569,7 +3315,15 @@ async function main() {
     } catch (_) {}
     const after = await observe();
     if (snap.tappables && snap.tappables.length > 0 && after.structuralSig !== expected) {
-      log('EXPLORE:BGRESTORE ' + JSON.stringify({ sig: snap.sig, ...(snap.anchor ? { route: snap.anchor } : {}), expected, got: after.structuralSig }));
+      log(
+        'EXPLORE:BGRESTORE ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            expected,
+            got: after.structuralSig,
+          }),
+      );
     }
     return after;
   }
@@ -2583,7 +3337,8 @@ async function main() {
   // mount).
   const leakChecked = new Set();
   async function listenerLeakCheck(route) {
-    const CYCLES = 5, MIN_RISE = 5;
+    const CYCLES = 5,
+      MIN_RISE = 5;
     const samples = [];
     try {
       for (let i = 0; i < CYCLES; i++) {
@@ -2597,7 +3352,9 @@ async function main() {
         if (!s) return;
         samples.push(s);
       }
-    } catch (_) { return; }
+    } catch (_) {
+      return;
+    }
     if (samples.length < 3) return;
     const items = [];
     const consider = (kind, series) => {
@@ -2606,8 +3363,14 @@ async function main() {
       if (rise >= MIN_RISE) items.push({ kind, first: series[0], last: series[series.length - 1] });
     };
     const post = samples.slice(1);
-    consider('listeners', post.map((s) => s.live));
-    consider('nodes', post.map((s) => s.nodes));
+    consider(
+      'listeners',
+      post.map((s) => s.live),
+    );
+    consider(
+      'nodes',
+      post.map((s) => s.nodes),
+    );
     if (items.length) {
       log('EXPLORE:LISTENERLEAK ' + JSON.stringify({ route, visits: post.length, items }));
     }
@@ -2626,8 +3389,14 @@ async function main() {
     // and assert the structural signature survives it. Self-restoring, so
     // `current` is refreshed to the (restored) reality; never in replay/probe.
     if (!replay && !PROBE) {
-      if (!rotChecked.has(current.sig)) { rotChecked.add(current.sig); current = await rotationCheck(current); }
-      if (!bgChecked.has(current.sig)) { bgChecked.add(current.sig); current = await backgroundCheck(current); }
+      if (!rotChecked.has(current.sig)) {
+        rotChecked.add(current.sig);
+        current = await rotationCheck(current);
+      }
+      if (!bgChecked.has(current.sig)) {
+        bgChecked.add(current.sig);
+        current = await backgroundCheck(current);
+      }
     }
     // COMPONENT-CHOICE differential (fuzz only, not replay), ported from the web
     // runner. The Electron renderer is Chromium, so the SAME self-contained in-
@@ -2641,21 +3410,30 @@ async function main() {
       exercisedChoiceStates.add(current.sig);
       const findings = await page
         .evaluate(choiceAnomalyInPage, {
-          settleMs: 600, ratio: CHOICE_OUTLIER_RATIO, minMag: CHOICE_MIN_MAGNITUDE, choiceRoles: CHOICE_ROLES,
+          settleMs: 600,
+          ratio: CHOICE_OUTLIER_RATIO,
+          minMag: CHOICE_MIN_MAGNITUDE,
+          choiceRoles: CHOICE_ROLES,
         })
         .catch(() => []);
       let emitted = false;
-      for (const f of (findings || [])) {
+      for (const f of findings || []) {
         emitted = true;
-        log('EXPLORE:CHOICEBUG ' + JSON.stringify({
-          from: current.sig,
-          role: f.role,
-          outlier: f.outlier,
-          magnitude: f.magnitude,
-          siblingMedian: f.siblingMedian,
-        }));
+        log(
+          'EXPLORE:CHOICEBUG ' +
+            JSON.stringify({
+              from: current.sig,
+              role: f.role,
+              outlier: f.outlier,
+              magnitude: f.magnitude,
+              siblingMedian: f.siblingMedian,
+            }),
+        );
       }
-      if (emitted) { current = await observe(); continue; }
+      if (emitted) {
+        current = await observe();
+        continue;
+      }
     }
     let act;
     if (replay) act = replay[a];
@@ -2672,10 +3450,21 @@ async function main() {
       const total = weights.reduce((x, y) => x + y, 0);
       let r = (pick(1 << 20) / (1 << 20)) * total;
       act = options[options.length - 1];
-      for (let k = 0; k < options.length; k++) { r -= weights[k]; if (r <= 0) { act = options[k]; break; } }
+      for (let k = 0; k < options.length; k++) {
+        r -= weights[k];
+        if (r <= 0) {
+          act = options[k];
+          break;
+        }
+      }
     } else {
       act = null;
-      for (const el of current.tappables) { if (!tried.has(current.sig + '|' + el.sel)) { act = 'tap:' + el.sel; break; } }
+      for (const el of current.tappables) {
+        if (!tried.has(current.sig + '|' + el.sel)) {
+          act = 'tap:' + el.sel;
+          break;
+        }
+      }
       act = act || 'back';
     }
     log('FUZZ:ACT ' + act);
@@ -2701,14 +3490,19 @@ async function main() {
         // EFFECTIVE, so do not count it as stuck, but no graph edge is added.
         stuck = 0;
       } else stuck++;
-      current = next; continue;
+      current = next;
+      continue;
     }
     const sel = act.slice('tap:'.length);
     tried.add(current.sig + '|' + sel);
     const before = current.sig;
     const beforeContent = current.content;
     const beforeAnchor = current.anchor;
-    await page.evaluate(() => { window.__reproitLongTasks = []; }).catch(() => {}); // jank/hang: drop pre-action longtasks
+    await page
+      .evaluate(() => {
+        window.__reproitLongTasks = [];
+      })
+      .catch(() => {}); // jank/hang: drop pre-action longtasks
     // FOCUS-LOSS: record the pre-tap activeElement + open dialog count and arm
     // the probe (tap()'s doClick then focuses the control before clicking, the
     // way a real user click does). Checked after the settle below.
@@ -2721,9 +3515,12 @@ async function main() {
     // the in-page eligibility check between the clicks confirms the control is
     // actually submit-like. Once per (from, action); never on a recorded clip.
     const dupTapTarget = DUPSUBMIT ? current.tappables.find((e) => e.sel === sel) : null;
-    const dupProbe = DUPSUBMIT && !recording
-      && !!dupTapTarget && dupTapTarget.role === 'button'
-      && !dupProbed.has(before + '|tap:' + sel);
+    const dupProbe =
+      DUPSUBMIT &&
+      !recording &&
+      !!dupTapTarget &&
+      dupTapTarget.role === 'button' &&
+      !dupProbed.has(before + '|tap:' + sel);
     let dupUrlBefore = null;
     if (dupProbe) {
       dupProbed.add(before + '|tap:' + sel);
@@ -2731,7 +3528,13 @@ async function main() {
       dupReqLog = [];
     }
     const tapPix = await startScreencastCapture(gtCdp); // Tier-2 (gated): record presented frames
-    if (!(await tap(page, sel))) { if (tapPix) await tapPix.stop(); dupReqLog = null; log('FUZZ:MISS ' + act); stuck++; continue; }
+    if (!(await tap(page, sel))) {
+      if (tapPix) await tapPix.stop();
+      dupReqLog = null;
+      log('FUZZ:MISS ' + act);
+      stuck++;
+      continue;
+    }
     // DUPLICATE-SUBMIT double dispatch: the second click, ~120ms after the
     // first -- the probe's rapid double activation IN PLACE OF the walk's usual
     // single click. Skipped when the first click already changed the URL (the
@@ -2761,10 +3564,16 @@ async function main() {
         for (const [key, n] of counts) {
           if (n < 2) continue;
           const sp = key.indexOf(' ');
-          log('EXPLORE:DUPSUBMIT ' + JSON.stringify({
-            from: before, action: 'tap:' + sel,
-            method: key.slice(0, sp), url: key.slice(sp + 1), count: n,
-          }));
+          log(
+            'EXPLORE:DUPSUBMIT ' +
+              JSON.stringify({
+                from: before,
+                action: 'tap:' + sel,
+                method: key.slice(0, sp),
+                url: key.slice(sp + 1),
+                count: n,
+              }),
+          );
           break;
         }
       }
@@ -2775,8 +3584,17 @@ async function main() {
     // Rust side attributes it to this transition and `check` re-confirms it.
     const tapJank = await drainJank(page);
     if (tapJank) {
-      log('EXPLORE:' + (tapJank.kind === 'hang' ? 'HANG' : 'JANK') + ' ' +
-        JSON.stringify({ from: before, action: 'tap:' + sel, bucket: tapJank.bucket, count: tapJank.count }));
+      log(
+        'EXPLORE:' +
+          (tapJank.kind === 'hang' ? 'HANG' : 'JANK') +
+          ' ' +
+          JSON.stringify({
+            from: before,
+            action: 'tap:' + sel,
+            bucket: tapJank.bucket,
+            count: tapJank.count,
+          }),
+      );
     }
     // FOCUS-LOSS: read the in-page verdict BEFORE observe() -- a new state's
     // ground-truth probe mutates the DOM and can move focus, which would
@@ -2804,7 +3622,14 @@ async function main() {
       }
       // LISTENER-LEAK (opt-in): probe a newly-reached route (real history entry)
       // for a revisit leak. Once per route, non-replay/probe only.
-      if (LISTENERLEAK && !replay && !PROBE && next.anchor && next.anchor !== beforeAnchor && !leakChecked.has(next.anchor)) {
+      if (
+        LISTENERLEAK &&
+        !replay &&
+        !PROBE &&
+        next.anchor &&
+        next.anchor !== beforeAnchor &&
+        !leakChecked.has(next.anchor)
+      ) {
         leakChecked.add(next.anchor);
         await listenerLeakCheck(next.anchor);
       }
@@ -2829,25 +3654,34 @@ async function main() {
   // only a link that truly returns 404/410 ON NAVIGATION is reported. Gated on an
   // http(s) app origin (a file:// app has no server status; honest gap there).
   if (!replay && appOrigin) {
-    const FETCH_CAP = 400, VERIFY_CAP = 20;
+    const FETCH_CAP = 400,
+      VERIFY_CAP = 20;
     const toProbe = [...seenLinks.entries()].filter(([p]) => navStatus[p] === undefined);
     const batch = toProbe.slice(0, FETCH_CAP);
     let statuses = {};
     if (batch.length) {
       try {
-        statuses = await page.evaluate(async (paths) => {
-          const origin = location.origin, out = {};
-          let i = 0;
-          const worker = async () => {
-            while (i < paths.length) {
-              const p = paths[i++];
-              try { const r = await fetch(origin + p, { method: 'GET', redirect: 'manual' }); out[p] = r.status; }
-              catch (e) { out[p] = 0; }
-            }
-          };
-          await Promise.all(Array.from({ length: 8 }, worker));
-          return out;
-        }, batch.map(([p]) => p));
+        statuses = await page.evaluate(
+          async (paths) => {
+            const origin = location.origin,
+              out = {};
+            let i = 0;
+            const worker = async () => {
+              while (i < paths.length) {
+                const p = paths[i++];
+                try {
+                  const r = await fetch(origin + p, { method: 'GET', redirect: 'manual' });
+                  out[p] = r.status;
+                } catch (e) {
+                  out[p] = 0;
+                }
+              }
+            };
+            await Promise.all(Array.from({ length: 8 }, worker));
+            return out;
+          },
+          batch.map(([p]) => p),
+        );
       } catch (_) {}
     }
     // DEAD only when GENUINELY GONE: 404 or 410. Never 405/501/3xx/5xx.
@@ -2869,11 +3703,18 @@ async function main() {
       // client router served index.html) is not a broken route (mirrors web).
       await settleForSignature(page);
       const view = await page.evaluate(soft404View).catch(() => null);
-      if (isSoftHandled(view)) { navStatus[path] = 200; continue; }
-      log('EXPLORE:BROKENROUTE ' + JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }));
+      if (isSoftHandled(view)) {
+        navStatus[path] = 200;
+        continue;
+      }
+      log(
+        'EXPLORE:BROKENROUTE ' +
+          JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }),
+      );
     }
     const unverified = candidates.length - Math.min(candidates.length, VERIFY_CAP);
-    if (unverified) log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
+    if (unverified)
+      log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
   }
   // --record clip finalize: resolve the finding's element to a viewport-relative
   // rect (CSS px), write box-spec.json in the renderer's logical space, then HOLD
@@ -2892,21 +3733,32 @@ async function main() {
       const spec = {
         videoW: box.videoW,
         videoH: box.videoH,
-        boxes: [{
-          x: box.x, y: box.y, w: box.w, h: box.h,
-          tStart: shownAt, tEnd: 1e9,
-          label: clipPlan.label || clipPlan.oracle || 'finding',
-          color: 'red',
-        }],
+        boxes: [
+          {
+            x: box.x,
+            y: box.y,
+            w: box.w,
+            h: box.h,
+            tStart: shownAt,
+            tEnd: 1e9,
+            label: clipPlan.label || clipPlan.oracle || 'finding',
+            color: 'red',
+          },
+        ],
       };
       try {
         mkdirSync(VIDEO_DIR, { recursive: true });
         writeFileSync(joinPath(VIDEO_DIR, 'box-spec.json'), JSON.stringify(spec));
         drew = true;
-      } catch (_) { drew = false; }
+      } catch (_) {
+        drew = false;
+      }
       await page.waitForTimeout(900); // hold the boxed state on camera
     }
-    log('FINDING:BOXED ' + JSON.stringify({ oracle: clipPlan.oracle || null, sel: clipPlan.sel, drew }));
+    log(
+      'FINDING:BOXED ' +
+        JSON.stringify({ oracle: clipPlan.oracle || null, sel: clipPlan.sel, drew }),
+    );
   }
   log(`JOURNEY[a] step: explored ${seen.size} states`);
   log('JOURNEY DONE');
@@ -2920,15 +3772,20 @@ async function main() {
       if (remuxToMov(webm, joinPath(VIDEO_DIR, 'clip.mov'))) {
         // The host reads clip.mov; drop the redundant raw .webm so the video dir
         // matches the native contract (a single clip.mov + box-spec.json).
-        try { rmSync(webm, { force: true }); } catch (_) {}
+        try {
+          rmSync(webm, { force: true });
+        } catch (_) {}
       }
-    } catch (_) { /* best-effort: the finding still reports, just without a clip */ }
+    } catch (_) {
+      /* best-effort: the finding still reports, just without a clip */
+    }
   }
 }
 
 // Only auto-run when invoked as the entry point. When imported (e.g. by the
 // parity test) the canonical signature is exported without launching Electron.
-const INVOKED_DIRECTLY = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+const INVOKED_DIRECTLY =
+  process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 if (INVOKED_DIRECTLY) {
   main().catch((e) => {
     log('EXCEPTION CAUGHT BY ELECTRON RUNNER');

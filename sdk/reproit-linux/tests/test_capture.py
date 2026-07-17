@@ -31,12 +31,13 @@ sys.path.insert(0, SDK_ROOT)
 from reproit_linux import capture  # noqa: E402
 from reproit_linux.signature import Node, descriptor  # noqa: E402
 
-
 # --- synthetic ATK / AT-SPI fakes -------------------------------------------
+
 
 class _Role:
     """Mimics an Atk.Role / Atspi.Role enum member: it has a value_name like
     'ATSPI_ROLE_PUSH_BUTTON' that the walk strips to 'PUSH_BUTTON'."""
+
     def __init__(self, name):
         self.value_name = "ATSPI_ROLE_" + name
 
@@ -49,8 +50,17 @@ class _Attr:
 
 class FakeAtk:
     """A synthetic ATK accessible (GTK in-process interface subset)."""
-    def __init__(self, role_name, accessible_id=None, name="", attrs=None,
-                 text=None, current_value=None, children=None):
+
+    def __init__(
+        self,
+        role_name,
+        accessible_id=None,
+        name="",
+        attrs=None,
+        text=None,
+        current_value=None,
+        children=None,
+    ):
         self._role = _Role(role_name)
         self._id = accessible_id
         self._name = name
@@ -93,6 +103,7 @@ class FakeAtk:
 
 class FakeAtspi:
     """A synthetic AT-SPI accessible (Qt / bus interface subset)."""
+
     class _ValueIface:
         def __init__(self, v):
             self._v = v
@@ -110,8 +121,16 @@ class FakeAtspi:
         def get_text(self, start, end):
             return self._t
 
-    def __init__(self, role_name, accessible_id=None, name="", attrs=None,
-                 text=None, current_value=None, children=None):
+    def __init__(
+        self,
+        role_name,
+        accessible_id=None,
+        name="",
+        attrs=None,
+        text=None,
+        current_value=None,
+        children=None,
+    ):
         self._role = _Role(role_name)
         self._id = accessible_id
         self._name = name
@@ -133,7 +152,9 @@ class FakeAtspi:
         return dict(self._attrs)
 
     def get_value_iface(self):
-        return FakeAtspi._ValueIface(self._current_value) if self._current_value is not None else None
+        return (
+            FakeAtspi._ValueIface(self._current_value) if self._current_value is not None else None
+        )
 
     def get_text_iface(self):
         return FakeAtspi._TextIface(self._text) if self._text is not None else None
@@ -178,8 +199,7 @@ def test_node_from_attrs():
     # oracle's value-gate, not by nulling at capture).
     n = capture.node_from_attrs("LABEL", "lbl", value="Welcome")
     check("chrome label role", n.role, "text")
-    check("chrome label value excluded from descriptor",
-          descriptor(None, n), "A:\n0:text@lbl")
+    check("chrome label value excluded from descriptor", descriptor(None, n), "A:\n0:text@lbl")
 
     # Status bar -> promoted to value-role `status` (normalizes to node body).
     n = capture.node_from_attrs("STATUS_BAR", "bar", value="5")
@@ -204,55 +224,79 @@ def test_node_from_attrs():
 
 def test_atk_tree_walk():
     # A synthetic GTK login window: frame > [heading, entry, password, button].
-    tree = FakeAtk("FRAME", accessible_id="login", children=[
-        FakeAtk("HEADING", name="Sign in"),
-        FakeAtk("ENTRY", accessible_id="email", text="a@b.com"),
-        FakeAtk("PASSWORD_TEXT", accessible_id="pwd", text="secret"),
-        FakeAtk("PUSH_BUTTON", accessible_id="go", name="Log in"),
-    ])
+    tree = FakeAtk(
+        "FRAME",
+        accessible_id="login",
+        children=[
+            FakeAtk("HEADING", name="Sign in"),
+            FakeAtk("ENTRY", accessible_id="email", text="a@b.com"),
+            FakeAtk("PASSWORD_TEXT", accessible_id="pwd", text="secret"),
+            FakeAtk("PUSH_BUTTON", accessible_id="go", name="Log in"),
+        ],
+    )
     root = capture.build_node_atk(tree)
 
     # The same logical tree built by hand against the canonical model.
-    expected = Node(role="screen", id="login", children=[
-        Node(role="header"),
-        Node(role="textfield", id="email", value="a@b.com"),
-        Node(role="textfield", id="pwd", type="password", value="secret"),
-        Node(role="button", id="go"),
-    ])
-    check("ATK walk descriptor == hand-built descriptor",
-          descriptor(capture.anchor_of(tree), root),
-          descriptor("login", expected))
+    expected = Node(
+        role="screen",
+        id="login",
+        children=[
+            Node(role="header"),
+            Node(role="textfield", id="email", value="a@b.com"),
+            Node(role="textfield", id="pwd", type="password", value="secret"),
+            Node(role="button", id="go"),
+        ],
+    )
+    check(
+        "ATK walk descriptor == hand-built descriptor",
+        descriptor(capture.anchor_of(tree), root),
+        descriptor("login", expected),
+    )
 
 
 def test_atspi_tree_walk_matches_atk():
     # The SAME logical screen via the AT-SPI (Qt) walk must fold identically to
     # the ATK (GTK) walk: that is the cross-toolkit parity guarantee.
-    atk_tree = FakeAtk("WINDOW", accessible_id="main", children=[
-        FakeAtk("LABEL", name="Counter"),
-        FakeAtk("STATUS_BAR", accessible_id="count", current_value=5),
-    ])
-    atspi_tree = FakeAtspi("WINDOW", accessible_id="main", children=[
-        FakeAtspi("LABEL", name="Counter"),
-        FakeAtspi("STATUS_BAR", accessible_id="count", current_value=5),
-    ])
+    atk_tree = FakeAtk(
+        "WINDOW",
+        accessible_id="main",
+        children=[
+            FakeAtk("LABEL", name="Counter"),
+            FakeAtk("STATUS_BAR", accessible_id="count", current_value=5),
+        ],
+    )
+    atspi_tree = FakeAtspi(
+        "WINDOW",
+        accessible_id="main",
+        children=[
+            FakeAtspi("LABEL", name="Counter"),
+            FakeAtspi("STATUS_BAR", accessible_id="count", current_value=5),
+        ],
+    )
     d_atk = descriptor(capture.anchor_of(atk_tree), capture.build_node_atk(atk_tree))
     d_atspi = descriptor("main", capture.build_node_atspi(atspi_tree))
     check("GTK(ATK) and Qt(AT-SPI) walks fold identically", d_atk, d_atspi)
     # And the value-class lands in the V: section (status value 5 -> POS1).
-    check("status value-class in V: section",
-          d_atk.endswith("\nV:key:count=POS1"), True)
+    check("status value-class in V: section", d_atk.endswith("\nV:key:count=POS1"), True)
 
 
 def test_transient_dropped_in_walk():
     # A spinner subtree must vanish from the descriptor (rule 2).
-    tree = FakeAtk("FRAME", accessible_id="w", children=[
-        FakeAtk("PUSH_BUTTON", accessible_id="ok"),
-        FakeAtk("SPINNER", children=[FakeAtk("LABEL", name="Loading")]),
-    ])
+    tree = FakeAtk(
+        "FRAME",
+        accessible_id="w",
+        children=[
+            FakeAtk("PUSH_BUTTON", accessible_id="ok"),
+            FakeAtk("SPINNER", children=[FakeAtk("LABEL", name="Loading")]),
+        ],
+    )
     root = capture.build_node_atk(tree)
     expected = Node(role="screen", id="w", children=[Node(role="button", id="ok")])
-    check("spinner subtree dropped",
-          descriptor(capture.anchor_of(tree), root), descriptor("w", expected))
+    check(
+        "spinner subtree dropped",
+        descriptor(capture.anchor_of(tree), root),
+        descriptor("w", expected),
+    )
 
 
 def main():
@@ -267,8 +311,10 @@ def main():
         for f in FAILS:
             print(f)
         return 1
-    print("PASS: reproit-linux capture mapping (node_from_attrs, ATK walk, "
-          "AT-SPI walk, cross-toolkit parity, transient drop) with synthetic trees.")
+    print(
+        "PASS: reproit-linux capture mapping (node_from_attrs, ATK walk, "
+        "AT-SPI walk, cross-toolkit parity, transient drop) with synthetic trees."
+    )
     return 0
 
 

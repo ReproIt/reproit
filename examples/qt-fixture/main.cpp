@@ -11,42 +11,42 @@
 // Every interactive/reported widget carries an accessibleName so it surfaces in
 // the AT-SPI tree with a stable id the runner can read as a `key:` selector.
 #include <QApplication>
-#include <QWidget>
-#include <QVBoxLayout>
-#include <QPushButton>
 #include <QLabel>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QWidget>
 
 int main(int argc, char **argv) {
-    QApplication app(argc, argv);
+  QApplication app(argc, argv);
 
-    QWidget win;
-    win.setWindowTitle("ReproQt");
-    win.setAccessibleName("reproqt-window");
+  QWidget win;
+  win.setWindowTitle("ReproQt");
+  win.setAccessibleName("reproqt-window");
 
-    QVBoxLayout *layout = new QVBoxLayout(&win);
+  QVBoxLayout *layout = new QVBoxLayout(&win);
 
-    QLabel *status = new QLabel("Off");
-    status->setAccessibleName("status");
-    layout->addWidget(status);
+  QLabel *status = new QLabel("Off");
+  status->setAccessibleName("status");
+  layout->addWidget(status);
 
-    // The structural toggle target: hidden until the button is pressed.
-    QLabel *extra = new QLabel("Extra panel");
-    extra->setAccessibleName("extra");
-    extra->setVisible(false);
-    layout->addWidget(extra);
+  // The structural toggle target: hidden until the button is pressed.
+  QLabel *extra = new QLabel("Extra panel");
+  extra->setAccessibleName("extra");
+  extra->setVisible(false);
+  layout->addWidget(extra);
 
-    QPushButton *btn = new QPushButton("Toggle");
-    btn->setAccessibleName("toggle");
-    layout->addWidget(btn);
+  QPushButton *btn = new QPushButton("Toggle");
+  btn->setAccessibleName("toggle");
+  layout->addWidget(btn);
 
-    bool *on = new bool(false);
-    QObject::connect(btn, &QPushButton::clicked, [=]() {
-        *on = !*on;
-        status->setText(*on ? "On" : "Off");
-        extra->setVisible(*on);
-    });
+  bool *on = new bool(false);
+  QObject::connect(btn, &QPushButton::clicked, [=]() {
+    *on = !*on;
+    status->setText(*on ? "On" : "Off");
+    extra->setVisible(*on);
+  });
 
-    win.resize(320, 200);
-    win.show();
-    return app.exec();
+  win.resize(320, 200);
+  win.show();
+  return app.exec();
 }

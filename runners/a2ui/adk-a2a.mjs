@@ -1,5 +1,5 @@
-import {canonicalJson, sha256} from './adapter.mjs';
-import {instrumentA2ui, preflightA2ui} from './integration.mjs';
+import { canonicalJson, sha256 } from './adapter.mjs';
+import { instrumentA2ui, preflightA2ui } from './integration.mjs';
 
 const A2UI_MESSAGE_KEYS = new Set([
   'createSurface',
@@ -8,10 +8,7 @@ const A2UI_MESSAGE_KEYS = new Set([
   'deleteSurface',
 ]);
 
-const A2UI_MIME_TYPES = new Set([
-  'application/a2ui+json',
-  'application/json+a2ui',
-]);
+const A2UI_MIME_TYPES = new Set(['application/a2ui+json', 'application/json+a2ui']);
 
 const BASIC_CATALOG_SHA256 = '04870eba93a828a1959df8da3ae03a5d004839d4e7bd94e477c336f6e213e94a';
 const SERVER_TO_CLIENT_SHA256 = 'a5feade7635f1e9ed199f37d88c8bdc985cd6f0d57d0933b28417b7d3ae0f6e1';
@@ -37,7 +34,7 @@ function isRecord(value) {
 }
 
 function looksLikeA2uiMessage(value) {
-  return isRecord(value) && Object.keys(value).some(key => A2UI_MESSAGE_KEYS.has(key));
+  return isRecord(value) && Object.keys(value).some((key) => A2UI_MESSAGE_KEYS.has(key));
 }
 
 function eventParts(event) {
@@ -84,7 +81,8 @@ export function extractAdkA2uiMessages(event) {
     }
     if (part.kind !== 'data') continue;
     if (isA2ui) {
-      if (!isRecord(part.data)) throw new Error(`A2A A2UI data part ${index} must contain one object`);
+      if (!isRecord(part.data))
+        throw new Error(`A2A A2UI data part ${index} must contain one object`);
       messages.push(part.data);
       continue;
     }
@@ -97,15 +95,16 @@ export function extractAdkA2uiMessages(event) {
 
 function createCumulativeExtractor() {
   const createBySurface = new Map();
-  return event => extractAdkA2uiMessages(event).filter(message => {
-    if (!isRecord(message.createSurface)) return true;
-    const surfaceId = message.createSurface.surfaceId;
-    if (typeof surfaceId !== 'string' || !surfaceId) return true;
-    const canonical = canonicalJson(message);
-    if (createBySurface.get(surfaceId) === canonical) return false;
-    if (!createBySurface.has(surfaceId)) createBySurface.set(surfaceId, canonical);
-    return true;
-  });
+  return (event) =>
+    extractAdkA2uiMessages(event).filter((message) => {
+      if (!isRecord(message.createSurface)) return true;
+      const surfaceId = message.createSurface.surfaceId;
+      if (typeof surfaceId !== 'string' || !surfaceId) return true;
+      const canonical = canonicalJson(message);
+      if (createBySurface.get(surfaceId) === canonical) return false;
+      if (!createBySurface.has(surfaceId)) createBySurface.set(surfaceId, canonical);
+      return true;
+    });
 }
 
 /**
@@ -118,25 +117,41 @@ export function validateWithOfficialWebSdk(sdk, messages, context) {
     return [`unsupported ADK A2UI protocol version: ${String(context?.protocolVersion)}`];
   }
   if (!sdk.A2uiMessageListSchema || typeof sdk.A2uiMessageListSchema.safeParse !== 'function') {
-    throw new Error('installed @a2ui/web_core/v0_9 does not expose A2uiMessageListSchema.safeParse');
+    throw new Error(
+      'installed @a2ui/web_core/v0_9 does not expose A2uiMessageListSchema.' + 'safeParse',
+    );
   }
   const errors = [];
-  if (!isRecord(context?.protocolDocument) || sha256(context.protocolDocument) !== SERVER_TO_CLIENT_SHA256) {
-    errors.push('automatic ADK validation requires the exact pinned v0.9 server_to_client protocol document; supply an official validator for a custom document');
+  if (
+    !isRecord(context?.protocolDocument) ||
+    sha256(context.protocolDocument) !== SERVER_TO_CLIENT_SHA256
+  ) {
+    errors.push(
+      'automatic ADK validation requires the exact pinned v0.9 ' +
+        'server_to_client protocol document; supply an official validator for a ' +
+        'custom document',
+    );
   }
   const result = sdk.A2uiMessageListSchema.safeParse(messages);
   if (!result.success) {
-    errors.push(...result.error.issues.map(issue => ({
-      path: issue.path.join('.'),
-      code: issue.code,
-      message: issue.message,
-    })));
+    errors.push(
+      ...result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        code: issue.code,
+        message: issue.message,
+      })),
+    );
   }
   const catalog = context?.catalog;
-  if (catalog?.id !== BASIC_CATALOG_ID
-      || catalog?.document?.catalogId !== BASIC_CATALOG_ID
-      || sha256(catalog?.document) !== BASIC_CATALOG_SHA256) {
-    errors.push('automatic ADK validation supports only the exact official v0.9 basic catalog; supply its official validator for a custom catalog');
+  if (
+    catalog?.id !== BASIC_CATALOG_ID ||
+    catalog?.document?.catalogId !== BASIC_CATALOG_ID ||
+    sha256(catalog?.document) !== BASIC_CATALOG_SHA256
+  ) {
+    errors.push(
+      'automatic ADK validation supports only the exact official v0.9 basic ' +
+        'catalog; supply its official validator for a custom catalog',
+    );
     return errors;
   }
   if (!isRecord(catalog.document.components)) {
@@ -146,24 +161,32 @@ export function validateWithOfficialWebSdk(sdk, messages, context) {
   if (!Array.isArray(sdk.BASIC_COMPONENTS)) {
     throw new Error('installed @a2ui/web_core/v0_9 does not expose BASIC_COMPONENTS');
   }
-  const componentSchemas = new Map(sdk.BASIC_COMPONENTS.map(api => [api.name, api.schema]));
+  const componentSchemas = new Map(sdk.BASIC_COMPONENTS.map((api) => [api.name, api.schema]));
   for (const [messageIndex, message] of messages.entries()) {
-    for (const [componentIndex, component] of (message.updateComponents?.components ?? []).entries()) {
+    for (const [componentIndex, component] of (
+      message.updateComponents?.components ?? []
+    ).entries()) {
       const type = component.component;
       const schema = componentSchemas.get(type);
       const path = `${messageIndex}.updateComponents.components.${componentIndex}`;
       if (!Object.hasOwn(catalog.document.components, type) || !schema) {
-        errors.push({path, code: 'unknown_catalog_component', message: `component ${String(type)} is not in the pinned basic catalog`});
+        errors.push({
+          path,
+          code: 'unknown_catalog_component',
+          message: `component ${String(type)} is not in the pinned basic catalog`,
+        });
         continue;
       }
-      const {id: _id, component: _component, ...properties} = component;
+      const { id: _id, component: _component, ...properties } = component;
       const componentResult = schema.safeParse(properties);
       if (!componentResult.success) {
-        errors.push(...componentResult.error.issues.map(issue => ({
-          path: [path, ...issue.path].join('.'),
-          code: issue.code,
-          message: issue.message,
-        })));
+        errors.push(
+          ...componentResult.error.issues.map((issue) => ({
+            path: [path, ...issue.path].join('.'),
+            code: issue.code,
+            message: issue.message,
+          })),
+        );
       }
     }
   }
@@ -175,13 +198,25 @@ export async function validateOfficialAdkA2uiMessages(messages, context) {
     return [`unsupported ADK A2UI protocol version: ${String(context?.protocolVersion)}`];
   }
   const documentErrors = [];
-  if (!isRecord(context?.protocolDocument) || sha256(context.protocolDocument) !== SERVER_TO_CLIENT_SHA256) {
-    documentErrors.push('automatic ADK validation requires the exact pinned v0.9 server_to_client protocol document; supply an official validator for a custom document');
+  if (
+    !isRecord(context?.protocolDocument) ||
+    sha256(context.protocolDocument) !== SERVER_TO_CLIENT_SHA256
+  ) {
+    documentErrors.push(
+      'automatic ADK validation requires the exact pinned v0.9 ' +
+        'server_to_client protocol document; supply an official validator for a ' +
+        'custom document',
+    );
   }
-  if (context?.catalog?.id !== BASIC_CATALOG_ID
-      || context?.catalog?.document?.catalogId !== BASIC_CATALOG_ID
-      || sha256(context?.catalog?.document) !== BASIC_CATALOG_SHA256) {
-    documentErrors.push('automatic ADK validation supports only the exact official v0.9 basic catalog; supply its official validator for a custom catalog');
+  if (
+    context?.catalog?.id !== BASIC_CATALOG_ID ||
+    context?.catalog?.document?.catalogId !== BASIC_CATALOG_ID ||
+    sha256(context?.catalog?.document) !== BASIC_CATALOG_SHA256
+  ) {
+    documentErrors.push(
+      'automatic ADK validation supports only the exact official v0.9 basic ' +
+        'catalog; supply its official validator for a custom catalog',
+    );
   }
   if (documentErrors.length) return documentErrors;
   let sdk;
@@ -215,7 +250,8 @@ export function instrumentAdkA2ui(source, options) {
  */
 export async function preflightAdkA2ui(source, options) {
   if (!options || typeof options !== 'object') throw new TypeError('ADK A2UI options are required');
-  if (typeof options.deliver !== 'function') throw new TypeError('ADK A2UI preflight requires a deliver callback');
+  if (typeof options.deliver !== 'function')
+    throw new TypeError('ADK A2UI preflight requires a deliver callback');
   if (options.protocolVersion !== ADK_A2UI_SUPPORT.protocolVersion) {
     throw new Error(`ADK adapter supports only ${ADK_A2UI_SUPPORT.protocolVersion}`);
   }
@@ -233,7 +269,8 @@ export async function preflightAdkA2ui(source, options) {
   for await (const event of source) {
     if (events++ >= maxEvents) throw new Error(`ADK A2UI preflight exceeds ${maxEvents} events`);
     for (const message of extract(event)) {
-      if (messages.length >= maxMessages) throw new Error(`A2UI preflight exceeds ${maxMessages} messages`);
+      if (messages.length >= maxMessages)
+        throw new Error(`A2UI preflight exceeds ${maxMessages} messages`);
       messages.push(structuredClone(message));
     }
   }

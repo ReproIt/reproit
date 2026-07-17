@@ -5,12 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "reproit-tui-py"
 version = "0.1.0"
-description = "Production telemetry SDK for Python terminal-UI apps (Textual / Rich / urwid / prompt_toolkit): canonical TUI screen signatures, coverage edges, and crash reporting to the reproit cloud."
+description = "Terminal UI signatures, coverage edges, and crash reporting for Python applications"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [{ name = "ReproIt, Inc." }]
-keywords = ["tui", "textual", "rich", "urwid", "prompt_toolkit", "telemetry", "observability", "crash-reporting", "reproit"]
+keywords = [
+  "tui",
+  "textual",
+  "rich",
+  "urwid",
+  "prompt_toolkit",
+  "telemetry",
+  "observability",
+  "crash-reporting",
+  "reproit",
+]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Environment :: Console",

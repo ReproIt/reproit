@@ -1,20 +1,21 @@
 //! reproit-tui: production telemetry SDK for Rust terminal-UI apps.
 //!
-//! Drop this into a real TUI app (ratatui, crossterm-direct, or any renderer) and
-//! it reports the SAME canonical TUI screen signature the `reproit __tui` runner
-//! computes, so a production crash reported here carries a state signature the
-//! runner can replay locally. Each distinct screen is a state; each screen change
-//! is a coverage edge; a panic ships the path that led to it.
+//! Drop this into a real TUI app (ratatui, crossterm-direct, or any renderer)
+//! and it reports the SAME canonical TUI screen signature the `reproit __tui`
+//! runner computes, so a production crash reported here carries a state
+//! signature the runner can replay locally. Each distinct screen is a state;
+//! each screen change is a coverage edge; a panic ships the path that led to
+//! it.
 //!
-//! Parity is by CONSTRUCTION, not by a port: the signature comes from the shared
-//! `reproit-tui-sig` crate that the runner itself uses. The Go/TS/Python TUI SDKs
-//! port that logic and are pinned to the same golden vectors; this crate links it
-//! directly, so it cannot drift from the runner.
+//! Parity is by CONSTRUCTION, not by a port: the signature comes from the
+//! shared `reproit-tui-sig` crate that the runner itself uses. The Go/TS/Python
+//! TUI SDKs port that logic and are pinned to the same golden vectors; this
+//! crate links it directly, so it cannot drift from the runner.
 //!
 //! Capture: a TUI app renders its own cells, so you hand the SDK the rendered
-//! screen. ratatui apps build a `ratatui::buffer::Buffer` (convert its cells to a
-//! contents string with `ScreenContents::from_rows`); crossterm-direct apps pass
-//! the text they drew. The SDK never reads the terminal itself.
+//! screen. ratatui apps build a `ratatui::buffer::Buffer` (convert its cells to
+//! a contents string with `ScreenContents::from_rows`); crossterm-direct apps
+//! pass the text they drew. The SDK never reads the terminal itself.
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -22,7 +23,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 type ReplayResponse = (u16, BTreeMap<String, String>, serde_json::Value);
 
-// Re-export the shared signature surface so SDK users never reach past this crate.
+// Re-export the shared signature surface so SDK users never reach past this
+// crate.
 pub use reproit_tui_sig::{content_fingerprint, labels_of, sig_of, structural_sig, value_class};
 
 fn canonical_causal_url(raw: &str) -> String {
@@ -254,9 +256,10 @@ fn redact_rs(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// One rendered terminal screen: the contents string (what `vt100::screen().contents()`
-/// would produce) plus the 0-based `(row, col)` cursor. The cursor convention must
-/// match the runner, which reads `screen().cursor_position()`.
+/// One rendered terminal screen: the contents string (what
+/// `vt100::screen().contents()` would produce) plus the 0-based `(row, col)`
+/// cursor. The cursor convention must match the runner, which reads
+/// `screen().cursor_position()`.
 #[derive(Clone, Debug, Default)]
 pub struct ScreenContents {
     pub text: String,
@@ -273,7 +276,8 @@ impl ScreenContents {
     }
 
     /// Build from per-row strings (join with newlines). Convenient for ratatui:
-    /// read each `Buffer` row's symbols into a `String` and pass the slice here.
+    /// read each `Buffer` row's symbols into a `String` and pass the slice
+    /// here.
     pub fn from_rows<S: AsRef<str>>(rows: &[S], row: u16, col: u16) -> Self {
         let text = rows
             .iter()
@@ -291,16 +295,18 @@ impl ScreenContents {
         structural_sig(&self.text, self.cursor)
     }
 
-    /// The runner-local content fingerprint (effect detection; never the identity).
+    /// The runner-local content fingerprint (effect detection; never the
+    /// identity).
     pub fn content_fingerprint(&self) -> String {
         content_fingerprint(&self.text, self.cursor)
     }
 }
 
 /// Where telemetry batches go. Implement this to wire your own HTTP client (the
-/// batch is a complete `{appId, sentAt, ctx?, events}` JSON string). The default
-/// [`SpoolTransport`] writes newline-delimited JSON to a file or stderr; an HTTP
-/// transport is a few lines over any blocking client (see the README).
+/// batch is a complete `{appId, sentAt, ctx?, events}` JSON string). The
+/// default [`SpoolTransport`] writes newline-delimited JSON to a file or
+/// stderr; an HTTP transport is a few lines over any blocking client (see the
+/// README).
 pub trait Transport: Send + Sync {
     fn send(&self, batch_json: &str);
 }
@@ -363,7 +369,8 @@ struct Inner {
     last_action: Option<String>,
     events: Vec<serde_json::Value>,
     /// App-declared invariants, keyed by id (registration is idempotent). Inert
-    /// in production; evaluated only under the fuzzer (see [`report_invariants`]).
+    /// in production; evaluated only under the fuzzer (see
+    /// [`report_invariants`]).
     invariants: Vec<(String, Predicate)>,
 }
 
@@ -391,13 +398,14 @@ impl ReproIt {
         }
     }
 
-    /// Register an app invariant: a predicate the app declares that must hold in
-    /// EVERY visited state. It returns `Ok(())` when it holds, or `Err(message)`
-    /// (or panics) when it is violated. reproit's fuzzer evaluates every
-    /// registered invariant on each state-observe and reports the failures as
-    /// `invariant` findings; in production the registry is INERT (a plain store,
-    /// never evaluated), so this is zero-overhead until a run reproduces it.
-    /// Registration is idempotent by id, so re-registering an id replaces it.
+    /// Register an app invariant: a predicate the app declares that must hold
+    /// in EVERY visited state. It returns `Ok(())` when it holds, or
+    /// `Err(message)` (or panics) when it is violated. reproit's fuzzer
+    /// evaluates every registered invariant on each state-observe and
+    /// reports the failures as `invariant` findings; in production the
+    /// registry is INERT (a plain store, never evaluated), so this is
+    /// zero-overhead until a run reproduces it. Registration is idempotent
+    /// by id, so re-registering an id replaces it.
     pub fn invariant<F>(&self, id: impl Into<String>, predicate: F) -> &Self
     where
         F: Fn() -> Result<(), String> + Send + 'static,
@@ -413,10 +421,11 @@ impl ReproIt {
         self
     }
 
-    /// Observe one rendered frame after the given action. The first frame records
-    /// a `state` event; a frame whose structural signature differs from the last
-    /// records an `edge` (from -> action -> to), mirroring the runner's coverage
-    /// edges. Frames that do not change the signature are no-ops.
+    /// Observe one rendered frame after the given action. The first frame
+    /// records a `state` event; a frame whose structural signature differs
+    /// from the last records an `edge` (from -> action -> to), mirroring
+    /// the runner's coverage edges. Frames that do not change the signature
+    /// are no-ops.
     pub fn observe(&self, screen: &ScreenContents, action: &str) {
         let sig = screen.structural_sig();
         let mut inner = self.inner.lock().unwrap();
@@ -475,8 +484,8 @@ impl ReproIt {
 
     /// Install a panic hook that records the panic as an error event (with the
     /// current state + path) and flushes before the previous hook runs. This is
-    /// the idiomatic Rust crash path; true fatal-signal handling (SIGSEGV) can be
-    /// layered on with a signal crate if an app needs it.
+    /// the idiomatic Rust crash path; true fatal-signal handling (SIGSEGV) can
+    /// be layered on with a signal crate if an app needs it.
     pub fn install_crash_handler(&self) {
         let me = self.clone();
         let prev = std::panic::take_hook();
@@ -494,7 +503,8 @@ fn now_millis() -> u128 {
         .unwrap_or(0)
 }
 
-/// The text of a caught panic payload (mirrors the "throws => violated" message).
+/// The text of a caught panic payload (mirrors the "throws => violated"
+/// message).
 fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_string()

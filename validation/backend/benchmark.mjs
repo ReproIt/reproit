@@ -13,10 +13,13 @@ const inactiveMicros = ((performance.now() - started) * 1000) / runs;
 started = performance.now();
 let encoded;
 for (let index = 0; index < runs; index += 1) {
-  const trace = beginBackendTrace({ 'x-reproit-trace': `bench-${index}` }, {
-    operation: 'getAccount',
-    input: { accountId: index, authorization: 'must-not-leak' },
-  });
+  const trace = beginBackendTrace(
+    { 'x-reproit-trace': `bench-${index}` },
+    {
+      operation: 'getAccount',
+      input: { accountId: index, authorization: 'must-not-leak' },
+    },
+  );
   trace.finish({ account: { id: index, email: 'must-not-leak@example.test' } });
   encoded = trace.header();
 }
@@ -27,9 +30,11 @@ assert.ok(inactiveMicros < 5, `inactive adapter cost ${inactiveMicros.toFixed(2)
 assert.ok(activeMicros < 100, `active adapter cost ${activeMicros.toFixed(2)}us exceeds 100us`);
 assert.ok(encoded.length < 60_000);
 
-process.stdout.write(`${JSON.stringify({
-  runs,
-  inactiveMicros: Number(inactiveMicros.toFixed(3)),
-  activeMicros: Number(activeMicros.toFixed(3)),
-  evidenceBytes: encoded.length,
-})}\n`);
+process.stdout.write(
+  `${JSON.stringify({
+    runs,
+    inactiveMicros: Number(inactiveMicros.toFixed(3)),
+    activeMicros: Number(activeMicros.toFixed(3)),
+    evidenceBytes: encoded.length,
+  })}\n`,
+);

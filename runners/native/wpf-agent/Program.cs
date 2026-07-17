@@ -55,23 +55,24 @@ namespace ReproIt.WpfAgent
             var done = new ManualResetEventSlim(false);
             var dispatcher = Dispatcher.CurrentDispatcher;
 
-            dispatcher.BeginInvoke(new Action(() =>
-            {
-                try
-                {
-                    exitCode = Run(realWindow: !HasNoWindow(args));
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine("agent error: " + ex);
-                    exitCode = 2;
-                }
-                finally
-                {
-                    done.Set();
-                    dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
-                }
-            }));
+            dispatcher.BeginInvoke(
+                new Action(() =>
+                           {
+                               try
+                               {
+                                   exitCode = Run(realWindow: !HasNoWindow(args));
+                               }
+                               catch (Exception ex)
+                               {
+                                   Console.Error.WriteLine("agent error: " + ex);
+                                   exitCode = 2;
+                               }
+                               finally
+                               {
+                                   done.Set();
+                                   dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+                               }
+                           }));
 
             Dispatcher.Run();
             done.Wait();
@@ -102,12 +103,12 @@ namespace ReproIt.WpfAgent
             // (a) the REAL button: a first-class control. ButtonBase => operable
             // ground truth; it also produces a ButtonAutomationPeer with a Button
             // control type, a name, keyboard focusability and an InvokePattern.
-            var realButton = new Button
-            {
+            var realButton = new Button {
                 Name = "SaveButton",
                 Content = "Save",
             };
-            realButton.Click += (s, e) => { /* real handler */ };
+            realButton.Click += (s, e) =>
+            { /* real handler */ };
             panel.Children.Add(realButton);
 
             // (b) the FAKE button: a Border wrapping a TextBlock with a mouse
@@ -116,14 +117,14 @@ namespace ReproIt.WpfAgent
             // IsEnabled), but to UIA it is a plain element: no Button control
             // type, not keyboard-focusable, no InvokePattern. The div-soup gap.
             var fakeText = new TextBlock { Text = "Delete" };
-            var fakeButton = new Border
-            {
+            var fakeButton = new Border {
                 Name = "DeleteFakeButton",
                 Background = Brushes.Transparent,
                 Child = fakeText,
                 Focusable = false,
             };
-            fakeButton.MouseLeftButtonUp += (s, e) => { /* fake click handler */ };
+            fakeButton.MouseLeftButtonUp += (s, e) =>
+            { /* fake click handler */ };
             panel.Children.Add(fakeButton);
 
             // (c) a COLLAPSED fake button: operable by pointer (mouse handler) but
@@ -132,15 +133,12 @@ namespace ReproIt.WpfAgent
             // is NOT reported as a gap (it has no role either, so it should not
             // appear in the marker at all).
             var hiddenText = new TextBlock { Text = "Hidden Delete" };
-            var hiddenFake = new Border
-            {
-                Name = "HiddenFakeButton",
-                Background = Brushes.Transparent,
-                Child = hiddenText,
-                Focusable = false,
-                Visibility = Visibility.Collapsed,
+            var hiddenFake = new Border {
+                Name = "HiddenFakeButton", Background = Brushes.Transparent,  Child = hiddenText,
+                Focusable = false,         Visibility = Visibility.Collapsed,
             };
-            hiddenFake.MouseLeftButtonUp += (s, e) => { /* unreachable */ };
+            hiddenFake.MouseLeftButtonUp += (s, e) =>
+            { /* unreachable */ };
             panel.Children.Add(hiddenFake);
 
             // Make the tree LIVE so AutomationPeers resolve. A real, shown Window
@@ -148,8 +146,7 @@ namespace ReproIt.WpfAgent
             // available we fall back to an off-screen measured/arranged window,
             // which still connects the elements to a PresentationSource-less
             // visual tree well enough for VisualTreeHelper + the peers we read.
-            var window = new Window
-            {
+            var window = new Window {
                 Title = "ReproIt WPF Operability Agent",
                 Width = 320,
                 Height = 200,
@@ -171,9 +168,9 @@ namespace ReproIt.WpfAgent
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine("note: Window.Show() failed (" +
-                        ex.GetType().Name + ": " + ex.Message +
-                        "), falling back to off-screen Measure/Arrange.");
+                    Console.Error.WriteLine("note: Window.Show() failed (" + ex.GetType().Name +
+                                            ": " + ex.Message +
+                                            "), falling back to off-screen Measure/Arrange.");
                 }
             }
             if (!shown)
@@ -194,8 +191,7 @@ namespace ReproIt.WpfAgent
             // ReproIt.Core oracle (FNV-1a 32-bit) so `sig` is real, not a stub.
             string sig = ComputeSignature(window);
 
-            var record = new OrderedDictionary
-            {
+            var record = new OrderedDictionary {
                 { "sig", sig },
                 { "focusTrap", false },
                 { "elements", elements },
@@ -214,7 +210,8 @@ namespace ReproIt.WpfAgent
         // (graph 2), the a11y dimensions. Only elements that are operable OR
         // emit an a11y signal are reported (chrome panels are skipped to keep
         // the marker focused, exactly like a real backend's node filter).
-        private static void WalkAndJoin(DependencyObject node, ref int visualIndex, List<object> outList)
+        private static void WalkAndJoin(DependencyObject node, ref int visualIndex,
+                                        List<object> outList)
         {
             // Reachability: prune hidden / collapsed subtrees. An element a user
             // can reach with neither pointer nor keyboard is operable by nobody,
@@ -234,20 +231,18 @@ namespace ReproIt.WpfAgent
                 {
                     var a11y = Accessibility(el);
                     string id = StableId(el, visualIndex);
-                    var elementRecord = new OrderedDictionary
-                    {
+                    var elementRecord = new OrderedDictionary {
                         { "id", id },
                         { "operable", true },
                         { "gestureKind", g1.GestureKind },
-                        { "a11y", new OrderedDictionary
-                            {
-                                { "rolePresent", a11y.RolePresent },
-                                { "namePresent", a11y.NamePresent },
-                                { "focusable", a11y.Focusable },
-                                { "inTabOrder", a11y.InTabOrder },
-                                { "keyboardActivatable", a11y.KeyboardActivatable },
-                            }
-                        },
+                        { "a11y",
+                          new OrderedDictionary {
+                              { "rolePresent", a11y.RolePresent },
+                              { "namePresent", a11y.NamePresent },
+                              { "focusable", a11y.Focusable },
+                              { "inTabOrder", a11y.InTabOrder },
+                              { "keyboardActivatable", a11y.KeyboardActivatable },
+                          } },
                     };
                     outList.Add(elementRecord);
                     visualIndex++;
@@ -304,8 +299,7 @@ namespace ReproIt.WpfAgent
 
         // The pointer/click routed events whose presence on an element means a
         // sighted pointer user can operate it (the graph-1 affordance signal).
-        private static readonly RoutedEvent[] PointerEvents = new[]
-        {
+        private static readonly RoutedEvent[] PointerEvents = new[] {
             UIElement.MouseLeftButtonUpEvent,
             UIElement.MouseLeftButtonDownEvent,
             UIElement.MouseDownEvent,
@@ -326,8 +320,7 @@ namespace ReproIt.WpfAgent
             try
             {
                 var storeProp = typeof(UIElement).GetProperty(
-                    "EventHandlersStore",
-                    BindingFlags.Instance | BindingFlags.NonPublic);
+                    "EventHandlersStore", BindingFlags.Instance | BindingFlags.NonPublic);
                 var store = storeProp?.GetValue(el);
                 if (store == null)
                 {
@@ -346,7 +339,8 @@ namespace ReproIt.WpfAgent
                     {
                         continue;
                     }
-                    var handlers = getMethod.Invoke(store, new object[] { re }) as RoutedEventHandlerInfo[];
+                    var handlers =
+                        getMethod.Invoke(store, new object[] { re }) as RoutedEventHandlerInfo[];
                     if (handlers != null && handlers.Length > 0)
                     {
                         return true;
@@ -388,7 +382,13 @@ namespace ReproIt.WpfAgent
                 a.RolePresent = ct != AutomationControlType.Custom;
 
                 string name = null;
-                try { name = peer.GetName(); } catch { /* some peers throw pre-render */ }
+                try
+                {
+                    name = peer.GetName();
+                }
+                catch
+                { /* some peers throw pre-render */
+                }
                 a.NamePresent = !string.IsNullOrEmpty(name);
 
                 a.Focusable = peer.IsKeyboardFocusable();
@@ -434,7 +434,8 @@ namespace ReproIt.WpfAgent
                     return fe.Name;
                 }
             }
-            return "visual#" + visualIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return "visual#" +
+                   visualIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         // Build a ReproIt.Core.Node tree from the visual tree and hash it with the
@@ -456,10 +457,10 @@ namespace ReproIt.WpfAgent
                 if (child is UIElement el)
                 {
                     var g1 = GroundTruth(el);
-                    string role = g1.Operable
-                        ? (g1.GestureKind == "field" ? "textfield"
-                            : g1.GestureKind == "link" ? "link" : "button")
-                        : null;
+                    string role = g1.Operable ? (g1.GestureKind == "field"  ? "textfield"
+                                                 : g1.GestureKind == "link" ? "link"
+                                                                            : "button")
+                                              : null;
                     if (role != null)
                     {
                         sigNode = new Node(role) { Id = StableId(el, 0) };
@@ -479,7 +480,8 @@ namespace ReproIt.WpfAgent
     internal sealed class OrderedDictionary : IDictionary<string, object>
     {
         private readonly List<string> _keys = new List<string>();
-        private readonly Dictionary<string, object> _map = new Dictionary<string, object>(StringComparer.Ordinal);
+        private readonly Dictionary<string, object> _map =
+            new Dictionary<string, object>(StringComparer.Ordinal);
 
         public void Add(string key, object value)
         {
@@ -489,10 +491,16 @@ namespace ReproIt.WpfAgent
 
         public object this[string key]
         {
-            get { return _map[key]; }
+            get
+            {
+                return _map[key];
+            }
             set
             {
-                if (!_map.ContainsKey(key)) { _keys.Add(key); }
+                if (!_map.ContainsKey(key))
+                {
+                    _keys.Add(key);
+                }
                 _map[key] = value;
             }
         }
@@ -500,10 +508,12 @@ namespace ReproIt.WpfAgent
         public ICollection<string> Keys => _keys;
         public ICollection<object> Values
         {
-            get
-            {
+            get {
                 var v = new List<object>();
-                foreach (var k in _keys) { v.Add(_map[k]); }
+                foreach (var k in _keys)
+                {
+                    v.Add(_map[k]);
+                }
                 return v;
             }
         }
@@ -512,12 +522,23 @@ namespace ReproIt.WpfAgent
         public bool TryGetValue(string key, out object value) => _map.TryGetValue(key, out value);
         public void Add(KeyValuePair<string, object> item) => Add(item.Key, item.Value);
         public bool Contains(KeyValuePair<string, object> item) => _map.ContainsKey(item.Key);
-        public bool Remove(string key) { _keys.Remove(key); return _map.Remove(key); }
+        public bool Remove(string key)
+        {
+            _keys.Remove(key);
+            return _map.Remove(key);
+        }
         public bool Remove(KeyValuePair<string, object> item) => Remove(item.Key);
-        public void Clear() { _keys.Clear(); _map.Clear(); }
+        public void Clear()
+        {
+            _keys.Clear();
+            _map.Clear();
+        }
         public void CopyTo(KeyValuePair<string, object>[] array, int index)
         {
-            foreach (var k in _keys) { array[index++] = new KeyValuePair<string, object>(k, _map[k]); }
+            foreach (var k in _keys)
+            {
+                array[index++] = new KeyValuePair<string, object>(k, _map[k]);
+            }
         }
         public int Count => _keys.Count;
         public bool IsReadOnly => false;

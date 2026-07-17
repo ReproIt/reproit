@@ -206,4 +206,5 @@ with open(destination, "w") as f:
 print(json.dumps(d, indent=2, sort_keys=True))
 PY
 
-echo "production gate passed: disposable project -> SDK ingest -> redaction -> bkt replay -> deletion"
+echo "production gate passed: disposable project -> SDK ingest -> redaction -> "\
+"bkt replay -> deletion"

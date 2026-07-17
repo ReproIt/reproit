@@ -23,7 +23,11 @@ def _redact(value):
         for key in sorted(value):
             child = value[key]
             if _SECRET.search(str(key)):
-                out[str(key)] = "<reproit:string:length=%d>" % len(child) if isinstance(child, str) else "<reproit:secret>"
+                out[str(key)] = (
+                    "<reproit:string:length=%d>" % len(child)
+                    if isinstance(child, str)
+                    else "<reproit:secret>"
+                )
             else:
                 out[str(key)] = _redact(child)
         return out
@@ -32,8 +36,12 @@ def _redact(value):
 
 def _canonical(raw):
     parsed = urllib.parse.urlsplit(raw)
-    query = urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)))
-    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
+    query = urllib.parse.urlencode(
+        sorted(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    )
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment)
+    )
 
 
 class _MemoryResponse:
@@ -89,7 +97,11 @@ def install_causal_urllib(exclude_prefix=None):
             return 0
 
     def wrapped(request, *args, **kwargs):
-        req = request if isinstance(request, urllib.request.Request) else urllib.request.Request(request)
+        req = (
+            request
+            if isinstance(request, urllib.request.Request)
+            else urllib.request.Request(request)
+        )
         url = req.full_url
         if exclude_prefix and url.startswith(exclude_prefix):
             return original(request, *args, **kwargs)
@@ -103,21 +115,34 @@ def install_causal_urllib(exclude_prefix=None):
         actor = os.environ.get("REPROIT_DEVICE", "a")
         if capsule is not None:
             for index, exchange in enumerate(exchanges):
-                if (index not in used and exchange.get("required") and exchange.get("actor") == actor
-                        and exchange.get("actionIndex") == action
-                        and str(exchange.get("method", "")).upper() == method
-                        and _canonical(str(exchange.get("url", ""))) == _canonical(url)):
+                if (
+                    index not in used
+                    and exchange.get("required")
+                    and exchange.get("actor") == actor
+                    and exchange.get("actionIndex") == action
+                    and str(exchange.get("method", "")).upper() == method
+                    and _canonical(str(exchange.get("url", ""))) == _canonical(url)
+                ):
                     used.add(index)
                     body = exchange.get("responseBody", "")
                     raw = body.encode() if isinstance(body, str) else json.dumps(body).encode()
-                    return _MemoryResponse(raw, int(exchange.get("status", 200)), exchange.get("responseHeaders", {}), url)
+                    return _MemoryResponse(
+                        raw,
+                        int(exchange.get("status", 200)),
+                        exchange.get("responseHeaders", {}),
+                        url,
+                    )
             raise RuntimeError("CAPSULE:MISS %s %s action=%d" % (method, url, action))
 
         response = original(request, *args, **kwargs)
         raw = response.read()
         headers = dict(response.headers.items())
         try:
-            response_body = _redact(json.loads(raw.decode())) if "json" in headers.get("Content-Type", headers.get("content-type", "")) else "<reproit:body:length=%d>" % len(raw)
+            response_body = (
+                _redact(json.loads(raw.decode()))
+                if "json" in headers.get("Content-Type", headers.get("content-type", ""))
+                else "<reproit:body:length=%d>" % len(raw)
+            )
         except Exception:
             response_body = "<reproit:invalid-json>"
         request_body = None
@@ -126,14 +151,25 @@ def install_causal_urllib(exclude_prefix=None):
                 request_body = _redact(json.loads(req.data.decode()))
             except Exception:
                 request_body = "<reproit:body:length=%d>" % len(req.data)
-        safe_headers = {k: ("<reproit:secret>" if _SECRET.search(k) else v) for k, v in req.header_items()}
-        safe_response_headers = {k: ("<reproit:secret>" if _SECRET.search(k) else v) for k, v in headers.items()}
+        safe_headers = {
+            k: ("<reproit:secret>" if _SECRET.search(k) else v) for k, v in req.header_items()
+        }
+        safe_response_headers = {
+            k: ("<reproit:secret>" if _SECRET.search(k) else v) for k, v in headers.items()
+        }
         exchange = {
-            "id": "%s-%d-%d" % (actor, action, this_ordinal), "actor": actor,
-            "actionIndex": action, "ordinal": this_ordinal,
-            "protocol": urllib.parse.urlsplit(url).scheme, "method": method, "url": _canonical(url),
-            "requestHeaders": safe_headers, "status": response.status,
-            "responseHeaders": safe_response_headers, "responseBody": response_body, "required": True,
+            "id": "%s-%d-%d" % (actor, action, this_ordinal),
+            "actor": actor,
+            "actionIndex": action,
+            "ordinal": this_ordinal,
+            "protocol": urllib.parse.urlsplit(url).scheme,
+            "method": method,
+            "url": _canonical(url),
+            "requestHeaders": safe_headers,
+            "status": response.status,
+            "responseHeaders": safe_response_headers,
+            "responseBody": response_body,
+            "required": True,
         }
         if request_body is not None:
             exchange["requestBody"] = request_body

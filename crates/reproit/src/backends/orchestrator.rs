@@ -2,13 +2,13 @@
 //! (device A builds, the rest reuse with --no-build), record once all are
 //! live, wait for log-reported results, finalize evidence.
 
-use crate::config::Config;
-use crate::drive::{spawn_drive, Drive, RunCtx};
-use crate::reset::run_reset;
-use crate::simctl::{
+use crate::backends::drive::{spawn_drive, Drive, RunCtx};
+use crate::backends::reset::run_reset;
+use crate::backends::simctl::{
     self, composite_side_by_side, pin_determinism, start_permission_regrant, start_recording,
     tile_windows, Sim,
 };
+use crate::config::Config;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -41,10 +41,11 @@ pub struct RunOpts<'a> {
     /// Print a per-phase wall-clock breakdown (sim ensure, reset, build,
     /// launch->ready, walk, teardown). Off unless set.
     pub profile_timing: bool,
-    /// Record an annotated video for THIS run even when `evidence.video` is off:
-    /// the `record` command and `scan --record` clip pass need the runner-side
-    /// webm. A plain fuzz/scan walk leaves this false so the (web/electron/tauri)
-    /// runner doesn't record an unwanted video every run.
+    /// Record an annotated video for THIS run even when `evidence.video` is
+    /// off: the `record` command and `scan --record` clip pass need the
+    /// runner-side webm. A plain fuzz/scan walk leaves this false so the
+    /// (web/electron/tauri) runner doesn't record an unwanted video every
+    /// run.
     pub record_video: bool,
 }
 
@@ -68,7 +69,7 @@ struct DeviceManifest {
     passed: Option<bool>,
     /// Frame-timing summary (jank, percentiles) when the journey recorded
     /// frames via trackFrames/reportFrames.
-    frames: Option<crate::frames::FrameSummary>,
+    frames: Option<crate::backends::frames::FrameSummary>,
     /// Heap trend from the VM-service sampler (first/last/peak), when the
     /// service URI was observed.
     memory: Option<serde_json::Value>,
@@ -97,7 +98,7 @@ pub async fn run_journey(
     let mut timing = PhaseTimer::new(profile_timing);
     // Resolve the platform to its backend before touching any device so unknown
     // ids fail with a direct config error.
-    let plat = crate::platform::resolve(&cfg.app.platform)
+    let plat = crate::backends::platform::resolve(&cfg.app.platform)
         .ok_or_else(|| anyhow::anyhow!("unknown platform {}", cfg.app.platform))?;
     if let Some(need) = plat.backend.required_os() {
         if need != std::env::consts::OS {
@@ -160,7 +161,7 @@ pub async fn run_journey(
     // reproit's own `explore` journey we SELF-HEAL by vendoring it rather than
     // erroring on a file we know how to create; a named user journey we cannot
     // author, so that still errors with guidance.
-    if plat.backend == crate::platform::Backend::FlutterDrive {
+    if plat.backend == crate::backends::platform::Backend::FlutterDrive {
         let project_dir = root.join(&cfg.app.project_dir);
         let jd = project_dir.join(&cfg.journeys.dir);
         // The sim tier imports package:integration_test; ensure it's a dev
@@ -174,22 +175,22 @@ pub async fn run_journey(
                 crate::init::vendor_sim_explorer(&project_dir, &jd, &cfg.journeys.driver)?;
             } else {
                 anyhow::bail!(
-                    "no journey_{journey}.dart or {journey}.dart under {}. \
-                     Author the journey there, or run `reproit fuzz` to explore.",
+                    "no journey_{journey}.dart or {journey}.dart under {}. Author the journey \
+                     there, or run `reproit fuzz` to explore.",
                     jd.display()
                 );
             }
         }
     }
 
-    // 1. Simulators: only <prefix>-X sims are touched; a sim you use for
-    //    other work is never grabbed or rebooted.
+    // 1. Simulators: only <prefix>-X sims are touched; a sim you use for other work
+    //    is never grabbed or rebooted.
     timing.mark("sim");
     let mut sims: Vec<Sim> = Vec::new();
     if byo_target {
         let tag = match plat.backend {
-            crate::platform::Backend::Appium => "rn",
-            crate::platform::Backend::WebCdp => "web",
+            crate::backends::platform::Backend::Appium => "rn",
+            crate::backends::platform::Backend::WebCdp => "web",
             _ => "app",
         };
         for letter in DEVICE_LETTERS.iter().take(n) {
@@ -225,8 +226,8 @@ pub async fn run_journey(
     timing.mark("reset");
     run_reset(&cfg.reset.steps, &cfg.auth.accounts, root).await?;
 
-    // 4. Launch drives. Device 0 compiles; once it reports ready, the rest
-    //    launch with --no-build and reuse the build.
+    // 4. Launch drives. Device 0 compiles; once it reports ready, the rest launch
+    //    with --no-build and reuse the build.
     let project_dir = root.join(&cfg.app.project_dir);
     let mut defines: Vec<(String, String)> = cfg
         .app
@@ -258,7 +259,7 @@ pub async fn run_journey(
     // evidence. Gated on FlutterDrive specifically, not on "not byo", so the
     // Dart assumption can't leak onto a future provisioning backend.
     let journeys_dir = project_dir.join(&cfg.journeys.dir);
-    let target = if plat.backend == crate::platform::Backend::FlutterDrive {
+    let target = if plat.backend == crate::backends::platform::Backend::FlutterDrive {
         if journeys_dir
             .join(format!("journey_{journey}.dart"))
             .exists()
@@ -348,9 +349,9 @@ pub async fn run_journey(
     let mut drives: Vec<Drive> = Vec::new();
     let mut watch = DriveWatch::new(n);
 
-    // 4. Build (cold) or launch (warm) device A. The spawn itself returns
-    //    quickly; the cost lives in the ready-wait below, so this phase
-    //    captures the `flutter drive` compile when cold.
+    // 4. Build (cold) or launch (warm) device A. The spawn itself returns quickly;
+    //    the cost lives in the ready-wait below, so this phase captures the
+    //    `flutter drive` compile when cold.
     timing.mark("build");
     eprintln!(
         "  drive {} ({})...",
@@ -380,9 +381,9 @@ pub async fn run_journey(
     }
 
     // 5. Record once all devices are live, so the video captures just the
-    //    interaction. Without a ready marker, recording starts immediately
-    //    after launch. The ready-wait is the app launch + Dart VM connect that
-    //    batching pays only once per session.
+    //    interaction. Without a ready marker, recording starts immediately after
+    //    launch. The ready-wait is the app launch + Dart VM connect that batching
+    //    pays only once per session.
     timing.mark("launch");
     if ctx.ready_marker.is_some() {
         wait_watching(
@@ -416,7 +417,7 @@ pub async fn run_journey(
     //     the manifest summary read these.
     let mem_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
-        let states: Vec<(String, Arc<Mutex<crate::drive::DriveState>>)> = drives
+        let states: Vec<(String, Arc<Mutex<crate::backends::drive::DriveState>>)> = drives
             .iter()
             .map(|d| (d.label.clone(), d.state.clone()))
             .collect();
@@ -429,7 +430,7 @@ pub async fn run_journey(
                 for (label, state) in &states {
                     let url = state.lock().unwrap().vm_url.clone();
                     let Some(url) = url else { continue };
-                    if let Ok(sample) = crate::vmservice::sample_memory(&url).await {
+                    if let Ok(sample) = crate::backends::vmservice::sample_memory(&url).await {
                         if let Ok(mut f) = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
@@ -453,9 +454,9 @@ pub async fn run_journey(
         });
     }
 
-    // 6. Wait for every journey to REPORT done in its log (not for the
-    //    process to exit, which can hang). This is the actual walk (every seed
-    //    in a batch runs here within the single session).
+    // 6. Wait for every journey to REPORT done in its log (not for the process to
+    //    exit, which can hang). This is the actual walk (every seed in a batch runs
+    //    here within the single session).
     timing.mark("walk");
     // Wait for every journey to REPORT done in its log (not for the
     //    process to exit, which can hang), capped by the timeout. Once the
@@ -495,7 +496,8 @@ pub async fn run_journey(
         );
     } else if !all_done {
         eprintln!(
-            "  warn: device(s) without a runner verdict after {}s grace (lingering drive); judging by observed markers",
+            "  warn: device(s) without a runner verdict after {}s grace (lingering drive); \
+             judging by observed markers",
             cfg.journeys.linger_grace_sec
         );
     }
@@ -536,7 +538,7 @@ pub async fn run_journey(
     for drive in &drives {
         let url = drive.state.lock().unwrap().vm_url.clone();
         let Some(url) = url else { continue };
-        if let Ok(covered) = crate::vmservice::collect_coverage(&url).await {
+        if let Ok(covered) = crate::backends::vmservice::collect_coverage(&url).await {
             let _ = std::fs::write(
                 run_dir.join("coverage.cov.json"),
                 serde_json::to_string(&serde_json::json!({ "passed": passed, "covered": covered }))
@@ -575,7 +577,7 @@ pub async fn run_journey(
             passed: drive.passed(),
             frames: std::fs::read_to_string(&drive.log_path)
                 .ok()
-                .and_then(|log| crate::frames::process(&run_dir, &drive.label, &log)),
+                .and_then(|log| crate::backends::frames::process(&run_dir, &drive.label, &log)),
             memory: memory_summary(&run_dir, &drive.label),
         })
         .collect();
@@ -626,8 +628,8 @@ pub async fn run_journey(
 /// `run_journey`. This is the SINGLE place tier eligibility is decided, so
 /// `fuzz` and `check` select the same way.
 pub fn headless_tier_available(cfg: &Config) -> bool {
-    crate::platform::resolve(&cfg.app.platform)
-        .map(|p| p.backend == crate::platform::Backend::FlutterDrive)
+    crate::backends::platform::resolve(&cfg.app.platform)
+        .map(|p| p.backend == crate::backends::platform::Backend::FlutterDrive)
         .unwrap_or(false)
 }
 
@@ -672,12 +674,12 @@ pub async fn run_journey_headless(
     let started_at = chrono::Local::now();
     let mut timing = PhaseTimer::new(opts.profile_timing);
 
-    let plat = crate::platform::resolve(&cfg.app.platform)
+    let plat = crate::backends::platform::resolve(&cfg.app.platform)
         .ok_or_else(|| anyhow::anyhow!("unknown platform {}", cfg.app.platform))?;
-    if plat.backend != crate::platform::Backend::FlutterDrive {
+    if plat.backend != crate::backends::platform::Backend::FlutterDrive {
         anyhow::bail!(
-            "the headless tier is Flutter-only (platform '{}' uses the {} backend); \
-             use the simulator tier",
+            "the headless tier is Flutter-only (platform '{}' uses the {} backend); use the \
+             simulator tier",
             plat.id,
             plat.backend.as_str()
         );
@@ -736,7 +738,7 @@ pub async fn run_journey_headless(
     // arms the SDK's otherwise-inert invariant registry. `flutter test` runs the
     // app + explorer in THIS process, so the env var reaches both. Per-run path,
     // truncated fresh so a prior run's violations never leak in. Mirrors how
-    // backends/tui.rs::spawn_session provisions the same file.
+    // backends/tui/mod.rs::spawn_session provisions the same file.
     let invariant_file = run_dir.join("invariant.ndjson");
     let _ = std::fs::write(&invariant_file, b"");
     cmd.env("REPROIT_INVARIANT_FILE", &invariant_file);
@@ -751,7 +753,8 @@ pub async fn run_journey_headless(
     let output = match tokio::time::timeout(bound, cmd.output()).await {
         Ok(r) => r.with_context(|| format!("spawning flutter test for {target}"))?,
         Err(_) => anyhow::bail!(
-            "flutter test timed out after {}s for {target} (raise journeys.timeoutSec if the build is legitimately slow)",
+            "flutter test timed out after {}s for {target} (raise journeys.timeoutSec if the \
+             build is legitimately slow)",
             bound.as_secs()
         ),
     };
@@ -779,10 +782,9 @@ pub async fn run_journey_headless(
     if !done {
         anyhow::bail!(
             "headless run did not complete: no JOURNEY DONE marker (flutter test exit {:?}).\n  \
-             This is a harness failure, not a clean app -- the app was never driven, so \
-             \"no findings\" would be a false green.\n  \
-             It is usually a compile or dependency error in the test. See the log:\n    {}\n  \
-             Reproduce it directly: (cd {} && flutter test {})",
+             This is a harness failure, not a clean app -- the app was never driven, so \"no \
+             findings\" would be a false green.\n  It is usually a compile or dependency error in \
+             the test. See the log:\n    {}\n  Reproduce it directly: (cd {} && flutter test {})",
             output.status.code(),
             log_path.display(),
             project_dir.display(),
@@ -826,9 +828,9 @@ fn resolve_headless_target(cfg: &Config, project_dir: &Path, journey: &str) -> R
         }
     }
     anyhow::bail!(
-        "no headless explorer found (looked for {}). Vendor templates/explorer_headless.dart \
-         as test/fuzz_headless_test.dart and set the app import + pumpWidget. Or run the \
-         simulator tier with `reproit fuzz --sim`.",
+        "no headless explorer found (looked for {}). Vendor templates/explorer_headless.dart as \
+         test/fuzz_headless_test.dart and set the app import + pumpWidget. Or run the simulator \
+         tier with `reproit fuzz --sim`.",
         candidates.join(", ")
     )
 }
@@ -1047,7 +1049,8 @@ mod tests {
         let line = PhaseTimer::format(&phases, total);
         assert_eq!(
             line,
-            "timing: sim=1.2s reset=0.3s build=10.2s launch=4.5s walk=150.0s teardown=2.0s total=168.2s"
+            "timing: sim=1.2s reset=0.3s build=10.2s launch=4.5s walk=150.0s teardown=2.0s \
+             total=168.2s"
         );
     }
 
@@ -1062,10 +1065,14 @@ mod tests {
 
     #[test]
     fn discovers_runner_managed_video_recursively() {
+        let test_name = std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace("::", "-");
         let root = std::env::temp_dir().join(format!(
             "reproit-runner-video-{}-{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            test_name
         ));
         let nested = root.join("playwright");
         std::fs::create_dir_all(&nested).unwrap();

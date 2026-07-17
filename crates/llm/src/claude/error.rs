@@ -16,7 +16,13 @@ pub enum Error {
     /// The model declined the request (HTTP 200, stop_reason "refusal").
     /// Surfaced as an error only by helpers that need text; the raw response
     /// is still available via `Client::messages`.
-    #[error("model refused the request{}", category.as_deref().map(|c| format!(" (category: {c})")).unwrap_or_default())]
+    #[error(
+        "model refused the request{}",
+        category
+            .as_deref()
+            .map(|c| format!(" (category: {c})"))
+            .unwrap_or_default()
+    )]
     Refusal { category: Option<String> },
 
     #[error("tool loop exceeded {0} iterations")]

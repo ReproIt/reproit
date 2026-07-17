@@ -11,12 +11,12 @@
 //
 // No em dashes anywhere, per project rules.
 
-import React, { useEffect, useState } from "react";
-import { render, Box, Text, useApp, useInput } from "ink";
-import { Reporter, ScreenContents } from "reproit-tui";
+import React, { useEffect, useState } from 'react';
+import { render, Box, Text, useApp, useInput } from 'ink';
+import { Reporter, ScreenContents } from 'reproit-tui';
 
 const reporter = new Reporter({
-  appId: "my-ink-cli",
+  appId: 'my-ink-cli',
   endpoint: process.env.REPROIT_ENDPOINT || null,
   // optional static context attached to every batch
   ctx: { release: process.env.npm_package_version },
@@ -31,9 +31,9 @@ function Counter() {
   const [count, setCount] = useState(0);
 
   useInput((input, key) => {
-    if (input === "+") setCount((c) => c + 1);
-    if (input === "-") setCount((c) => c - 1);
-    if (input === "q" || key.escape) {
+    if (input === '+') setCount((c) => c + 1);
+    if (input === '-') setCount((c) => c - 1);
+    if (input === 'q' || key.escape) {
       reporter.flush();
       exit();
     }
@@ -46,7 +46,7 @@ function Counter() {
   // track one, else [0, 0].
   useEffect(() => {
     const frame = `Count: ${count}\n[+] inc  [-] dec  [q] quit`;
-    reporter.observe(ScreenContents.fromText(frame, [0, 7]), "render");
+    reporter.observe(ScreenContents.fromText(frame, [0, 7]), 'render');
   }, [count]);
 
   return (

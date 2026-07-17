@@ -107,7 +107,12 @@ func TestCrossVectorRelationships(t *testing.T) {
 	c3, _ := sigByName(t, vs, "count3")
 	c7, _ := sigByName(t, vs, "count7")
 	if c0 == c1 || c1 == c12 || c0 == c12 {
-		t.Errorf("value-class: 0(ZERO)/1(POS1)/12(POS2) must be three distinct sigs: %s %s %s", c0, c1, c12)
+		t.Errorf(
+			"value-class: 0(ZERO)/1(POS1)/12(POS2) must be three distinct sigs: %s %s %s",
+			c0,
+			c1,
+			c12,
+		)
 	}
 	if c1 != c3 || c1 != c7 {
 		t.Errorf("value-class: 1, 3, 7 all POS1 must collapse: %s %s %s", c1, c3, c7)
@@ -131,7 +136,12 @@ func TestCrossVectorRelationships(t *testing.T) {
 	// JSON being self-consistent): re-derive from the contents and compare.
 	for _, v := range vs {
 		if got := StructuralSig(v.Contents, v.Cursor[0], v.Cursor[1]); got != v.ExpectedSig {
-			t.Errorf("%s: SDK does not reproduce expected sig (%s vs %s)", v.Name, got, v.ExpectedSig)
+			t.Errorf(
+				"%s: SDK does not reproduce expected sig (%s vs %s)",
+				v.Name,
+				got,
+				v.ExpectedSig,
+			)
 		}
 	}
 }

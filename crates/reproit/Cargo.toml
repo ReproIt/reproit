@@ -5,7 +5,7 @@ edition = "2021"
 license.workspace = true
 repository.workspace = true
 readme = "../../README.md"
-description = "Reproducible AI QA: deterministic multi-device test orchestration with evidence capture"
+description = "Deterministic multi-device test orchestration with evidence capture"
 
 [dependencies]
 anyhow = { workspace = true }
@@ -68,7 +68,7 @@ windows = { version = "0.58", features = [
 
 # NOTE: the Linux desktop runner (`reproit __atspi`) needs NO Rust crate: it
 # binds the OFFICIAL AT-SPI C library (libatspi.so.0) directly via hand-declared
-# `#[link(name = "atspi"/"gobject-2.0"/"glib-2.0")]` FFI in backends/atspi.rs, so
+# `#[link(name = "atspi"/"gobject-2.0"/"glib-2.0")]` FFI in backends/atspi/protocol.rs, so
 # there is no `[target.'cfg(target_os = "linux")'.dependencies]` stanza. The dev
 # package that provides the link-time .so (libatspi2.0-dev, which pulls glib) is
 # installed in CI/release for the Linux build; the shipped binary dynamically

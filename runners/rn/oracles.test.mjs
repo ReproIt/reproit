@@ -8,12 +8,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import {
-  contentBugReason, contentBugItems, rectOfEl,
-  jankFromGfxinfo, jankyPctFromGfxinfo, jankFloorFor, isBackTrap, pssFromMeminfo, hangBucket,
-  tofuReason, brokenAssetItems, blankScreenItems, safeAreaItems,
-  snapshot, loadBatch,
-  parseInvariantMarker, scrapeInvariants, invariantEmitted,
-  wakelocksFromDumpsysPower, keepScreenOnFromDumpsys, wakelockLeakStep, wakelockItem,
+  contentBugReason,
+  contentBugItems,
+  rectOfEl,
+  jankFromGfxinfo,
+  jankyPctFromGfxinfo,
+  jankFloorFor,
+  isBackTrap,
+  pssFromMeminfo,
+  hangBucket,
+  tofuReason,
+  brokenAssetItems,
+  blankScreenItems,
+  safeAreaItems,
+  snapshot,
+  loadBatch,
+  parseInvariantMarker,
+  scrapeInvariants,
+  invariantEmitted,
+  parseRelationMarker,
+  scrapeRelations,
+  relationEmitted,
+  wakelocksFromDumpsysPower,
+  keepScreenOnFromDumpsys,
+  wakelockLeakStep,
+  wakelockItem,
   confirmedAppExit,
 } from './runner.mjs';
 import { writeFileSync, mkdtempSync } from 'node:fs';
@@ -30,6 +49,27 @@ test('crash oracle requires a sustained foreground exit', async () => {
   assert.strictEqual(await confirmedAppExit({}, 'app', 0), false);
 });
 
+test('mobile relation marker requires two stable SDK samples', async () => {
+  assert.strictEqual(parseRelationMarker('noise only'), null);
+  const check = {
+    kind: 'indicator-anchor',
+    dependentKey: 'key:badge',
+    ownerKey: 'key:liked',
+    containerKey: 'key:tabs',
+    outcome: 'PROVEN',
+    violation: 'detached',
+  };
+  relationEmitted.clear();
+  await scrapeRelations({}, 'nav', null, [
+    'REPROIT_RELATION ' + JSON.stringify({ stableSamples: 1, checks: [check] }),
+  ]);
+  assert.strictEqual(relationEmitted.size, 0);
+  await scrapeRelations({}, 'nav', null, [
+    'REPROIT_RELATION ' + JSON.stringify({ stableSamples: 2, checks: [check] }),
+  ]);
+  assert.strictEqual(relationEmitted.size, 1);
+});
+
 // ---- CONTENT-BUG classifier (byte-identical rule to the web runner) ---------
 test('content-bug: the ground-truth artifacts are flagged', () => {
   // Only artifacts impossible to render as legitimate copy fire.
@@ -38,7 +78,7 @@ test('content-bug: the ground-truth artifacts are flagged', () => {
   assert.strictEqual(contentBugReason('Total: ${price}'), 'unrendered-template');
 });
 
-test('content-bug: bare undefined/null/NaN words are NOT flagged (FP-safe fix)', () => {
+test('content-bug: bare undefined/null/NaN words are NOT flagged (FP-safe ' + 'fix)', () => {
   // These occur in real copy and code samples; keying on them false-positived, so
   // the bare-word match was dropped. Only a leaked binding / object literal fires.
   assert.strictEqual(contentBugReason('Price: undefined'), null);
@@ -66,15 +106,29 @@ test('content-bug items: deduped, sorted, clipped, deterministic', () => {
   const a = contentBugItems(raw);
   const b = contentBugItems(raw);
   assert.deepStrictEqual(a, b, 'deterministic');
-  assert.deepStrictEqual(a.map((i) => i.key), ['key:total', 'role:text#2'], 'sorted by key');
+  assert.deepStrictEqual(
+    a.map((i) => i.key),
+    ['key:total', 'role:text#2'],
+    'sorted by key',
+  );
   assert.strictEqual(a[0].text.length, 80, 'text clipped to 80');
 });
 
 // ---- OVERFLOW geometry (SPILL out of parent, VIEWPORT off-screen) -----------
 test('rectOfEl: parses Android bounds and iOS x/y/w/h', () => {
-  assert.deepStrictEqual(rectOfEl((n) => ({ bounds: '[10,20][110,220]' }[n] || '')), { l: 10, t: 20, r: 110, b: 220 });
-  assert.deepStrictEqual(rectOfEl((n) => ({ x: '5', y: '6', width: '100', height: '50' }[n] || '')), { l: 5, t: 6, r: 105, b: 56 });
-  assert.strictEqual(rectOfEl((n) => ''), null, 'no geometry -> null');
+  assert.deepStrictEqual(
+    rectOfEl((n) => ({ bounds: '[10,20][110,220]' })[n] || ''),
+    { l: 10, t: 20, r: 110, b: 220 },
+  );
+  assert.deepStrictEqual(
+    rectOfEl((n) => ({ x: '5', y: '6', width: '100', height: '50' })[n] || ''),
+    { l: 5, t: 6, r: 105, b: 56 },
+  );
+  assert.strictEqual(
+    rectOfEl((n) => ''),
+    null,
+    'no geometry -> null',
+  );
 });
 
 // ---- ANDROID JANK (gfxinfo framestats) --------------------------------------
@@ -94,7 +148,10 @@ test('jank: a clean render under the floor is silent (no false positive)', () =>
 
 // ---- ANDROID LEAK (meminfo PSS) ---------------------------------------------
 test('leak: PSS is read in KB and emitted in bytes', () => {
-  assert.strictEqual(pssFromMeminfo('App Summary\n  TOTAL PSS:   123456   TOTAL RSS: ...'), 123456 * 1024);
+  assert.strictEqual(
+    pssFromMeminfo('App Summary\n  TOTAL PSS:   123456   TOTAL RSS: ...'),
+    123456 * 1024,
+  );
   assert.strictEqual(pssFromMeminfo('\n        TOTAL    98765    12000     0'), 98765 * 1024);
   assert.strictEqual(pssFromMeminfo('no total here'), null);
   assert.strictEqual(pssFromMeminfo(null), null);
@@ -166,8 +223,14 @@ test('safe-area: zero insets (no notch / no driver source) never fire', () => {
   );
   assert.deepStrictEqual(items, []);
   // Missing insets/screenRect also stay silent (no guess-and-flag).
-  assert.deepStrictEqual(safeAreaItems([{ key: 'k', rect: { l: 0, t: 0, r: 9, b: 9 } }], null, SCREEN), []);
-  assert.deepStrictEqual(safeAreaItems([{ key: 'k', rect: { l: 0, t: 0, r: 9, b: 9 } }], { top: 47 }, null), []);
+  assert.deepStrictEqual(
+    safeAreaItems([{ key: 'k', rect: { l: 0, t: 0, r: 9, b: 9 } }], null, SCREEN),
+    [],
+  );
+  assert.deepStrictEqual(
+    safeAreaItems([{ key: 'k', rect: { l: 0, t: 0, r: 9, b: 9 } }], { top: 47 }, null),
+    [],
+  );
 });
 
 test('safe-area: a 1px flush touch is tolerated (rounding, not a collision)', () => {
@@ -182,8 +245,8 @@ test('safe-area: a 1px flush touch is tolerated (rounding, not a collision)', ()
 test('safe-area: items are deduped by key|edge, sorted by key then edge', () => {
   const items = safeAreaItems(
     [
-      { key: 'key:b', rect: { l: 20, t: 0, r: 100, b: 20 } },   // top
-      { key: 'key:a', rect: { l: 0, t: 830, r: 60, b: 844 } },  // bottom (band 810..844)
+      { key: 'key:b', rect: { l: 20, t: 0, r: 100, b: 20 } }, // top
+      { key: 'key:a', rect: { l: 0, t: 830, r: 60, b: 844 } }, // bottom (band 810..844)
     ],
     { top: 47, bottom: 34, left: 0, right: 0 },
     SCREEN,
@@ -210,7 +273,11 @@ test('tofu items: deduped on key, sorted, detail trimmed + clipped to 60', () =>
   ];
   const a = brokenAssetItems(raw);
   assert.deepStrictEqual(a, brokenAssetItems(raw), 'deterministic');
-  assert.deepStrictEqual(a.map((i) => i.key), ['key:desc', 'role:text#2'], 'sorted by key');
+  assert.deepStrictEqual(
+    a.map((i) => i.key),
+    ['key:desc', 'role:text#2'],
+    'sorted by key',
+  );
   assert.strictEqual(a[0].detail.length, 60, 'detail clipped to 60');
   assert.strictEqual(a[1].detail, 'b�d', 'detail trimmed');
   assert.ok(a.every((i) => i.reason === 'tofu'));
@@ -225,13 +292,19 @@ test('snapshot wiring: tofu/blank collected from a parsed page source', async ()
     <AppiumAUT>
       <XCUIElementTypeApplication x="0" y="0" width="390" height="844" visible="true">
         <XCUIElementTypeOther x="0" y="0" width="390" height="844" visible="true">
-          <XCUIElementTypeButton name="tinyBtn" label="Go" x="10" y="10" width="10" height="10" visible="true"/>
-          <XCUIElementTypeButton name="alpha" label="A" x="100" y="100" width="48" height="48" visible="true"/>
-          <XCUIElementTypeButton name="beta" label="B" x="124" y="124" width="48" height="48" visible="true"/>
-          <XCUIElementTypeButton name="outer" label="Wrap" x="200" y="500" width="96" height="96" visible="true">
-            <XCUIElementTypeButton name="inner" label="Core" x="224" y="524" width="48" height="48" visible="true"/>
+          <XCUIElementTypeButton name="tinyBtn" label="Go" x="10" y="10"
+            width="10" height="10" visible="true"/>
+          <XCUIElementTypeButton name="alpha" label="A" x="100" y="100"
+            width="48" height="48" visible="true"/>
+          <XCUIElementTypeButton name="beta" label="B" x="124" y="124"
+            width="48" height="48" visible="true"/>
+          <XCUIElementTypeButton name="outer" label="Wrap" x="200" y="500"
+            width="96" height="96" visible="true">
+            <XCUIElementTypeButton name="inner" label="Core" x="224" y="524"
+              width="48" height="48" visible="true"/>
           </XCUIElementTypeButton>
-          <XCUIElementTypeStaticText name="desc" label="glyph &#xFFFD; here" x="0" y="300" width="200" height="20" visible="true"/>
+          <XCUIElementTypeStaticText name="desc" label="glyph &#xFFFD; here"
+            x="0" y="300" width="200" height="20" visible="true"/>
         </XCUIElementTypeOther>
       </XCUIElementTypeApplication>
     </AppiumAUT>`;
@@ -262,15 +335,17 @@ test('snapshot wiring: tofu/blank collected from a parsed page source', async ()
 // needed: these drive the pure parser + a fake driver whose getLogs returns the
 // marker lines.
 
-test('parseInvariantMarker: extracts JSON tolerant of log framing + trailing text', () => {
+test('parseInvariantMarker: extracts JSON tolerant of log framing + trailing ' + 'text', () => {
   // logcat-style framing before the token, clean object at the end.
   const a = parseInvariantMarker(
-    '07-06 12:00:00.123  1234  1234 I reproit : REPROIT_INVARIANT {"sig":"","items":[{"id":"x","message":"boom"}]}'
+    '07-06 12:00:00.123  1234  1234 I reproit : REPROIT_INVARIANT {"sig":"",' +
+      '"items":[{"id":"x","message":"boom"}]}',
   );
   assert.deepStrictEqual(a, { sig: '', items: [{ id: 'x', message: 'boom' }] });
   // NSLog-style framing + trailing content after the object.
   const b = parseInvariantMarker(
-    '2026-07-06 12:00:00 App[42:99] REPROIT_INVARIANT {"sig":"","items":[{"id":"y","message":""}]} extra'
+    '2026-07-06 12:00:00 App[42:99] REPROIT_INVARIANT {"sig":"","items":' +
+      '[{"id":"y","message":""}]} extra',
   );
   assert.deepStrictEqual(b, { sig: '', items: [{ id: 'y', message: '' }] });
   assert.strictEqual(parseInvariantMarker('nothing to see here'), null);
@@ -280,25 +355,41 @@ test('parseInvariantMarker: extracts JSON tolerant of log framing + trailing tex
 async function captureLog(fn) {
   const orig = process.stdout.write;
   const lines = [];
-  process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
-  try { await fn(); } finally { process.stdout.write = orig; }
-  return lines.join('').split('\n').filter((l) => l.length);
+  process.stdout.write = (chunk) => {
+    lines.push(String(chunk));
+    return true;
+  };
+  try {
+    await fn();
+  } finally {
+    process.stdout.write = orig;
+  }
+  return lines
+    .join('')
+    .split('\n')
+    .filter((l) => l.length);
 }
 
-test('scrapeInvariants: a VIOLATING marker emits EXPLORE:INVARIANT with the current sig', async () => {
-  invariantEmitted.clear();
-  const driver = {
-    getLogs: async () => [
-      { message: 'REPROIT_INVARIANT {"sig":"","items":[{"id":"cart","message":"went negative"}]}' },
-    ],
-  };
-  const out = await captureLog(() => scrapeInvariants(driver, 'abcd1234', '/cart'));
-  assert.strictEqual(out.length, 1);
-  const obj = JSON.parse(out[0].slice('EXPLORE:INVARIANT '.length));
-  assert.strictEqual(obj.sig, 'abcd1234'); // runner substitutes ITS sig, not the SDK's ""
-  assert.strictEqual(obj.route, '/cart');
-  assert.deepStrictEqual(obj.items, [{ id: 'cart', message: 'went negative' }]);
-});
+test(
+  'scrapeInvariants: a VIOLATING marker emits EXPLORE:INVARIANT with the ' + 'current sig',
+  async () => {
+    invariantEmitted.clear();
+    const driver = {
+      getLogs: async () => [
+        {
+          message:
+            'REPROIT_INVARIANT {"sig":"","items":[{"id":"cart","message":"went ' + 'negative"}]}',
+        },
+      ],
+    };
+    const out = await captureLog(() => scrapeInvariants(driver, 'abcd1234', '/cart'));
+    assert.strictEqual(out.length, 1);
+    const obj = JSON.parse(out[0].slice('EXPLORE:INVARIANT '.length));
+    assert.strictEqual(obj.sig, 'abcd1234'); // runner substitutes ITS sig, not the SDK's ""
+    assert.strictEqual(obj.route, '/cart');
+    assert.deepStrictEqual(obj.items, [{ id: 'cart', message: 'went negative' }]);
+  },
+);
 
 test('scrapeInvariants: a CLEAN state (no marker) is silent', async () => {
   invariantEmitted.clear();
@@ -307,29 +398,36 @@ test('scrapeInvariants: a CLEAN state (no marker) is silent', async () => {
   assert.deepStrictEqual(out, []);
 });
 
-test('scrapeInvariants: de-dups the same violation across settles of the same state', async () => {
-  invariantEmitted.clear();
-  const driver = {
-    getLogs: async () => [
-      { message: 'REPROIT_INVARIANT {"sig":"","items":[{"id":"a","message":"m"}]}' },
-    ],
-  };
-  const first = await captureLog(() => scrapeInvariants(driver, 'state1', null));
-  const second = await captureLog(() => scrapeInvariants(driver, 'state1', null));
-  assert.strictEqual(first.length, 1, 'first settle emits');
-  assert.strictEqual(second.length, 0, 'same sig|id|message on re-settle is suppressed');
-  // The SAME violation in a DIFFERENT state is a distinct finding and emits.
-  const other = await captureLog(() => scrapeInvariants(driver, 'state2', null));
-  assert.strictEqual(other.length, 1, 'a different state re-emits');
-});
+test(
+  'scrapeInvariants: de-dups the same violation across settles of the ' + 'same state',
+  async () => {
+    invariantEmitted.clear();
+    const driver = {
+      getLogs: async () => [
+        { message: 'REPROIT_INVARIANT {"sig":"","items":[{"id":"a","message":"m"}]}' },
+      ],
+    };
+    const first = await captureLog(() => scrapeInvariants(driver, 'state1', null));
+    const second = await captureLog(() => scrapeInvariants(driver, 'state1', null));
+    assert.strictEqual(first.length, 1, 'first settle emits');
+    assert.strictEqual(second.length, 0, 'same sig|id|message on re-settle is suppressed');
+    // The SAME violation in a DIFFERENT state is a distinct finding and emits.
+    const other = await captureLog(() => scrapeInvariants(driver, 'state2', null));
+    assert.strictEqual(other.length, 1, 'a different state re-emits');
+  },
+);
 
 // ---- WAKELOCK LEAK (Android dumpsys power parse + leak reducer) --------------
 const PKG = 'com.example.myapp';
+const TARGET_WAKELOCK_LINE =
+  "    PARTIAL_WAKE_LOCK              'com.example.myapp:VideoPlayback' " +
+  'ON_AFTER_RELEASE ACQ=-4s12ms ' +
+  '(uid=10234 pid=1234 ws=WorkSource{10234 com.example.myapp})';
 const DUMPSYS_POWER = `
 Power Manager State:
   mWakefulness=Awake
   Wake Locks: size=3
-    PARTIAL_WAKE_LOCK              'com.example.myapp:VideoPlayback' ON_AFTER_RELEASE ACQ=-4s12ms (uid=10234 pid=1234 ws=WorkSource{10234 com.example.myapp})
+${TARGET_WAKELOCK_LINE}
     PARTIAL_WAKE_LOCK              'AudioMix' ACQ=-1s (uid=1000 pid=555)
     PARTIAL_WAKE_LOCK              '*job*/com.android.systemui' ACQ=-2s (uid=1000)
   Suspend Blockers:
@@ -346,7 +444,7 @@ test('wakelock: dumpsys power keeps only app-owned awake locks', () => {
   assert.strictEqual(wakelocksFromDumpsysPower('', PKG).size, 0);
 });
 
-test('wakelock: focused-window FLAG_KEEP_SCREEN_ON is detected for the package', () => {
+test('wakelock: focused-window FLAG_KEEP_SCREEN_ON is detected for the ' + 'package', () => {
   const win = `
     Window #2 Window{aaaa u0 com.other/com.other.Home}:
       mAttrs=... fl=... flags:
@@ -357,12 +455,15 @@ test('wakelock: focused-window FLAG_KEEP_SCREEN_ON is detected for the package',
   `;
   assert.strictEqual(keepScreenOnFromDumpsys(win, PKG), true);
   // The flag on a DIFFERENT app's window does not count for us.
-  const other = win.replace('com.example.myapp/com.example.myapp.PlayerActivity', 'com.other/com.other.Vid');
+  const other = win.replace(
+    'com.example.myapp/com.example.myapp.PlayerActivity',
+    'com.other/com.other.Vid',
+  );
   assert.strictEqual(keepScreenOnFromDumpsys(other, PKG), false);
 });
 
-test('wakelock reducer: a lock acquired on X still held on Y is a leak, reported once', () => {
-  const baseline = new Set();          // nothing held at launch
+test('wakelock reducer: a lock acquired on X still held on Y is a leak, ' + 'reported once', () => {
+  const baseline = new Set(); // nothing held at launch
   let st = { origin: new Map(), reported: new Set() };
   const lock = new Set(['com.example.myapp:VideoPlayback']);
   // Dwell on the video screen (self-transition records nothing / no leak).
@@ -374,22 +475,49 @@ test('wakelock reducer: a lock acquired on X still held on Y is a leak, reported
   step = wakelockLeakStep(st, baseline, lock, lock, 'home', 'settings');
   assert.deepStrictEqual(step.leaks, []);
   // The finding item carries the tag + kind the Rust core parses.
-  assert.deepStrictEqual(wakelockItem('com.example.myapp:VideoPlayback'), { tag: 'com.example.myapp:VideoPlayback', kind: 'wakelock' });
-  assert.deepStrictEqual(wakelockItem('KEEP_SCREEN_ON'), { tag: 'KEEP_SCREEN_ON', kind: 'keep-screen-on' });
+  assert.deepStrictEqual(wakelockItem('com.example.myapp:VideoPlayback'), {
+    tag: 'com.example.myapp:VideoPlayback',
+    kind: 'wakelock',
+  });
+  assert.deepStrictEqual(wakelockItem('KEEP_SCREEN_ON'), {
+    tag: 'KEEP_SCREEN_ON',
+    kind: 'keep-screen-on',
+  });
 });
 
 test('wakelock reducer: FP-safe on baseline, released, and short-lived locks', () => {
   // A baseline (app-global) lock held on X and Y is never flagged.
   const globalLock = new Set(['com.example.myapp:Sync']);
-  let step = wakelockLeakStep({ origin: new Map(), reported: new Set() }, globalLock, globalLock, globalLock, 'x', 'y');
+  let step = wakelockLeakStep(
+    { origin: new Map(), reported: new Set() },
+    globalLock,
+    globalLock,
+    globalLock,
+    'x',
+    'y',
+  );
   assert.deepStrictEqual(step.leaks, [], 'app-global baseline lock is not a leak');
   // A lock acquired on X but RELEASED before Y (gone from the after-sample) is
   // healthy and never fires.
   const held = new Set(['com.example.myapp:VideoPlayback']);
-  step = wakelockLeakStep({ origin: new Map(), reported: new Set() }, new Set(), held, new Set(), 'video', 'home');
+  step = wakelockLeakStep(
+    { origin: new Map(), reported: new Set() },
+    new Set(),
+    held,
+    new Set(),
+    'video',
+    'home',
+  );
   assert.deepStrictEqual(step.leaks, [], 'a released lock is healthy');
   // A same-screen transition (no navigation away) never flags, even if held.
-  step = wakelockLeakStep({ origin: new Map(), reported: new Set() }, new Set(), held, held, 'video', 'video');
+  step = wakelockLeakStep(
+    { origin: new Map(), reported: new Set() },
+    new Set(),
+    held,
+    held,
+    'video',
+    'video',
+  );
   assert.deepStrictEqual(step.leaks, [], 'no leak without leaving the screen');
 });
 
@@ -408,13 +536,15 @@ function withFuzzConfig(obj, fn) {
   writeFileSync(p, JSON.stringify(obj));
   const prev = process.env.REPROIT_FUZZ_CONFIG;
   process.env.REPROIT_FUZZ_CONFIG = p;
-  try { return fn(); } finally {
+  try {
+    return fn();
+  } finally {
     if (prev === undefined) delete process.env.REPROIT_FUZZ_CONFIG;
     else process.env.REPROIT_FUZZ_CONFIG = prev;
   }
 }
 
-test('batch: a multi-seed {batch:[...]} check config yields one seed per replay', () => {
+test('batch: a multi-seed {batch:[...]} check config yields one seed per ' + 'replay', () => {
   const cfg = {
     batch: [
       { seed: 5, replay: ['tap:role:button#2'] },
@@ -433,7 +563,7 @@ test('batch: a multi-seed {batch:[...]} check config yields one seed per replay'
   }
 });
 
-test('batch: a bare single {seed,replay} config is NOT a batch (no SEED markers)', () => {
+test('batch: a bare single {seed,replay} config is NOT a batch (no SEED ' + 'markers)', () => {
   const cfg = { seed: 5, replay: ['tap:role:button#2'] };
   const { seeds, isBatch } = withFuzzConfig(cfg, loadBatch);
   assert.strictEqual(isBatch, false, 'the compact single-replay shape stays un-bracketed');
@@ -441,7 +571,7 @@ test('batch: a bare single {seed,replay} config is NOT a batch (no SEED markers)
   assert.deepStrictEqual(seeds[0].replay, ['tap:role:button#2']);
 });
 
-test('batch: an absent config is a single empty seed (a plain explore/map run)', () => {
+test('batch: an absent config is a single empty seed (a plain explore/map ' + 'run)', () => {
   const prev = process.env.REPROIT_FUZZ_CONFIG;
   delete process.env.REPROIT_FUZZ_CONFIG;
   try {
@@ -454,7 +584,7 @@ test('batch: an absent config is a single empty seed (a plain explore/map run)',
   }
 });
 
-test('batch: a {batch:[]} empty array degrades to a single seed (never zero walks)', () => {
+test('batch: a {batch:[]} empty array degrades to a single seed (never zero ' + 'walks)', () => {
   const { seeds, isBatch } = withFuzzConfig({ batch: [] }, loadBatch);
   assert.strictEqual(isBatch, false);
   assert.strictEqual(seeds.length, 1);
@@ -489,7 +619,7 @@ test('jank: raw parse is exposed and floor-independent', () => {
   assert.strictEqual(jankyPctFromGfxinfo('no framestats'), null);
 });
 
-test('jank: a software-compositor transition below the raised floor is silent', () => {
+test('jank: a software-compositor transition below the raised floor is ' + 'silent', () => {
   const gfx = 'Total frames rendered: 60\nJanky frames: 25 (41.67%)\n';
   // Default (real-hardware) floor: a 41.67% storm fires.
   assert.ok(jankFromGfxinfo(gfx), 'fires at the absolute 30% floor');
@@ -528,7 +658,10 @@ test('back-trap: the root/home activity is never a trap (back exits there)', () 
   assert.strictEqual(isBackTrap(root, selfLoop(root), selfLoop(root), LAUNCH), false);
   // Also guarded when the signature (not just the anchor) equals the launch sig.
   const rootBySig = { sig: 'home', content: 'c-home', anchor: 'com.bugzoo/.OtherActivity' };
-  assert.strictEqual(isBackTrap(rootBySig, selfLoop(rootBySig), selfLoop(rootBySig), LAUNCH), false);
+  assert.strictEqual(
+    isBackTrap(rootBySig, selfLoop(rootBySig), selfLoop(rootBySig), LAUNCH),
+    false,
+  );
 });
 
 test('back-trap: a back that closed a dialog/sheet is not a trap (sig moved)', () => {
@@ -545,7 +678,7 @@ test('back-trap: a content-only change (value state) is not a swallow', () => {
   assert.strictEqual(isBackTrap(TRAP, contentMoved, contentMoved, LAUNCH), false);
 });
 
-test('back-trap: a self-loop that clears on the retry is animation, not a trap', () => {
+test('back-trap: a self-loop that clears on the retry is animation, not a ' + 'trap', () => {
   // First press read as a self-loop (mid-animation), but the retry moved: this was a
   // slow transition, never a trap. Guard 3: the retry must ALSO self-loop.
   const moved = { sig: 'nextscreen', content: 'c-next', anchor: 'com.bugzoo/.NextActivity' };

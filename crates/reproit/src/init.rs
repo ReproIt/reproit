@@ -14,9 +14,9 @@ const HELPERS: &str = include_str!("../../../templates/journey_helpers.dart");
 /// The import comment block both explorer templates carry (sim + headless).
 const IMPORT_NEEDLE: &str =
     "// APP-SPECIFIC: import your app's root widget.\n// import 'package:your_app/app.dart';";
-/// The pump line both explorer templates carry inside `pumpApp(WidgetTester t)`.
-/// The widget tester is bound to `t` here (NOT `tester`), so the filled line
-/// must call `t.pumpWidget`.
+/// The pump line both explorer templates carry inside `pumpApp(WidgetTester
+/// t)`. The widget tester is bound to `t` here (NOT `tester`), so the filled
+/// line must call `t.pumpWidget`.
 const PUMP_NEEDLE: &str = "    // await t.pumpWidget(const YourApp());";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,7 +40,8 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         }
         None => detect(dir).ok_or_else(|| {
             anyhow::anyhow!(
-                "could not detect a supported UI project or backend schema; pass --platform explicitly"
+                "could not detect a supported UI project or backend schema; pass --platform \
+                 explicitly"
             )
         })?,
     };
@@ -129,7 +130,8 @@ fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<()> {
         .to_string_lossy();
     let relative = serde_json::to_string(relative.as_ref())?;
     let content = format!(
-        "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: true\n  schemas:\n    - {relative}\n"
+        "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: \
+         true\n  schemas:\n    - {relative}\n"
     );
     write(config, &content, force)
 }
@@ -178,9 +180,10 @@ fn write(path: &Path, content: &str, force: bool) -> Result<()> {
 }
 
 /// The repro suite (`.reproit/repros/`) is committed on purpose: it's the
-/// regression guard. Run evidence, recordings, scratch files, logs, and the secrets vault are
-/// local-only and must never land in git. Paths are relative to `.reproit/`, so
-/// `repros/` and `map/` stay trackable while local evidence stays ignored.
+/// regression guard. Run evidence, recordings, scratch files, logs, and the
+/// secrets vault are local-only and must never land in git. Paths are relative
+/// to `.reproit/`, so `repros/` and `map/` stay trackable while local evidence
+/// stays ignored.
 const REPROIT_GITIGNORE: &str = "\
 # The repro suite (repros/) and learned map (map/) are reviewable project state.
 # Raw runs, recordings, scratch files, and secrets are local-only.
@@ -237,7 +240,8 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
     )?;
     write(
         &dir.join("test_driver/integration_driver.dart"),
-        "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> main() => integrationDriver();\n",
+        "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> main() \
+         => integrationDriver();\n",
         force,
     )?;
     ensure_integration_test_dep(dir)?;
@@ -249,8 +253,8 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
 /// journey_explore.dart + helpers + driver that `reproit init` lays down, with
 /// the app entry inferred from the project) into a project that only had the
 /// headless explorer, so `reproit record` / `--sim` just works instead
-/// of erroring on a file reproit knows how to create. Only writes what's missing,
-/// so a configured explorer/driver is never clobbered.
+/// of erroring on a file reproit knows how to create. Only writes what's
+/// missing, so a configured explorer/driver is never clobbered.
 pub fn vendor_sim_explorer(
     project_dir: &Path,
     journeys_dir: &Path,
@@ -279,7 +283,8 @@ pub fn vendor_sim_explorer(
         }
         std::fs::write(
             &driver_path,
-            "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> main() => integrationDriver();\n",
+            "import 'package:integration_test/integration_test_driver.dart';\n\nFuture<void> \
+             main() => integrationDriver();\n",
         )?;
         eprintln!("  vendored {}", driver_path.display());
     }
@@ -379,7 +384,8 @@ fn detect_app_entry(dir: &Path) -> (String, String) {
         _ => (
             "// TODO: import your app's root widget, e.g.\n// import 'package:your_app/main.dart';"
                 .to_string(),
-            "    // TODO: pump your app's root widget, e.g.\n    // await t.pumpWidget(const MyApp());"
+            "    // TODO: pump your app's root widget, e.g.\n    // await t.pumpWidget(const \
+             MyApp());"
                 .to_string(),
         ),
     }
@@ -527,7 +533,8 @@ llm:
   provider: codex-cli
 "#;
 
-const ANDROID_CONFIG: &str = r#"# reproit config (android). Drives a native Android app (Jetpack Compose or
+const ANDROID_CONFIG: &str = r#"# reproit config (android). Drives a native Android app
+# (Jetpack Compose or
 # Android Views) over an Appium UiAutomator2 session. Shares the exact same
 # runner and marker protocol as react-native and swift-ios; only the caps differ.
 #

@@ -1,9 +1,9 @@
 //! Parity gate: the SDK must reproduce the golden TUI vectors at the repo root
-//! (tui_signature_vectors.json) exactly. Those vectors were produced by the real
-//! tui.rs runner code. Because this SDK shares the reproit-tui-sig crate with the
-//! runner, this is really a guard against the SHARED crate drifting and a check
-//! that the SDK re-exports it faithfully; the Go/TS/Python ports rely on the same
-//! vectors to prove THEY match.
+//! (tui_signature_vectors.json) exactly. Those vectors were produced by the
+//! real tui.rs runner code. Because this SDK shares the reproit-tui-sig crate
+//! with the runner, this is really a guard against the SHARED crate drifting
+//! and a check that the SDK re-exports it faithfully; the Go/TS/Python ports
+//! rely on the same vectors to prove THEY match.
 
 use reproit_tui::{content_fingerprint, structural_sig};
 use std::path::PathBuf;

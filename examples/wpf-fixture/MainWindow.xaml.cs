@@ -19,15 +19,19 @@ public sealed class MainWindow : Window
         statusLabel = new TextBlock { Text = "Status: OFF", Margin = new Thickness(0, 0, 0, 16) };
         AutomationProperties.SetAutomationId(statusLabel, "statusLabel");
 
-        var toggle = new Button { Content = "Toggle", Width = 120, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 16) };
+        var toggle = new Button { Content = "Toggle", Width = 120,
+                                  HorizontalAlignment = HorizontalAlignment.Left,
+                                  Margin = new Thickness(0, 0, 0, 16) };
         AutomationProperties.SetAutomationId(toggle, "toggleButton");
         toggle.Click += (_, _) => SetExpanded(true);
 
         detailPanel = new StackPanel { Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(detailPanel, "detailPanel");
-        var detail = new TextBlock { Text = "Detail panel revealed", Margin = new Thickness(0, 0, 0, 8) };
+        var detail =
+            new TextBlock { Text = "Detail panel revealed", Margin = new Thickness(0, 0, 0, 8) };
         AutomationProperties.SetAutomationId(detail, "detailLabel");
-        var reset = new Button { Content = "Reset", Width = 120, HorizontalAlignment = HorizontalAlignment.Left };
+        var reset = new Button { Content = "Reset", Width = 120,
+                                 HorizontalAlignment = HorizontalAlignment.Left };
         AutomationProperties.SetAutomationId(reset, "resetButton");
         reset.Click += (_, _) => SetExpanded(false);
         detailPanel.Children.Add(detail);

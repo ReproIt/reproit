@@ -2,27 +2,29 @@
 //! graph). reproit's operability oracle reports a gap by its runtime SELECTOR
 //! (the `sel`/`key` grammar: `key:testid:<v>` / `key:id:<v>` / `key:<id>` /
 //! `role:<role>#<idx>`). That tells a developer WHAT is wrong but not WHERE to
-//! fix it. This module greps the project source for the likely DEFINING location
-//! of that id and returns `file:line` candidates, so a found gap is actionable.
+//! fix it. This module greps the project source for the likely DEFINING
+//! location of that id and returns `file:line` candidates, so a found gap is
+//! actionable.
 //!
-//! This is explicitly NOT a static graph (see docs/operability-graph.md "Why not
-//! static code analysis"): it never tries to decide what's on screen. It only
-//! locates an identifier that the RUNTIME already proved exists, across the
-//! common UI dialects:
+//! This is explicitly NOT a static graph (see docs/operability-graph.md "Why
+//! not static code analysis"): it never tries to decide what's on screen. It
+//! only locates an identifier that the RUNTIME already proved exists, across
+//! the common UI dialects:
 //!
 //!   - React / web:  testID / data-testid / data-test-id / id / name="<id>"
 //!   - Flutter:      Key('<id>') / ValueKey('<id>') / key: const Key("<id>")
 //!   - XAML (WPF):   x:Name="<id>" / Name="<id>" / AutomationProperties...
 //!   - generic:      a bare token match as a last resort
 //!
-//! Pure-ish: it takes a project root + a runtime id and reads files under it. It
-//! does no network and mutates nothing. Output is deterministic (sorted), so the
-//! same tree + id always yields the same ranked candidates.
+//! Pure-ish: it takes a project root + a runtime id and reads files under it.
+//! It does no network and mutates nothing. Output is deterministic (sorted), so
+//! the same tree + id always yields the same ranked candidates.
 //!
-//! The public API (`attribute`, `id_from_selector`, `SourceLocation`) is the fix
-//! helper; it is consumed by the gap-reporting / PR path, which the operability
-//! feature wires in. `allow(dead_code)` mirrors `model/appmap.rs`: these are
-//! model building blocks, populated/consumed by callers added incrementally.
+//! The public API (`attribute`, `id_from_selector`, `SourceLocation`) is the
+//! fix helper; it is consumed by the gap-reporting / PR path, which the
+//! operability feature wires in. `allow(dead_code)` mirrors `model/appmap.rs`:
+//! these are model building blocks, populated/consumed by callers added
+//! incrementally.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -67,11 +69,11 @@ const SKIP_DIRS: &[&str] = &[
     "coverage",
 ];
 
-/// Extract the bare id from a runtime selector. The operability oracle keys gaps
-/// by reproit's selector grammar; for attribution we only care about the stable
-/// developer identifier inside it (the part a developer wrote in source):
-///   key:testid:Foo -> Foo      key:id:Foo -> Foo      key:name:Foo -> Foo
-///   key:Foo        -> Foo      (the RN/native single-id form)
+/// Extract the bare id from a runtime selector. The operability oracle keys
+/// gaps by reproit's selector grammar; for attribution we only care about the
+/// stable developer identifier inside it (the part a developer wrote in
+/// source):   key:testid:Foo -> Foo      key:id:Foo -> Foo      key:name:Foo ->
+/// Foo   key:Foo        -> Foo      (the RN/native single-id form)
 ///   role:button#3  -> None     (no developer id; nothing stable to grep)
 ///   Foo            -> Foo      (already a bare id)
 pub fn id_from_selector(sel: &str) -> Option<String> {
@@ -158,8 +160,8 @@ fn score_line(line: &str, id: &str) -> u32 {
     0
 }
 
-/// True when `id` appears in `line` bounded by non-identifier characters on both
-/// sides (so a substring inside a larger identifier does not count).
+/// True when `id` appears in `line` bounded by non-identifier characters on
+/// both sides (so a substring inside a larger identifier does not count).
 fn is_whole_token(line: &str, id: &str) -> bool {
     let bytes = line.as_bytes();
     let id_bytes = id.as_bytes();
@@ -241,9 +243,10 @@ const FILE_CAP: usize = 20_000;
 const MAX_CANDIDATES: usize = 8;
 
 /// Attribute a runtime-found gap (by its selector OR bare id) to candidate
-/// `file:line` source locations under `root`, best match first. Returns an empty
-/// vec when the selector carries no developer id (e.g. `role:button#3`) or when
-/// nothing matches. Deterministic: same tree + id -> same ranked output.
+/// `file:line` source locations under `root`, best match first. Returns an
+/// empty vec when the selector carries no developer id (e.g. `role:button#3`)
+/// or when nothing matches. Deterministic: same tree + id -> same ranked
+/// output.
 pub fn attribute(root: &Path, selector: &str) -> Vec<SourceLocation> {
     let Some(id) = id_from_selector(selector) else {
         return Vec::new();
@@ -341,10 +344,8 @@ mod tests {
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(
             dir.join("src/Checkout.tsx"),
-            "import x from 'y';\n\
-             function Checkout() {\n\
-             \treturn <TouchableOpacity testID=\"checkout\" onPress={pay} />;\n\
-             }\n",
+            "import x from 'y';\nfunction Checkout() {\n\treturn <TouchableOpacity \
+             testID=\"checkout\" onPress={pay} />;\n}\n",
         )
         .unwrap();
         // A vendored copy under node_modules MUST be ignored (never attributed).

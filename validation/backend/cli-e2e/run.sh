@@ -51,9 +51,9 @@ run_headless_case() {
     sleep 0.2
   done
   set +e
-  OUTPUT="$(cd "$FIXTURE" && REPROIT_BACKEND_URL=http://127.0.0.1:19877 \
-    cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
-    --json scan headless-openapi.yaml 2>&1)"
+  OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
+    -p reproit -- --json scan headless-openapi.yaml \
+    --service http://127.0.0.1:19877 2>&1)"
   STATUS="$?"
   set -e
   if [[ "$STATUS" -ne "$expected" ]]; then
@@ -72,9 +72,9 @@ run_headless_case() {
     [[ "$REPLAY_STATUS" -eq 1 ]]
     printf '%s\n' "$REPLAY" | jq -e '.reproduced == true' >/dev/null
   else
-    CONFIGURED="$(cd "$FIXTURE" && REPROIT_BACKEND_URL=http://127.0.0.1:19877 \
-      cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
-      --config backend-only.yaml --json scan 2>&1)"
+    CONFIGURED="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
+      -p reproit -- --config backend-only.yaml --json scan \
+      --service http://127.0.0.1:19877 2>&1)"
     printf '%s\n' "$CONFIGURED" | \
       jq -e '.complete == true and .findings == [] and .exercised == 1' >/dev/null
   fi
@@ -84,10 +84,46 @@ run_headless_case() {
 }
 
 run_headless_case 1 0
-printf '%s\n' "$OUTPUT" | jq -e '.complete == true and .findings == [] and .exercised == 1' >/dev/null
+printf '%s\n' "$OUTPUT" |
+  jq -e '.complete == true and .findings == [] and .exercised == 1' >/dev/null
 run_headless_case 0 1
 printf '%s\n' "$OUTPUT" | jq -e '.findings | length == 1' >/dev/null
 printf '%s\n' "$OUTPUT" | grep -q '\$output.id is required'
+
+run_server_error_case() {
+  rm -rf "$FIXTURE/.reproit"
+  SERVER_ERROR=1 node "$FIXTURE/server.mjs" >"$LOG" 2>&1 &
+  SERVER_PID="$!"
+  for _ in $(seq 1 30); do
+    if curl -sS http://127.0.0.1:19877/headless-message >/dev/null 2>&1; then break; fi
+    sleep 0.2
+  done
+  set +e
+  OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
+    -p reproit -- --json scan headless-openapi.yaml \
+    --service http://127.0.0.1:19877 2>&1)"
+  STATUS="$?"
+  set -e
+  [[ "$STATUS" -eq 1 ]]
+  FINDING_ID="$(printf '%s\n' "$OUTPUT" | jq -r '.findings[0].id')"
+  printf '%s\n' "$OUTPUT" | \
+    jq -e \
+      '.complete == true and .exercised == 1 and .rejected == 1 and
+       (.findings | length) == 1 and .findings[0].kind == "server-error"' \
+      >/dev/null
+  set +e
+  REPLAY="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
+    -p reproit -- --json "$FINDING_ID" 2>&1)"
+  REPLAY_STATUS="$?"
+  set -e
+  [[ "$REPLAY_STATUS" -eq 1 ]]
+  printf '%s\n' "$REPLAY" | jq -e '.reproduced == true' >/dev/null
+  kill "$SERVER_PID" 2>/dev/null || true
+  wait "$SERVER_PID" 2>/dev/null || true
+  SERVER_PID=""
+}
+
+run_server_error_case
 
 run_finance_case() {
   local valid="$1" expected="$2"
@@ -124,10 +160,10 @@ run_stateful_fuzz_case() {
     sleep 0.2
   done
   set +e
-  OUTPUT="$(cd "$FIXTURE" && REPROIT_BACKEND_URL=http://127.0.0.1:19877 \
-    REPROIT_BACKEND_RESET_URL=http://127.0.0.1:19877/__reproit/reset \
-    cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
-    --json fuzz stateful-openapi.yaml --runs 1 2>&1)"
+  OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
+    -p reproit -- --json fuzz stateful-openapi.yaml --runs 1 \
+    --service http://127.0.0.1:19877 \
+    --reset http://127.0.0.1:19877/__reproit/reset 2>&1)"
   STATUS="$?"
   set -e
   if [[ "$STATUS" -ne "$expected" ]]; then
@@ -139,8 +175,7 @@ run_stateful_fuzz_case() {
     FINDING_ID="$(printf '%s\n' "$OUTPUT" | jq -r '.findings[0].id')"
     [[ "$FINDING_ID" == fnd_* ]]
     set +e
-    REPLAY="$(cd "$FIXTURE" && REPROIT_BACKEND_RESET_URL=http://127.0.0.1:19877/__reproit/reset \
-      cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
+    REPLAY="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
       -p reproit -- --json "$FINDING_ID" 2>&1)"
     REPLAY_STATUS="$?"
     set -e
@@ -153,8 +188,48 @@ run_stateful_fuzz_case() {
 }
 
 run_stateful_fuzz_case 1 0
-printf '%s\n' "$OUTPUT" | jq -e '.complete == true and .findings == [] and .exercised == 2' >/dev/null
+printf '%s\n' "$OUTPUT" |
+  jq -e '.complete == true and .findings == [] and .exercised == 2' >/dev/null
 run_stateful_fuzz_case 0 1
 printf '%s\n' "$OUTPUT" | jq -e '.findings | length == 1' >/dev/null
 printf '%s\n' "$OUTPUT" | grep -q '\$output.name is required'
+
+run_proof_case() {
+  local valid="$1" expected="$2"
+  rm -rf "$FIXTURE/.reproit"
+  VALID_RESPONSE="$valid" node "$FIXTURE/server.mjs" >"$LOG" 2>&1 &
+  SERVER_PID="$!"
+  for _ in $(seq 1 30); do
+    if curl -fsS http://127.0.0.1:19877/proof >/dev/null 2>&1; then break; fi
+    sleep 0.2
+  done
+  set +e
+  OUTPUT="$(cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
+    --config "$FIXTURE/proof-backend.yaml" --json scan --budget 3 2>>"$LOG")"
+  STATUS="$?"
+  set -e
+  kill "$SERVER_PID" 2>/dev/null || true
+  wait "$SERVER_PID" 2>/dev/null || true
+  SERVER_PID=""
+  if [[ "$STATUS" -ne "$expected" ]]; then
+    printf '%s\n' "$OUTPUT" >&2
+    echo "expected proof scan exit $expected, got $STATUS" >&2
+    exit 1
+  fi
+}
+
+run_proof_case 1 0
+printf '%s\n' "$OUTPUT" | jq -e \
+  '.command == "scan" and .complete == true and .issues == 0 and .results == []' >/dev/null
+run_proof_case 0 1
+printf '%s\n' "$OUTPUT" | jq -e \
+  '.command == "scan" and .complete == true and .issues == 1 and
+   (.results | length) == 1 and .results[0].screen == "backend:getOrder" and
+   (.results[0].findings | length) == 1 and
+   .results[0].findings[0].oracle == "backend-contract"' >/dev/null
+PROOF_EVIDENCE=("$FIXTURE"/.reproit/runs/*/backend-evidence.json)
+[[ -f "${PROOF_EVIDENCE[0]}" ]]
+jq -s -e \
+  '[.[].violations[] | select(.oracle == "authorization-matrix")] | length >= 1' \
+  "${PROOF_EVIDENCE[@]}" >/dev/null
 echo "real reproit scan backend contract gate passed"

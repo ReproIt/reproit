@@ -7,8 +7,12 @@ import assert from 'node:assert';
 import { mapSelector, mapAction, buildResult } from './pw-capture.mjs';
 
 test('getByTestId -> key:testid', () => {
-  assert.deepStrictEqual(mapSelector('internal:testid=[data-testid="username"s]'), { finder: 'key:testid:username' });
-  assert.deepStrictEqual(mapSelector('internal:testid=[data-test-id="x"]'), { finder: 'key:testid:x' });
+  assert.deepStrictEqual(mapSelector('internal:testid=[data-testid="username"s]'), {
+    finder: 'key:testid:username',
+  });
+  assert.deepStrictEqual(mapSelector('internal:testid=[data-test-id="x"]'), {
+    finder: 'key:testid:x',
+  });
   assert.deepStrictEqual(mapSelector('[data-testid="add"]'), { finder: 'key:testid:add' });
 });
 
@@ -17,13 +21,21 @@ test('css #id / [id] / [name] -> key:id / key:name', () => {
   assert.deepStrictEqual(mapSelector('#submit'), { finder: 'key:id:submit' });
   assert.deepStrictEqual(mapSelector('[id="email"]'), { finder: 'key:id:email' });
   assert.deepStrictEqual(mapSelector('[name="email"]'), { finder: 'key:name:email' });
-  assert.deepStrictEqual(mapSelector('internal:attr=[name="email"s]'), { finder: 'key:name:email' });
+  assert.deepStrictEqual(mapSelector('internal:attr=[name="email"s]'), {
+    finder: 'key:name:email',
+  });
   assert.deepStrictEqual(mapSelector('internal:attr=[id="email"s]'), { finder: 'key:id:email' });
 });
 
 test('getByRole with visible name is skipped', () => {
-  assert.deepStrictEqual(mapSelector('internal:role=button[name="Save"i]'), { skip: true, reason: 'role selector by visible name' });
-  assert.deepStrictEqual(mapSelector('internal:role=heading[name="Step 2: account"s]'), { skip: true, reason: 'role selector by visible name' });
+  assert.deepStrictEqual(mapSelector('internal:role=button[name="Save"i]'), {
+    skip: true,
+    reason: 'role selector by visible name',
+  });
+  assert.deepStrictEqual(mapSelector('internal:role=heading[name="Step 2: account"s]'), {
+    skip: true,
+    reason: 'role selector by visible name',
+  });
 });
 
 test('getByRole WITHOUT a name -> role:<role>#0, flagged weak (not guessed)', () => {
@@ -34,13 +46,25 @@ test('getByRole WITHOUT a name -> role:<role>#0, flagged weak (not guessed)', ()
 });
 
 test('getByText / getByLabel / getByPlaceholder are skipped', () => {
-  assert.deepStrictEqual(mapSelector('internal:text="Sign in"i'), { skip: true, reason: 'visible-text selector' });
-  assert.deepStrictEqual(mapSelector('internal:label="Email"s'), { skip: true, reason: 'visible-text selector' });
-  assert.deepStrictEqual(mapSelector('internal:has-text="Continue"'), { skip: true, reason: 'visible-text selector' });
-  assert.deepStrictEqual(mapSelector('internal:attr=[placeholder="Search…"s]'), { skip: true, reason: 'placeholder text selector' });
+  assert.deepStrictEqual(mapSelector('internal:text="Sign in"i'), {
+    skip: true,
+    reason: 'visible-text selector',
+  });
+  assert.deepStrictEqual(mapSelector('internal:label="Email"s'), {
+    skip: true,
+    reason: 'visible-text selector',
+  });
+  assert.deepStrictEqual(mapSelector('internal:has-text="Continue"'), {
+    skip: true,
+    reason: 'visible-text selector',
+  });
+  assert.deepStrictEqual(mapSelector('internal:attr=[placeholder="Search…"s]'), {
+    skip: true,
+    reason: 'placeholder text selector',
+  });
 });
 
-test('complex / xpath / chained selectors are SKIPPED with a reason (never guessed)', () => {
+test('complex / xpath / chained selectors are SKIPPED with a reason (never ' + 'guessed)', () => {
   const x = mapSelector('xpath=//div[@class="x"]');
   assert.strictEqual(x.skip, true);
   assert.ok(/xpath/.test(x.reason));
@@ -57,29 +81,39 @@ test('complex / xpath / chained selectors are SKIPPED with a reason (never guess
 });
 
 test('mapAction: click/check -> tap, fill/type -> type=value, goto -> goto', () => {
-  assert.deepStrictEqual(
-    mapAction('locator.click', 'internal:testid=[data-testid="continue"s]'),
-    { kind: 'tap', finder: 'key:testid:continue', weak: undefined, reason: undefined }
-  );
-  assert.deepStrictEqual(
-    mapAction('locator.check', '[id="agree"]'),
-    { kind: 'tap', finder: 'key:id:agree', weak: undefined, reason: undefined }
-  );
+  assert.deepStrictEqual(mapAction('locator.click', 'internal:testid=[data-testid="continue"s]'), {
+    kind: 'tap',
+    finder: 'key:testid:continue',
+    weak: undefined,
+    reason: undefined,
+  });
+  assert.deepStrictEqual(mapAction('locator.check', '[id="agree"]'), {
+    kind: 'tap',
+    finder: 'key:id:agree',
+    weak: undefined,
+    reason: undefined,
+  });
   assert.deepStrictEqual(
     mapAction('locator.fill', 'internal:testid=[data-testid="username"s]', 'ada'),
-    { kind: 'type', finder: 'key:testid:username', value: 'ada', weak: undefined, reason: undefined }
+    {
+      kind: 'type',
+      finder: 'key:testid:username',
+      value: 'ada',
+      weak: undefined,
+      reason: undefined,
+    },
   );
   const g = mapAction('page.goto', null, 'http://localhost:8099/');
   assert.deepStrictEqual(g, { kind: 'goto', value: 'http://localhost:8099/' });
 });
 
-test('mapAction: a click on an unmappable selector is skipped (carries the raw)', () => {
+test('mapAction: a click on an unmappable selector is skipped (carries the ' + 'raw)', () => {
   const m = mapAction('locator.click', 'xpath=//button[1]');
   assert.strictEqual(m.skip, true);
   assert.strictEqual(m.raw, 'xpath=//button[1]');
 });
 
-test('mapAction: non-action apis (expect/hover/waitFor) are skipped as non-action', () => {
+test('mapAction: non-action apis (expect/hover/waitFor) are skipped as ' + 'non-action', () => {
   for (const api of ['expect.toBeVisible', 'locator.hover', 'locator.waitFor', 'page.screenshot']) {
     const m = mapAction(api, 'internal:testid=[data-testid="x"s]');
     assert.strictEqual(m.skip, true);
@@ -87,34 +121,40 @@ test('mapAction: non-action apis (expect/hover/waitFor) are skipped as non-actio
   }
 });
 
-test('buildResult: first goto -> gotoUrl+baseURL, later goto -> note, actions in order', () => {
-  const raw = [
-    { apiName: 'page.goto', selector: null, value: 'http://localhost:8099/sub' },
-    { apiName: 'locator.fill', selector: 'internal:testid=[data-testid="u"s]', value: 'ada' },
-    { apiName: 'locator.click', selector: 'internal:testid=[data-testid="go"s]' },
-    { apiName: 'page.goto', selector: null, value: 'http://localhost:8099/other' },
-    { apiName: 'locator.click', selector: 'xpath=//div' },
-    { apiName: 'expect.toBeVisible', selector: 'internal:role=heading[name="X"s]' },
-  ];
-  const r = buildResult(raw);
-  assert.strictEqual(r.gotoUrl, 'http://localhost:8099/sub');
-  assert.strictEqual(r.baseURL, 'http://localhost:8099');
-  assert.deepStrictEqual(r.actions.map((a) => a.action), [
-    'type:key:testid:u=ada',
-    'tap:key:testid:go',
-  ]);
-  // The xpath click became an honest unsupported entry; expect/non-action did not.
-  assert.strictEqual(r.unsupported.length, 1);
-  assert.ok(/xpath/.test(r.unsupported[0].reason));
-  // The second goto became a note, not a dropped silent action.
-  assert.ok(r.notes.some((n) => /extra page.goto/.test(n)));
-});
+test(
+  'buildResult: first goto -> gotoUrl+baseURL, later goto -> note, ' + 'actions in order',
+  () => {
+    const raw = [
+      { apiName: 'page.goto', selector: null, value: 'http://localhost:8099/sub' },
+      { apiName: 'locator.fill', selector: 'internal:testid=[data-testid="u"s]', value: 'ada' },
+      { apiName: 'locator.click', selector: 'internal:testid=[data-testid="go"s]' },
+      { apiName: 'page.goto', selector: null, value: 'http://localhost:8099/other' },
+      { apiName: 'locator.click', selector: 'xpath=//div' },
+      { apiName: 'expect.toBeVisible', selector: 'internal:role=heading[name="X"s]' },
+    ];
+    const r = buildResult(raw);
+    assert.strictEqual(r.gotoUrl, 'http://localhost:8099/sub');
+    assert.strictEqual(r.baseURL, 'http://localhost:8099');
+    assert.deepStrictEqual(
+      r.actions.map((a) => a.action),
+      ['type:key:testid:u=ada', 'tap:key:testid:go'],
+    );
+    // The xpath click became an honest unsupported entry; expect/non-action did not.
+    assert.strictEqual(r.unsupported.length, 1);
+    assert.ok(/xpath/.test(r.unsupported[0].reason));
+    // The second goto became a note, not a dropped silent action.
+    assert.ok(r.notes.some((n) => /extra page.goto/.test(n)));
+  },
+);
 
 test('buildResult: a weak getByRole (no name) replays but is noted', () => {
   const r = buildResult([
     { apiName: 'page.goto', selector: null, value: 'http://x/' },
     { apiName: 'locator.click', selector: 'internal:role=button' },
   ]);
-  assert.deepStrictEqual(r.actions.map((a) => a.action), ['tap:role:button#0']);
+  assert.deepStrictEqual(
+    r.actions.map((a) => a.action),
+    ['tap:role:button#0'],
+  );
   assert.ok(r.notes.some((n) => /weak finder/.test(n)));
 });

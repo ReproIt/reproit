@@ -37,8 +37,20 @@ fn merge_capabilities() {
     let Some(map) = value.as_object_mut() else {
         return;
     };
-    map.insert("http".into(), serde_json::json!({"status":"captured","detail":"Tauri document-start fetch + XMLHttpRequest plugin"}));
-    map.insert("http_replay".into(), serde_json::json!({"status":"captured","detail":"Tauri fail-closed fetch + XMLHttpRequest replay"}));
+    map.insert(
+        "http".into(),
+        serde_json::json!({
+            "status": "captured",
+            "detail": "Tauri document-start fetch + XMLHttpRequest plugin"
+        }),
+    );
+    map.insert(
+        "http_replay".into(),
+        serde_json::json!({
+            "status": "captured",
+            "detail": "Tauri fail-closed fetch + XMLHttpRequest replay"
+        }),
+    );
     let _ = std::fs::write(path, value.to_string());
 }
 

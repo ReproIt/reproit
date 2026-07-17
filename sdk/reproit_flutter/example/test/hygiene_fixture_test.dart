@@ -188,12 +188,12 @@ List<Map<String, dynamic>> detectTofu(WidgetTester t) {
       final idx = perRoleId[role] ?? 0;
       perRoleId[role] = idx + 1;
       final roleIds = keyedIdsByRole[role];
-      final id = (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
+      final id =
+          (roleIds != null && idx < roleIds.length) ? roleIds[idx] : null;
       final label = data.label.trim();
       final value = data.value.trim();
-      final hit = label.contains('�')
-          ? label
-          : (value.contains('�') ? value : null);
+      final hit =
+          label.contains('�') ? label : (value.contains('�') ? value : null);
       if (hit != null) {
         final key = id != null ? 'key:$id' : 'role:${normalizeRole(role)}#$idx';
         if (seen.add(key)) {
@@ -236,7 +236,8 @@ void main() {
     final items = detectBlankScreen(t);
     expect(items, hasLength(1));
     expect(items[0]['key'], 'root');
-    expect(items[0]['w'], 800, reason: 'LOGICAL window size (800x600 test view)');
+    expect(items[0]['w'], 800,
+        reason: 'LOGICAL window size (800x600 test view)');
     expect(items[0]['h'], 600);
     semantics.dispose();
   });

@@ -7,14 +7,14 @@ dist/
 .reproit/tools/
 .reproit/*.vault
 .reproit/*.log
+.reproit/map/provenance.json
 *.log
 .DS_Store
 .forbidden-terms
 
 
-# Added by cargo
-
-/target
+# Cargo build output at the workspace root and in validation fixtures.
+target/
 
 # web/rn runner deps (playwright + browsers ~90MB; appium client + home).
 # The lockfiles ARE committed: a determinism tool must pin Playwright et al so

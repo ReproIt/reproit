@@ -2,7 +2,7 @@
 //! markers (ready/done), SHOOT screenshot capture, and structured action-log
 //! lines into actions.jsonl.
 
-use crate::simctl;
+use crate::backends::simctl;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::io::Write;
@@ -27,13 +27,14 @@ pub struct RunCtx {
     pub shots_dir: PathBuf,
     /// Whether SHOOT markers actually take pictures. True only when the caller
     /// asked for screenshots (the `screenshots` command, `record`/`baseline`,
-    /// or an explicit `--shots-dir`). A plain `check`/`fuzz` leaves it false, so a
-    /// journey's `shoot:` steps are inert there (navigate-only, no pictures, no
-    /// capture overhead); the same journey under `screenshots` takes the shots.
+    /// or an explicit `--shots-dir`). A plain `check`/`fuzz` leaves it false,
+    /// so a journey's `shoot:` steps are inert there (navigate-only, no
+    /// pictures, no capture overhead); the same journey under `screenshots`
+    /// takes the shots.
     pub capture_shots: bool,
-    /// Whether the runner should record its own video (web/electron/tauri webm):
-    /// true for an `evidence.video` run or a record/clip pass, false for a plain
-    /// walk (no stray video, honest `"video": null` manifest).
+    /// Whether the runner should record its own video (web/electron/tauri
+    /// webm): true for an `evidence.video` run or a record/clip pass, false
+    /// for a plain walk (no stray video, honest `"video": null` manifest).
     pub wants_video: bool,
     /// Enables the experimental structural backend transport. False means the
     /// runner sends no correlation headers and inspects no backend evidence.
@@ -44,10 +45,10 @@ pub struct RunCtx {
     pub profile: bool,
     /// --dart-define key=value pairs (already includes KIND if set).
     pub defines: Vec<(String, String)>,
-    /// Resolved secret (env-key, value) pairs, used ONLY to redact secret values
-    /// out of captured logs. Secrets are resolved into actions host-side, so a
-    /// runner never handles them; this keeps the resolved value from persisting
-    /// in drive-*.log / evidence on any framework.
+    /// Resolved secret (env-key, value) pairs, used ONLY to redact secret
+    /// values out of captured logs. Secrets are resolved into actions
+    /// host-side, so a runner never handles them; this keeps the resolved
+    /// value from persisting in drive-*.log / evidence on any framework.
     pub secrets: Vec<(String, String)>,
     pub ready_marker: Option<String>,
     pub done_markers: Vec<String>,
@@ -100,17 +101,19 @@ pub struct Drive {
     pub state: Arc<Mutex<DriveState>>,
     pub log_path: PathBuf,
     child: Child,
-    /// The stdout/stderr reader tasks. Held so teardown can DRAIN them: a verdict
-    /// line can be sitting in a pipe buffer, parsed but not yet handled, when we
-    /// decide to reap the child. Dropping the handles would abandon that line and
-    /// the run would spuriously report "no verdict -> FAIL".
+    /// The stdout/stderr reader tasks. Held so teardown can DRAIN them: a
+    /// verdict line can be sitting in a pipe buffer, parsed but not yet
+    /// handled, when we decide to reap the child. Dropping the handles
+    /// would abandon that line and the run would spuriously report "no
+    /// verdict -> FAIL".
     readers: Vec<tokio::task::JoinHandle<()>>,
-    /// Count of reader tasks still live. Each decrements to 0 when its pipe hits
-    /// EOF, which happens when the child process EXITS (its stdio closes). So
-    /// `readers_alive == 0` means the child is gone -- the signal the wait loop
-    /// uses to notice a runner that CRASHED (e.g. SIGABRT during the map build)
-    /// before printing a done marker, instead of blocking on ready/done until the
-    /// timeout. It never reaches 0 while the child runs with its pipes open.
+    /// Count of reader tasks still live. Each decrements to 0 when its pipe
+    /// hits EOF, which happens when the child process EXITS (its stdio
+    /// closes). So `readers_alive == 0` means the child is gone -- the
+    /// signal the wait loop uses to notice a runner that CRASHED (e.g.
+    /// SIGABRT during the map build) before printing a done marker, instead
+    /// of blocking on ready/done until the timeout. It never reaches 0
+    /// while the child runs with its pipes open.
     readers_alive: Arc<AtomicUsize>,
 }
 
@@ -188,8 +191,8 @@ pub fn spawn_drive(ctx: Arc<RunCtx>, udid: &str, label: &str, no_build: bool) ->
 /// the launch differs. Non-flutter backends receive `defines` as env, so
 /// REPROIT_FUZZ_CONFIG and injected secrets arrive identically everywhere.
 /// How a SHOOT marker becomes a PNG for this platform. iOS/Android are captured
-/// orchestrator-side from the host (the device pixels are not on a path we read);
-/// every other runner renders its own pixels and writes the PNG itself.
+/// orchestrator-side from the host (the device pixels are not on a path we
+/// read); every other runner renders its own pixels and writes the PNG itself.
 enum CaptureKind {
     Simctl,
     Adb,
@@ -197,8 +200,8 @@ enum CaptureKind {
 }
 
 fn capture_kind(ctx: &RunCtx) -> CaptureKind {
-    use crate::platform::Backend;
-    match crate::platform::backend(&ctx.platform) {
+    use crate::backends::platform::Backend;
+    match crate::backends::platform::backend(&ctx.platform) {
         // Flutter runs on the iOS simulator today.
         Some(Backend::FlutterDrive) => CaptureKind::Simctl,
         // Appium drives either an iOS sim or an Android device; the caps say which.
@@ -240,8 +243,8 @@ async fn adb_screencap(device: &str, out_path: &std::path::Path) -> bool {
 }
 
 fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Result<Command> {
-    use crate::platform::Backend;
-    let backend = crate::platform::backend(&ctx.platform)
+    use crate::backends::platform::Backend;
+    let backend = crate::backends::platform::backend(&ctx.platform)
         .ok_or_else(|| anyhow::anyhow!("unknown platform {}", ctx.platform))?;
     let video_dir = ctx.run_dir.join(format!("video-{label}"));
     let with_defines = |c: &mut Command| {
@@ -275,14 +278,28 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
         let capabilities = serde_json::json!({
             "ui_actions": {"status":"captured"},
             "http": {"status": if native_web_capture { "captured" } else { "unsupported" },
-                     "detail": if native_web_capture { "Playwright request/response interception" } else { "requires SDK transport hook or replay proxy" }},
+                     "detail": if native_web_capture {
+                         "Playwright request/response interception"
+                     } else {
+                         "requires SDK transport hook or replay proxy"
+                     }},
             "http_replay": {"status": if native_web_capture { "captured" } else { "unsupported" },
-                     "detail": if native_web_capture { "Playwright fail-closed route fulfillment" } else { "requires SDK transport hook or replay proxy" }},
+                     "detail": if native_web_capture {
+                         "Playwright fail-closed route fulfillment"
+                     } else {
+                         "requires SDK transport hook or replay proxy"
+                     }},
             "websocket": {"status":"unsupported", "detail":"no ordered frame adapter active"},
             "sse": {"status":"unsupported", "detail":"no ordered event adapter active"},
-            "feature_flags": {"status":"unavailable", "detail":"application did not report flag reads"},
+            "feature_flags": {
+                "status":"unavailable",
+                "detail":"application did not report flag reads"
+            },
             "clock": {"status":"unavailable", "detail":"application did not report clock control"},
-            "randomness": {"status":"unavailable", "detail":"application did not report random seed control"}
+            "randomness": {
+                "status":"unavailable",
+                "detail":"application did not report random seed control"
+            }
         });
         let _ = std::fs::write(&capability_file, capabilities.to_string());
         c.env("REPROIT_CAPABILITIES_FILE", capability_file);
@@ -329,7 +346,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             // scrapes new lines each observe and re-emits EXPLORE:INVARIANT), and
             // the env var's presence arms the SDK's otherwise-inert invariant
             // registry. Per-device path, truncated fresh so a prior run's
-            // violations never leak in. Mirrors backends/tui.rs::spawn_session.
+            // violations never leak in. Mirrors backends/tui/mod.rs::spawn_session.
             let invariant_file = ctx.run_dir.join(format!("invariant-{label}.ndjson"));
             let _ = std::fs::write(&invariant_file, b"");
             c.env("REPROIT_INVARIANT_FILE", &invariant_file);
@@ -526,9 +543,9 @@ async fn handle_line(
     // sensitive structural fields before either the drive log or the evidence
     // sidecar is written. Malformed markers remain ordinary diagnostic text
     // and can never become oracle input.
-    if let Some(pos) = line.find(crate::backend::EVENT_MARKER) {
-        let raw = line[pos + crate::backend::EVENT_MARKER.len()..].trim();
-        if let Ok(mut event) = serde_json::from_str::<crate::backend::BackendEvent>(raw) {
+    if let Some(pos) = line.find(crate::model::backend::EVENT_MARKER) {
+        let raw = line[pos + crate::model::backend::EVENT_MARKER.len()..].trim();
+        if let Ok(mut event) = serde_json::from_str::<crate::model::backend::BackendEvent>(raw) {
             let mut manifest = Vec::new();
             crate::capsule::redact_backend_event(
                 &mut event,
@@ -536,7 +553,12 @@ async fn handle_line(
                 &mut manifest,
             );
             if let Ok(json) = serde_json::to_string(&event) {
-                line = format!("{}{}{}", &line[..pos], crate::backend::EVENT_MARKER, json);
+                line = format!(
+                    "{}{}{}",
+                    &line[..pos],
+                    crate::model::backend::EVENT_MARKER,
+                    json
+                );
                 let path = ctx.run_dir.join(format!("backend-{label}.jsonl"));
                 if let Ok(mut file) = std::fs::OpenOptions::new()
                     .create(true)
@@ -767,12 +789,13 @@ impl Drive {
     pub fn passed(&self) -> Option<bool> {
         self.state.lock().unwrap().passed
     }
-    /// True once every stdout/stderr pipe has hit EOF, i.e. the child process has
-    /// exited. The wait loop watches this so a runner that CRASHES before printing
-    /// a done marker (e.g. the instrumented app aborting during the map build) ends
-    /// the drive with whatever evidence was captured, instead of the parent blocking
-    /// on ready/done until the timeout. Spawn always pipes both streams, so this is
-    /// only 0 after real EOFs, never at startup.
+    /// True once every stdout/stderr pipe has hit EOF, i.e. the child process
+    /// has exited. The wait loop watches this so a runner that CRASHES
+    /// before printing a done marker (e.g. the instrumented app aborting
+    /// during the map build) ends the drive with whatever evidence was
+    /// captured, instead of the parent blocking on ready/done until the
+    /// timeout. Spawn always pipes both streams, so this is only 0 after
+    /// real EOFs, never at startup.
     pub fn has_exited(&self) -> bool {
         self.readers_alive.load(Ordering::Relaxed) == 0
     }

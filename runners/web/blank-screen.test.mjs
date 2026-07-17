@@ -44,7 +44,7 @@ test('an empty-state message is not blank (it has text)', async () => {
   }
 });
 
-test('a loading-then-content app: blank while loading, NOT blank after settle', async () => {
+test('a loading-then-content app: blank while loading, NOT blank after ' + 'settle', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
@@ -76,8 +76,11 @@ test('a malformed CSS-as-text page (large trapped <style>) is NOT blank', async 
     // not a WSOD). Build a >10KB style blob with no body content.
     const big = '.x{color:red}\n'.repeat(1000); // ~14KB
     await page.setContent(`<head><style>${big}`);
-    assert.deepEqual(await page.evaluate(blankScreenScan), [],
-      'a page with a large trapped <style> (CSS-as-text) is a markup bug, not blank');
+    assert.deepEqual(
+      await page.evaluate(blankScreenScan),
+      [],
+      'a page with a large trapped <style> (CSS-as-text) is a markup bug, not ' + 'blank',
+    );
   } finally {
     await browser.close();
   }

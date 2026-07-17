@@ -369,7 +369,8 @@ fn apply_update(current: &Path, staged: &Path) -> Result<()> {
 fn apply_update(current: &Path, staged: &Path) -> Result<()> {
     let pid = std::process::id().to_string();
     let script = format!(
-        "$p={pid}; while(Get-Process -Id $p -ErrorAction SilentlyContinue){{Start-Sleep -Milliseconds 100}}; Move-Item -Force -LiteralPath '{}' -Destination '{}'",
+        "$p={pid}; while(Get-Process -Id $p -ErrorAction SilentlyContinue){{Start-Sleep \
+         -Milliseconds 100}}; Move-Item -Force -LiteralPath '{}' -Destination '{}'",
         staged.display().to_string().replace('\'', "''"),
         current.display().to_string().replace('\'', "''")
     );

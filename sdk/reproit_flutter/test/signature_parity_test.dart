@@ -28,7 +28,8 @@ File _vectorsFile() {
     final f = File(c);
     if (f.existsSync()) return f;
   }
-  fail('could not locate signature_vectors.json (cwd=${Directory.current.path})');
+  fail(
+      'could not locate signature_vectors.json (cwd=${Directory.current.path})');
 }
 
 class _Vector {
@@ -215,10 +216,8 @@ void main() {
     expect(descriptor(null, RNode(role: 'carousel')), 'A:\n0:node');
     // Token field order: type, icon, id, then the repeat marker.
     expect(
-      descriptor(
-          null,
-          RNode(
-              role: 'textfield', type: 'password', icon: 'lock', id: 'pwd')),
+      descriptor(null,
+          RNode(role: 'textfield', type: 'password', icon: 'lock', id: 'pwd')),
       'A:\n0:textfield:password#lock@pwd',
     );
     // Repeated siblings collapse to one *-marked token, count dropped.

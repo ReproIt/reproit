@@ -17,36 +17,36 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var revealed = false
+  @State private var revealed = false
 
-    var body: some View {
-        VStack(spacing: 24) {
-            Text("ReproIt SwiftUI Fixture")
-                .font(.headline)
-                .accessibilityIdentifier("fixture.title")
+  var body: some View {
+    VStack(spacing: 24) {
+      Text("ReproIt SwiftUI Fixture")
+        .font(.headline)
+        .accessibilityIdentifier("fixture.title")
 
-            Button(revealed ? "Hide detail" : "Reveal detail") {
-                revealed.toggle()
-            }
-            .accessibilityIdentifier("fixture.toggle")
+      Button(revealed ? "Hide detail" : "Reveal detail") {
+        revealed.toggle()
+      }
+      .accessibilityIdentifier("fixture.toggle")
 
-            // Present only while revealed: its presence/absence is the
-            // structural state change the smoke asserts on.
-            if revealed {
-                Text("Detail revealed")
-                    .accessibilityIdentifier("fixture.detail")
-            }
-        }
-        .padding(40)
-        .frame(width: 360, height: 260)
+      // Present only while revealed: its presence/absence is the
+      // structural state change the smoke asserts on.
+      if revealed {
+        Text("Detail revealed")
+          .accessibilityIdentifier("fixture.detail")
+      }
     }
+    .padding(40)
+    .frame(width: 360, height: 260)
+  }
 }
 
 @main
 struct FixtureApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
+  var body: some Scene {
+    WindowGroup {
+      ContentView()
     }
+  }
 }

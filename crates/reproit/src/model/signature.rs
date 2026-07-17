@@ -7,12 +7,13 @@
 //!
 //! ## Cross-language parity contract
 //!
-//! Another implementation proves parity by reading `signature_vectors.json` and,
-//! for each entry, asserting `signature(anchor, tree) == expected_sig`. Each
-//! entry is `{ description, anchor (string|null), tree, expected_sig }` where
-//! `tree` is a `Node` serialized as JSON (see `Node` below for the field shape).
-//! The Rust gate that does exactly this is `tests::golden_vectors_match` at the
-//! bottom of this file; mirror its three lines in your language:
+//! Another implementation proves parity by reading `signature_vectors.json`
+//! and, for each entry, asserting `signature(anchor, tree) == expected_sig`.
+//! Each entry is `{ description, anchor (string|null), tree, expected_sig }`
+//! where `tree` is a `Node` serialized as JSON (see `Node` below for the field
+//! shape). The Rust gate that does exactly this is
+//! `tests::golden_vectors_match` at the bottom of this file; mirror its three
+//! lines in your language:
 //!
 //! 1. parse each vector's `tree` into your Node type,
 //! 2. compute `signature(vector.anchor, &tree)`,
@@ -66,8 +67,8 @@ const TRANSIENT_ROLES: &[&str] = &[
 /// flagged via `value_node`). Chrome roles (button/label/header/text) are NEVER
 /// value-bearing. Note that several of these roles (`status, log, progressbar,
 /// meter, timer, output`) are NOT in the structural `ROLES` vocabulary, so they
-/// normalize to `node` in the token body; the value-role check therefore uses the
-/// RAW role, not the normalized one.
+/// normalize to `node` in the token body; the value-role check therefore uses
+/// the RAW role, not the normalized one.
 const VALUE_ROLES: &[&str] = &[
     "textfield",
     "status",
@@ -85,10 +86,11 @@ const VALUE_ROLES: &[&str] = &[
 /// { "role": "button", "id": "submit", "type": "text",
 ///   "icon": "e5cd", "transient": false, "children": [ ... ] }
 /// ```
-/// All fields except `role` and `children` are optional. `type` is serialized as
-/// `type` on the wire (the Rust field is `type_` to avoid the keyword). Note the
-/// deliberate absence of any text/label/value field: localized text is excluded
-/// from the descriptor by construction (rule 1), so there is nothing to hash.
+/// All fields except `role` and `children` are optional. `type` is serialized
+/// as `type` on the wire (the Rust field is `type_` to avoid the keyword). Note
+/// the deliberate absence of any text/label/value field: localized text is
+/// excluded from the descriptor by construction (rule 1), so there is nothing
+/// to hash.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Node {
     /// Role from the fixed vocabulary; unknown roles normalize to `node`.
@@ -99,17 +101,19 @@ pub struct Node {
     /// Optional input-type refinement (text, password, email, ...).
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_: Option<String>,
-    /// Optional language-independent icon identity (codepoint / symbol / asset).
+    /// Optional language-independent icon identity (codepoint / symbol /
+    /// asset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// Explicit transient marker (e.g. a transient error banner). Dropped like a
-    /// transient role. Defaults to false.
+    /// Explicit transient marker (e.g. a transient error banner). Dropped like
+    /// a transient role. Defaults to false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub transient: bool,
     /// The node's displayed data value (Layer 2, docs/signature.md
-    /// "Value-state"). Only consulted when the node is value-bearing (a value-role
-    /// or `value_node`-flagged). Chrome text never goes here. Defaults to None, so
-    /// a tree with no values is byte-identical to a pre-value-state tree.
+    /// "Value-state"). Only consulted when the node is value-bearing (a
+    /// value-role or `value_node`-flagged). Chrome text never goes here.
+    /// Defaults to None, so a tree with no values is byte-identical to a
+    /// pre-value-state tree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     /// Opt-in value-node flag (Layer 3). When true, the node is treated as
@@ -144,26 +148,26 @@ impl Node {
 
 /// True if this node carries a canonical value-class in the V: section
 /// (docs/signature.md "Value-state"): it has a `value` AND it is value-bearing,
-/// i.e. its RAW role is a value-role OR it is `value_node`-flagged. The raw role
-/// is used deliberately: roles like `status`/`meter` normalize to `node` but are
-/// still value-roles.
+/// i.e. its RAW role is a value-role OR it is `value_node`-flagged. The raw
+/// role is used deliberately: roles like `status`/`meter` normalize to `node`
+/// but are still value-roles.
 fn is_value_bearing(node: &Node) -> bool {
     node.value.is_some() && (VALUE_ROLES.contains(&node.role.as_str()) || node.value_node)
 }
 
 /// True if `role` is one of the value-roles (docs/signature.md "Value-state"):
 /// the RAW roles whose displayed value folds into the signature. The desktop
-/// runners use this to decide whether to READ a control's value at all, matching
-/// the former Python runners' `if role not in VALUE_ROLES` guard.
+/// runners use this to decide whether to READ a control's value at all,
+/// matching the former Python runners' `if role not in VALUE_ROLES` guard.
 pub fn is_value_role(role: &str) -> bool {
     VALUE_ROLES.contains(&role)
 }
 
-/// Map a value string to a bounded, deterministic, locale-safe value-class token
-/// (docs/signature.md "Value-state"). The numeric branch accepts ONLY the strict
-/// period-decimal grammar `^[+-]?[0-9]+(\.[0-9]+)?$` with no grouping separators;
-/// anything ambiguous (grouped/locale numbers, currency, text) falls back to
-/// `NONEMPTY` because we do not guess locale formats.
+/// Map a value string to a bounded, deterministic, locale-safe value-class
+/// token (docs/signature.md "Value-state"). The numeric branch accepts ONLY the
+/// strict period-decimal grammar `^[+-]?[0-9]+(\.[0-9]+)?$` with no grouping
+/// separators; anything ambiguous (grouped/locale numbers, currency, text)
+/// falls back to `NONEMPTY` because we do not guess locale formats.
 pub fn value_class(s: &str) -> &'static str {
     let t = s.trim();
     if t.is_empty() {
@@ -191,9 +195,10 @@ pub fn value_class(s: &str) -> &'static str {
     }
 }
 
-/// Strict `^[+-]?[0-9]+(\.[0-9]+)?$`: an optional sign, one or more ASCII digits,
-/// optionally a period followed by one or more ASCII digits. No grouping
-/// separators, no exponent, no leading/trailing dot. Locale-safe by construction.
+/// Strict `^[+-]?[0-9]+(\.[0-9]+)?$`: an optional sign, one or more ASCII
+/// digits, optionally a period followed by one or more ASCII digits. No
+/// grouping separators, no exponent, no leading/trailing dot. Locale-safe by
+/// construction.
 fn is_strict_decimal(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = 0;
@@ -214,16 +219,17 @@ fn is_strict_decimal(s: &str) -> bool {
             i += 1;
         }
         if i == frac_start {
-            return false; // a trailing dot with no fraction digits is not allowed
+            return false; // a trailing dot with no fraction digits is not
+                          // allowed
         }
     }
     i == bytes.len()
 }
 
 /// The V:-section key for a value-bearing node: its stable `id` if present,
-/// otherwise the structural fallback `role:<role>#<idx>` using the NORMALIZED role
-/// (so the key namespace matches the selector grammar). This is the "stable-key"
-/// the V: section sorts on.
+/// otherwise the structural fallback `role:<role>#<idx>` using the NORMALIZED
+/// role (so the key namespace matches the selector grammar). This is the
+/// "stable-key" the V: section sorts on.
 fn value_key(node: &Node, structural_index: usize) -> String {
     if let Some(id) = &node.id {
         format!("key:{}", id)
@@ -233,12 +239,12 @@ fn value_key(node: &Node, structural_index: usize) -> String {
 }
 
 /// Collect `(value_key, value_class)` pairs for every value-bearing node in the
-/// tree, in pre-order, skipping transient subtrees (rule 2) so the V: section is
-/// consistent with the structural body. The structural index for a keyless node
-/// is its position among same-(normalized-)role, non-transient siblings under the
-/// same parent (matching `selector`'s `#idx`). The root has no peers, so it gets
-/// index 0. The returned vector is later sorted by key for deterministic
-/// serialization.
+/// tree, in pre-order, skipping transient subtrees (rule 2) so the V: section
+/// is consistent with the structural body. The structural index for a keyless
+/// node is its position among same-(normalized-)role, non-transient siblings
+/// under the same parent (matching `selector`'s `#idx`). The root has no peers,
+/// so it gets index 0. The returned vector is later sorted by key for
+/// deterministic serialization.
 fn collect_values(node: &Node, out: &mut Vec<(String, &'static str)>) {
     if is_transient(node) {
         return;
@@ -252,10 +258,10 @@ fn collect_values(node: &Node, out: &mut Vec<(String, &'static str)>) {
     collect_values_children(node, out);
 }
 
-/// Descend into a node's non-transient children, assigning each keyless child its
-/// per-parent structural index among same-normalized-role peers, emitting any
-/// value-bearing child, then recursing. The node itself is NOT re-emitted (the
-/// caller already handled it).
+/// Descend into a node's non-transient children, assigning each keyless child
+/// its per-parent structural index among same-normalized-role peers, emitting
+/// any value-bearing child, then recursing. The node itself is NOT re-emitted
+/// (the caller already handled it).
 fn collect_values_children(node: &Node, out: &mut Vec<(String, &'static str)>) {
     use std::collections::HashMap;
     let mut role_counts: HashMap<String, usize> = HashMap::new();
@@ -276,10 +282,10 @@ fn collect_values_children(node: &Node, out: &mut Vec<(String, &'static str)>) {
     }
 }
 
-/// Build the V: section suffix (docs/signature.md "Value-state"). Returns an empty
-/// string when there are NO value-bearing nodes, which keeps the descriptor (and
-/// therefore the hash) byte-identical to a pre-value-state tree. Otherwise returns
-/// `"\nV:" + key=class;key=class...` sorted by key.
+/// Build the V: section suffix (docs/signature.md "Value-state"). Returns an
+/// empty string when there are NO value-bearing nodes, which keeps the
+/// descriptor (and therefore the hash) byte-identical to a pre-value-state
+/// tree. Otherwise returns `"\nV:" + key=class;key=class...` sorted by key.
 fn value_section(root: &Node) -> String {
     let mut pairs: Vec<(String, &'static str)> = Vec::new();
     collect_values(root, &mut pairs);
@@ -360,9 +366,9 @@ fn token_body(n: &NormNode) -> String {
 }
 
 /// The canonical subtree descriptor used for collapse comparison (rule 3): the
-/// pre-order token list of this subtree, with depths normalized to start at 0 so
-/// that two sibling subtrees at the same level compare equal regardless of their
-/// absolute depth. This is the "child-descriptor" the spec collapses on.
+/// pre-order token list of this subtree, with depths normalized to start at 0
+/// so that two sibling subtrees at the same level compare equal regardless of
+/// their absolute depth. This is the "child-descriptor" the spec collapses on.
 fn subtree_key(n: &NormNode) -> String {
     let mut tokens = Vec::new();
     walk_key(n, 0, &mut tokens);
@@ -451,18 +457,20 @@ fn fnv1a32_hex(bytes: &[u8]) -> String {
 }
 
 /// A selector that addresses an element for actions / repros, per
-/// docs/signature.md "Selectors": `id  >  type+role  >  role + structural-index`.
+/// docs/signature.md "Selectors": `id  >  type+role  >  role +
+/// structural-index`.
 ///
 /// Returns `key:<id>` if the node has a stable id; otherwise the structural
-/// `role:<role>#<idx>` form, where `idx` is the structural index supplied by the
-/// caller (the element's position among same-role siblings/peers in the emitted
-/// elements list). `type+role` is the intermediate tier: it is folded into the
-/// returned text only as documentation here, because the addressable string is
-/// still `role:<role>#<idx>` when no id exists; the `type` discriminates the hash
-/// but does not change the selector grammar.
+/// `role:<role>#<idx>` form, where `idx` is the structural index supplied by
+/// the caller (the element's position among same-role siblings/peers in the
+/// emitted elements list). `type+role` is the intermediate tier: it is folded
+/// into the returned text only as documentation here, because the addressable
+/// string is still `role:<role>#<idx>` when no id exists; the `type`
+/// discriminates the hash but does not change the selector grammar.
 ///
 /// `nokey` is true whenever no stable id was available; it is metadata for
-/// `debug map show` (warn the developer to add an id) and does NOT affect the hash.
+/// `debug map show` (warn the developer to add an id) and does NOT affect the
+/// hash.
 pub struct Selector {
     pub selector: String,
     pub nokey: bool,
@@ -486,10 +494,10 @@ pub fn selector(node: &Node, structural_index: usize) -> Selector {
 
 // =============================================================================
 // Value-state plumbing shared by the desktop runners (Layers 1/2/3). These are
-// pure functions of a Node tree, so they live beside the canonical signature and
-// the in-process Windows (UIA) and Linux (AT-SPI) runners reuse them directly
-// instead of re-porting them. They were previously the Python runners' own
-// re-port; the deleted runners/test_signature.py locked their behavior, now
+// pure functions of a Node tree, so they live beside the canonical signature
+// and the in-process Windows (UIA) and Linux (AT-SPI) runners reuse them
+// directly instead of re-porting them. They were previously the Python runners'
+// own re-port; the deleted runners/test_signature.py locked their behavior, now
 // pinned by the tests below.
 // =============================================================================
 
@@ -508,12 +516,12 @@ pub fn node_selector(node: &Node, structural_index: usize) -> String {
 /// Layer-1 effect-detection fingerprint (docs/signature.md "Value-state").
 ///
 /// The canonical structural signature, then `\x1f`, then the sorted
-/// `stable-key=trimmed-RAW-value` pairs over every value-bearing node. Unlike the
-/// canonical signature this carries the raw localized value, so it is EPHEMERAL:
-/// a per-step liveness check only and MUST NOT enter the canonical graph key. An
-/// action is effective iff the structural signature OR this fingerprint changed
-/// (so a counter 5->6, both POS1, is still effective). Transient subtrees are
-/// skipped, consistent with the signature body.
+/// `stable-key=trimmed-RAW-value` pairs over every value-bearing node. Unlike
+/// the canonical signature this carries the raw localized value, so it is
+/// EPHEMERAL: a per-step liveness check only and MUST NOT enter the canonical
+/// graph key. An action is effective iff the structural signature OR this
+/// fingerprint changed (so a counter 5->6, both POS1, is still effective).
+/// Transient subtrees are skipped, consistent with the signature body.
 pub fn content_fingerprint(anchor: Option<&str>, root: &Node) -> String {
     let mut pairs: Vec<(String, String)> = Vec::new();
     content_pairs_root(root, &mut pairs);
@@ -560,9 +568,9 @@ fn content_pairs_children(node: &Node, out: &mut Vec<(String, String)>) {
 }
 
 /// Layer-3 opt-in: set `value_node` on every node whose selector is in
-/// `selectors` (a `reproit.yaml` `value_nodes:` list), so the oracle then treats
-/// it as value-bearing through the same path as a value-role node. No-op when
-/// `selectors` is empty (the value-less tree is unchanged).
+/// `selectors` (a `reproit.yaml` `value_nodes:` list), so the oracle then
+/// treats it as value-bearing through the same path as a value-role node. No-op
+/// when `selectors` is empty (the value-less tree is unchanged).
 pub fn apply_value_nodes(root: &mut Node, selectors: &[String]) {
     if selectors.is_empty() {
         return;
@@ -617,10 +625,11 @@ pub fn structural_only(root: &Node) -> Node {
 /// Layer-2 runner bound (docs/signature.md "Value-state"): at most 8 DISTINCT
 /// value-class combinations per structural node. The oracle is stateless and
 /// always computes the per-state value-class; this observes variants over time
-/// and, once a structural node has shown more than 8 distinct value states, drops
-/// it from the V: section (falls back to structural-only) so an adversarial value
-/// generator cannot explode the graph. Keying is by the structural (value-less)
-/// signature; once a sig blows the cap it stays capped (sticky).
+/// and, once a structural node has shown more than 8 distinct value states,
+/// drops it from the V: section (falls back to structural-only) so an
+/// adversarial value generator cannot explode the graph. Keying is by the
+/// structural (value-less) signature; once a sig blows the cap it stays capped
+/// (sticky).
 #[derive(Default)]
 pub struct ValueCap {
     variants: std::collections::HashMap<String, std::collections::HashSet<String>>,

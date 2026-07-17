@@ -1,0 +1,19 @@
+enabled: true
+operations:
+  - id: applyLedgerEntry
+    authority: declared
+    successStatuses: [200]
+proofs:
+  - kind: transaction-atomicity
+    operation: applyLedgerEntry
+    identityInputPath: $.entryId
+    snapshotInputPath: $.revision
+    consistency: strong
+    failure:
+      inputPath: $.failurePoint
+      value: after-ledger-write
+      statuses: [422]
+    durableEffects:
+      - kind: write
+        resource: ledger
+        atLeast: 0

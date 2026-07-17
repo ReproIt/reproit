@@ -1,4 +1,4 @@
-import {canonicalJson, capture, replay, shrink} from './adapter.mjs';
+import { canonicalJson, capture, replay, shrink } from './adapter.mjs';
 
 function asMessages(value) {
   if (value == null) return [];
@@ -6,7 +6,7 @@ function asMessages(value) {
 }
 
 function oracleWithoutObservation(oracle) {
-  const descriptor = {...oracle};
+  const descriptor = { ...oracle };
   delete descriptor.actual;
   delete descriptor.detail;
   return descriptor;
@@ -27,7 +27,7 @@ export function exactRepairFeedback(capsule) {
       originalMessages: minimized.originalMessages,
       minimizedMessages: minimized.minimizedMessages,
       replayChecks: minimized.replays + 2,
-      messages: minimized.capsule.stream.map(item => item.message),
+      messages: minimized.capsule.stream.map((item) => item.message),
     },
   };
 }
@@ -36,7 +36,7 @@ function recapture(capsule, messages) {
   return capture({
     protocolVersion: capsule.protocolVersion,
     protocolDocument: capsule.protocolDocument,
-    catalog: {id: capsule.catalog.id, document: capsule.catalog.document},
+    catalog: { id: capsule.catalog.id, document: capsule.catalog.document },
     stream: messages,
     renderer: capsule.renderer,
     clientDataSnapshots: capsule.clientDataSnapshots,
@@ -48,7 +48,7 @@ function recapture(capsule, messages) {
 
 async function exactValidationErrors(capsule, validateMessages) {
   const validationErrors = await validateMessages(
-    capsule.stream.map(item => structuredClone(item.message)),
+    capsule.stream.map((item) => structuredClone(item.message)),
     {
       protocolVersion: capsule.protocolVersion,
       protocolDocument: structuredClone(capsule.protocolDocument),
@@ -58,17 +58,20 @@ async function exactValidationErrors(capsule, validateMessages) {
   if (!Array.isArray(validationErrors)) {
     throw new TypeError('validateMessages must return an array of exact structural errors');
   }
-  return validationErrors.map(error => typeof error === 'string' ? error : JSON.stringify(error));
+  return validationErrors.map((error) =>
+    typeof error === 'string' ? error : JSON.stringify(error),
+  );
 }
 
 async function shrinkExactly(capsule, validateMessages) {
   const original = replay(capsule);
   if (original.status !== 'fail') throw new Error('exact shrink requires a valid failing capture');
   const originalValidation = await exactValidationErrors(capsule, validateMessages);
-  if (originalValidation.length) throw new Error(`exact shrink received an invalid source: ${originalValidation.join('; ')}`);
+  if (originalValidation.length)
+    throw new Error(`exact shrink received an invalid source: ${originalValidation.join('; ')}`);
   const identity = original.oracleIdentity;
   const originalActual = canonicalJson(original.actual);
-  let stream = capsule.stream.map(item => item.message);
+  let stream = capsule.stream.map((item) => item.message);
   let granularity = 2;
   let replays = 0;
   while (stream.length >= 2) {
@@ -81,9 +84,11 @@ async function shrinkExactly(capsule, validateMessages) {
       replays++;
       if ((await exactValidationErrors(candidate, validateMessages)).length) continue;
       const result = replay(candidate);
-      if (result.status === 'fail'
-          && result.oracleIdentity === identity
-          && canonicalJson(result.actual) === originalActual) {
+      if (
+        result.status === 'fail' &&
+        result.oracleIdentity === identity &&
+        canonicalJson(result.actual) === originalActual
+      ) {
         stream = candidateMessages;
         reduced = true;
         granularity = Math.max(2, granularity - 1);
@@ -106,7 +111,8 @@ async function shrinkExactly(capsule, validateMessages) {
 
 async function exactValidatedRepairFeedback(capsule, validateMessages) {
   const result = replay(capsule);
-  if (result.status !== 'fail') throw new Error('exact repair feedback requires a valid failing capture');
+  if (result.status !== 'fail')
+    throw new Error('exact repair feedback requires a valid failing capture');
   const minimized = await shrinkExactly(capsule, validateMessages);
   return {
     code: 'REPROIT_A2UI_FAILURE',
@@ -117,15 +123,18 @@ async function exactValidatedRepairFeedback(capsule, validateMessages) {
       originalMessages: minimized.originalMessages,
       minimizedMessages: minimized.minimizedMessages,
       replayChecks: minimized.replays + 2,
-      messages: minimized.capsule.stream.map(item => item.message),
+      messages: minimized.capsule.stream.map((item) => item.message),
     },
   };
 }
 
 export function createA2uiObserver(options) {
-  if (!options || typeof options !== 'object') throw new TypeError('A2UI observer options are required');
+  if (!options || typeof options !== 'object')
+    throw new TypeError('A2UI observer options are required');
   if (typeof options.validateMessages !== 'function') {
-    throw new TypeError('A2UI observer requires an exact protocol and catalog validateMessages callback');
+    throw new TypeError(
+      'A2UI observer requires an exact protocol and catalog validateMessages ' + 'callback',
+    );
   }
   const messages = [];
   let finished = false;
@@ -143,9 +152,10 @@ export function createA2uiObserver(options) {
       const evidence = {
         capsule,
         replay: replayResult,
-        feedback: replayResult.status === 'fail'
-          ? await exactValidatedRepairFeedback(capsule, options.validateMessages)
-          : undefined,
+        feedback:
+          replayResult.status === 'fail'
+            ? await exactValidatedRepairFeedback(capsule, options.validateMessages)
+            : undefined,
       };
       await options.onResult?.(evidence);
       return evidence;
@@ -163,8 +173,11 @@ export class A2uiPreflightError extends Error {
 }
 
 async function collectMessages(source, maximum) {
-  if (source == null || typeof source[Symbol.asyncIterator] !== 'function'
-      && typeof source[Symbol.iterator] !== 'function') {
+  if (
+    source == null ||
+    (typeof source[Symbol.asyncIterator] !== 'function' &&
+      typeof source[Symbol.iterator] !== 'function')
+  ) {
     throw new TypeError('A2UI preflight source must be an iterable of decoded messages');
   }
   const messages = [];
@@ -176,23 +189,26 @@ async function collectMessages(source, maximum) {
 }
 
 async function evaluateMessages(messages, options) {
-  const capsule = capture({...options, stream: messages});
+  const capsule = capture({ ...options, stream: messages });
   const validationErrors = await exactValidationErrors(capsule, options.validateMessages);
   if (validationErrors.length) {
-    return {capsule, replay: {
-      classification: 'protocol_invalidity',
-      status: 'invalid',
-      oracleIdentity: capsule.oracle.identity,
-      protocolErrors: validationErrors,
-    }};
+    return {
+      capsule,
+      replay: {
+        classification: 'protocol_invalidity',
+        status: 'invalid',
+        oracleIdentity: capsule.oracle.identity,
+        protocolErrors: validationErrors,
+      },
+    };
   }
-  return {capsule, replay: replay(capsule)};
+  return { capsule, replay: replay(capsule) };
 }
 
 async function releaseVerified(evidence, release) {
-  const verified = evidence.capsule.stream.map(item => structuredClone(item.message));
+  const verified = evidence.capsule.stream.map((item) => structuredClone(item.message));
   if (release) await release(verified, evidence);
-  return {...evidence, messages: verified};
+  return { ...evidence, messages: verified };
 }
 
 /// Buffer a complete decoded A2UI stream, then release it atomically only after
@@ -200,9 +216,12 @@ async function releaseVerified(evidence, release) {
 /// repair function, but every replacement is independently captured and replayed
 /// against the original oracle before release.
 export async function preflightA2ui(source, options) {
-  if (!options || typeof options !== 'object') throw new TypeError('A2UI preflight options are required');
+  if (!options || typeof options !== 'object')
+    throw new TypeError('A2UI preflight options are required');
   if (typeof options.validateMessages !== 'function') {
-    throw new TypeError('A2UI preflight requires an exact protocol and catalog validateMessages callback');
+    throw new TypeError(
+      'A2UI preflight requires an exact protocol and catalog validateMessages ' + 'callback',
+    );
   }
   const maxRepairs = options.maxRepairs ?? 2;
   const maxMessages = options.maxMessages ?? 10_000;
@@ -215,7 +234,7 @@ export async function preflightA2ui(source, options) {
   const original = await collectMessages(source, maxMessages);
   let current = await evaluateMessages(original, options);
   if (current.replay.status === 'pass') {
-    return releaseVerified({...current, repairAttempts: 0}, options.release);
+    return releaseVerified({ ...current, repairAttempts: 0 }, options.release);
   }
   if (current.replay.status !== 'fail') {
     throw new A2uiPreflightError('generated A2UI is structurally invalid', {
@@ -225,17 +244,20 @@ export async function preflightA2ui(source, options) {
   }
   let feedback = await exactValidatedRepairFeedback(current.capsule, options.validateMessages);
   if (typeof options.repair !== 'function' || maxRepairs === 0) {
-    throw new A2uiPreflightError('generated A2UI failed preflight and no verified repair is available', {
-      repairAttempts: 0,
-      feedback,
-      lastReplay: current.replay,
-    });
+    throw new A2uiPreflightError(
+      'generated A2UI failed preflight and no verified repair is available',
+      {
+        repairAttempts: 0,
+        feedback,
+        lastReplay: current.replay,
+      },
+    );
   }
   for (let attempt = 1; attempt <= maxRepairs; attempt++) {
     const candidateSource = await options.repair({
       attempt,
       feedback: structuredClone(feedback),
-      messages: structuredClone(current.capsule.stream.map(item => item.message)),
+      messages: structuredClone(current.capsule.stream.map((item) => item.message)),
       oracleIdentity: current.capsule.oracle.identity,
     });
     let candidate;
@@ -253,7 +275,7 @@ export async function preflightA2ui(source, options) {
       continue;
     }
     if (current.replay.status === 'pass') {
-      return releaseVerified({...current, repairAttempts: attempt}, options.release);
+      return releaseVerified({ ...current, repairAttempts: attempt }, options.release);
     }
     if (current.replay.status === 'fail') {
       feedback = await exactValidatedRepairFeedback(current.capsule, options.validateMessages);
@@ -297,8 +319,9 @@ export function instrumentA2ui(source, options) {
       settled = true;
       throw error;
     } finally {
-      if (!settled) rejectResult(new Error('A2UI source was not fully consumed; capture is incomplete'));
+      if (!settled)
+        rejectResult(new Error('A2UI source was not fully consumed; capture is incomplete'));
     }
   })();
-  return {events, result};
+  return { events, result };
 }

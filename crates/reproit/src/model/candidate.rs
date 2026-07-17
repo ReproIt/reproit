@@ -15,8 +15,8 @@
 
 #![allow(dead_code)]
 
-use crate::appmap::AppMap;
 use crate::layout;
+use crate::model::appmap::AppMap;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -48,9 +48,9 @@ pub enum Status {
     Hallucinated,
 }
 
-/// Why a pending/unreached candidate isn't verified yet. Drives the auto-unblock
-/// in the converge loop: each reason maps to a mechanism (seed, dual-user,
-/// scripted login) that opens that region.
+/// Why a pending/unreached candidate isn't verified yet. Drives the
+/// auto-unblock in the converge loop: each reason maps to a mechanism (seed,
+/// dual-user, scripted login) that opens that region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GapReason {
@@ -110,7 +110,8 @@ pub struct Candidate {
     /// What must be true to reach it (free text, mirrored by `gap_reason`).
     #[serde(default)]
     pub preconditions: Vec<String>,
-    /// A hint for the validator on how to get here ("from beacons, tap a card").
+    /// A hint for the validator on how to get here ("from beacons, tap a
+    /// card").
     #[serde(default)]
     pub reach_hint: Option<String>,
     /// Filled when validated: the real structural signature the sim captured.
@@ -127,7 +128,7 @@ impl Candidate {
     /// descending reliability, by: captured signature, declared route, or id
     /// equal to the state's name (states are named only after the labeling
     /// pass, so this is the weakest key).
-    fn matches(&self, name: &str, state: &crate::appmap::State) -> bool {
+    fn matches(&self, name: &str, state: &crate::model::appmap::State) -> bool {
         if let (Some(sig), Some(hash)) = (&self.verified_sig, &state.signature.semantics_hash) {
             if sig == hash {
                 return true;
@@ -143,7 +144,7 @@ impl Candidate {
 
     /// The verified state this candidate corresponds to, if the simulator has
     /// reached it. Shared by reconciliation and the converge validator.
-    pub fn find_in<'a>(&self, map: &'a AppMap) -> Option<&'a crate::appmap::State> {
+    pub fn find_in<'a>(&self, map: &'a AppMap) -> Option<&'a crate::model::appmap::State> {
         map.states
             .iter()
             .find(|(name, st)| self.matches(name, st))
@@ -265,7 +266,11 @@ mod tests {
                 name.to_string(),
                 serde_json::json!({
                     "description": "d",
-                    "signature": { "screenshot_phash": null, "semantics_hash": hash, "route": route },
+                    "signature": {
+                        "screenshot_phash": null,
+                        "semantics_hash": hash,
+                        "route": route
+                    },
                 }),
             );
         }

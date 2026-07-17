@@ -65,7 +65,8 @@
 <script>
   // The buggy picker: only "broken" reveals the wide overlay.
   document.getElementById('lang').addEventListener('change', (e) => {
-    document.getElementById('spiller').style.display = e.target.value === 'broken' ? 'block' : 'none';
+    document.getElementById('spiller').style.display =
+      e.target.value === 'broken' ? 'block' : 'none';
   });
   // The clean picker: no layout effect at all.
   document.getElementById('size').addEventListener('change', () => {});

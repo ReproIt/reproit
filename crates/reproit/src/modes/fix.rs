@@ -55,15 +55,16 @@ pub async fn fix(cfg: &Config, root: &Path, run: Option<&str>) -> Result<()> {
     let writeable = provider.can_write();
     if writeable {
         println!(
-            "  provider {} can apply patches; {} app-source finding(s), attempting up to {MAX_FIXES_PER_RUN}",
+            "  provider {} can apply patches; {} app-source finding(s), attempting up to \
+             {MAX_FIXES_PER_RUN}",
             provider.name(),
             findings.len()
         );
     } else {
         println!(
             "  provider {} is read-only: no patch will be applied. Dry-run below shows the\n  \
-exact prompt + target each finding WOULD be fixed with. Configure a write-capable\n  \
-provider (codex-cli or claude-cli) in reproit.yaml to apply.",
+             exact prompt + target each finding WOULD be fixed with. Configure a write-capable\n  \
+             provider (codex-cli or claude-cli) in reproit.yaml to apply.",
             provider.name()
         );
         println!(
@@ -89,8 +90,8 @@ provider (codex-cli or claude-cli) in reproit.yaml to apply.",
             );
             println!("  ---- constructed prompt ----\n{prompt}\n  ---- end prompt ----");
             report.push_str(&format!(
-                "## {}:{} (dry-run)\n\n{}: no write-capable provider configured.\n\n\
-Target: `{}:{}`\n\nConstructed prompt:\n\n```\n{}\n```\n\n",
+                "## {}:{} (dry-run)\n\n{}: no write-capable provider configured.\n\nTarget: \
+                 `{}:{}`\n\nConstructed prompt:\n\n```\n{}\n```\n\n",
                 finding.file, finding.line, finding.kind, finding.file, finding.line, prompt
             ));
             continue;
@@ -176,8 +177,8 @@ fn is_flutter(cfg: &Config) -> bool {
 fn build_prompt(finding: &Finding, context: &str, repro: Option<&str>) -> String {
     let repro_block = match repro {
         Some(r) if !r.trim().is_empty() => format!(
-            "\nThe deterministic minimized repro (the input sequence that triggers it):\n\
-```\n{}\n```\n",
+            "\nThe deterministic minimized repro (the input sequence that triggers \
+             it):\n```\n{}\n```\n",
             r.trim()
         ),
         _ => String::new(),
@@ -354,9 +355,11 @@ fn app_location(frame: &str, project_dir: &Path) -> Option<(String, u32)> {
     // file:// frames: take the absolute path, strip to project-relative.
     if let Some(idx) = frame.find("file://") {
         let after = &frame[idx + "file://".len()..];
-        let after = after.trim_start_matches('/'); // file:///abs -> abs (re-add /)
-        let abs_str = format!("/{after}");
-        let (path_str, line) = strip_line_col(&abs_str)?;
+        #[cfg(windows)]
+        let path = after.trim_start_matches('/').to_string();
+        #[cfg(not(windows))]
+        let path = format!("/{}", after.trim_start_matches('/'));
+        let (path_str, line) = strip_line_col(&path)?;
         let abs = PathBuf::from(path_str);
         let rel = abs.strip_prefix(project_dir).ok()?;
         return Some((rel.to_string_lossy().into_owned(), line));
@@ -405,10 +408,10 @@ fn strip_line_col(s: &str) -> Option<(String, u32)> {
     Some((path, line))
 }
 
-/// Find a `<path><ext>:LINE` anywhere in a free-form frame string (Swift/Kotlin/
-/// JS stack lines), tolerating surrounding punctuation. Returns the path token
-/// and line. Picks the path by walking back from the extension to the start of
-/// the token (stopping at whitespace, '(', or '"').
+/// Find a `<path><ext>:LINE` anywhere in a free-form frame string
+/// (Swift/Kotlin/ JS stack lines), tolerating surrounding punctuation. Returns
+/// the path token and line. Picks the path by walking back from the extension
+/// to the start of the token (stopping at whitespace, '(', or '"').
 fn scan_path_with_ext(frame: &str) -> Option<(String, u32)> {
     let bytes = frame.as_bytes();
     for e in SOURCE_EXTS {

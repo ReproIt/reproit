@@ -7,7 +7,8 @@
 //! dev build n commits past the last release, plus "-dirty" for uncommitted
 //! changes. So the version bumps only when a new vX.Y.Z tag is cut (one per
 //! release), NOT on every commit, and an install/release shows a clean "0.1.1".
-//! Falls back to Cargo.toml's version with no git or no tag (a crates.io tarball).
+//! Falls back to Cargo.toml's version with no git or no tag (a crates.io
+//! tarball).
 
 use std::process::Command;
 

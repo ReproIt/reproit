@@ -24,10 +24,18 @@ import { typeInto, loadInputs, inputValueFor } from './runner.mjs';
 // runner must type verbatim for the bug to reproduce.
 const SYNTH_NAME = '🚀' + 'ıİßçğ'.repeat(80); // 1 + 400 code points
 
-test('loadInputs normalizes {field,value} and tolerates a missing/garbage array', () => {
+test('loadInputs normalizes {field,value} and tolerates a missing/garbage ' + 'array', () => {
   assert.deepStrictEqual(
-    loadInputs({ inputs: [{ field: 'name', value: 'x' }, { field: 'key:id:bio', value: '' }] }),
-    [{ field: 'name', value: 'x' }, { field: 'key:id:bio', value: '' }],
+    loadInputs({
+      inputs: [
+        { field: 'name', value: 'x' },
+        { field: 'key:id:bio', value: '' },
+      ],
+    }),
+    [
+      { field: 'name', value: 'x' },
+      { field: 'key:id:bio', value: '' },
+    ],
   );
   // Values coerce to strings; bad entries are dropped.
   assert.deepStrictEqual(
@@ -40,7 +48,7 @@ test('loadInputs normalizes {field,value} and tolerates a missing/garbage array'
   assert.deepStrictEqual(loadInputs(undefined), []);
 });
 
-test('inputValueFor matches a structural selector by full sel or by key value', () => {
+test('inputValueFor matches a structural selector by full sel or by key ' + 'value', () => {
   const inputs = loadInputs({ inputs: [{ field: 'name', value: SYNTH_NAME }] });
   // field "name" matches the key VALUE of every key:<kind>:name selector.
   assert.strictEqual(inputValueFor('key:id:name', inputs), SYNTH_NAME);
@@ -55,7 +63,7 @@ test('inputValueFor matches a structural selector by full sel or by key value', 
   assert.strictEqual(inputValueFor('role:textfield#0', exact), 'v');
 });
 
-test('precedence: an explicit input value wins over the class token, else null', () => {
+test('precedence: an explicit input value wins over the class token, else ' + 'null', () => {
   const inputs = loadInputs({ inputs: [{ field: 'name', value: SYNTH_NAME }] });
   // Same resolution the runner's type: branch uses: fixture value when present,
   // null when absent (caller then falls back to the adversarial-class token).
@@ -67,34 +75,36 @@ test('precedence: an explicit input value wins over the class token, else null',
   assert.strictEqual(inputValueFor('key:id:bio', emptyInput), '');
 });
 
-test('replaying a type action types the exact provided fixture value into the field',
+test(
+  'replaying a type action types the exact provided fixture value into ' + 'the field',
   async () => {
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    // A single keyed text field, the kind a `type:key:id:name=...` action targets.
-    await page.setContent(
-      '<!doctype html><html><body style="margin:0;font:16px sans-serif">' +
-      '<input id="name" type="text" style="width:300px;padding:8px">' +
-      '</body></html>',
-    );
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+      // A single keyed text field, the kind a `type:key:id:name=...` action targets.
+      await page.setContent(
+        '<!doctype html><html><body style="margin:0;font:16px sans-serif">' +
+          '<input id="name" type="text" style="width:300px;padding:8px">' +
+          '</body></html>',
+      );
 
-    // Resolve the value the way runSeed's type: branch does: a config input for
-    // "name" wins over whatever adversarial-class token the action carried.
-    const inputs = loadInputs({ inputs: [{ field: 'name', value: SYNTH_NAME }] });
-    const sel = 'key:id:name';
-    const value = inputValueFor(sel, inputs);
-    assert.strictEqual(value, SYNTH_NAME, 'fixture value resolved for the field');
+      // Resolve the value the way runSeed's type: branch does: a config input for
+      // "name" wins over whatever adversarial-class token the action carried.
+      const inputs = loadInputs({ inputs: [{ field: 'name', value: SYNTH_NAME }] });
+      const sel = 'key:id:name';
+      const value = inputValueFor(sel, inputs);
+      assert.strictEqual(value, SYNTH_NAME, 'fixture value resolved for the field');
 
-    const ok = await typeInto(page, sel, value);
-    assert.strictEqual(ok, true, 'typeInto resolved the selector and typed');
+      const ok = await typeInto(page, sel, value);
+      assert.strictEqual(ok, true, 'typeInto resolved the selector and typed');
 
-    // The field holds the EXACT synthesized value, byte-for-byte: the
-    // property-matched (312-char unicode + emoji) value reproduced, not a
-    // fixed adversarial token.
-    const got = await page.$eval('#name', (el) => el.value);
-    assert.strictEqual(got, SYNTH_NAME, 'field contains the exact fixture value');
-  } finally {
-    await browser.close();
-  }
-});
+      // The field holds the EXACT synthesized value, byte-for-byte: the
+      // property-matched (312-char unicode + emoji) value reproduced, not a
+      // fixed adversarial token.
+      const got = await page.$eval('#name', (el) => el.value);
+      assert.strictEqual(got, SYNTH_NAME, 'field contains the exact fixture value');
+    } finally {
+      await browser.close();
+    }
+  },
+);

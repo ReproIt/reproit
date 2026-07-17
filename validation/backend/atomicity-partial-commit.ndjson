@@ -1,0 +1,3 @@
+REPROIT:BACKEND {"sequence":1,"traceId":"local-atomicity","spanId":"apply-entry","actionIndex":3,"operation":"applyLedgerEntry","kind":"start","input":{"entryId":"entry-7","revision":"rev-4","failurePoint":"after-ledger-write"}}
+REPROIT:BACKEND {"sequence":2,"traceId":"local-atomicity","spanId":"apply-entry","actionIndex":3,"operation":"applyLedgerEntry","kind":"effect","effect":"write","resource":"ledger","key":"entry-7","before":{"amount":20},"after":{"amount":10}}
+REPROIT:BACKEND {"sequence":3,"traceId":"local-atomicity","spanId":"apply-entry","actionIndex":3,"operation":"applyLedgerEntry","kind":"return","output":{"error":"fixture failure"},"status":422,"success":false,"effectsComplete":true}

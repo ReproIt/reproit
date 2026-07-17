@@ -17,6 +17,21 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::process::Command;
 
+const MCP_INSTRUCTIONS: &str = concat!(
+    "Deterministic E2E bug oracle. scan -> fuzz -> check -> keep. Call ",
+    "reproit_context(target) to get the scoped graph + screens + selectors, then author or fix ",
+    "yourself (no bundled LLM here). reproit_scan is the default finder (state-present bugs ",
+    "visible on each screen); reproit_fuzz is the deep search for sequence bugs ",
+    "(crash/jank/hang). reproit_check classifies each pass/fail/flaky/stale (deterministic, so a ",
+    "green check means you really fixed it); reproit_keep saves a repro; reproit_record clips ",
+    "it; reproit_why ranks suspect code. The cloud tools close the FULL production loop, so an ",
+    "agent can MANAGE + MONITOR bugs, not just fix them: reproit_cloud_buckets lists ",
+    "impact-ranked bugs -> reproit_cloud_pull the top one -> reproit_check (reproduce) -> fix ",
+    "-> reproit_check (verify) -> reproit_keep -> reproit_cloud_triage status=fixed ",
+    "--fixed-in-build <ver> to record the fix intent -> then watch ",
+    "reproit_cloud_resolution_events for a regression (prod contradicting the claim)."
+);
+
 pub fn serve(config: Option<&std::path::Path>) -> anyhow::Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -47,19 +62,7 @@ pub fn serve(config: Option<&std::path::Path>) -> anyhow::Result<()> {
                         "protocolVersion": requested,
                         "capabilities": { "tools": {} },
                         "serverInfo": { "name": "reproit", "version": env!("CARGO_PKG_VERSION") },
-                        "instructions": "Deterministic E2E bug oracle. scan -> fuzz -> check -> keep. \
-                    Call reproit_context(target) to get the scoped graph + screens + selectors, \
-                    then author or fix yourself (no bundled LLM here). reproit_scan is the default \
-                    finder (state-present bugs visible on each screen); reproit_fuzz is the deep \
-                    search for sequence bugs (crash/jank/hang). reproit_check classifies each \
-                    pass/fail/flaky/stale (deterministic, so a green check means you really fixed \
-                    it); reproit_keep saves a repro; reproit_record clips it; reproit_why ranks \
-                    suspect code. The cloud tools close the FULL production loop, so an agent can \
-                    MANAGE + MONITOR bugs, not just fix them: reproit_cloud_buckets lists \
-                    impact-ranked bugs -> reproit_cloud_pull the top one -> reproit_check (reproduce) \
-                    -> fix -> reproit_check (verify) -> reproit_keep -> reproit_cloud_triage \
-                    status=fixed --fixed-in-build <ver> to record the fix intent -> then watch \
-                    reproit_cloud_resolution_events for a regression (prod contradicting the claim)."
+                        "instructions": MCP_INSTRUCTIONS
                     }),
                 )
             }
@@ -99,165 +102,527 @@ fn ok(id: &Value, result: Value) -> Value {
 }
 
 /// The agent-facing tool list. Names + args track docs/cli.md ("MCP tools").
+const CONTEXT_DESCRIPTION: &str = concat!(
+    "The authoring/fixing entry point. Returns the current scoped state graph plus the ",
+    "screen list and addressable structural selectors for a target. Reproit refreshes its ",
+    "internal app model automatically when source, configuration, build inputs, or the CLI ",
+    "version change. `target` is an alias or node id to scope to (e.g. \"login\"). FULL CLOUD ",
+    "LOOP (manage + monitor bugs, not just fix them): reproit_cloud_buckets (impact-ranked) -> ",
+    "reproit_cloud_pull the top -> reproit_check (reproduce) -> fix -> reproit_check (verify) ",
+    "-> reproit_keep -> reproit_cloud_triage status=fixed --fixed-in-build <ver> (record the ",
+    "fix intent) -> reproit_cloud_resolution_events to monitor for a regression (prod ",
+    "contradicting the fix claim)."
+);
+
+const ACCESSIBILITY_DESCRIPTION: &str = concat!(
+    "The accessibility audit. Returns reproit's UI-graph-vs-accessibility-graph diff per ",
+    "screen: the ground-truth-operable controls that the accessibility/keyboard graph is ",
+    "missing. The internal model is refreshed automatically. Each gap carries a stable ",
+    "selector, WCAG dimension, source file, and line. `state` scopes to one screen; `kind` ",
+    "filters to one dimension."
+);
+
+const COVERAGE_DESCRIPTION: &str = concat!(
+    "Derive the CANDIDATE (hypothesized) map of every screen the app SHOULD have by reading ",
+    "its source with the LLM (no simulator), reconcile it against the verified map, and ",
+    "return the coverage ledger plus the pending WORKLIST: which screens aren't reached yet ",
+    "and why (needs_data | needs_peer | needs_login | frontier). Use it to know exactly which ",
+    "journeys to author next to close coverage, and which need seeding or a dual-user ",
+    "scenario. The candidate map is a worklist, never ground truth: only a driven run ",
+    "(reproit_check on a journey) promotes a screen to verified. Slow: an LLM pass over ",
+    "source."
+);
+
+const SCAN_DESCRIPTION: &str = concat!(
+    "One coverage crawl that visits each reachable screen once. Default confirmed results ",
+    "require an application-owned structural contract. Built-in content, layout, and routing ",
+    "observations are specialist oracles available explicitly through reproit_fuzz --only ",
+    "<oracle>; repeatability alone does not prove application intent. Pass a URL (zero-config, ",
+    "deployed app) or an alias/node to scope. `record=true` saves quick clips for confirmed ",
+    "findings into .reproit/recordings/scan/. Use reproit_fuzz for deeper sequence-dependent ",
+    "bugs, then reproit_check / reproit_keep / reproit_record on the fnd_... id. Slow: a real ",
+    "run."
+);
+
+const FUZZ_DESCRIPTION: &str = concat!(
+    "The DEEP, sequence-dependent bug search: combinatorially permutes action sequences to ",
+    "provoke bugs that only appear after the right actions in the right order (crash / jank / ",
+    "hang / leak). Returns a deduped work-list with a shortest fnd_... repro id per bug. ",
+    "Reproit maintains its internal app model automatically. For bugs simply visible on a ",
+    "screen prefer reproit_scan. Pass an id to reproit_check, reproit_keep, then ",
+    "reproit_record. `target` concentrates the hunt on an alias/node; `platform` selects ",
+    "ios|android|web|all. Slow: real runs."
+);
+
+const CHECK_DESCRIPTION: &str = concat!(
+    "Run a repro and classify it: pass / fail (regression, exit 1) / flaky (app race, exit 2) / ",
+    "stale (UI changed, couldn't replay, exit 3). `repro` is a saved repro (id/alias) OR a ",
+    "pending fuzz finding id from reproit_fuzz, so you can confirm a finding reproduces BEFORE ",
+    "reproit_keep. With no `repro`, runs the whole committed suite and reports the worst. ",
+    "Deterministic, so a green check means the bug is really fixed. For an annotated video use ",
+    "reproit_record; for a baseline pixel diff use reproit_baseline."
+);
+
+const RECORD_DESCRIPTION: &str = concat!(
+    "Record one replayable repro id ONCE with full evidence + an annotated video (paced action ",
+    "HUD + a red box scoped to the repro's oracle, marking the bug's effect). `repro` is a ",
+    "saved repro (id/alias) or a pending fuzz finding id. Use after reproit_fuzz prints an ",
+    "fnd_... id, or after reproit_keep. This is different from reproit_scan(record=true), which ",
+    "saves quick audit clips for visible scan findings. `flicker=true` also scans the recorded ",
+    "video for transient render glitches (a frame that diverges then snaps back). Slow: a real ",
+    "run."
+);
+
+const BASELINE_DESCRIPTION: &str = concat!(
+    "The visual-regression oracle: diff the current capture against the committed baseline ",
+    "(per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. ",
+    "`update=true` accepts the current capture as the new baseline after an intended UI ",
+    "change."
+);
+
+const KEEP_DESCRIPTION: &str = concat!(
+    "Save a repro from the latest fuzz run into the committed suite ",
+    "(.reproit/repros/<content-hash>/), stable across machines and self-deduping. `id` is the ",
+    "finding id from reproit_fuzz (uses the sole finding if omitted). `as` assigns a human ",
+    "alias used by reproit_check. A kept repro lands quarantined and auto-promotes to required ",
+    "on its first green."
+);
+
+const REPROS_DESCRIPTION: &str = concat!(
+    "List the saved repros under .reproit/repros/ with each one's last status, plus each ",
+    "repro's action sequence (so you can see what to simplify with reproit_simplify)."
+);
+
+const SIMPLIFY_DESCRIPTION: &str = concat!(
+    "Replace a repro with a SHORTER, cleaner action sequence YOU propose, but only if reproit ",
+    "can deterministically verify it still reproduces the same finding. Use it to clean up a ",
+    "tangled fuzz-found repro (e.g. one that ends on a positional `role:button#4` selector or ",
+    "post-crash UI). Read the repro's actions (reproit_repros), propose a minimal equivalent ",
+    "using KEYED selectors (`tap:key:...`), and reproit verify-and-adopts it, or rejects it if ",
+    "it doesn't reproduce or isn't shorter. The engine verifies, so your simplification can ",
+    "never be wrong (you propose, reproit disposes). Slow: it replays the candidate."
+);
+
+const WHY_DESCRIPTION: &str = concat!(
+    "Rank suspect code for a failure: spectrum-based fault localization (Ochiai) contrasting ",
+    "coverage of passing vs failing runs. Needs both (reproit_fuzz produces them) and coverage ",
+    "snapshots. Feeds the agent evidence for where to fix. `repro` scopes to one repro's ",
+    "coverage when given."
+);
+
+const JOURNEYS_DESCRIPTION: &str = concat!(
+    "List the saved scripted journeys (declarative YAML paths through the app) with each one's ",
+    "step count and auth setup. The authoring complement to reproit_repros: journeys are ",
+    "hand/agent-authored repros with assertions. Run one with reproit_check <name>."
+);
+
+const JOURNEY_SAVE_DESCRIPTION: &str = concat!(
+    "Author a scripted journey: write journeys/<name>.yaml from a structured spec, then ",
+    "confirm it with reproit_check <name> (pass/fail/flaky/stale, deterministic). GROUND IT ",
+    "FIRST with reproit_context. Address actions by structural selectors from the map/context, ",
+    "such as tap:key:testid:add or tap:role:button#0. A journey is a list of `steps`, each ",
+    "EXACTLY ONE of: {\"do\":\"tap:key:testid:add\"} explicit action (or \"back\"); ",
+    "{\"goto\":\"<screen>\"} pathfind the map to a screen; {\"expect\":{...}} assert one ",
+    "of state/text/count: {\"state\":\"<screen>\"} | {\"text\":\"<visible substring>\"} ",
+    "| {\"count\":{\"<finder>\":N}}; {\"fill\":{\"<finder>\":\"<value>\"}} type ",
+    "into fields, where a value of \"secret:password\"/\"secret:username\" is injected from ",
+    "the auth vault (never hardcode credentials). Optional top-level ",
+    "\"setup\":\"login(<account>)\" (drive the login UI first) or ",
+    "\"auth(<account>)\" (restore a saved session, skip the UI). MULTI-USER: to ",
+    "test two+ logged-in users interacting (e.g. one posts, another sees it), add \"actors\" ",
+    "and tag every step with the actor that performs it. \"actors\" is either a bare list ",
+    "[\"alice\",\"bob\"] or a map binding each actor to its login ",
+    "{\"alice\":{\"login\":\"alice\"},\"bob\":{\"auth\":\"bob\"}} (login = drive ",
+    "the UI with that account's vault creds; auth = restore its session). reproit launches one ",
+    "device per actor, runs steps in the listed order across them (so alice's effect is ",
+    "observable to bob), and a `secret:` fill in a step binds to that step's actor account. ",
+    "Multi-actor steps support do/expect(text|count)/fill only (no goto/expect:state). A failed ",
+    "assertion or unreachable step reports STALE, not pass."
+);
+
+const JOURNEY_SPEC_DESCRIPTION: &str = concat!(
+    "The spec. Single-user: {\"setup\"?: \"login(guest)\", \"steps\": [ {\"do\":...} | ",
+    "{\"goto\":...} | {\"expect\":...} | {\"fill\":...} ]}. Multi-user: {\"actors\": ",
+    "{\"alice\":{\"login\":\"alice\"}, \"bob\":{\"auth\":\"bob\"}}, \"steps\": ",
+    "[ {\"actor\":\"alice\", \"do\":...}, {\"actor\":\"bob\", ",
+    "\"expect\":{\"text\":...}} ]}."
+);
+
+const CLOUD_BUCKETS_DESCRIPTION: &str = concat!(
+    "The IMPACT-RANKED bug list and the loop's STARTING point: returns each bucket's ",
+    "content-addressed `bucketId`, impact score + severity, resolution status, count, and ",
+    "message, already sorted by impact (highest first). This is the ONLY tool that surfaces ",
+    "the `bucketId` -- the id reproit_cloud_pull / reproit_cloud_triage / ",
+    "reproit_cloud_timeline take via `bucket`. Distinct from reproit_cloud_blast_radius (the ",
+    "cohort who's-affected lens, which has no bucket id). `app` is the cloud app id (defaults ",
+    "to $REPROIT_CLOUD_APP); `query` filters buckets by message substring."
+);
+
+const BLAST_RADIUS_DESCRIPTION: &str = concat!(
+    "Who's affected by a bucket: cohorts, percentages, versions. `bucket` is the bucket index ",
+    "(or signature). `app` is the cloud app id (defaults to $REPROIT_CLOUD_APP)."
+);
+
+const CLOUD_REPRODUCE_DESCRIPTION: &str = concat!(
+    "Pull a real user session for a bucket and replay it locally in one step (pull -> check), ",
+    "reporting whether it reproduced (an exception fired) or replayed clean (likely ",
+    "data-dependent). Equivalent to reproit_cloud_pull then reproit_check, but saves the repro ",
+    "AND runs it. `bucket` is the content-addressed bucket id from reproit_cloud_buckets (a ",
+    "`bkt_...` id, NOT an integer index). `as` is a short local name for the saved repro (used ",
+    "as reproit_check <name>). `app` defaults to $REPROIT_CLOUD_APP. Slow: a real run."
+);
+
+const CLOUD_PULL_DESCRIPTION: &str = concat!(
+    "Pull a production bug from the cloud as a FIRST-CLASS LOCAL repro you can then verify + ",
+    "fix offline. The autonomous fix loop: reproit_cloud_buckets (impact-ranked) -> ",
+    "reproit_cloud_pull the top bucket -> reproit_check <as> (reproduces it locally, ",
+    "NETWORK-FREE) -> fix the code -> reproit_check <as> again (proves the fix) -> ",
+    "reproit_keep. `bucket` is the content-addressed bucket id from reproit_cloud_buckets; `as` ",
+    "is a short local name used in reproit_check; `app` defaults to $REPROIT_CLOUD_APP."
+);
+
+const CLOUD_TRIAGE_DESCRIPTION: &str = concat!(
+    "READ or SET a bucket's triage status: the MANAGEMENT state an agent owns (where in the ",
+    "lifecycle, who's on it), distinct from the prod-truth resolution the system computes. ",
+    "With only `bucket`, READS + returns the current state. With `status`, SETS it: new | ",
+    "triaged | assigned | fixed | wontfix. This is how an agent RECORDS its intent in the ",
+    "loop: after reproit_check proves a fix holds locally, call this with status=fixed and ",
+    "`fixed_in_build`=<the build you shipped the fix in> to anchor the claim; production then ",
+    "confirms (resolved) or contradicts (regressed) it, which you read back via ",
+    "reproit_cloud_resolution_events. `assignee` (an org member id) is only valid with ",
+    "status=assigned; `fixed_in_build` only with status=fixed (and defaults server-side to the ",
+    "newest build seen). `bucket` is the content-addressed bucket id from ",
+    "reproit_cloud_buckets; `app` defaults to $REPROIT_CLOUD_APP."
+);
+
+const RESOLUTION_EVENTS_DESCRIPTION: &str = concat!(
+    "MONITOR the loop: list recent PROD-TRUTH transitions (resolved->regressed, ",
+    "resolving->resolved, ...), newest first, computed from production telemetry against each ",
+    "bucket's fix anchor. This is what an autonomous monitor reads to catch a REGRESSION: a ",
+    "bucket you marked fixed (reproit_cloud_triage status=fixed) that started firing again in ",
+    "production. A `regressed` event is the signal to reproit_cloud_pull it again and re-open ",
+    "the fix loop. `app` defaults to $REPROIT_CLOUD_APP."
+);
+
+const CLOUD_TIMELINE_DESCRIPTION: &str = concat!(
+    "The per-bucket OCCURRENCE time-series (segmented by build) plus the computed prod-truth ",
+    "resolution status. Shows whether occurrences dropped after a fix anchor ",
+    "(resolving/resolved) or returned (regressed). Use it to confirm a specific bucket's fix is ",
+    "actually holding in production, or to see the shape of a regression. `bucket` is the ",
+    "content-addressed bucket id; `app` defaults to $REPROIT_CLOUD_APP."
+);
+
 fn tool_defs() -> Value {
     json!([
         {
             "name": "reproit_context",
-            "description": "The authoring/fixing entry point. Returns the current scoped state graph plus the screen list and addressable structural selectors for a target. Reproit refreshes its internal app model automatically when source, configuration, build inputs, or the CLI version change. `target` is an alias or node id to scope to (e.g. \"login\"). FULL CLOUD LOOP (manage + monitor bugs, not just fix them): reproit_cloud_buckets (impact-ranked) -> reproit_cloud_pull the top -> reproit_check (reproduce) -> fix -> reproit_check (verify) -> reproit_keep -> reproit_cloud_triage status=fixed --fixed-in-build <ver> (record the fix intent) -> reproit_cloud_resolution_events to monitor for a regression (prod contradicting the fix claim).",
+            "description": CONTEXT_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "target": { "type": "string", "description": "Alias or node id to scope the graph + selectors to (e.g. \"login\"). Omit for the whole graph." }
+                "target": {
+                    "type": "string",
+                    "description": concat!(
+                        "Alias or node id to scope the graph + selectors to (e.g. ",
+                        "\"login\"). Omit for the whole graph."
+                    )
+                }
             } }
         },
         {
             "name": "reproit_accessibility",
-            "description": "The accessibility audit. Returns reproit's UI-graph-vs-accessibility-graph diff per screen: the ground-truth-operable controls that the accessibility/keyboard graph is missing. The internal model is refreshed automatically. Each gap carries a stable selector, WCAG dimension, source file, and line. `state` scopes to one screen; `kind` filters to one dimension.",
+            "description": ACCESSIBILITY_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "state": { "type": "string", "description": "Scope to one screen, by signature id or human name. Omit for all screens." },
-                "kind": { "type": "string", "description": "Filter to one dimension: pointer_only | keyboard_unreachable | no_role | focus_trap." }
+                "state": {
+                    "type": "string",
+                    "description": concat!(
+                        "Scope to one screen, by signature id or human name. ",
+                        "Omit for all screens."
+                    )
+                },
+                "kind": {
+                    "type": "string",
+                    "description": concat!(
+                        "Filter to one dimension: pointer_only | keyboard_unreachable | ",
+                        "no_role | focus_trap."
+                    )
+                }
             } }
         },
         {
             "name": "reproit_coverage",
-            "description": "Derive the CANDIDATE (hypothesized) map of every screen the app SHOULD have by reading its source with the LLM (no simulator), reconcile it against the verified map, and return the coverage ledger plus the pending WORKLIST: which screens aren't reached yet and why (needs_data | needs_peer | needs_login | frontier). Use it to know exactly which journeys to author next to close coverage, and which need seeding or a dual-user scenario. The candidate map is a worklist, never ground truth: only a driven run (reproit_check on a journey) promotes a screen to verified. Slow: an LLM pass over source.",
+            "description": COVERAGE_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
             "name": "reproit_scan",
-            "description": "The DEFAULT \"what's wrong on every screen\" finder. One coverage crawl that visits each reachable screen once and reports the STATE-PRESENT bugs simply visible on each (broken content / choice-anomaly / broken routes), one finding per (screen x issue) -- grouped by screen, nothing collapsed. Prefer this over reproit_fuzz for \"audit this app / find the visible bugs\": it is deterministic, doesn't permute action sequences, and surfaces every per-screen issue (reproit_fuzz reports one finding per seed and drops most of these). Pass a URL (zero-config, deployed app) or an alias/node to scope. `record=true` saves quick audit clips into .reproit/recordings/scan/. Use reproit_fuzz for the DEEPER sequence-dependent bugs (crash/jank/hang), then reproit_check / reproit_keep / reproit_record on the fnd_... id. Slow: a real run.",
+            "description": SCAN_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "target": { "type": "string", "description": "A URL (https://app.com, zero-config) or an alias/node to scope the crawl to." },
-                "record": { "type": "boolean", "description": "Also save an annotated clip (red box on the bug) per boxable finding, into .reproit/recordings/scan/. Web only." }
+                "target": {
+                    "type": "string",
+                    "description": concat!(
+                        "A URL (https://app.com, zero-config) or an alias/node to scope the ",
+                        "crawl to."
+                    )
+                },
+                "record": {
+                    "type": "boolean",
+                    "description": concat!(
+                        "Also save an annotated clip (red box on the bug) per boxable finding, ",
+                        "into .reproit/recordings/scan/. Web only."
+                    )
+                }
             } }
         },
         {
             "name": "reproit_fuzz",
-            "description": "The DEEP, sequence-dependent bug search: combinatorially permutes action sequences to provoke bugs that only appear after the right actions in the right order (crash / jank / hang / leak). Returns a deduped work-list with a shortest fnd_... repro id per bug. Reproit maintains its internal app model automatically. For bugs simply visible on a screen prefer reproit_scan. Pass an id to reproit_check, reproit_keep, then reproit_record. `target` concentrates the hunt on an alias/node; `platform` selects ios|android|web|all. Slow: real runs.",
+            "description": FUZZ_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "target": { "type": "string", "description": "Alias/node to concentrate the hunt on (e.g. \"login\")." },
-                "platform": { "type": "string", "description": "ios|android|web|all (comma list -> run all + divergence diff)." }
+                "target": {
+                    "type": "string",
+                    "description": "Alias/node to concentrate the hunt on (e.g. \"login\")."
+                },
+                "platform": {
+                    "type": "string",
+                    "description": concat!(
+                        "ios|android|web|all (comma list -> run all + ",
+                        "divergence diff)."
+                    )
+                }
             } }
         },
         {
             "name": "reproit_check",
-            "description": "Run a repro and classify it: pass / fail (regression, exit 1) / flaky (app race, exit 2) / stale (UI changed, couldn't replay, exit 3). `repro` is a saved repro (id/alias) OR a pending fuzz finding id from reproit_fuzz, so you can confirm a finding reproduces BEFORE reproit_keep. With no `repro`, runs the whole committed suite and reports the worst. Deterministic, so a green check means the bug is really fixed. For an annotated video use reproit_record; for a baseline pixel diff use reproit_baseline.",
+            "description": CHECK_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "repro": { "type": "string", "description": "Saved repro id/alias, or a pending finding id from reproit_fuzz. Omit to run the whole saved suite." }
+                "repro": {
+                    "type": "string",
+                    "description": concat!(
+                        "Saved repro id/alias, or a pending finding id from reproit_fuzz. ",
+                        "Omit to run the whole saved suite."
+                    )
+                }
             } }
         },
         {
             "name": "reproit_record",
-            "description": "Record one replayable repro id ONCE with full evidence + an annotated video (paced action HUD + a red box scoped to the repro's oracle, marking the bug's effect). `repro` is a saved repro (id/alias) or a pending fuzz finding id. Use after reproit_fuzz prints an fnd_... id, or after reproit_keep. This is different from reproit_scan(record=true), which saves quick audit clips for visible scan findings. `flicker=true` also scans the recorded video for transient render glitches (a frame that diverges then snaps back). Slow: a real run.",
+            "description": RECORD_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "repro": { "type": "string", "description": "Saved repro id/alias, or a pending finding id from reproit_fuzz." },
-                "flicker": { "type": "boolean", "description": "Also scan the recorded video for intra-run flicker." }
+                "repro": {
+                    "type": "string",
+                    "description": concat!(
+                        "Saved repro id/alias, or a pending finding id from ",
+                        "reproit_fuzz."
+                    )
+                },
+                "flicker": {
+                    "type": "boolean",
+                    "description": "Also scan the recorded video for intra-run flicker."
+                }
             }, "required": ["repro"] }
         },
         {
             "name": "reproit_baseline",
-            "description": "The visual-regression oracle: diff the current capture against the committed baseline (per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. `update=true` accepts the current capture as the new baseline after an intended UI change.",
+            "description": BASELINE_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "update": { "type": "boolean", "description": "Accept the current capture as the new baseline." }
+                "update": {
+                    "type": "boolean",
+                    "description": "Accept the current capture as the new baseline."
+                }
             } }
         },
         {
             "name": "reproit_keep",
-            "description": "Save a repro from the latest fuzz run into the committed suite (.reproit/repros/<content-hash>/), stable across machines and self-deduping. `id` is the finding id from reproit_fuzz (uses the sole finding if omitted). `as` assigns a human alias used by reproit_check. A kept repro lands quarantined and auto-promotes to required on its first green.",
+            "description": KEEP_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "id": { "type": "string", "description": "Finding id (dirname) from the latest fuzz run. Omit to use the sole finding." },
-                "as": { "type": "string", "description": "Human alias for the kept repro (used in reproit_check)." }
+                "id": {
+                    "type": "string",
+                    "description": concat!(
+                        "Finding id (dirname) from the latest fuzz run. ",
+                        "Omit to use the sole finding."
+                    )
+                },
+                "as": {
+                    "type": "string",
+                    "description": "Human alias for the kept repro (used in reproit_check)."
+                }
             } }
         },
         {
             "name": "reproit_repros",
-            "description": "List the saved repros under .reproit/repros/ with each one's last status, plus each repro's action sequence (so you can see what to simplify with reproit_simplify).",
+            "description": REPROS_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
             "name": "reproit_simplify",
-            "description": "Replace a repro with a SHORTER, cleaner action sequence YOU propose, but only if reproit can deterministically verify it still reproduces the same finding. Use it to clean up a tangled fuzz-found repro (e.g. one that ends on a positional `role:button#4` selector or post-crash UI). Read the repro's actions (reproit_repros), propose a minimal equivalent using KEYED selectors (`tap:key:...`), and reproit verify-and-adopts it, or rejects it if it doesn't reproduce or isn't shorter. The engine verifies, so your simplification can never be wrong (you propose, reproit disposes). Slow: it replays the candidate.",
+            "description": SIMPLIFY_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "repro": { "type": "string", "description": "Repro id/alias (or a pending finding id) to simplify." },
-                "actions": { "type": "array", "items": { "type": "string" }, "description": "Candidate action sequence, e.g. [\"tap:key:testid:add\",\"tap:key:testid:open-cart\",\"tap:key:testid:remove\"]." }
+                "repro": {
+                    "type": "string",
+                    "description": "Repro id/alias (or a pending finding id) to simplify."
+                },
+                "actions": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": concat!(
+                        "Candidate action sequence, e.g. [\"tap:key:testid:add\",",
+                        "\"tap:key:testid:open-cart\",\"tap:key:testid:remove\"]."
+                    )
+                }
             }, "required": ["repro", "actions"] }
         },
         {
             "name": "reproit_why",
-            "description": "Rank suspect code for a failure: spectrum-based fault localization (Ochiai) contrasting coverage of passing vs failing runs. Needs both (reproit_fuzz produces them) and coverage snapshots. Feeds the agent evidence for where to fix. `repro` scopes to one repro's coverage when given.",
+            "description": WHY_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "repro": { "type": "string", "description": "Repro/alias to scope fault localization to. Omit for all runs under .reproit/runs." }
+                "repro": {
+                    "type": "string",
+                    "description": concat!(
+                        "Repro/alias to scope fault localization to. ",
+                        "Omit for all runs under .reproit/runs."
+                    )
+                }
             } }
         },
         {
             "name": "reproit_journeys",
-            "description": "List the saved scripted journeys (declarative YAML paths through the app) with each one's step count and auth setup. The authoring complement to reproit_repros: journeys are hand/agent-authored repros with assertions. Run one with reproit_check <name>.",
+            "description": JOURNEYS_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
             "name": "reproit_journey_save",
-            "description": "Author a scripted journey: write journeys/<name>.yaml from a structured spec, then confirm it with reproit_check <name> (pass/fail/flaky/stale, deterministic). GROUND IT FIRST with reproit_context. Address actions by structural selectors from the map/context, such as tap:key:testid:add or tap:role:button#0. A journey is a list of `steps`, each EXACTLY ONE of: {\"do\":\"tap:key:testid:add\"} explicit action (or \"back\"); {\"goto\":\"<screen>\"} pathfind the map to a screen; {\"expect\":{...}} assert one of state/text/count: {\"state\":\"<screen>\"} | {\"text\":\"<visible substring>\"} | {\"count\":{\"<finder>\":N}}; {\"fill\":{\"<finder>\":\"<value>\"}} type into fields, where a value of \"secret:password\"/\"secret:username\" is injected from the auth vault (never hardcode credentials). Optional top-level \"setup\":\"login(<account>)\" (drive the login UI first) or \"auth(<account>)\" (restore a saved session, skip the UI). MULTI-USER: to test two+ logged-in users interacting (e.g. one posts, another sees it), add \"actors\" and tag every step with the actor that performs it. \"actors\" is either a bare list [\"alice\",\"bob\"] or a map binding each actor to its login {\"alice\":{\"login\":\"alice\"},\"bob\":{\"auth\":\"bob\"}} (login = drive the UI with that account's vault creds; auth = restore its session). reproit launches one device per actor, runs steps in the listed order across them (so alice's effect is observable to bob), and a `secret:` fill in a step binds to that step's actor account. Multi-actor steps support do/expect(text|count)/fill only (no goto/expect:state). A failed assertion or unreachable step reports STALE, not pass.",
+            "description": JOURNEY_SAVE_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "name": { "type": "string", "description": "Journey name (the file stem under journeys/)." },
-                "journey": { "type": "object", "description": "The spec. Single-user: {\"setup\"?: \"login(guest)\", \"steps\": [ {\"do\":...} | {\"goto\":...} | {\"expect\":...} | {\"fill\":...} ]}. Multi-user: {\"actors\": {\"alice\":{\"login\":\"alice\"}, \"bob\":{\"auth\":\"bob\"}}, \"steps\": [ {\"actor\":\"alice\", \"do\":...}, {\"actor\":\"bob\", \"expect\":{\"text\":...}} ]}." }
+                "name": {
+                    "type": "string",
+                    "description": "Journey name (the file stem under journeys/)."
+                },
+                "journey": { "type": "object", "description": JOURNEY_SPEC_DESCRIPTION }
             }, "required": ["name", "journey"] }
         },
         {
             "name": "reproit_cloud_buckets",
-            "description": "The IMPACT-RANKED bug list and the loop's STARTING point: returns each bucket's content-addressed `bucketId`, impact score + severity, resolution status, count, and message, already sorted by impact (highest first). This is the ONLY tool that surfaces the `bucketId` -- the id reproit_cloud_pull / reproit_cloud_triage / reproit_cloud_timeline take via `bucket`. Distinct from reproit_cloud_blast_radius (the cohort who's-affected lens, which has no bucket id). `app` is the cloud app id (defaults to $REPROIT_CLOUD_APP); `query` filters buckets by message substring.",
+            "description": CLOUD_BUCKETS_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." },
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                },
                 "query": { "type": "string", "description": "Filter buckets by message substring." }
             } }
         },
         {
             "name": "reproit_cloud_blast_radius",
-            "description": "Who's affected by a bucket: cohorts, percentages, versions. `bucket` is the bucket index (or signature). `app` is the cloud app id (defaults to $REPROIT_CLOUD_APP).",
+            "description": BLAST_RADIUS_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "bucket": { "type": "string", "description": "Bucket index (integer) or signature." },
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+                "bucket": {
+                    "type": "string",
+                    "description": "Bucket index (integer) or signature."
+                },
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                }
             }, "required": ["bucket"] }
         },
         {
             "name": "reproit_cloud_reproduce",
-            "description": "Pull a real user session for a bucket and replay it locally in one step (pull -> check), reporting whether it reproduced (an exception fired) or replayed clean (likely data-dependent). Equivalent to reproit_cloud_pull then reproit_check, but saves the repro AND runs it. `bucket` is the content-addressed bucket id from reproit_cloud_buckets (a `bkt_...` id, NOT an integer index). `as` is a short local name for the saved repro (used as reproit_check <name>). `app` defaults to $REPROIT_CLOUD_APP. Slow: a real run.",
+            "description": CLOUD_REPRODUCE_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
-                "as": { "type": "string", "description": "A short local name for the pulled repro (used as reproit_check <name>)." },
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+                "bucket": {
+                    "type": "string",
+                    "description": "Content-addressed bucket id (from reproit_cloud_buckets)."
+                },
+                "as": {
+                    "type": "string",
+                    "description": concat!(
+                        "A short local name for the pulled repro ",
+                        "(used as reproit_check <name>)."
+                    )
+                },
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                }
             }, "required": ["bucket", "as"] }
         },
         {
             "name": "reproit_cloud_pull",
-            "description": "Pull a production bug from the cloud as a FIRST-CLASS LOCAL repro you can then verify + fix offline. The autonomous fix loop: reproit_cloud_buckets (impact-ranked) -> reproit_cloud_pull the top bucket -> reproit_check <as> (reproduces it locally, NETWORK-FREE) -> fix the code -> reproit_check <as> again (proves the fix) -> reproit_keep. `bucket` is the content-addressed bucket id from reproit_cloud_buckets; `as` is a short local name used in reproit_check; `app` defaults to $REPROIT_CLOUD_APP.",
+            "description": CLOUD_PULL_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
-                "as": { "type": "string", "description": "A short local name for the pulled repro (used as reproit_check <name>)." },
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+                "bucket": {
+                    "type": "string",
+                    "description": "Content-addressed bucket id (from reproit_cloud_buckets)."
+                },
+                "as": {
+                    "type": "string",
+                    "description": concat!(
+                        "A short local name for the pulled repro ",
+                        "(used as reproit_check <name>)."
+                    )
+                },
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                }
             }, "required": ["bucket", "as"] }
         },
         {
             "name": "reproit_cloud_triage",
-            "description": "READ or SET a bucket's triage status: the MANAGEMENT state an agent owns (where in the lifecycle, who's on it), distinct from the prod-truth resolution the system computes. With only `bucket`, READS + returns the current state. With `status`, SETS it: new | triaged | assigned | fixed | wontfix. This is how an agent RECORDS its intent in the loop: after reproit_check proves a fix holds locally, call this with status=fixed and `fixed_in_build`=<the build you shipped the fix in> to anchor the claim; production then confirms (resolved) or contradicts (regressed) it, which you read back via reproit_cloud_resolution_events. `assignee` (an org member id) is only valid with status=assigned; `fixed_in_build` only with status=fixed (and defaults server-side to the newest build seen). `bucket` is the content-addressed bucket id from reproit_cloud_buckets; `app` defaults to $REPROIT_CLOUD_APP.",
+            "description": CLOUD_TRIAGE_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
-                "status": { "type": "string", "description": "Set the status: new | triaged | assigned | fixed | wontfix. Omit to READ the current state." },
-                "fixed_in_build": { "type": "string", "description": "The build the fix shipped in (the prod-resolution anchor). Only meaningful with status=fixed; defaults to the newest build seen for the bucket." },
-                "assignee": { "type": "integer", "description": "Org member id to assign. Required by, and only valid for, status=assigned." },
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+                "bucket": {
+                    "type": "string",
+                    "description": "Content-addressed bucket id (from reproit_cloud_buckets)."
+                },
+                "status": {
+                    "type": "string",
+                    "description": concat!(
+                        "Set the status: new | triaged | assigned | fixed | wontfix. ",
+                        "Omit to READ the current state."
+                    )
+                },
+                "fixed_in_build": {
+                    "type": "string",
+                    "description": concat!(
+                        "The build the fix shipped in (the prod-resolution anchor). ",
+                        "Only meaningful with status=fixed; defaults to the newest build ",
+                        "seen for the bucket."
+                    )
+                },
+                "assignee": {
+                    "type": "integer",
+                    "description": concat!(
+                        "Org member id to assign. Required by, and only valid for, ",
+                        "status=assigned."
+                    )
+                },
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                }
             }, "required": ["bucket"] }
         },
         {
             "name": "reproit_cloud_resolution_events",
-            "description": "MONITOR the loop: list recent PROD-TRUTH transitions (resolved->regressed, resolving->resolved, ...), newest first, computed from production telemetry against each bucket's fix anchor. This is what an autonomous monitor reads to catch a REGRESSION: a bucket you marked fixed (reproit_cloud_triage status=fixed) that started firing again in production. A `regressed` event is the signal to reproit_cloud_pull it again and re-open the fix loop. `app` defaults to $REPROIT_CLOUD_APP.",
+            "description": RESOLUTION_EVENTS_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                }
             } }
         },
         {
             "name": "reproit_cloud_timeline",
-            "description": "The per-bucket OCCURRENCE time-series (segmented by build) plus the computed prod-truth resolution status. Shows whether occurrences dropped after a fix anchor (resolving/resolved) or returned (regressed). Use it to confirm a specific bucket's fix is actually holding in production, or to see the shape of a regression. `bucket` is the content-addressed bucket id; `app` defaults to $REPROIT_CLOUD_APP.",
+            "description": CLOUD_TIMELINE_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {
-                "bucket": { "type": "string", "description": "Content-addressed bucket id (from reproit_cloud_buckets)." },
-                "app": { "type": "string", "description": "Cloud app id (default: $REPROIT_CLOUD_APP)." }
+                "bucket": {
+                    "type": "string",
+                    "description": "Content-addressed bucket id (from reproit_cloud_buckets)."
+                },
+                "app": {
+                    "type": "string",
+                    "description": "Cloud app id (default: $REPROIT_CLOUD_APP)."
+                }
             }, "required": ["bucket"] }
         }
     ])
@@ -623,10 +988,25 @@ fn check_gloss(stdout: &[u8]) -> Option<String> {
     let v = serde_json::from_slice::<serde_json::Value>(stdout).ok()?;
     let outcome = v.get("outcome").and_then(Value::as_str)?;
     let msg = match outcome {
-        "pass" => "PASS: replayed clean and reached the trigger context -- the bug is fixed (deterministic, so this is a real green).",
-        "fail" => "FAIL: the finding REPRODUCED (a confirmed regression). If you were confirming a fuzz finding, this is the expected signal to keep it; if you were verifying a fix, the fix did not hold.",
-        "flaky" => "FLAKY: the finding reproduced on SOME replays but not all (a non-deterministic app race) -- not a clean reproduction and not a clean fix.",
-        "stale" => "STALE: could not run the case to its trigger -- the UI path moved or the runner could not replay it. This is NOT a pass or a verdict on the bug: retry so reproit refreshes its internal model, then re-record if the authored path itself changed; the change may also have fixed it.",
+        "pass" => concat!(
+            "PASS: replayed clean and reached the trigger context -- the bug is fixed ",
+            "(deterministic, so this is a real green)."
+        ),
+        "fail" => concat!(
+            "FAIL: the finding REPRODUCED (a confirmed regression). If you were confirming a ",
+            "fuzz finding, this is the expected signal to keep it; if you were verifying a ",
+            "fix, the fix did not hold."
+        ),
+        "flaky" => concat!(
+            "FLAKY: the finding reproduced on SOME replays but not all (a non-deterministic ",
+            "app race) -- not a clean reproduction and not a clean fix."
+        ),
+        "stale" => concat!(
+            "STALE: could not run the case to its trigger -- the UI path moved or the runner ",
+            "could not replay it. This is NOT a pass or a verdict on the bug: retry so reproit ",
+            "refreshes its internal model, then re-record if the authored path itself changed; ",
+            "the change may also have fixed it."
+        ),
         _ => return None,
     };
     Some(msg.to_string())
@@ -709,7 +1089,12 @@ mod tests {
         // --fixed-in-build (the prod-resolution anchor) to the CLI.
         let argv = argv(
             "reproit_cloud_triage",
-            json!({ "app": "demo", "bucket": "b00b", "status": "fixed", "fixed_in_build": "1.4.2" }),
+            json!({
+                "app": "demo",
+                "bucket": "b00b",
+                "status": "fixed",
+                "fixed_in_build": "1.4.2"
+            }),
         );
         assert!(argv.windows(2).any(|w| w == ["--status", "fixed"]));
         assert!(argv.windows(2).any(|w| w == ["--fixed-in-build", "1.4.2"]));

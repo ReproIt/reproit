@@ -8,7 +8,9 @@ These checks cover the production path from SDK capture to a local, deterministi
 node validation/cloud/sdk-performance.js
 ```
 
-The benchmark runs 100,000 privacy-preserving input fingerprints and 10,000 SDK flushes containing 50 events each. It fails if raw input content reaches the serialized fingerprint or if the local overhead exceeds the release ceilings.
+The benchmark runs 100,000 privacy-preserving input fingerprints and 10,000 SDK flushes containing
+50 events each. It fails if raw input content reaches the serialized fingerprint or if the local
+overhead exceeds the release ceilings.
 
 ## Production SDK to replay
 
@@ -28,6 +30,7 @@ The gate:
 6. Pulls the bucket into a clean source workspace and reproduces it locally.
 7. Deletes the disposable project, including on failure.
 
-Set `REPROIT_CLOUD_ACCOUNT_KEY` in CI. A local run can use the account token saved by `reproit login`.
+Set `REPROIT_CLOUD_ACCOUNT_KEY` in CI. A local run can use the account token saved by
+`reproit login`.
 
 The latest successful measurements are stored in `validation/cloud/artifacts/`.

@@ -1,15 +1,23 @@
 #![allow(dead_code)]
 
-#[path = "../../../../crates/reproit/src/model/backend.rs"]
-mod backend;
-
-use backend::{evaluate, import_service_schema, parse_events, BackendConfig, BackendViolation};
+use reproit::backend_contracts::{
+    evaluate, import_service_schema, parse_events, BackendConfig, BackendViolation,
+};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 fn event(sequence: u64, span: &str, operation: &str, fields: &str) -> String {
     format!(
-        "REPROIT:BACKEND {{\"sequence\":{sequence},\"traceId\":\"oss-dogfood\",\"spanId\":\"{span}\",\"actionIndex\":1,\"operation\":\"{operation}\",\"actor\":\"alice\",{fields}}}"
+        concat!(
+            "REPROIT:BACKEND {{\"sequence\":{sequence},",
+            "\"traceId\":\"oss-dogfood\",\"spanId\":\"{span}\",",
+            "\"actionIndex\":1,\"operation\":\"{operation}\",",
+            "\"actor\":\"alice\",{fields}}}"
+        ),
+        sequence = sequence,
+        span = span,
+        operation = operation,
+        fields = fields
     )
 }
 
@@ -59,7 +67,14 @@ fn evaluate_case_with_selections(
             operation_id,
             operation_id,
             &format!(
-                "{selection_fields}\"kind\":\"return\",\"output\":{output},\"status\":{status},\"success\":true,\"effectsComplete\":false"
+                concat!(
+                    "{selection_fields}\"kind\":\"return\",\"output\":{output},",
+                    "\"status\":{status},\"success\":true,",
+                    "\"effectsComplete\":false"
+                ),
+                selection_fields = selection_fields,
+                output = output,
+                status = status
             ),
         ),
     ]
@@ -152,7 +167,11 @@ fn main() {
         evaluate_case(
             &openapi,
             "addPet",
-            &json!({"id":987654322_i64,"name":"FormDog","photoUrls":["https://example.test/dog.png"]}),
+            &json!({
+                "id": 987654322_i64,
+                "name": "FormDog",
+                "photoUrls": ["https://example.test/dog.png"]
+            }),
             &read_json(&root, "petstore-form.json"),
         ),
     );
@@ -327,7 +346,11 @@ fn main() {
             &int64,
             "dogfood.v1.Counters/Get",
             &json!({}),
-            &json!({"total":"9007199254740993","unsignedTotal":"18446744073709551615","samples":["1","2"]}),
+            &json!({
+                "total": "9007199254740993",
+                "unsignedTotal": "18446744073709551615",
+                "samples": ["1", "2"]
+            }),
         ),
     );
     broken(

@@ -10,15 +10,13 @@
  */
 // RN is a peer dependency and not installed in the node test env, so stub the
 // modules the provider/context chain imports (same stubs as context.test.ts).
-jest.mock(
-  'react-native',
-  () => ({ Platform: { OS: 'ios', Version: '17.4' }, View: 'View' }),
-  { virtual: true }
-);
+jest.mock('react-native', () => ({ Platform: { OS: 'ios', Version: '17.4' }, View: 'View' }), {
+  virtual: true,
+});
 jest.mock(
   'react',
   () => ({ useEffect: () => {}, useCallback: (f: unknown) => f, createElement: () => null }),
-  { virtual: true }
+  { virtual: true },
 );
 
 import { ReproIt } from '../src/index';
@@ -32,7 +30,9 @@ type Internal = {
 };
 const impl = ReproIt as unknown as Internal;
 
-function markers(spy: jest.SpyInstance): Array<{ sig: string; items: Array<{ id: string; message: string }> }> {
+function markers(
+  spy: jest.SpyInstance,
+): Array<{ sig: string; items: Array<{ id: string; message: string }> }> {
   return spy.mock.calls
     .map((c) => String(c[0] ?? ''))
     .filter((l) => l.startsWith('REPROIT_INVARIANT '))
@@ -56,7 +56,7 @@ describe('ReproIt.invariant (RN self-triggered oracle)', () => {
     delete (globalThis as { __reproit_fuzz?: unknown }).__reproit_fuzz;
   });
 
-  it('emits ONE marker listing only the violated invariants when under the fuzzer', () => {
+  it('emits ONE marker listing only the violated invariants when under the ' + 'fuzzer', () => {
     ReproIt.invariant('total-nonneg', () => true); // holds
     ReproIt.invariant('tab-selected', () => false); // violated, empty message
     ReproIt.invariant('cart-count', () => {
@@ -86,7 +86,7 @@ describe('ReproIt.invariant (RN self-triggered oracle)', () => {
     expect(markers(logSpy)).toHaveLength(0);
   });
 
-  it('is INERT in production: a violation is never evaluated without the fuzzer gate', () => {
+  it('is INERT in production: a violation is never evaluated without the ' + 'fuzzer gate', () => {
     ReproIt.invariant('boom', () => false);
     // no __reproit_fuzz set
     impl.checkInvariants('cafed00d');
