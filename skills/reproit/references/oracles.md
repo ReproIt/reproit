@@ -38,7 +38,7 @@ confidence:
   `permission-walk`.
 - Heuristic or policy-dependent: `content-bug`, `occlusion`, `choice-anomaly`, `broken-route`,
   `security`, `duplicate-submit`, `focus-loss`, `blank-screen`, `broken-asset`, and `zoom-reflow`.
-- `unknown` is registry-drift telemetry and can never become a confirmed bug.
+- `unclassified` is registry-drift telemetry and can never become a confirmed bug.
 
 Useful exact contract identities include:
 

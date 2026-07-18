@@ -23,14 +23,14 @@
 // The indicator-for value is an exact DOM id reference. The referenced owner
 // must opt in with data-reproit-indicator-owner, and its closest declared
 // container must have a stable id and contain both nodes. Missing/ambiguous/
-// hidden/animating relationships are UNKNOWN and stay silent. A settled,
-// uniquely-resolved relationship is VALID when the indicator is within the
+// hidden/animating relationships ABSTAIN and stay silent. A settled,
+// uniquely-resolved relationship is SATISFIED when the indicator is within the
 // declared max gap (8 CSS px by default) and inside the container, otherwise it
-// is PROVEN. Callers confirm a PROVEN item in a second settled sample before
-// emitting a marker.
+// is a VIOLATION. Callers confirm a VIOLATION item in a second settled sample
+// before emitting a marker.
 export function indicatorRelationshipScan() {
   const indicators = [...document.querySelectorAll('[data-reproit-indicator-for]')];
-  const result = { outcome: 'UNKNOWN', items: [], checks: [], proven: 0, valid: 0, unknown: 0 };
+  const result = { outcome: 'ABSTAIN', items: [], checks: [], proven: 0, valid: 0, unknown: 0 };
   const visible = (el) => {
     if (!el || !el.isConnected) return false;
     const r = el.getBoundingClientRect();
@@ -163,11 +163,11 @@ export function indicatorRelationshipScan() {
     };
     if (!violation) {
       result.valid++;
-      result.checks.push({ ...identity, outcome: 'VALID' });
+      result.checks.push({ ...identity, outcome: 'SATISFIED' });
       continue;
     }
     result.proven++;
-    result.checks.push({ ...identity, outcome: 'PROVEN', violation });
+    result.checks.push({ ...identity, outcome: 'VIOLATION', violation });
     result.items.push({
       ...identity,
       violation,
@@ -183,12 +183,12 @@ export function indicatorRelationshipScan() {
   );
   result.outcome =
     result.proven > 0
-      ? 'PROVEN'
+      ? 'VIOLATION'
       : result.unknown > 0
-        ? 'UNKNOWN'
+        ? 'ABSTAIN'
         : result.valid > 0
-          ? 'VALID'
-          : 'UNKNOWN';
+          ? 'SATISFIED'
+          : 'ABSTAIN';
   return result;
 }
 
