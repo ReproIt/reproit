@@ -32,8 +32,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
-use windows::core::{Interface, BSTR, PCWSTR};
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+use windows::core::{Interface, BOOL, BSTR, PCWSTR};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits,
     GetWindowDC, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
@@ -581,17 +581,17 @@ fn capture_window(window: &IUIAutomationElement, path: &std::path::Path) -> Resu
         anyhow::bail!("no native window handle");
     }
     unsafe {
-        let hwnd_dc = GetWindowDC(hwnd);
+        let hwnd_dc = GetWindowDC(Some(hwnd));
         if hwnd_dc.0.is_null() {
             anyhow::bail!("GetWindowDC failed");
         }
-        let mem_dc = CreateCompatibleDC(hwnd_dc);
+        let mem_dc = CreateCompatibleDC(Some(hwnd_dc));
         let bmp = CreateCompatibleBitmap(hwnd_dc, w, h);
         let old = SelectObject(mem_dc, HGDIOBJ(bmp.0));
         // PW_RENDERFULLCONTENT (0x2) so DWM-composited content is included.
         let printed = PrintWindow(hwnd, mem_dc, PRINT_WINDOW_FLAGS(2)).as_bool() || {
             // Fall back to a plain BitBlt of the window DC.
-            BitBlt(mem_dc, 0, 0, w, h, hwnd_dc, 0, 0, SRCCOPY).is_ok()
+            BitBlt(mem_dc, 0, 0, w, h, Some(hwnd_dc), 0, 0, SRCCOPY).is_ok()
         };
         let mut buf = vec![0u8; (w * h * 4) as usize];
         let mut bmi = BITMAPINFO {
@@ -618,7 +618,7 @@ fn capture_window(window: &IUIAutomationElement, path: &std::path::Path) -> Resu
         SelectObject(mem_dc, old);
         let _ = DeleteObject(HGDIOBJ(bmp.0));
         let _ = DeleteDC(mem_dc);
-        ReleaseDC(hwnd, hwnd_dc);
+        ReleaseDC(Some(hwnd), hwnd_dc);
         if !printed || got == 0 {
             anyhow::bail!("PrintWindow/GetDIBits failed");
         }
@@ -936,9 +936,9 @@ unsafe extern "system" fn enum_pid_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
     GetWindowThreadProcessId(hwnd, Some(&mut owner));
     if owner == search.pid && IsWindowVisible(hwnd).as_bool() {
         search.hwnd = hwnd;
-        return BOOL(0);
+        return false.into();
     }
-    BOOL(1)
+    true.into()
 }
 
 // Find the first visible top-level HWND owned by `pid`, retried until

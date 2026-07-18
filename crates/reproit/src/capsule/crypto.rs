@@ -49,8 +49,10 @@ pub(super) fn encrypt_with_key(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u
     let mut nonce = [0_u8; 12];
     getrandom::fill(&mut nonce)
         .map_err(|error| anyhow::anyhow!("generating capsule nonce: {error}"))?;
+    let cipher_nonce = Nonce::try_from(nonce.as_slice())
+        .map_err(|error| anyhow::anyhow!("capsule nonce: {error}"))?;
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .encrypt(&cipher_nonce, plaintext)
         .map_err(|error| anyhow::anyhow!("encrypting capsule: {error}"))?;
     let mut output = b"RPC1".to_vec();
     output.extend_from_slice(&nonce);
@@ -68,7 +70,9 @@ pub(super) fn decrypt_with_key(key: &[u8; 32], bytes: &[u8]) -> Result<Vec<u8>> 
     }
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|error| anyhow::anyhow!("capsule cipher: {error}"))?;
+    let nonce = Nonce::try_from(&bytes[4..16])
+        .map_err(|error| anyhow::anyhow!("capsule nonce: {error}"))?;
     cipher
-        .decrypt(Nonce::from_slice(&bytes[4..16]), &bytes[16..])
+        .decrypt(&nonce, &bytes[16..])
         .map_err(|_| anyhow::anyhow!("capsule authentication failed (wrong key or corrupt data)"))
 }

@@ -25,7 +25,7 @@
 
 use crate::config::AuthCfg;
 use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
+use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -89,8 +89,11 @@ impl Vault {
             bail!("{} is not a reproit vault (bad header)", path.display());
         };
         let key = derive_key(kdf_id, salt)?;
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
-        let pt = cipher.decrypt(Nonce::from_slice(nonce), ct).map_err(|_| {
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|error| anyhow::anyhow!("vault cipher: {error}"))?;
+        let nonce =
+            Nonce::try_from(nonce).map_err(|error| anyhow::anyhow!("vault nonce: {error}"))?;
+        let pt = cipher.decrypt(&nonce, ct).map_err(|_| {
             anyhow::anyhow!("vault decrypt failed: wrong REPROIT_VAULT_KEY or keyfile")
         })?;
         let map: BTreeMap<String, String> =
@@ -118,10 +121,13 @@ impl Vault {
             Material::Keyfile(_) => KDF_SHA256,
         };
         let key = derive_key_from(kdf_id, &salt, &material)?;
-        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|error| anyhow::anyhow!("vault cipher: {error}"))?;
+        let cipher_nonce = Nonce::try_from(nonce.as_slice())
+            .map_err(|error| anyhow::anyhow!("vault nonce: {error}"))?;
         let pt = serde_json::to_vec(&self.map)?;
         let ct = cipher
-            .encrypt(Nonce::from_slice(&nonce), pt.as_ref())
+            .encrypt(&cipher_nonce, pt.as_ref())
             .map_err(|_| anyhow::anyhow!("vault encrypt failed"))?;
         let mut out = Vec::with_capacity(MAGIC_V2.len() + 1 + SALT_LEN + NONCE_LEN + ct.len());
         out.extend_from_slice(MAGIC_V2);
