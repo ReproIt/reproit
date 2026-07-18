@@ -10,7 +10,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { chromium } from 'playwright';
-import { collectRouteLinks, soft404View, isSoftHandled, ASSET_EXT_SOURCE } from './runner.mjs';
+import {
+  collectRouteLinks,
+  soft404View,
+  isSoftHandled,
+  ASSET_EXT_SOURCE,
+  inspectLinkedRoutes,
+  publicRouteKey,
+  requestRouteKey,
+} from './route-inspection.mjs';
+import { snapshot } from './runner.mjs';
 
 test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'routes', async () => {
   const browser = await chromium.launch();
@@ -32,6 +41,7 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'ro
       <a href="/manual.pdf">Manual</a>
       <a href="javascript:void(0)">JS</a>
       <a href="mailto:x@y.z">Mail</a>
+      <pre><code><a href="/sample-only">Example route</a></code></pre>
       <form action="/logout" method="post"><a href="/logout" type="submit">Log out</a></form>
       <a href="https://other.test/x">Off-site</a>
     `);
@@ -39,8 +49,8 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'ro
     assert.deepEqual(
       [...links].sort(),
       ['/dashboard', '/settings'],
-      'only same-origin GET routes survive; nofollow/submit/asset/js/mailto/' +
-        'off-site dropped, trailing slash normalized',
+        'only same-origin GET routes survive; code/nofollow/submit/asset/js/' +
+        'mailto/off-site dropped, trailing slash normalized',
     );
   } finally {
     await browser.close();
@@ -70,6 +80,146 @@ test('collectRouteLinks honors <base href> when resolving relative links', async
       links.includes('/app/examples/builder'),
       `base-relative link resolved under <base>; got ${JSON.stringify(links)}`,
     );
+  } finally {
+    await browser.close();
+  }
+});
+
+test('query routes stay exact internally while evidence redacts secret values', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.route('**/*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><main><a href="/">Home</a></main>',
+      }),
+    );
+    const exact = '/login?returnTo=%2Fdownload&token=top-secret&utm_source=test';
+    await page.goto('http://app.test' + exact);
+    const snap = await snapshot(page);
+
+    assert.equal(
+      requestRouteKey('/login', '?returnTo=%2Fdownload&token=top-secret'),
+      '/login?returnTo=%2Fdownload&token=top-secret',
+      'the internal request key retains the exact query needed for navigation',
+    );
+    assert.notEqual(
+      publicRouteKey('/login?returnTo=%2Fa'),
+      publicRouteKey('/login?returnTo=%2Fb'),
+      'ordinary routing parameters remain distinct',
+    );
+    assert.ok(snap.anchor.includes('returnTo=%2Fdownload'), snap.anchor);
+    assert.ok(!snap.anchor.includes('top-secret'), snap.anchor);
+    assert.ok(!snap.anchor.includes('utm_source'), snap.anchor);
+    assert.ok(snap.anchor.includes('token=%3Credacted%3E'), snap.anchor);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('one-hop HTML inspection finds a dead child without recursively crawling', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const requests = [];
+    await page.route('**/*', (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      requests.push({ path: url.pathname + url.search, type: request.resourceType() });
+      if (url.pathname === '/login' && url.search === '?returnTo=%2Fdownload') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body:
+            '<!doctype html><main data-sig="login-sig"><a href="/download">Download</a>' +
+            '<a href="/level-two">More</a></main>',
+        });
+      }
+      if (url.pathname === '/login') {
+        return route.fulfill({ status: 400, contentType: 'text/html', body: 'query required' });
+      }
+      if (url.pathname === '/download') {
+        return route.fulfill({
+          status: 404,
+          contentType: 'text/html',
+          body: '<h1>404 - Page not found</h1>',
+        });
+      }
+      if (url.pathname === '/level-two') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<main><a href="/deep-dead">Deep dead link</a></main>',
+        });
+      }
+      if (url.pathname === '/deep-dead') {
+        return route.fulfill({ status: 404, contentType: 'text/html', body: '<h1>404</h1>' });
+      }
+      if (url.pathname === '/skipped-success') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<main><a href="/never-inspected">Skipped by inspection cap</a></main>',
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<main><a href="/login?returnTo=%2Fdownload">Login</a></main>',
+      });
+    });
+    await page.goto('http://app.test/');
+    const logs = [];
+    const result = await inspectLinkedRoutes(page, {
+      origin: 'http://app.test',
+      seenLinks: new Map([
+        ['/login?returnTo=%2Fdownload', 'root-sig'],
+        ['/skipped-success', 'root-sig'],
+      ]),
+      navStatus: {},
+      observe: async () => ({
+        sig: await page.evaluate(
+          () => document.querySelector('[data-sig]')?.getAttribute('data-sig') || null,
+        ),
+      }),
+      log: (line) => logs.push(line),
+      fetchCap: 10,
+      inspectCap: 1,
+      renderCap: 1,
+    });
+
+    assert.equal(result.inspected, 1, JSON.stringify(result));
+    assert.equal(result.rendered, 1, JSON.stringify(result));
+    assert.equal(result.findings, 1, JSON.stringify(result));
+    assert.equal(result.coverageGaps, 1, 'a successful page skipped by the cap is explicit');
+    assert.ok(
+      requests.some(
+        (request) =>
+          request.type === 'document' &&
+          request.path === '/login?returnTo=%2Fdownload',
+      ),
+      'the successful page is rendered with its exact query',
+    );
+    assert.ok(
+      logs.some(
+        (line) =>
+          line.includes('EXPLORE:BROKENROUTE') &&
+          line.includes('"sig":"login-sig"') &&
+          line.includes('"route":"/download"'),
+      ),
+      logs.join('\n'),
+    );
+    assert.ok(
+      !requests.some((request) => request.path === '/deep-dead'),
+      'successful child pages are not recursively inspected',
+    );
+    assert.ok(
+      !requests.some((request) => request.path === '/never-inspected'),
+      'a capped successful page is not silently inspected',
+    );
+    assert.equal(new URL(page.url()).pathname, '/', 'the helper restores the original page');
   } finally {
     await browser.close();
   }

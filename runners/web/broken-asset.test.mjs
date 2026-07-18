@@ -275,6 +275,65 @@ test('healthy, third-party, and inactive resources stay silent', async () => {
   }
 });
 
+test('email decoder used only by a code sample is not a critical app asset', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(installCriticalResourceObserver);
+    await page.route('**/*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body:
+          '<!doctype html><pre><code><a class="__cf_email__" data-cfemail="00" ' +
+          'href="/cdn-cgi/l/email-protection">[email protected]</a></code></pre>' +
+          '<script data-cfasync="false" src="/cdn-cgi/scripts/hash/' +
+          'cloudflare-static/email-decode.min.js"></script>',
+      }),
+    );
+    await page.goto('http://asset.test/');
+    const scriptUrl =
+      'http://asset.test/cdn-cgi/scripts/hash/cloudflare-static/email-decode.min.js';
+    const out = await page.evaluate(criticalResourceScan, [
+      { url: scriptUrl, failure: 'csp', resourceType: 'script' },
+    ]);
+    assert.deepEqual(out, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('email decoder remains critical for a protected user-facing link', async () => {
+  const browser = await browserType.launch();
+  try {
+    const page = await browser.newPage();
+    await page.addInitScript(installCriticalResourceObserver);
+    await page.route('**/*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body:
+          '<!doctype html><main><a class="__cf_email__" data-cfemail="00" ' +
+          'href="/cdn-cgi/l/email-protection">Contact us</a></main>' +
+          '<script data-cfasync="false" src="/cdn-cgi/scripts/hash/' +
+          'cloudflare-static/email-decode.min.js"></script>',
+      }),
+    );
+    await page.goto('http://asset.test/');
+    const scriptUrl =
+      'http://asset.test/cdn-cgi/scripts/hash/cloudflare-static/email-decode.min.js';
+    await page.evaluate(() =>
+      document.querySelector('script[src*="email-decode"]').dispatchEvent(new Event('error')),
+    );
+    const out = await page.evaluate(criticalResourceScan, [
+      { url: scriptUrl, failure: 'csp', resourceType: 'script' },
+    ]);
+    assert.ok(out.some((item) => item.reason === 'script-request'), JSON.stringify(out));
+  } finally {
+    await browser.close();
+  }
+});
+
 test('a successful same-URL retry clears an earlier transient load error', async () => {
   const browser = await browserType.launch();
   try {

@@ -463,10 +463,9 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
             //    carries the dead <a>; the screen itself is healthy.
             //  - visited (otherwise): the walk actually landed on the dead document, so the
             //    finding's own screen IS the dead route.
-            // /cdn-cgi/l/email-protection is a Cloudflare email-obfuscation URL;
-            // on a host not behind Cloudflare nothing decodes it, so it is a
-            // real dead link for users, but the fix is specific (restore a plain
-            // mailto:), so say that instead of the generic dead-route line.
+            // /cdn-cgi/l/email-protection is a Cloudflare email-obfuscation URL.
+            // It needs the decoder script and is not a usable route by itself,
+            // so a 404 is actionable but has a more specific remedy.
             // NO parentheses in these messages: scan_detail (modes/fuzz.rs)
             // truncates at the first " (" and would eat the remedy.
             let cf_email = route.starts_with("/cdn-cgi/l/email-protection");
@@ -474,8 +473,8 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
                 if cf_email {
                     format!(
                         "dead link on this screen: {route} returns HTTP {status}; it is a \
-                         Cloudflare email-protection URL and this host is not behind Cloudflare, \
-                         so nothing decodes it; replace the link with a plain mailto:"
+                         Cloudflare email-protection URL whose decoder did not handle the click; \
+                         restore the decoder or replace the link with a plain mailto:"
                     )
                 } else {
                     format!(
@@ -487,8 +486,8 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
             } else if cf_email {
                 format!(
                     "navigated to {route} and got HTTP {status}; it is a Cloudflare \
-                     email-protection URL and this host is not behind Cloudflare, so nothing \
-                     decodes it; replace the link with a plain mailto:"
+                     email-protection URL whose decoder did not handle the click; restore the \
+                     decoder or replace the link with a plain mailto:"
                 )
             } else {
                 format!("this screen's document {route} returned HTTP {status} [dead route]")

@@ -72,7 +72,9 @@ not how interesting it looks.
 | `permission-walk`    | environment-dependent | A controlled permission denial leaves no working forward exit                          | native mobile                                                                 |
 
 Heuristic and environment-dependent categories are not promoted into confirmed bugs merely because
-they repeat. Repetition proves repeatability, not product intent.
+they repeat. Repetition proves repeatability, not product intent. `scan` still reports every enabled
+state-present oracle whose predicate held and preserves this classification in its output; the
+classification is policy metadata, not a reason to discard the finding.
 
 ### Structural contract identities
 
@@ -130,6 +132,10 @@ authorization, transactionality, ordering, or consistency must be declared expli
 | `response-selection`           | A GraphQL response contradicted the exact normalized selection mapping.                                                              |
 | `http-byte-range`              | A single byte-range response contradicts an authored exact representation in its status, `Content-Range`, length, or raw body bytes. |
 | `http-redirect-transition`     | A captured redirect hop violates the method and body transition required by its HTTP status.                                         |
+| `runtime-memory-safety`        | An instrumented build emitted a structured AddressSanitizer, HWASan, or MemorySanitizer diagnosis.                                   |
+| `runtime-memory-leak`          | An instrumented build emitted a structured LeakSanitizer diagnosis.                                                                 |
+| `runtime-data-race`            | An instrumented build emitted a structured ThreadSanitizer diagnosis.                                                               |
+| `runtime-undefined-behavior`   | An instrumented build emitted a structured UndefinedBehaviorSanitizer diagnosis.                                                    |
 
 ### WebSockets
 

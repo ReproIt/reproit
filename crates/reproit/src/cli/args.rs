@@ -245,9 +245,9 @@ pub(crate) enum Cmd {
     },
     /// List the simulators reproit manages (by configured name prefix)
     Devices,
-    /// Scan each reachable screen once for violations of authoritative state
-    /// contracts. Heuristic content, layout, and routing detectors are opt-in
-    /// specialist fuzz oracles rather than default confirmed bugs.
+    /// Scan each reachable screen once for state-present oracle findings.
+    /// Results retain an authoritative or specialist classification, but both
+    /// are reported when their oracle predicate holds.
     /// `--record` saves quick audit clips; use `record <id>` for a fuzz repro.
     Scan {
         /// What to scan. An OpenAPI, GraphQL introspection, or protobuf schema
@@ -271,7 +271,7 @@ pub(crate) enum Cmd {
         #[arg(long)]
         sim: bool,
         /// After the crawl, record an annotated clip (a red box on the bug) for
-        /// each boxable stable finding. Web only.
+        /// each boxable finding. Web only.
         #[arg(long)]
         record: bool,
         /// Where the `--record` clips land (default:

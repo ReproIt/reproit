@@ -65,6 +65,28 @@ import {
   choiceAnomalyInPage,
   replayChoiceComponentInPage,
 } from './choice-oracle.mjs';
+import {
+  ASSET_EXT_SOURCE,
+  collectRouteLinks,
+  inspectLinkedRoutes,
+  isDeadRouteStatus,
+  isSoftHandled,
+  requestRouteKey,
+  soft404View,
+} from './route-inspection.mjs';
+
+export {
+  ASSET_EXT_SOURCE,
+  collectRouteLinks,
+  inspectLinkedRoutes,
+  isAssetPath,
+  isDeadRouteStatus,
+  isSoftHandled,
+  normalizePathname,
+  publicRouteKey,
+  requestRouteKey,
+  soft404View,
+} from './route-inspection.mjs';
 
 const APP_URL = process.env.REPROIT_URL || 'http://localhost:8080';
 const APP_ORIGIN = (() => {
@@ -1455,6 +1477,15 @@ function loadBatch() {
 
 const FUZZ_CONFIGURED = !!process.env.REPROIT_FUZZ_CONFIG;
 
+// A scan/map coverage config is deliberately compact. Fuzz plans carry guidance
+// fields (edgeWeights/contractActions/seeds/prefix), while scan writes only seed
+// and budget. Keeping this decision runner-local adds honest truncation reporting
+// without changing the serialized config contract or ordinary fuzz semantics.
+function isCoverageWalkConfig(fuzz) {
+  if (!fuzz || typeof fuzz !== 'object' || fuzz.replay || fuzz.prefix) return false;
+  return Object.keys(fuzz).every((key) => key === 'seed' || key === 'budget');
+}
+
 function edgeKey(sig, action) {
   return sig + '|' + action;
 }
@@ -1462,6 +1493,20 @@ function rememberActions(actionsByState, sig, actions) {
   const known = actionsByState.get(sig) || [];
   for (const action of actions) if (!known.includes(action)) known.push(action);
   actionsByState.set(sig, known);
+}
+function coverageActions(current) {
+  const actions = [];
+  for (const element of current.tappables) {
+    if (element.external) continue;
+    actions.push(
+      element.role === 'textfield'
+        ? 'type:' + element.sel + '=normal'
+        : 'tap:' + element.sel,
+    );
+  }
+  actions.sort();
+  actions.push('back');
+  return actions;
 }
 function firstUntriedAction(actionsByState, tried, sig) {
   for (const action of actionsByState.get(sig) || []) {
@@ -1722,98 +1767,6 @@ function signatureOf(anchor, root) {
   return fnv1a(descriptorOf(anchor, root));
 }
 
-// BROKEN-ROUTE ground-truth predicates (shared so the same rule is used by the
-// runner and by its unit tests). A route is DEAD only when the resource is
-// GENUINELY GONE: HTTP 404 (not found) or 410 (gone). Never 405/501 (method
-// semantics -- a CDN answering HEAD 501 while GET is 200 was a false positive),
-// 3xx (redirect), 401/403/429 (auth / rate limit), or 5xx (a transient server
-// error is not a broken LINK).
-function isDeadRouteStatus(s) {
-  return s === 404 || s === 410;
-}
-// Source for the non-app asset/download extensions the end-of-crawl probe must
-// NOT fetch: archives, installers, media, fonts, and static web assets. NOTE:
-// .html / .htm are deliberately NOT here -- they are navigable pages (a real 404
-// on `pages/examples/invoice.html` must still fire). A 404 on an actual asset is a
-// broken-asset concern, not a broken-route.
-const ASSET_EXT_SOURCE =
-  '\\.(zip|pdf|dmg|exe|msi|pkg|deb|rpm|apk|tar|gz|tgz|bz2|xz|7z|rar|iso|mp' +
-  '4|mp3|wav|mov|avi|mkv|webm|png|jpe?g|gif|svg|webp|avif|ico|bmp|css|js|' +
-  'mjs|cjs|map|wasm|woff2?|ttf|otf|eot|xml|csv|txt|rss|atom)$';
-function isAssetPath(pathname) {
-  return new RegExp(ASSET_EXT_SOURCE, 'i').test(pathname || '');
-}
-
-// In-page collector of same-origin APP link targets for the end-of-crawl
-// broken-route probe (self-contained so it can be passed to page.evaluate and
-// imported by tests). Dedup + first-source-wins is the caller's job; this returns
-// the normalized pathnames to probe, EXCLUDING links a real user never GET-reaches:
-//   - download links + asset/download extensions (a 404 there is a broken-asset,
-//     and many assets legitimately answer non-200 to a bare fetch);
-//   - rel=nofollow / rel=external: POST-only OAuth buttons, sponsored / externally
-//     owned links (the OpenStreetMap Google/Facebook/GitHub login buttons that GET
-//     to a false 404);
-//   - javascript:/mailto:/tel: and bare #fragments (not routes);
-//   - form-submit targets (a POST the user submits, not a GET route).
-// URLs resolve against <base href> when present (`a.href` is base-aware, unlike
-// new URL(getAttribute)), and the trailing slash is normalized so /docs and /docs/
-// collapse.
-function collectRouteLinks(assetExtSrc) {
-  const out = [];
-  const ASSET_EXT = new RegExp(assetExtSrc, 'i');
-  const norm = (p) => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p);
-  const relTokens = (a) => (a.getAttribute('rel') || '').toLowerCase().split(/\s+/);
-  for (const a of document.querySelectorAll('a[href]')) {
-    try {
-      if (a.hasAttribute('download')) continue;
-      const rel = relTokens(a);
-      if (rel.includes('nofollow') || rel.includes('external')) continue;
-      const rawHref = a.getAttribute('href') || '';
-      if (/^(javascript:|mailto:|tel:|#)/i.test(rawHref.trim())) continue;
-      if (
-        a.closest('form') &&
-        (a.getAttribute('type') === 'submit' || a.hasAttribute('data-submit'))
-      )
-        continue;
-      const u = new URL(a.href);
-      if (u.origin !== location.origin || !u.pathname) continue;
-      if (ASSET_EXT.test(u.pathname)) continue;
-      out.push(norm(u.pathname));
-    } catch (_) {}
-  }
-  return out;
-}
-
-// In-page signals used to tell a SPA SOFT-404 (a static host 404s a deep path but
-// still serves index.html and the client router renders the correct view) from a
-// GENUINE dead route. Self-contained for page.evaluate + tests. The host decides:
-// a filled app mount with real interactive content and no dominant not-found
-// heading == the app served a real view (NOT a broken route).
-function soft404View() {
-  const body = document.body;
-  if (!body) return { controls: 0, mountFilled: false, notFound: false };
-  const mount = document.querySelector(
-    '#root,#app,#__next,#__nuxt,[data-reactroot],main,[role=main]',
-  );
-  const mountFilled = !!(mount && mount.querySelectorAll('*').length > 12);
-  const controls = document.querySelectorAll(
-    'a[href],button,[role=button],input,select,textarea,[role=tab],' + '[role=menuitem]',
-  ).length;
-  const heads = Array.from(document.querySelectorAll('h1,h2,[role=heading]')).map((h) =>
-    (h.textContent || '').trim().toLowerCase(),
-  );
-  const notFound = heads.some(
-    (t) =>
-      t.length < 60 && /(^|\b)(404|not found|page not found|doesn'?t exist|no such page)\b/.test(t),
-  );
-  return { controls, mountFilled, notFound };
-}
-// Host-side decision from the soft404View signals: true == the app served a real
-// view (soft 404), so it is NOT a broken route.
-function isSoftHandled(view) {
-  return !!(view && view.mountFilled && view.controls >= 8 && !view.notFound);
-}
-
 export {
   signatureOf,
   descriptorOf,
@@ -1828,14 +1781,8 @@ export {
   classifyFrameIntervals,
   drawFindingBoxes,
   tap,
-  isDeadRouteStatus,
-  isAssetPath,
-  ASSET_EXT_SOURCE,
-  collectRouteLinks,
-  soft404View,
-  isSoftHandled,
   settleForSignature,
-  normalizePathname,
+  isCoverageWalkConfig,
   detectBotWall,
 };
 
@@ -2464,14 +2411,11 @@ async function snapshot(page, valueNodeSelectors) {
         if (texts.length >= 48) break;
       }
 
-      // Anchor: route of the current screen = path + SPA hash route, but NOT the
-      // query string. Hash routers (the common SPA case) put the real route in
-      // location.hash (#/a vs #/b on one pathname), so the hash MUST be in the
-      // signature or distinct screens collapse into one state. The query string
-      // (location.search, plus any ?... embedded in the hash) is deliberately
-      // EXCLUDED: utm/session/token params are volatile and would explode the
-      // state space, and a screen that genuinely differs by query still differs
-      // structurally (the DOM tree), so it stays distinct on its own.
+      // Anchor: route of the current screen = normalized path + query + SPA hash.
+      // Both query-routed pages (`/login?returnTo=/download`) and hash-routed
+      // pages (#/a vs #/b) can expose distinct navigation frontiers. Keeping the
+      // evidence-safe URL identity keeps ordinary routing values while redacting
+      // secrets; the exact query remains internal to navigation/status lookup.
       let anchor = null;
       let path = null;
       try {
@@ -2482,11 +2426,20 @@ async function snapshot(page, valueNodeSelectors) {
           // not a distinct route (else the same screen double-counts / a benign
           // redirect reads as a broken route).
           if (pth.length > 1) pth = pth.replace(/\/+$/, '') || '/';
-          path = pth;
+          path = pth + (location.search || '');
+          const safe = new URLSearchParams();
+          const sensitive =
+            /(auth|code|credential|jwt|key|nonce|password|secret|session|sig|state|ticket|token)/i;
+          const tracking = /^(utm_.+|fbclid|gclid|dclid|msclkid|mc_[ce]id)$/i;
+          for (const [key, value] of new URLSearchParams(location.search || '')) {
+            if (tracking.test(key)) continue;
+            safe.append(key, sensitive.test(key) ? '<redacted>' : value);
+          }
+          const query = safe.toString();
           let hash = location.hash || '';
-          const q = hash.indexOf('?');
-          if (q >= 0) hash = hash.slice(0, q);
-          anchor = pth + hash;
+          const hashQuery = hash.indexOf('?');
+          if (hashQuery >= 0) hash = hash.slice(0, hashQuery);
+          anchor = pth + (query ? '?' + query : '') + hash;
         }
       } catch (e) {}
 
@@ -2534,16 +2487,6 @@ async function snapshot(page, valueNodeSelectors) {
   // This carries raw localized text and is NEVER folded into the canonical key.
   snap.content = snap.sig + '|' + snap.textNodes.map((p) => p[0] + '=' + p[1]).join(';');
   return snap;
-}
-
-// Trailing-slash route normalization: `/docs/` and `/docs` are the SAME screen,
-// so a 301 that adds or drops a trailing slash must not read as a distinct route
-// (else a benign redirect reads as a broken route and the same screen
-// double-counts). Root `/` is left intact. Applied to the in-page anchor AND the
-// host-side navStatus / link keys so route identity is consistent end to end.
-function normalizePathname(p) {
-  if (typeof p !== 'string' || p.length <= 1) return p;
-  return p.replace(/\/+$/, '') || '/';
 }
 
 // DOM QUIESCENCE settle before a STRUCTURAL-SIGNATURE capture. It waits for the
@@ -4319,7 +4262,8 @@ async function drawFindingBoxes(page, hints = {}) {
             if (raw.startsWith('#')) continue;
             let path = '';
             try {
-              path = new URL(raw, location.href).pathname;
+              const target = new URL(raw, location.href);
+              path = target.pathname + target.search;
             } catch (e) {
               continue;
             }
@@ -5201,7 +5145,7 @@ async function main() {
   });
 
   // BROKEN-ROUTE oracle: record the HTTP status of main-frame DOCUMENT
-  // navigations, keyed by URL pathname. A state whose document came back >= 400
+  // navigations, keyed by normalized path + query. A state whose document came back >= 400
   // is a dead route the app linked to (a 404/5xx). The status is structural and
   // locale-invariant, and a 4xx/5xx is never an intended screen, so this is
   // false-positive-free. Same-origin only (off-site links are handled elsewhere).
@@ -5335,7 +5279,7 @@ async function main() {
       if (req.frame() !== page.mainFrame() || req.resourceType() !== 'document') return;
       const u = new URL(resp.url());
       if (u.origin !== APP_ORIGIN) return;
-      navStatus[normalizePathname(u.pathname)] = resp.status();
+      navStatus[requestRouteKey(u.pathname, u.search)] = resp.status();
     } catch (e) {
       /* ignore */
     }
@@ -5867,11 +5811,9 @@ async function main() {
         // ONLY those. Not 401/403 (intentional auth gates), 429 (rate limit),
         // 3xx (redirect), 405/501 (method semantics), or 5xx (a transient server
         // error is not a broken LINK) -- flagging any of those was a false
-        // positive. Looked up by bare PATHNAME (snap.path), not the signature
-        // anchor: a document status is a SERVER concern keyed on the path the
-        // request hit, while the SPA hash (#/route) and query string never reach
-        // the server. Two URLs that differ only by query thus share one status
-        // entry -- a per-query dead route is a known limitation, not distinguished.
+        // positive. Looked up by exact normalized path + query (snap.path), not
+        // the signature anchor: fragments never reach the server, while queries
+        // often select a distinct server route and must retain their response.
         const status = snap.path ? navStatus[snap.path] : undefined;
         if (typeof status === 'number' && isDeadRouteStatus(status)) {
           // SPA SOFT-404 guard: a static host (naiveui, GitHub Pages, Netlify) can
@@ -6127,6 +6069,7 @@ async function main() {
     const prefix = fuzz.prefix || null;
     const prefixLen = prefix ? prefix.length : 0;
     const mapMode = !replay && !prefix && !fuzz.seed;
+    const coverageMode = isCoverageWalkConfig(fuzz);
     const budget = replay
       ? replay.length
       : (mapMode && !FUZZ_CONFIGURED ? MAP_ACTION_BUDGET : fuzz.budget || ACTION_BUDGET) +
@@ -6167,6 +6110,12 @@ async function main() {
       // exhaustively select each choice and flag a global-layout outlier. Each
       // group is its own bounded sub-traversal, consuming one action slot.
       if (!replay) {
+        // Record the ordinary frontier before the differential consumes this
+        // slot. Otherwise a budget-one scan could finish without admitting that
+        // the screen's taps and back edge remain unchecked.
+        if (coverageMode) {
+          rememberActions(actionsByState, current.sig, coverageActions(current));
+        }
         let exercised = false;
         // ARIA / button-cluster groups (from the snapshot tappables) plus native
         // <select> components (FEATURE 1; queried live since the snapshot maps a
@@ -6187,7 +6136,7 @@ async function main() {
       let act;
       if (replay) act = replay[actions];
       else if (prefix && actions < prefixLen) act = prefix[actions];
-      else if (fuzz.seed) {
+      else if (fuzz.seed && !coverageMode) {
         // Inverse-visit-count weighted pick: weight each candidate edge by
         // 1/(1+globalVisits) from the edgeWeights snapshot, plus 'back'.
         // Seeded + deterministic, so replays reproduce exactly. Candidates are
@@ -6217,6 +6166,7 @@ async function main() {
           .map((s) => 'tap:' + s)
           .concat(typeOpts)
           .concat(['back']);
+        if (coverageMode) rememberActions(actionsByState, current.sig, options);
         const contractActions = new Set(fuzz.contractActions || []);
         const weights = options.map((o) => (contractActions.has(o) ? 4 : 1) / (1 + (ew[o] || 0)));
         const total = weights.reduce((a, b) => a + b, 0);
@@ -6230,13 +6180,10 @@ async function main() {
           }
         }
       } else {
-        const actions = [];
-        for (const el of current.tappables) {
-          if (el.external) continue; // never leave the app-under-test's origin
-          actions.push(el.role === 'textfield' ? 'type:' + el.sel + '=normal' : 'tap:' + el.sel);
-        }
-        actions.sort();
-        actions.push('back');
+        // Scan/map coverage walks use the explicit frontier even when they carry
+        // a seed. A seed selects randomized fuzz walks; it must not make a
+        // coverage walk repeat an already-tried edge while reachable work waits.
+        const actions = coverageActions(current);
         rememberActions(actionsByState, current.sig, actions);
         act = firstUntriedAction(actionsByState, triedEdges, current.sig);
         if (!act) {
@@ -6768,12 +6715,12 @@ async function main() {
       current = next;
     }
 
-    if (mapMode && actions >= budget && hasFrontier(actionsByState, triedEdges)) {
+    if (coverageMode && actions >= budget && hasFrontier(actionsByState, triedEdges)) {
       log(
         'EXPLORE:TRUNCATED ' +
           JSON.stringify({
             reason: 'action-budget',
-            budget: MAP_ACTION_BUDGET,
+            budget,
             states: actionsByState.size,
           }),
       );
@@ -6873,94 +6820,36 @@ async function main() {
       }
       await page.waitForTimeout(2200);
     }
-    // BROKEN-ROUTE link check: catch a dead link the bounded crawl never tapped
-    // (a footer /download 404). Skip in a replay (a clip re-walk). TWO stages,
-    // because a raw fetch does NOT match a real browser navigation: an SPA serves a
-    // client route on navigation but 404s a bare fetch, so fetch alone false-flags
-    // working links (e.g. a jobs board's /jobs/role/* client routes).
-    //   1) a GET filter over every un-visited same-origin link (8-way). GET, NOT
-    //      HEAD: a CDN/server answers HEAD with 405/501 ("method not implemented")
-    //      while GET is 200, so a HEAD probe manufactured a false dead route (the
-    //      AdminLTE /index2.html 501 FP). GET is what the user's navigation issues.
-    //   2) VERIFY each flagged candidate with a real page.goto (also a GET) -- only
-    //      a link that truly returns 404/410 ON NAVIGATION is reported.
+    // BROKEN-ROUTE link check: catch a dead link the bounded action walk never
+    // tapped. An 8-way GET pass also extracts links from a bounded set of
+    // successful HTML pages, then probes those children without recursing. A
+    // candidate is reported only after a real document navigation confirms the
+    // GET 404/410 and the rendered view fails the SPA soft-404 guard.
     if (!replay) {
-      const FETCH_CAP = 400,
-        VERIFY_CAP = 20;
-      const toProbe = [...seenLinks.entries()].filter(([p]) => navStatus[p] === undefined);
-      const batch = toProbe.slice(0, FETCH_CAP);
-      let statuses = {};
-      if (batch.length) {
-        try {
-          statuses = await page.evaluate(
-            async (paths) => {
-              const origin = location.origin,
-                out = {};
-              let i = 0;
-              const worker = async () => {
-                while (i < paths.length) {
-                  const p = paths[i++];
-                  try {
-                    const r = await fetch(origin + p, { method: 'GET', redirect: 'manual' });
-                    out[p] = r.status;
-                  } catch (e) {
-                    out[p] = 0;
-                  }
-                }
-              };
-              await Promise.all(Array.from({ length: 8 }, worker));
-              return out;
-            },
-            batch.map(([p]) => p),
-          );
-        } catch (_) {}
-      }
-      // DEAD only when the resource is GENUINELY GONE: 404 or 410 (isDeadRouteStatus).
-      // Never 405/501 (method), 3xx (redirect), or 5xx (transient) -- not broken links.
-      const isDead = (s) => isDeadRouteStatus(s);
-      const candidates = batch.filter(([p]) => isDead(statuses[p] || 0));
-      let verified = 0;
-      for (const [path, fromSig] of candidates) {
-        navStatus[path] = statuses[path] || 0; // remember the fetch verdict
-        if (verified >= VERIFY_CAP) continue;
-        verified++;
-        let navStat = 0;
-        try {
-          const r = await page.goto(APP_ORIGIN + path, { waitUntil: 'load', timeout: 7000 });
-          navStat = r ? r.status() : 0;
-        } catch (_) {}
-        navStatus[path] = navStat;
-        if (!isDead(navStat)) continue;
-        // SPA SOFT-404 guard: a static host (GitHub Pages / Netlify / Vercel) can
-        // answer a deep path with HTTP 404 yet still serve index.html, and the
-        // client router then hydrates the CORRECT app view. Only a GENUINE error /
-        // empty page is a broken route, so after the 404 nav we let the SPA settle
-        // and inspect the rendered document: a populated app mount with real
-        // interactive content and no dominant not-found message means the router
-        // handled it (naiveui, form.io) -> NOT dead. A bare error page (few
-        // controls, no app mount, or a prominent "page not found") stays dead.
-        // A LIGHT wait (not the full settle): the page already fired 'load', and a
-        // client router hydrates its shell within a short window -- the full settle
-        // here cost seconds per candidate on a never-idle site (the Ace editor / a
-        // large 404 set), so it is bounded to a short fixed wait.
-        try {
-          await page.waitForTimeout(500);
-        } catch (_) {}
-        const view = await page
-          .evaluate(soft404View)
-          .catch(() => ({ controls: 0, mountFilled: false, notFound: false }));
-        if (isSoftHandled(view)) {
-          navStatus[path] = 200; // the app served a real view; not a broken route.
-          continue;
-        }
+      const routeInspection = await inspectLinkedRoutes(page, {
+        origin: APP_ORIGIN,
+        seenLinks,
+        navStatus,
+        observe,
+        log,
+      });
+      if (routeInspection.unverified) {
         log(
-          'EXPLORE:BROKENROUTE ' +
-            JSON.stringify({ sig: fromSig, route: path, status: navStat, from: fromSig }),
+          `JOURNEY[a] step: broken-route: ${routeInspection.unverified} ` +
+            'candidate link(s) not verified (capped)',
         );
       }
-      const unverified = candidates.length - Math.min(candidates.length, VERIFY_CAP);
-      if (unverified)
-        log(`JOURNEY[a] step: broken-route: ${unverified} candidate link(s) not verified (capped)`);
+      const routeGaps = routeInspection.coverageGaps + routeInspection.unverified;
+      if (coverageMode && routeGaps > 0) {
+        log(
+          'EXPLORE:TRUNCATED ' +
+            JSON.stringify({
+              reason: 'linked-page-cap',
+              skipped: routeGaps,
+              fetched: routeInspection.fetched,
+            }),
+        );
+      }
     }
     log(`JOURNEY[a] step: explored ${seenStates.size} states`);
   }

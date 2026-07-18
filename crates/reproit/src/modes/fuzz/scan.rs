@@ -18,15 +18,19 @@ pub struct ScanArgs {
 /// SEQUENCE-dependent bugs (crash/jank/hang), `scan` does ONE crawl that visits
 /// every reachable screen once and reports the STATE-PRESENT bugs simply
 /// visible on each (overflow / content / choice-anomaly) - one finding per
-/// (screen x issue), no per-seed collapse. The stable default keeps heuristic
-/// detectors out of normal results. The runner already emits these markers
-/// on any walk; scan is about COLLECTING and reporting them, not new detection.
-/// Returns coverage completeness and the confirmed issue count. The caller
+/// (screen x issue), no per-seed collapse. Results retain their authoritative
+/// or specialist policy classification; both are findings whose own oracle
+/// predicate held. The runner already emits these markers on any walk; scan is
+/// about COLLECTING and reporting them, not new detection.
+/// Returns coverage completeness and the reported issue count. The caller
 /// exits non-zero for either partial coverage or findings so CI cannot read
 /// either as a clean pass.
 pub struct ScanSummary {
     pub complete: bool,
     pub issues: usize,
+    /// Evidence directory produced by the coverage walk. Callers may commit
+    /// this exact run into the app map instead of launching a duplicate crawl.
+    pub run_dir: std::path::PathBuf,
 }
 
 pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSummary> {
@@ -57,30 +61,22 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
         false,
     )
     .await?;
-    let completed = outcome.passed;
+    let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+    let coverage_gaps = scan_coverage_gaps(outcome.passed, &log);
+    let completed = coverage_gaps.is_empty();
 
     // ALL per-state observations (every state x oracle), NOT collapsed to one per
-    // seed, then filtered to authoritative stable state contracts. Heuristic or
-    // policy-dependent observations stay available through fuzz --only, but scan
-    // never upgrades them into default confirmed bugs merely because they repeat.
+    // seed. Objective/authored findings and specialist findings are both valid
+    // oracle observations and both remain visible. Their separate classification
+    // records the policy boundary without erasing or downgrading either finding.
     // The sequence-dependent oracles (crash, jank, hang, leak, flicker) are
     // `fuzz`'s job: a single coverage crawl can trip them flakily, so surfacing
     // them here contradicted the documented scan contract and was the main source
     // of scan non-determinism. They still land in the run log for `fuzz`.
     let findings: Vec<Value> = findings_for_tier(cfg, &outcome.run_dir, args.sim)
         .into_iter()
-        .filter(|f| {
-            if f.get("oracle").and_then(Value::as_str) == Some("backend-contract") {
-                return true;
-            }
-            if f.get("oracle").and_then(Value::as_str) == Some("contract") {
-                return f.get("scope").and_then(Value::as_str) == Some("state");
-            }
-            let oracle = crate::crosscut::classify(f);
-            is_state_present(&oracle) && crate::crosscut::OracleFilter::stable().allows(oracle)
-        })
+        .filter_map(scan_finding)
         .collect();
-    let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
     // BOT-WALL / UNSCANNABLE: the runner hit a WAF challenge interstitial and never
     // reached the app, so any oracle output would be about the interstitial, not
     // the app. Surface the remediation prominently and emit ZERO findings.
@@ -94,17 +90,20 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "target is unscannable (bot-challenge)".to_string());
+        let mut coverage_gaps = coverage_gaps;
+        coverage_gaps.push(format!("unscannable: {diag}"));
         if json {
             println!(
                 "{}",
                 json!({
                     "command": "scan",
-                    "complete": completed,
+                    "complete": false,
                     "unscannable": true,
                     "diagnostic": diag,
                     "screens_scanned": 0,
                     "screens_with_findings": 0,
                     "issues": 0,
+                    "coverage_gaps": coverage_gaps,
                     "results": [],
                     "clips": []
                 })
@@ -113,8 +112,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
             say(json, format!("\nscan: UNSCANNABLE -- {diag}"));
         }
         return Ok(ScanSummary {
-            complete: completed,
+            complete: false,
             issues: 0,
+            run_dir: outcome.run_dir.clone(),
         });
     }
     let obs = crate::model::map::parse_run(&log);
@@ -136,7 +136,7 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     // vs 2) stay distinct because their normalized text differs.
     let mut by_screen: std::collections::BTreeMap<
         String,
-        std::collections::BTreeSet<(String, String)>,
+        std::collections::BTreeSet<(String, String, String)>,
     > = std::collections::BTreeMap::new();
     let route_of = |sig: &str| {
         obs.routes
@@ -159,7 +159,18 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
             .map(|operation| format!("backend:{operation}"))
             .unwrap_or_else(|| route_of(sig));
         let detail = scan_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
-        by_screen.entry(route).or_default().insert((oracle, detail));
+        let classification = f
+            .get("classification")
+            .and_then(Value::as_str)
+            .unwrap_or("authoritative")
+            .to_string();
+        by_screen
+            .entry(route)
+            .or_default()
+            .insert((oracle, classification, detail));
+    }
+    for items in by_screen.values_mut() {
+        collapse_related_findings(items);
     }
 
     let issues: usize = by_screen.values().map(|s| s.len()).sum();
@@ -187,7 +198,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
                     "screen": route,
                     "findings": items
                         .iter()
-                        .map(|(o, d)| json!({"oracle": o, "detail": d}))
+                        .map(|(o, c, d)| {
+                            json!({"oracle": o, "classification": c, "detail": d})
+                        })
                         .collect::<Vec<_>>(),
                 })
             })
@@ -200,6 +213,7 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
                 "screens_scanned": swept,
                 "screens_with_findings": by_screen.len(),
                 "issues": issues,
+                "coverage_gaps": coverage_gaps,
                 "results": results,
                 "clips": clips
             })
@@ -207,6 +221,7 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
         return Ok(ScanSummary {
             complete: completed,
             issues,
+            run_dir: outcome.run_dir.clone(),
         });
     }
 
@@ -221,8 +236,8 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     say(json, summary);
     for (route, items) in &by_screen {
         say(json, format!("\n  {route}"));
-        for (oracle, detail) in items {
-            say(json, format!("    {oracle:16} {detail}"));
+        for (oracle, classification, detail) in items {
+            say(json, format!("    {oracle:16} [{classification}] {detail}"));
         }
     }
     if !clips.is_empty() {
@@ -231,17 +246,94 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     // Honest about partial coverage: a cut-short crawl did NOT check every screen,
     // so don't let it read as a clean pass (the caller also exits non-zero).
     if !completed {
+        let gaps = coverage_gaps.join("; ");
         say(
             json,
-            "\nscan: coverage INCOMPLETE -- the crawl was cut short (timeout/killed), so some \
-             screens were not checked. Raise --budget or journeys.timeoutSec to go deeper."
-                .to_string(),
+            format!(
+                "\nscan: coverage INCOMPLETE -- {gaps}. Some screens or links were not checked. \
+                 Raise --budget or journeys.timeoutSec to go deeper."
+            ),
         );
     }
     Ok(ScanSummary {
         complete: completed,
         issues,
+        run_dir: outcome.run_dir.clone(),
     })
+}
+
+/// Prepare a finding for scan output. Scan has a different selection boundary
+/// from fuzz: a specialist state observation is a valid finding on the screen
+/// where its oracle predicate held. Keep it visible and record the policy class
+/// separately from the finding itself.
+fn scan_finding(mut finding: Value) -> Option<Value> {
+    use crate::crosscut::OracleFilter;
+
+    let raw_oracle = finding.get("oracle").and_then(Value::as_str);
+    let (oracle, classification) = if raw_oracle == Some("backend-contract") {
+        ("backend-contract", "authoritative")
+    } else if raw_oracle == Some("contract") {
+        if finding.get("scope").and_then(Value::as_str) != Some("state") {
+            return None;
+        }
+        ("contract", "authoritative")
+    } else {
+        let classified = crate::crosscut::classify(&finding);
+        if !is_state_present(&classified) {
+            return None;
+        }
+        let classification = if OracleFilter::stable().allows(classified) {
+            "authoritative"
+        } else {
+            "specialist"
+        };
+        (classified.as_str(), classification)
+    };
+
+    let object = finding.as_object_mut()?;
+    object.insert("oracle".into(), Value::String(oracle.into()));
+    object.insert(
+        "classification".into(),
+        Value::String(classification.into()),
+    );
+    Some(finding)
+}
+
+/// Coverage is independent from findings. A clean process can still have a
+/// deterministic work cap or leave links unchecked, so it must not be
+/// reported as a complete clean scan.
+fn scan_coverage_gaps(process_passed: bool, log: &str) -> Vec<String> {
+    let mut gaps = std::collections::BTreeSet::new();
+    if !process_passed {
+        gaps.insert("runner did not pass".to_string());
+    }
+    for line in log.lines() {
+        if let Some((_, detail)) = line.split_once("EXPLORE:TRUNCATED ") {
+            gaps.insert(format!("exploration truncated: {}", detail.trim()));
+        }
+        let Some((prefix, _)) = line.split_once(" candidate link(s) not verified (capped)") else {
+            continue;
+        };
+        let count = prefix.split_whitespace().last().unwrap_or("unknown");
+        gaps.insert(format!(
+            "broken-route verification capped: {count} link(s) not verified"
+        ));
+    }
+    gaps.into_iter().collect()
+}
+
+/// Keep one user-impact finding when a failed helper resource and its broken
+/// generated link are two observations of the same feature failure. The raw
+/// evidence remains in the run log; only the scan summary is causally deduped.
+fn collapse_related_findings(items: &mut std::collections::BTreeSet<(String, String, String)>) {
+    let broken_email_link = items.iter().any(|(oracle, _, detail)| {
+        oracle == "broken-route" && detail.contains("/cdn-cgi/l/email-protection")
+    });
+    if broken_email_link {
+        items.retain(|(oracle, _, detail)| {
+            oracle != "broken-asset" || !detail.contains("cloudflare-static/email-decode.min.js")
+        });
+    }
 }
 
 /// The STATE-PRESENT oracles: bugs visible on a single screen, which is what
@@ -956,4 +1048,112 @@ fn scan_detail(msg: &str) -> String {
         .and_then(|rest| rest.split_once(' ').map(|(_sig, tail)| tail))
         .unwrap_or(msg);
     s.split(" (").next().unwrap_or(s).trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_reports_state_present_specialist_findings() {
+        for (invariant, kind, expected) in [
+            ("no-choice-anomaly", "CHOICE", "choice-anomaly"),
+            ("no-broken-route", "BROKENROUTE", "broken-route"),
+        ] {
+            let finding = scan_finding(json!({
+                "invariant": invariant,
+                "kind": kind,
+                "message": "state s has valid specialist evidence",
+                "sig": "s",
+            }))
+            .expect("state-present specialist findings belong in scan output");
+            assert_eq!(finding["oracle"], expected);
+            assert_eq!(finding["classification"], "specialist");
+            assert!(finding.get("advisory").is_none());
+        }
+    }
+
+    #[test]
+    fn scan_excludes_sequence_dependent_fuzz_signals() {
+        for (invariant, kind) in [
+            ("no-exception", "CRASH"),
+            ("no-jank", "PERF"),
+            ("no-hang", "HANG"),
+            ("no-leak", "LEAK"),
+            ("paint-flicker", "FLICKER"),
+        ] {
+            let finding = json!({
+                "invariant": invariant,
+                "kind": kind,
+                "message": "sequence-dependent",
+                "sig": "s",
+            });
+            assert!(
+                scan_finding(finding).is_none(),
+                "{invariant} must remain fuzz-only"
+            );
+        }
+    }
+
+    #[test]
+    fn scan_keeps_only_state_scoped_contracts_as_authoritative() {
+        let state = scan_finding(json!({
+            "oracle": "contract",
+            "scope": "state",
+            "message": "authored state contract failed",
+        }))
+        .expect("state contract belongs in scan");
+        assert_eq!(state["classification"], "authoritative");
+
+        let trace = json!({
+            "oracle": "contract",
+            "scope": "trace",
+            "message": "temporal contract failed",
+        });
+        assert!(scan_finding(trace).is_none());
+    }
+
+    #[test]
+    fn scan_marks_truncated_and_capped_coverage_incomplete() {
+        let gaps = scan_coverage_gaps(
+            true,
+            concat!(
+                "EXPLORE:TRUNCATED {\"reason\":\"action-budget\",\"budget\":20}\n",
+                "JOURNEY[a] step: broken-route: 7 candidate link(s) not verified (capped)\n",
+            ),
+        );
+        assert_eq!(gaps.len(), 2);
+        assert!(gaps.iter().any(|gap| gap.contains("exploration truncated")));
+        assert!(gaps
+            .iter()
+            .any(|gap| gap.contains("7 link(s) not verified")));
+        assert!(scan_coverage_gaps(true, "JOURNEY DONE\n").is_empty());
+        assert!(!scan_coverage_gaps(false, "JOURNEY DONE\n").is_empty());
+    }
+
+    #[test]
+    fn scan_collapses_email_decoder_and_generated_dead_link() {
+        let mut findings = std::collections::BTreeSet::from([
+            (
+                "broken-asset".to_string(),
+                "specialist".to_string(),
+                "script cloudflare-static/email-decode.min.js failure=csp".to_string(),
+            ),
+            (
+                "broken-route".to_string(),
+                "specialist".to_string(),
+                "dead link /cdn-cgi/l/email-protection returns HTTP 404".to_string(),
+            ),
+            (
+                "choice-anomaly".to_string(),
+                "specialist".to_string(),
+                "choice differs".to_string(),
+            ),
+        ]);
+        collapse_related_findings(&mut findings);
+        assert_eq!(findings.len(), 2);
+        assert!(!findings
+            .iter()
+            .any(|(oracle, _, _)| oracle == "broken-asset"));
+    }
 }

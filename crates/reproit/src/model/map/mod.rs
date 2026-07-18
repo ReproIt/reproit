@@ -167,6 +167,29 @@ fn read_all_device_logs(run_dir: &Path) -> Result<String> {
         .join("\n"))
 }
 
+/// Fold one completed crawl into the committed app map without launching a
+/// second journey. Scan uses this after its own coverage walk so first-run and
+/// stale-map refreshes stay single-pass. `replace` discards the old graph only
+/// after this run supplied at least one usable state.
+pub(crate) fn commit_run(
+    root: &Path,
+    cfg: &Config,
+    run_dir: &Path,
+    replace: bool,
+    complete: bool,
+) -> Result<bool> {
+    if replace && !complete {
+        return Ok(false);
+    }
+    let log = read_all_device_logs(run_dir)?;
+    let obs = parse_run(&log);
+    if obs.states.is_empty() {
+        return Ok(false);
+    }
+    commit_observations(root, cfg, &obs, replace)?;
+    Ok(true)
+}
+
 pub async fn build_map(
     cfg: &Config,
     root: &Path,
@@ -1507,6 +1530,124 @@ mod tests {
             map_freshness(&root).unwrap(),
             MapFreshness::Stale(vec!["reproit configuration changed"])
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn source_free_url_map_reuses_target_config_and_runner_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-url-map-provenance-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".reproit/map")).unwrap();
+        let config_path = root.join(".reproit/reproit.yaml");
+        std::fs::write(
+            &config_path,
+            "app: { platform: web, url: https://one.test, webRunnerDir: /runner/v1 }\n",
+        )
+        .unwrap();
+        let map = AppMap::empty("https://one.test".to_string());
+        let mut visits = Visits::default();
+        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+
+        assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
+
+        let provenance_path = persistence::provenance_path(&root);
+        let mut provenance: MapProvenance =
+            serde_json::from_slice(&std::fs::read(&provenance_path).unwrap()).unwrap();
+        provenance.generated_at = (chrono::Utc::now() - chrono::Duration::minutes(16)).to_rfc3339();
+        persistence::atomic_write_json(&provenance_path, &provenance).unwrap();
+        assert_eq!(
+            map_freshness(&root).unwrap(),
+            MapFreshness::Stale(vec!["remote runtime revalidation due"])
+        );
+
+        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+
+        std::fs::write(
+            &config_path,
+            "app: { platform: web, url: https://two.test, webRunnerDir: /runner/v1 }\n",
+        )
+        .unwrap();
+        assert_eq!(
+            map_freshness(&root).unwrap(),
+            MapFreshness::Stale(vec!["reproit configuration changed"])
+        );
+
+        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+        std::fs::write(
+            &config_path,
+            "app: { platform: web, url: https://two.test, webRunnerDir: /runner/v2 }\n",
+        )
+        .unwrap();
+        assert_eq!(
+            map_freshness(&root).unwrap(),
+            MapFreshness::Stale(vec!["reproit configuration changed"])
+        );
+
+        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+        std::fs::write(root.join("app.ts"), "export const screen = 'home';").unwrap();
+        assert_eq!(
+            map_freshness(&root).unwrap(),
+            MapFreshness::Stale(vec!["application source changed"])
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn completed_scan_run_can_commit_the_map_without_another_drive() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-scan-map-commit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let run_dir = root.join(".reproit/runs/scan");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let loaded = crate::config::synthesize_web(
+            "https://scan.test",
+            Path::new("/runner/v1"),
+            root.clone(),
+        )
+        .unwrap();
+        std::fs::write(
+            run_dir.join("drive-a.log"),
+            concat!(
+                "EXPLORE:STATE {\"sig\":\"home\",\"labels\":[\"Home\"]}\n",
+                "JOURNEY DONE\n",
+            ),
+        )
+        .unwrap();
+        assert!(commit_run(&root, &loaded.config, &run_dir, false, true).unwrap());
+        let map = load_map(&root, &loaded.config).unwrap();
+        assert_eq!(map.states.len(), 1);
+        assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
+
+        std::fs::write(
+            run_dir.join("drive-a.log"),
+            "EXPLORE:STATE {\"sig\":\"partial\",\"labels\":[\"Partial\"]}\n",
+        )
+        .unwrap();
+        assert!(!commit_run(&root, &loaded.config, &run_dir, true, false).unwrap());
+        let preserved = load_map(&root, &loaded.config).unwrap();
+        assert!(preserved
+            .states
+            .values()
+            .any(|state| { state.signature.semantics_hash.as_deref() == Some("home") }));
+
+        std::fs::write(run_dir.join("drive-a.log"), "EXPLORE:UNSCANNABLE {}\n").unwrap();
+        assert!(!commit_run(&root, &loaded.config, &run_dir, true, true).unwrap());
+        let preserved = load_map(&root, &loaded.config).unwrap();
+        assert!(preserved
+            .states
+            .values()
+            .any(|state| { state.signature.semantics_hash.as_deref() == Some("home") }));
         std::fs::remove_dir_all(root).ok();
     }
 

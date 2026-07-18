@@ -88,8 +88,10 @@ diagnostic views remain under `reproit debug map`.
 
 `reproit scan` is the fast "what's wrong here". It does ONE coverage crawl, visiting every reachable
 screen once, and reports the bugs simply VISIBLE on each screen: broken content (`[object Object]`,
-a bare `undefined`) and choice-anomalies (one option of a picker that shifts the layout). You get
-one finding per (screen x issue), grouped by screen, nothing collapsed.
+a bare `undefined`), choice-anomalies (one option of a picker that shifts the layout), and verified
+broken routes. You get one finding per (screen x issue), grouped by screen, nothing collapsed.
+Every finding retains its `authoritative` or `specialist` classification; classification describes
+the oracle's policy boundary and never hides an observation whose predicate held.
 
 ```sh
 reproit scan https://app.com  # zero-config: scan a deployed app, no setup
@@ -102,8 +104,8 @@ reproit scan --record         # also save an annotated clip per boxable finding
 `--record` (web) replays the path to each finding's screen and saves an annotated video with a red
 box on the bug, one clip per (screen x issue), into `.reproit/recordings/scan/<scan-run>/` (or
 `--out <dir>`). It clips the findings with an on-screen element (content, broken-route,
-choice-anomaly, and the hang/jank trigger). leak / crash have no single element to box, so those are
-skipped.
+choice-anomaly). Sequence-dependent hang, jank, leak, and crash findings remain in `fuzz`; they are
+not inferred from a single screen crawl.
 
 Reach for `scan` first when auditing an app. It is deterministic (no action permutations) and
 surfaces every per-screen issue, where `fuzz` collapses to one finding per seed. `scan --record` is

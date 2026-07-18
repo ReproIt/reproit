@@ -12,7 +12,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { chromium } from 'playwright';
-import { isDeadRouteStatus, isAssetPath } from './runner.mjs';
+import { isDeadRouteStatus, isAssetPath } from './route-inspection.mjs';
+import { isCoverageWalkConfig } from './runner.mjs';
 
 test('isDeadRouteStatus is true ONLY for 404 and 410', () => {
   assert.equal(isDeadRouteStatus(404), true, '404 not found -> dead');
@@ -21,6 +22,18 @@ test('isDeadRouteStatus is true ONLY for 404 and 410', () => {
   for (const s of [200, 204, 301, 302, 304, 401, 403, 405, 429, 500, 501, 502, 503, 0]) {
     assert.equal(isDeadRouteStatus(s), false, `${s} must NOT be a dead route`);
   }
+});
+
+test('only compact scan/map configs opt into coverage truncation reporting', () => {
+  assert.equal(isCoverageWalkConfig({ seed: 7, budget: 10 }), true);
+  assert.equal(isCoverageWalkConfig({}), true);
+  assert.equal(
+    isCoverageWalkConfig({ seed: 7, budget: 10, edgeWeights: {} }),
+    false,
+    'ordinary fuzz guidance must not change semantics',
+  );
+  assert.equal(isCoverageWalkConfig({ seed: 0, replay: ['back'] }), false);
+  assert.equal(isCoverageWalkConfig({ seed: 0, prefix: ['back'] }), false);
 });
 
 test('isAssetPath excludes downloads/assets but keeps navigable pages', () => {

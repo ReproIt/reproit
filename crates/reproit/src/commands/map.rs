@@ -25,6 +25,19 @@ pub(super) async fn ensure_app_map(
     rebuild_app_map(loaded, journey, None, false, None, replace).await
 }
 
+/// Decide whether a scan result may update the committed map. A complete scan
+/// can create or replace a snapshot; an incomplete scan may only merge into an
+/// already-current graph, never create a misleading partial map or displace the
+/// last good stale snapshot. The boolean is the replacement mode.
+pub(super) fn scan_map_commit(freshness: &map::MapFreshness, complete: bool) -> Option<bool> {
+    match freshness {
+        map::MapFreshness::Current => Some(false),
+        map::MapFreshness::Missing if complete => Some(false),
+        map::MapFreshness::Stale(_) if complete => Some(true),
+        map::MapFreshness::Missing | map::MapFreshness::Stale(_) => None,
+    }
+}
+
 pub(super) async fn rebuild_app_map(
     loaded: &config::Loaded,
     journey: &str,
@@ -183,5 +196,26 @@ pub(super) async fn debug_map(
             mapplan::converge_cmd(&loaded, ctx.json)?;
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_commit_policy_preserves_last_good_and_rejects_partial_bootstrap() {
+        let stale = map::MapFreshness::Stale(vec!["application source changed"]);
+        assert_eq!(
+            scan_map_commit(&map::MapFreshness::Current, false),
+            Some(false)
+        );
+        assert_eq!(scan_map_commit(&map::MapFreshness::Missing, false), None);
+        assert_eq!(scan_map_commit(&stale, false), None);
+        assert_eq!(
+            scan_map_commit(&map::MapFreshness::Missing, true),
+            Some(false)
+        );
+        assert_eq!(scan_map_commit(&stale, true), Some(true));
     }
 }

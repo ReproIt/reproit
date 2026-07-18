@@ -4,7 +4,7 @@ use super::persistence::{
     atomic_write_json, fingerprint_cache_path, load_existing_snapshot, provenance_path,
 };
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
@@ -14,6 +14,7 @@ use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 const FINGERPRINT_CACHE_SCHEMA: u32 = 1;
+const REMOTE_MAP_TTL: Duration = Duration::minutes(15);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -298,6 +299,12 @@ fn git_metadata(root: &Path) -> (Option<String>, bool) {
     (commit, dirty)
 }
 
+fn remote_snapshot_expired(generated_at: &str, now: DateTime<Utc>) -> bool {
+    DateTime::parse_from_rfc3339(generated_at)
+        .map(|generated| now.signed_duration_since(generated.with_timezone(&Utc)) >= REMOTE_MAP_TTL)
+        .unwrap_or(true)
+}
+
 pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     let Some((map, _visits)) = load_existing_snapshot(root)? else {
         return Ok(MapFreshness::Missing);
@@ -312,6 +319,11 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     };
     let (source, config, source_file_count) = project_fingerprints(root)?;
     let mut reasons = Vec::new();
+    // A URL target may have no associated checkout. In that case the empty
+    // source fingerprint is a valid identity: the persisted synthesized config
+    // still pins the target and runner, and the Reproit version pins the bundled
+    // runner contract. When local source exists, its fingerprint remains part of
+    // freshness exactly as before.
     if old.source_fingerprint != source {
         reasons.push("application source changed");
     }
@@ -324,8 +336,8 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     if old.map_revision != map_revision {
         reasons.push("map snapshot is incomplete");
     }
-    if old.source_file_count == 0 || source_file_count == 0 {
-        reasons.push("runtime build has no local source identity");
+    if source_file_count == 0 && remote_snapshot_expired(&old.generated_at, Utc::now()) {
+        reasons.push("remote runtime revalidation due");
     }
     Ok(if reasons.is_empty() {
         MapFreshness::Current

@@ -746,6 +746,16 @@ export function criticalResourceScan(networkFacts) {
     } catch (_) {
       continue;
     }
+    const protectedEmailTargets = Array.from(
+      document.querySelectorAll('a.__cf_email__, [data-cfemail]'),
+    );
+    const codeSampleDecoder =
+      /\/cdn-cgi\/scripts\/[^/]+\/cloudflare-static\/email-decode\.min\.js$/i.test(
+        new URL(url).pathname,
+      ) &&
+      protectedEmailTargets.length > 0 &&
+      protectedEmailTargets.every((target) => target.closest('pre,code,[role="code"]'));
+    if (codeSampleDecoder) continue;
     refs.push({
       type: 'script',
       url,

@@ -883,7 +883,7 @@ where
             }
             // Zero-config targets: a URL synthesizes a web config; a bare terminal
             // EXECUTABLE (when there's no project config) synthesizes a TUI/PTY
-            // config. Both auto-build the map. Anything else scopes to an
+            // config. Both learn the map from this same scan. Anything else scopes to an
             // alias/journey/node in a reproit.yaml (which wins over an executable
             // of the same name, so a project is never hijacked).
             let target_url = target_arg.as_deref().and_then(target_as_url);
@@ -891,15 +891,10 @@ where
             let loaded = if let Some(u) = &target_url {
                 let wrd = config::ensure_web_runner_dir(VERSION, &|m| ctx.say(m))?;
                 ctx.say(format!("zero-config web run against {u}"));
-                let l = config::synthesize_web(u, &wrd, std::env::current_dir()?)?;
-                ensure_app_map(&ctx, &l, "explore").await?;
-                l
+                config::synthesize_web(u, &wrd, std::env::current_dir()?)?
             } else {
                 match config::load(cli.config.as_deref()) {
-                    Ok(l) => {
-                        ensure_app_map(&ctx, &l, "explore").await?;
-                        l
-                    }
+                    Ok(l) => l,
                     Err(e) => match target_arg.as_deref().and_then(target_as_executable) {
                         Some(exe) => {
                             if !confirm_tui_fuzz(&ctx, &exe) {
@@ -907,7 +902,6 @@ where
                             }
                             ctx.say(format!("zero-config TUI run against `{exe}`"));
                             let l = config::synthesize_tui(&exe, std::env::current_dir()?)?;
-                            ensure_app_map(&ctx, &l, "explore").await?;
                             synthesized = true;
                             l
                         }
@@ -919,6 +913,19 @@ where
                 Some(t) if !synthesized => t.clone(),
                 _ => "explore".to_string(),
             };
+            let map_freshness = crate::model::map::map_freshness(&loaded.root)?;
+            match &map_freshness {
+                crate::model::map::MapFreshness::Missing => {
+                    ctx.say("  learning app structure from this scan...");
+                }
+                crate::model::map::MapFreshness::Stale(reasons) => {
+                    ctx.say(format!(
+                        "  app model changed ({}); refreshing from this scan...",
+                        reasons.join(", ")
+                    ));
+                }
+                crate::model::map::MapFreshness::Current => {}
+            }
             let args = fuzz::ScanArgs {
                 journey,
                 seed: 1,
@@ -929,6 +936,15 @@ where
                 out,
             };
             let summary = fuzz::scan(&loaded.config, &loaded.root, &args).await?;
+            if let Some(replace_map) = map::scan_map_commit(&map_freshness, summary.complete) {
+                let _ = crate::model::map::commit_run(
+                    &loaded.root,
+                    &loaded.config,
+                    &summary.run_dir,
+                    replace_map,
+                    summary.complete,
+                )?;
+            }
             // A cut-short crawl (timeout/killed) checked only some screens; exit
             // non-zero so CI/agents never read an incomplete scan as a clean pass.
             // Confirmed scan findings are also regressions, matching A2UI scan.
