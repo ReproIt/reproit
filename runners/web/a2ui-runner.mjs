@@ -202,7 +202,7 @@ export function validateMessages(messages) {
           kind: 'protocol-invalid',
           path: `${messageIndex}.createSurface.surfaceId`,
           reason: `surface ${create.surfaceId} is created while it is already live`,
-          proofStatus: 'PROVEN',
+          proofStatus: 'VIOLATION',
         });
       else liveSurfaces.add(create.surfaceId);
       continue;
@@ -216,7 +216,7 @@ export function validateMessages(messages) {
         reason:
           `${operation} targets surface ${update.surfaceId} before createSurface ` +
           'or after deleteSurface',
-        proofStatus: 'PROVEN',
+        proofStatus: 'VIOLATION',
       });
       continue;
     }
@@ -472,7 +472,7 @@ export function negotiatedConformance(messages) {
           continue;
         claims.push({
           subject: `${surfaceId}/${component.id}.${property}`,
-          status: 'VALID',
+          status: 'SATISFIED',
           reason: `official schema default is ${canonical(propertySchema.default)}`,
         });
       }
@@ -488,7 +488,7 @@ export function negotiatedConformance(messages) {
         if ('call' in value) {
           claims.push({
             subject,
-            status: 'UNKNOWN',
+            status: 'ABSTAIN',
             reason: 'function result depends on client catalog behavior',
           });
           continue;
@@ -506,7 +506,7 @@ export function negotiatedConformance(messages) {
         if (!scopePaths.length) {
           claims.push({
             subject,
-            status: 'UNKNOWN',
+            status: 'ABSTAIN',
             reason: 'absolute binding is repeated by a dynamic template',
           });
           continue;
@@ -518,13 +518,13 @@ export function negotiatedConformance(messages) {
           if (actual === undefined) {
             claims.push({
               subject: scopedSubject,
-              status: 'UNKNOWN',
+              status: 'ABSTAIN',
               reason: `binding ${resolvedPath} has no final value`,
             });
           } else if (matchesProofType(actual, expectedType)) {
             claims.push({
               subject: scopedSubject,
-              status: 'VALID',
+              status: 'SATISFIED',
               reason: `binding resolves to ${expectedType}`,
             });
           } else {
@@ -532,12 +532,12 @@ export function negotiatedConformance(messages) {
             const reason =
               `${component.component}.${property} binding ${resolvedPath} resolves to ` +
               `${actualType}, expected ${expectedType}`;
-            claims.push({ subject: scopedSubject, status: 'PROVEN', reason });
+            claims.push({ subject: scopedSubject, status: 'VIOLATION', reason });
             errors.push({
               kind: 'protocol-invalid',
               path: `${record?.path ?? component.id}.${property}.path`,
               reason,
-              proofStatus: 'PROVEN',
+              proofStatus: 'VIOLATION',
               oracle: {
                 surfaceId,
                 componentId: component.id,
@@ -553,24 +553,24 @@ export function negotiatedConformance(messages) {
       if (component.component === 'Button' && component.action?.functionCall) {
         claims.push({
           subject: `${surfaceId}/${component.id}.action`,
-          status: 'UNKNOWN',
+          status: 'ABSTAIN',
           reason: 'local function action is catalog-defined external behavior',
         });
       } else if (component.component === 'Button' && component.action?.event) {
         claims.push({
           subject: `${surfaceId}/${component.id}.action`,
-          status: 'VALID',
+          status: 'SATISFIED',
           reason: 'event action matches the official action schema',
         });
       }
     }
   }
   return {
-    status: claims.some((claim) => claim.status === 'PROVEN')
-      ? 'PROVEN'
-      : claims.some((claim) => claim.status === 'UNKNOWN')
-        ? 'UNKNOWN'
-        : 'VALID',
+    status: claims.some((claim) => claim.status === 'VIOLATION')
+      ? 'VIOLATION'
+      : claims.some((claim) => claim.status === 'ABSTAIN')
+        ? 'ABSTAIN'
+        : 'SATISFIED',
     claims,
     errors,
   };
@@ -989,7 +989,7 @@ function validationReport(messages) {
       messages,
       finding(item.kind, 'protocol', item.reason, {
         path: item.path,
-        proofStatus: item.proofStatus ?? 'PROVEN',
+        proofStatus: item.proofStatus ?? 'VIOLATION',
         oracle: item.oracle,
         actual: item.actual,
       }),
@@ -1516,7 +1516,7 @@ async function scanStream(browser, bundle, messages) {
           renderer,
           `official replay state diverges at ${stateDifference.path}`,
           {
-            proofStatus: 'PROVEN',
+            proofStatus: 'VIOLATION',
             oracle: {
               transformation: 'official-message-replay',
               path: stateDifference.path,
@@ -1557,7 +1557,7 @@ async function scanStream(browser, bundle, messages) {
         'react-vs-lit',
         `official renderer states diverge at ${rendererStateDifference.path}`,
         {
-          proofStatus: 'PROVEN',
+          proofStatus: 'VIOLATION',
           oracle: {
             transformation: 'cross-renderer-replay',
             path: rendererStateDifference.path,
@@ -1579,7 +1579,7 @@ async function scanStream(browser, bundle, messages) {
         'react-vs-lit',
         `official resolved properties diverge at ${resolvedDifference.path}`,
         {
-          proofStatus: 'PROVEN',
+          proofStatus: 'VIOLATION',
           oracle: {
             transformation: 'cross-renderer-default-resolution',
             path: resolvedDifference.path,
@@ -1606,7 +1606,7 @@ async function scanStream(browser, bundle, messages) {
             renderer,
             `idempotent update normalization diverges at ${difference.path}`,
             {
-              proofStatus: 'PROVEN',
+              proofStatus: 'VIOLATION',
               oracle: {
                 transformation: 'deduplicate-and-compact-idempotent-updates',
                 path: difference.path,

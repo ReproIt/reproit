@@ -47,7 +47,7 @@ class IndicatorRelationTest {
     assertTrue(IndicatorRelations.marker()!!.contains("escaped-container"))
     moving = true
     assertNull(IndicatorRelations.marker())
-    assertTrue(IndicatorRelations.marker()!!.contains("UNKNOWN"))
+    assertTrue(IndicatorRelations.marker()!!.contains("ABSTAIN"))
     IndicatorRelations.clear()
   }
 }

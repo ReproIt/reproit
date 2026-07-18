@@ -131,7 +131,7 @@ public enum ReproIt {
     if ProcessInfo.processInfo.environment["REPROIT_FUZZ"] == "1" {
       NSLog("%@", marker)
     } else {
-      for result in results where result.status == .proven {
+      for result in results where result.status == .violation {
         _ = shared?.captureContractBug(identity: result.id, message: result.message ?? result.id)
       }
     }

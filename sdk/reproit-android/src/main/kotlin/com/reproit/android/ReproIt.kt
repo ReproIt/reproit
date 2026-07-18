@@ -255,7 +255,7 @@ object ReproIt {
     if (underFuzzer()) android.util.Log.i("reproit", marker)
     else
       results
-        .filter { it.status == ReproItContractStatus.PROVEN }
+        .filter { it.status == ReproItContractStatus.VIOLATION }
         .forEach { engine?.captureContractBug(it.id, it.message ?: it.id) }
   }
 

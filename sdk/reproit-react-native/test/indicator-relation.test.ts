@@ -18,5 +18,5 @@ test('indicator proof needs two stable samples and abstains during animation', (
   expect(relations.marker()).toContain('escaped-container');
   animating = true;
   expect(relations.marker()).toBeNull();
-  expect(relations.marker()).toContain('UNKNOWN');
+  expect(relations.marker()).toContain('ABSTAIN');
 });

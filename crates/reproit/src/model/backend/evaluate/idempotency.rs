@@ -59,7 +59,7 @@ pub(super) fn evaluate_idempotency(
         if successful.len() < 2 {
             continue;
         }
-        if idempotency_group_outcome(contract, &successful) == IdempotencyOutcome::Proven {
+        if idempotency_group_outcome(contract, &successful) == IdempotencyOutcome::Violation {
             let event = successful[1]
                 .returned
                 .as_ref()
@@ -78,9 +78,9 @@ pub(super) fn evaluate_idempotency(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IdempotencyOutcome {
-    Proven,
-    Valid,
-    Unknown,
+    Violation,
+    Satisfied,
+    Abstain,
 }
 
 fn idempotency_group_outcome(
@@ -88,7 +88,7 @@ fn idempotency_group_outcome(
     successful: &[&Invocation<'_>],
 ) -> IdempotencyOutcome {
     if successful.len() < 2 {
-        return IdempotencyOutcome::Unknown;
+        return IdempotencyOutcome::Abstain;
     }
     let inputs = successful
         .iter()
@@ -101,7 +101,7 @@ fn idempotency_group_outcome(
     if inputs.len() != 1 {
         // Reusing a key for different requests is caller behavior, not proof the
         // operation violated idempotency for an identical request.
-        return IdempotencyOutcome::Unknown;
+        return IdempotencyOutcome::Abstain;
     }
 
     if contract.idempotency_response_replay == IdempotencyResponseReplay::Exact {
@@ -117,7 +117,7 @@ fn idempotency_group_outcome(
             })
             .collect::<BTreeSet<_>>();
         if responses.len() > 1 {
-            return IdempotencyOutcome::Proven;
+            return IdempotencyOutcome::Violation;
         }
     }
 
@@ -131,7 +131,7 @@ fn idempotency_group_outcome(
         .filter_map(|effect| effect.resource.as_deref())
         .collect::<BTreeSet<_>>();
     if contract.authority != Authority::Declared || intended.is_empty() {
-        return IdempotencyOutcome::Unknown;
+        return IdempotencyOutcome::Abstain;
     }
     if successful.iter().any(|invocation| {
         !invocation
@@ -139,7 +139,7 @@ fn idempotency_group_outcome(
             .as_ref()
             .is_some_and(|returned| returned.effects_complete)
     }) {
-        return IdempotencyOutcome::Unknown;
+        return IdempotencyOutcome::Abstain;
     }
 
     let Some(baseline) = persistent_final_effects(
@@ -149,10 +149,10 @@ fn idempotency_group_outcome(
             .start
             .and_then(|start| start.tenant.as_deref()),
     ) else {
-        return IdempotencyOutcome::Unknown;
+        return IdempotencyOutcome::Abstain;
     };
     if baseline.is_empty() {
-        return IdempotencyOutcome::Unknown;
+        return IdempotencyOutcome::Abstain;
     }
     for invocation in successful.iter().skip(1) {
         let Some(retry) = persistent_final_effects(
@@ -160,14 +160,14 @@ fn idempotency_group_outcome(
             &intended,
             invocation.start.and_then(|start| start.tenant.as_deref()),
         ) else {
-            return IdempotencyOutcome::Unknown;
+            return IdempotencyOutcome::Abstain;
         };
         if retry
             .iter()
             .any(|(identity, value)| baseline.get(identity) != Some(value))
         {
-            return IdempotencyOutcome::Proven;
+            return IdempotencyOutcome::Violation;
         }
     }
-    IdempotencyOutcome::Valid
+    IdempotencyOutcome::Satisfied
 }

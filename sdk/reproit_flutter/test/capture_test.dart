@@ -21,11 +21,11 @@ void main() {
         ReproIt.stateBoundary(
                 ReproItStateBoundary.rotation, ReproItBoundaryPhase.before)[0]
             .status,
-        ReproItContractStatus.valid);
+        ReproItContractStatus.satisfied);
     state = 'draft:empty';
     final result = ReproIt.stateBoundary(
         ReproItStateBoundary.rotation, ReproItBoundaryPhase.after)[0];
-    expect(result.status, ReproItContractStatus.proven);
+    expect(result.status, ReproItContractStatus.violation);
     expect(result.id, 'state-preservation:rotation:draft');
     ReproIt.debugClearStructuralContracts();
   });
@@ -44,7 +44,7 @@ void main() {
         route: 'cart', state: 'complete', authoritative: true, settled: true);
     expect(
         ReproIt.actionEnd('checkout')
-            .where((r) => r.status == ReproItContractStatus.proven)
+            .where((r) => r.status == ReproItContractStatus.violation)
             .map((r) => r.id),
         [
           'action-effect:checkout:route',
@@ -73,13 +73,13 @@ void main() {
         ReproIt.stateBoundary(ReproItStateBoundary.processRecreation,
                 ReproItBoundaryPhase.before)[0]
             .status,
-        ReproItContractStatus.valid);
+        ReproItContractStatus.satisfied);
     state = 'empty';
     expect(
         ReproIt.stateBoundary(ReproItStateBoundary.processRecreation,
                 ReproItBoundaryPhase.after)[0]
             .status,
-        ReproItContractStatus.proven);
+        ReproItContractStatus.violation);
     ReproIt.debugClearStructuralContracts();
   });
 

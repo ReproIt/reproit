@@ -283,7 +283,7 @@ class ReproItImpl {
   }
 
   private captureContractBug(result: ContractResult): boolean {
-    if (!this.on || !this.cfg || result.status !== 'PROVEN') return false;
+    if (!this.on || !this.cfg || result.status !== 'VIOLATION') return false;
     const snap = snapshot(this.cfg);
     if (!this.cur) {
       this.cur = snap.sig;

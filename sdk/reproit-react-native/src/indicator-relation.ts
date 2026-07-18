@@ -77,7 +77,7 @@ export class IndicatorRelations {
       !valid(g.owner) ||
       !valid(g.container)
     )
-      return { outcome: 'UNKNOWN', fp: 'UNKNOWN' };
+      return { outcome: 'ABSTAIN', fp: 'ABSTAIN' };
     const i = edges(g.indicator),
       o = edges(g.owner),
       box = edges(g.container);
@@ -97,7 +97,7 @@ export class IndicatorRelations {
         .join(',') +
       '|' +
       (violation ?? 'valid');
-    return { outcome: violation ? 'PROVEN' : 'VALID', violation, fp };
+    return { outcome: violation ? 'VIOLATION' : 'SATISFIED', violation, fp };
   }
 }
 function valid(r: ReproItRect): boolean {

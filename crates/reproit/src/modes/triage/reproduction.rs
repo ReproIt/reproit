@@ -1,18 +1,18 @@
 use super::*;
 
 /// How a cloud-pulled session replayed. The key distinction `reproduce` must
-/// make: "replayed clean" (the bug did NOT fire, so it is likely
+/// make: "replayed without reproducing" (the bug did NOT fire, so it is likely
 /// data-dependent) is NOT the same as "could not replay" (the app drifted since
 /// the session, so this run is no verdict on the bug at all). The old code
-/// collapsed both into "clean" and also counted any process failure as
+/// collapsed both into "not_reproduced" and also counted any process failure as
 /// reproduced.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ReproVerdict {
     Reproduced,
-    Clean,
+    NotReproduced,
     Stale,
     Flaky,
-    Unknown,
+    CouldNotReplay,
 }
 
 /// Classify a reproduce run from `reproit check`'s deterministic verdict (its
@@ -21,15 +21,15 @@ pub(crate) enum ReproVerdict {
 pub(crate) fn classify_repro(outcome: Option<&str>, exit_code: Option<i32>) -> ReproVerdict {
     match outcome {
         Some("fail") => ReproVerdict::Reproduced,
-        Some("pass") => ReproVerdict::Clean,
+        Some("pass") => ReproVerdict::NotReproduced,
         Some("stale") => ReproVerdict::Stale,
         Some("flaky") => ReproVerdict::Flaky,
         _ => match exit_code {
             Some(1) => ReproVerdict::Reproduced,
             Some(2) => ReproVerdict::Flaky,
             Some(3) => ReproVerdict::Stale,
-            Some(0) => ReproVerdict::Clean,
-            _ => ReproVerdict::Unknown,
+            Some(0) => ReproVerdict::NotReproduced,
+            _ => ReproVerdict::CouldNotReplay,
         },
     }
 }
@@ -55,7 +55,7 @@ fn run_check_and_classify(
         .context("spawning reproit check")?;
     let log = String::from_utf8_lossy(&out.stdout);
     // Use `check`'s deterministic verdict (its --json `outcome`) rather than
-    // grepping, so "replayed clean" and "could not replay" are distinct.
+    // grepping, so "replayed without reproducing" and "could not replay" are distinct.
     let outcome = log
         .find('{')
         .zip(log.rfind('}'))
@@ -77,17 +77,17 @@ fn run_check_and_classify(
              a setup error (the repro/journey did not resolve), not a reproduction.",
             out.status.code()
         );
-        return Ok(ReproVerdict::Unknown);
+        return Ok(ReproVerdict::CouldNotReplay);
     }
     let verdict = classify_repro(outcome.as_deref(), out.status.code());
     match &verdict {
         ReproVerdict::Reproduced => {
             println!("REPRODUCED: the replay re-triggered the failure in this build. {marker}");
         }
-        ReproVerdict::Clean => {
+        ReproVerdict::NotReproduced => {
             println!(
-                "NOT reproduced: the path replayed CLEAN (the bug did not fire). Likely \
-                 data-dependent (the production session carried data this replay does not)."
+                "NOT REPRODUCED: the replay completed, but the failure did not fire. This \
+                 attempt is not proof of a fix; compare the captured production context."
             );
             if let Some(ctx) = context_hint {
                 println!("  -> synthesize from context: {ctx}");
@@ -103,10 +103,10 @@ fn run_check_and_classify(
         ReproVerdict::Flaky => {
             println!(
                 "FLAKY: the failure reproduced inconsistently across replays (an app race), not a \
-                 clean reproduction."
+                 successful non-reproduction."
             );
         }
-        ReproVerdict::Unknown => {
+        ReproVerdict::CouldNotReplay => {
             println!("Could not classify the replay (no verdict from `reproit check`).");
         }
     }
@@ -173,10 +173,10 @@ pub async fn report_tester_capture(
 ) -> Result<()> {
     let status = match verdict {
         ReproVerdict::Reproduced => "reproduced",
-        ReproVerdict::Clean => "clean",
+        ReproVerdict::NotReproduced => "not_reproduced",
         ReproVerdict::Stale => "stale",
         ReproVerdict::Flaky => "flaky",
-        ReproVerdict::Unknown => return Ok(()),
+        ReproVerdict::CouldNotReplay => return Ok(()),
     };
     let body = serde_json::json!({
         "status": status,
@@ -223,18 +223,18 @@ async fn report_reproduction(
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     if !run {
-        return Ok(ReproVerdict::Unknown);
+        return Ok(ReproVerdict::CouldNotReplay);
     }
     // Reuse the standard local verification by alias; no context hint (the pulled
     // repro carries its own fixture, so a CLEAN verdict is a genuine no-repro).
     let verdict = run_check_and_classify(root, as_name, None)?;
     let status = match verdict {
         ReproVerdict::Reproduced => "reproduced",
-        ReproVerdict::Clean => "clean",
+        ReproVerdict::NotReproduced => "not_reproduced",
         ReproVerdict::Stale => "stale",
         ReproVerdict::Flaky => "flaky",
         // No verdict = nothing to report; the run never happened.
-        ReproVerdict::Unknown => return Ok(ReproVerdict::Unknown),
+        ReproVerdict::CouldNotReplay => return Ok(ReproVerdict::CouldNotReplay),
     };
     let mut body = serde_json::json!({
         "status": status,

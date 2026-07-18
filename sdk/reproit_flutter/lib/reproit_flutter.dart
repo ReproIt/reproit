@@ -1,6 +1,3 @@
-// Flutter keeps these semantics APIs for compatibility with older supported
-// releases. Newer releases deprecate them before a single replacement works
-// across the full SDK version range.
 // ignore_for_file: deprecated_member_use
 
 /// ReproIt production telemetry for Flutter.
@@ -173,7 +170,7 @@ class _FocusContract {
   const _FocusContract(this.sample, this.reveal);
 }
 
-enum ReproItContractStatus { proven, valid, unknown }
+enum ReproItContractStatus { violation, satisfied, abstain }
 
 enum ReproItStateBoundary {
   rotation,
@@ -713,7 +710,7 @@ class ReproIt {
       invchan.appendInvariantLine(path, marker);
     } else {
       for (final result
-          in results.where((r) => r.status == ReproItContractStatus.proven)) {
+          in results.where((r) => r.status == ReproItContractStatus.violation)) {
         _i?._captureContractBug(result);
       }
     }
@@ -767,11 +764,11 @@ class ReproIt {
   static bool _validAction(ReproItActionEffectObservation? o) =>
       o != null && o.authoritative && o.settled;
   static ReproItContractResult _unknown(String id) =>
-      ReproItContractResult(ReproItContractStatus.unknown, id);
+      ReproItContractResult(ReproItContractStatus.abstain, id);
   static ReproItContractResult _validResult(String id) =>
-      ReproItContractResult(ReproItContractStatus.valid, id);
+      ReproItContractResult(ReproItContractStatus.satisfied, id);
   static ReproItContractResult _proven(String id, String message) =>
-      ReproItContractResult(ReproItContractStatus.proven, id, message);
+      ReproItContractResult(ReproItContractStatus.violation, id, message);
 
   static void _checkTarget(List<ReproItContractResult> out, String id,
       String kind, String target, String? after) {
@@ -801,7 +798,7 @@ class ReproIt {
 
   static String? _contractMarker(List<ReproItContractResult> results) {
     final items = results
-        .where((r) => r.status == ReproItContractStatus.proven)
+        .where((r) => r.status == ReproItContractStatus.violation)
         .map((r) => {'id': r.id, 'message': r.message ?? r.id})
         .toList();
     return items.isEmpty
@@ -929,9 +926,9 @@ class ReproIt {
       } catch (_) {
         g = null;
       }
-      var outcome = 'UNKNOWN';
+      var outcome = 'ABSTAIN';
       String? violation;
-      var fp = 'UNKNOWN';
+      var fp = 'ABSTAIN';
       bool validRect(Rect r) =>
           r.left.isFinite &&
           r.top.isFinite &&
@@ -955,7 +952,7 @@ class ReproIt {
         final detached = sqrt(dx * dx + dy * dy) > c.maxGap + .5;
         violation =
             escaped ? 'escaped-container' : (detached ? 'detached' : null);
-        outcome = violation == null ? 'VALID' : 'PROVEN';
+        outcome = violation == null ? 'SATISFIED' : 'VIOLATION';
         fp = [i, o, box]
                 .expand((r) => [r.left, r.top, r.width, r.height])
                 .map((v) => (v * 2).round())
@@ -1643,7 +1640,7 @@ class ReproIt {
   }
 
   bool _captureContractBug(ReproItContractResult result) {
-    if (_disposed || result.status != ReproItContractStatus.proven)
+    if (_disposed || result.status != ReproItContractStatus.violation)
       return false;
     final snap = _snapshot();
     if (snap == null) return false;

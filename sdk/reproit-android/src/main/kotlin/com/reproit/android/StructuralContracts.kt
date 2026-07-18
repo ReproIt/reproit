@@ -1,9 +1,9 @@
 package com.reproit.android
 
 enum class ReproItContractStatus {
-  PROVEN,
-  VALID,
-  UNKNOWN,
+  VIOLATION,
+  SATISFIED,
+  ABSTAIN,
 }
 
 enum class ReproItStateBoundary(val wire: String) {
@@ -66,7 +66,7 @@ internal object StatePreservationContracts {
       if (phase == ReproItBoundaryPhase.BEFORE) {
         val value = sampleState(c.sample)
         if (!valid(value)) {
-          out += unknown(identity)
+          out += abstain(identity)
           continue
         }
         baselines[key] = value!!
@@ -75,8 +75,8 @@ internal object StatePreservationContracts {
             (c.saveBaseline == null || safeBool { c.saveBaseline.invoke(kind, value) } != true)
         ) {
           baselines.remove(key)
-          out += unknown(identity)
-        } else out += valid(identity)
+          out += abstain(identity)
+        } else out += satisfied(identity)
         continue
       }
       val before =
@@ -85,10 +85,10 @@ internal object StatePreservationContracts {
         else baselines[key]
       val after = sampleState(c.sample)
       baselines.remove(key)
-      if (!valid(before) || !valid(after)) out += unknown(identity)
-      else if (before!!.key == after!!.key && before.state == after.state) out += valid(identity)
+      if (!valid(before) || !valid(after)) out += abstain(identity)
+      else if (before!!.key == after!!.key && before.state == after.state) out += satisfied(identity)
       else
-        out += proven(identity, "declared structural state was not preserved across ${kind.wire}")
+        out += violation(identity, "declared structural state was not preserved across ${kind.wire}")
     }
     return out
   }
@@ -128,11 +128,11 @@ internal object ActionEffectContracts {
 
   @Synchronized
   fun begin(id: String): List<ReproItContractResult> {
-    val c = contracts[id] ?: return listOf(unknown("action-effect:$id"))
+    val c = contracts[id] ?: return listOf(abstain("action-effect:$id"))
     val value = sampleEffect(c.sample)
-    if (!valid(value)) return listOf(unknown("action-effect:$id"))
+    if (!valid(value)) return listOf(abstain("action-effect:$id"))
     before[id] = value!!
-    return listOf(valid("action-effect:$id"))
+    return listOf(satisfied("action-effect:$id"))
   }
 
   @Synchronized
@@ -140,18 +140,18 @@ internal object ActionEffectContracts {
     val c = contracts[id]
     val old = before.remove(id)
     val now = c?.let { sampleEffect(it.sample) }
-    if (c == null || !valid(old) || !valid(now)) return listOf(unknown("action-effect:$id"))
+    if (c == null || !valid(old) || !valid(now)) return listOf(abstain("action-effect:$id"))
     val out = arrayListOf<ReproItContractResult>()
     c.route?.let { expected -> checkTarget(out, id, "route", expected.target, now!!.route) }
     c.state?.let { expected -> checkChange(out, id, "state", expected, old!!.state, now!!.state) }
-    return if (out.isEmpty()) listOf(unknown("action-effect:$id")) else out
+    return if (out.isEmpty()) listOf(abstain("action-effect:$id")) else out
   }
 }
 
 internal fun contractMarker(results: List<ReproItContractResult>): String? {
   val items =
     results
-      .filter { it.status == ReproItContractStatus.PROVEN }
+      .filter { it.status == ReproItContractStatus.VIOLATION }
       .map { mapOf("id" to it.id, "message" to (it.message ?: it.id)) }
   return if (items.isEmpty()) null
   else "REPROIT_INVARIANT " + Json.encode(mapOf("sig" to "", "items" to items))
@@ -183,12 +183,12 @@ private fun safeBool(f: () -> Boolean) =
     false
   }
 
-private fun unknown(id: String) = ReproItContractResult(ReproItContractStatus.UNKNOWN, id)
+private fun abstain(id: String) = ReproItContractResult(ReproItContractStatus.ABSTAIN, id)
 
-private fun valid(id: String) = ReproItContractResult(ReproItContractStatus.VALID, id)
+private fun satisfied(id: String) = ReproItContractResult(ReproItContractStatus.SATISFIED, id)
 
-private fun proven(id: String, message: String) =
-  ReproItContractResult(ReproItContractStatus.PROVEN, id, message)
+private fun violation(id: String, message: String) =
+  ReproItContractResult(ReproItContractStatus.VIOLATION, id, message)
 
 private fun checkTarget(
   out: MutableList<ReproItContractResult>,
@@ -199,9 +199,9 @@ private fun checkTarget(
 ) {
   val identity = "action-effect:$id:$kind"
   out +=
-    if (target.isEmpty() || after == null) unknown(identity)
-    else if (target == after) valid(identity)
-    else proven(identity, "declared $kind effect did not occur")
+    if (target.isEmpty() || after == null) abstain(identity)
+    else if (target == after) satisfied(identity)
+    else violation(identity, "declared $kind effect did not occur")
 }
 
 private fun checkChange(
@@ -214,9 +214,9 @@ private fun checkChange(
 ) {
   val identity = "action-effect:$id:$kind"
   if (after == null || (e.target == null && (e.changed == null || before == null))) {
-    out += unknown(identity)
+    out += abstain(identity)
     return
   }
   val ok = if (e.target != null) after == e.target else (after != before) == e.changed
-  out += if (ok) valid(identity) else proven(identity, "declared $kind effect did not occur")
+  out += if (ok) satisfied(identity) else violation(identity, "declared $kind effect did not occur")
 }

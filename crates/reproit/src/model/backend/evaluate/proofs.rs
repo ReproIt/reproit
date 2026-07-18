@@ -2,13 +2,13 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
 enum ProofOutcome<'a> {
-    Proven {
+    Violation {
         event: &'a BackendEvent,
         oracle: &'static str,
         reason: String,
     },
-    Valid,
-    Unknown,
+    Satisfied,
+    Abstain,
 }
 
 pub(super) fn evaluate_proof_contracts<'a>(
@@ -32,7 +32,7 @@ pub(super) fn evaluate_proof_contracts<'a>(
                 round_trip_outcome(proof, contracts, invocations)
             }
         };
-        let ProofOutcome::Proven {
+        let ProofOutcome::Violation {
             event,
             oracle,
             reason,
@@ -89,16 +89,16 @@ fn authorization_outcome<'a>(
         deny,
     } = proof
     else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     let Some(contract) = contracts.get(operation.as_str()) else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     if *consistency != ResourceConsistency::Strong
         || principals.is_empty()
         || (deny.statuses.is_empty() && deny.redacted_output_paths.is_empty())
     {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     }
     let calls = proof_invocations(operation, invocations);
     let mut observed_valid = false;
@@ -167,7 +167,7 @@ fn authorization_outcome<'a>(
                             observed_valid = true;
                             continue;
                         }
-                        return ProofOutcome::Proven {
+                        return ProofOutcome::Violation {
                             event: returned.event,
                             oracle: "authorization-matrix",
                             reason: "an authored denied principal received protected resource \
@@ -180,9 +180,9 @@ fn authorization_outcome<'a>(
         }
     }
     if observed_valid {
-        ProofOutcome::Valid
+        ProofOutcome::Satisfied
     } else {
-        ProofOutcome::Unknown
+        ProofOutcome::Abstain
     }
 }
 
@@ -200,10 +200,10 @@ fn atomicity_outcome<'a>(
         durable_effects,
     } = proof
     else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     let Some(contract) = contracts.get(operation.as_str()) else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     if contract.authority != Authority::Declared
         || *consistency != ResourceConsistency::Strong
@@ -215,7 +215,7 @@ fn atomicity_outcome<'a>(
                 || effect.event.is_some()
         })
     {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     }
     let mut observed_valid = false;
     for invocation in proof_invocations(operation, invocations) {
@@ -238,8 +238,8 @@ fn atomicity_outcome<'a>(
             continue;
         }
         match failed_atomicity_effect_outcome(invocation, durable_effects) {
-            AtomicityEffectOutcome::Proven(effect) => {
-                return ProofOutcome::Proven {
+            AtomicityEffectOutcome::Violation(effect) => {
+                return ProofOutcome::Violation {
                     event: effect.event,
                     oracle: "transaction-atomicity",
                     reason: "a failed authored operation left a declared durable effect different \
@@ -247,27 +247,27 @@ fn atomicity_outcome<'a>(
                         .into(),
                 };
             }
-            AtomicityEffectOutcome::Valid => observed_valid = true,
-            AtomicityEffectOutcome::Unknown => continue,
+            AtomicityEffectOutcome::Satisfied => observed_valid = true,
+            AtomicityEffectOutcome::Abstain => continue,
         }
     }
     if observed_valid {
-        ProofOutcome::Valid
+        ProofOutcome::Satisfied
     } else {
-        ProofOutcome::Unknown
+        ProofOutcome::Abstain
     }
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::model::backend) enum AtomicityEffectOutcome<'a> {
-    Proven(&'a EffectEvent<'a>),
-    Valid,
-    Unknown,
+    Violation(&'a EffectEvent<'a>),
+    Satisfied,
+    Abstain,
 }
 
 /// Evaluate the complete local mutation stream of a failed authored operation.
 ///
-/// Absence is valid because `effectsComplete` proves that the adapter observed
+/// Absence satisfies the contract because `effectsComplete` proves that the adapter observed
 /// every local effect. Once a declared mutation is present, its resource key
 /// and exact first `before` value become the baseline. Every later mutation of
 /// that resource/key must form a contiguous snapshot chain. A final value equal
@@ -280,7 +280,7 @@ pub(in crate::model::backend) fn failed_atomicity_effect_outcome<'a>(
     let mut declared_targets = BTreeSet::new();
     for pattern in durable_effects {
         let Some(resource) = pattern.resource.as_deref() else {
-            return AtomicityEffectOutcome::Unknown;
+            return AtomicityEffectOutcome::Abstain;
         };
         declared_targets.insert((pattern.kind, resource));
     }
@@ -295,7 +295,7 @@ pub(in crate::model::backend) fn failed_atomicity_effect_outcome<'a>(
             })
     }) {
         let (Some(resource), Some(key)) = (effect.resource, effect.key) else {
-            return AtomicityEffectOutcome::Unknown;
+            return AtomicityEffectOutcome::Abstain;
         };
         groups.entry((resource, key)).or_default().push(effect);
     }
@@ -311,22 +311,22 @@ pub(in crate::model::backend) fn failed_atomicity_effect_outcome<'a>(
         };
         let effects = &effects[first_declared..];
         let Some(baseline) = effects[0].before else {
-            return AtomicityEffectOutcome::Unknown;
+            return AtomicityEffectOutcome::Abstain;
         };
         let mut current = Some(baseline);
         for effect in effects {
             if effect.before != current {
-                return AtomicityEffectOutcome::Unknown;
+                return AtomicityEffectOutcome::Abstain;
             }
             current = match effect.effect {
                 EffectKind::Write => {
                     let Some(after) = effect.after else {
-                        return AtomicityEffectOutcome::Unknown;
+                        return AtomicityEffectOutcome::Abstain;
                     };
                     Some(after)
                 }
                 EffectKind::Delete => None,
-                _ => return AtomicityEffectOutcome::Unknown,
+                _ => return AtomicityEffectOutcome::Abstain,
             };
         }
         if current != Some(baseline) {
@@ -335,8 +335,8 @@ pub(in crate::model::backend) fn failed_atomicity_effect_outcome<'a>(
     }
 
     proven_effect.map_or(
-        AtomicityEffectOutcome::Valid,
-        AtomicityEffectOutcome::Proven,
+        AtomicityEffectOutcome::Satisfied,
+        AtomicityEffectOutcome::Violation,
     )
 }
 
@@ -385,13 +385,13 @@ fn concurrency_outcome<'a>(
         policy,
     } = proof
     else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     let Some(contract) = contracts.get(operation.as_str()) else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     if *consistency != ResourceConsistency::Strong {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     }
     let calls = proof_invocations(operation, invocations);
     let mut observed_valid = false;
@@ -448,7 +448,7 @@ fn concurrency_outcome<'a>(
                         if left_effect.key != right_effect.key {
                             continue;
                         }
-                        return ProofOutcome::Proven {
+                        return ProofOutcome::Violation {
                             event: right_return.event,
                             oracle: "concurrent-update",
                             reason: "two overlapping updates with the same authored version both \
@@ -539,7 +539,7 @@ fn concurrency_outcome<'a>(
                         continue;
                     }
                     if contradicted {
-                        return ProofOutcome::Proven {
+                        return ProofOutcome::Violation {
                             event: ordered[1].0.event,
                             oracle: "concurrent-conservation",
                             reason: "overlapping committed updates contradicted the authored \
@@ -553,9 +553,9 @@ fn concurrency_outcome<'a>(
         }
     }
     if observed_valid {
-        ProofOutcome::Valid
+        ProofOutcome::Satisfied
     } else {
-        ProofOutcome::Unknown
+        ProofOutcome::Abstain
     }
 }
 
@@ -575,16 +575,16 @@ fn round_trip_outcome<'a>(
         checks,
     } = proof
     else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     let (Some(write_contract), Some(read_contract)) = (
         contracts.get(write_operation.as_str()),
         contracts.get(read_operation.as_str()),
     ) else {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     };
     if *consistency != ResourceConsistency::Strong || checks.is_empty() {
-        return ProofOutcome::Unknown;
+        return ProofOutcome::Abstain;
     }
     let writes = proof_invocations(write_operation, invocations);
     let reads = proof_invocations(read_operation, invocations);
@@ -698,7 +698,7 @@ fn round_trip_outcome<'a>(
                     }
                 };
                 if mismatch {
-                    return ProofOutcome::Proven {
+                    return ProofOutcome::Violation {
                         event: read_return.event,
                         oracle: "resource-round-trip",
                         reason: format!(
@@ -714,9 +714,9 @@ fn round_trip_outcome<'a>(
         }
     }
     if observed_valid {
-        ProofOutcome::Valid
+        ProofOutcome::Satisfied
     } else {
-        ProofOutcome::Unknown
+        ProofOutcome::Abstain
     }
 }
 

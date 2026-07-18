@@ -96,27 +96,33 @@ void scrapeInvariants(String sig, String? route) {
                     x['dependentKey'] is String &&
                     x['ownerKey'] is String &&
                     x['containerKey'] is String &&
-                    const ['PROVEN', 'VALID', 'UNKNOWN'].contains(x['outcome']),
+                    const [
+                      'VIOLATION',
+                      'SATISFIED',
+                      'ABSTAIN',
+                    ].contains(x['outcome']),
               )
               .toList();
           if (checks.isNotEmpty &&
               _emittedRelations.add('$sig ${jsonEncode(checks)}')) {
-            final outcome = checks.any((x) => x['outcome'] == 'PROVEN')
-                ? 'PROVEN'
-                : (checks.every((x) => x['outcome'] == 'VALID')
-                      ? 'VALID'
-                      : 'UNKNOWN');
+            final outcome = checks.any((x) => x['outcome'] == 'VIOLATION')
+                ? 'VIOLATION'
+                : (checks.every((x) => x['outcome'] == 'SATISFIED')
+                      ? 'SATISFIED'
+                      : 'ABSTAIN');
             emitJson('EXPLORE:RELATIONSTATUS', {
               "sig": sig,
               "route": ?route,
               "outcome": outcome,
               "checks": checks,
             });
-            if (outcome == 'PROVEN') {
+            if (outcome == 'VIOLATION') {
               emitJson('EXPLORE:RELATION', {
                 "sig": sig,
                 "route": ?route,
-                "items": checks.where((x) => x['outcome'] == 'PROVEN').toList(),
+                "items": checks
+                    .where((x) => x['outcome'] == 'VIOLATION')
+                    .toList(),
               });
             }
           }

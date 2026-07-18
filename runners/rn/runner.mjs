@@ -2171,13 +2171,13 @@ export function parseRelationMarker(line) {
 function validRelationCheck(it) {
   if (!it || it.kind !== 'indicator-anchor') return null;
   const outcome = String(it.outcome || '');
-  if (!['PROVEN', 'VALID', 'UNKNOWN'].includes(outcome)) return null;
+  if (!['VIOLATION', 'SATISFIED', 'ABSTAIN'].includes(outcome)) return null;
   const dependentKey = String(it.dependentKey || '');
   const ownerKey = String(it.ownerKey || '');
   const containerKey = String(it.containerKey || '');
   if (!dependentKey || !ownerKey || !containerKey) return null;
   const violation = it.violation == null ? undefined : String(it.violation);
-  if (outcome === 'PROVEN' && !['detached', 'escaped-container'].includes(violation)) return null;
+  if (outcome === 'VIOLATION' && !['detached', 'escaped-container'].includes(violation)) return null;
   return {
     kind: 'indicator-anchor',
     dependentKey,
@@ -2203,23 +2203,23 @@ export async function scrapeRelations(driver, sig, anchor, suppliedLines = null)
     if (!obj || Number(obj.stableSamples) < 2 || !Array.isArray(obj.checks)) continue;
     const checks = obj.checks.map(validRelationCheck).filter(Boolean);
     if (!checks.length) continue;
-    const outcome = checks.some((x) => x.outcome === 'PROVEN')
-      ? 'PROVEN'
-      : checks.every((x) => x.outcome === 'VALID')
-        ? 'VALID'
-        : 'UNKNOWN';
+    const outcome = checks.some((x) => x.outcome === 'VIOLATION')
+      ? 'VIOLATION'
+      : checks.every((x) => x.outcome === 'SATISFIED')
+        ? 'SATISFIED'
+        : 'ABSTAIN';
     const key = sig + '|' + JSON.stringify(checks);
     if (relationEmitted.has(key)) continue;
     relationEmitted.add(key);
     const payload = { sig, ...(anchor ? { route: anchor } : {}), outcome, checks };
     log('EXPLORE:RELATIONSTATUS ' + JSON.stringify(payload));
-    if (outcome === 'PROVEN') {
+    if (outcome === 'VIOLATION') {
       log(
         'EXPLORE:RELATION ' +
           JSON.stringify({
             sig,
             ...(anchor ? { route: anchor } : {}),
-            items: checks.filter((x) => x.outcome === 'PROVEN'),
+            items: checks.filter((x) => x.outcome === 'VIOLATION'),
           }),
       );
     }

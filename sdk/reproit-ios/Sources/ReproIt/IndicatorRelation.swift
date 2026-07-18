@@ -104,7 +104,7 @@ import Foundation
       guard let g = c.sample(), !g.animating, g.transformsResolved,
         valid(g.indicator), valid(g.owner), valid(g.container)
       else {
-        return ("UNKNOWN", nil, "UNKNOWN")
+        return ("ABSTAIN", nil, "ABSTAIN")
       }
       let i = g.indicator.standardized
       let o = g.owner.standardized
@@ -121,7 +121,7 @@ import Foundation
       ]
       let coordinates = values.map { String(Int(($0 * 2).rounded())) }.joined(separator: ",")
       let fp = coordinates + "|" + (violation ?? "valid")
-      return (violation == nil ? "VALID" : "PROVEN", violation, fp)
+      return (violation == nil ? "SATISFIED" : "VIOLATION", violation, fp)
     }
 
     private static func valid(_ r: CGRect) -> Bool {

@@ -1,9 +1,9 @@
 import Foundation
 
 public enum ReproItContractStatus: String {
-  case proven = "PROVEN"
-  case valid = "VALID"
-  case unknown = "UNKNOWN"
+  case violation = "VIOLATION"
+  case satisfied = "SATISFIED"
+  case abstain = "ABSTAIN"
 }
 public enum ReproItStateBoundary: String {
   case rotation
@@ -59,7 +59,7 @@ enum ReproItStatePreservationContracts {
       if phase == .before {
         let value = sample(c.sample)
         guard valid(value) else {
-          out.append(unknown(identity))
+          out.append(abstain(identity))
           continue
         }
         baselines[key] = value!
@@ -67,9 +67,9 @@ enum ReproItStatePreservationContracts {
           && (c.saveBaseline == nil || safe { c.saveBaseline!(kind, value!) } != true)
         {
           baselines[key] = nil
-          out.append(unknown(identity))
+          out.append(abstain(identity))
         } else {
-          out.append(validResult(identity))
+          out.append(satisfiedResult(identity))
         }
         continue
       }
@@ -79,14 +79,14 @@ enum ReproItStatePreservationContracts {
       let after = sample(c.sample)
       baselines[key] = nil
       guard valid(before), valid(after) else {
-        out.append(unknown(identity))
+        out.append(abstain(identity))
         continue
       }
       if before!.key == after!.key && before!.state == after!.state {
-        out.append(validResult(identity))
+        out.append(satisfiedResult(identity))
       } else {
         out.append(
-          proven(identity, "declared structural state was not preserved across \(kind.rawValue)"))
+          violation(identity, "declared structural state was not preserved across \(kind.rawValue)"))
       }
     }
     return out
@@ -137,23 +137,23 @@ enum ReproItActionEffectContracts {
   }
   static func begin(_ id: String) -> [ReproItContractResult] {
     guard let c = contracts[id], let value = sampleEffect(c.sample), valid(value) else {
-      return [unknown("action-effect:\(id)")]
+      return [abstain("action-effect:\(id)")]
     }
     before[id] = value
-    return [validResult("action-effect:\(id)")]
+    return [satisfiedResult("action-effect:\(id)")]
   }
   static func end(_ id: String) -> [ReproItContractResult] {
     guard let c = contracts[id], let old = before.removeValue(forKey: id),
       let now = sampleEffect(c.sample), valid(old), valid(now)
-    else { return [unknown("action-effect:\(id)")] }
+    else { return [abstain("action-effect:\(id)")] }
     var out: [ReproItContractResult] = []
     if let e = c.route { checkTarget(&out, id, "route", e.target, now.route) }
     if let e = c.state { checkChange(&out, id, "state", e, old.state, now.state) }
-    return out.isEmpty ? [unknown("action-effect:\(id)")] : out
+    return out.isEmpty ? [abstain("action-effect:\(id)")] : out
   }
 }
 func reproitContractMarker(_ results: [ReproItContractResult]) -> String? {
-  let items = results.filter { $0.status == .proven }.map {
+  let items = results.filter { $0.status == .violation }.map {
     ["id": $0.id, "message": $0.message ?? $0.id]
   }
   guard !items.isEmpty,
@@ -175,14 +175,14 @@ private func valid(_ o: ReproItStructuralObservation?) -> Bool {
 private func valid(_ o: ReproItActionEffectObservation?) -> Bool {
   o != nil && o!.authoritative && o!.settled
 }
-private func unknown(_ id: String) -> ReproItContractResult {
-  .init(status: .unknown, id: id, message: nil)
+private func abstain(_ id: String) -> ReproItContractResult {
+  .init(status: .abstain, id: id, message: nil)
 }
-private func validResult(_ id: String) -> ReproItContractResult {
-  .init(status: .valid, id: id, message: nil)
+private func satisfiedResult(_ id: String) -> ReproItContractResult {
+  .init(status: .satisfied, id: id, message: nil)
 }
-private func proven(_ id: String, _ message: String) -> ReproItContractResult {
-  .init(status: .proven, id: id, message: message)
+private func violation(_ id: String, _ message: String) -> ReproItContractResult {
+  .init(status: .violation, id: id, message: message)
 }
 private func checkTarget(
   _ out: inout [ReproItContractResult], _ id: String, _ kind: String, _ target: String,
@@ -190,12 +190,12 @@ private func checkTarget(
 ) {
   let identity = "action-effect:\(id):\(kind)"
   guard !target.isEmpty, let after = after else {
-    out.append(unknown(identity))
+    out.append(abstain(identity))
     return
   }
   out.append(
     after == target
-      ? validResult(identity) : proven(identity, "declared \(kind) effect did not occur"))
+      ? satisfiedResult(identity) : violation(identity, "declared \(kind) effect did not occur"))
 }
 private func checkChange(
   _ out: inout [ReproItContractResult], _ id: String, _ kind: String, _ e: ReproItChangeEffect,
@@ -203,9 +203,9 @@ private func checkChange(
 ) {
   let identity = "action-effect:\(id):\(kind)"
   guard let after = after, e.target != nil || (e.changed != nil && before != nil) else {
-    out.append(unknown(identity))
+    out.append(abstain(identity))
     return
   }
   let ok = e.target != nil ? after == e.target! : (after != before!) == e.changed!
-  out.append(ok ? validResult(identity) : proven(identity, "declared \(kind) effect did not occur"))
+  out.append(ok ? satisfiedResult(identity) : violation(identity, "declared \(kind) effect did not occur"))
 }

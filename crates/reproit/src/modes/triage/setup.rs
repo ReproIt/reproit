@@ -8,7 +8,7 @@ use super::*;
 /// instead of silently 401ing. Pull requests replay every committed production
 /// repro and report the candidate fix commit back to Cloud. Cloud keeps the
 /// linked issue open until that exact commit reaches production and remains
-/// clean there.
+/// not_reproduced there.
 pub(super) const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction
 # Runs in YOUR CI, on YOUR checkout.
 #
@@ -19,7 +19,7 @@ pub(super) const REPRO_WORKFLOW: &str = r#"# Reproit hosted reproduction
 # with ReproIt's private CI callback.
 #
 # Pull requests also run every production repro committed under
-# .reproit/repros. A clean replay verifies the candidate fix on the PR commit.
+# .reproit/repros. A not_reproduced replay verifies the candidate fix on the PR commit.
 # Cloud closes the linked issue only after that commit is deployed and production
 # evidence confirms the bug stays gone.
 #
@@ -131,12 +131,12 @@ jobs:
               meta = json.loads(meta_path.read_text())
               result = str(meta.get("last_result", "stale")).lower()
               status = {
-                  "pass": "clean",
+                  "pass": "not_reproduced",
                   "fail": "reproduced",
                   "flaky": "flaky",
                   "stale": "stale",
               }.get(result, "stale")
-              failures = 0 if status == "clean" else (3 if status == "reproduced" else 1)
+              failures = 0 if status == "not_reproduced" else (3 if status == "reproduced" else 1)
               app = origin.get("appId") or default_app
               bucket = origin["bucketId"]
               body = {
@@ -144,7 +144,7 @@ jobs:
                   "runs": 3,
                   "failures": failures,
               }
-              if status == "clean":
+              if status == "not_reproduced":
                   body["fixedInBuild"] = commit
               req = urllib.request.Request(
                   f"{base.rstrip('/')}/v1/apps/{app}/buckets/{bucket}/replay-results",

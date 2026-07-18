@@ -44,7 +44,7 @@ test(
           '</nav></body>',
       );
       const result = await page.evaluate(indicatorRelationshipScan);
-      assert.strictEqual(result.outcome, 'PROVEN');
+      assert.strictEqual(result.outcome, 'VIOLATION');
       assert.deepStrictEqual(
         result.items.map((item) => ({
           kind: item.kind,
@@ -70,7 +70,7 @@ test(
 );
 
 test(
-  'indicator relationship is VALID when the explicit indicator stays ' + 'attached',
+  'indicator relationship is SATISFIED when the explicit indicator stays ' + 'attached',
   async () => {
     const browser = await chromium.launch();
     try {
@@ -88,7 +88,7 @@ test(
           '</nav></body>',
       );
       const result = await page.evaluate(indicatorRelationshipScan);
-      assert.strictEqual(result.outcome, 'VALID');
+      assert.strictEqual(result.outcome, 'SATISFIED');
       assert.deepStrictEqual(result.items, []);
     } finally {
       await browser.close();
@@ -97,7 +97,7 @@ test(
 );
 
 test(
-  'indicator relationship is UNKNOWN and silent without complete explicit ' + 'ownership',
+  'indicator relationship is ABSTAIN and silent without complete explicit ' + 'ownership',
   async () => {
     const browser = await chromium.launch();
     try {
@@ -109,7 +109,7 @@ test(
             'height:12px;border-radius:50%;background:red"></span></body>'),
       );
       assert.deepStrictEqual(await page.evaluate(indicatorRelationshipScan), {
-        outcome: 'UNKNOWN',
+        outcome: 'ABSTAIN',
         items: [],
         checks: [],
         proven: 0,
@@ -121,7 +121,7 @@ test(
         .locator('#red-dot')
         .evaluate((el) => el.setAttribute('data-reproit-indicator-for', 'liked'));
       const partial = await page.evaluate(indicatorRelationshipScan);
-      assert.strictEqual(partial.outcome, 'UNKNOWN');
+      assert.strictEqual(partial.outcome, 'ABSTAIN');
       assert.strictEqual(partial.unknown, 1);
       assert.deepStrictEqual(partial.items, []);
     } finally {
@@ -147,7 +147,7 @@ test('indicator relationship abstains while its declared nodes animate', async (
         '</nav></body>',
     );
     const result = await page.evaluate(indicatorRelationshipScan);
-    assert.strictEqual(result.outcome, 'UNKNOWN');
+    assert.strictEqual(result.outcome, 'ABSTAIN');
     assert.deepStrictEqual(result.items, []);
   } finally {
     await browser.close();

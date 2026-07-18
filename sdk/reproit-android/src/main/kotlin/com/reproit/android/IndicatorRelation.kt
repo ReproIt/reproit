@@ -102,7 +102,7 @@ internal object IndicatorRelations {
         !valid(g.owner) ||
         !valid(g.container)
     ) {
-      return Triple("UNKNOWN", null, "UNKNOWN")
+      return Triple("ABSTAIN", null, "ABSTAIN")
     }
     val i = g.indicator
     val o = g.owner
@@ -120,7 +120,7 @@ internal object IndicatorRelations {
       listOf(i, o, box)
         .flatMap { listOf(it.left, it.top, it.width, it.height) }
         .joinToString(",") { (it * 2).roundToInt().toString() } + "|" + (violation ?: "valid")
-    return Triple(if (violation == null) "VALID" else "PROVEN", violation, fp)
+    return Triple(if (violation == null) "SATISFIED" else "VIOLATION", violation, fp)
   }
 
   private fun valid(r: ReproItRect) =

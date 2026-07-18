@@ -16,7 +16,7 @@ class StructuralContractsTest {
       ),
     )
     assertEquals(
-      ReproItContractStatus.VALID,
+      ReproItContractStatus.SATISFIED,
       StatePreservationContracts.boundary(
           ReproItStateBoundary.ROTATION,
           ReproItBoundaryPhase.BEFORE,
@@ -29,7 +29,7 @@ class StructuralContractsTest {
           ReproItStateBoundary.ROTATION,
           ReproItBoundaryPhase.AFTER,
         )[0]
-    assertEquals(ReproItContractStatus.PROVEN, result.status)
+    assertEquals(ReproItContractStatus.VIOLATION, result.status)
     assertEquals("state-preservation:rotation:draft", result.id)
     StatePreservationContracts.clear()
   }
@@ -50,7 +50,7 @@ class StructuralContractsTest {
     o = ReproItActionEffectObservation("cart", "complete", true, true)
     val ids =
       ActionEffectContracts.end("checkout")
-        .filter { it.status == ReproItContractStatus.PROVEN }
+        .filter { it.status == ReproItContractStatus.VIOLATION }
         .map { it.id }
     assertEquals(listOf("action-effect:checkout:route"), ids)
     ActionEffectContracts.clear()
@@ -74,7 +74,7 @@ class StructuralContractsTest {
       ),
     )
     assertEquals(
-      ReproItContractStatus.VALID,
+      ReproItContractStatus.SATISFIED,
       StatePreservationContracts.boundary(
           ReproItStateBoundary.PROCESS_RECREATION,
           ReproItBoundaryPhase.BEFORE,
@@ -83,7 +83,7 @@ class StructuralContractsTest {
     )
     state = "empty"
     assertEquals(
-      ReproItContractStatus.PROVEN,
+      ReproItContractStatus.VIOLATION,
       StatePreservationContracts.boundary(
           ReproItStateBoundary.PROCESS_RECREATION,
           ReproItBoundaryPhase.AFTER,
@@ -104,7 +104,7 @@ class StructuralContractsTest {
       ),
     )
     assertEquals(
-      ReproItContractStatus.UNKNOWN,
+      ReproItContractStatus.ABSTAIN,
       StatePreservationContracts.boundary(
           ReproItStateBoundary.BACKGROUND_FOREGROUND,
           ReproItBoundaryPhase.BEFORE,

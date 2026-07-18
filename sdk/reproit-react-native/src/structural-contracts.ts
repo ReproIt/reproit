@@ -1,4 +1,4 @@
-export type ContractStatus = 'PROVEN' | 'VALID' | 'UNKNOWN';
+export type ContractStatus = 'VIOLATION' | 'SATISFIED' | 'ABSTAIN';
 export type StateBoundary =
   | 'rotation'
   | 'background-foreground'
@@ -41,7 +41,7 @@ export class StatePreservationOracle {
       if (phase === 'before') {
         const value = safeSample(c.sample);
         if (!valid(value)) {
-          out.push({ status: 'UNKNOWN', id: identity });
+          out.push({ status: 'ABSTAIN', id: identity });
           continue;
         }
         this.baselines.set(`${kind}:${id}`, value!);
@@ -50,8 +50,8 @@ export class StatePreservationOracle {
           (!c.saveBaseline || c.saveBaseline(kind, value!) !== true)
         ) {
           this.baselines.delete(`${kind}:${id}`);
-          out.push({ status: 'UNKNOWN', id: identity });
-        } else out.push({ status: 'VALID', id: identity });
+          out.push({ status: 'ABSTAIN', id: identity });
+        } else out.push({ status: 'SATISFIED', id: identity });
         continue;
       }
       const before =
@@ -63,14 +63,14 @@ export class StatePreservationOracle {
       const after = safeSample(c.sample);
       this.baselines.delete(`${kind}:${id}`);
       if (!valid(before) || !valid(after)) {
-        out.push({ status: 'UNKNOWN', id: identity });
+        out.push({ status: 'ABSTAIN', id: identity });
         continue;
       }
       if (before!.key === after!.key && before!.state === after!.state)
-        out.push({ status: 'VALID', id: identity });
+        out.push({ status: 'SATISFIED', id: identity });
       else
         out.push({
-          status: 'PROVEN',
+          status: 'VIOLATION',
           id: identity,
           message: `declared structural state was not preserved across ${kind}`,
         });
@@ -103,11 +103,11 @@ export class ActionEffectOracle {
   begin(id: string): ContractResult[] {
     const c = this.contracts.get(id);
     const identity = `action-effect:${id}`;
-    if (!c) return [{ status: 'UNKNOWN', id: identity }];
+    if (!c) return [{ status: 'ABSTAIN', id: identity }];
     const value = safeSample(c.sample);
-    if (!validEffect(value)) return [{ status: 'UNKNOWN', id: identity }];
+    if (!validEffect(value)) return [{ status: 'ABSTAIN', id: identity }];
     this.before.set(id, value!);
-    return [{ status: 'VALID', id: identity }];
+    return [{ status: 'SATISFIED', id: identity }];
   }
   end(id: string): ContractResult[] {
     const c = this.contracts.get(id);
@@ -115,17 +115,17 @@ export class ActionEffectOracle {
     this.before.delete(id);
     const after = c ? safeSample(c.sample) : null;
     if (!c || !validEffect(before) || !validEffect(after))
-      return [{ status: 'UNKNOWN', id: `action-effect:${id}` }];
+      return [{ status: 'ABSTAIN', id: `action-effect:${id}` }];
     const out: ContractResult[] = [];
     checkTarget(out, id, 'route', c.route, before!.route, after!.route);
     checkChange(out, id, 'state', c.state, before!.state, after!.state);
-    return out.length ? out : [{ status: 'UNKNOWN', id: `action-effect:${id}` }];
+    return out.length ? out : [{ status: 'ABSTAIN', id: `action-effect:${id}` }];
   }
 }
 
 export function contractMarker(results: ContractResult[]): string | null {
   const items = results
-    .filter((r) => r.status === 'PROVEN')
+    .filter((r) => r.status === 'VIOLATION')
     .map((r) => ({ id: r.id, message: r.message ?? r.id }));
   return items.length ? `REPROIT_INVARIANT ${JSON.stringify({ sig: '', items })}` : null;
 }
@@ -152,10 +152,10 @@ function checkTarget(
 ): void {
   if (!expected) return;
   const identity = `action-effect:${id}:${kind}`;
-  if (!expected.target || after === undefined) out.push({ status: 'UNKNOWN', id: identity });
-  else if (after === expected.target) out.push({ status: 'VALID', id: identity });
+  if (!expected.target || after === undefined) out.push({ status: 'ABSTAIN', id: identity });
+  else if (after === expected.target) out.push({ status: 'SATISFIED', id: identity });
   else
-    out.push({ status: 'PROVEN', id: identity, message: `declared ${kind} effect did not occur` });
+    out.push({ status: 'VIOLATION', id: identity, message: `declared ${kind} effect did not occur` });
 }
 function checkChange(
   out: ContractResult[],
@@ -171,7 +171,7 @@ function checkChange(
     after === undefined ||
     (expected.target === undefined && (expected.changed === undefined || before === undefined))
   ) {
-    out.push({ status: 'UNKNOWN', id: identity });
+    out.push({ status: 'ABSTAIN', id: identity });
     return;
   }
   const ok =
@@ -180,7 +180,7 @@ function checkChange(
       : (after !== before) === expected.changed;
   out.push(
     ok
-      ? { status: 'VALID', id: identity }
-      : { status: 'PROVEN', id: identity, message: `declared ${kind} effect did not occur` },
+      ? { status: 'SATISFIED', id: identity }
+      : { status: 'VIOLATION', id: identity, message: `declared ${kind} effect did not occur` },
   );
 }

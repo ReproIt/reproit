@@ -199,17 +199,17 @@ test('proves lifecycle ordering violations and permits idempotent unknown ' + 'd
     updateDataModel: { surfaceId: 'test', path: '/ready', value: true },
   };
   assert.match(
-    validateMessages([update]).find((finding) => finding.proofStatus === 'PROVEN').reason,
+    validateMessages([update]).find((finding) => finding.proofStatus === 'VIOLATION').reason,
     /before createSurface/,
   );
   const duplicateCreate = validateMessages([create, create]);
   assert.match(
-    duplicateCreate.find((finding) => finding.proofStatus === 'PROVEN').reason,
+    duplicateCreate.find((finding) => finding.proofStatus === 'VIOLATION').reason,
     /already live/,
   );
   const deleted = { version: 'v0.9', deleteSurface: { surfaceId: 'test' } };
   assert.match(
-    validateMessages([create, deleted, update]).find((finding) => finding.proofStatus === 'PROVEN')
+    validateMessages([create, deleted, update]).find((finding) => finding.proofStatus === 'VIOLATION')
       .reason,
     /after deleteSurface/,
   );
@@ -234,7 +234,7 @@ test(
       },
     ];
     const proof = negotiatedConformance(wrongType);
-    assert.equal(proof.status, 'PROVEN');
+    assert.equal(proof.status, 'VIOLATION');
     assert.equal(proof.errors.length, 1);
     assert.equal(proof.errors[0].oracle.expectedType, 'string');
     assert.equal(
@@ -249,10 +249,10 @@ test(
       returnType: 'string',
     };
     const unknown = negotiatedConformance(external);
-    assert.equal(unknown.status, 'UNKNOWN');
+    assert.equal(unknown.status, 'ABSTAIN');
     assert.equal(unknown.errors.length, 0);
     assert.equal(
-      unknown.claims.some((claim) => claim.status === 'UNKNOWN'),
+      unknown.claims.some((claim) => claim.status === 'ABSTAIN'),
       true,
     );
   },

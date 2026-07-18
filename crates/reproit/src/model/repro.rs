@@ -689,11 +689,11 @@ fn content_bug_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
 fn detached_indicator_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
     let obs = crate::model::map::parse_run(log);
     if let Some(sig) = trigger.sig.as_deref().filter(|s| !s.is_empty()) {
-        return match crate::model::invariants::recheck_detached_indicator(
-            &obs,
-            sig,
-            trigger.selector.as_deref(),
-        ) {
+        let Some(dependent_key) = trigger.selector.as_deref().filter(|s| !s.is_empty()) else {
+            return RunVerdict::CouldNotReplay;
+        };
+        return match crate::model::invariants::recheck_detached_indicator(&obs, sig, dependent_key)
+        {
             crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
             crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
             crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
@@ -705,7 +705,7 @@ fn detached_indicator_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
     if crate::model::invariants::any_detached_indicator(&obs) {
         RunVerdict::Broke
     } else {
-        // Without a recorded state and exact member, silence is UNKNOWN rather
+        // Without a recorded state and exact member, silence is ABSTAIN rather
         // than proof that the old relationship became valid.
         RunVerdict::CouldNotReplay
     }
@@ -1277,35 +1277,35 @@ JOURNEY DONE
             selector: Some("key:id:dot".into()),
             oracle: Some("detached-indicator".into()),
         };
-        let proven = concat!(
+        let violation = concat!(
             "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[]}\n",
-            "EXPLORE:RELATIONSTATUS {\"sig\":\"nav\",\"outcome\":\"PROVEN\",\"checks\":[",
+            "EXPLORE:RELATIONSTATUS {\"sig\":\"nav\",\"outcome\":\"VIOLATION\",\"checks\":[",
             "{\"kind\":\"indicator-anchor\",\"dependentKey\":\"key:id:dot\",",
             "\"ownerKey\":\"key:id:tab\",\"containerKey\":\"key:id:tabs\",",
-            "\"outcome\":\"PROVEN\",\"violation\":\"detached\"}]}\n",
+            "\"outcome\":\"VIOLATION\",\"violation\":\"detached\"}]}\n",
             "EXPLORE:RELATION {\"sig\":\"nav\",\"items\":[",
             "{\"kind\":\"indicator-anchor\",\"dependentKey\":\"key:id:dot\",",
             "\"ownerKey\":\"key:id:tab\",\"containerKey\":\"key:id:tabs\",",
             "\"violation\":\"detached\",\"maxGap\":8,\"gap\":90}]}\n",
         );
         assert_eq!(
-            verdict_from_log_with_trigger(proven, true, &trigger),
+            verdict_from_log_with_trigger(violation, true, &trigger),
             RunVerdict::Broke
         );
-        let valid = proven
-            .replace("\"outcome\":\"PROVEN\"", "\"outcome\":\"VALID\"")
+        let satisfied = violation
+            .replace("\"outcome\":\"VIOLATION\"", "\"outcome\":\"SATISFIED\"")
             .lines()
             .filter(|line| !line.starts_with("EXPLORE:RELATION "))
             .collect::<Vec<_>>()
             .join("\n");
         assert_eq!(
-            verdict_from_log_with_trigger(&valid, true, &trigger),
+            verdict_from_log_with_trigger(&satisfied, true, &trigger),
             RunVerdict::Green
         );
-        let unknown = "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[]}\nEXPLORE:RELATIONSTATUS \
-                       {\"sig\":\"nav\",\"outcome\":\"UNKNOWN\",\"checks\":[]}";
+        let abstain = "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[]}\nEXPLORE:RELATIONSTATUS \
+                       {\"sig\":\"nav\",\"outcome\":\"ABSTAIN\",\"checks\":[]}";
         assert_eq!(
-            verdict_from_log_with_trigger(unknown, true, &trigger),
+            verdict_from_log_with_trigger(abstain, true, &trigger),
             RunVerdict::CouldNotReplay
         );
     }

@@ -5648,12 +5648,12 @@ async function main() {
         }
         // EXPLICIT STRUCTURAL RELATIONSHIPS. This is deliberately not a visual
         // badge heuristic: the page must declare indicator, owner, and container
-        // semantics. UNKNOWN relationships stay silent. A PROVEN violation must
+        // semantics. ABSTAIN relationships stay silent. A VIOLATION violation must
         // survive a second settled sample with the same structural identity and
         // violation before it enters the marker stream.
         const relation1 = await page.evaluate(indicatorRelationshipScan).catch(() => null);
         let relation2 = null;
-        if (relation1?.outcome === 'PROVEN') {
+        if (relation1?.outcome === 'VIOLATION') {
           await page.waitForTimeout(120);
           relation2 = await page.evaluate(indicatorRelationshipScan).catch(() => null);
           const relations = confirmRelationshipViolations(relation1, relation2);

@@ -335,14 +335,14 @@ mod tests {
     fn oracle_filter_default_allows_everything() {
         let f = OracleFilter::all();
         for &o in Oracle::ALL {
-            assert_eq!(f.allows(o), o != Oracle::Unknown);
+            assert_eq!(f.allows(o), o != Oracle::Unclassified);
         }
     }
 
     #[test]
     fn unknown_finding_never_falls_through_to_crash_or_confirmation() {
         let finding = json!({"kind": "FUTURE_OR_MISSPELLED_ORACLE"});
-        assert_eq!(classify(&finding), Oracle::Unknown);
+        assert_eq!(classify(&finding), Oracle::Unclassified);
         let (kept, dropped) = OracleFilter::all().apply(vec![finding]);
         assert!(kept.is_empty());
         assert_eq!(dropped.len(), 1);
@@ -376,7 +376,7 @@ mod tests {
             Oracle::BrokenRoute,
             Oracle::BlankScreen,
             Oracle::BrokenAsset,
-            Oracle::Unknown,
+            Oracle::Unclassified,
         ] {
             assert!(
                 !f.allows(oracle),

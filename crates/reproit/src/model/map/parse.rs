@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(crate) type LeakMetric = (String, i64, i64);
 pub(crate) type EscapableRoutes = std::sync::Arc<BTreeMap<String, BTreeSet<BTreeSet<String>>>>;
 
-/// One proven violation of an application-declared structural relationship.
+/// One observed violation of an application-declared structural relationship.
 /// Geometry is diagnostic only; stable finding identity is the relationship
 /// kind, dependent, owner, container, and violation class.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,11 +98,11 @@ pub(crate) struct RunObs {
     pub content_bugs: BTreeMap<String, Vec<(String, String, String)>>,
     /// sig -> explicit structural relationship violations. Web currently emits
     /// only `indicator-anchor` records from `data-reproit-*` ownership
-    /// contracts. Missing or ambiguous contracts are UNKNOWN upstream and
+    /// contracts. Missing or ambiguous contracts are ABSTAIN upstream and
     /// never appear.
     pub relations: BTreeMap<String, Vec<RelationViolation>>,
     /// sig -> every explicitly resolved relationship evaluation, including
-    /// VALID checks. UNKNOWN/absent identities let replay abstain instead
+    /// SATISFIED checks. ABSTAIN/absent identities let replay abstain instead
     /// of calling a removed or ambiguous contract fixed.
     pub relation_checks: BTreeMap<String, Vec<RelationCheck>>,
     /// sig -> interactive elements whose center is covered by a foreign element
@@ -554,7 +554,7 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
                 }
             }
         } else if let Some(json) = extract(line, "EXPLORE:RELATION ") {
-            // Only PROVEN relationships reach this marker. The web runner has
+            // Only VIOLATION relationships reach this marker. The web runner has
             // already required a complete explicit contract and confirmed the
             // exact relationship + violation in two settled samples.
             if let (Some(sig), Some(items)) = (
@@ -613,7 +613,7 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
                         let container_key = it.get("containerKey").and_then(Value::as_str)?;
                         let outcome = it.get("outcome").and_then(Value::as_str)?;
                         if kind != "indicator-anchor"
-                            || !matches!(outcome, "PROVEN" | "VALID")
+                            || !matches!(outcome, "VIOLATION" | "SATISFIED")
                             || dependent_key.is_empty()
                             || owner_key.is_empty()
                             || container_key.is_empty()
@@ -625,7 +625,7 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
                             .and_then(Value::as_str)
                             .filter(|value| matches!(*value, "detached" | "escaped-container"))
                             .map(str::to_string);
-                        if outcome == "PROVEN" && violation.is_none() {
+                        if outcome == "VIOLATION" && violation.is_none() {
                             return None;
                         }
                         Some(RelationCheck {
@@ -638,7 +638,7 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
                         })
                     })
                     .collect();
-                // Store an empty list too. It is an explicit UNKNOWN sample and
+                // Store an empty list too. It is an explicit ABSTAIN sample and
                 // must not be confused with the runner never evaluating the state.
                 obs.relation_checks.insert(sig.to_string(), parsed);
             }

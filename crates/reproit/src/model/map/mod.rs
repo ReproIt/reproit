@@ -1652,7 +1652,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_supported_proven_relationship_violations() {
+    fn parses_only_supported_relationship_violations() {
         let obs = parse_run(concat!(
             "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[\"Liked You\"]}\n",
             "EXPLORE:RELATION {\"sig\":\"nav\",\"items\":[",
@@ -1662,7 +1662,7 @@ mod tests {
             "{\"kind\":\"guessed-red-dot\",\"dependentKey\":\"x\",",
             "\"ownerKey\":\"y\",\"containerKey\":\"z\",\"violation\":\"detached\"}]}",
         ));
-        let items = obs.relations.get("nav").expect("proven relationship");
+        let items = obs.relations.get("nav").expect("relationship violation");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, "indicator-anchor");
         assert_eq!(items[0].dependent_key, "key:id:dot");

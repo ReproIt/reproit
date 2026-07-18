@@ -125,9 +125,9 @@ pub(super) async fn exploratory_record_session(
             ctx.say(format!("  {bucket} remains pending: replay was unstable"));
             Ok(exit_with(Exit::Flaky))
         }
-        triage::ReproVerdict::Clean
+        triage::ReproVerdict::NotReproduced
         | triage::ReproVerdict::Stale
-        | triage::ReproVerdict::Unknown => {
+        | triage::ReproVerdict::CouldNotReplay => {
             triage::report_tester_capture(&app, &bucket, &bucket, verdict, 1, cloud, key).await?;
             ctx.say(format!(
                 "  {bucket} remains pending: the captured structural state did not reproduce"

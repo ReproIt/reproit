@@ -117,15 +117,18 @@ mod tests {
             classify_repro(Some("fail"), Some(0)),
             ReproVerdict::Reproduced
         );
-        assert_eq!(classify_repro(Some("pass"), Some(0)), ReproVerdict::Clean);
+        assert_eq!(
+            classify_repro(Some("pass"), Some(0)),
+            ReproVerdict::NotReproduced
+        );
         assert_eq!(classify_repro(Some("stale"), Some(0)), ReproVerdict::Stale);
         assert_eq!(classify_repro(Some("flaky"), Some(0)), ReproVerdict::Flaky);
         // No JSON: fall back to the exit-code contract (1/2/3/0).
         assert_eq!(classify_repro(None, Some(1)), ReproVerdict::Reproduced);
         assert_eq!(classify_repro(None, Some(2)), ReproVerdict::Flaky);
         assert_eq!(classify_repro(None, Some(3)), ReproVerdict::Stale);
-        assert_eq!(classify_repro(None, Some(0)), ReproVerdict::Clean);
-        assert_eq!(classify_repro(None, None), ReproVerdict::Unknown);
+        assert_eq!(classify_repro(None, Some(0)), ReproVerdict::NotReproduced);
+        assert_eq!(classify_repro(None, None), ReproVerdict::CouldNotReplay);
         // The old bug: a stale run (exit 3 / outcome stale) must NOT read as
         // reproduced just because the process did not exit 0.
         assert_ne!(

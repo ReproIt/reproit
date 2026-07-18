@@ -1338,29 +1338,29 @@ mod tests {
     }
 
     #[test]
-    fn detached_indicator_recheck_distinguishes_proven_valid_and_unknown() {
+    fn detached_indicator_recheck_distinguishes_violation_satisfied_and_abstain() {
         let log = concat!(
             "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[\"Liked You\"]}\n",
-            "EXPLORE:RELATIONSTATUS {\"sig\":\"nav\",\"outcome\":\"VALID\",\"checks\":[",
+            "EXPLORE:RELATIONSTATUS {\"sig\":\"nav\",\"outcome\":\"SATISFIED\",\"checks\":[",
             "{\"kind\":\"indicator-anchor\",\"dependentKey\":\"key:id:dot\",",
-            "\"ownerKey\":\"key:id:liked\",\"containerKey\":\"key:id:tabs\",\"outcome\":\"VALID\"\
+            "\"ownerKey\":\"key:id:liked\",\"containerKey\":\"key:id:tabs\",\"outcome\":\"SATISFIED\"\
              }]}\n",
         );
-        let valid = crate::model::map::parse_run(log);
+        let satisfied = crate::model::map::parse_run(log);
         assert_eq!(
-            recheck_detached_indicator(&valid, "nav", Some("key:id:dot")),
+            recheck_detached_indicator(&satisfied, "nav", "key:id:dot"),
             GraphRecheck::Fixed
         );
         assert_eq!(
-            recheck_detached_indicator(&valid, "nav", Some("key:id:other")),
+            recheck_detached_indicator(&satisfied, "nav", "key:id:other"),
             GraphRecheck::NotReached
         );
-        let unknown = crate::model::map::parse_run(
+        let abstain = crate::model::map::parse_run(
             "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[]}\nEXPLORE:RELATIONSTATUS \
-             {\"sig\":\"nav\",\"outcome\":\"UNKNOWN\",\"checks\":[]}",
+             {\"sig\":\"nav\",\"outcome\":\"ABSTAIN\",\"checks\":[]}",
         );
         assert_eq!(
-            recheck_detached_indicator(&unknown, "nav", Some("key:id:dot")),
+            recheck_detached_indicator(&abstain, "nav", "key:id:dot"),
             GraphRecheck::NotReached
         );
     }

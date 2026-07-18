@@ -601,7 +601,7 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // its owner, and their container. The web adapter emits only after the
     // relationship resolved uniquely, all nodes were visible and stable, and
     // the same violation survived two settled samples. Missing or ambiguous
-    // declarations are UNKNOWN upstream and never become findings.
+    // declarations are ABSTAIN upstream and never become findings.
     if cfg.no_detached_indicator {
         for (sig, items) in &obs.obs.relations {
             for item in items {

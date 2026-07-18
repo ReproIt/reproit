@@ -41,7 +41,7 @@
       "permission-walk"
     ],
     "heuristic_or_specialist": [
-      "unknown",
+      "unclassified",
       "content-bug",
       "occlusion",
       "choice-anomaly",
@@ -60,7 +60,7 @@
     "contract"
   ],
   "oracles": [
-    "unknown",
+    "unclassified",
     "crash",
     "jank",
     "leak",

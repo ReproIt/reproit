@@ -299,7 +299,7 @@ pub(super) fn evaluate_query_pagination(
                 != Some(&base_input)
         }) {
             // Multiple logical queries or sessions are present. Without an
-            // explicit session identity, combining their pages is UNKNOWN.
+            // explicit session identity, combining their pages is ABSTAIN.
             continue;
         }
 

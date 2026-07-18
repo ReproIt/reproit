@@ -74,52 +74,27 @@ pub fn any_content_bug(obs: &RunObs) -> bool {
 }
 
 /// Re-confirm an explicit detached-indicator relationship at its recorded
-/// state. UNKNOWN relationships emit no marker and therefore evaluate as fixed
+/// state. ABSTAIN relationships emit no marker and therefore evaluate as fixed
 /// only after the state itself was reached; an unreachable state remains stale.
-pub fn recheck_detached_indicator(
-    obs: &RunObs,
-    sig: &str,
-    dependent_key: Option<&str>,
-) -> GraphRecheck {
+pub fn recheck_detached_indicator(obs: &RunObs, sig: &str, dependent_key: &str) -> GraphRecheck {
     if !obs.states.contains_key(sig) {
         return GraphRecheck::NotReached;
     }
-    if let Some(want) = dependent_key.filter(|value| !value.is_empty()) {
-        let Some(checks) = obs.relation_checks.get(sig) else {
-            return GraphRecheck::NotReached;
-        };
-        let Some(check) = checks
-            .iter()
-            .find(|check| check.kind == "indicator-anchor" && check.dependent_key == want)
-        else {
-            // The exact declared relationship vanished or became ambiguous.
-            // That is UNKNOWN, not proof that the UI was fixed.
-            return GraphRecheck::NotReached;
-        };
-        return if check.outcome == "PROVEN" {
-            GraphRecheck::StillViolating
-        } else {
-            GraphRecheck::Fixed
-        };
-    }
-    // Older saved repros have no dependent key. Re-confirm only when the marker
-    // contains a proven indicator relation; a VALID status means the class fixed,
-    // while a missing/empty status remains UNKNOWN.
-    if obs
-        .relations
-        .get(sig)
-        .is_some_and(|items| items.iter().any(|item| item.kind == "indicator-anchor"))
-    {
-        return GraphRecheck::StillViolating;
-    }
-    if obs
-        .relation_checks
-        .get(sig)
-        .is_some_and(|checks| checks.iter().any(|check| check.outcome == "VALID"))
-    {
-        GraphRecheck::Fixed
+    let Some(checks) = obs.relation_checks.get(sig) else {
+        return GraphRecheck::NotReached;
+    };
+    let Some(check) = checks
+        .iter()
+        .find(|check| check.kind == "indicator-anchor" && check.dependent_key == dependent_key)
+    else {
+        // The exact declared relationship vanished or became ambiguous.
+        // That is ABSTAIN, not proof that the UI was fixed.
+        return GraphRecheck::NotReached;
+    };
+    if check.outcome == "VIOLATION" {
+        GraphRecheck::StillViolating
     } else {
-        GraphRecheck::NotReached
+        GraphRecheck::Fixed
     }
 }
 

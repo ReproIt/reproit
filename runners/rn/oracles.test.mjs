@@ -56,7 +56,7 @@ test('mobile relation marker requires two stable SDK samples', async () => {
     dependentKey: 'key:badge',
     ownerKey: 'key:liked',
     containerKey: 'key:tabs',
-    outcome: 'PROVEN',
+    outcome: 'VIOLATION',
     violation: 'detached',
   };
   relationEmitted.clear();

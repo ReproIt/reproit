@@ -4,18 +4,22 @@ An oracle is a rule ReproIt uses to decide whether an observation is a bug. Repr
 finding unusual behavior from proving incorrect behavior. This is the boundary that keeps normal
 product behavior out of the confirmed bug list.
 
-## The proof model
+## Evidence evaluation and reproduction are separate
 
-Every proof-capable oracle has three outcomes:
+An oracle evaluates one rule against one authoritative evidence channel. These are evidence
+outcomes, not finding or reproduction statuses:
 
-| Outcome   | Meaning                                                                                                           |
-| --------- | ----------------------------------------------------------------------------------------------------------------- |
-| `PROVEN`  | Authoritative evidence violates an exact rule. ReproIt may save, shrink, replay, and report the bug.              |
-| `VALID`   | The same evidence channel proves the rule currently holds. A replay that becomes `VALID` proves the bug is fixed. |
-| `UNKNOWN` | Evidence is missing, ambiguous, unsupported, or not authoritative. ReproIt stays silent.                          |
+| Outcome     | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `VIOLATION` | Authoritative evidence violates an exact rule.                |
+| `SATISFIED` | The evidence proves that exact rule currently holds.          |
+| `ABSTAIN`   | Evidence cannot support either claim, so Reproit stays silent. |
 
-`UNKNOWN` is not success and is not failure. It is an abstention. A failing test, unusual
-screenshot, timing spike, or different implementation is not automatically a bug.
+A violation is still not public until a clean replay returns the same exact identity. Reproduction
+has its own statuses: `REPRODUCED`, `NOT_REPRODUCED`, `FLAKY`, `STALE`, and `COULD_NOT_REPLAY`.
+Only `REPRODUCED` promotes a discovered violation into a confirmed finding. `ABSTAIN` is not success
+or failure and never becomes a finding. A failing test, unusual screenshot, timing spike, or
+different implementation is not automatically a bug.
 
 ## What runs by default
 
@@ -42,7 +46,7 @@ not how interesting it looks.
 
 | ID                   | Confidence            | Detects                                                                                | Primary support                                                               |
 | -------------------- | --------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `unknown`            | telemetry only        | An unregistered or newer marker                                                        | all, never confirmed                                                          |
+| `unclassified`       | telemetry only        | An unregistered or newer marker                                                        | all, never confirmed                                                          |
 | `crash`              | confirmed             | Unhandled exceptions and process crashes                                               | all runners                                                                   |
 | `detached-indicator` | declared proof        | An opted-in badge or indicator detached from its owner                                 | web, React Native, Flutter, iOS, Android                                      |
 | `contract`           | declared proof        | A failed structural or temporal contract                                               | every instrumented SDK                                                        |
@@ -91,7 +95,7 @@ specific identity:
 
 These contracts never infer intent from visible language, color, proximity, handler names, or
 screenshots. Missing ownership, duplicate identities, animation, unresolved geometry, missing state
-samples, or unsupported lifecycle boundaries produce `UNKNOWN`.
+samples, or unsupported lifecycle boundaries produce `ABSTAIN`.
 
 ### Detached indicator example
 
@@ -183,7 +187,7 @@ references, unlisted principals, and undeclared message directions produce no fi
 | `concurrent-update`       | Two overlapping updates using the same authored version both committed to the same resource.                   |
 | `concurrent-conservation` | Overlapping committed updates contradicted an authored conservation transition.                                |
 
-Backend evaluation returns `UNKNOWN` when it lacks strong consistency, a stable operation or
+Backend evaluation returns `ABSTAIN` when it lacks strong consistency, a stable operation or
 resource identity, complete effects, an exact snapshot, an authoritative schema, or an authored
 behavioral contract. It does not derive semantics from names such as `admin`, `sort`, `cursor`,
 `balance`, or `submitOrder`.
@@ -239,12 +243,12 @@ ReproIt never fabricates a signal a platform does not expose. Important limits i
 - iOS simulators do not expose an attributable per-app animation-hitch stream through the current
   out-of-process driver.
 - Out-of-process Windows UI Automation cannot attribute compositor frame statistics to one window.
-- Backend eventual consistency remains `UNKNOWN` without an authored observation boundary.
+- Backend eventual consistency remains `ABSTAIN` without an authored observation boundary.
 
 ## Source of truth
 
 The top-level CLI and Cloud category registry is
 [`crates/reproit/oracle-registry.json`](../crates/reproit/oracle-registry.json). Backend and A2UI
 finding subtypes retain their exact subtype inside the saved contract evidence. Registry drift is
-tested so Cloud must handle every category and must preserve unknown future categories rather than
+tested so Cloud must handle every category and must preserve unclassified future categories rather than
 dropping them.

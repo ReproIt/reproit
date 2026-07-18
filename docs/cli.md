@@ -439,7 +439,7 @@ Normal commands refresh the graph automatically. These advanced views explain or
 ## Flags (on fuzz / check)
 
 See [Oracle reference](oracles.md) for the confirmed default set, specialist detectors, platform
-coverage, and `PROVEN` / `VALID` / `UNKNOWN` semantics.
+coverage, and `VIOLATION` / `SATISFIED` / `ABSTAIN` semantics.
 
 ```
 --target ios|android|web|all   multi (a,b,c) -> run each + diff for divergence

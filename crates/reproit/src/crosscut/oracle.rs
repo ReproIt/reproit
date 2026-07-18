@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 /// `--only`/`--no` filter on these. `as_str` is the canonical lowercase tag.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Oracle {
-    /// A finding whose taxonomy is not recognized by this CLI build. Unknown
+    /// A finding whose taxonomy is not recognized by this CLI build. Unclassified
     /// findings must never inherit the crash oracle: doing so would turn a
     /// parser/registry drift into a confirmed product bug.
-    Unknown,
+    Unclassified,
     Crash,
     Jank,
     Leak,
@@ -181,7 +181,7 @@ impl Oracle {
     /// a dead-code warning in the binary build.
     #[cfg(test)]
     pub const ALL: &'static [Oracle] = &[
-        Oracle::Unknown,
+        Oracle::Unclassified,
         Oracle::Crash,
         Oracle::Jank,
         Oracle::Leak,
@@ -213,7 +213,7 @@ impl Oracle {
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Oracle::Unknown => "unknown",
+            Oracle::Unclassified => "unclassified",
             Oracle::Crash => "crash",
             Oracle::Jank => "jank",
             Oracle::Leak => "leak",
@@ -245,10 +245,10 @@ impl Oracle {
     }
 
     /// Parse a category name (case-insensitive, with a few aliases) into an
-    /// `Oracle`. Unknown names return None so the caller can warn.
+    /// `Oracle`. Unrecognized names return None so the caller can warn.
     pub fn parse(name: &str) -> Option<Oracle> {
         match name.trim().to_ascii_lowercase().as_str() {
-            "unknown" => Some(Oracle::Unknown),
+            "unclassified" => Some(Oracle::Unclassified),
             "crash" | "exception" | "exceptions" => Some(Oracle::Crash),
             "jank" | "perf" | "performance" => Some(Oracle::Jank),
             "leak" | "memory" => Some(Oracle::Leak),
@@ -370,7 +370,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "HANG" => Oracle::Hang,
         // Raw framework exception blocks predate the named no-exception
         // invariant. They are still objective crashes. Everything else stays
-        // UNKNOWN so registry drift cannot masquerade as a confirmed crash.
+        // ABSTAIN so registry drift cannot masquerade as a confirmed crash.
         value
             if value == "EXCEPTION"
                 || value == "CRASH"
@@ -379,7 +379,7 @@ pub fn classify(finding: &Value) -> Oracle {
         {
             Oracle::Crash
         }
-        _ => Oracle::Unknown,
+        _ => Oracle::Unclassified,
     }
 }
 
@@ -395,7 +395,7 @@ pub struct OracleFilter {
 }
 
 impl OracleFilter {
-    /// Build from the raw comma-separated `--only`/`--no` strings. Unknown
+    /// Build from the raw comma-separated `--only`/`--no` strings. Unrecognized
     /// category names are returned (second tuple element) so the caller can
     /// warn without failing the run.
     pub fn build(only: Option<&str>, no: Option<&str>) -> (OracleFilter, Vec<String>) {
@@ -458,9 +458,9 @@ impl OracleFilter {
 
     /// Whether a given oracle category passes the filter.
     pub fn allows(&self, oracle: Oracle) -> bool {
-        // Unknown taxonomy is telemetry about registry drift, never a bug class.
+        // Unclassified taxonomy is telemetry about registry drift, never a bug class.
         // It cannot be opted into, including through the internal all() filter.
-        if oracle == Oracle::Unknown {
+        if oracle == Oracle::Unclassified {
             return false;
         }
         let tag = oracle.as_str();

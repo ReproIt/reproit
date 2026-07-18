@@ -1185,13 +1185,13 @@ final class ReproItTests: XCTestCase {
         animating: animating)
     }
     XCTAssertNil(ReproItIndicatorRelations.marker())
-    let proven = ReproItIndicatorRelations.marker()
-    XCTAssertTrue(proven?.contains("PROVEN") == true)
-    XCTAssertTrue(proven?.contains("escaped-container") == true)
+    let violation = ReproItIndicatorRelations.marker()
+    XCTAssertTrue(violation?.contains("VIOLATION") == true)
+    XCTAssertTrue(violation?.contains("escaped-container") == true)
     animating = true
     XCTAssertNil(ReproItIndicatorRelations.marker())
-    let unknown = ReproItIndicatorRelations.marker()
-    XCTAssertTrue(unknown?.contains("UNKNOWN") == true)
+    let abstention = ReproItIndicatorRelations.marker()
+    XCTAssertTrue(abstention?.contains("ABSTAIN") == true)
     ReproItIndicatorRelations.clear()
   }
 
@@ -1230,10 +1230,10 @@ final class ReproItTests: XCTestCase {
           ReproItStructuralObservation(
             key: "checkout", state: state, authoritative: true, settled: true)
         }))
-    XCTAssertEqual(ReproItStatePreservationContracts.boundary(.rotation, .before)[0].status, .valid)
+    XCTAssertEqual(ReproItStatePreservationContracts.boundary(.rotation, .before)[0].status, .satisfied)
     state = "draft:empty"
     let result = ReproItStatePreservationContracts.boundary(.rotation, .after)[0]
-    XCTAssertEqual(result.status, .proven)
+    XCTAssertEqual(result.status, .violation)
     XCTAssertEqual(result.id, "state-preservation:rotation:draft")
     ReproItStatePreservationContracts.clear()
   }
@@ -1250,7 +1250,7 @@ final class ReproItTests: XCTestCase {
     _ = ReproItActionEffectContracts.begin("checkout")
     o = ReproItActionEffectObservation(
       route: "cart", state: "complete", authoritative: true, settled: true)
-    let ids = ReproItActionEffectContracts.end("checkout").filter { $0.status == .proven }.map(\.id)
+    let ids = ReproItActionEffectContracts.end("checkout").filter { $0.status == .violation }.map(\.id)
     XCTAssertEqual(ids, ["action-effect:checkout:route"])
     ReproItActionEffectContracts.clear()
   }
@@ -1272,10 +1272,10 @@ final class ReproItTests: XCTestCase {
           return true
         }, loadBaseline: { _ in saved }))
     XCTAssertEqual(
-      ReproItStatePreservationContracts.boundary(.processRecreation, .before)[0].status, .valid)
+      ReproItStatePreservationContracts.boundary(.processRecreation, .before)[0].status, .satisfied)
     state = "empty"
     XCTAssertEqual(
-      ReproItStatePreservationContracts.boundary(.processRecreation, .after)[0].status, .proven)
+      ReproItStatePreservationContracts.boundary(.processRecreation, .after)[0].status, .violation)
     ReproItStatePreservationContracts.clear()
   }
 

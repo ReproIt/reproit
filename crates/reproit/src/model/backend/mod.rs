@@ -2891,7 +2891,7 @@ invariants:
         };
         assert!(matches!(
             failed_atomicity_effect_outcome(&effect_invocation(&partial), durable_effects),
-            AtomicityEffectOutcome::Proven(_)
+            AtomicityEffectOutcome::Violation(_)
         ));
         let findings = evaluate(&config, &partial);
         let violation = findings
@@ -2925,13 +2925,13 @@ invariants:
         ];
         assert!(matches!(
             failed_atomicity_effect_outcome(&effect_invocation(&rolled_back), durable_effects),
-            AtomicityEffectOutcome::Valid
+            AtomicityEffectOutcome::Satisfied
         ));
         assert!(evaluate(&config, &rolled_back).is_empty());
 
         assert!(matches!(
             failed_atomicity_effect_outcome(&effect_invocation(&[]), durable_effects),
-            AtomicityEffectOutcome::Valid
+            AtomicityEffectOutcome::Satisfied
         ));
         assert!(evaluate(&config, &[start.clone(), failed.clone()]).is_empty());
 
@@ -2944,7 +2944,7 @@ invariants:
                 &effect_invocation(std::slice::from_ref(&missing_before)),
                 durable_effects,
             ),
-            AtomicityEffectOutcome::Unknown
+            AtomicityEffectOutcome::Abstain
         ));
         assert!(evaluate(&config, &[start.clone(), missing_before, failed.clone()]).is_empty());
 

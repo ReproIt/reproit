@@ -16,11 +16,11 @@ test('proves state loss only across an explicit authoritative boundary', () => {
       settled: true,
     }),
   });
-  expect(oracle.boundary('rotation', 'before')[0].status).toBe('VALID');
+  expect(oracle.boundary('rotation', 'before')[0].status).toBe('SATISFIED');
   state = 'draft:empty';
   const results = oracle.boundary('rotation', 'after');
   expect(results[0]).toMatchObject({
-    status: 'PROVEN',
+    status: 'VIOLATION',
     id: 'state-preservation:rotation:checkout-draft',
   });
   expect(contractMarker(results)).toContain('state-preservation:rotation:checkout-draft');
@@ -37,8 +37,8 @@ test('state preservation abstains without authoritative settled samples', () => 
       settled: true,
     }),
   });
-  expect(oracle.boundary('background-foreground', 'before')[0].status).toBe('UNKNOWN');
-  expect(oracle.boundary('background-foreground', 'after')[0].status).toBe('UNKNOWN');
+  expect(oracle.boundary('background-foreground', 'before')[0].status).toBe('ABSTAIN');
+  expect(oracle.boundary('background-foreground', 'after')[0].status).toBe('ABSTAIN');
 });
 
 test('process recreation requires explicit persistent baseline callbacks', () => {
@@ -60,9 +60,9 @@ test('process recreation requires explicit persistent baseline callbacks', () =>
     },
     loadBaseline: () => persisted,
   });
-  expect(oracle.boundary('process-recreation', 'before')[0].status).toBe('VALID');
+  expect(oracle.boundary('process-recreation', 'before')[0].status).toBe('SATISFIED');
   state = 'draft:empty';
-  expect(oracle.boundary('process-recreation', 'after')[0].status).toBe('PROVEN');
+  expect(oracle.boundary('process-recreation', 'after')[0].status).toBe('VIOLATION');
 });
 
 test('action effects prove exact declared effects without labels', () => {
@@ -76,7 +76,7 @@ test('action effects prove exact declared effects without labels', () => {
   oracle.begin('checkout');
   observation = { ...observation, route: 'cart', state: 'complete' };
   const results = oracle.end('checkout');
-  expect(results.filter((r) => r.status === 'PROVEN').map((r) => r.id)).toEqual([
+  expect(results.filter((r) => r.status === 'VIOLATION').map((r) => r.id)).toEqual([
     'action-effect:checkout:route',
   ]);
 });
@@ -87,6 +87,6 @@ test('action effects abstain when the platform observation is not ' + 'authorita
     sample: () => ({ authoritative: false, settled: true }),
     route: { target: 'x' },
   });
-  expect(oracle.begin('x')[0].status).toBe('UNKNOWN');
-  expect(oracle.end('x')[0].status).toBe('UNKNOWN');
+  expect(oracle.begin('x')[0].status).toBe('ABSTAIN');
+  expect(oracle.end('x')[0].status).toBe('ABSTAIN');
 });
