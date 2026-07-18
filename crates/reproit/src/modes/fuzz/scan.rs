@@ -240,8 +240,15 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
             say(json, format!("    {oracle:16} [{classification}] {detail}"));
         }
     }
-    if !clips.is_empty() {
-        say(json, format!("\n{} clip(s) recorded.", clips.len()));
+    let (reproduced_clips, diagnostic_clips) = clip_reproduction_counts(&clips);
+    if reproduced_clips > 0 {
+        say(json, format!("\n{reproduced_clips} clip(s) recorded."));
+    }
+    if diagnostic_clips > 0 {
+        say(
+            json,
+            format!("\n{diagnostic_clips} diagnostic clip(s) saved but not counted as reproduced."),
+        );
     }
     // Honest about partial coverage: a cut-short crawl did NOT check every screen,
     // so don't let it read as a clean pass (the caller also exits non-zero).
@@ -334,6 +341,14 @@ fn collapse_related_findings(items: &mut std::collections::BTreeSet<(String, Str
             oracle != "broken-asset" || !detail.contains("cloudflare-static/email-decode.min.js")
         });
     }
+}
+
+fn clip_reproduction_counts(clips: &[Value]) -> (usize, usize) {
+    let reproduced = clips
+        .iter()
+        .filter(|clip| clip.get("reproduced").and_then(Value::as_bool) == Some(true))
+        .count();
+    (reproduced, clips.len().saturating_sub(reproduced))
 }
 
 /// The STATE-PRESENT oracles: bugs visible on a single screen, which is what
@@ -1155,5 +1170,15 @@ mod tests {
         assert!(!findings
             .iter()
             .any(|(oracle, _, _)| oracle == "broken-asset"));
+    }
+
+    #[test]
+    fn scan_does_not_count_failed_clip_attempts_as_recorded() {
+        let clips = vec![
+            json!({ "reproduced": true }),
+            json!({ "reproduced": false }),
+            json!({ "reproduced": true }),
+        ];
+        assert_eq!(clip_reproduction_counts(&clips), (2, 1));
     }
 }

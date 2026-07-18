@@ -41,6 +41,8 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'ro
       <a href="/manual.pdf">Manual</a>
       <a href="javascript:void(0)">JS</a>
       <a href="mailto:x@y.z">Mail</a>
+      <a class="__cf_email__" data-cfemail="00"
+         href="/cdn-cgi/l/email-protection#00">Protected email</a>
       <pre><code><a href="/sample-only">Example route</a></code></pre>
       <form action="/logout" method="post"><a href="/logout" type="submit">Log out</a></form>
       <a href="https://other.test/x">Off-site</a>
@@ -50,7 +52,7 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'ro
       [...links].sort(),
       ['/dashboard', '/settings'],
         'only same-origin GET routes survive; code/nofollow/submit/asset/js/' +
-        'mailto/off-site dropped, trailing slash normalized',
+        'mailto/Cloudflare-placeholder/off-site dropped, trailing slash normalized',
     );
   } finally {
     await browser.close();
@@ -134,6 +136,8 @@ test('one-hop HTML inspection finds a dead child without recursively crawling', 
           contentType: 'text/html',
           body:
             '<!doctype html><main data-sig="login-sig"><a href="/download">Download</a>' +
+            '<a class="__cf_email__" data-cfemail="00" ' +
+            'href="/cdn-cgi/l/email-protection#00">Email</a>' +
             '<a href="/level-two">More</a></main>',
         });
       }
@@ -214,6 +218,10 @@ test('one-hop HTML inspection finds a dead child without recursively crawling', 
     assert.ok(
       !requests.some((request) => request.path === '/deep-dead'),
       'successful child pages are not recursively inspected',
+    );
+    assert.ok(
+      !requests.some((request) => request.path === '/cdn-cgi/l/email-protection'),
+      'Cloudflare email placeholders are not treated as document routes',
     );
     assert.ok(
       !requests.some((request) => request.path === '/never-inspected'),
