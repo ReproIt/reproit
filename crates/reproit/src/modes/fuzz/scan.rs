@@ -241,28 +241,17 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
             say(json, format!("    {oracle:16} [{classification}] {detail}"));
         }
     }
-    let (reproduced_clips, failed_replays, diagnostic_clips) = clip_outcome_counts(&clips);
+    let (boxed_clips, diagnostic_clips) = clip_visualization_counts(&clips);
     if !clips.is_empty() {
         say(json, format!("\n{} clip(s) recorded.", clips.len()));
     }
-    if reproduced_clips > 0 {
-        say(
-            json,
-            format!("\n{reproduced_clips} exact visual reproduction(s) confirmed."),
-        );
-    }
-    if failed_replays > 0 {
-        say(
-            json,
-            format!("\n{failed_replays} exact replay(s) did not reproduce."),
-        );
+    if boxed_clips > 0 {
+        say(json, format!("\n{boxed_clips} finding(s) visually boxed."));
     }
     if diagnostic_clips > 0 {
         say(
             json,
-            format!(
-                "\n{diagnostic_clips} diagnostic clip(s) have no visual target; they make no reproduction claim."
-            ),
+            format!("\n{diagnostic_clips} diagnostic clip(s) saved without a visual box."),
         );
     }
     // Honest about partial coverage: a cut-short crawl did NOT check every screen,
@@ -358,20 +347,16 @@ fn collapse_related_findings(items: &mut std::collections::BTreeSet<(String, Str
     }
 }
 
-fn clip_outcome_counts(clips: &[Value]) -> (usize, usize, usize) {
-    let reproduced = clips
+fn clip_visualization_counts(clips: &[Value]) -> (usize, usize) {
+    let boxed = clips
         .iter()
-        .filter(|clip| clip.get("reproduced").and_then(Value::as_bool) == Some(true))
-        .count();
-    let failed = clips
-        .iter()
-        .filter(|clip| clip.get("reproduced").and_then(Value::as_bool) == Some(false))
+        .filter(|clip| clip.get("visualization").and_then(Value::as_str) == Some("boxed"))
         .count();
     let diagnostic = clips
         .iter()
         .filter(|clip| clip.get("visualization").and_then(Value::as_str) == Some("diagnostic"))
         .count();
-    (reproduced, failed, diagnostic)
+    (boxed, diagnostic)
 }
 
 /// The STATE-PRESENT oracles: bugs visible on a single screen, which is what
@@ -406,9 +391,9 @@ fn is_state_present(oracle: &crate::crosscut::Oracle) -> bool {
 }
 
 /// Record one clip per DISTINCT REPORTED scan finding. Findings with a precise
-/// visual reproduction strategy are re-detected and boxed; every other finding
+/// visual localization strategy are re-detected and boxed; every other finding
 /// still receives a diagnostic recording of the observed screen. A diagnostic
-/// recording makes no reproduction verdict; the finding keeps its own evidence.
+/// recording does not alter the finding; the oracle evidence remains authoritative.
 ///
 /// Content bugs are
 /// re-detected by drawFindingBoxes on the loaded screen, so a clip = replay
@@ -484,7 +469,7 @@ async fn record_scan_clips(
             .unwrap_or_else(|| sig.to_string())
     };
 
-    // One clip per distinct reported issue, each with the reproduction its bug needs:
+    // One clip per distinct reported issue, using the visualization it needs:
     //  - content: land on the screen by URL, re-detect + box.
     //  - broken-route: land on the SOURCE page, box the dead <a> by its href.
     //  - choice-anomaly: land on the screen, tap the outlier option so the page
@@ -492,7 +477,7 @@ async fn record_scan_clips(
     //  - hang / jank: land on the screen, replay the one triggering action, box the
     //    trigger element the runner tags at the tap.
     // Unsupported/non-visual oracles still get a diagnostic recording. The
-    // `diagnostic` bit keeps that film separate from exact reproduction truth.
+    // `diagnostic` keeps non-visual evidence separate from visual localization.
     let mut plans: std::collections::BTreeMap<(String, String, String), Value> =
         std::collections::BTreeMap::new();
     let mut used_broken_routes = std::collections::BTreeSet::new();
@@ -704,12 +689,10 @@ async fn record_scan_clips(
                 continue;
             }
         };
-        // TRUST GATE: a clip whose box drew is a confirmed reproduction. One
-        // whose box did NOT draw is still SAVED -- `--record` means every
-        // finding gets its film -- but named `.did-not-reproduce.webm` so it can
-        // never be mistaken for a confirmed repro (the old behavior silently
-        // dropped it, which read as "recording is broken").
-        let reproduced = match boxed_drew(&outcome.run_dir) {
+        // VISUALIZATION GATE: the runner marker says whether it drew the requested
+        // box. This controls only clip presentation; it never changes the finding
+        // or makes a reproduction claim.
+        let boxed = match boxed_drew(&outcome.run_dir) {
             Some(t) => t,
             None => {
                 // No FINDING:BOXED marker at all: the web runner is older than the
@@ -731,25 +714,23 @@ async fn record_scan_clips(
             continue;
         };
         let diagnostic = config.get("diagnostic").and_then(Value::as_bool) == Some(true);
-        let dest = if reproduced {
+        let dest = if boxed && !diagnostic {
             out.join(format!("{label}.webm"))
-        } else if diagnostic {
-            out.join(format!("{label}.diagnostic.webm"))
         } else {
-            out.join(format!("{label}.did-not-reproduce.webm"))
+            out.join(format!("{label}.diagnostic.webm"))
         };
         if std::fs::create_dir_all(&out).is_err() {
             say(json, format!("    could not create {}", out.display()));
             continue;
         }
         if std::fs::copy(&src, &dest).is_ok() {
-            if reproduced {
+            if boxed && !diagnostic {
                 say(json, format!("    saved {}", dest.display()));
             } else if diagnostic {
                 say(
                     json,
                     format!(
-                        "    saved diagnostic clip {} (no visual target; no reproduction claim)",
+                        "    saved diagnostic clip {} (this finding has no direct visual target)",
                         dest.display()
                     ),
                 );
@@ -757,30 +738,18 @@ async fn record_scan_clips(
                 say(
                     json,
                     format!(
-                        "    {label}: did not re-fire on this load; clip saved anyway as {}",
+                        "    {label}: could not draw its visual target; saved diagnostic clip {}",
                         dest.display()
                     ),
                 );
             }
-            let clip = if diagnostic {
-                json!({
-                    "screen": route,
-                    "oracle": oracle,
-                    "clip": dest.to_string_lossy(),
-                    "recorded": true,
-                    "visualization": "diagnostic",
-                })
-            } else {
-                json!({
-                    "screen": route,
-                    "oracle": oracle,
-                    "clip": dest.to_string_lossy(),
-                    "recorded": true,
-                    "visualization": "exact-replay",
-                    "reproduced": reproduced,
-                })
-            };
-            clips.push(clip);
+            clips.push(json!({
+                "screen": route,
+                "oracle": oracle,
+                "clip": dest.to_string_lossy(),
+                "recorded": true,
+                "visualization": if boxed && !diagnostic { "boxed" } else { "diagnostic" },
+            }));
         }
     }
     clips
@@ -793,9 +762,8 @@ async fn record_scan_clips(
 /// and, when it settles, resolves the finding's element to a window-relative
 /// rect + time window (box-spec.json). The host then draws the box with
 /// box-overlay.mjs, the uniform post-capture path for every backend that cannot
-/// inject a live overlay. Same trust gate as the web path: a clip whose box did
-/// not draw is saved but named `.did-not-reproduce.mp4` rather than shipped
-/// with a misleading caption.
+/// inject a live overlay. A clip whose box cannot be drawn is saved as a
+/// diagnostic; box rendering never determines the finding's validity.
 async fn record_native_clips(
     cfg: &Config,
     root: &Path,
@@ -819,7 +787,7 @@ async fn record_native_clips(
     };
     let overlay = web_dir.join("box-overlay.mjs");
 
-    // One clip per distinct reported finding. Exact hang/jank reproductions box
+    // One clip per distinct reported finding. Hang/jank visualizations box
     // their triggering control. State findings without a native element selector
     // use a sentinel selector: it deliberately cannot draw a box, but it arms the
     // native recorder and yields an honestly labeled diagnostic film instead of
@@ -946,22 +914,13 @@ async fn record_native_clips(
                 continue;
             }
         };
-        // Trust gate: FINDING:BOXED drew means the element resolved and the box
-        // was written; the runner still filmed the window regardless, so a clip
-        // that did not re-fire is saved but flagged (never dropped silently).
-        let reproduced = boxed_drew(&outcome.run_dir).unwrap_or(false);
+        // The marker describes box resolution only. It is not a finding verdict.
+        let box_resolved = boxed_drew(&outcome.run_dir).unwrap_or(false);
         let Some(mov) = find_named(&outcome.run_dir, "clip.mov") else {
             say(json, format!("    no video produced for {label}"));
             continue;
         };
         let diagnostic = config.get("diagnostic").and_then(Value::as_bool) == Some(true);
-        let dest = if reproduced {
-            out.join(format!("{label}.mp4"))
-        } else if diagnostic {
-            out.join(format!("{label}.diagnostic.mp4"))
-        } else {
-            out.join(format!("{label}.did-not-reproduce.mp4"))
-        };
         if std::fs::create_dir_all(out).is_err() {
             say(json, format!("    could not create {}", out.display()));
             continue;
@@ -970,16 +929,21 @@ async fn record_native_clips(
         // annotates; without one (element never resolved) we still ship the raw
         // film so `--record` always yields a clip.
         let spec = find_named(&outcome.run_dir, "box-spec.json");
-        let boxed = spec.is_some()
+        let boxed_dest = out.join(format!("{label}.mp4"));
+        let diagnostic_dest = out.join(format!("{label}.diagnostic.mp4"));
+        let boxed = box_resolved
+            && !diagnostic
+            && spec.is_some()
             && std::process::Command::new("node")
                 .arg(&overlay)
                 .arg(&mov)
-                .arg(&dest)
+                .arg(&boxed_dest)
                 .arg(spec.as_ref().unwrap())
                 .current_dir(&web_dir)
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
+        let dest = if boxed { &boxed_dest } else { &diagnostic_dest };
         if !boxed {
             // No spec, or the overlay failed: fall back to the raw window film so
             // the finding still gets a clip (unboxed, but honest).
@@ -988,13 +952,13 @@ async fn record_native_clips(
                 continue;
             }
         }
-        if reproduced {
+        if boxed {
             say(json, format!("    saved {}", dest.display()));
         } else if diagnostic {
             say(
                 json,
                 format!(
-                    "    saved diagnostic clip {} (no visual target; no reproduction claim)",
+                    "    saved diagnostic clip {} (this finding has no direct visual target)",
                     dest.display()
                 ),
             );
@@ -1002,30 +966,18 @@ async fn record_native_clips(
             say(
                 json,
                 format!(
-                    "    {label}: did not re-fire on this load; clip saved anyway as {}",
+                    "    {label}: could not draw its visual target; saved diagnostic clip {}",
                     dest.display()
                 ),
             );
         }
-        let clip = if diagnostic {
-            json!({
-                "screen": screen,
-                "oracle": oracle,
-                "clip": dest.to_string_lossy(),
-                "recorded": true,
-                "visualization": "diagnostic",
-            })
-        } else {
-            json!({
-                "screen": screen,
-                "oracle": oracle,
-                "clip": dest.to_string_lossy(),
-                "recorded": true,
-                "visualization": "exact-replay",
-                "reproduced": reproduced,
-            })
-        };
-        clips.push(clip);
+        clips.push(json!({
+            "screen": screen,
+            "oracle": oracle,
+            "clip": dest.to_string_lossy(),
+            "recorded": true,
+            "visualization": if boxed { "boxed" } else { "diagnostic" },
+        }));
     }
     clips
 }
@@ -1071,9 +1023,8 @@ pub(super) fn url_origin(u: &str) -> Option<String> {
     Some(format!("{scheme}://{authority}"))
 }
 
-/// Whether a clip run's box drew, from the LAST `FINDING:BOXED` marker in its
-/// drive log. `Some(true)` drew, `Some(false)` did not reproduce (the clip is
-/// still saved, marked did-not-reproduce),
+/// Whether a clip run's visual box drew, from the LAST `FINDING:BOXED` marker
+/// in its drive log. This is presentation state, never a finding verdict.
 /// The map's action path from a crawl entry to `target`: BFS over the observed
 /// edges, starting from each root (a state that never appears as an edge
 /// destination; the first edge source as a fallback for a cyclic map). Returns
@@ -1342,13 +1293,12 @@ mod tests {
     }
 
     #[test]
-    fn scan_keeps_replay_and_visualization_outcomes_separate() {
+    fn scan_counts_only_visualization_outcomes() {
         let clips = vec![
-            json!({ "visualization": "exact-replay", "reproduced": true }),
-            json!({ "visualization": "exact-replay", "reproduced": false }),
+            json!({ "visualization": "boxed" }),
             json!({ "visualization": "diagnostic" }),
         ];
-        assert_eq!(clip_outcome_counts(&clips), (1, 1, 1));
-        assert!(clips[2].get("reproduced").is_none());
+        assert_eq!(clip_visualization_counts(&clips), (1, 1));
+        assert!(clips.iter().all(|clip| clip.get("reproduced").is_none()));
     }
 }

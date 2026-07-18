@@ -270,9 +270,8 @@ pub(crate) enum Cmd {
         /// Force the simulator tier (default: headless / web).
         #[arg(long)]
         sim: bool,
-        /// After the crawl, record every distinct reported finding. Exact
-        /// reproductions are boxed; findings without a precise visual target
-        /// are saved as diagnostic clips with no reproduction verdict.
+        /// After the crawl, record every distinct reported finding. Visually
+        /// localizable findings are boxed; the rest are diagnostic clips.
         #[arg(long)]
         record: bool,
         /// Where the `--record` clips land (default:

@@ -370,9 +370,8 @@ fn tool_defs() -> Value {
                     "type": "boolean",
                     "description": concat!(
                         "Record every distinct reported finding into ",
-                        ".reproit/recordings/scan/. Exact reproductions are boxed; findings ",
-                        "without a precise visual target are diagnostic clips with no ",
-                        "reproduction verdict."
+                        ".reproit/recordings/scan/. Visually localizable findings are boxed; ",
+                        "the rest are diagnostic clips."
                     )
                 }
             } }
