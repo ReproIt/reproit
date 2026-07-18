@@ -134,6 +134,33 @@ fn source_files_stay_reviewable() {
 }
 
 #[test]
+fn responsibility_heavy_modules_stay_split() {
+    const MAX_LINES: usize = 1_200;
+    for relative in ["src/capsule.rs", "src/config/mod.rs", "src/mcp.rs"] {
+        let body = source(relative);
+        let lines = body.lines().count();
+        assert!(
+            lines <= MAX_LINES,
+            "{relative} has {lines} lines; move the next responsibility into a named submodule"
+        );
+    }
+    for relative in [
+        "src/capsule/crypto.rs",
+        "src/capsule/matching.rs",
+        "src/capsule/redaction.rs",
+        "src/config/loader.rs",
+        "src/mcp/dispatch.rs",
+    ] {
+        assert!(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(relative)
+                .is_file(),
+            "missing responsibility module {relative}"
+        );
+    }
+}
+
+#[test]
 fn flutter_explorer_scaffold_stays_modular() {
     const MAX_ENTRY_LINES: usize = 40;
     const MAX_MODULE_LINES: usize = 1_000;

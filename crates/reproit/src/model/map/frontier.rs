@@ -143,8 +143,17 @@ impl Visits {
 
 /// BFS shortest action-path from the start state to the least-visited
 /// reachable state (ties: prefer deeper, to push the frontier outward).
+#[cfg(any(test, feature = "perf-bench"))]
 pub(crate) fn frontier_path(map: &AppMap, visits: &Visits) -> Option<(String, Vec<String>)> {
     let graph = GraphIndex::new(map);
+    frontier_path_with_index(map, visits, &graph)
+}
+
+pub(crate) fn frontier_path_with_index(
+    _map: &AppMap,
+    visits: &Visits,
+    graph: &GraphIndex<'_>,
+) -> Option<(String, Vec<String>)> {
     let start_sig = visits.start.as_deref()?;
     let start_id = graph.state_for_signature(start_sig)?;
     let mut previous = HashMap::new();

@@ -25,10 +25,14 @@ mod parse;
 mod persistence;
 mod provenance;
 
+#[cfg(any(test, feature = "perf-bench"))]
+pub(crate) use frontier::frontier_path;
+pub(crate) use frontier::frontier_path_with_index;
 #[cfg(test)]
 use frontier::VISIT_WEIGHT_CAP;
 #[allow(unused_imports)] // Compatibility façade; several helpers are agent-facing APIs.
-pub(crate) use frontier::{edges_summary, entry_state, frontier_path, path_to_label, Visits};
+pub(crate) use frontier::{edges_summary, entry_state, path_to_label, Visits};
+pub(crate) use index::GraphIndex;
 #[cfg(test)]
 use merge::parse_action;
 use merge::sig_index;
@@ -44,7 +48,21 @@ use persistence::load_visits;
 pub(crate) use persistence::{appmap_path, load_existing_map, load_map, load_snapshot};
 use persistence::{load_existing_map_unlocked, load_visits_unlocked, save_snapshot, with_map_lock};
 #[allow(unused_imports)] // MapProvenance is part of the existing façade contract.
-pub(crate) use provenance::{map_freshness, stamp_map, MapFreshness, MapProvenance};
+pub(crate) use provenance::{map_freshness, MapFreshness, MapProvenance};
+
+#[cfg(feature = "perf-bench")]
+pub(crate) fn benchmark_save_snapshot(
+    root: &Path,
+    map: &AppMap,
+    visits: &mut Visits,
+) -> Result<()> {
+    with_map_lock(root, || save_snapshot(root, map, visits))
+}
+
+#[cfg(feature = "perf-bench")]
+pub(crate) fn benchmark_fingerprint(root: &Path, revision: u64) -> Result<String> {
+    Ok(provenance::build_map_provenance(root, revision)?.source_fingerprint)
+}
 
 /// Merge one run's observations into an IN-MEMORY map + visits, returning the
 /// parsed observations. Does no I/O, so callers that must stay pure (notably
@@ -263,11 +281,10 @@ pub async fn build_map(
         }
     }
 
-    // The graph and its provenance are committed as one logical snapshot. The
-    // next graph-consuming command compares actual project inputs to this stamp
-    // and refreshes automatically when they differ.
+    // The graph, visits, and provenance are committed as one recoverable
+    // snapshot. The next graph-consuming command compares actual project inputs
+    // to this stamp and refreshes automatically when they differ.
     let map = load_map(root, cfg)?;
-    stamp_map(root, map.revision)?;
     // Progress lines go to STDERR: stdout is reserved for machine output (e.g. a
     // `--json` scan/fuzz that auto-builds the map on first run), and these landing
     // on stdout corrupted the JSON object a piped consumer parses.
@@ -433,6 +450,20 @@ mod tests {
     #[test]
     fn entry_is_the_state_without_incoming_edges() {
         assert_eq!(entry_state(&sample()).as_deref(), Some("Home"));
+    }
+
+    #[test]
+    fn graph_index_exposes_action_lookup_and_state_summaries() {
+        let map = sample();
+        let graph = GraphIndex::new(&map);
+        let action = Action::Tap {
+            finder: "Settings".to_string(),
+        };
+        let matches = graph.transitions_for_action("Home", &action);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].to, "Settings");
+        assert_eq!(graph.summary("Home").outgoing, 1);
+        assert_eq!(graph.summary("Home").distinct_actions, 1);
     }
 
     #[test]
@@ -1456,11 +1487,9 @@ mod tests {
         std::fs::write(root.join("src/app.ts"), "export const screen = 'home';").unwrap();
         std::fs::write(root.join("reproit.yaml"), "app: {}\n").unwrap();
         let map = AppMap::empty("test-app".to_string());
-        let revision = map.revision;
         let mut visits = Visits::default();
         with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
 
-        stamp_map(&root, revision).unwrap();
         assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
 
         std::fs::write(root.join("target/generated.js"), "ignored").unwrap();
@@ -1472,7 +1501,7 @@ mod tests {
             MapFreshness::Stale(vec!["application source changed"])
         );
 
-        stamp_map(&root, revision).unwrap();
+        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
         std::fs::write(root.join("reproit.yaml"), "app: { platform: web }\n").unwrap();
         assert_eq!(
             map_freshness(&root).unwrap(),

@@ -69,7 +69,7 @@ pub(crate) fn finding_signature(f: &Value) -> String {
 /// Multi-actor exploration concatenates every actor log and uses this adapter
 /// so it has exactly the same oracle identity as ordinary fuzz and shrink.
 pub(crate) fn finding_signatures_for_log(cfg: &Config, log: &str) -> BTreeSet<String> {
-    let findings = findings_from_log(cfg, log, exceptions_in_log(log), true, Default::default());
+    let findings = findings_from_log(cfg, log, true, Default::default());
     let (confirmed, _) = crate::crosscut::OracleFilter::stable().apply(findings);
     confirmed
         .iter()
@@ -340,30 +340,23 @@ pub(super) fn reproduces_original(
 pub(super) fn findings_from_log(
     cfg: &Config,
     log: &str,
-    exceptions: Vec<Value>,
     sim: bool,
     escapable: crate::model::map::EscapableRoutes,
 ) -> Vec<Value> {
-    let events = crate::model::runner::parse(log);
-    let obs = crate::model::map::parse_runner_events(&events);
-    let observations = if cfg.contracts.is_empty() {
-        Vec::new()
-    } else {
-        crate::model::observation::from_runner_events(&events, &[])
-    };
-    let backend_events = if cfg.backend.enabled {
-        crate::model::backend::parse_runner_events(&events)
-    } else {
-        Vec::new()
-    };
+    let parsed = crate::model::runner::ParsedRun::new(
+        log,
+        &[],
+        !cfg.contracts.is_empty(),
+        cfg.backend.enabled,
+    );
     findings_from_parsed(
         cfg,
-        obs,
-        exceptions,
+        parsed.map,
+        parsed.exceptions,
         sim,
         escapable,
-        &observations,
-        &backend_events,
+        &parsed.observations,
+        &parsed.backend,
     )
 }
 
@@ -407,48 +400,43 @@ pub(super) fn findings_from_parsed(
 /// sim-only, surfaced separately via perf_findings.
 pub(super) fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<Value> {
     let log = std::fs::read_to_string(run_dir.join("drive-a.log")).unwrap_or_default();
-    let events = crate::model::runner::parse(&log);
-    let contract_observations = if cfg.contracts.is_empty() {
-        Vec::new()
-    } else {
-        crate::model::observation::from_runner_events(&events, &[])
-    };
+    let parsed = crate::model::runner::ParsedRun::new(
+        &log,
+        &[],
+        !cfg.contracts.is_empty(),
+        cfg.backend.enabled,
+    );
     let contract_violations =
-        crate::model::contracts::evaluate_all(&cfg.contracts, &contract_observations);
+        crate::model::contracts::evaluate_all(&cfg.contracts, &parsed.observations);
     let _ = crate::model::contracts::write_evidence(
         &run_dir.join("contract-evidence.json"),
         &cfg.contracts,
-        &contract_observations,
+        &parsed.observations,
         &contract_violations,
     );
-    let backend_events = if cfg.backend.enabled {
-        crate::model::backend::parse_runner_events(&events)
-    } else {
-        Vec::new()
-    };
-    let backend_violations = crate::model::backend::evaluate(&cfg.backend, &backend_events);
+    let backend_violations = crate::model::backend::evaluate(&cfg.backend, &parsed.backend);
     let _ = crate::model::backend::write_evidence(
         &run_dir.join("backend-evidence.json"),
         &cfg.backend,
-        &backend_events,
+        &parsed.backend,
         &backend_violations,
     );
     let exceptions = if sim {
         app_exceptions(run_dir)
     } else {
-        exceptions_in_log(&log)
+        parsed.exceptions
     };
     // The check path re-verifies a specific recorded finding without the
     // aggregate map in scope; an empty set keeps its permission-trap check
     // unchanged.
     let mut f = findings_from_parsed(
         cfg,
-        crate::model::map::parse_runner_events(&events),
+        parsed.map,
         exceptions,
         sim,
         Default::default(),
-        &contract_observations,
-        &backend_events,
+        &parsed.observations,
+        &parsed.backend,
     );
     if sim {
         f.extend(perf_findings(run_dir));

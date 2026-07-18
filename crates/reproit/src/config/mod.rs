@@ -1,9 +1,7 @@
 //! Config schema and loader. See examples/reproit.example.yaml for the shape.
 
-use anyhow::{bail, Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -732,127 +730,19 @@ fn default_true() -> bool {
     true
 }
 
-pub struct Loaded {
-    pub config: Config,
-    /// Directory of the config file; relative paths resolve from here.
-    pub root: PathBuf,
-}
-
-pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
-    let file = match explicit {
-        Some(p) => p.to_path_buf(),
-        None => find_config(&std::env::current_dir()?).context(
-            "no reproit.yaml found in cwd or ancestors; pass --config or copy \
-             examples/reproit.example.yaml",
-        )?,
-    };
-    let raw =
-        std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-    let canon = file.canonicalize()?;
-    let parent = canon
-        .parent()
-        .context("config file has no parent directory")?;
-    // A persisted zero-config run lives at `<cwd>/.reproit/reproit.yaml`; root it
-    // at the cwd (the `.reproit` parent) so `.reproit/runs` and other relative
-    // paths resolve from the project dir, not from inside `.reproit/`.
-    let root = if parent.file_name().map(|n| n == ".reproit").unwrap_or(false) {
-        parent
-            .parent()
-            .context("`.reproit` config has no parent directory")?
-            .to_path_buf()
-    } else {
-        parent.to_path_buf()
-    };
-    parse_str(&raw, root).with_context(|| format!("parsing {}", file.display()))
-}
-
-/// Parse a config YAML string (env interpolation + validation), rooted at
-/// `root` (where relative paths and `.reproit/` output resolve). Shared by
-/// `load` (from a file) and the zero-config `--url` synthesizer.
-pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
-    let raw = interpolate_env(raw)?;
-    let mut config: Config = serde_yaml::from_str(&raw)?;
-    if crate::backends::platform::resolve(&config.app.platform).is_none() {
-        bail!(
-            "unsupported platform {:?}; known: {}",
-            config.app.platform,
-            crate::backends::platform::known_ids()
-        );
-    }
-    if config.journeys.done_markers.is_empty() {
-        bail!("journeys.doneMarkers must not be empty");
-    }
-    config.backend.load_schemas(&root)?;
-    Ok(Loaded { config, root })
-}
-
+mod loader;
 mod synthesis;
 mod web_runner;
 
+pub use loader::{load, parse_str, Loaded};
 pub use synthesis::{synthesize_tui, synthesize_web};
 pub use web_runner::ensure_web_runner_dir;
 // Retain the pre-refactor façade even though the current crate has no caller.
 #[allow(unused_imports)]
 pub use web_runner::web_runner_data_dir;
 
-fn find_config(from: &Path) -> Option<PathBuf> {
-    let mut dir = from.to_path_buf();
-    loop {
-        let candidate = dir.join("reproit.yaml");
-        if candidate.exists() {
-            return Some(candidate);
-        }
-        // Fallback: a persisted zero-config `fuzz <url>` run writes its
-        // synthesized config here, so a later check/keep/repros finds it.
-        // `load` re-roots this at `dir` (not `.reproit/`) so relative paths hold.
-        let synth = crate::layout::config_path(&dir);
-        if synth.exists() {
-            return Some(synth);
-        }
-        if !dir.pop() {
-            return None;
-        }
-    }
-}
-
-/// Interpolate environment variables across the whole config (every field, not
-/// just `app.defines`), using the familiar shell parameter-expansion subset:
-///   - `${VAR}`              substitute VAR; empty if unset
-///   - `${VAR:-default}`     substitute VAR, or `default` if unset/empty
-///   - `${VAR:?message}`     substitute VAR, or fail the load with `message`
-/// `${VAR:?}` forms that resolve to nothing are collected and reported together
-/// so one run surfaces every missing required var, not just the first.
-fn interpolate_env(raw: &str) -> Result<String> {
-    let re = Regex::new(r"\$\{(\w+)(?::(-|\?)([^}]*))?\}").unwrap();
-    let mut missing: Vec<String> = Vec::new();
-    let out = re
-        .replace_all(raw, |caps: &regex::Captures| {
-            let name = &caps[1];
-            let val = std::env::var(name).ok().filter(|v| !v.is_empty());
-            match caps.get(2).map(|m| m.as_str()) {
-                // ${VAR:-default}
-                Some("-") => val.unwrap_or_else(|| caps[3].to_string()),
-                // ${VAR:?message} -> required; record and fail after the pass.
-                Some("?") => val.unwrap_or_else(|| {
-                    let msg = caps[3].trim();
-                    let msg = if msg.is_empty() {
-                        format!("required config variable {name} is not set")
-                    } else {
-                        format!("{name}: {msg}")
-                    };
-                    missing.push(msg);
-                    String::new()
-                }),
-                // ${VAR}: empty when unset.
-                _ => val.unwrap_or_default(),
-            }
-        })
-        .into_owned();
-    if !missing.is_empty() {
-        bail!("unresolved config variables:\n  {}", missing.join("\n  "));
-    }
-    Ok(out)
-}
+#[cfg(test)]
+use loader::interpolate_env;
 
 #[cfg(test)]
 mod tests {

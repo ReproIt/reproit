@@ -51,13 +51,18 @@ pub use recheck::{
     recheck_rerender_flicker, GraphRecheck,
 };
 
+#[cfg(feature = "perf-bench")]
+pub(crate) fn benchmark_permission_traps(obs: &RunObs) -> usize {
+    graph::permission_traps(obs).len()
+}
+
 /// Everything the invariant set needs to evaluate one run. Built by the caller
 /// from the per-seed log slice (+ the sim manifest, when on the sim tier).
 pub struct Observations {
     /// Parsed `EXPLORE:STATE`/`EXPLORE:EDGE` records for this run.
     pub obs: RunObs,
-    /// App exception findings already parsed (`exceptions_in_log` /
-    /// `app_exceptions`): the `no-exception` edge oracle reuses these verbatim.
+    /// App exception findings already parsed (`ParsedRun` / `app_exceptions`):
+    /// the `no-exception` edge oracle reuses these verbatim.
     pub exceptions: Vec<Value>,
     /// Per-state max jank percent, keyed by state sig, when the sim tier
     /// attributed frame timing per state. Empty on the headless tier

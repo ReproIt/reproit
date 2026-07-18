@@ -1,9 +1,5 @@
 use super::*;
 
-fn clean_runner_line(line: &str) -> &str {
-    line.trim_start_matches("flutter: ").trim()
-}
-
 /// Split a batched drive log into per-seed `(seed, log_slice)` pairs by the
 /// `SEED:BEGIN <seed>` ... `SEED:END <seed>` boundary markers the explorer
 /// emits. For a single-seed run with no markers, the whole log is returned
@@ -88,6 +84,7 @@ pub(super) fn marker_seed(line: &str, prefix: &str) -> Option<u64> {
 }
 
 /// The performed action sequence, from FUZZ:ACT lines in a log slice.
+#[cfg(test)]
 pub(super) fn trace_in_log(log: &str) -> Vec<String> {
     log.lines()
         .filter_map(|l| {
@@ -97,85 +94,9 @@ pub(super) fn trace_in_log(log: &str) -> Vec<String> {
         .collect()
 }
 
-/// App exception findings parsed directly from a drive-log SLICE (one seed's
-/// segment of a batched session). Mirrors `app_exceptions` but works on the
-/// per-seed text so findings are attributed to the right seed. Captures each
-/// "EXCEPTION CAUGHT BY ..." block (excluding the test framework's own) up to
-/// the closing ═ rule, pulling kind / message / Dart source frames.
+/// Test adapter for the exception reducer owned by the single-pass runner
+/// parser. Production consumers take exceptions from `ParsedRun`.
+#[cfg(test)]
 pub(super) fn exceptions_in_log(log: &str) -> Vec<Value> {
-    let mut out = Vec::new();
-    let mut buf: Option<Vec<&str>> = None;
-    for raw in log.lines() {
-        if raw.contains("EXCEPTION CAUGHT BY") {
-            // Flush an unterminated previous block defensively.
-            if let Some(b) = buf.take() {
-                if let Some(rec) = exception_record(&b) {
-                    out.push(rec);
-                }
-            }
-            buf = Some(vec![raw]);
-            continue;
-        }
-        if let Some(b) = buf.as_mut() {
-            let trimmed = clean_runner_line(raw);
-            let is_close = !trimmed.is_empty() && trimmed.chars().all(|c| c == '═');
-            if is_close || b.len() > 300 {
-                if let Some(rec) = exception_record(b) {
-                    out.push(rec);
-                }
-                buf = None;
-            } else {
-                b.push(raw);
-            }
-        }
-    }
-    if let Some(b) = buf {
-        if let Some(rec) = exception_record(&b) {
-            out.push(rec);
-        }
-    }
-    out
-}
-
-/// Turn one captured exception block into a finding Value, or None if it is the
-/// test framework's own exception (not an app bug).
-fn exception_record(buf: &[&str]) -> Option<Value> {
-    let kind = buf
-        .first()
-        .and_then(|l| {
-            let line = clean_runner_line(l);
-            let start = line.find('╡')? + '╡'.len_utf8();
-            let end = line.find('╞')?;
-            Some(line[start..end].trim().to_string())
-        })
-        .unwrap_or_else(|| "EXCEPTION".to_string());
-    if kind.contains("TEST FRAMEWORK") {
-        return None;
-    }
-    let mut message = String::new();
-    if let Some(start) = buf
-        .iter()
-        .position(|line| clean_runner_line(line).starts_with("The following"))
-    {
-        for raw in &buf[start + 1..] {
-            let line = clean_runner_line(raw);
-            if line.is_empty() {
-                break;
-            }
-            if !message.is_empty() {
-                message.push(' ');
-            }
-            message.push_str(line);
-        }
-    }
-    let frames: Vec<String> = buf
-        .iter()
-        .map(|line| clean_runner_line(line))
-        .filter(|line| {
-            line.contains(".dart") && (line.contains("package:") || line.contains("file://"))
-        })
-        .take(12)
-        .map(str::to_string)
-        .collect();
-    Some(json!({ "kind": kind, "message": message, "frames": frames }))
+    crate::model::runner::parse_exceptions(log)
 }

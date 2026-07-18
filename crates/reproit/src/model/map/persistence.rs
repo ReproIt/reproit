@@ -1,5 +1,6 @@
 //! Map file paths, snapshots, and JSON persistence.
 
+use super::provenance::{build_map_provenance, MapProvenance};
 use super::Visits;
 use crate::config::Config;
 use crate::layout;
@@ -19,6 +20,7 @@ static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 struct PendingSnapshot {
     map: AppMap,
     visits: Visits,
+    provenance: MapProvenance,
 }
 
 #[derive(Serialize)]
@@ -26,6 +28,7 @@ struct PendingSnapshot {
 struct PendingSnapshotRef<'a> {
     map: &'a AppMap,
     visits: &'a Visits,
+    provenance: &'a MapProvenance,
 }
 
 pub(crate) fn appmap_path(root: &Path) -> PathBuf {
@@ -34,6 +37,10 @@ pub(crate) fn appmap_path(root: &Path) -> PathBuf {
 
 pub(super) fn provenance_path(root: &Path) -> PathBuf {
     appmap_path(root).with_file_name("provenance.json")
+}
+
+pub(super) fn fingerprint_cache_path(root: &Path) -> PathBuf {
+    appmap_path(root).with_file_name("fingerprint-cache.json")
 }
 
 fn visits_path(root: &Path) -> PathBuf {
@@ -170,13 +177,22 @@ pub(super) fn save_visits(root: &Path, v: &Visits) -> Result<()> {
 
 pub(super) fn save_snapshot(root: &Path, map: &AppMap, visits: &mut Visits) -> Result<()> {
     visits.map_revision = map.revision;
+    let provenance = build_map_provenance(root, map.revision)?;
     let pending = pending_snapshot_path(root);
-    atomic_write_json(&pending, &PendingSnapshotRef { map, visits })?;
-    // The recovery journal makes this two-file commit roll-forward safe. A
+    atomic_write_json(
+        &pending,
+        &PendingSnapshotRef {
+            map,
+            visits,
+            provenance: &provenance,
+        },
+    )?;
+    // The recovery journal makes this three-file commit roll-forward safe. A
     // crash after either write is completed from `pending-snapshot.json` on the
     // next locked read instead of exposing a permanently mixed generation.
     save_visits(root, visits)?;
     save_map(root, map)?;
+    atomic_write_json(&provenance_path(root), &provenance)?;
     std::fs::remove_file(&pending)?;
     sync_parent(&pending)
 }
@@ -197,8 +213,17 @@ fn recover_pending_unlocked(root: &Path) -> Result<()> {
             pending.display()
         );
     }
+    if snapshot.provenance.map_revision != snapshot.map.revision {
+        anyhow::bail!(
+            "{} contains provenance for map revision {}, expected {}",
+            pending.display(),
+            snapshot.provenance.map_revision,
+            snapshot.map.revision
+        );
+    }
     save_visits(root, &snapshot.visits)?;
     save_map(root, &snapshot.map)?;
+    atomic_write_json(&provenance_path(root), &snapshot.provenance)?;
     std::fs::remove_file(&pending)?;
     sync_parent(&pending)
 }
@@ -330,19 +355,24 @@ mod tests {
             map_revision: new_map.revision,
             ..Visits::default()
         };
+        let provenance = build_map_provenance(&root, new_map.revision).unwrap();
         atomic_write_json(
             &pending_snapshot_path(&root),
             &PendingSnapshotRef {
                 map: &new_map,
                 visits: &new_visits,
+                provenance: &provenance,
             },
         )
         .unwrap();
         save_visits(&root, &new_visits).unwrap();
 
         let (map, visits) = load_existing_snapshot(&root).unwrap().unwrap();
+        let provenance: MapProvenance =
+            serde_json::from_slice(&std::fs::read(provenance_path(&root)).unwrap()).unwrap();
         assert_eq!(map.revision, new_map.revision);
         assert_eq!(visits.map_revision, new_map.revision);
+        assert_eq!(provenance.map_revision, new_map.revision);
         assert!(!pending_snapshot_path(&root).exists());
         std::fs::remove_dir_all(root).ok();
     }

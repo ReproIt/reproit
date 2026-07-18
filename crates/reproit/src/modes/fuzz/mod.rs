@@ -37,9 +37,13 @@ use findings::{
     reproduces_original, reserve_shrink_representative, shrink_target, target_identity,
 };
 pub(crate) use findings::{app_exceptions, finding_signature, finding_signatures_for_log};
+#[cfg(test)]
+use log::exceptions_in_log;
 #[allow(unused_imports)] // Preserve the existing crate-level log-splitting façade.
 pub(crate) use log::split_log_segments;
-use log::{exceptions_in_log, marker_seed, split_seed_segments, trace_in_log};
+#[cfg(test)]
+use log::trace_in_log;
+use log::{marker_seed, split_seed_segments};
 use reporting::{deliver_finding, persist_causal_capsule, persist_finding_report, write_report};
 use scan::state_present_footer;
 #[cfg(test)]
@@ -375,9 +379,13 @@ async fn fuzz_one_locale(
         let parsed_segments: Vec<_> = segments
             .into_iter()
             .map(|(seed, log)| {
-                let events = crate::model::runner::parse(log);
-                let observations = crate::model::map::parse_runner_events(&events);
-                (seed, log, events, observations)
+                let parsed = crate::model::runner::ParsedRun::new(
+                    log,
+                    &[],
+                    !cfg.contracts.is_empty(),
+                    cfg.backend.enabled,
+                );
+                (seed, parsed)
             })
             .collect();
 
@@ -387,7 +395,8 @@ async fn fuzz_one_locale(
         // terminus would false-flag it even though a sibling seed left it cleanly.
         // Pooling (and accumulating into `escapable` across batches) means a page
         // any seed could leave via a forward action is never a trap.
-        for (_, _, _, o) in &parsed_segments {
+        for (_, parsed) in &parsed_segments {
+            let o = &parsed.map;
             for (from, action, to) in &o.edges {
                 if action != "back" && to != from {
                     if let Some(r) = o.routes.get(from) {
@@ -405,11 +414,12 @@ async fn fuzz_one_locale(
             }
         }
 
-        for (idx, (seed, seg_log, events, obs)) in parsed_segments.into_iter().enumerate() {
+        for (idx, (seed, parsed)) in parsed_segments.into_iter().enumerate() {
+            let trace = parsed.trace.clone();
             // Accrue this walk's coverage into the IN-MEMORY snapshot only, so
             // later batches in THIS run get the guidance, but the committed
             // map/visits stay untouched (fuzz is pure; re-run `map` to fold in).
-            crate::model::map::absorb_obs_inmem(&mut map, &mut visits, &obs);
+            crate::model::map::absorb_obs_inmem(&mut map, &mut visits, &parsed.map);
             // Findings attributed to THIS seed: exceptions parsed from the
             // seed's log slice, plus the per-device perf oracle (whole-session;
             // attributed to whichever seed it lands in only when we can't split
@@ -423,34 +433,23 @@ async fn fuzz_one_locale(
             // `escapable` routes keep a permission trap only when no batch's
             // evidence escapes it. Jank/leak stay handled by perf_findings below
             // for the sim tier (session-wide frame stream).
-            let exceptions = exceptions_in_log(seg_log);
-            let contract_observations = if cfg.contracts.is_empty() {
-                Vec::new()
-            } else {
-                crate::model::observation::from_runner_events(&events, &[])
-            };
-            let backend_events = if cfg.backend.enabled {
-                crate::model::backend::parse_runner_events(&events)
-            } else {
-                Vec::new()
-            };
             let mut findings = findings_from_parsed(
                 cfg,
-                obs,
-                exceptions,
+                parsed.map,
+                parsed.exceptions,
                 args.sim,
                 escapable.clone(),
-                &contract_observations,
-                &backend_events,
+                &parsed.observations,
+                &parsed.backend,
             );
             let contract_violations =
-                crate::model::contracts::evaluate_all(&cfg.contracts, &contract_observations);
+                crate::model::contracts::evaluate_all(&cfg.contracts, &parsed.observations);
             let _ = crate::model::contracts::write_evidence(
                 &outcome
                     .run_dir
                     .join(format!("contract-evidence-{seed}.json")),
                 &cfg.contracts,
-                &contract_observations,
+                &parsed.observations,
                 &contract_violations,
             );
             // Perf is session-wide (one frame stream); attribute it once. The
@@ -549,7 +548,6 @@ async fn fuzz_one_locale(
                     findings.len()
                 ),
             );
-            let trace = trace_in_log(seg_log);
             let mut shrunk = trace.clone();
             let want = shrink_target(&findings);
             // Confirmation is the product trust gate, not an optional polish
@@ -986,10 +984,11 @@ fn batch_guidance<'a>(
     let mut prefix = args.from_prefix.clone();
     let mut frontier = None;
     if args.from_prefix.is_none() && args.frontier {
-        match crate::model::map::frontier_path(map, visits) {
+        let graph = crate::model::map::GraphIndex::new(map);
+        match crate::model::map::frontier_path_with_index(map, visits, &graph) {
             Some((target, path)) if !path.is_empty() => {
                 if !args.uniform {
-                    budget = energy_budget(map, visits, &target, args.budget);
+                    budget = energy_budget(map, visits, &graph, &target, args.budget);
                 }
                 prefix = Some(path);
                 frontier = Some(target);
@@ -1068,6 +1067,7 @@ fn plan_seed(args: &FuzzArgs, guidance: &BatchGuidance<'_>, seed: u64, i: u32) -
 fn energy_budget(
     map: &crate::model::appmap::AppMap,
     visits: &crate::model::map::Visits,
+    graph: &crate::model::map::GraphIndex<'_>,
     target_id: &str,
     base: u32,
 ) -> u32 {
@@ -1078,14 +1078,11 @@ fn energy_budget(
         .unwrap_or_default();
     let v = visits.counts.get(&sig).copied().unwrap_or(0);
     // Outgoing edges from this state, and how many have ever been traversed.
-    let mut known_out = 0_usize;
+    let summary = graph.summary(target_id);
+    debug_assert!(summary.distinct_actions <= summary.outgoing);
+    let known_out = summary.distinct_actions;
     let mut traversed = 0_usize;
-    for transition in map
-        .transitions
-        .iter()
-        .filter(|transition| transition.from == target_id)
-    {
-        known_out += 1;
+    for transition in graph.outgoing(target_id) {
         let action = crate::model::map::action_str(&transition.action);
         if visits
             .edge_counts

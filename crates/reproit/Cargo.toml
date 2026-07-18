@@ -6,6 +6,15 @@ license.workspace = true
 repository.workspace = true
 readme = "../../README.md"
 description = "Deterministic multi-device test orchestration with evidence capture"
+default-run = "reproit"
+
+[features]
+perf-bench = []
+
+[[bin]]
+name = "reproit-perf"
+path = "src/bin/reproit-perf.rs"
+required-features = ["perf-bench"]
 
 [dependencies]
 anyhow = { workspace = true }

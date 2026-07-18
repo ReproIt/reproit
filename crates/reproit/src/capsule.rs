@@ -5,14 +5,24 @@
 //! completeness, matching, identity, and durable layout so every platform has
 //! one trust contract.
 
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+mod crypto;
+mod matching;
+mod redaction;
+use crypto::{
+    capsule_key, decrypt, decrypt_with_key, encrypt, encrypt_with_key, hex_sha256, write_private,
+};
+#[cfg(test)]
+pub use matching::exchange_match_key;
+pub use matching::json_reductions;
+pub(crate) use redaction::redact_backend_event;
+pub use redaction::{redact_capsule, redact_exchange};
 
 pub const CAPSULE_VERSION: u32 = 1;
 
@@ -637,194 +647,6 @@ impl Default for RedactionPolicy {
     }
 }
 
-pub fn redact_capsule(capsule: &mut Capsule, policy: &RedactionPolicy) {
-    for exchange in &mut capsule.exchanges {
-        redact_exchange(exchange, policy, &mut capsule.redactions);
-    }
-    for event in &mut capsule.backend_events {
-        redact_backend_event(event, policy, &mut capsule.redactions);
-    }
-    capsule.redactions.sort();
-    capsule.redactions.dedup();
-}
-
-pub(crate) fn redact_backend_event(
-    event: &mut crate::model::backend::BackendEvent,
-    policy: &RedactionPolicy,
-    manifest: &mut Vec<String>,
-) {
-    let identity = event.idempotency_key.take().map(|key| {
-        if key.strip_prefix("sha256:").is_some_and(|digest| {
-            digest.len() == 24 && digest.chars().all(|c| c.is_ascii_hexdigit())
-        }) {
-            return key;
-        }
-        use sha2::{Digest, Sha256};
-        let digest = Sha256::digest(key.as_bytes());
-        format!(
-            "sha256:{}",
-            digest[..12]
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        )
-    });
-    if let Ok(mut value) = serde_json::to_value(&*event) {
-        redact_value(&mut value, policy, "$backend", manifest);
-        if let Ok(redacted) = serde_json::from_value(value) {
-            *event = redacted;
-        }
-    }
-    event.idempotency_key = identity;
-}
-
-pub fn redact_exchange(
-    exchange: &mut Exchange,
-    policy: &RedactionPolicy,
-    manifest: &mut Vec<String>,
-) {
-    redact_headers(&mut exchange.request_headers, policy, manifest);
-    redact_headers(&mut exchange.response_headers, policy, manifest);
-    if let Some(body) = &mut exchange.request_body {
-        redact_value(body, policy, "$request", manifest);
-    }
-    if let Some(body) = &mut exchange.response_body {
-        redact_value(body, policy, "$response", manifest);
-    }
-}
-
-fn redact_headers(
-    headers: &mut BTreeMap<String, String>,
-    policy: &RedactionPolicy,
-    manifest: &mut Vec<String>,
-) {
-    let keys: Vec<String> = headers.keys().cloned().collect();
-    for key in keys {
-        if policy.drop_headers.contains(&key.to_ascii_lowercase()) {
-            headers.insert(key.clone(), "<reproit:secret>".into());
-            manifest.push(format!("header:{key}"));
-        }
-    }
-}
-
-pub(crate) fn redact_value(
-    value: &mut Value,
-    policy: &RedactionPolicy,
-    path: &str,
-    manifest: &mut Vec<String>,
-) {
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                let child_path = format!("{path}.{key}");
-                if policy.secret_keys.contains(&key.to_ascii_lowercase()) {
-                    *child = typed_placeholder(child);
-                    manifest.push(child_path);
-                } else {
-                    redact_value(child, policy, &child_path, manifest);
-                }
-            }
-        }
-        Value::Array(values) => {
-            for (i, child) in values.iter_mut().enumerate() {
-                redact_value(child, policy, &format!("{path}[{i}]"), manifest);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn typed_placeholder(value: &Value) -> Value {
-    if value.pointer("/$reproit/redacted").and_then(Value::as_bool) == Some(true) {
-        return value.clone();
-    }
-    let (kind, length) = match value {
-        Value::Null => ("null", None),
-        Value::Bool(_) => ("boolean", None),
-        Value::Number(number) if number.is_i64() || number.is_u64() => ("integer", None),
-        Value::Number(_) => ("number", None),
-        Value::String(value) => ("string", Some(value.chars().count())),
-        Value::Array(value) => ("array", Some(value.len())),
-        Value::Object(_) => ("object", None),
-    };
-    serde_json::json!({"$reproit": {
-        "redacted": true,
-        "type": kind,
-        "length": length,
-    }})
-}
-
-#[cfg(test)]
-pub fn normalized_url(raw: &str) -> String {
-    let (base, query) = raw.split_once('?').unwrap_or((raw, ""));
-    let mut params: Vec<&str> = query.split('&').filter(|p| !p.is_empty()).collect();
-    params.sort_unstable();
-    if params.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}?{}", params.join("&"))
-    }
-}
-
-#[cfg(test)]
-pub fn exchange_match_key(exchange: &Exchange) -> String {
-    let request_hash = exchange
-        .request_body
-        .as_ref()
-        .map(|v| hex_sha256(&serde_json::to_vec(v).unwrap_or_default()))
-        .unwrap_or_default();
-    format!(
-        "{}\n{}\n{}\n{}\n{}\n{}",
-        exchange.actor,
-        exchange.action_index,
-        exchange.method.to_ascii_uppercase(),
-        normalized_url(&exchange.url),
-        request_hash,
-        exchange.ordinal
-    )
-}
-
-/// Deterministic JSON reduction candidates, largest structural removals first.
-/// The caller replays each candidate and retains it only for the exact finding.
-pub fn json_reductions(value: &Value) -> Vec<Value> {
-    let mut out = Vec::new();
-    match value {
-        Value::Object(map) => {
-            for key in map.keys() {
-                let mut candidate = map.clone();
-                candidate.remove(key);
-                out.push(Value::Object(candidate));
-            }
-            for (key, child) in map {
-                for reduced in json_reductions(child) {
-                    let mut candidate = map.clone();
-                    candidate.insert(key.clone(), reduced);
-                    out.push(Value::Object(candidate));
-                }
-            }
-        }
-        Value::Array(values) => {
-            for i in 0..values.len() {
-                let mut candidate = values.clone();
-                candidate.remove(i);
-                out.push(Value::Array(candidate));
-            }
-            for (i, child) in values.iter().enumerate() {
-                for reduced in json_reductions(child) {
-                    let mut candidate = values.clone();
-                    candidate[i] = reduced;
-                    out.push(Value::Array(candidate));
-                }
-            }
-        }
-        Value::String(s) if !s.is_empty() => out.push(Value::String(String::new())),
-        Value::Number(_) => out.push(Value::from(0)),
-        Value::Bool(true) => out.push(Value::Bool(false)),
-        _ => {}
-    }
-    out
-}
-
 /// Greedy joint minimization. `reproduces` must perform a clean replay and
 /// return true only for the exact original finding identity. Action removal
 /// also removes its causal exchanges and backend events, then reindexes later
@@ -909,74 +731,6 @@ where
     }
     best.finalize_id()?;
     Ok(best)
-}
-
-fn hex_sha256(bytes: &[u8]) -> String {
-    crate::infra::sha256_hex(bytes)
-}
-
-fn capsule_key(root: &Path) -> Result<[u8; 32]> {
-    let path = crate::layout::capsule_key_path(root);
-    if let Ok(bytes) = std::fs::read(&path) {
-        return bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("{} is not a 32-byte capsule key", path.display()));
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut key = [0u8; 32];
-    getrandom::fill(&mut key).map_err(|e| anyhow::anyhow!("generating capsule key: {e}"))?;
-    write_private(&path, &key)?;
-    Ok(key)
-}
-
-fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.create(true).truncate(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    use std::io::Write as _;
-    opts.open(path)?.write_all(bytes)?;
-    Ok(())
-}
-
-fn encrypt(root: &Path, plaintext: &[u8]) -> Result<Vec<u8>> {
-    let key = capsule_key(root)?;
-    encrypt_with_key(&key, plaintext)
-}
-
-fn encrypt_with_key(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let cipher =
-        Aes256Gcm::new_from_slice(key).map_err(|e| anyhow::anyhow!("capsule cipher: {e}"))?;
-    let mut nonce = [0u8; 12];
-    getrandom::fill(&mut nonce).map_err(|e| anyhow::anyhow!("generating capsule nonce: {e}"))?;
-    let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
-        .map_err(|e| anyhow::anyhow!("encrypting capsule: {e}"))?;
-    let mut out = b"RPC1".to_vec();
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(&ciphertext);
-    Ok(out)
-}
-
-fn decrypt(root: &Path, bytes: &[u8]) -> Result<Vec<u8>> {
-    let key = capsule_key(root)?;
-    decrypt_with_key(&key, bytes)
-}
-
-fn decrypt_with_key(key: &[u8; 32], bytes: &[u8]) -> Result<Vec<u8>> {
-    if bytes.len() < 16 || &bytes[..4] != b"RPC1" {
-        bail!("invalid encrypted capsule header");
-    }
-    let cipher =
-        Aes256Gcm::new_from_slice(key).map_err(|e| anyhow::anyhow!("capsule cipher: {e}"))?;
-    cipher
-        .decrypt(Nonce::from_slice(&bytes[4..16]), &bytes[16..])
-        .map_err(|_| anyhow::anyhow!("capsule authentication failed (wrong key or corrupt data)"))
 }
 
 #[cfg(test)]

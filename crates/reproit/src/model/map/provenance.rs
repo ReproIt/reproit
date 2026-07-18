@@ -1,6 +1,8 @@
 //! Source/config fingerprinting and map freshness provenance.
 
-use super::persistence::{atomic_write_json, load_existing_snapshot, provenance_path};
+use super::persistence::{
+    atomic_write_json, fingerprint_cache_path, load_existing_snapshot, provenance_path,
+};
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -9,6 +11,24 @@ use std::ffi::OsStr;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::UNIX_EPOCH;
+
+const FINGERPRINT_CACHE_SCHEMA: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CachedFileHash {
+    len: u64,
+    modified_ns: u64,
+    sha256: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintCache {
+    schema: u32,
+    files: std::collections::BTreeMap<String, CachedFileHash>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -139,51 +159,104 @@ fn collect_sources(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     Ok(())
 }
 
-fn hash_files(root: &Path, files: &mut [PathBuf]) -> Result<String> {
+fn modified_ns(metadata: &std::fs::Metadata) -> Option<u64> {
+    metadata
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_nanos().min(u64::MAX as u128) as u64)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn hash_file(path: &Path, metadata: &std::fs::Metadata) -> Result<CachedFileHash> {
+    let file_len = metadata.len();
+    let source_modified_ns = modified_ns(metadata).unwrap_or(0);
+    let file = std::fs::File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut hash = Sha256::new();
+    let mut read_len = 0_u64;
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        read_len += count as u64;
+        hash.update(&buffer[..count]);
+    }
+    let after = std::fs::metadata(path)?;
+    anyhow::ensure!(
+        read_len == file_len
+            && after.len() == file_len
+            && modified_ns(&after).unwrap_or(0) == source_modified_ns,
+        "{} changed while its source fingerprint was being computed",
+        path.display()
+    );
+    Ok(CachedFileHash {
+        len: file_len,
+        modified_ns: source_modified_ns,
+        sha256: hex(&hash.finalize()),
+    })
+}
+
+fn hash_files(
+    root: &Path,
+    files: &mut [PathBuf],
+    cache: &mut FingerprintCache,
+    seen: &mut std::collections::BTreeSet<String>,
+) -> Result<String> {
     files.sort_by(|a, b| {
         a.strip_prefix(root)
             .unwrap_or(a)
             .cmp(b.strip_prefix(root).unwrap_or(b))
     });
     let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
     for path in files {
         let rel = path.strip_prefix(root).unwrap_or(path);
-        let file = std::fs::File::open(&*path)?;
-        let file_len = file.metadata()?.len();
         let rel = rel.to_string_lossy();
+        let key = rel.to_string();
+        seen.insert(key.clone());
+        let metadata = std::fs::metadata(&*path)?;
+        let modified = modified_ns(&metadata).unwrap_or(0);
+        let cached = cache.files.get(&key).filter(|cached| {
+            cached.len == metadata.len()
+                && cached.modified_ns != 0
+                && cached.modified_ns == modified
+        });
+        let file_hash = match cached {
+            Some(cached) => cached.clone(),
+            None => hash_file(path, &metadata)?,
+        };
+        cache.files.insert(key, file_hash.clone());
         hash.update((rel.len() as u64).to_le_bytes());
         hash.update(rel.as_bytes());
-        hash.update(file_len.to_le_bytes());
-        let mut reader = BufReader::new(file);
-        let mut read_len = 0_u64;
-        loop {
-            let count = reader.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            read_len += count as u64;
-            hash.update(&buffer[..count]);
-        }
-        anyhow::ensure!(
-            read_len == file_len,
-            "{} changed while its source fingerprint was being computed",
-            path.display()
-        );
+        hash.update(file_hash.len.to_le_bytes());
+        hash.update(file_hash.sha256.as_bytes());
     }
-    Ok(hash
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(hex(&hash.finalize()))
 }
 
 fn project_fingerprints(root: &Path) -> Result<(String, String, usize)> {
+    let cache_path = fingerprint_cache_path(root);
+    let mut cache = std::fs::read(&cache_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<FingerprintCache>(&bytes).ok())
+        .filter(|cache| cache.schema == FINGERPRINT_CACHE_SCHEMA)
+        .unwrap_or_else(|| FingerprintCache {
+            schema: FINGERPRINT_CACHE_SCHEMA,
+            ..FingerprintCache::default()
+        });
+    let original_cache = cache.clone();
+    let mut seen = std::collections::BTreeSet::new();
     let mut source = Vec::new();
     collect_sources(root, &mut source)?;
     source.retain(|p| p != &root.join("reproit.yaml") && p != &root.join(".reproit/reproit.yaml"));
     let source_file_count = source.len();
-    let source_fingerprint = hash_files(root, &mut source)?;
+    let source_fingerprint = hash_files(root, &mut source, &mut cache, &mut seen)?;
     let mut configs: Vec<PathBuf> = [
         root.join("reproit.yaml"),
         root.join(".reproit/reproit.yaml"),
@@ -191,7 +264,11 @@ fn project_fingerprints(root: &Path) -> Result<(String, String, usize)> {
     .into_iter()
     .filter(|p| p.is_file())
     .collect();
-    let config_fingerprint = hash_files(root, &mut configs)?;
+    let config_fingerprint = hash_files(root, &mut configs, &mut cache, &mut seen)?;
+    cache.files.retain(|path, _| seen.contains(path));
+    if cache != original_cache {
+        atomic_write_json(&cache_path, &cache)?;
+    }
     Ok((source_fingerprint, config_fingerprint, source_file_count))
 }
 
@@ -257,7 +334,7 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     })
 }
 
-pub(crate) fn stamp_map(root: &Path, map_revision: u64) -> Result<MapProvenance> {
+pub(super) fn build_map_provenance(root: &Path, map_revision: u64) -> Result<MapProvenance> {
     let (source_fingerprint, config_fingerprint, source_file_count) = project_fingerprints(root)?;
     let (git_commit, git_dirty) = git_metadata(root);
     let provenance = MapProvenance {
@@ -271,7 +348,5 @@ pub(crate) fn stamp_map(root: &Path, map_revision: u64) -> Result<MapProvenance>
         git_commit,
         git_dirty,
     };
-    let path = provenance_path(root);
-    atomic_write_json(&path, &provenance)?;
     Ok(provenance)
 }

@@ -32,6 +32,9 @@ mod backends;
 mod model;
 mod modes;
 
+#[cfg(feature = "perf-bench")]
+pub mod perf_bench;
+
 /// Version string stamped by build.rs: a clean `0.1.<commit-count>` for an
 /// install / clean build, plus a `(<rev>-dirty <date>)` suffix ONLY for local
 /// working builds with uncommitted edits. So `cargo install` shows a plain
