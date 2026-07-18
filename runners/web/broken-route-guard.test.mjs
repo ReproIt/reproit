@@ -5,7 +5,9 @@
 //      resolving relative links (so it does not invent a 404 off the wrong base);
 //   2) the SPA soft-404 decision (soft404View + isSoftHandled) treats a static-host
 //      404 that still hydrates the real app view as NOT a broken route, while a bare
-//      error page stays dead.
+//      error page stays dead;
+//   3) links extracted from raw HTML must remain navigable after the parent page
+//      hydrates, so rewritten placeholders never become findings.
 // Host-pure logic exercised in a REAL DOM via Playwright. Run `node --test`.
 import { test } from 'node:test';
 import assert from 'node:assert';
@@ -41,8 +43,6 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'ro
       <a href="/manual.pdf">Manual</a>
       <a href="javascript:void(0)">JS</a>
       <a href="mailto:x@y.z">Mail</a>
-      <a class="__cf_email__" data-cfemail="00"
-         href="/cdn-cgi/l/email-protection#00">Protected email</a>
       <pre><code><a href="/sample-only">Example route</a></code></pre>
       <form action="/logout" method="post"><a href="/logout" type="submit">Log out</a></form>
       <a href="https://other.test/x">Off-site</a>
@@ -52,7 +52,7 @@ test('collectRouteLinks skips nofollow/submit/asset links and keeps real ' + 'ro
       [...links].sort(),
       ['/dashboard', '/settings'],
         'only same-origin GET routes survive; code/nofollow/submit/asset/js/' +
-        'mailto/Cloudflare-placeholder/off-site dropped, trailing slash normalized',
+        'mailto/off-site dropped, trailing slash normalized',
     );
   } finally {
     await browser.close();
@@ -121,7 +121,7 @@ test('query routes stay exact internally while evidence redacts secret values', 
   }
 });
 
-test('one-hop HTML inspection finds a dead child without recursively crawling', async () => {
+test('one-hop HTML inspection confirms dead children against hydrated parents', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
@@ -136,8 +136,8 @@ test('one-hop HTML inspection finds a dead child without recursively crawling', 
           contentType: 'text/html',
           body:
             '<!doctype html><main data-sig="login-sig"><a href="/download">Download</a>' +
-            '<a class="__cf_email__" data-cfemail="00" ' +
-            'href="/cdn-cgi/l/email-protection#00">Email</a>' +
+            '<a id="contact" href="/hydration-placeholder">Email</a>' +
+            '<script>document.getElementById("contact").href="mailto:x@y.z"</script>' +
             '<a href="/level-two">More</a></main>',
         });
       }
@@ -149,6 +149,13 @@ test('one-hop HTML inspection finds a dead child without recursively crawling', 
           status: 404,
           contentType: 'text/html',
           body: '<h1>404 - Page not found</h1>',
+        });
+      }
+      if (url.pathname === '/hydration-placeholder') {
+        return route.fulfill({
+          status: 404,
+          contentType: 'text/html',
+          body: '<h1>404 - placeholder is not a document route</h1>',
         });
       }
       if (url.pathname === '/level-two') {
@@ -220,8 +227,26 @@ test('one-hop HTML inspection finds a dead child without recursively crawling', 
       'successful child pages are not recursively inspected',
     );
     assert.ok(
-      !requests.some((request) => request.path === '/cdn-cgi/l/email-protection'),
-      'Cloudflare email placeholders are not treated as document routes',
+      requests.some(
+        (request) =>
+          request.type === 'fetch' && request.path === '/hydration-placeholder',
+      ),
+      'the raw HTML candidate is probed before hydration',
+    );
+    assert.ok(
+      !requests.some(
+        (request) =>
+          request.type === 'document' && request.path === '/hydration-placeholder',
+      ),
+      'a route removed by hydration is not verified or reported as a dead link',
+    );
+    assert.ok(
+      !logs.some(
+        (line) =>
+          line.includes('EXPLORE:BROKENROUTE') &&
+          line.includes('/hydration-placeholder'),
+      ),
+      logs.join('\n'),
     );
     assert.ok(
       !requests.some((request) => request.path === '/never-inspected'),

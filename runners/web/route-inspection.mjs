@@ -70,11 +70,6 @@ export function collectRouteLinks(assetExtSrc) {
         continue;
       const url = new URL(anchor.href);
       if (url.origin !== location.origin || !url.pathname) continue;
-      // Cloudflare rewrites this placeholder to a mailto: link after its decoder
-      // runs. A direct GET commonly returns 404 even when the visible link works,
-      // so it is not evidence of a dead document route. Decoder load failures are
-      // covered by the critical-asset oracle instead.
-      if (url.pathname.startsWith('/cdn-cgi/l/email-protection')) continue;
       if (ASSET_EXT.test(url.pathname)) continue;
       out.push(norm(url.pathname) + url.search);
     } catch (_) {}
@@ -225,7 +220,6 @@ export async function inspectLinkedRoutes(
                         continue;
                       const url = new URL(raw, base);
                       if (url.origin !== appOrigin || !url.pathname) continue;
-                      if (url.pathname.startsWith('/cdn-cgi/l/email-protection')) continue;
                       if (ASSET_EXT.test(url.pathname)) continue;
                       result.links.push(norm(url.pathname) + url.search);
                     }
@@ -280,8 +274,11 @@ export async function inspectLinkedRoutes(
     }
   };
 
-  const parentSig = async (route, fallback) => {
-    if (!route) return fallback;
+  const parentEvidence = async (route, fallback) => {
+    // Initial entries came from an already-rendered page, so their live-DOM
+    // collection is itself the presence proof. Children came from raw HTML and
+    // must survive rendering before their status can become a finding.
+    if (!route) return { sig: fallback, links: null };
     if (renderedParents.has(route)) return renderedParents.get(route);
     if (rendered >= renderCap) return null;
     rendered++;
@@ -299,8 +296,13 @@ export async function inspectLinkedRoutes(
     await page.waitForTimeout(200).catch(() => {});
     const snap = await observe().catch(() => null);
     const sig = snap?.sig || null;
-    if (sig) renderedParents.set(route, sig);
-    return sig;
+    if (!sig) return null;
+    const links = new Set(
+      await page.evaluate(collectRouteLinks, ASSET_EXT_SOURCE).catch(() => []),
+    );
+    const evidence = { sig, links };
+    renderedParents.set(route, evidence);
+    return evidence;
   };
 
   const verifyDead = async (entries) => {
@@ -311,11 +313,18 @@ export async function inspectLinkedRoutes(
         unverified++;
         continue;
       }
-      const fromSig = await parentSig(entry.parentRoute, entry.fromSig);
-      if (!fromSig) {
+      const parent = await parentEvidence(entry.parentRoute, entry.fromSig);
+      if (!parent) {
         unverified++;
         continue;
       }
+      if (parent.links && !parent.links.has(entry.route)) {
+        // The raw response contained a placeholder that hydration removed or
+        // rewrote. Its direct HTTP status says nothing about a user-visible link.
+        delete navStatus[entry.route];
+        continue;
+      }
+      const fromSig = parent.sig;
       verified++;
       let response = null;
       try {
