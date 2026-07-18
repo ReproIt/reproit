@@ -86,9 +86,11 @@ internal object StatePreservationContracts {
       val after = sampleState(c.sample)
       baselines.remove(key)
       if (!valid(before) || !valid(after)) out += abstain(identity)
-      else if (before!!.key == after!!.key && before.state == after.state) out += satisfied(identity)
+      else if (before!!.key == after!!.key && before.state == after.state)
+        out += satisfied(identity)
       else
-        out += violation(identity, "declared structural state was not preserved across ${kind.wire}")
+        out +=
+          violation(identity, "declared structural state was not preserved across ${kind.wire}")
     }
     return out
   }

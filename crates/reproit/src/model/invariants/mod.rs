@@ -1338,13 +1338,13 @@ mod tests {
     }
 
     #[test]
-    fn detached_indicator_recheck_distinguishes_violation_satisfied_and_abstain() {
+    fn detached_indicator_recheck_distinguishes_evidence_states() {
         let log = concat!(
             "EXPLORE:STATE {\"sig\":\"nav\",\"labels\":[\"Liked You\"]}\n",
             "EXPLORE:RELATIONSTATUS {\"sig\":\"nav\",\"outcome\":\"SATISFIED\",\"checks\":[",
             "{\"kind\":\"indicator-anchor\",\"dependentKey\":\"key:id:dot\",",
-            "\"ownerKey\":\"key:id:liked\",\"containerKey\":\"key:id:tabs\",\"outcome\":\"SATISFIED\"\
-             }]}\n",
+            "\"ownerKey\":\"key:id:liked\",\"containerKey\":\"key:id:tabs\",",
+            "\"outcome\":\"SATISFIED\"}]}\n",
         );
         let satisfied = crate::model::map::parse_run(log);
         assert_eq!(

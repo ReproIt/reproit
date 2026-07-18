@@ -155,7 +155,11 @@ function checkTarget(
   if (!expected.target || after === undefined) out.push({ status: 'ABSTAIN', id: identity });
   else if (after === expected.target) out.push({ status: 'SATISFIED', id: identity });
   else
-    out.push({ status: 'VIOLATION', id: identity, message: `declared ${kind} effect did not occur` });
+    out.push({
+      status: 'VIOLATION',
+      id: identity,
+      message: `declared ${kind} effect did not occur`,
+    });
 }
 function checkChange(
   out: ContractResult[],

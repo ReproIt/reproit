@@ -2177,7 +2177,10 @@ function validRelationCheck(it) {
   const containerKey = String(it.containerKey || '');
   if (!dependentKey || !ownerKey || !containerKey) return null;
   const violation = it.violation == null ? undefined : String(it.violation);
-  if (outcome === 'VIOLATION' && !['detached', 'escaped-container'].includes(violation)) return null;
+  if (
+    outcome === 'VIOLATION' &&
+    !['detached', 'escaped-container'].includes(violation)
+  ) return null;
   return {
     kind: 'indicator-anchor',
     dependentKey,

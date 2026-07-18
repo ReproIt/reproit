@@ -1230,7 +1230,9 @@ final class ReproItTests: XCTestCase {
           ReproItStructuralObservation(
             key: "checkout", state: state, authoritative: true, settled: true)
         }))
-    XCTAssertEqual(ReproItStatePreservationContracts.boundary(.rotation, .before)[0].status, .satisfied)
+    XCTAssertEqual(
+      ReproItStatePreservationContracts.boundary(.rotation, .before)[0].status,
+      .satisfied)
     state = "draft:empty"
     let result = ReproItStatePreservationContracts.boundary(.rotation, .after)[0]
     XCTAssertEqual(result.status, .violation)
@@ -1250,7 +1252,9 @@ final class ReproItTests: XCTestCase {
     _ = ReproItActionEffectContracts.begin("checkout")
     o = ReproItActionEffectObservation(
       route: "cart", state: "complete", authoritative: true, settled: true)
-    let ids = ReproItActionEffectContracts.end("checkout").filter { $0.status == .violation }.map(\.id)
+    let ids = ReproItActionEffectContracts.end("checkout")
+      .filter { $0.status == .violation }
+      .map(\.id)
     XCTAssertEqual(ids, ["action-effect:checkout:route"])
     ReproItActionEffectContracts.clear()
   }

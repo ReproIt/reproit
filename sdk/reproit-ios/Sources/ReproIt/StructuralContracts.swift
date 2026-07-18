@@ -86,7 +86,9 @@ enum ReproItStatePreservationContracts {
         out.append(satisfiedResult(identity))
       } else {
         out.append(
-          violation(identity, "declared structural state was not preserved across \(kind.rawValue)"))
+          violation(
+            identity,
+            "declared structural state was not preserved across \(kind.rawValue)"))
       }
     }
     return out
@@ -207,5 +209,8 @@ private func checkChange(
     return
   }
   let ok = e.target != nil ? after == e.target! : (after != before!) == e.changed!
-  out.append(ok ? satisfiedResult(identity) : violation(identity, "declared \(kind) effect did not occur"))
+  out.append(
+    ok
+      ? satisfiedResult(identity)
+      : violation(identity, "declared \(kind) effect did not occur"))
 }

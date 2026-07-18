@@ -250,5 +250,5 @@ ReproIt never fabricates a signal a platform does not expose. Important limits i
 The top-level CLI and Cloud category registry is
 [`crates/reproit/oracle-registry.json`](../crates/reproit/oracle-registry.json). Backend and A2UI
 finding subtypes retain their exact subtype inside the saved contract evidence. Registry drift is
-tested so Cloud must handle every category and must preserve unclassified future categories rather than
-dropping them.
+tested so Cloud must handle every category and must preserve unclassified future categories
+rather than dropping them.

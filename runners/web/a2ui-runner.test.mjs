@@ -209,8 +209,9 @@ test('proves lifecycle ordering violations and permits idempotent unknown ' + 'd
   );
   const deleted = { version: 'v0.9', deleteSurface: { surfaceId: 'test' } };
   assert.match(
-    validateMessages([create, deleted, update]).find((finding) => finding.proofStatus === 'VIOLATION')
-      .reason,
+    validateMessages([create, deleted, update]).find(
+      (finding) => finding.proofStatus === 'VIOLATION',
+    ).reason,
     /after deleteSurface/,
   );
   assert.deepEqual(validateMessages([deleted, deleted]), []);
