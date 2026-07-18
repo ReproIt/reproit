@@ -6,8 +6,8 @@ pub struct ScanArgs {
     pub budget: u32,
     pub sim: bool,
     pub json: bool,
-    /// `--record`: after the crawl, record one annotated clip per boxable
-    /// finding.
+    /// `--record`: after the crawl, record every distinct reported finding;
+    /// exact visual targets are boxed and the rest are diagnostic clips.
     pub record: bool,
     /// `--out <dir>`: where the clips land (default
     /// `.reproit/recordings/scan/<scan-run>/`).
@@ -175,11 +175,12 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
 
     let issues: usize = by_screen.values().map(|s| s.len()).sum();
 
-    // `--record`: replay each boxable finding's path and save an annotated clip.
-    // Done after the report grouping so the clips can be listed alongside it.
+    // `--record`: save one clip for every distinct reported finding. Done after
+    // report grouping so clip identity exactly matches the visible issue list.
     let clips = if args.record {
         let clip_input = ScanClipInput {
             findings: &findings,
+            reported: &by_screen,
             obs: &obs,
             scan_run_dir: &outcome.run_dir,
             cfg_path: &cfg_path,
@@ -240,14 +241,28 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
             say(json, format!("    {oracle:16} [{classification}] {detail}"));
         }
     }
-    let (reproduced_clips, diagnostic_clips) = clip_reproduction_counts(&clips);
+    let (reproduced_clips, failed_replays, diagnostic_clips) = clip_outcome_counts(&clips);
+    if !clips.is_empty() {
+        say(json, format!("\n{} clip(s) recorded.", clips.len()));
+    }
     if reproduced_clips > 0 {
-        say(json, format!("\n{reproduced_clips} clip(s) recorded."));
+        say(
+            json,
+            format!("\n{reproduced_clips} exact visual reproduction(s) confirmed."),
+        );
+    }
+    if failed_replays > 0 {
+        say(
+            json,
+            format!("\n{failed_replays} exact replay(s) did not reproduce."),
+        );
     }
     if diagnostic_clips > 0 {
         say(
             json,
-            format!("\n{diagnostic_clips} diagnostic clip(s) saved but not counted as reproduced."),
+            format!(
+                "\n{diagnostic_clips} diagnostic clip(s) have no visual target; they make no reproduction claim."
+            ),
         );
     }
     // Honest about partial coverage: a cut-short crawl did NOT check every screen,
@@ -343,12 +358,20 @@ fn collapse_related_findings(items: &mut std::collections::BTreeSet<(String, Str
     }
 }
 
-fn clip_reproduction_counts(clips: &[Value]) -> (usize, usize) {
+fn clip_outcome_counts(clips: &[Value]) -> (usize, usize, usize) {
     let reproduced = clips
         .iter()
         .filter(|clip| clip.get("reproduced").and_then(Value::as_bool) == Some(true))
         .count();
-    (reproduced, clips.len().saturating_sub(reproduced))
+    let failed = clips
+        .iter()
+        .filter(|clip| clip.get("reproduced").and_then(Value::as_bool) == Some(false))
+        .count();
+    let diagnostic = clips
+        .iter()
+        .filter(|clip| clip.get("visualization").and_then(Value::as_str) == Some("diagnostic"))
+        .count();
+    (reproduced, failed, diagnostic)
 }
 
 /// The STATE-PRESENT oracles: bugs visible on a single screen, which is what
@@ -382,16 +405,25 @@ fn is_state_present(oracle: &crate::crosscut::Oracle) -> bool {
     // scan crawl.
 }
 
-/// Record one annotated clip per BOXABLE scan finding. Content bugs are
+/// Record one clip per DISTINCT REPORTED scan finding. Findings with a precise
+/// visual reproduction strategy are re-detected and boxed; every other finding
+/// still receives a diagnostic recording of the observed screen. A diagnostic
+/// recording makes no reproduction verdict; the finding keeps its own evidence.
+///
+/// Content bugs are
 /// re-detected by drawFindingBoxes on the loaded screen, so a clip = replay
 /// the crawl's own action path to that screen, then the runner draws the red
 /// box at the end and saves the video. choice-anomaly re-runs its live
 /// differential on the loaded screen.
-/// leak / crash have no single on-screen element to box, so those are
-/// skipped here. Deduped by (route, oracle), each taking the shortest path for
-/// the cleanest clip.
+/// Deduplication uses the exact same (route, oracle, normalized detail) identity
+/// as the user-facing scan summary, so the finding count and recording plan
+/// cannot silently diverge.
 struct ScanClipInput<'a> {
     findings: &'a [Value],
+    reported: &'a std::collections::BTreeMap<
+        String,
+        std::collections::BTreeSet<(String, String, String)>,
+    >,
     obs: &'a crate::model::map::RunObs,
     scan_run_dir: &'a Path,
     cfg_path: &'a Path,
@@ -452,15 +484,15 @@ async fn record_scan_clips(
             .unwrap_or_else(|| sig.to_string())
     };
 
-    // One clip per (route, oracle), each with the reproduction its bug needs:
+    // One clip per distinct reported issue, each with the reproduction its bug needs:
     //  - content: land on the screen by URL, re-detect + box.
     //  - broken-route: land on the SOURCE page, box the dead <a> by its href.
     //  - choice-anomaly: land on the screen, tap the outlier option so the page
     //    shifts, box the choice that did it.
     //  - hang / jank: land on the screen, replay the one triggering action, box the
     //    trigger element the runner tags at the tap.
-    // Each config is gated downstream on FINDING:BOXED, so a clip that does not
-    // reproduce is dropped rather than shipped with a misleading caption.
+    // Unsupported/non-visual oracles still get a diagnostic recording. The
+    // `diagnostic` bit keeps that film separate from exact reproduction truth.
     let mut plans: std::collections::BTreeMap<(String, String, String), Value> =
         std::collections::BTreeMap::new();
     let mut used_broken_routes = std::collections::BTreeSet::new();
@@ -468,6 +500,15 @@ async fn record_scan_clips(
         let oracle = crate::crosscut::classify(f).as_str().to_string();
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
         let route = route_of(sig);
+        let detail = scan_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
+        let is_reported = input.reported.get(&route).is_some_and(|items| {
+            items.iter().any(|(reported_oracle, _, reported_detail)| {
+                reported_oracle == &oracle && reported_detail == &detail
+            })
+        });
+        if !is_reported {
+            continue;
+        }
         let goto = format!("{origin}{route}");
         let config = match oracle.as_str() {
             "content-bug" => {
@@ -493,6 +534,14 @@ async fn record_scan_clips(
                     message,
                     &used_broken_routes,
                 ) else {
+                    plans
+                        .entry((route, oracle, detail.clone()))
+                        .or_insert_with(|| {
+                            json!({
+                                "replay": [], "highlight": "diagnostic", "gotoUrl": goto,
+                                "diagnostic": true, "findingDetail": detail,
+                            })
+                        });
                     continue;
                 };
                 used_broken_routes.insert(idx);
@@ -549,6 +598,14 @@ async fn record_scan_clips(
                     .find(|k| k.0.as_str() == sig)
                     .map(|k| k.1.clone())
                 else {
+                    plans
+                        .entry((route, oracle, detail.clone()))
+                        .or_insert_with(|| {
+                            json!({
+                                "replay": [], "highlight": "diagnostic", "gotoUrl": goto,
+                                "diagnostic": true, "findingDetail": detail,
+                            })
+                        });
                     continue;
                 };
                 json!({ "replay": [action], "highlight": oracle, "gotoUrl": goto })
@@ -561,50 +618,69 @@ async fn record_scan_clips(
                     .find(|k| k.0.as_str() == sig)
                     .map(|k| k.1.clone())
                 else {
+                    plans
+                        .entry((route, oracle, detail.clone()))
+                        .or_insert_with(|| {
+                            json!({
+                                "replay": [], "highlight": "diagnostic", "gotoUrl": goto,
+                                "diagnostic": true, "findingDetail": detail,
+                            })
+                        });
                     continue;
                 };
                 json!({ "replay": [action], "highlight": oracle, "gotoUrl": goto })
             }
-            // crash/leak findings: no
-            // single on-screen element to box, no clip.
-            _ => continue,
+            _ => json!({
+                "replay": [], "highlight": "diagnostic", "gotoUrl": goto,
+                "diagnostic": true, "findingDetail": detail,
+            }),
         };
-        let discriminator = config
-            .get("linkHref")
-            .or_else(|| config.get("gotoUrl").filter(|_| oracle == "broken-route"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        plans
-            .entry((route, oracle, discriminator))
-            .or_insert(config);
+        plans.entry((route, oracle, detail)).or_insert(config);
     }
 
     if plans.is_empty() {
         say(
             json,
-            "\nscan --record: no boxable findings to clip on this run.".to_string(),
+            "\nscan --record: no reported findings to record on this run.".to_string(),
         );
         return Vec::new();
     }
     say(
         json,
         format!(
-            "\nscan --record: recording up to {} clip(s) to {}...",
+            "\nscan --record: recording all {} distinct finding(s) to {}...",
             plans.len(),
             out.display()
         ),
     );
     let mut clips = Vec::new();
-    for ((route, oracle, discriminator), config) in &plans {
+    for ((route, oracle, detail), config) in &plans {
         if std::fs::write(input.cfg_path, config.to_string()).is_err() {
             continue;
         }
-        let label = if oracle == "broken-route" && !discriminator.is_empty() {
+        let duplicate_kind = plans
+            .keys()
+            .filter(|(candidate_route, candidate_oracle, _)| {
+                candidate_route == route && candidate_oracle == oracle
+            })
+            .count()
+            > 1;
+        let label = if oracle == "broken-route" {
+            let discriminator = config
+                .get("linkHref")
+                .or_else(|| config.get("gotoUrl"))
+                .and_then(Value::as_str)
+                .unwrap_or(detail);
             format!(
                 "{}__{oracle}__{}",
                 sanitize_route(route),
                 sanitize_route(discriminator)
+            )
+        } else if duplicate_kind {
+            format!(
+                "{}__{oracle}__{:08x}",
+                sanitize_route(route),
+                stable_detail_id(detail)
             )
         } else {
             format!("{}__{oracle}", sanitize_route(route))
@@ -654,8 +730,11 @@ async fn record_scan_clips(
             say(json, format!("    no video produced for {label}"));
             continue;
         };
+        let diagnostic = config.get("diagnostic").and_then(Value::as_bool) == Some(true);
         let dest = if reproduced {
             out.join(format!("{label}.webm"))
+        } else if diagnostic {
+            out.join(format!("{label}.diagnostic.webm"))
         } else {
             out.join(format!("{label}.did-not-reproduce.webm"))
         };
@@ -666,6 +745,14 @@ async fn record_scan_clips(
         if std::fs::copy(&src, &dest).is_ok() {
             if reproduced {
                 say(json, format!("    saved {}", dest.display()));
+            } else if diagnostic {
+                say(
+                    json,
+                    format!(
+                        "    saved diagnostic clip {} (no visual target; no reproduction claim)",
+                        dest.display()
+                    ),
+                );
             } else {
                 say(
                     json,
@@ -675,12 +762,25 @@ async fn record_scan_clips(
                     ),
                 );
             }
-            clips.push(json!({
-                "screen": route,
-                "oracle": oracle,
-                "clip": dest.to_string_lossy(),
-                "reproduced": reproduced,
-            }));
+            let clip = if diagnostic {
+                json!({
+                    "screen": route,
+                    "oracle": oracle,
+                    "clip": dest.to_string_lossy(),
+                    "recorded": true,
+                    "visualization": "diagnostic",
+                })
+            } else {
+                json!({
+                    "screen": route,
+                    "oracle": oracle,
+                    "clip": dest.to_string_lossy(),
+                    "recorded": true,
+                    "visualization": "exact-replay",
+                    "reproduced": reproduced,
+                })
+            };
+            clips.push(clip);
         }
     }
     clips
@@ -719,15 +819,34 @@ async fn record_native_clips(
     };
     let overlay = web_dir.join("box-overlay.mjs");
 
-    // One clip per finding that names a single on-screen element AND a triggering
-    // action: hang and jank (the slow tap). The tap
-    // is POSITIONAL on native (`role:button#2` is a different element per state),
-    // so each clip walks the map's action path to the exact observed state first.
-    let mut plans: std::collections::BTreeMap<(String, String), Value> =
+    // One clip per distinct reported finding. Exact hang/jank reproductions box
+    // their triggering control. State findings without a native element selector
+    // use a sentinel selector: it deliberately cannot draw a box, but it arms the
+    // native recorder and yields an honestly labeled diagnostic film instead of
+    // silently omitting the issue.
+    let route_of = |sig: &str| {
+        input
+            .obs
+            .routes
+            .get(sig)
+            .cloned()
+            .unwrap_or_else(|| sig.to_string())
+    };
+    let mut plans: std::collections::BTreeMap<(String, String, String), Value> =
         std::collections::BTreeMap::new();
     for f in input.findings {
         let oracle = crate::crosscut::classify(f).as_str().to_string();
         let sig = f.get("sig").and_then(Value::as_str).unwrap_or("");
+        let route = route_of(sig);
+        let detail = scan_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
+        let is_reported = input.reported.get(&route).is_some_and(|items| {
+            items.iter().any(|(reported_oracle, _, reported_detail)| {
+                reported_oracle == &oracle && reported_detail == &detail
+            })
+        });
+        if !is_reported {
+            continue;
+        }
         // The finding's own action (a "tap:<label>" / "back") comes from the
         // hang/jank keyed maps.
         let action: Option<String> = match oracle.as_str() {
@@ -746,12 +865,6 @@ async fn record_native_clips(
             // crash/leak/etc: no single element to box on a native window.
             _ => None,
         };
-        let Some(action) = action else { continue };
-        // The element to box is the target of that action; a positional back
-        // gesture has no boxable element, so skip it.
-        let Some(sel) = action.strip_prefix("tap:") else {
-            continue;
-        };
         // Walk the map to the observed state (positional taps only mean anything
         // there); empty path = the state is the crawl entry itself.
         let path = match action_path_to(&input.obs.edges, sig) {
@@ -759,40 +872,61 @@ async fn record_native_clips(
             None => Vec::new(),
         };
         let mut replay: Vec<Value> = path.into_iter().map(Value::String).collect();
-        replay.push(Value::String(action.clone()));
-        let caption = match oracle.as_str() {
-            "hang" => "hang",
-            "jank" => "jank",
-            _ => oracle.as_str(),
+        let (sel, diagnostic) = if let Some(action) = action {
+            if let Some(sel) = action.strip_prefix("tap:").map(str::to_string) {
+                replay.push(Value::String(action));
+                (sel, false)
+            } else {
+                ("__reproit_diagnostic__".to_string(), true)
+            }
+        } else {
+            ("__reproit_diagnostic__".to_string(), true)
         };
         let config = json!({
             "replay": replay,
-            "clip": { "sel": sel, "label": caption, "oracle": oracle },
+            "diagnostic": diagnostic,
+            "findingDetail": detail,
+            "clip": { "sel": sel, "label": oracle, "oracle": oracle },
         });
-        plans.entry((sig.to_string(), oracle)).or_insert(config);
+        plans.entry((route, oracle, detail)).or_insert(config);
     }
 
     if plans.is_empty() {
         say(
             json,
-            "\nscan --record: no boxable findings to clip on this run.".to_string(),
+            "\nscan --record: no reported findings to record on this run.".to_string(),
         );
         return Vec::new();
     }
     say(
         json,
         format!(
-            "\nscan --record: recording up to {} clip(s) to {}...",
+            "\nscan --record: recording all {} distinct finding(s) to {}...",
             plans.len(),
             out.display()
         ),
     );
     let mut clips = Vec::new();
-    for ((sig, oracle), config) in &plans {
+    for ((screen, oracle, detail), config) in &plans {
         if std::fs::write(input.cfg_path, config.to_string()).is_err() {
             continue;
         }
-        let label = format!("{}__{oracle}", sanitize_route(sig));
+        let duplicate_kind = plans
+            .keys()
+            .filter(|(candidate_screen, candidate_oracle, _)| {
+                candidate_screen == screen && candidate_oracle == oracle
+            })
+            .count()
+            > 1;
+        let label = if duplicate_kind {
+            format!(
+                "{}__{oracle}__{:08x}",
+                sanitize_route(screen),
+                stable_detail_id(detail)
+            )
+        } else {
+            format!("{}__{oracle}", sanitize_route(screen))
+        };
         say(json, format!("  {label}..."));
         let outcome = match run_explorer(
             cfg,
@@ -820,8 +954,11 @@ async fn record_native_clips(
             say(json, format!("    no video produced for {label}"));
             continue;
         };
+        let diagnostic = config.get("diagnostic").and_then(Value::as_bool) == Some(true);
         let dest = if reproduced {
             out.join(format!("{label}.mp4"))
+        } else if diagnostic {
+            out.join(format!("{label}.diagnostic.mp4"))
         } else {
             out.join(format!("{label}.did-not-reproduce.mp4"))
         };
@@ -853,6 +990,14 @@ async fn record_native_clips(
         }
         if reproduced {
             say(json, format!("    saved {}", dest.display()));
+        } else if diagnostic {
+            say(
+                json,
+                format!(
+                    "    saved diagnostic clip {} (no visual target; no reproduction claim)",
+                    dest.display()
+                ),
+            );
         } else {
             say(
                 json,
@@ -862,12 +1007,25 @@ async fn record_native_clips(
                 ),
             );
         }
-        clips.push(json!({
-            "screen": sig,
-            "oracle": oracle,
-            "clip": dest.to_string_lossy(),
-            "reproduced": reproduced,
-        }));
+        let clip = if diagnostic {
+            json!({
+                "screen": screen,
+                "oracle": oracle,
+                "clip": dest.to_string_lossy(),
+                "recorded": true,
+                "visualization": "diagnostic",
+            })
+        } else {
+            json!({
+                "screen": screen,
+                "oracle": oracle,
+                "clip": dest.to_string_lossy(),
+                "recorded": true,
+                "visualization": "exact-replay",
+                "reproduced": reproduced,
+            })
+        };
+        clips.push(clip);
     }
     clips
 }
@@ -1026,6 +1184,17 @@ fn sanitize_route(route: &str) -> String {
     }
 }
 
+/// Stable, compact suffix for two distinct details of the same oracle on one
+/// screen. FNV-1a is intentionally fixed rather than process-randomized.
+fn stable_detail_id(detail: &str) -> u32 {
+    let mut hash = 0x811c9dc5_u32;
+    for byte in detail.as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x01000193);
+    }
+    hash
+}
+
 /// Print the "also saw N state-present issue(s)" footer pointing at `scan`.
 /// `fuzz` bundles every violation into one per-seed finding and headlines the
 /// crash, so the overflow/content/choice/broken-route issues it walked past
@@ -1173,12 +1342,13 @@ mod tests {
     }
 
     #[test]
-    fn scan_does_not_count_failed_clip_attempts_as_recorded() {
+    fn scan_keeps_replay_and_visualization_outcomes_separate() {
         let clips = vec![
-            json!({ "reproduced": true }),
-            json!({ "reproduced": false }),
-            json!({ "reproduced": true }),
+            json!({ "visualization": "exact-replay", "reproduced": true }),
+            json!({ "visualization": "exact-replay", "reproduced": false }),
+            json!({ "visualization": "diagnostic" }),
         ];
-        assert_eq!(clip_reproduction_counts(&clips), (2, 1));
+        assert_eq!(clip_outcome_counts(&clips), (1, 1, 1));
+        assert!(clips[2].get("reproduced").is_none());
     }
 }

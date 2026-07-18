@@ -369,8 +369,10 @@ fn tool_defs() -> Value {
                 "record": {
                     "type": "boolean",
                     "description": concat!(
-                        "Also save an annotated clip (red box on the bug) per boxable finding, ",
-                        "into .reproit/recordings/scan/. Web only."
+                        "Record every distinct reported finding into ",
+                        ".reproit/recordings/scan/. Exact reproductions are boxed; findings ",
+                        "without a precise visual target are diagnostic clips with no ",
+                        "reproduction verdict."
                     )
                 }
             } }
