@@ -822,11 +822,13 @@ mod tests {
             "Module \"node:path\" cannot access \"node:path.isAbsolute\" at localhost:4173",
         );
         let jsonl = concat!(
-            r#"{"kind":"EXCEPTION","message":"Module \"node:path\" cannot access \"node:path.isAbsolute\" at localhost:4173"}"#,
+            r#"{"kind":"EXCEPTION","message":"Module \"node:path\" cannot access "#,
+            r#"\"node:path.isAbsolute\" at localhost:4173"}"#,
             "\n",
             r#"{"kind":"EXCEPTION","message":"a different startup failure"}"#,
             "\n",
-            r#"{"kind":"EXCEPTION","message":"Module \"node:path\" cannot access \"node:path.isAbsolute\" at localhost:9000"}"#,
+            r#"{"kind":"EXCEPTION","message":"Module \"node:path\" cannot access "#,
+            r#"\"node:path.isAbsolute\" at localhost:9000"}"#,
             "\n",
         );
         // Dynamic ports normalize away, while a different exception does not

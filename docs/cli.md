@@ -177,16 +177,18 @@ by default; `--attach` begins from the current state of an app that is already r
 uses the app normally and returns to the terminal to stop. Repro It stores an immutable original in
 `.reproit/captures/cap_.../`. It does not need an oracle, replay the session, or remove actions.
 The manifest reports video, action, and state-graph channels independently, so a visual-only bug is
-still a valid capture and unavailable structural evidence is never invented. The default macOS path
-starts main-display video before launching the configured app after Screen Recording permission is granted. It does not passively infer
-actions or states. An instrumented SDK may export them to JSON while the capture runs; pass that
+still a valid capture and unavailable structural evidence is never invented. The default macOS
+path starts main-display video before launching the configured app after Screen Recording
+permission is granted. It does not passively infer actions or states. An instrumented SDK may
+export them to JSON while the capture runs; pass that
 live export path with `--actions-file` and Repro It reads and freezes it after you stop. Other hosts
 currently require such an SDK export. A capture with no finalized video and no action export fails
 closed and reports the private staging directory for review or deletion.
 
-Original captures remain local and require explicit consent before upload. The current CLI prepares
-the versioned, hashed upload artifact but does not yet implement the Cloud upload endpoint. Any later deterministic
-replay or minimized repro is a derived artifact and must reference its parent `cap_...`; it never
+Original captures remain local and require explicit consent before upload. The current CLI
+prepares the versioned, hashed upload artifact but does not yet implement the Cloud upload
+endpoint. Any later deterministic replay or minimized repro is a derived artifact and must
+reference its parent `cap_...`; it never
 replaces or mutates the original. The older SDK/Cloud tester workflow is available explicitly as
 `record --cloud-tester`: it pulls a marked rolling path, verifies the captured state, and derives a
 minimized repro only when verification succeeds.
@@ -585,8 +587,8 @@ The local project state is grouped by concept:
   secrets.vault         # local auth vault
 ```
 
-`runs/`, `recordings/`, `captures/`, `tmp/`, logs, and vault files are local-only. `repros/` is the guard suite;
-`map/` is the learned graph if you choose to review it.
+`runs/`, `recordings/`, `captures/`, `tmp/`, logs, and vault files are local-only. `repros/` is the
+guard suite; `map/` is the learned graph if you choose to review it.
 
 ## Config (reproit.yaml)
 

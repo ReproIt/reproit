@@ -26,7 +26,9 @@ func main() {
 	if port == "" {
 		port = "19480"
 	}
-	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]bool{"ready": true}) })
+	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, map[string]bool{"ready": true})
+	})
 	http.HandleFunc("/codec", func(w http.ResponseWriter, r *http.Request) {
 		typed := r.URL.Query().Get("value")
 		decoded := typed
@@ -76,9 +78,18 @@ func main() {
 		}
 		events := make([]map[string]any, len(names))
 		for index, name := range names {
-			events[index] = map[string]any{"sequence": index + 1, "name": name, "scopeId": "scope-1"}
+			events[index] = map[string]any{
+				"sequence": index + 1,
+				"name":     name,
+				"scopeId":  "scope-1",
+			}
 		}
-		writeJSON(w, 200, map[string]any{"complete": mode != "incomplete", "scopeKind": "request", "scopeId": "scope-1", "events": events})
+		writeJSON(w, 200, map[string]any{
+			"complete":  mode != "incomplete",
+			"scopeKind": "request",
+			"scopeId":   "scope-1",
+			"events":    events,
+		})
 	})
 	fmt.Printf("READY %s\n", port)
 	if err := http.ListenAndServe("127.0.0.1:"+port, nil); err != nil {

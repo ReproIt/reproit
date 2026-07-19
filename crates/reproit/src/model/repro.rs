@@ -1380,8 +1380,11 @@ JOURNEY DONE
             verdict_from_log_with_trigger(&satisfied, true, &trigger),
             RunVerdict::Green
         );
-        let abstain = "EXPLORE:STATE {\"sig\":\"settings\",\"labels\":[]}\n\
-                       EXPLORE:A11YSTATESTATUS {\"sig\":\"settings\",\"outcome\":\"ABSTAIN\",\"checks\":[]}";
+        let abstain = concat!(
+            "EXPLORE:STATE {\"sig\":\"settings\",\"labels\":[]}\n",
+            "EXPLORE:A11YSTATESTATUS {\"sig\":\"settings\",",
+            "\"outcome\":\"ABSTAIN\",\"checks\":[]}",
+        );
         assert_eq!(
             verdict_from_log_with_trigger(abstain, true, &trigger),
             RunVerdict::CouldNotReplay

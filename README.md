@@ -122,8 +122,9 @@ There are three recording paths on purpose:
 - `record <id>` is repro evidence: after `fuzz` prints an `fnd_...` id, or after you keep a repro,
   it replays that exact bug once and saves the annotated video that `watch <id>` opens later.
 - `record` preserves a human-authored original: it launches the configured app, records the
-  tester's experience from before launch until they stop, and saves main-display video plus environment data without
-  requiring an oracle or changing the original. `--attach` starts from an already-running app.
+  tester's experience from before launch until they stop, and saves main-display video plus
+  environment data without requiring an oracle or changing the original. `--attach` starts from
+  an already-running app.
   Instrumented SDKs can supply actions and state snapshots with `--actions-file`; unavailable
   channels stay explicit. A replay or minimized repro is a separate derived artifact.
 - `record --cloud-tester` retains the older SDK/Cloud workflow: it waits for a marked capture,

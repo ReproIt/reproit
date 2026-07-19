@@ -205,7 +205,8 @@ pub fn validate_protocol_lifecycle(
                     violations.push(protocol_violation(
                         "lifecycle-precedence",
                         format!(
-                            "authored lifecycle requires {before:?} to precede every {after:?} event"
+                            "authored lifecycle requires {before:?} to precede every \
+                                 {after:?} event"
                         ),
                     ));
                 }
@@ -251,7 +252,8 @@ pub fn validate_protocol_lifecycle(
                     violations.push(protocol_violation(
                         "lifecycle-cardinality",
                         format!(
-                            "authored lifecycle requires {event:?} {expected} time(s), but observed {count}"
+                            "authored lifecycle requires {event:?} {expected} time(s), but \
+                             observed {count}"
                         ),
                     ));
                 }

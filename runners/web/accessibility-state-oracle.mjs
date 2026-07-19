@@ -9,7 +9,7 @@
 // with application state. Custom widgets therefore need a future, explicit
 // application-state authority and are outside this first autonomous slice.
 
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 
 // Only states whose native value and computed accessibility value are the same
 // semantic contract belong here. In particular, `aria-disabled="true"` on an
@@ -17,37 +17,37 @@ import { createHash } from 'node:crypto';
 // activation itself, so comparing it with `HTMLButtonElement.disabled` would
 // manufacture a contradiction. Keep disabled out until an independent
 // activation probe can prove that the control still operates.
-const SUPPORTED_PROPERTIES = new Set(['checked', 'expanded', 'selected']);
+const SUPPORTED_PROPERTIES = new Set(["checked", "expanded", "selected"]);
 
 function stateFingerprint(identity, property) {
-  return `sha256:${createHash('sha256')
+  return `sha256:${createHash("sha256")
     .update(`${identity}\0${property}`)
-    .digest('hex')
+    .digest("hex")
     .slice(0, 24)}`;
 }
 
 function axValue(value) {
-  if (value && typeof value === 'object' && 'value' in value) return value.value;
+  if (value && typeof value === "object" && "value" in value) return value.value;
   return value;
 }
 
 function normalizedValue(property, value) {
   const raw = axValue(value);
-  if (property === 'checked') {
-    if (raw === 'mixed') return 'mixed';
-    if (raw === true || raw === 'true') return 'true';
-    if (raw === false || raw === 'false') return 'false';
+  if (property === "checked") {
+    if (raw === "mixed") return "mixed";
+    if (raw === true || raw === "true") return "true";
+    if (raw === false || raw === "false") return "false";
     return null;
   }
-  if (raw === true || raw === 'true') return 'true';
-  if (raw === false || raw === 'false') return 'false';
+  if (raw === true || raw === "true") return "true";
+  if (raw === false || raw === "false") return "false";
   return null;
 }
 
 function resultOutcome(checks) {
-  if (checks.some((check) => check.outcome === 'VIOLATION')) return 'VIOLATION';
-  if (checks.some((check) => check.outcome === 'ABSTAIN')) return 'ABSTAIN';
-  return checks.length ? 'SATISFIED' : 'ABSTAIN';
+  if (checks.some((check) => check.outcome === "VIOLATION")) return "VIOLATION";
+  if (checks.some((check) => check.outcome === "ABSTAIN")) return "ABSTAIN";
+  return checks.length ? "SATISFIED" : "ABSTAIN";
 }
 
 // Host-pure comparison. `domControls` contains live native-property snapshots
@@ -55,7 +55,8 @@ function resultOutcome(checks) {
 export function evaluateAccessibilityStateParity(domControls, axNodes) {
   const axByBackendId = new Map();
   for (const node of Array.isArray(axNodes) ? axNodes : []) {
-    if (node?.backendDOMNodeId != null && !node.ignored) axByBackendId.set(node.backendDOMNodeId, node);
+    if (node?.backendDOMNodeId != null && !node.ignored)
+      axByBackendId.set(node.backendDOMNodeId, node);
   }
 
   const checks = [];
@@ -68,7 +69,7 @@ export function evaluateAccessibilityStateParity(domControls, axNodes) {
         expected: String(state.value),
       };
       if (!SUPPORTED_PROPERTIES.has(state.property)) {
-        checks.push({ ...base, outcome: 'ABSTAIN', reason: 'unsupported-property' });
+        checks.push({ ...base, outcome: "ABSTAIN", reason: "unsupported-property" });
         continue;
       }
       // An explicit ARIA value is authored semantic intent, not an independent
@@ -77,20 +78,20 @@ export function evaluateAccessibilityStateParity(domControls, axNodes) {
       // design-system checkbox). Without a third authority we cannot decide
       // which channel is wrong.
       if (state.semanticOverride) {
-        checks.push({ ...base, outcome: 'ABSTAIN', reason: 'authored-semantic-override' });
+        checks.push({ ...base, outcome: "ABSTAIN", reason: "authored-semantic-override" });
         continue;
       }
       if (!control.settled) {
-        checks.push({ ...base, outcome: 'ABSTAIN', reason: 'control-not-settled' });
+        checks.push({ ...base, outcome: "ABSTAIN", reason: "control-not-settled" });
         continue;
       }
       if (control.backendDOMNodeId == null) {
-        checks.push({ ...base, outcome: 'ABSTAIN', reason: 'missing-dom-node-identity' });
+        checks.push({ ...base, outcome: "ABSTAIN", reason: "missing-dom-node-identity" });
         continue;
       }
       const axNode = axByBackendId.get(control.backendDOMNodeId);
       if (!axNode) {
-        checks.push({ ...base, outcome: 'ABSTAIN', reason: 'missing-accessibility-node' });
+        checks.push({ ...base, outcome: "ABSTAIN", reason: "missing-accessibility-node" });
         continue;
       }
       const property = (axNode.properties || []).find((item) => item.name === state.property);
@@ -100,15 +101,15 @@ export function evaluateAccessibilityStateParity(domControls, axNodes) {
       // required, so its omission remains an evidence gap.
       const actual = property
         ? normalizedValue(state.property, property.value)
-        : state.property === 'checked'
+        : state.property === "checked"
           ? null
-          : 'false';
+          : "false";
       if (actual == null) {
-        checks.push({ ...base, outcome: 'ABSTAIN', reason: 'missing-accessibility-state' });
+        checks.push({ ...base, outcome: "ABSTAIN", reason: "missing-accessibility-state" });
       } else if (actual !== base.expected) {
-        checks.push({ ...base, actual, outcome: 'VIOLATION', reason: 'semantic-state-mismatch' });
+        checks.push({ ...base, actual, outcome: "VIOLATION", reason: "semantic-state-mismatch" });
       } else {
-        checks.push({ ...base, actual, outcome: 'SATISFIED' });
+        checks.push({ ...base, actual, outcome: "SATISFIED" });
       }
     }
   }
@@ -118,7 +119,7 @@ export function evaluateAccessibilityStateParity(domControls, axNodes) {
   return {
     outcome: resultOutcome(checks),
     checks,
-    items: checks.filter((check) => check.outcome === 'VIOLATION'),
+    items: checks.filter((check) => check.outcome === "VIOLATION"),
   };
 }
 
@@ -127,7 +128,7 @@ export function evaluateAccessibilityStateParity(domControls, axNodes) {
 export function collectNativeAccessibilityStateInPage() {
   const candidates = document.querySelectorAll(
     'input[type="checkbox"],input[type="radio"],button,input:not([type="hidden"]),' +
-      'select,textarea,option,details',
+      "select,textarea,option,details",
   );
   const result = [];
   for (const element of candidates) {
@@ -137,8 +138,8 @@ export function collectNativeAccessibilityStateInPage() {
     const rect = element.getBoundingClientRect();
     if (
       !element.isConnected ||
-      style.display === 'none' ||
-      style.visibility === 'hidden' ||
+      style.display === "none" ||
+      style.visibility === "hidden" ||
       element.closest('[hidden],[inert],[aria-hidden="true"]') ||
       !(rect.width > 0 && rect.height > 0)
     )
@@ -147,69 +148,72 @@ export function collectNativeAccessibilityStateInPage() {
     try {
       settled = !element
         .getAnimations({ subtree: true })
-        .some((animation) => animation.playState === 'running' || animation.playState === 'pending');
+        .some(
+          (animation) => animation.playState === "running" || animation.playState === "pending",
+        );
     } catch (_) {
       settled = false;
     }
     const states = [];
     const tag = element.tagName.toLowerCase();
-    const type = String(element.type || '').toLowerCase();
-    if (tag === 'input' && (type === 'checkbox' || type === 'radio')) {
+    const type = String(element.type || "").toLowerCase();
+    if (tag === "input" && (type === "checkbox" || type === "radio")) {
       states.push({
-        property: 'checked',
-        value: type === 'checkbox' && element.indeterminate ? 'mixed' : String(element.checked),
-        semanticOverride: element.hasAttribute('aria-checked'),
+        property: "checked",
+        value: type === "checkbox" && element.indeterminate ? "mixed" : String(element.checked),
+        semanticOverride: element.hasAttribute("aria-checked"),
       });
     }
-    if (tag === 'option')
+    if (tag === "option")
       states.push({
-        property: 'selected',
+        property: "selected",
         value: String(element.selected),
-        semanticOverride: element.hasAttribute('aria-selected'),
+        semanticOverride: element.hasAttribute("aria-selected"),
       });
-    if (tag === 'details')
+    if (tag === "details")
       states.push({
-        property: 'expanded',
+        property: "expanded",
         value: String(element.open),
-        semanticOverride: element.hasAttribute('aria-expanded'),
+        semanticOverride: element.hasAttribute("aria-expanded"),
       });
-    if (states.length) result.push({ identity: `key:id:${element.id}`, id: element.id, settled, states });
+    if (states.length)
+      result.push({ identity: `key:id:${element.id}`, id: element.id, settled, states });
   }
   return result;
 }
 
 async function captureAccessibilityStateParity(page) {
   const controls = await page.evaluate(collectNativeAccessibilityStateInPage);
-  if (!controls.length) return { outcome: 'ABSTAIN', checks: [], items: [] };
+  if (!controls.length) return { outcome: "ABSTAIN", checks: [], items: [] };
   let cdp;
   try {
     cdp = await page.context().newCDPSession(page);
-    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+    const { nodes } = await cdp.send("Accessibility.getFullAXTree");
     for (const control of controls) {
       const expression = `document.getElementById(${JSON.stringify(control.id)})`;
-      const remote = await cdp.send('Runtime.evaluate', {
+      const remote = await cdp.send("Runtime.evaluate", {
         expression,
         returnByValue: false,
-        objectGroup: 'reproit-accessibility-state',
+        objectGroup: "reproit-accessibility-state",
       });
       if (!remote.result?.objectId) continue;
-      const described = await cdp.send('DOM.describeNode', { objectId: remote.result.objectId });
+      const described = await cdp.send("DOM.describeNode", { objectId: remote.result.objectId });
       control.backendDOMNodeId = described.node?.backendNodeId;
     }
     await cdp
-      .send('Runtime.releaseObjectGroup', { objectGroup: 'reproit-accessibility-state' })
+      .send("Runtime.releaseObjectGroup", { objectGroup: "reproit-accessibility-state" })
       .catch(() => {});
     return evaluateAccessibilityStateParity(controls, nodes);
   } catch (_) {
     return {
-      outcome: 'ABSTAIN',
+      outcome: "ABSTAIN",
       checks: controls.flatMap((control) =>
         control.states.map((state) => ({
           identity: control.identity,
           property: state.property,
           expected: String(state.value),
-          outcome: 'ABSTAIN',
-          reason: 'accessibility-tree-unavailable',
+          outcome: "ABSTAIN",
+          reason: "accessibility-tree-unavailable",
         })),
       ),
       items: [],
@@ -224,10 +228,10 @@ function checkKey(check) {
     check.identity,
     check.property,
     check.expected,
-    check.actual ?? '',
+    check.actual ?? "",
     check.outcome,
-    check.reason ?? '',
-  ].join('\0');
+    check.reason ?? "",
+  ].join("\0");
 }
 
 // State must be identical in two independently captured, settled samples. Any
@@ -236,7 +240,9 @@ function checkKey(check) {
 export function confirmAccessibilityStateParity(first, second) {
   const firstChecks = Array.isArray(first?.checks) ? first.checks : [];
   const secondChecks = Array.isArray(second?.checks) ? second.checks : [];
-  const firstBySubject = new Map(firstChecks.map((check) => [`${check.identity}\0${check.property}`, check]));
+  const firstBySubject = new Map(
+    firstChecks.map((check) => [`${check.identity}\0${check.property}`, check]),
+  );
   const secondBySubject = new Map(
     secondChecks.map((check) => [`${check.identity}\0${check.property}`, check]),
   );
@@ -251,14 +257,14 @@ export function confirmAccessibilityStateParity(first, second) {
       property: source.property,
       fingerprint: source.fingerprint,
       expected: source.expected,
-      outcome: 'ABSTAIN',
-      reason: 'state-not-settled',
+      outcome: "ABSTAIN",
+      reason: "state-not-settled",
     };
   });
   return {
     outcome: resultOutcome(checks),
     checks,
-    items: checks.filter((check) => check.outcome === 'VIOLATION'),
+    items: checks.filter((check) => check.outcome === "VIOLATION"),
   };
 }
 

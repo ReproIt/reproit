@@ -284,7 +284,10 @@ fn launch_capture_target(loaded: &config::Loaded, target: &str) -> Result<()> {
 
 fn start_human_screen_recording(path: &Path) -> Result<std::process::Child> {
     if !cfg!(target_os = "macos") {
-        anyhow::bail!("host screen recording is not yet implemented on this OS; use --actions-file or --no-video")
+        anyhow::bail!(
+            "host screen recording is not yet implemented on this OS; use --actions-file or \
+             --no-video"
+        )
     }
     std::process::Command::new("/usr/sbin/screencapture")
         .args(["-v", "-C", "-k", "-D1"])
@@ -931,7 +934,7 @@ mod human_capture_tests {
             redact_capture_target("/workspace/app/target/debug/app", root),
             "target/debug/app"
         );
-        assert_eq!(redact_capture_target("/Users/private/bin/app", root), "app");
+        assert_eq!(redact_capture_target("/opt/private/bin/app", root), "app");
         assert_eq!(
             redact_capture_target("./target/debug/app", root),
             "./target/debug/app"
