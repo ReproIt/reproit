@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -808,33 +808,96 @@ fn mouse_hotspots(parser: &Arc<Mutex<vt100::Parser>>, cap: usize) -> Vec<Hotspot
     spots
 }
 
-/// Enable SGR mouse reporting on the slave PTY, the way a terminal would for an
-/// app that requested it: 1000 (button events) + 1006 (SGR extended encoding).
-/// Apps that called mousemask()/enabled mouse will now receive clicks; apps
-/// that did not simply ignore the report bytes (harmless).
-fn enable_mouse_reporting(writer: &Arc<Mutex<Box<dyn Write + Send>>>) {
-    if let Ok(mut w) = writer.lock() {
-        let _ = w.write_all(b"\x1b[?1000h\x1b[?1006h");
-        let _ = w.flush();
+/// Mouse event encoding selected by the app's terminal mode requests.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum MouseProtocol {
+    None = 0,
+    X10 = 1,
+    Sgr = 2,
+}
+
+const MOUSE_TRACKING_ENABLED: u8 = 1 << 0;
+const SGR_MOUSE_ENCODING_ENABLED: u8 = 1 << 1;
+
+fn observe_mouse_protocol(chunk: &[u8], state: &AtomicU8) {
+    const MODE_SEQUENCE_LEN: usize = 8;
+    if chunk.len() < MODE_SEQUENCE_LEN {
+        return;
+    }
+    let mut value = state.load(Ordering::SeqCst);
+    for offset in 0..=chunk.len() - MODE_SEQUENCE_LEN {
+        match &chunk[offset..offset + MODE_SEQUENCE_LEN] {
+            b"\x1b[?1000h" => value |= MOUSE_TRACKING_ENABLED,
+            b"\x1b[?1000l" => value &= !MOUSE_TRACKING_ENABLED,
+            b"\x1b[?1006h" => value |= SGR_MOUSE_ENCODING_ENABLED,
+            b"\x1b[?1006l" => value &= !SGR_MOUSE_ENCODING_ENABLED,
+            _ => continue,
+        }
+    }
+    state.store(value, Ordering::SeqCst);
+}
+
+fn observe_mouse_protocol_stream(chunk: &[u8], tail: &mut Vec<u8>, state: &AtomicU8) {
+    const MODE_SEQUENCE_LEN: usize = 8;
+    tail.extend_from_slice(chunk);
+    observe_mouse_protocol(tail, state);
+    if tail.len() >= MODE_SEQUENCE_LEN {
+        tail.drain(..tail.len() - (MODE_SEQUENCE_LEN - 1));
     }
 }
 
-/// Send one SGR mouse click (press + release) at a 0-based (row, col) cell. SGR
-/// mouse coordinates are 1-based, so we add 1. `\x1b[<0;C;Rm` is button-0
-/// press, `m` (vs `M`) is release in the SGR encoding; we send press then
-/// release so an app that only reacts on release still fires.
-fn send_mouse_click(writer: &Arc<Mutex<Box<dyn Write + Send>>>, row: u16, col: u16) {
+fn mouse_protocol(state: &AtomicU8) -> MouseProtocol {
+    let value = state.load(Ordering::SeqCst);
+    if value & MOUSE_TRACKING_ENABLED == 0 {
+        MouseProtocol::None
+    } else if value & SGR_MOUSE_ENCODING_ENABLED != 0 {
+        MouseProtocol::Sgr
+    } else {
+        MouseProtocol::X10
+    }
+}
+
+fn mouse_click_bytes(protocol: MouseProtocol, row: u16, col: u16) -> Vec<u8> {
     let (c, r) = (col + 1, row + 1);
-    let press = format!("\x1b[<0;{c};{r}M");
-    let release = format!("\x1b[<0;{c};{r}m");
+    match protocol {
+        MouseProtocol::None => Vec::new(),
+        MouseProtocol::X10 => vec![
+            0x1b,
+            b'[',
+            b'M',
+            32,
+            u8::try_from(c + 32).unwrap_or(u8::MAX),
+            u8::try_from(r + 32).unwrap_or(u8::MAX),
+            0x1b,
+            b'[',
+            b'M',
+            35,
+            u8::try_from(c + 32).unwrap_or(u8::MAX),
+            u8::try_from(r + 32).unwrap_or(u8::MAX),
+        ],
+        MouseProtocol::Sgr => format!("\x1b[<0;{c};{r}M\x1b[<0;{c};{r}m").into_bytes(),
+    }
+}
+
+/// Send one mouse click (press + release) at a 0-based (row, col) cell using
+/// the encoding the app requested from the terminal.
+fn send_mouse_click(
+    writer: &Arc<Mutex<Box<dyn Write + Send>>>,
+    state: &AtomicU8,
+    row: u16,
+    col: u16,
+) {
     if let Ok(mut w) = writer.lock() {
-        let _ = w.write_all(press.as_bytes());
-        let _ = w.write_all(release.as_bytes());
+        // Re-read under the write lock so a disable observed after hotspot
+        // discovery suppresses the pending click.
+        let bytes = mouse_click_bytes(mouse_protocol(state), row, col);
+        let _ = w.write_all(&bytes);
         let _ = w.flush();
     }
 }
 
-/// Signal B driver: relaunch the app, enable mouse reporting, and click each
+/// Signal B driver: relaunch the app and click each
 /// deterministic hotspot from the start screen, recording any state a click
 /// reaches that NO keystroke did (a mouse-only / not-keyboard-operable
 /// control). Deterministic: hotspots are scanned in a fixed order and clicked
@@ -851,25 +914,30 @@ fn mouse_probe(
     emit("JOURNEY[a] step: mouse probe (Signal B) enabled");
     // Find the start-screen hotspots once (from a throwaway session), then click
     // each from its own fresh relaunch so the click is the ONLY input.
-    let Ok((master0, mut child0, parser0, _w0, _e0)) = spawn_session(cmdline) else {
+    let Ok((master0, mut child0, parser0, _w0, _e0, mouse0)) = spawn_session(cmdline) else {
         return;
     };
     std::thread::sleep(Duration::from_millis(900));
     let start_sig = snapshot(&parser0).0;
     let hotspots = mouse_hotspots(&parser0, MOUSE_BUDGET);
+    let protocol = mouse_protocol(&mouse0);
     let _ = child0.kill();
     drop(master0);
     if hotspots.is_empty() {
         return;
     }
     for hs in &hotspots {
-        let Ok((master, mut child, parser, writer, _erases)) = spawn_session(cmdline) else {
+        let Ok((master, mut child, parser, writer, _erases, mouse)) = spawn_session(cmdline) else {
             continue;
         };
         std::thread::sleep(Duration::from_millis(900));
-        enable_mouse_reporting(&writer);
-        std::thread::sleep(Duration::from_millis(60));
-        send_mouse_click(&writer, hs.row, hs.col);
+        let session_protocol = mouse_protocol(&mouse);
+        if session_protocol == MouseProtocol::None || session_protocol != protocol {
+            let _ = child.kill();
+            drop(master);
+            continue;
+        }
+        send_mouse_click(&writer, &mouse, hs.row, hs.col);
         std::thread::sleep(Duration::from_millis(300));
         if looks_crashed(&parser) {
             // A click that crashes the app is a finding, but Signal B is about
@@ -1007,6 +1075,9 @@ type Session = (
     // Sampled before/after each keystroke so the re-render oracle can tell when
     // an action triggered a full clear+redraw.
     Arc<AtomicU64>,
+    // Mouse encoding requested by the app. A terminal consumes DECSET mode
+    // changes; they must never be echoed back as app input.
+    Arc<AtomicU8>,
 );
 
 /// Open a PTY, launch the target via `sh -c`, start a reader thread feeding a
@@ -1050,12 +1121,15 @@ fn spawn_session(cmdline: &str) -> Result<Session> {
         Arc::new(Mutex::new(pair.master.take_writer()?));
     let parser = Arc::new(Mutex::new(vt100::Parser::new(ROWS, COLS, 0)));
     let erases = Arc::new(AtomicU64::new(0));
+    let mouse = Arc::new(AtomicU8::new(MouseProtocol::None as u8));
     {
         let parser = parser.clone();
         let writer = writer.clone();
         let erases = erases.clone();
+        let mouse = mouse.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut terminal_mode_tail = Vec::with_capacity(15);
             while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
@@ -1064,12 +1138,13 @@ fn spawn_session(cmdline: &str) -> Result<Session> {
                 if e > 0 {
                     erases.fetch_add(e, Ordering::Relaxed);
                 }
+                observe_mouse_protocol_stream(&buf[..n], &mut terminal_mode_tail, &mouse);
                 parser.lock().unwrap().process(&buf[..n]);
                 answer_queries(&buf[..n], &parser, &writer);
             }
         });
     }
-    Ok((pair.master, child, parser, writer, erases))
+    Ok((pair.master, child, parser, writer, erases, mouse))
 }
 
 // Multi-actor scenario client (the conductor protocol).
@@ -1160,7 +1235,7 @@ fn run_scenario_actor(cmdline: &str, base: &str) -> Result<()> {
     }
     emit(&format!("JOURNEY claimed role={role}"));
 
-    let (_master, mut child, parser, writer, _erases) = spawn_session(cmdline)?;
+    let (_master, mut child, parser, writer, _erases, _mouse) = spawn_session(cmdline)?;
     std::thread::sleep(Duration::from_millis(900));
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut cur_sig = observe_scenario(&parser, &mut seen);
@@ -1525,7 +1600,7 @@ pub fn run() -> Result<()> {
     // stops the run.
     'fuzz: while i < budget {
         sessions += 1;
-        let (master, mut child, parser, writer, erases) = match spawn_session(&cmdline) {
+        let (master, mut child, parser, writer, erases, _mouse) = match spawn_session(&cmdline) {
             Ok(s) => s,
             Err(e) => {
                 launch_failures += 1;
@@ -1925,8 +2000,9 @@ pub fn run() -> Result<()> {
     }
 
     // SIGNAL B (mouse-only operability), gated behind REPROIT_TUI_MOUSE=1. Drive
-    // deterministic SGR mouse clicks at hotspots (bracketed labels, reverse-video
-    // runs) and watch for states that a click reaches but NO keystroke did. Such
+    // deterministic mouse clicks, in the encoding requested by the app, at
+    // hotspots (bracketed labels, reverse-video runs) and watch for states that a
+    // click reaches but NO keystroke did. Such
     // a state is reachable only by pointer -> the control that leads there is
     // mouse-only / not keyboard-operable. Runs in its own fresh session(s) so it
     // never perturbs the keyboard exploration above; failures (an app that ignores
@@ -2145,6 +2221,63 @@ mod tests {
         assert_eq!(count_full_erases(b"\x1b[0J"), 0, "erase-to-end is partial");
         assert_eq!(count_full_erases(b"\x1b[J"), 0, "bare J is not 2J/3J");
         assert_eq!(count_full_erases(b"hello world"), 0, "no escape");
+    }
+
+    #[test]
+    fn mouse_click_uses_the_protocol_requested_by_the_app() {
+        let protocol = AtomicU8::new(0);
+        observe_mouse_protocol(b"\x1b[?1000h", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::X10);
+        assert_eq!(
+            mouse_click_bytes(MouseProtocol::X10, 12, 100),
+            vec![0x1b, b'[', b'M', 32, 133, 45, 0x1b, b'[', b'M', 35, 133, 45]
+        );
+
+        observe_mouse_protocol(b"\x1b[?1006h", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::Sgr);
+        assert_eq!(
+            mouse_click_bytes(MouseProtocol::Sgr, 12, 100),
+            b"\x1b[<0;101;13M\x1b[<0;101;13m"
+        );
+
+        observe_mouse_protocol(b"\x1b[?1006l", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::X10);
+        observe_mouse_protocol(b"\x1b[?1000l", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::None);
+    }
+
+    #[test]
+    fn mouse_click_is_silent_until_the_app_requests_reporting() {
+        assert!(mouse_click_bytes(MouseProtocol::None, 12, 100).is_empty());
+    }
+
+    #[test]
+    fn mouse_protocol_request_can_cross_pty_read_boundaries() {
+        let protocol = AtomicU8::new(0);
+        let mut tail = Vec::new();
+        observe_mouse_protocol_stream(b"\x1b[?1000h", &mut tail, &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::X10);
+        observe_mouse_protocol_stream(b"paint\x1b[?10", &mut tail, &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::X10);
+        observe_mouse_protocol_stream(b"06hmore", &mut tail, &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::Sgr);
+        observe_mouse_protocol_stream(b"\x1b[?10", &mut tail, &protocol);
+        observe_mouse_protocol_stream(b"00l", &mut tail, &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::None);
+        assert!(mouse_click_bytes(mouse_protocol(&protocol), 12, 100).is_empty());
+    }
+
+    #[test]
+    fn mouse_protocol_changes_follow_stream_order() {
+        let protocol = AtomicU8::new(0);
+        observe_mouse_protocol(b"\x1b[?1000h\x1b[?1006h\x1b[?1006l", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::X10);
+
+        observe_mouse_protocol(b"\x1b[?1006l\x1b[?1006h", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::Sgr);
+
+        observe_mouse_protocol(b"\x1b[?1006h\x1b[?1000l", &protocol);
+        assert_eq!(mouse_protocol(&protocol), MouseProtocol::None);
     }
 
     #[test]
