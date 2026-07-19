@@ -44,6 +44,24 @@ test('an empty-state message is not blank (it has text)', async () => {
   }
 });
 
+test('open shadow-root text and substantial painted boxes are visible content', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<div id="host"></div>');
+    await page.evaluate(() => {
+      document.querySelector('#host').attachShadow({ mode: 'open' }).innerHTML = '<p>Visible</p>';
+    });
+    assert.deepEqual(await page.evaluate(blankScreenScan), []);
+    await page.setContent(
+      '<div style="width:50px;height:50px;background-color:rgb(34,34,34)"></div>',
+    );
+    assert.deepEqual(await page.evaluate(blankScreenScan), []);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('a loading-then-content app: blank while loading, NOT blank after ' + 'settle', async () => {
   const browser = await chromium.launch();
   try {

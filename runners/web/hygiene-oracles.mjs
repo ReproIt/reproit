@@ -492,29 +492,62 @@ export function blankScreenScan() {
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return false;
-    const cs = getComputedStyle(el);
-    return cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) !== 0;
+    for (let current = el; current; ) {
+      const cs = getComputedStyle(current);
+      if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0)
+        return false;
+      current = current.parentElement || current.getRootNode()?.host || null;
+    }
+    return true;
   };
+  const roots = [document.body];
+  for (let index = 0; index < roots.length; index++) {
+    for (const element of roots[index].querySelectorAll('*')) {
+      if (element.shadowRoot) roots.push(element.shadowRoot);
+    }
+  }
   // Any visible non-whitespace text node means the screen is not blank.
   // script/style/template text is not rendered, so it never counts.
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let node;
-  while ((node = walker.nextNode())) {
-    if (!/\S/.test(node.nodeValue || '')) continue;
-    const el = node.parentElement;
-    if (!el) continue;
-    if (el.closest('script, style, noscript, template')) continue;
-    if (visible(el)) return [];
+  for (const root of roots) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!/\S/.test(node.nodeValue || '')) continue;
+      const el = node.parentElement;
+      if (!el) continue;
+      if (el.closest('script, style, noscript, template')) continue;
+      if (visible(el)) return [];
+    }
   }
   const SEL =
     'a[href], button, input:not([type=hidden]), select, textarea, ' +
     '[role="button"], [role="link"], [role="checkbox"], [role="tab"], ' +
     '[role="menuitem"], [onclick]';
-  for (const el of document.body.querySelectorAll(SEL)) if (visible(el)) return [];
-  for (const el of document.body.querySelectorAll(
-    'img, svg, canvas, video, picture, object, embed',
-  ))
-    if (visible(el)) return [];
+  for (const root of roots) {
+    for (const el of root.querySelectorAll(SEL)) if (visible(el)) return [];
+    for (const el of root.querySelectorAll('img, svg, canvas, video, picture, object, embed'))
+      if (visible(el)) return [];
+  }
+  // A screen made entirely from styled boxes still rendered content. This is
+  // common in chart, overflow, skeleton, and visual-regression fixtures. Count
+  // only a substantial painted box so a bare transparent SPA mount stays blank.
+  for (const root of roots) {
+    for (const el of root.querySelectorAll('*')) {
+      if (!visible(el)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width * rect.height < 256) continue;
+      const style = getComputedStyle(el);
+      const painted =
+        !['rgba(0, 0, 0, 0)', 'transparent'].includes(style.backgroundColor) ||
+        style.backgroundImage !== 'none' ||
+        style.boxShadow !== 'none' ||
+        parseFloat(style.borderTopWidth) > 0 ||
+        parseFloat(style.borderRightWidth) > 0 ||
+        parseFloat(style.borderBottomWidth) > 0 ||
+        parseFloat(style.borderLeftWidth) > 0;
+      if (painted) return [];
+    }
+  }
   // A visible LOADING / spinner / skeleton / progress indicator means the screen is
   // MID-LOAD, not a permanently-blank WSOD -- never fire while one is shown. Reached
   // only when the page has no text/control/media, so the DOM is tiny and this walk
@@ -524,13 +557,15 @@ export function blankScreenScan() {
     '(^|[\\s_-])(loading|loader|spinner|skeleton|shimmer|placeholder|busy)' + '([\\s_-]|$)',
     'i',
   );
-  for (const el of document.body.querySelectorAll('*')) {
-    if (!visible(el)) continue;
-    if (el.tagName === 'PROGRESS') return [];
-    if ((el.getAttribute('aria-busy') || '') === 'true') return [];
-    const role = (el.getAttribute('role') || '').toLowerCase();
-    if (role === 'progressbar' || role === 'status') return [];
-    if (LOADING_RE.test(el.getAttribute('class') || '')) return [];
+  for (const root of roots) {
+    for (const el of root.querySelectorAll('*')) {
+      if (!visible(el)) continue;
+      if (el.tagName === 'PROGRESS') return [];
+      if ((el.getAttribute('aria-busy') || '') === 'true') return [];
+      const role = (el.getAttribute('role') || '').toLowerCase();
+      if (role === 'progressbar' || role === 'status') return [];
+      if (LOADING_RE.test(el.getAttribute('class') || '')) return [];
+    }
   }
   // MALFORMED-MARKUP guard (the "CSS-as-text" case): an unclosed <style> that ate
   // the document (or a big CSS dump left in the DOM) leaves a visually blank

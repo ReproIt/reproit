@@ -613,6 +613,18 @@ pub(crate) enum Cmd {
     /// (internal) Linux AT-SPI runner; spawned by the desktop-atspi backend
     #[command(name = "__atspi", hide = true)]
     AtspiRun,
+    /// (internal) Replay one explicit Vitest assertion as an authored contract.
+    #[command(name = "__vitest-contract", hide = true)]
+    VitestContract {
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(long)]
+        test_path: String,
+        #[arg(long)]
+        test_name: String,
+        #[arg(long)]
+        pnpm_version: String,
+    },
     /// Refresh the release cache without delaying the calling command.
     #[command(name = "__update-check", hide = true)]
     UpdateCheck,

@@ -1,6 +1,7 @@
 //! Application command dispatch and command-oriented workflows.
 
 mod auth;
+mod authored_contract;
 mod capture;
 mod cloud;
 mod device;
@@ -32,6 +33,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use auth::{auth_cmd, auth_prompt, discover_and_verify_login};
+use authored_contract::run_vitest_contract;
 use capture::{load_original, open_cloud_capture, show_original, upload_original, watch_original};
 #[cfg(test)]
 use cloud::choose_cloud_project;
@@ -171,6 +173,12 @@ where
         Cmd::Debug {
             action: DebugAction::Map { action },
         } => debug_map(cli.config.as_deref(), action, &ctx).await,
+        Cmd::VitestContract {
+            cwd,
+            test_path,
+            test_name,
+            pnpm_version,
+        } => run_vitest_contract(&ctx, &cwd, &test_path, &test_name, &pnpm_version).await,
         // `record`: run a repro ONCE with full evidence + annotated video,
         // REPLAYING the kept repro. The runner draws the annotated overlay (paced
         // action HUD + the red finding box) ONLY when it is fed a replay; without
