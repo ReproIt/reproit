@@ -333,6 +333,11 @@ fn scan_coverage_gaps(process_passed: bool, log: &str) -> Vec<String> {
         gaps.insert("runner did not pass".to_string());
     }
     for line in log.lines() {
+        if let Some((_, detail)) = line.split_once("EXPLORE:COVERAGE ") {
+            if let Some(gap) = coverage_marker_gap(detail) {
+                gaps.insert(gap);
+            }
+        }
         if let Some((_, detail)) = line.split_once("EXPLORE:TRUNCATED ") {
             gaps.insert(format!("exploration truncated: {}", detail.trim()));
         }
@@ -345,6 +350,38 @@ fn scan_coverage_gaps(process_passed: bool, log: &str) -> Vec<String> {
         ));
     }
     gaps.into_iter().collect()
+}
+
+fn coverage_marker_gap(detail: &str) -> Option<String> {
+    let Ok(value) = serde_json::from_str::<Value>(detail) else {
+        return Some("coverage marker malformed".to_string());
+    };
+    match value.get("complete").and_then(Value::as_bool) {
+        Some(true) => return None,
+        Some(false) => {}
+        None => return Some("coverage marker missing completion status".to_string()),
+    }
+    let reason = match value.get("stopReason").and_then(Value::as_str) {
+        Some("launch-failed") => "launch failed",
+        Some("no-effective-actions-after-nonzero-exit") => {
+            "no effective actions after nonzero process exits"
+        }
+        Some("crash") => "runner crashed",
+        _ => "runner reported incomplete coverage",
+    };
+    let states = value.get("states").and_then(Value::as_u64).unwrap_or(0);
+    let attempted = value
+        .get("actionsAttempted")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let effective = value
+        .get("actionsEffective")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    Some(format!(
+        "coverage incomplete: {reason} ({states} state(s), {effective}/{attempted} effective \
+         actions)"
+    ))
 }
 
 /// Keep one user-impact finding when a failed helper resource and its broken
@@ -1278,6 +1315,56 @@ mod tests {
             .any(|gap| gap.contains("7 link(s) not verified")));
         assert!(scan_coverage_gaps(true, "JOURNEY DONE\n").is_empty());
         assert!(!scan_coverage_gaps(false, "JOURNEY DONE\n").is_empty());
+    }
+
+    #[test]
+    fn scan_marks_nnn_style_nonzero_exit_without_effective_actions_incomplete() {
+        let log = concat!(
+            "EXPLORE:STATE {\"sig\":\"cf9df150\",\"labels\":[\"launch output\"]}\n",
+            "FUZZ:ACT key:Down\n",
+            "FUZZ:OBS {\"sig\":\"cf9df150\"}\n",
+            "EXPLORE:COVERAGE {\"platform\":\"tui\",\"complete\":false,",
+            "\"states\":1,\"transitions\":0,\"actionsAttempted\":9,",
+            "\"actionsEffective\":0,\"sessions\":10,\"nonzeroExits\":9,",
+            "\"launchFailures\":0,",
+            "\"stopReason\":\"no-effective-actions-after-nonzero-exit\"}\n",
+            "JOURNEY DONE\nAll tests passed\n",
+        );
+
+        let gaps = scan_coverage_gaps(true, log);
+
+        assert_eq!(gaps.len(), 1);
+        assert!(gaps[0].contains("no effective actions after nonzero process exits"));
+        assert!(gaps[0].contains("0/9 effective actions"));
+    }
+
+    #[test]
+    fn scan_accepts_healthy_dynamic_and_static_tui_coverage() {
+        let healthy_dynamic = concat!(
+            "EXPLORE:STATE {\"sig\":\"home\",\"labels\":[]}\n",
+            "EXPLORE:EDGE {\"from\":\"home\",\"action\":\"key:Down\",",
+            "\"to\":\"selected\"}\n",
+            "EXPLORE:COVERAGE {\"platform\":\"tui\",\"complete\":true,",
+            "\"states\":21,\"transitions\":40,\"actionsAttempted\":80,",
+            "\"actionsEffective\":45,\"sessions\":2,\"nonzeroExits\":0,",
+            "\"launchFailures\":0,\"stopReason\":\"frontier-exhausted\"}\n",
+        );
+        let healthy_static = concat!(
+            "EXPLORE:STATE {\"sig\":\"help\",\"labels\":[]}\n",
+            "EXPLORE:COVERAGE {\"platform\":\"tui\",\"complete\":true,",
+            "\"states\":1,\"transitions\":0,\"actionsAttempted\":9,",
+            "\"actionsEffective\":0,\"sessions\":1,\"nonzeroExits\":0,",
+            "\"launchFailures\":0,\"stopReason\":\"frontier-exhausted\"}\n",
+        );
+
+        assert!(scan_coverage_gaps(true, healthy_dynamic).is_empty());
+        assert!(scan_coverage_gaps(true, healthy_static).is_empty());
+    }
+
+    #[test]
+    fn scan_fails_closed_on_malformed_coverage_marker() {
+        let gaps = scan_coverage_gaps(true, "EXPLORE:COVERAGE {bad}\n");
+        assert_eq!(gaps, vec!["coverage marker malformed"]);
     }
 
     #[test]

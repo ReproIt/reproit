@@ -137,6 +137,8 @@ authorization, transactionality, ordering, or consistency must be declared expli
 | `response-selection`           | A GraphQL response contradicted the exact normalized selection mapping.                                                              |
 | `http-byte-range`              | A single byte-range response contradicts an authored exact representation in its status, `Content-Range`, length, or raw body bytes. |
 | `http-redirect-transition`     | A captured redirect hop violates the method and body transition required by its HTTP status.                                         |
+| `http-response-media-type`     | Exact response bytes use a media type outside an authored allowlist, or declare JSON while containing invalid JSON.                  |
+| `http-conditional-cache`       | A matched conditional GET returns a body with 304, contradicts the matched ETag, or reuses a strong ETag for different exact bytes.  |
 | `runtime-memory-safety`        | An instrumented build emitted a structured AddressSanitizer, HWASan, or MemorySanitizer diagnosis.                                   |
 | `runtime-memory-leak`          | An instrumented build emitted a structured LeakSanitizer diagnosis.                                                                 |
 | `runtime-data-race`            | An instrumented build emitted a structured ThreadSanitizer diagnosis.                                                               |
@@ -151,7 +153,23 @@ authorization, transactionality, ordering, or consistency must be declared expli
 | `websocket-close`         | A captured connection used a close code explicitly forbidden by the contract.                |
 
 OpenAPI parameter uniqueness and HTTP redirect transitions are standards-backed. Byte-range
-validation also requires exact authoritative representation bytes. WebSocket checks require an
+validation also requires exact authoritative representation bytes. Response media-type checks
+require a non-bodyless response, a syntactically valid `Content-Type`, and at least one valid
+application-authored allowed media type. Matching JSON types are `SATISFIED` only when the exact
+body parses as JSON. HEAD, 1xx, 204, 304, empty bodies, missing or malformed headers, and empty or
+invalid allowlists produce `ABSTAIN` for this check.
+
+Conditional-cache checks require two GET exchanges for the same target: an initial 200 response
+with one valid ETag, followed by a 200 or 304 request carrying the matching single
+`If-None-Match`. Every request header named by `Vary` must match. A valid 304 has no response body
+and cannot return a contradictory ETag. A 200 response cannot reuse the same strong ETag and
+content encoding for different exact bytes. Compound or malformed validators, `Vary: *`, changed
+vary dimensions, incomplete exchanges, and weak tags where byte identity is required produce
+`ABSTAIN`, not a clean-byte claim.
+
+These HTTP checks consume captured wire values. The media-type allowlist is application-authored;
+the conditional-cache contradictions are standards-backed. Neither depends on Express, FastAPI,
+Go, Axum, Spring, ASP.NET, Django, Flask, or any other framework name. WebSocket checks require an
 authored route, principal, message, or close-code contract. Missing raw bytes, unresolved
 references, unlisted principals, and undeclared message directions produce no finding.
 
@@ -168,6 +186,30 @@ references, unlisted principals, and undeclared message directions produce no fi
 | `resource-identity`       | A read returned a different identity from the one requested.                                    |
 | `resource-state`          | A read contradicted an exact field written by create or update.                                 |
 | `resource-round-trip`     | A strong write/read pair contradicted an authored exact value, hash, size, or media-type check. |
+| `codec-round-trip`        | A successful operation's decoded output contradicted an authored exact projection from its input. |
+
+`codec-round-trip` requires a declared operation contract, at least one authored input/output
+projection, a successful correlated invocation, both projected JSON paths, and unredacted values.
+Exact JSON equality across every observable projection is `SATISFIED`; an exact mismatch is
+`VIOLATION`. Missing operations, inferred authority, unsuccessful or uncorrelated invocations,
+missing paths, redaction, and an absence of any complete projection set produce `ABSTAIN`. The
+proof applies to any transport or framework that emits the same typed backend events.
+
+### Protocol lifecycle
+
+| Finding                     | Proves                                                                                       |
+| --------------------------- | -------------------------------------------------------------------------------------------- |
+| `lifecycle-precedence`      | An authored event that must precede another occurred after at least one required later event. |
+| `lifecycle-forbid-after`    | An authored event occurred after the exact boundary that forbids it.                          |
+| `lifecycle-cardinality`     | A complete scope trace contained fewer or more occurrences than the authored bounds allow.    |
+
+Lifecycle rules use producer-assigned sequence numbers, not wall-clock time or log order. A
+complete trace with one stable, non-empty scope kind and scope identity can establish
+`SATISFIED` when all valid rules hold. Incomplete traces, mixed or empty scope identities,
+duplicate sequence numbers, invalid event names, self-precedence, and contradictory or empty
+cardinality bounds produce `ABSTAIN` for the affected contract or rule. These checks model any
+framework lifecycle whose adapter emits a complete scoped event trace; method names, callbacks,
+framework diagnostics, and timing alone are not authority.
 
 ### Queries, invariants, and deployment
 

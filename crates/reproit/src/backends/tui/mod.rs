@@ -1404,6 +1404,10 @@ pub fn run() -> Result<()> {
     let mut failed = false;
     let mut i = 0usize;
     let mut sessions = 0u32;
+    let mut actions_attempted = 0usize;
+    let mut actions_effective = 0usize;
+    let mut nonzero_exits = 0u32;
+    let mut launch_failures = 0u32;
     // Optional frame capture: REPROIT_TUI_FRAMES=path makes us record the real
     // app's rendered screen after each action, so a side-by-side demo can show
     // the actual app reacting to every step (proof it's a real reproduction).
@@ -1524,6 +1528,7 @@ pub fn run() -> Result<()> {
         let (master, mut child, parser, writer, erases) = match spawn_session(&cmdline) {
             Ok(s) => s,
             Err(e) => {
+                launch_failures += 1;
                 emit(&format!("JOURNEY[a] step: launch failed: {e}"));
                 break;
             }
@@ -1716,6 +1721,7 @@ pub fn run() -> Result<()> {
                 continue;
             }
             emit(&format!("FUZZ:ACT {act}"));
+            actions_attempted += 1;
             tried.insert(edge_key(&cur_sig, &act));
             *live_visits.entry(edge_key(&cur_sig, &act)).or_insert(0) += 1;
             *state_pulls.entry(cur_sig.clone()).or_insert(0) += 1;
@@ -1789,6 +1795,9 @@ pub fn run() -> Result<()> {
                     failed = true;
                     break 'fuzz;
                 }
+                if code != 0 {
+                    nonzero_exits += 1;
+                }
                 // Clean exit or a handled error -> relaunch via the outer loop.
                 break;
             }
@@ -1802,6 +1811,9 @@ pub fn run() -> Result<()> {
             // explorer does not stall when only on-screen values move.
             let sig_changed = next_sig != cur_sig;
             let effective = sig_changed || next_fp != cur_fp;
+            if effective {
+                actions_effective += 1;
+            }
             // UCB reward: discovering a brand-new state pays full, moving to a
             // known-but-different state pays a little (still progress), staying
             // put pays nothing. An effective value-only change (same skeleton,
@@ -1922,6 +1934,39 @@ pub fn run() -> Result<()> {
     if mouse && !failed {
         mouse_probe(&cmdline, &mut seen, &keyboard_reached, &mut gt);
     }
+
+    let transitions_observed: usize = graph.values().map(Vec::len).sum();
+    let coverage_incomplete = !failed
+        && seen.len() <= 1
+        && actions_attempted > 0
+        && actions_effective == 0
+        && nonzero_exits > 0;
+    let stop_reason = if failed {
+        "crash"
+    } else if launch_failures > 0 {
+        "launch-failed"
+    } else if coverage_incomplete {
+        "no-effective-actions-after-nonzero-exit"
+    } else if i >= budget {
+        "action-budget"
+    } else {
+        "frontier-exhausted"
+    };
+    emit(&format!(
+        "EXPLORE:COVERAGE {}",
+        serde_json::json!({
+            "platform": "tui",
+            "complete": !failed && !coverage_incomplete && launch_failures == 0,
+            "states": seen.len(),
+            "transitions": transitions_observed,
+            "actionsAttempted": actions_attempted,
+            "actionsEffective": actions_effective,
+            "sessions": sessions,
+            "nonzeroExits": nonzero_exits,
+            "launchFailures": launch_failures,
+            "stopReason": stop_reason,
+        })
+    ));
 
     emit(&format!(
         "JOURNEY[a] step: explored {} states over {} session(s), {} actions",

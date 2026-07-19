@@ -62,11 +62,14 @@ Backend support is experimental. A result needs a schema-owned or authored contr
 event correlated to the exact operation.
 
 - Request and response: `server-error`, `response-status`, `accepted-invalid-input`,
-  `response-shape`, and `response-selection`.
+  `response-shape`, `response-selection`, `http-byte-range`, `http-redirect-transition`,
+  `http-response-media-type`, and `http-conditional-cache`.
 - Effects and tenancy: `read-only-mutation`, `missing-effect`, `excess-effect`, and
   `tenant-isolation`.
 - Resource lifecycle: `resource-create-missing`, `resource-delete-visible`, `resource-identity`,
-  `resource-state`, and `resource-round-trip`.
+  `resource-state`, `resource-round-trip`, and `codec-round-trip`.
+- Scoped protocol lifecycle: `lifecycle-precedence`, `lifecycle-forbid-after`, and
+  `lifecycle-cardinality`.
 - Query and application rules: `authored-invariant`, `query-pagination`,
   `query-pagination-reference`, and `idempotency`.
 - Deployment and multi-actor proofs: `fleet-consistency`, `authorization-matrix`,
@@ -75,6 +78,12 @@ event correlated to the exact operation.
 Backend semantics must not be inferred from operation, field, route, framework, or function names.
 Missing strong consistency, snapshot identity, complete effects, or an explicit behavioral contract
 means `ABSTAIN`.
+
+HTTP media-type and cache proofs require exact captured headers and body bytes. Lifecycle proofs
+require one complete, stably identified, totally ordered scope. Codec proofs require a declared
+operation plus complete unredacted input/output projections. Matching exact evidence is
+`SATISFIED`; missing, malformed, inferred, redacted, mixed-scope, or incomplete evidence is
+`ABSTAIN`. These rules are framework-neutral.
 
 ## A2UI categories
 
