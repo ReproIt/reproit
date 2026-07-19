@@ -258,6 +258,12 @@ Every A2UI finding stores the minimized message stream, structural signature, re
 exact repair context, and replay predicate. Unsupported catalog behavior and ambiguous component
 mapping abstain instead of guessing.
 
+DynamicValue function results currently `ABSTAIN`. The v0.9 schema does not define recursive array
+evaluation, and React and Lit share the same executable function implementation, so ReproIt does
+not treat that implementation as independent proof of its own semantics. The implementation gate
+and fixture contract are documented in
+[`runners/a2ui/DYNAMIC_VALUE_CONFORMANCE.md`](../runners/a2ui/DYNAMIC_VALUE_CONFORMANCE.md).
+
 Detailed integration, conformance, and CI examples live in
 [`runners/a2ui/README.md`](../runners/a2ui/README.md).
 
