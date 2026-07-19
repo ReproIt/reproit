@@ -49,6 +49,7 @@ not how interesting it looks.
 | `unclassified`       | telemetry only        | An unregistered or newer marker                                                        | all, never confirmed                                                          |
 | `crash`              | confirmed             | Unhandled exceptions and process crashes                                               | all runners                                                                   |
 | `detached-indicator` | declared proof        | An opted-in badge or indicator detached from its owner                                 | web, React Native, Flutter, iOS, Android                                      |
+| `accessibility-state` | experimental specialist | Native checked/selected/expanded state contradicts the accessibility tree; explicit ARIA overrides and disabled-state parity abstain without a third authority | web |
 | `contract`           | declared proof        | A failed structural or temporal contract                                               | every instrumented SDK                                                        |
 | `invariant`          | declared proof        | An application predicate returned false or threw                                       | every SDK with a state hook                                                   |
 | `visual`             | baseline proof        | Pixels differ from an approved, pinned baseline beyond its tolerance                   | screenshot-capable runners                                                    |

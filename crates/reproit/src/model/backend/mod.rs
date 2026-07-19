@@ -16,10 +16,10 @@ mod contracts;
 #[allow(unused_imports)]
 pub use contracts::{
     AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendConfig,
-    BackendInvariant, BackendProofContract, ConcurrencyPolicy, ControlledFailureWitness,
-    FleetInvariant, QueryComparison, QueryFilterContract, QueryPaginationContract,
-    QuerySortContract, QuerySortDirection, QuerySortType, ResourceConsistency,
-    ResourceCreateContract, ResourceFieldContract, ResourceLifecycleContract,
+    BackendInvariant, BackendProofContract, CodecProjection, ConcurrencyPolicy,
+    ControlledFailureWitness, FleetInvariant, QueryComparison, QueryFilterContract,
+    QueryPaginationContract, QuerySortContract, QuerySortDirection, QuerySortType,
+    ResourceConsistency, ResourceCreateContract, ResourceFieldContract, ResourceLifecycleContract,
     ResourceMutationContract, ResourceReadContract, RoundTripCheck,
 };
 
@@ -286,8 +286,10 @@ pub use schema_validation::{validate_openapi_parameter_uniqueness, BackendSchema
 mod protocol;
 #[allow(unused_imports)]
 pub use protocol::{
-    validate_http_byte_range, validate_http_redirect_transition, validate_websocket_contract,
-    HttpExchangeEvidence, ProtocolEvidence, ProtocolViolation, WebSocketContract,
+    validate_http_byte_range, validate_http_conditional_cache, validate_http_redirect_transition,
+    validate_http_response_media_type, validate_protocol_lifecycle, validate_websocket_contract,
+    HttpExchangeEvidence, ProtocolEvidence, ProtocolLifecycleContract, ProtocolLifecycleEvent,
+    ProtocolLifecycleEvidence, ProtocolLifecycleRule, ProtocolViolation, WebSocketContract,
     WebSocketEvidence,
 };
 
@@ -3352,6 +3354,7 @@ proofs:
     ) -> HttpExchangeEvidence {
         HttpExchangeEvidence {
             request_method: method.into(),
+            request_target: "/fixture".into(),
             request_headers: request_headers
                 .iter()
                 .map(|(key, value)| ((*key).into(), (*value).into()))
@@ -3563,5 +3566,61 @@ proofs:
         let guard = FrozenBackendGuard::from_findings(&config, &[finding]).unwrap();
         let log = format!("{EVENT_MARKER}{}", serde_json::to_string(&event).unwrap());
         assert!(guard.reproduces(&log));
+    }
+
+    #[test]
+    fn authored_lifecycle_protocol_flows_through_backend_evaluation() {
+        let config = BackendConfig {
+            enabled: true,
+            operations: vec![proof_operation("worker")],
+            ..BackendConfig::default()
+        };
+        let event = BackendEvent {
+            sequence: 1,
+            trace_id: "trace-lifecycle".into(),
+            span_id: "span-lifecycle".into(),
+            action_index: 7,
+            parent_span_id: None,
+            operation: "worker".into(),
+            build: None,
+            config_contract: None,
+            actor: None,
+            tenant: None,
+            idempotency_key: None,
+            selections: Vec::new(),
+            event: BackendEventKind::Protocol {
+                proof: ProtocolEvidence::Lifecycle {
+                    contract: ProtocolLifecycleContract {
+                        scope_kind: "worker".into(),
+                        rules: vec![ProtocolLifecycleRule::ForbidAfter {
+                            event: "callback".into(),
+                            boundary: "worker.close".into(),
+                        }],
+                    },
+                    evidence: ProtocolLifecycleEvidence {
+                        scope_kind: "worker".into(),
+                        scope_id: "worker-17".into(),
+                        complete: true,
+                        events: vec![
+                            ProtocolLifecycleEvent {
+                                sequence: 0,
+                                name: "worker.close".into(),
+                                scope_id: "worker-17".into(),
+                            },
+                            ProtocolLifecycleEvent {
+                                sequence: 1,
+                                name: "callback".into(),
+                                scope_id: "worker-17".into(),
+                            },
+                        ],
+                    },
+                },
+            },
+        };
+
+        let violations = evaluate(&config, &[event]);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].oracle, "lifecycle-forbid-after");
+        assert_eq!(violations[0].action_index, 7);
     }
 }

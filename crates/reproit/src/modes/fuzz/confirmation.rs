@@ -136,11 +136,21 @@ pub(super) async fn confirm_trace(
     Ok(
         match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
             Ok(outcome) => {
-                reproduces_original(&findings_for_tier(cfg, &outcome.run_dir, sim), want)
+                let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log"))
+                    .unwrap_or_default();
+                replay_is_hermetic(&log)
+                    && reproduces_original(&findings_for_tier(cfg, &outcome.run_dir, sim), want)
             }
             Err(_) => false,
         },
     )
+}
+
+/// A causal-capsule confirmation is valid only if every external request was
+/// fulfilled from the capsule. An exception after a fail-closed miss may be a
+/// secondary artifact of the incomplete environment, not the original bug.
+pub(super) fn replay_is_hermetic(log: &str) -> bool {
+    !log.lines().any(|line| line.contains("CAPSULE:MISS "))
 }
 
 /// ddmin (Zeller & Hildebrand 2002): minimize a failing trace by removing

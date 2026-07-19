@@ -49,6 +49,10 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
         include_str!("../../../../runners/web/hygiene-oracles.mjs"),
     ),
     (
+        "accessibility-state-oracle.mjs",
+        include_str!("../../../../runners/web/accessibility-state-oracle.mjs"),
+    ),
+    (
         "route-inspection.mjs",
         include_str!("../../../../runners/web/route-inspection.mjs"),
     ),

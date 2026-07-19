@@ -87,6 +87,14 @@ pub enum BackendProofContract {
         consistency: ResourceConsistency,
         checks: Vec<RoundTripCheck>,
     },
+    /// An application-authored codec boundary. Each projection identifies a
+    /// typed input value and the corresponding value after encode/decode. The
+    /// runtime adapter must emit both in one successful invocation; missing,
+    /// redacted, or inferred values abstain.
+    CodecRoundTrip {
+        operation: String,
+        projections: Vec<CodecProjection>,
+    },
 }
 
 impl BackendProofContract {
@@ -100,8 +108,16 @@ impl BackendProofContract {
                 read_operation,
                 ..
             } => vec![write_operation, read_operation],
+            Self::CodecRoundTrip { operation, .. } => vec![operation],
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CodecProjection {
+    pub input_path: String,
+    pub output_path: String,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

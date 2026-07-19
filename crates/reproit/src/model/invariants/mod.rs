@@ -47,8 +47,8 @@ pub use finding::{advisory_finding, finding};
 use graph::permission_traps;
 pub use recheck::{
     any_content_bug, any_detached_indicator, any_hang, any_jank, any_rerender_flicker,
-    recheck_content_bug, recheck_detached_indicator, recheck_hang, recheck_jank,
-    recheck_rerender_flicker, GraphRecheck,
+    recheck_accessibility_state, recheck_content_bug, recheck_detached_indicator, recheck_hang,
+    recheck_jank, recheck_rerender_flicker, GraphRecheck,
 };
 
 #[cfg(feature = "perf-bench")]
@@ -213,6 +213,7 @@ mod tests {
                 content_bugs: Default::default(),
                 relations: Default::default(),
                 relation_checks: Default::default(),
+                accessibility_state_checks: Default::default(),
                 janks: Default::default(),
                 duplicate_submits: Default::default(),
                 focus_losses: Default::default(),
@@ -1361,6 +1362,52 @@ mod tests {
         );
         assert_eq!(
             recheck_detached_indicator(&abstain, "nav", "key:id:dot"),
+            GraphRecheck::NotReached
+        );
+    }
+
+    #[test]
+    fn accessibility_state_finding_and_recheck_require_exact_fingerprint() {
+        const FINGERPRINT: &str = "sha256:f264f36f3b511e4ae5993d43";
+        let violating_log = concat!(
+            "EXPLORE:STATE {\"sig\":\"settings\",\"labels\":[]}\n",
+            "EXPLORE:A11YSTATESTATUS {\"sig\":\"settings\",\"outcome\":\"VIOLATION\",\"checks\":[",
+            "{\"identity\":\"key:id:notifications\",\"property\":\"checked\",",
+            "\"fingerprint\":\"sha256:f264f36f3b511e4ae5993d43\",\"expected\":\"true\",",
+            "\"actual\":\"false\",\"outcome\":\"VIOLATION\",",
+            "\"reason\":\"semantic-state-mismatch\"}]}\n",
+        );
+        let mut observations = obs_with(&[("settings", &[])], &[], Some("settings"));
+        observations.obs = crate::model::map::parse_run(violating_log);
+        let findings = evaluate(&observations, &InvariantsCfg::default());
+        let finding = findings
+            .iter()
+            .find(|finding| finding["invariant"] == "no-accessibility-state-mismatch")
+            .expect("accessibility-state finding");
+        assert_eq!(finding["kind"], "A11YSTATE");
+        assert_eq!(finding["selector"], "key:id:notifications");
+        assert_eq!(finding["fingerprint"], FINGERPRINT);
+        assert_eq!(
+            crate::crosscut::classify(finding),
+            crate::crosscut::Oracle::AccessibilityState
+        );
+        assert_eq!(
+            recheck_accessibility_state(&observations.obs, "settings", FINGERPRINT),
+            GraphRecheck::StillViolating
+        );
+
+        let satisfied = crate::model::map::parse_run(
+            &violating_log
+                .replace("\"actual\":\"false\"", "\"actual\":\"true\"")
+                .replace("\"outcome\":\"VIOLATION\"", "\"outcome\":\"SATISFIED\"")
+                .replace(",\"reason\":\"semantic-state-mismatch\"", ""),
+        );
+        assert_eq!(
+            recheck_accessibility_state(&satisfied, "settings", FINGERPRINT),
+            GraphRecheck::Fixed
+        );
+        assert_eq!(
+            recheck_accessibility_state(&satisfied, "settings", "sha256:000000000000000000000000"),
             GraphRecheck::NotReached
         );
     }

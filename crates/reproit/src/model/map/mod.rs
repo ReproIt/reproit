@@ -40,8 +40,8 @@ pub(crate) use merge::{action_str, merge};
 #[allow(unused_imports)]
 // Types remain reachable at their pre-split `crate::model::map` paths.
 pub(crate) use parse::{
-    parse_run, parse_runner_events, EscapableRoutes, LeakMetric, RelationCheck, RelationViolation,
-    RunObs,
+    parse_run, parse_runner_events, AccessibilityStateCheck, EscapableRoutes, LeakMetric,
+    RelationCheck, RelationViolation, RunObs,
 };
 #[cfg(test)]
 use persistence::load_visits;
@@ -1671,5 +1671,30 @@ mod tests {
         assert_eq!(items[0].violation, "detached");
         assert_eq!(items[0].max_gap, 8);
         assert_eq!(items[0].gap_centipx, 12_345);
+    }
+
+    #[test]
+    fn parses_accessibility_state_checks_with_exact_subject_fingerprint() {
+        let obs = parse_run(concat!(
+            "EXPLORE:STATE {\"sig\":\"settings\",\"labels\":[\"Settings\"]}\n",
+            "EXPLORE:A11YSTATESTATUS {\"sig\":\"settings\",\"outcome\":\"VIOLATION\",\"checks\":[",
+            "{\"identity\":\"key:id:notifications\",\"property\":\"checked\",",
+            "\"fingerprint\":\"sha256:f264f36f3b511e4ae5993d43\",\"expected\":\"true\",",
+            "\"actual\":\"false\",\"outcome\":\"VIOLATION\",",
+            "\"reason\":\"semantic-state-mismatch\"},",
+            "{\"identity\":\"text:Notifications\",\"property\":\"checked\",",
+            "\"fingerprint\":\"sha256:000000000000000000000000\",\"expected\":\"true\",",
+            "\"actual\":\"false\",\"outcome\":\"VIOLATION\",",
+            "\"reason\":\"semantic-state-mismatch\"}]}\n",
+        ));
+        let checks = obs
+            .accessibility_state_checks
+            .get("settings")
+            .expect("accessibility checks");
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].identity, "key:id:notifications");
+        assert_eq!(checks[0].property, "checked");
+        assert_eq!(checks[0].fingerprint, "sha256:f264f36f3b511e4ae5993d43");
+        assert_eq!(checks[0].outcome, "VIOLATION");
     }
 }

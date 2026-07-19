@@ -101,7 +101,7 @@ pub(super) fn target_identity(cfg: &Config) -> String {
 /// buckets to one signature: every digit run (counts, percentages, px,
 /// decimals) becomes `#`, and every quoted run (a localized label) becomes
 /// `<q>`.
-pub(super) fn normalize_message(message: &str) -> String {
+pub(crate) fn normalize_message(message: &str) -> String {
     let mut out = String::with_capacity(message.len());
     let mut chars = message.chars().peekable();
     while let Some(c) = chars.next() {

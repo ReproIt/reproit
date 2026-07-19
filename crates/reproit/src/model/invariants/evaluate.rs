@@ -646,6 +646,40 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // no-accessibility-state-mismatch: compare the native control's live DOM
+    // property with Chromium's computed accessibility state for that exact
+    // backend DOM node. The runner has already required two identical settled
+    // samples. Only explicit VIOLATION checks become findings; SATISFIED and
+    // ABSTAIN remain replay evidence.
+    if cfg.no_accessibility_state_mismatch {
+        for (sig, checks) in &obs.obs.accessibility_state_checks {
+            for check in checks.iter().filter(|check| check.outcome == "VIOLATION") {
+                let actual = check.actual.as_deref().unwrap_or("unavailable");
+                let mut found = finding(
+                    "no-accessibility-state-mismatch",
+                    "A11YSTATE",
+                    format!(
+                        "state {sig} exposes {}={} for {} but the native control state is {}; \
+                         the same semantic-state contradiction held in two settled samples",
+                        check.property, actual, check.identity, check.expected
+                    ),
+                    Some(sig),
+                );
+                found["selector"] = json!(check.identity);
+                found["fingerprint"] = json!(check.fingerprint);
+                found["accessibilityState"] = json!({
+                    "identity": check.identity,
+                    "property": check.property,
+                    "expected": check.expected,
+                    "actual": actual,
+                    "reason": check.reason,
+                    "fingerprint": check.fingerprint,
+                });
+                out.push(found);
+            }
+        }
+    }
+
     // no-insecure-markup: client-side security-hygiene smells (a cross-origin
     // target=_blank without rel=noopener -> reverse tabnabbing; an HTTPS page with
     // an http: form action or http: subresource -> mixed content). Pure DOM/URL

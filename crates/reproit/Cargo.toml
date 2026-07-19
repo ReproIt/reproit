@@ -9,6 +9,8 @@ description = "Deterministic multi-device test orchestration with evidence captu
 default-run = "reproit"
 
 [features]
+default = ["linux-atspi"]
+linux-atspi = []
 perf-bench = []
 
 [[bin]]

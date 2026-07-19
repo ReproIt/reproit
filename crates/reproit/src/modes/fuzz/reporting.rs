@@ -204,9 +204,13 @@ pub(super) fn write_report(
             .get("selector")
             .and_then(Value::as_str)
             .unwrap_or("");
+        let fingerprint = primary
+            .get("fingerprint")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         md.push_str(&format!(
             "\n## oracle\n\n- oracle: `{oracle}`\n- invariant: `{inv}`\n- sig: `{sig}`\n- \
-             selector: `{selector}`\n"
+             selector: `{selector}`\n- fingerprint: `{fingerprint}`\n"
         ));
     }
     md.push_str("\n## findings\n\n");

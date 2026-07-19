@@ -105,6 +105,12 @@ pub struct Meta {
     /// Optional for older and non-relational repros.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_selector: Option<String>,
+    /// Stable oracle-specific subject fingerprint. Accessibility-state parity
+    /// hashes `(native identity, semantic property)` so replay can distinguish
+    /// the exact checked/selected/expanded/disabled subject from other checks
+    /// on the same control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_fingerprint: Option<String>,
     /// The ORACLE category the finding belongs to (crash/jank/leak/occlusion/
     /// divergence/i18n), recorded at `keep` so `check` re-confirms the SAME
     /// finding by its oracle rather than only scanning for exceptions. A
@@ -329,6 +335,7 @@ pub struct Trigger {
     pub index: Option<usize>,
     pub sig: Option<String>,
     pub selector: Option<String>,
+    pub fingerprint: Option<String>,
     /// The oracle category the original finding belonged to (e.g. `crash`,
     /// `graph`). Selects how `check` re-confirms the finding: crash-class uses
     /// the exception/process-death path; graph-class re-evaluates the graph
@@ -344,6 +351,7 @@ impl Trigger {
             index: None,
             sig: None,
             selector: None,
+            fingerprint: None,
             oracle: None,
         }
     }
@@ -372,6 +380,10 @@ impl Trigger {
 
     fn is_detached_indicator(&self) -> bool {
         self.oracle.as_deref() == Some("detached-indicator")
+    }
+
+    fn is_accessibility_state(&self) -> bool {
+        self.oracle.as_deref() == Some("accessibility-state")
     }
 
     /// Whether this finding is a JANK finding (a main-thread stall on a
@@ -469,6 +481,9 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     }
     if trigger.is_detached_indicator() {
         return detached_indicator_verdict(log, trigger);
+    }
+    if trigger.is_accessibility_state() {
+        return accessibility_state_verdict(log, trigger);
     }
     if trigger.is_jank() {
         return jank_verdict(log, trigger);
@@ -711,6 +726,26 @@ fn detached_indicator_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
     }
 }
 
+fn accessibility_state_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::model::map::parse_run(log);
+    let (Some(sig), Some(fingerprint)) = (
+        trigger.sig.as_deref().filter(|value| !value.is_empty()),
+        trigger
+            .fingerprint
+            .as_deref()
+            .filter(|value| !value.is_empty()),
+    ) else {
+        // This proof is meaningful only for the exact state and subject. An
+        // older/incomplete repro must be re-recorded, never treated as fixed.
+        return RunVerdict::CouldNotReplay;
+    };
+    match crate::model::invariants::recheck_accessibility_state(&obs, sig, fingerprint) {
+        crate::model::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+        crate::model::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+        crate::model::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
+    }
+}
+
 /// Re-confirm a `no-jank` (web jank) finding over a replay log. A jank stall is
 /// keyed by the transition's FROM state, so re-evaluate the EXPLORE:JANK
 /// records against the recorded sig; fall back to "any jank remains" with no
@@ -885,6 +920,7 @@ mod tests {
             trigger_index: Some(1),
             trigger_sig: None,
             trigger_selector: None,
+            trigger_fingerprint: None,
             oracle: Some("crash".to_string()),
             record_url: None,
             record_action: None,
@@ -1069,6 +1105,7 @@ flutter: ═══════════════════════�
             index: Some(index),
             sig: None,
             selector: None,
+            fingerprint: None,
             oracle: None,
         }
     }
@@ -1163,6 +1200,7 @@ JOURNEY DONE
             index: Some(9),
             sig: Some("SIG:checkout".to_string()),
             selector: None,
+            fingerprint: None,
             oracle: None,
         };
         let log = "\
@@ -1191,6 +1229,7 @@ JOURNEY DONE
             index: Some(9),
             sig: Some("checkout".to_string()),
             selector: None,
+            fingerprint: None,
             oracle: None,
         };
         let log = "\
@@ -1247,6 +1286,7 @@ JOURNEY DONE
             index: Some(1),
             sig: Some("broken-checkout".to_string()),
             selector: None,
+            fingerprint: None,
             oracle: Some("tester-capture".to_string()),
         };
         let reached = "FUZZ:ACT tap:key:checkout\nEXPLORE:STATE \
@@ -1275,6 +1315,7 @@ JOURNEY DONE
             index: Some(0),
             sig: Some("nav".into()),
             selector: Some("key:id:dot".into()),
+            fingerprint: None,
             oracle: Some("detached-indicator".into()),
         };
         let violation = concat!(
@@ -1311,6 +1352,49 @@ JOURNEY DONE
     }
 
     #[test]
+    fn accessibility_state_replay_requires_exact_fingerprint_and_evidence() {
+        let trigger = Trigger {
+            index: Some(0),
+            sig: Some("settings".into()),
+            selector: Some("key:id:notifications".into()),
+            fingerprint: Some("sha256:f264f36f3b511e4ae5993d43".into()),
+            oracle: Some("accessibility-state".into()),
+        };
+        let violation = concat!(
+            "EXPLORE:STATE {\"sig\":\"settings\",\"labels\":[]}\n",
+            "EXPLORE:A11YSTATESTATUS {\"sig\":\"settings\",\"outcome\":\"VIOLATION\",\"checks\":[",
+            "{\"identity\":\"key:id:notifications\",\"property\":\"checked\",",
+            "\"fingerprint\":\"sha256:f264f36f3b511e4ae5993d43\",\"expected\":\"true\",",
+            "\"actual\":\"false\",\"outcome\":\"VIOLATION\",",
+            "\"reason\":\"semantic-state-mismatch\"}]}\n",
+        );
+        assert_eq!(
+            verdict_from_log_with_trigger(violation, true, &trigger),
+            RunVerdict::Broke
+        );
+        let satisfied = violation
+            .replace("\"actual\":\"false\"", "\"actual\":\"true\"")
+            .replace("\"outcome\":\"VIOLATION\"", "\"outcome\":\"SATISFIED\"")
+            .replace(",\"reason\":\"semantic-state-mismatch\"", "");
+        assert_eq!(
+            verdict_from_log_with_trigger(&satisfied, true, &trigger),
+            RunVerdict::Green
+        );
+        let abstain = "EXPLORE:STATE {\"sig\":\"settings\",\"labels\":[]}\n\
+                       EXPLORE:A11YSTATESTATUS {\"sig\":\"settings\",\"outcome\":\"ABSTAIN\",\"checks\":[]}";
+        assert_eq!(
+            verdict_from_log_with_trigger(abstain, true, &trigger),
+            RunVerdict::CouldNotReplay
+        );
+        let mut incomplete = trigger.clone();
+        incomplete.fingerprint = None;
+        assert_eq!(
+            verdict_from_log_with_trigger(violation, true, &incomplete),
+            RunVerdict::CouldNotReplay
+        );
+    }
+
+    #[test]
     fn crash_repro_unaffected_by_graph_path() {
         // A crash-oracle repro (or one with no oracle) is untouched: it still
         // uses the exception path, never the graph re-evaluation.
@@ -1318,6 +1402,7 @@ JOURNEY DONE
             index: Some(2),
             sig: None,
             selector: None,
+            fingerprint: None,
             oracle: Some("crash".to_string()),
         };
         let clean = "FUZZ:ACT tap:A\nFUZZ:ACT tap:B\nJOURNEY DONE\n";

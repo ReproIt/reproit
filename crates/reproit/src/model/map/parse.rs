@@ -35,6 +35,20 @@ pub(crate) struct RelationCheck {
     pub violation: Option<String>,
 }
 
+/// One authoritative native-control versus accessibility-tree state check.
+/// `fingerprint` is the stable hash of `(identity, property)` and deliberately
+/// excludes observed values so the same subject can be recognized after a fix.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AccessibilityStateCheck {
+    pub identity: String,
+    pub property: String,
+    pub fingerprint: String,
+    pub expected: String,
+    pub actual: Option<String>,
+    pub outcome: String,
+    pub reason: Option<String>,
+}
+
 /// One run's observations, keyed by semantics signature.
 pub(crate) struct RunObs {
     /// sig -> display labels
@@ -105,6 +119,10 @@ pub(crate) struct RunObs {
     /// SATISFIED checks. ABSTAIN/absent identities let replay abstain instead
     /// of calling a removed or ambiguous contract fixed.
     pub relation_checks: BTreeMap<String, Vec<RelationCheck>>,
+    /// sig -> every accessibility-state parity evaluation, including
+    /// SATISFIED checks. ABSTAIN checks are retained without becoming findings,
+    /// so replay never mistakes unavailable evidence for a verified fix.
+    pub accessibility_state_checks: BTreeMap<String, Vec<AccessibilityStateCheck>>,
     /// sig -> interactive elements whose center is covered by a foreign element
     /// in that state, from `EXPLORE:OCCLUSION` records (the occlusion
     /// oracle). Each entry is `(target, cover)`: the blocked control and
@@ -364,6 +382,7 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
         content_bugs: BTreeMap::new(),
         relations: BTreeMap::new(),
         relation_checks: BTreeMap::new(),
+        accessibility_state_checks: BTreeMap::new(),
         occlusions: BTreeMap::new(),
         security: BTreeMap::new(),
         blank_screens: BTreeMap::new(),
@@ -641,6 +660,61 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
                 // Store an empty list too. It is an explicit ABSTAIN sample and
                 // must not be confused with the runner never evaluating the state.
                 obs.relation_checks.insert(sig.to_string(), parsed);
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:A11YSTATESTATUS ") {
+            if let (Some(sig), Some(checks)) = (
+                json.get("sig").and_then(Value::as_str),
+                json.get("checks").and_then(Value::as_array),
+            ) {
+                let parsed: Vec<AccessibilityStateCheck> = checks
+                    .iter()
+                    .filter_map(|it| {
+                        let identity = it.get("identity").and_then(Value::as_str)?;
+                        let property = it.get("property").and_then(Value::as_str)?;
+                        let fingerprint = it.get("fingerprint").and_then(Value::as_str)?;
+                        let expected = it.get("expected").and_then(Value::as_str)?;
+                        let outcome = it.get("outcome").and_then(Value::as_str)?;
+                        if !identity.starts_with("key:id:")
+                            || !matches!(property, "checked" | "disabled" | "expanded" | "selected")
+                            || !fingerprint.starts_with("sha256:")
+                            || fingerprint.len() != 31
+                            || !fingerprint[7..]
+                                .bytes()
+                                .all(|byte| byte.is_ascii_hexdigit())
+                            || !matches!(expected, "true" | "false" | "mixed")
+                            || !matches!(outcome, "VIOLATION" | "SATISFIED" | "ABSTAIN")
+                        {
+                            return None;
+                        }
+                        let actual = it
+                            .get("actual")
+                            .and_then(Value::as_str)
+                            .filter(|value| matches!(*value, "true" | "false" | "mixed"))
+                            .map(str::to_string);
+                        let reason = it.get("reason").and_then(Value::as_str).map(str::to_string);
+                        if matches!(outcome, "VIOLATION" | "SATISFIED") && actual.is_none() {
+                            return None;
+                        }
+                        if outcome == "VIOLATION"
+                            && reason.as_deref() != Some("semantic-state-mismatch")
+                        {
+                            return None;
+                        }
+                        Some(AccessibilityStateCheck {
+                            identity: identity.to_string(),
+                            property: property.to_string(),
+                            fingerprint: fingerprint.to_ascii_lowercase(),
+                            expected: expected.to_string(),
+                            actual,
+                            outcome: outcome.to_string(),
+                            reason,
+                        })
+                    })
+                    .collect();
+                // Preserve an explicit empty/ABSTAIN evaluation as evidence that
+                // the scanner ran, while replay still requires an exact subject.
+                obs.accessibility_state_checks
+                    .insert(sig.to_string(), parsed);
             }
         } else if let Some(json) = extract(line, "EXPLORE:SECURITY ") {
             // Client-side security-hygiene smells for a state. Keyed by signature;

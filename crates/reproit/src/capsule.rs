@@ -237,11 +237,7 @@ impl Capsule {
     }
 
     pub fn confirmable(&self) -> bool {
-        let bootstrap_backend_finding =
-            self.is_backend_finding() && !self.backend_events.is_empty();
-        self.version == CAPSULE_VERSION
-            && (!self.actions.is_empty() || bootstrap_backend_finding)
-            && self.missing_required_capabilities().is_empty()
+        self.version == CAPSULE_VERSION && self.missing_required_capabilities().is_empty()
     }
 
     pub fn missing_required_replay_capabilities(&self) -> Vec<String> {
@@ -801,6 +797,23 @@ mod tests {
                 detail: None,
             },
         );
+        assert!(c.confirmable());
+    }
+
+    #[test]
+    fn load_only_ui_finding_is_confirmable_with_a_captured_empty_schedule() {
+        let mut c = Capsule::new("app", finding());
+        for name in ["ui_actions", "http"] {
+            c.capabilities.insert(
+                name.into(),
+                Capability {
+                    status: CaptureStatus::Captured,
+                    detail: None,
+                },
+            );
+        }
+
+        assert!(c.actions.is_empty());
         assert!(c.confirmable());
     }
 

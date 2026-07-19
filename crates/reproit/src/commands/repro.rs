@@ -74,6 +74,7 @@ impl Finding {
             trigger_index: Some(repro::normalize_actions(&self.actions).len()),
             trigger_sig: None,
             trigger_selector: None,
+            trigger_fingerprint: None,
             oracle: None,
             record_url: None,
             record_action: None,
@@ -205,12 +206,20 @@ pub(super) fn parse_fuzz_report(md: &str) -> Option<(u64, Vec<String>)> {
 }
 
 /// Parse the `## oracle` block fuzz.md emits into (oracle category, sig,
-/// selector). The selector identifies the exact member of a relational finding.
+/// selector, fingerprint). The selector and fingerprint identify the exact
+/// subject of a relational or semantic-state finding.
 /// The sig
 /// is empty for non-graph findings. Returns (None, None) when no block is
 /// present (an older report), in which case `check` falls back to the crash
 /// path. Pure, so it is unit-tested.
-pub(super) fn parse_fuzz_oracle(md: &str) -> (Option<String>, Option<String>, Option<String>) {
+pub(super) fn parse_fuzz_oracle(
+    md: &str,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let field = |key: &str| -> Option<String> {
         md.lines().find_map(|l| {
             let l = l.trim();
@@ -221,7 +230,8 @@ pub(super) fn parse_fuzz_oracle(md: &str) -> (Option<String>, Option<String>, Op
     let oracle = field("oracle").filter(|s| !s.is_empty());
     let sig = field("sig").filter(|s| !s.is_empty());
     let selector = field("selector").filter(|s| !s.is_empty());
-    (oracle, sig, selector)
+    let fingerprint = field("fingerprint").filter(|s| !s.is_empty());
+    (oracle, sig, selector, fingerprint)
 }
 
 /// `keep`: take a finding from the latest fuzz artifact, compute its content
@@ -311,7 +321,7 @@ pub(super) fn keep_repro(
     // Record the finding's ORACLE category and violating state sig. `keep` reads
     // these from the `## oracle` block fuzz.md emits.
     let md = std::fs::read_to_string(finding.run_dir.join("fuzz.md")).unwrap_or_default();
-    let (oracle, finding_sig, trigger_selector) = parse_fuzz_oracle(&md);
+    let (oracle, finding_sig, trigger_selector, trigger_fingerprint) = parse_fuzz_oracle(&md);
     // Crash findings use the exception path; state findings retain the signature
     // for direct recording and existing sig-reached logic.
     let trigger_sig = finding_sig.filter(|s| !s.is_empty());
@@ -338,6 +348,7 @@ pub(super) fn keep_repro(
         trigger_index,
         trigger_sig,
         trigger_selector,
+        trigger_fingerprint,
         oracle,
         record_url,
         record_action,
@@ -473,6 +484,7 @@ pub(super) fn adopt_simplified(
         trigger_index: Some(repro::normalize_actions(candidate).len()),
         trigger_sig: meta.trigger_sig.clone(),
         trigger_selector: meta.trigger_selector.clone(),
+        trigger_fingerprint: meta.trigger_fingerprint.clone(),
         oracle: meta.oracle.clone(),
         record_url: meta.record_url.clone(),
         record_action: meta.record_action.clone(),
@@ -495,6 +507,55 @@ pub(super) fn resolve_repro_journey(root: &std::path::Path, name: &str) -> Resul
     repro::resolve(root, name)
         .ok_or_else(|| anyhow::anyhow!("no repro `{name}` (by id or alias)"))?;
     Ok("explore".to_string())
+}
+
+/// Detect an exact reproduction of a stored startup-crash identity in one
+/// structured exception stream. Web page exceptions are deliberately written
+/// to `exceptions.jsonl` rather than mixed into `drive-a.log`; a zero-action
+/// repro fires while the initial page is loading, before an action marker can
+/// carry it into a replay segment. Matching the complete normalized structural
+/// identity keeps this narrow: a different exception during startup is not a
+/// reproduction of the saved bug.
+fn matching_startup_crash(exceptions_jsonl: &str, want: &capsule::FindingIdentity) -> bool {
+    if want.oracle != "crash" {
+        return false;
+    }
+    exceptions_jsonl
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|exception| {
+            !exception
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .contains("TEST FRAMEWORK")
+        })
+        .any(|exception| {
+            let message = exception
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            capsule::FindingIdentity {
+                oracle: "crash".into(),
+                invariant: "no-exception".into(),
+                kind: "exception".into(),
+                message: fuzz::normalize_message(message),
+                // Crash identity intentionally excludes browser/source-map
+                // frames and runner-only triggers (the same contract used when
+                // the causal capsule is persisted).
+                frame: String::new(),
+                trigger: String::new(),
+                boundary: None,
+            } == *want
+        })
+}
+
+fn replay_drive_count(zero_action_schedule: bool, times: u32) -> u32 {
+    if zero_action_schedule {
+        times.max(1)
+    } else {
+        1
+    }
 }
 
 /// Run one repro N times and classify the aggregate outcome (pass/fail/flaky/
@@ -558,6 +619,7 @@ pub(super) async fn check_repro(
                 index: m.trigger_index,
                 sig: m.trigger_sig,
                 selector: m.trigger_selector,
+                fingerprint: m.trigger_fingerprint,
                 oracle: m.oracle,
             },
             None => repro::Trigger::unknown(),
@@ -565,12 +627,13 @@ pub(super) async fn check_repro(
         (replay, trigger)
     } else if let Some(f) = find_finding_by_id(loaded, id) {
         let md = std::fs::read_to_string(f.run_dir.join("fuzz.md")).unwrap_or_default();
-        let (oracle, sig, selector) = parse_fuzz_oracle(&md);
+        let (oracle, sig, selector, fingerprint) = parse_fuzz_oracle(&md);
         let replay = serde_json::json!({ "seed": f.seed, "replay": f.actions });
         let trigger = repro::Trigger {
             index: Some(repro::normalize_actions(&f.actions).len()),
             sig,
             selector,
+            fingerprint,
             oracle,
         };
         (replay, trigger)
@@ -596,6 +659,10 @@ pub(super) async fn check_repro(
         }
         None => replay,
     };
+    let zero_action_schedule = replay
+        .get("replay")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(Vec::is_empty);
 
     // The fuzz config the explorer reads on each replay.
     let cfg_path = layout::fuzz_config_path(&loaded.root);
@@ -626,6 +693,7 @@ pub(super) async fn check_repro(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let mut capsule_plaintext = None;
+    let mut expected_finding_identity = None;
     if let Some(capsule_id) = capsule_id {
         let capsule = capsule::Capsule::load(&loaded.root, &capsule_id)?;
         let missing = capsule.missing_required_replay_capabilities();
@@ -641,80 +709,151 @@ pub(super) async fn check_repro(
             "REPROIT_CAPSULE".into(),
             guard.path().to_string_lossy().into_owned(),
         ));
+        expected_finding_identity = Some(capsule.finding.clone());
         capsule_plaintext = Some(guard);
     }
 
     let _ = devices; // a repro replays on one device; kept for parity.
-                     // The N repeat-replays (flakiness detection) run in a SINGLE drive session:
-                     // we hand the runner a batch of N identical replays, so the browser/app
-                     // launches ONCE instead of N cold starts (the agent inner loop's main
-                     // latency). The runner brackets each replay with SEED:BEGIN/SEED:END, so we
-                     // split the one drive log back into N per-replay segments and classify each
-                     // exactly as before. A single replay (times == 1) keeps the compact
-                     // bare-config shape. This is a pure latency change: same N replays, same
-                     // per-replay verdict, same determinism.
-    let config = if times <= 1 {
-        replay.clone()
-    } else {
-        serde_json::json!({ "batch": (0..times).map(|_| replay.clone()).collect::<Vec<_>>() })
-    };
-    std::fs::write(&cfg_path, config.to_string())?;
-    // Select the execution tier the same way `fuzz` does: Flutter replays on the
-    // headless tier; every other backend (web-cdp, appium, desktop) routes
-    // through the real tier. Without this, web repros could never be replayed.
-    let outcome = orchestrator::run_journey_tier(
-        &loaded.config,
-        &loaded.root,
-        "explore",
-        &orchestrator::RunOpts {
-            kind,
-            devices: 1,
-            warm: false,
-            extra_defines: &defines,
-            ..Default::default()
-        },
-        false,
-    )
-    .await?;
-    let full_log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
-    let replay_batch_completed_cleanly = full_log
-        .lines()
-        .any(|line| line.trim() == "All tests passed");
-    // One segment per replay (the whole log for the single-run path).
-    let segments = fuzz::split_log_segments(&full_log);
+
+    // Non-empty action replays retain the fast single-launch batch. A
+    // zero-action crash, however, is specifically a startup/load failure: one
+    // launch may emit duplicate exception records, but it is still only ONE
+    // reproduction attempt. Run those checks as independent cold launches so
+    // `--runs 3` means three distinct startup verdicts.
+    let drive_count = replay_drive_count(zero_action_schedule, times);
     let mut verdicts = Vec::new();
-    for (i, seg) in segments.iter().enumerate() {
-        // The web runner can finish every replay and print its clean terminal
-        // verdict before a lingering browser resource makes the outer process
-        // miss its shutdown deadline. Trust the completed replay segment over
-        // that later process-cleanup failure. A real app exception still wins
-        // inside the classifier below.
-        let segment_passed = outcome.passed || replay_batch_completed_cleanly;
-        // Surface each replay's REPRO verdict (did the original finding
-        // reproduce?), not just the drive's PASS/FAIL completion. For
-        // graph-invariant repros a drive can complete (PASS) while the finding
-        // does NOT reproduce (clean), so raw PASS/FAIL is misleading alone.
-        let mut verdict = repro::verdict_from_log_with_trigger(seg, segment_passed, &trigger);
-        if let Some(guard) = &frozen_contract {
-            let observations = crate::model::observation::from_runner_log(seg, &[]);
-            if guard.reproduces(&observations) {
+    let mut last_dir = None;
+    for _ in 0..drive_count {
+        let config = if zero_action_schedule || times <= 1 {
+            replay.clone()
+        } else {
+            serde_json::json!({ "batch": (0..times).map(|_| replay.clone()).collect::<Vec<_>>() })
+        };
+        std::fs::write(&cfg_path, config.to_string())?;
+        // Select the execution tier the same way `fuzz` does: Flutter replays
+        // on the headless tier; every other backend routes through the real
+        // tier. `warm: false` is essential for independent startup attempts.
+        let outcome = orchestrator::run_journey_tier(
+            &loaded.config,
+            &loaded.root,
+            "explore",
+            &orchestrator::RunOpts {
+                kind,
+                devices: 1,
+                warm: false,
+                extra_defines: &defines,
+                ..Default::default()
+            },
+            false,
+        )
+        .await?;
+        let full_log =
+            std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+        let exact_startup_crash = zero_action_schedule
+            && expected_finding_identity.as_ref().is_some_and(|want| {
+                let exceptions = std::fs::read_to_string(outcome.run_dir.join("exceptions.jsonl"))
+                    .unwrap_or_default();
+                matching_startup_crash(&exceptions, want)
+            });
+        let replay_batch_completed_cleanly = full_log
+            .lines()
+            .any(|line| line.trim() == "All tests passed");
+        // One segment per replay (the whole log for each zero-action cold run).
+        let segments = fuzz::split_log_segments(&full_log);
+        for seg in segments {
+            // Trust a completed replay over a later browser-cleanup failure.
+            let segment_passed = outcome.passed || replay_batch_completed_cleanly;
+            let mut verdict = repro::verdict_from_log_with_trigger(seg, segment_passed, &trigger);
+            // Mere presence of an exception is insufficient: only the complete
+            // stored structural crash identity confirms this launch.
+            if exact_startup_crash {
                 verdict = repro::RunVerdict::Broke;
             }
+            if let Some(guard) = &frozen_contract {
+                let observations = crate::model::observation::from_runner_log(seg, &[]);
+                if guard.reproduces(&observations) {
+                    verdict = repro::RunVerdict::Broke;
+                }
+            }
+            if frozen_backend
+                .as_ref()
+                .is_some_and(|guard| guard.reproduces(seg))
+            {
+                verdict = repro::RunVerdict::Broke;
+            }
+            if !quiet {
+                println!(
+                    "  run {}/{}: {}",
+                    verdicts.len() + 1,
+                    times.max(1),
+                    verdict.as_str()
+                );
+            }
+            verdicts.push(verdict);
         }
-        if frozen_backend
-            .as_ref()
-            .is_some_and(|guard| guard.reproduces(seg))
-        {
-            verdict = repro::RunVerdict::Broke;
-        }
-        if !quiet {
-            println!("  run {}/{}: {}", i + 1, segments.len(), verdict.as_str());
-        }
-        verdicts.push(verdict);
+        last_dir = Some(outcome.run_dir);
     }
-    let last_dir = outcome.run_dir;
+    let last_dir = last_dir.expect("at least one replay drive");
     drop(capsule_plaintext);
     // Neutralize: a later warm run must not replay this case.
     let _ = std::fs::write(&cfg_path, "{}");
     Ok((repro::CheckResult::from_verdicts(&verdicts), last_dir))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crash_identity(message: &str) -> capsule::FindingIdentity {
+        capsule::FindingIdentity {
+            oracle: "crash".into(),
+            invariant: "no-exception".into(),
+            kind: "exception".into(),
+            message: fuzz::normalize_message(message),
+            frame: String::new(),
+            trigger: String::new(),
+            boundary: None,
+        }
+    }
+
+    #[test]
+    fn zero_action_startup_crash_requires_exact_stored_identity() {
+        let wanted = crash_identity(
+            "Module \"node:path\" cannot access \"node:path.isAbsolute\" at localhost:4173",
+        );
+        let jsonl = concat!(
+            r#"{"kind":"EXCEPTION","message":"Module \"node:path\" cannot access \"node:path.isAbsolute\" at localhost:4173"}"#,
+            "\n",
+            r#"{"kind":"EXCEPTION","message":"a different startup failure"}"#,
+            "\n",
+            r#"{"kind":"EXCEPTION","message":"Module \"node:path\" cannot access \"node:path.isAbsolute\" at localhost:9000"}"#,
+            "\n",
+        );
+        // Dynamic ports normalize away, while a different exception does not
+        // broaden the match.
+        assert!(matching_startup_crash(jsonl, &wanted));
+        assert!(!matching_startup_crash(jsonl, &crash_identity("unrelated")));
+    }
+
+    #[test]
+    fn framework_and_non_crash_exceptions_cannot_confirm_startup_crash() {
+        let wanted = crash_identity("boom");
+        let jsonl = concat!(
+            r#"{"kind":"EXCEPTION CAUGHT BY TEST FRAMEWORK","message":"boom"}"#,
+            "\n",
+        );
+        assert!(!matching_startup_crash(jsonl, &wanted));
+
+        let mut non_crash = wanted;
+        non_crash.oracle = "content-bug".into();
+        assert!(!matching_startup_crash(jsonl, &non_crash));
+    }
+
+    #[test]
+    fn requested_zero_action_runs_are_distinct_cold_drives() {
+        assert_eq!(replay_drive_count(true, 3), 3);
+        assert_eq!(replay_drive_count(true, 0), 1);
+        // Action-bearing replays retain one batched drive.
+        assert_eq!(replay_drive_count(false, 3), 1);
+    }
 }

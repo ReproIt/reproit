@@ -10,7 +10,7 @@ pub(crate) mod tui;
 pub(crate) mod vmservice;
 
 // Native runners compile only on the host that provides their platform APIs.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-atspi"))]
 pub(crate) mod atspi;
 #[cfg(windows)]
 pub(crate) mod uia;

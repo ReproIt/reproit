@@ -157,6 +157,7 @@ impl LlmCfg {
 ///   jankPctMax: 25.0         # the budget no-jank / custom jank checks use
 ///   noOccludedControl: true  # a foreign element blocks a control's hit target
 ///   noDetachedIndicator: true # an explicit indicator relationship broke
+///   noAccessibilityStateMismatch: true # native state contradicts the AX tree
 ///   noLeak: true             # graph: leaked-resource signal (sim-authoritative)
 ///   terminalStates: [order_confirmed, advanced]  # intended end screens, exempt
 ///   custom:
@@ -195,6 +196,11 @@ pub struct InvariantsCfg {
     /// silent.
     #[serde(default = "default_true")]
     pub no_detached_indicator: bool,
+    /// A native control's live authoritative state contradicts Chromium's
+    /// computed accessibility state for the exact same DOM node. Both channels
+    /// must agree in two settled samples; missing or ambiguous evidence abstains.
+    #[serde(default = "default_true")]
+    pub no_accessibility_state_mismatch: bool,
     #[serde(default = "default_true")]
     pub no_leak: bool,
     /// Presented-frame flicker detection. The legacy name is retained for
@@ -364,6 +370,7 @@ impl Default for InvariantsCfg {
             jank_pct_max: default_jank_pct_max(),
             no_occluded_control: true,
             no_detached_indicator: true,
+            no_accessibility_state_mismatch: true,
             no_leak: true,
             rerender_flicker: true,
             no_broken_render: true,

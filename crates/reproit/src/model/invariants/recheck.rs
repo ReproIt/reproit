@@ -104,6 +104,26 @@ pub fn any_detached_indicator(obs: &RunObs) -> bool {
         .any(|items| items.iter().any(|item| item.kind == "indicator-anchor"))
 }
 
+/// Re-confirm the exact accessibility-state subject identified at discovery.
+/// A SATISFIED evaluation for the same fingerprint proves the contradiction is
+/// gone. An absent or ABSTAIN evaluation cannot prove a fix.
+pub fn recheck_accessibility_state(obs: &RunObs, sig: &str, fingerprint: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    let Some(checks) = obs.accessibility_state_checks.get(sig) else {
+        return GraphRecheck::NotReached;
+    };
+    let Some(check) = checks.iter().find(|check| check.fingerprint == fingerprint) else {
+        return GraphRecheck::NotReached;
+    };
+    match check.outcome.as_str() {
+        "VIOLATION" => GraphRecheck::StillViolating,
+        "SATISFIED" => GraphRecheck::Fixed,
+        _ => GraphRecheck::NotReached,
+    }
+}
+
 /// Re-confirm a `no-jank` (web jank) finding over a replay log. A jank stall is
 /// keyed by (from, action), so re-evaluate whether ANY transition FROM the
 /// recorded sig still janks.

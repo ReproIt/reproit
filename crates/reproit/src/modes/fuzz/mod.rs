@@ -33,10 +33,12 @@ use confirmation::{crash_trigger_index, is_keyed_action};
 use findings::finding_category;
 use findings::{
     all_findings, batch_completed, equivalent_findings_key, finding_label, findings_for_tier,
-    findings_from_parsed, map_escapable_routes, normalize_message, perf_findings, primary_finding,
+    findings_from_parsed, map_escapable_routes, perf_findings, primary_finding,
     reproduces_original, reserve_shrink_representative, shrink_target, target_identity,
 };
-pub(crate) use findings::{app_exceptions, finding_signature, finding_signatures_for_log};
+pub(crate) use findings::{
+    app_exceptions, finding_signature, finding_signatures_for_log, normalize_message,
+};
 #[cfg(test)]
 use log::exceptions_in_log;
 #[allow(unused_imports)] // Preserve the existing crate-level log-splitting façade.

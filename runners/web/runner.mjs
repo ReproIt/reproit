@@ -37,6 +37,7 @@ import {
   DEFAULT_GRID,
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
+import { scanAccessibilityStateParity } from './accessibility-state-oracle.mjs';
 import {
   occlusionScan,
   confirmOcclusions,
@@ -5677,6 +5678,37 @@ async function main() {
                 ...(snap.anchor ? { route: snap.anchor } : {}),
                 outcome: relationStatus.outcome,
                 checks: relationStatus.checks,
+              }),
+          );
+        }
+        // ACCESSIBILITY STATE PARITY. Native DOM properties are the application
+        // authority; Chromium's computed accessibility tree is the semantic
+        // authority. The scanner captures both channels twice and turns any
+        // changing, missing, ambiguous, or unsupported evidence into ABSTAIN.
+        // Custom ARIA widgets are intentionally excluded: comparing an ARIA
+        // attribute with an AX value derived from that same attribute is not an
+        // independent proof of application-state parity.
+        const a11yState = await scanAccessibilityStateParity(page).catch(() => ({
+          outcome: 'ABSTAIN',
+          checks: [],
+          items: [],
+        }));
+        log(
+          'EXPLORE:A11YSTATESTATUS ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              outcome: a11yState.outcome,
+              checks: a11yState.checks,
+            }),
+        );
+        if (a11yState.items.length) {
+          log(
+            'EXPLORE:A11YSTATE ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: a11yState.items,
               }),
           );
         }

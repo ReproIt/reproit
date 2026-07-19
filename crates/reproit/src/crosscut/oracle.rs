@@ -33,6 +33,9 @@ pub enum Oracle {
     /// Explicitly declared indicator no longer stays attached to its declared
     /// owner/container. Missing or ambiguous relationships abstain.
     DetachedIndicator,
+    /// A native control's authoritative live state contradicts the computed
+    /// accessibility state for the exact same DOM node in two settled samples.
+    AccessibilityState,
     /// Choice-anomaly: one option of a multi-choice component
     /// (tab/radio/select/ button-cluster) shifts the global layout when its
     /// siblings do not. A differential specialist signal from the web
@@ -192,6 +195,7 @@ impl Oracle {
         Oracle::Hang,
         Oracle::Occlusion,
         Oracle::DetachedIndicator,
+        Oracle::AccessibilityState,
         Oracle::ChoiceAnomaly,
         Oracle::BrokenRoute,
         Oracle::Security,
@@ -224,6 +228,7 @@ impl Oracle {
             Oracle::Hang => "hang",
             Oracle::Occlusion => "occlusion",
             Oracle::DetachedIndicator => "detached-indicator",
+            Oracle::AccessibilityState => "accessibility-state",
             Oracle::ChoiceAnomaly => "choice-anomaly",
             Oracle::BrokenRoute => "broken-route",
             Oracle::Security => "security",
@@ -260,6 +265,9 @@ impl Oracle {
             "occlusion" | "occluded" | "blocked-control" => Some(Oracle::Occlusion),
             "detached-indicator" | "detachedindicator" | "indicator" | "badge" => {
                 Some(Oracle::DetachedIndicator)
+            }
+            "accessibility-state" | "a11y-state" | "semantic-state" => {
+                Some(Oracle::AccessibilityState)
             }
             "choice-anomaly" | "choice" | "choicebug" | "anomaly" => Some(Oracle::ChoiceAnomaly),
             "broken-route" | "broken-link" | "not-found" | "404" | "deadlink" => {
@@ -321,6 +329,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-hang" => return Oracle::Hang,
         "no-occluded-control" => return Oracle::Occlusion,
         "no-detached-indicator" => return Oracle::DetachedIndicator,
+        "no-accessibility-state-mismatch" => return Oracle::AccessibilityState,
         "no-choice-anomaly" => return Oracle::ChoiceAnomaly,
         "no-broken-route" => return Oracle::BrokenRoute,
         "no-stuck-keyboard" => return Oracle::StuckKeyboard,
@@ -345,6 +354,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "LISTENERLEAK" => Oracle::Leak,
         "OCCLUSION" => Oracle::Occlusion,
         "DETACHEDINDICATOR" => Oracle::DetachedIndicator,
+        "A11YSTATE" => Oracle::AccessibilityState,
         "VISUAL" => Oracle::Visual,
         "FLICKER" => Oracle::Flicker,
         "DIVERGENCE" => Oracle::Divergence,

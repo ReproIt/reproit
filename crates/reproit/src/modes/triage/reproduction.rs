@@ -399,6 +399,7 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
         trigger_index: Some(repro::normalize_actions(&actions).len()),
         trigger_sig,
         trigger_selector: None,
+        trigger_fingerprint: None,
         oracle: Some(oracle),
         record_url: None,
         record_action: None,

@@ -11,11 +11,11 @@ contains the rules an agent needs while diagnosing a finding.
 
 | Verdict   | Interpretation                                                     |
 | --------- | ------------------------------------------------------------------ |
-| `PROVEN`  | Exact authoritative evidence contradicts the oracle contract.      |
-| `VALID`   | The same evidence channel proves the contract currently holds.     |
-| `UNKNOWN` | Evidence is missing, ambiguous, unsupported, or not authoritative. |
+| `VIOLATION` | Exact authoritative evidence contradicts the oracle contract.      |
+| `SATISFIED` | The same evidence channel proves the contract currently holds.     |
+| `ABSTAIN`   | Evidence is missing, ambiguous, unsupported, or not authoritative. |
 
-`UNKNOWN` is an abstention. Do not call it clean, broken, fixed, or flaky.
+`ABSTAIN` is not clean, broken, fixed, or flaky.
 
 ## Default confirmed categories
 
@@ -38,6 +38,9 @@ confidence:
   `permission-walk`.
 - Heuristic or policy-dependent: `content-bug`, `occlusion`, `choice-anomaly`, `broken-route`,
   `security`, `duplicate-submit`, `focus-loss`, `blank-screen`, `broken-asset`, and `zoom-reflow`.
+- Experimental semantic parity: `accessibility-state`. It remains defaults-off until historical
+  red/green cases establish the proof boundary; explicit ARIA overrides and disabled-state
+  differences currently abstain.
 - `unclassified` is registry-drift telemetry and can never become a confirmed bug.
 
 Useful exact contract identities include:
@@ -47,8 +50,9 @@ Useful exact contract identities include:
 - `action-effect:<id>:route`
 - `action-effect:<id>:state`
 - `detached-indicator:<id>`
+- `accessibility-state:<identity>:<property>`
 
-When one of these returns `UNKNOWN`, report which required signal was absent. Do not replace the
+When one of these returns `ABSTAIN`, report which required signal was absent. Do not replace the
 missing signal with a screenshot or language-dependent text guess.
 
 ## Backend categories
@@ -69,7 +73,7 @@ event correlated to the exact operation.
 
 Backend semantics must not be inferred from operation, field, route, framework, or function names.
 Missing strong consistency, snapshot identity, complete effects, or an explicit behavioral contract
-means `UNKNOWN`.
+means `ABSTAIN`.
 
 ## A2UI categories
 
@@ -105,6 +109,6 @@ Give four facts:
 1. The oracle and exact structural identity.
 2. The authoritative evidence it consumed.
 3. The minimal sequence that reproduces it.
-4. What `VALID` would look like after a fix.
+4. What `SATISFIED` would look like after a fix.
 
 If any of those facts are unavailable, state the gap instead of upgrading the claim.
