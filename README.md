@@ -121,13 +121,17 @@ There are three recording paths on purpose:
   short clip per issue into `.reproit/recordings/scan/`.
 - `record <id>` is repro evidence: after `fuzz` prints an `fnd_...` id, or after you keep a repro,
   it replays that exact bug once and saves the annotated video that `watch <id>` opens later.
-- `record` is exploratory testing: it waits for a tester to press the SDK's capture button,
-  clean-launch replays the rolling structural path, verifies the exact captured state, and
-  automatically shrinks it before showing a bug.
+- `record` preserves a human-authored original: it launches the configured app, records the
+  tester's experience from before launch until they stop, and saves main-display video plus environment data without
+  requiring an oracle or changing the original. `--attach` starts from an already-running app.
+  Instrumented SDKs can supply actions and state snapshots with `--actions-file`; unavailable
+  channels stay explicit. A replay or minimized repro is a separate derived artifact.
+- `record --cloud-tester` retains the older SDK/Cloud workflow: it waits for a marked capture,
+  clean-launch verifies it, and derives a minimized repro when verification succeeds.
 
 `.reproit/` is organized by concept: `map/` is the internal versioned app model, `runs/` is raw
-local evidence, `recordings/` is generated video, `tmp/` is ignored runner scratch, and `repros/` is
-the saved regression suite.
+local evidence, `captures/` contains private immutable human originals, `recordings/` is generated
+repro video, `tmp/` is ignored runner scratch, and `repros/` is the saved regression suite.
 
 ## Commands
 
@@ -137,7 +141,9 @@ reproit scan [target]                 # scan every screen for visible bugs (--re
 reproit fuzz [target]                 # find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>           # reproduce one bug
 reproit check                         # verify the whole saved suite
-reproit record                        # turn the next tester capture into a verified, minimal repro
+reproit record                        # launch the app and preserve a human-authored original
+reproit record --attach               # capture an already-running app from its current state
+reproit record --cloud-tester         # verify/minimize an SDK-marked Cloud tester capture
 reproit record <id>                   # annotated repro video (--flicker also scans it)
 reproit baseline [--update]           # visual-regression diff vs the committed baseline
 reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices

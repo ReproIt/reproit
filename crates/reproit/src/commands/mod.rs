@@ -8,7 +8,7 @@ mod map;
 mod record;
 mod repro;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-atspi"))]
 use crate::backends::atspi;
 #[cfg(windows)]
 use crate::backends::uia;
@@ -43,7 +43,8 @@ use map::{debug_map, ensure_app_map, rebuild_app_map};
 #[cfg(test)]
 use record::web_record_metadata;
 use record::{
-    exploratory_record_session, minimize_record_replay, open_in_player, resolve_repro_video,
+    exploratory_record_session, human_record_session, minimize_record_replay, open_in_player,
+    resolve_repro_video,
 };
 use repro::{
     adopt_simplified, check_label, check_repro, find_finding_by_id, keep_repro, latest_finding,
@@ -178,6 +179,11 @@ where
         // scans the recorded video for transient render glitches.
         Cmd::Record {
             repro,
+            cloud_tester,
+            attach,
+            title,
+            actions_file,
+            no_video,
             app,
             timeout,
             kind,
@@ -188,14 +194,42 @@ where
             flicker,
         } => {
             if repro.is_none() {
-                return exploratory_record_session(
+                if cloud_tester {
+                    return exploratory_record_session(
+                        cli.config.as_deref(),
+                        app,
+                        timeout,
+                        kind.as_deref(),
+                        &ctx,
+                    )
+                    .await;
+                }
+                if app.is_some()
+                    || kind.is_some()
+                    || devices != 1
+                    || warm
+                    || shots_dir.is_some()
+                    || profile
+                    || flicker
+                    || timeout != 1800
+                {
+                    anyhow::bail!(
+                        "--app, --timeout, --kind, --devices, --warm, --shots-dir, --profile, and \
+                         --flicker apply only to --cloud-tester or an existing repro id"
+                    );
+                }
+                return human_record_session(
                     cli.config.as_deref(),
-                    app,
-                    timeout,
-                    kind.as_deref(),
+                    attach,
+                    title.as_deref(),
+                    actions_file.as_deref(),
+                    no_video,
                     &ctx,
                 )
                 .await;
+            }
+            if cloud_tester || attach || title.is_some() || actions_file.is_some() || no_video {
+                anyhow::bail!("capture options cannot be combined with an existing repro id");
             }
             let repro = repro.expect("checked above");
             let loaded = config::load(cli.config.as_deref()).with_context(|| {
@@ -1552,14 +1586,16 @@ where
             }
         }
         Cmd::AtspiRun => {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "linux-atspi"))]
             {
                 atspi::run()?;
                 Ok(ExitCode::SUCCESS)
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(all(target_os = "linux", feature = "linux-atspi")))]
             {
-                anyhow::bail!("__atspi (Linux AT-SPI) is unsupported on this platform")
+                anyhow::bail!(
+                    "__atspi (Linux AT-SPI) is unavailable in this build or on this platform"
+                )
             }
         }
         Cmd::Devices => {
@@ -1920,10 +1956,11 @@ tap:Submit
 tap:Advanced
 ```
 ";
-        let (oracle, sig, selector) = parse_fuzz_oracle(md);
+        let (oracle, sig, selector, fingerprint) = parse_fuzz_oracle(md);
         assert_eq!(oracle.as_deref(), Some("occlusion"));
         assert_eq!(sig.as_deref(), Some("advanced"));
         assert_eq!(selector, None);
+        assert_eq!(fingerprint, None);
     }
 
     #[test]
@@ -1939,17 +1976,39 @@ tap:Advanced
 
 ## findings
 ";
-        let (oracle, sig, selector) = parse_fuzz_oracle(md);
+        let (oracle, sig, selector, fingerprint) = parse_fuzz_oracle(md);
         assert_eq!(oracle.as_deref(), Some("crash"));
         assert_eq!(sig, None);
         assert_eq!(selector, None);
+        assert_eq!(fingerprint, None);
+    }
+
+    #[test]
+    fn parse_fuzz_oracle_preserves_exact_accessibility_fingerprint() {
+        let md = "\
+## oracle
+
+- oracle: `accessibility-state`
+- invariant: `no-accessibility-state-mismatch`
+- sig: `settings`
+- selector: `key:id:notifications`
+- fingerprint: `sha256:f264f36f3b511e4ae5993d43`
+";
+        let (oracle, sig, selector, fingerprint) = parse_fuzz_oracle(md);
+        assert_eq!(oracle.as_deref(), Some("accessibility-state"));
+        assert_eq!(sig.as_deref(), Some("settings"));
+        assert_eq!(selector.as_deref(), Some("key:id:notifications"));
+        assert_eq!(
+            fingerprint.as_deref(),
+            Some("sha256:f264f36f3b511e4ae5993d43")
+        );
     }
 
     #[test]
     fn parse_fuzz_oracle_absent_block_is_none() {
         // An older report with no `## oracle` block -> fall back to crash path.
         let md = "# fuzz finding (seed 1)\n\n## findings\n";
-        assert_eq!(parse_fuzz_oracle(md), (None, None, None));
+        assert_eq!(parse_fuzz_oracle(md), (None, None, None, None));
     }
 
     #[test]

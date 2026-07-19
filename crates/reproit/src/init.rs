@@ -238,6 +238,7 @@ const REPROIT_GITIGNORE: &str = "\
 # Raw runs, recordings, scratch files, and secrets are local-only.
 /runs/
 /recordings/
+/captures/
 /tmp/
 /capsules/
 *.vault
@@ -747,6 +748,7 @@ mod tests {
     fn generated_reproit_gitignore_keeps_project_state_reviewable() {
         assert!(REPROIT_GITIGNORE.contains("/runs/"));
         assert!(REPROIT_GITIGNORE.contains("/recordings/"));
+        assert!(REPROIT_GITIGNORE.contains("/captures/"));
         assert!(REPROIT_GITIGNORE.contains("/tmp/"));
         assert!(REPROIT_GITIGNORE.contains("*.vault"));
         assert!(REPROIT_GITIGNORE.contains("*.log"));

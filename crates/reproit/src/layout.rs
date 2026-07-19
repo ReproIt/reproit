@@ -38,6 +38,12 @@ pub(crate) fn recordings_dir(root: &Path) -> PathBuf {
     reproit_dir(root).join("recordings")
 }
 
+/// Immutable, human-authored original captures. These may contain sensitive
+/// screen media and therefore remain local until an explicit upload.
+pub(crate) fn captures_dir(root: &Path) -> PathBuf {
+    reproit_dir(root).join("captures")
+}
+
 pub(crate) fn scan_recordings_dir(root: &Path, scan_run: &str) -> PathBuf {
     recordings_dir(root).join("scan").join(scan_run)
 }

@@ -108,19 +108,39 @@ pub(crate) enum Cmd {
         #[arg(long)]
         device: Option<String>,
     },
-    /// Start an exploratory testing session. Use the app normally and mark a
-    /// visible bug; ReproIt replays and minimizes it before confirming it. Pass
-    /// a repro id to record that existing repro as an annotated video instead.
+    /// Capture a bug exactly as a person experiences it. With no id Repro It
+    /// launches the configured app, records until you stop, and preserves the
+    /// immutable original without requiring an oracle. Pass a repro id to film
+    /// an existing deterministic repro instead.
     Record {
         /// Existing repro to film: pending fnd_..., saved rep_..., or alias.
-        /// Omit it to wait for a tester capture from the selected Cloud
-        /// project.
+        /// Omit it to create a new human-authored original capture.
         repro: Option<String>,
-        /// Cloud project for an exploratory session. Defaults to the project
-        /// selected by `reproit login`.
+        /// Preserve the legacy SDK/Cloud tester workflow: wait for a marked SDK
+        /// capture, clean-replay it, and derive a minimized repro. Unlike the
+        /// default human capture, this requires verification.
+        #[arg(long, conflicts_with_all = ["attach", "title", "actions_file", "no_video"])]
+        cloud_tester: bool,
+        /// Capture an app that is already running instead of launching the
+        /// configured target. Screen capture is currently supported on macOS;
+        /// structural actions require an SDK export via --actions-file.
+        #[arg(long)]
+        attach: bool,
+        /// Short description stored with the original capture.
+        #[arg(long)]
+        title: Option<String>,
+        /// Optional SDK export containing an action array, or an object with
+        /// `actions` and `states`. It is copied into the immutable original.
+        #[arg(long)]
+        actions_file: Option<PathBuf>,
+        /// Do not record screen video. Useful when the SDK export contains all
+        /// evidence or screen-recording permission is unavailable.
+        #[arg(long)]
+        no_video: bool,
+        /// Cloud project for --cloud-tester. Defaults to the selected project.
         #[arg(long)]
         app: Option<String>,
-        /// Stop waiting for a capture after this many seconds.
+        /// Stop waiting for a --cloud-tester SDK capture after this many seconds.
         #[arg(long, default_value_t = 1800)]
         timeout: u64,
         /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
@@ -1169,5 +1189,32 @@ mod tests {
             }
         ));
         assert!(Cli::try_parse_from(["reproit", "login", "--app", "acme-store"]).is_err());
+    }
+
+    #[test]
+    fn record_defaults_to_original_capture_and_cloud_tester_is_explicit() {
+        let cli =
+            Cli::try_parse_from(["reproit", "record", "--attach", "--title", "menu bug"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Record {
+                repro: None,
+                cloud_tester: false,
+                attach: true,
+                title: Some(ref title),
+                ..
+            } if title == "menu bug"
+        ));
+
+        let cli = Cli::try_parse_from(["reproit", "record", "--cloud-tester"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Record {
+                cloud_tester: true,
+                attach: false,
+                ..
+            }
+        ));
+        assert!(Cli::try_parse_from(["reproit", "record", "--cloud-tester", "--attach"]).is_err());
     }
 }

@@ -161,7 +161,9 @@ the same way:
 ```sh
 reproit rep_a3f2c1b8e0d5          # reproduce one saved repro (fnd_... works too)
 reproit check                 # run your whole saved suite
-reproit record                # wait for, verify, and shrink the next tester capture
+reproit record                # launch the app and preserve the original human capture
+reproit record --attach       # start from an already-running app
+reproit record --cloud-tester # verify and shrink an SDK-marked Cloud capture
 reproit record <id>           # produce an annotated video of the bug
 ```
 
@@ -170,11 +172,24 @@ and the clip ends with a red box around what broke - the crashing control, the o
 the `[object Object]` text, the choice that shifts the layout. (Leak has no on-screen element, so no
 box.)
 
-With no id, `record` is the exploratory tester loop. Add the SDK's `captureBug` or `capture_bug`
-call to a debug menu. When the tester presses it, the CLI pulls the rolling structural path,
-clean-launch replays it, verifies the captured state twice, and automatically removes unnecessary
-actions. The capture stays pending and out of the confirmed bug feed unless that verification
-succeeds.
+With no id, `record` captures what the tester actually experienced. It launches the configured app
+by default; `--attach` begins from the current state of an app that is already running. The tester
+uses the app normally and returns to the terminal to stop. Repro It stores an immutable original in
+`.reproit/captures/cap_.../`. It does not need an oracle, replay the session, or remove actions.
+The manifest reports video, action, and state-graph channels independently, so a visual-only bug is
+still a valid capture and unavailable structural evidence is never invented. The default macOS path
+starts main-display video before launching the configured app after Screen Recording permission is granted. It does not passively infer
+actions or states. An instrumented SDK may export them to JSON while the capture runs; pass that
+live export path with `--actions-file` and Repro It reads and freezes it after you stop. Other hosts
+currently require such an SDK export. A capture with no finalized video and no action export fails
+closed and reports the private staging directory for review or deletion.
+
+Original captures remain local and require explicit consent before upload. The current CLI prepares
+the versioned, hashed upload artifact but does not yet implement the Cloud upload endpoint. Any later deterministic
+replay or minimized repro is a derived artifact and must reference its parent `cap_...`; it never
+replaces or mutates the original. The older SDK/Cloud tester workflow is available explicitly as
+`record --cloud-tester`: it pulls a marked rolling path, verifies the captured state, and derives a
+minimized repro only when verification succeeds.
 
 This is different from `scan --record`: scan clips are quick audit artifacts, one per visible issue.
 `record <id>` is evidence for one replayable repro id (`fnd_...`, `rep_...`, or an alias), and is
@@ -400,7 +415,8 @@ reproit fuzz [target]         find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>    reproduce one bug
 reproit check                  verify the whole saved suite
 reproit keep [id] [--as name] keep a repro in your suite
-reproit record                verify and shrink the next explicit tester capture
+reproit record                preserve an immutable human-authored original
+reproit record --cloud-tester verify/shrink an SDK-marked Cloud capture
 reproit record <id>           annotated video of a repro (--flicker also scans it)
 reproit baseline [--update]   visual-regression diff vs the committed baseline
 reproit repros                list saved repros + last status
@@ -563,12 +579,13 @@ The local project state is grouped by concept:
   recordings/
     scan/               # quick audit clips from scan --record
     repro/              # record <id> videos opened by watch <id>
+  captures/             # immutable, private human-authored originals
   repros/               # saved regression guards
   tmp/                  # transient runner scratch
   secrets.vault         # local auth vault
 ```
 
-`runs/`, `recordings/`, `tmp/`, logs, and vault files are local-only. `repros/` is the guard suite;
+`runs/`, `recordings/`, `captures/`, `tmp/`, logs, and vault files are local-only. `repros/` is the guard suite;
 `map/` is the learned graph if you choose to review it.
 
 ## Config (reproit.yaml)

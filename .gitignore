@@ -11,6 +11,7 @@ dist/
 *.log
 .DS_Store
 .forbidden-terms
+.training/
 
 
 # Cargo build output at the workspace root and in validation fixtures.
