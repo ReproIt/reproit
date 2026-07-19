@@ -223,6 +223,16 @@ const BENIGN_ERROR_RE = new RegExp(
 export function exceptionIsBenign(message) {
   return BENIGN_ERROR_RE.test(String(message || ''));
 }
+
+// A blank DOM is not authority. Correlate it only with a newly observed,
+// independently filtered application failure on the exact same URL. This is
+// pure so the fail-closed boundary can be tested without launching a browser.
+export function blankScreenAuthority(lastFailure, failureFloor, currentUrl) {
+  if (!lastFailure || !Number.isInteger(lastFailure.sequence)) return null;
+  if (lastFailure.sequence <= failureFloor || lastFailure.url !== currentUrl) return null;
+  if (!['first-party-exception', 'renderer-crash'].includes(lastFailure.kind)) return null;
+  return lastFailure.kind;
+}
 const HEADLESS = process.env.REPROIT_HEADLESS !== '0';
 // Desired UI locale for the run, a BCP47 tag (e.g. "de", "ar", "pt-BR"). When
 // set, the browser context is created with this locale so the page renders in
@@ -5114,6 +5124,22 @@ async function main() {
   // `replayErrorCount` lets a recorded replay know a (kept) crash fired so the
   // finding box labels the triggering element "crash".
   let replayErrorCount = 0;
+  // A visually empty page is ambiguous: parser fixtures, intentionally empty
+  // routes, and failed mounts can all have the same DOM shape. Keep the most
+  // recent independently-authoritative application failure so BLANKSCREEN is
+  // emitted only when the empty state is corroborated by a first-party
+  // exception or renderer crash on this exact URL. Pure emptiness remains an
+  // internal candidate and can never become a user-facing finding by itself.
+  let lastAppFailure = null;
+  let failureCountAtLastObservation = 0;
+  const recordAppFailure = (kind) => {
+    replayErrorCount++;
+    let url = '';
+    try {
+      url = page.url();
+    } catch (_) {}
+    lastAppFailure = { sequence: replayErrorCount, kind, url };
+  };
   const emitError = (err) => {
     const msg = String(err && err.message ? err.message : err);
     // Skip third-party-script throws and known-benign browser-policy errors.
@@ -5124,7 +5150,7 @@ async function main() {
       !exceptionIsFirstParty(err && err.stack, APP_ORIGIN)
     )
       return;
-    replayErrorCount++;
+    recordAppFailure('first-party-exception');
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
     log(msg);
@@ -5138,7 +5164,7 @@ async function main() {
   // the runner ("EXCEPTION CAUGHT BY WEB RUNNER") instead of the app. Emit the
   // same app-crash block and bump the counter so a recorded replay boxes it.
   page.on('crash', () => {
-    replayErrorCount++;
+    recordAppFailure('renderer-crash');
     log('EXCEPTION CAUGHT BY WEB PAGE');
     log('The following error was thrown:');
     log('the page crashed (renderer process gone -- GPU / out-of-memory / ' + 'sad-tab)');
@@ -5596,7 +5622,10 @@ async function main() {
         // the 60-step Tab traversal walks focus through the whole document and
         // scrollRoundTripScan drives a scroller away and back. Filming those made
         // a choice-anomaly clip visit the footer before touching its picker.
-        if (recording) return snap;
+        if (recording) {
+          failureCountAtLastObservation = replayErrorCount;
+          return snap;
+        }
         // The structural oracle scans run on the SAME (un-mutated) DOM the
         // snapshot captured, and crucially BEFORE emitGroundtruth -- whose
         // keyboard-activation probe mutates the DOM and whose framebuffer probe
@@ -5730,13 +5759,10 @@ async function main() {
               }),
           );
         }
-        // BLANK-SCREEN: the state rendered NOTHING -- zero visible text nodes,
-        // zero tappable controls, zero visible media -- in a non-empty viewport
-        // (the white-screen-of-death: an SPA mount that threw before render).
-        // observe() runs after the action's settle wait like every scan here,
-        // and the scan itself requires a laid-out document.body, so a page
-        // still loading never fires. Structural DOM emptiness, no pixels, so it
-        // reproduces on replay. Silent when the state shows any content.
+        // BLANK-SCREEN candidate: structural emptiness alone is ambiguous and
+        // is never a finding. It becomes reportable only when the independently
+        // filtered first-party exception channel observed a failure on this
+        // exact URL since the preceding state observation.
         let blank = await page.evaluate(blankScreenScan).catch(() => null);
         // A candidate-blank state may just be a MID-LOAD blank frame (the JS has
         // not populated the DOM yet), which is a transient loading state, NOT a
@@ -5747,12 +5773,29 @@ async function main() {
           await settleForSignature(page);
           blank = await page.evaluate(blankScreenScan).catch(() => null);
         }
-        if (blank && blank.length) {
+        const currentUrl = page.url();
+        const blankAuthority = blankScreenAuthority(
+          lastAppFailure,
+          failureCountAtLastObservation,
+          currentUrl,
+        );
+        if (blank && blank.length && blankAuthority) {
           log(
             'EXPLORE:BLANKSCREEN ' +
               JSON.stringify({
                 sig: snap.sig,
                 ...(snap.anchor ? { route: snap.anchor } : {}),
+                authority: blankAuthority,
+                items: blank,
+              }),
+          );
+        } else if (blank && blank.length) {
+          log(
+            'EXPLORE:BLANKSCREENCANDIDATE ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                reason: 'visual-emptiness-without-independent-authority',
                 items: blank,
               }),
           );
@@ -5885,6 +5928,10 @@ async function main() {
         const links = await page.evaluate(collectRouteLinks, ASSET_EXT_SOURCE);
         for (const p of links) if (!seenLinks.has(p)) seenLinks.set(p, snap.sig);
       } catch (_) {}
+      // Advance the correlation floor on every observation, including revisits.
+      // Otherwise an exception followed by a non-new visible state could be
+      // reused incorrectly as authority for a later unrelated blank route.
+      failureCountAtLastObservation = replayErrorCount;
       return snap;
     }
 

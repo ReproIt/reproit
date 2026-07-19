@@ -74,10 +74,9 @@ pub enum Oracle {
     /// intentional cases, but cannot prove the app's desired post-action
     /// focus target. Specialist candidate (web only).
     FocusLoss,
-    /// Blank screen: a reached state renders ZERO visible text nodes and ZERO
-    /// tappable controls in a non-empty viewport -- the white-screen-of-death
-    /// (a failed SPA mount, a render error swallowed before paint). Structural
-    /// DOM emptiness, not a pixel check, so it is deterministic (web only).
+    /// Blank screen: a structurally empty state corroborated by independent
+    /// application-failure authority on the same URL. Visual emptiness alone
+    /// abstains (web only).
     BlankScreen,
     /// Broken asset: a dead or browser-rejected critical subresource in the
     /// state. Includes visible dead images/tofu and same-origin stylesheet

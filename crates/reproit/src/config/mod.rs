@@ -214,10 +214,9 @@ pub struct InvariantsCfg {
     /// web runner (`EXPLORE:CONTENTBUG`).
     #[serde(default = "default_true")]
     pub no_broken_render: bool,
-    /// Blank screen: a reached state renders zero visible text nodes and zero
-    /// tappable controls in a non-empty viewport (the white-screen-of-death: a
-    /// failed SPA mount). Structural DOM emptiness from the web runner
-    /// (`EXPLORE:BLANKSCREEN`), checked only after the settle wait.
+    /// Blank screen: a settled empty state corroborated by independent
+    /// authority such as a first-party exception or renderer crash. Structural
+    /// visual emptiness alone is diagnostic and always abstains.
     #[serde(default = "default_true")]
     pub no_blank_screen: bool,
     /// Broken asset: a dead or browser-rejected critical subresource in a

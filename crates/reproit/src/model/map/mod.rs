@@ -963,19 +963,25 @@ mod tests {
 
     #[test]
     fn blankscreen_marker_keys_by_sig() {
-        // The blank-screen (white-screen-of-death) oracle: EXPLORE:BLANKSCREEN
-        // carries the scanned root + viewport size, keyed by state signature. A
-        // marker with an empty items list is dropped (silent when clean).
+        // BLANKSCREEN is reportable only with enumerated independent authority.
+        // Structural-only and unknown-authority markers abstain, while an
+        // authoritative marker carries the root + viewport keyed by signature.
         let log = concat!(
             r#"EXPLORE:STATE {"sig":"s1","labels":[]}"#,
             "\n",
-            r#"EXPLORE:BLANKSCREEN {"sig":"s1","items":[{"key":"tag:body","w":1280,"h":720}]}"#,
+            r#"EXPLORE:BLANKSCREEN {"sig":"candidate","items":[{"key":"tag:body","w":1280,"h":720}]}"#,
             "\n",
-            r#"EXPLORE:BLANKSCREEN {"sig":"s2","items":[]}"#,
+            r#"EXPLORE:BLANKSCREEN {"sig":"unknown","authority":"looks-empty","items":[{"key":"tag:body","w":1280,"h":720}]}"#,
+            "\n",
+            r#"EXPLORE:BLANKSCREEN {"sig":"s1","authority":"first-party-exception","items":[{"key":"tag:body","w":1280,"h":720}]}"#,
+            "\n",
+            r#"EXPLORE:BLANKSCREEN {"sig":"s2","authority":"renderer-crash","items":[]}"#,
         );
         let obs = parse_run(log);
         let items = obs.blank_screens.get("s1").expect("blank screen for s1");
         assert_eq!(items, &vec![("tag:body".to_string(), 1280, 720)]);
+        assert!(!obs.blank_screens.contains_key("candidate"));
+        assert!(!obs.blank_screens.contains_key("unknown"));
         assert!(
             !obs.blank_screens.contains_key("s2"),
             "an empty blank-screen list is not recorded"

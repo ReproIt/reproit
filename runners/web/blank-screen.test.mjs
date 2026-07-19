@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { chromium } from 'playwright';
 import { blankScreenScan } from './hygiene-oracles.mjs';
-import { settleForSignature } from './runner.mjs';
+import { blankScreenAuthority, settleForSignature } from './runner.mjs';
 
 test('a visible spinner / skeleton / progress indicator is NOT blank', async () => {
   const browser = await chromium.launch();
@@ -104,16 +104,32 @@ test('a malformed CSS-as-text page (large trapped <style>) is NOT blank', async 
   }
 });
 
-test('a permanently-blank viewport STILL fires (oracle not neutered)', async () => {
+test('a permanently blank viewport remains available as a structural candidate', async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
     await page.setContent('<body></body>');
     await settleForSignature(page);
     const out = await page.evaluate(blankScreenScan);
-    assert.equal(out.length, 1, 'a truly blank body is a white-screen-of-death and must fire');
+    assert.equal(out.length, 1, 'a truly blank body should remain available for correlation');
     assert.equal(out[0].key, 'tag:body');
   } finally {
     await browser.close();
   }
+});
+
+test('visual emptiness needs fresh same-URL application authority to become a finding', () => {
+  const failure = {
+    sequence: 3,
+    kind: 'first-party-exception',
+    url: 'https://app.test/failed',
+  };
+  assert.equal(blankScreenAuthority(failure, 2, 'https://app.test/failed'), failure.kind);
+  assert.equal(blankScreenAuthority(failure, 3, 'https://app.test/failed'), null);
+  assert.equal(blankScreenAuthority(failure, 2, 'https://app.test/intentional'), null);
+  assert.equal(
+    blankScreenAuthority({ ...failure, kind: 'visual-emptiness' }, 2, failure.url),
+    null,
+  );
+  assert.equal(blankScreenAuthority(null, 0, failure.url), null);
 });

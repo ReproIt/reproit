@@ -136,13 +136,9 @@ pub(crate) struct RunObs {
     /// URL/link. Pure DOM/URL predicates, deterministic and
     /// false-positive-free; empty when the page is clean.
     pub security: BTreeMap<String, Vec<(String, String)>>,
-    /// sig -> the blank-screen record for that state, from
-    /// `EXPLORE:BLANKSCREEN` records (the white-screen-of-death oracle):
-    /// the state rendered ZERO visible text nodes and ZERO tappable
-    /// controls in a non-empty viewport. Each item is `(key, w, h)`: the
-    /// scanned root (`tag:body`) plus the viewport size in CSS px.
-    /// Structural DOM emptiness (no pixels), so it re-confirms on replay;
-    /// empty for runners/states that render content.
+    /// sig -> authoritative blank-screen record for that state. Each item is
+    /// `(key, w, h)`: the scanned root plus viewport size. Structural
+    /// emptiness without enumerated independent authority is discarded.
     pub blank_screens: BTreeMap<String, Vec<(String, i64, i64)>>,
     /// sig -> dead subresources rendered in that state, from
     /// `EXPLORE:BROKENASSET` records (the broken-asset oracle). Each entry
@@ -740,11 +736,23 @@ pub(crate) fn parse_runner_events(events: &[crate::model::runner::RunnerEvent<'_
                 }
             }
         } else if let Some(json) = extract(line, "EXPLORE:BLANKSCREEN ") {
-            // A state that rendered NOTHING: zero visible text nodes and zero
-            // tappable controls in a non-empty viewport (white-screen-of-death).
-            // Keyed by signature (last write wins); each item is `(key, w, h)`,
-            // the scanned root and the viewport size. Only non-empty item lists
-            // are recorded (the runner is silent when the state shows content).
+            // Structural emptiness is only a candidate: intentional blank
+            // fixtures and failed mounts are visually indistinguishable. Accept
+            // a reportable marker only when the runner supplies independent,
+            // enumerated authority. Legacy and native structural-only markers
+            // abstain instead of minting a false-positive finding.
+            let authoritative = matches!(
+                json.get("authority").and_then(Value::as_str),
+                Some(
+                    "first-party-exception"
+                        | "renderer-crash"
+                        | "authored-expectation"
+                        | "verified-regression"
+                )
+            );
+            if !authoritative {
+                continue;
+            }
             if let (Some(sig), Some(items)) = (
                 json.get("sig").and_then(Value::as_str),
                 json.get("items").and_then(Value::as_array),

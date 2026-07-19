@@ -111,14 +111,9 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // no-blank-screen: a reached state that renders NOTHING -- zero visible text
-    // nodes and zero tappable controls in a non-empty viewport. The classic
-    // white-screen-of-death: an SPA whose mount threw before render, so the
-    // server answered 200, the DOM holds a bare root div, and the user sees
-    // white. The web runner scans this only after its settle wait and only when
-    // document.body exists with a non-zero box, so a page still loading never
-    // fires. Structural DOM emptiness (no pixels), so it re-confirms on replay.
-    // Empty for runners/states that render content.
+    // no-blank-screen: an empty state already corroborated by independent
+    // authority at ingestion (for example, a first-party exception on the same
+    // URL). Structural visual emptiness never reaches this collection.
     if cfg.no_blank_screen {
         for (sig, items) in &obs.obs.blank_screens {
             let Some((_key, w, h)) = items.first() else {
