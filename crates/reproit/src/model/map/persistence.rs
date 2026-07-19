@@ -121,7 +121,10 @@ pub(super) fn load_existing_map_unlocked(root: &Path) -> Result<Option<AppMap>> 
             path.display()
         )
     })?;
-    if map.schema_version == 1 {
+    // V1 used `version` as the graph revision and V2 separated the schema
+    // version from that revision. Both action sets are valid subsets of V3.
+    // V3 adds the persisted `key` action, which older readers cannot decode.
+    if matches!(map.schema_version, 1 | 2) {
         map.schema_version = crate::model::appmap::APP_MAP_SCHEMA_VERSION;
     }
     validate_map(&map, &path)?;
@@ -340,6 +343,44 @@ mod tests {
             std::process::id(),
             TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    #[test]
+    fn version_two_map_migrates_to_version_three() {
+        let root = test_root("map-v2-migration");
+        let path = appmap_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"app":"demo","schemaVersion":2,"version":7,"states":{},"transitions":[],"invariants":[]}"#,
+        )
+        .unwrap();
+
+        let map = load_existing_map(&root).unwrap().unwrap();
+
+        assert_eq!(
+            map.schema_version,
+            crate::model::appmap::APP_MAP_SCHEMA_VERSION
+        );
+        assert_eq!(map.revision, 7);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn future_map_schema_is_rejected() {
+        let root = test_root("map-future-schema");
+        let path = appmap_path(&root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"app":"demo","schemaVersion":999,"version":1,"states":{},"transitions":[],"invariants":[]}"#,
+        )
+        .unwrap();
+
+        let error = load_existing_map(&root).unwrap_err().to_string();
+
+        assert!(error.contains("unsupported app-map schema 999"), "{error}");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

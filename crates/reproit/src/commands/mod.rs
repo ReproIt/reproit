@@ -1354,6 +1354,7 @@ where
             // content-hash id, plus its seed/actions) so the agent/MCP bridge
             // can keep it without re-parsing the human report.
             if ctx.json {
+                let evidence_status = fuzz_summary.evidence.status(fuzz_summary.complete);
                 match latest_finding(&loaded) {
                     Some(f) => ctx.emit(&serde_json::json!({
                         "command": "fuzz",
@@ -1366,6 +1367,8 @@ where
                         "seed": f.seed,
                         "actions": f.actions,
                         "artifact": f.run_dir.to_string_lossy(),
+                        "evidenceStatus": evidence_status,
+                        "evidence": fuzz_summary.evidence,
                     })),
                     None => ctx.emit(&serde_json::json!({
                         "command": "fuzz",
@@ -1373,6 +1376,8 @@ where
                         "seeds_run": fuzz_summary.seeds_run,
                         "seeds_requested": fuzz_summary.seeds_requested,
                         "found": false,
+                        "evidenceStatus": evidence_status,
+                        "evidence": fuzz_summary.evidence,
                     })),
                 }
             }

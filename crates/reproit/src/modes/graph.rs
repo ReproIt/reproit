@@ -37,6 +37,7 @@ fn action_label(a: &Action) -> String {
         Action::Tap { finder } => format!("tap {finder}"),
         Action::Type { finder, .. } => format!("type into {finder}"),
         Action::Scroll { finder, .. } => format!("scroll {finder}"),
+        Action::Key { key } => format!("key {key}"),
         Action::Back => "back".to_string(),
         Action::System { event } => format!("system: {event}"),
     }

@@ -6,6 +6,7 @@ pub(crate) mod attribute;
 pub(crate) mod backend;
 pub(crate) mod candidate;
 pub(crate) mod contracts;
+pub(crate) mod evidence;
 pub(crate) mod fault;
 pub(crate) mod fixture;
 pub(crate) mod invariants;

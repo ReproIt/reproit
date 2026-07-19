@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const APP_MAP_SCHEMA_VERSION: u32 = 2;
+pub const APP_MAP_SCHEMA_VERSION: u32 = 3;
 
 fn legacy_schema_version() -> u32 {
     1
@@ -228,6 +228,7 @@ pub enum Action {
     Tap { finder: String },
     Type { finder: String, text: String },
     Scroll { finder: String, dy: i32 },
+    Key { key: String },
     Back,
     System { event: String },
 }

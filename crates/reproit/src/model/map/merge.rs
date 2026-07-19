@@ -117,6 +117,7 @@ pub(crate) fn action_str(a: &Action) -> String {
         Action::Back => "back".to_string(),
         Action::Type { finder, .. } => format!("type:{finder}"),
         Action::Scroll { finder, .. } => format!("scroll:{finder}"),
+        Action::Key { key } => format!("key:{key}"),
         Action::System { event } => format!("system:{event}"),
     }
 }
@@ -153,6 +154,11 @@ pub(super) fn parse_action(s: &str) -> Option<Action> {
             None => (rest.to_string(), 0),
         };
         return (!finder.is_empty()).then_some(Action::Scroll { finder, dy });
+    }
+    if let Some(key) = s.strip_prefix("key:") {
+        return (!key.is_empty()).then(|| Action::Key {
+            key: key.to_string(),
+        });
     }
     if let Some(ev) = s.strip_prefix("system:") {
         return (!ev.is_empty()).then(|| Action::System {

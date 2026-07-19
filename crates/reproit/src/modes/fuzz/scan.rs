@@ -64,6 +64,7 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
     let coverage_gaps = scan_coverage_gaps(outcome.passed, &log);
     let completed = coverage_gaps.is_empty();
+    let mut evidence = crate::model::evidence::EvidenceCounts::from_log(&log);
 
     // ALL per-state observations (every state x oracle), NOT collapsed to one per
     // seed. Objective/authored findings and specialist findings are both valid
@@ -92,6 +93,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
             .unwrap_or_else(|| "target is unscannable (bot-challenge)".to_string());
         let mut coverage_gaps = coverage_gaps;
         coverage_gaps.push(format!("unscannable: {diag}"));
+        // Any oracle markers belong to the challenge interstitial, not the app.
+        // Discard them instead of attributing third-party evidence to the target.
+        let unscannable_evidence = crate::model::evidence::EvidenceCounts::default();
         if json {
             println!(
                 "{}",
@@ -103,6 +107,8 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
                     "screens_scanned": 0,
                     "screens_with_findings": 0,
                     "issues": 0,
+                    "evidenceStatus": unscannable_evidence.status(false),
+                    "evidence": unscannable_evidence,
                     "coverage_gaps": coverage_gaps,
                     "results": [],
                     "clips": []
@@ -174,6 +180,12 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     }
 
     let issues: usize = by_screen.values().map(|s| s.len()).sum();
+    let unreported_violations = by_screen
+        .values()
+        .flat_map(|items| items.iter())
+        .filter(|(oracle, _, _)| !crate::model::evidence::has_explicit_status_marker(oracle))
+        .count();
+    evidence.observe_unreported_violations(unreported_violations);
 
     // `--record`: save one clip for every distinct reported finding. Done after
     // report grouping so clip identity exactly matches the visible issue list.
@@ -214,6 +226,8 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
                 "screens_scanned": swept,
                 "screens_with_findings": by_screen.len(),
                 "issues": issues,
+                "evidenceStatus": evidence.status(completed),
+                "evidence": evidence,
                 "coverage_gaps": coverage_gaps,
                 "results": results,
                 "clips": clips

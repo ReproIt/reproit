@@ -419,6 +419,7 @@ fn action_desc(a: &Action) -> String {
         Action::Tap { finder } => format!("tap:{finder}"),
         Action::Type { finder, .. } => format!("type:{finder}"),
         Action::Scroll { finder, dy } => format!("scroll:{finder}:{dy}"),
+        Action::Key { key } => format!("key:{key}"),
         Action::Back => "back".into(),
         Action::System { event } => event.clone(),
     }

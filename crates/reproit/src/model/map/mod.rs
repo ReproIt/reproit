@@ -11,11 +11,12 @@ use crate::model::appmap::AppMap;
 #[cfg(test)]
 use crate::model::appmap::{
     Action, OperabilityGaps, Reversibility, State, StateSignature, Transition,
+    APP_MAP_SCHEMA_VERSION,
 };
 use anyhow::{Context, Result};
 #[cfg(test)]
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 mod frontier;
@@ -33,10 +34,8 @@ use frontier::VISIT_WEIGHT_CAP;
 #[allow(unused_imports)] // Compatibility façade; several helpers are agent-facing APIs.
 pub(crate) use frontier::{edges_summary, entry_state, path_to_label, Visits};
 pub(crate) use index::GraphIndex;
-#[cfg(test)]
-use merge::parse_action;
-use merge::sig_index;
 pub(crate) use merge::{action_str, merge};
+use merge::{parse_action, sig_index};
 #[allow(unused_imports)]
 // Types remain reachable at their pre-split `crate::model::map` paths.
 pub(crate) use parse::{
@@ -98,6 +97,38 @@ pub(crate) fn absorb_obs_inmem(map: &mut AppMap, visits: &mut Visits, obs: &RunO
             .entry(format!("{from}|{action}"))
             .or_insert(0) += 1;
     }
+}
+
+fn unsupported_edge_summary(obs: &RunObs) -> (usize, BTreeSet<String>) {
+    const MAX_REPORTED_KINDS: usize = 8;
+    const MAX_KIND_LEN: usize = 32;
+
+    let mut count = 0;
+    let mut kinds = BTreeSet::new();
+    for (_, action, _) in &obs.edges {
+        if parse_action(action).is_some() {
+            continue;
+        }
+        count += 1;
+        if kinds.len() >= MAX_REPORTED_KINDS {
+            continue;
+        }
+        let candidate = action
+            .split_once(':')
+            .map_or(action.as_str(), |(kind, _)| kind);
+        let kind = if !candidate.is_empty()
+            && candidate.len() <= MAX_KIND_LEN
+            && candidate
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        {
+            candidate
+        } else {
+            "unrecognized"
+        };
+        kinds.insert(kind.to_string());
+    }
+    (count, kinds)
 }
 
 /// Merge one run's observations into both live files and persist them. This is
@@ -262,6 +293,14 @@ pub async fn build_map(
         anyhow::bail!(
             "no EXPLORE:STATE records in {} (is the generated explorer journey installed?)",
             run_dir.display()
+        );
+    }
+    let (unsupported_edge_count, unsupported_edge_kinds) = unsupported_edge_summary(&obs);
+    if unsupported_edge_count > 0 {
+        eprintln!(
+            "  warn: omitted {unsupported_edge_count} edge(s) with unsupported or malformed action \
+             kinds: {}",
+            unsupported_edge_kinds.into_iter().collect::<Vec<_>>().join(", ")
         );
     }
     commit_observations(root, cfg, &obs, replace)?;
@@ -458,7 +497,7 @@ mod tests {
         states.insert("About".to_string(), st("about / version info"));
         AppMap {
             app: "demo".to_string(),
-            schema_version: 2,
+            schema_version: APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states,
             transitions: vec![
@@ -534,7 +573,7 @@ mod tests {
         states.insert("Bravo".to_string(), sig_state("sig-bravo"));
         let map = AppMap {
             app: "demo".to_string(),
-            schema_version: 2,
+            schema_version: APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states,
             transitions: vec![tap("Home", "a", "Alpha"), tap("Home", "b", "Bravo")],
@@ -587,8 +626,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_action_recovers_typed_scroll_system_edges() {
-        // type:/scroll:/system: must round-trip into their real variants, not
+    fn parse_action_recovers_typed_scroll_key_system_edges() {
+        // type:/scroll:/key:/system: must round-trip into their real variants, not
         // collapse to Back (which lost the finder/value of form-driven edges).
         assert!(matches!(parse_action("tap:Go"), Some(Action::Tap { .. })));
         match parse_action("type:role:textfield#0=hello") {
@@ -609,6 +648,14 @@ mod tests {
             Some(Action::System { event }) => assert_eq!(event, "back"),
             a => panic!("expected System, got {a:?}"),
         }
+        let key = parse_action("key:Down").expect("key action parses");
+        assert_eq!(
+            key,
+            Action::Key {
+                key: "Down".to_string()
+            }
+        );
+        assert_eq!(action_str(&key), "key:Down");
         assert!(matches!(parse_action("back"), Some(Action::Back)));
         // A typed edge with no `=value` still parses as Type (empty text), not Back.
         assert!(matches!(
@@ -616,7 +663,59 @@ mod tests {
             Some(Action::Type { .. })
         ));
         assert!(parse_action("unknown").is_none());
+        assert!(parse_action("key:").is_none());
         assert!(parse_action("scroll:key:list=wat").is_none());
+    }
+
+    #[test]
+    fn merge_persists_tui_key_transition() {
+        let mut map = AppMap::empty("tui-demo".to_string());
+        let mut visits = Visits::default();
+        let log = concat!(
+            "EXPLORE:STATE {\"sig\":\"list\",\"labels\":[\"List\"]}\n",
+            "EXPLORE:STATE {\"sig\":\"selected\",\"labels\":[\"Selected\"]}\n",
+            "EXPLORE:EDGE {\"from\":\"list\",\"action\":\"key:Down\",",
+            "\"to\":\"selected\"}\n",
+        );
+
+        absorb_run_inmem(&mut map, &mut visits, log);
+
+        assert_eq!(map.transitions.len(), 1);
+        let transition = &map.transitions[0];
+        assert_eq!(transition.from, "s_list");
+        assert_eq!(transition.to, "s_selected");
+        assert_eq!(
+            transition.action,
+            Action::Key {
+                key: "Down".to_string()
+            }
+        );
+        let json = serde_json::to_string(&transition.action).unwrap();
+        assert_eq!(json, r#"{"kind":"key","key":"Down"}"#);
+        assert_eq!(
+            serde_json::from_str::<Action>(&json).unwrap(),
+            transition.action
+        );
+    }
+
+    #[test]
+    fn unsupported_edge_summary_is_bounded_and_omits_action_payloads() {
+        let obs = parse_run(concat!(
+            "EXPLORE:STATE {\"sig\":\"a\",\"labels\":[\"A\"]}\n",
+            "EXPLORE:STATE {\"sig\":\"b\",\"labels\":[\"B\"]}\n",
+            "EXPLORE:EDGE {\"from\":\"a\",\"action\":\"key:Down\",\"to\":\"b\"}\n",
+            "EXPLORE:EDGE {\"from\":\"a\",\"action\":\"key:\",\"to\":\"b\"}\n",
+            "EXPLORE:EDGE {\"from\":\"a\",\"action\":\"future:secret\",\"to\":\"b\"}\n",
+        ));
+
+        let (count, kinds) = unsupported_edge_summary(&obs);
+
+        assert_eq!(count, 2);
+        assert_eq!(
+            kinds,
+            BTreeSet::from(["future".to_string(), "key".to_string()])
+        );
+        assert!(!kinds.iter().any(|kind| kind.contains("secret")));
     }
 
     #[test]
@@ -688,7 +787,7 @@ mod tests {
         states.insert("B".to_string(), sig_state("sigB"));
         let map = AppMap {
             app: "demo".to_string(),
-            schema_version: 2,
+            schema_version: APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states,
             transitions: vec![tap("A", "go", "B")],
@@ -717,7 +816,7 @@ mod tests {
         assert_eq!(obs.routes.get("abc").map(String::as_str), Some("/home"));
         let mut map = AppMap {
             app: "t".into(),
-            schema_version: 2,
+            schema_version: APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states: BTreeMap::new(),
             transitions: vec![],
@@ -765,7 +864,7 @@ mod tests {
         // The non-operable decoration is never a gap; the healthy nav is not either.
         let mut map = AppMap {
             app: "t".into(),
-            schema_version: 2,
+            schema_version: APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states: BTreeMap::new(),
             transitions: vec![],
@@ -1369,7 +1468,7 @@ mod tests {
         // First run had no route; a later run that reports one backfills it.
         let mut map = AppMap {
             app: "t".into(),
-            schema_version: 2,
+            schema_version: APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states: BTreeMap::new(),
             transitions: vec![],

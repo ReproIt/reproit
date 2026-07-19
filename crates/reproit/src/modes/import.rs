@@ -608,7 +608,7 @@ mod tests {
         );
         TapResolver::from_map(&AppMap {
             app: "demo".to_string(),
-            schema_version: 2,
+            schema_version: crate::model::appmap::APP_MAP_SCHEMA_VERSION,
             revision: 1,
             states,
             transitions: vec![],

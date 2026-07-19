@@ -177,6 +177,7 @@ pub struct FuzzSummary {
     pub complete: bool,
     pub seeds_run: u32,
     pub seeds_requested: u32,
+    pub evidence: crate::model::evidence::EvidenceCounts,
 }
 
 pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<FuzzSummary> {
@@ -212,6 +213,7 @@ pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<FuzzSumm
         summary.complete &= result.complete;
         summary.seeds_run = summary.seeds_run.saturating_add(result.seeds_run);
         summary.signatures.extend(result.signatures.iter().cloned());
+        summary.evidence.merge(&result.evidence);
         per_locale.push((locale.clone(), result.signatures));
     }
     // Cross-locale i18n report: a finding present in some but not all locales is
@@ -253,6 +255,7 @@ pub async fn fuzz_targeted(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result
         all.complete &= result.complete;
         all.seeds_run = all.seeds_run.saturating_add(result.seeds_run);
         all.signatures.extend(result.signatures);
+        all.evidence.merge(&result.evidence);
     }
     Ok(all)
 }
@@ -337,6 +340,7 @@ async fn fuzz_one_locale(
     // the configured count, or it overstates how much was explored.
     let mut seeds_run = 0u32;
     let mut complete = true;
+    let mut evidence = crate::model::evidence::EvidenceCounts::default();
     while done < args.runs {
         let this_batch = batch_size.min(args.runs - done);
         let guidance = batch_guidance(args, &map, &visits, &static_guidance);
@@ -375,6 +379,7 @@ async fn fuzz_one_locale(
         // so coverage, trace, and findings are attributed to the right seed.
         let full_log =
             std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+        evidence.merge(&crate::model::evidence::EvidenceCounts::from_log(&full_log));
         let segments = split_seed_segments(&full_log, &plans);
         seeds_run += segments.len() as u32;
         complete &= batch_completed(&full_log, &plans);
@@ -487,6 +492,14 @@ async fn fuzz_one_locale(
                         .unwrap_or(false)
                 });
             findings = verdict_findings;
+            let unreported_violations = findings
+                .iter()
+                .filter(|finding| {
+                    let oracle = crate::crosscut::classify(finding).as_str();
+                    !crate::model::evidence::has_explicit_status_marker(oracle)
+                })
+                .count();
+            evidence.observe_unreported_violations(unreported_violations);
             for f in &advisory {
                 say(
                     json,
@@ -850,6 +863,7 @@ async fn fuzz_one_locale(
                     complete,
                     seeds_run,
                     seeds_requested: args.runs,
+                    evidence,
                 });
             }
         }
@@ -903,6 +917,7 @@ async fn fuzz_one_locale(
             complete: complete && seeds_run == args.runs,
             seeds_run,
             seeds_requested: args.runs,
+            evidence,
         });
     }
     say(
@@ -928,6 +943,7 @@ async fn fuzz_one_locale(
         complete: complete && seeds_run == args.runs,
         seeds_run,
         seeds_requested: args.runs,
+        evidence,
     })
 }
 
