@@ -69,7 +69,7 @@ jobs:
     # no inline video (cheaper).
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         run: |

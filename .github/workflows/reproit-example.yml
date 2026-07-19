@@ -23,7 +23,7 @@ jobs:
   reproit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       # Start your app so reproit has something to fuzz. Replace with your own
       # dev-server command; here we background it and wait for the port.
