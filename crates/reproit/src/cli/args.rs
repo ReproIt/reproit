@@ -119,7 +119,10 @@ pub(crate) enum Cmd {
         /// Preserve the legacy SDK/Cloud tester workflow: wait for a marked SDK
         /// capture, clean-replay it, and derive a minimized repro. Unlike the
         /// default human capture, this requires verification.
-        #[arg(long, conflicts_with_all = ["attach", "title", "actions_file", "no_video"])]
+        #[arg(
+            long,
+            conflicts_with_all = ["attach", "title", "actions_file", "no_video", "upload", "no_open"]
+        )]
         cloud_tester: bool,
         /// Capture an app that is already running instead of launching the
         /// configured target. Screen capture is currently supported on macOS;
@@ -137,6 +140,13 @@ pub(crate) enum Cmd {
         /// evidence or screen-recording permission is unavailable.
         #[arg(long)]
         no_video: bool,
+        /// Review and upload the immutable original to Repro It Cloud after
+        /// recording stops.
+        #[arg(long)]
+        upload: bool,
+        /// Print the Cloud review link instead of opening a browser.
+        #[arg(long, requires = "upload")]
+        no_open: bool,
         /// Cloud project for --cloud-tester. Defaults to the selected project.
         #[arg(long)]
         app: Option<String>,
@@ -220,6 +230,24 @@ pub(crate) enum Cmd {
         /// Project key (default: persisted login / $REPROIT_CLOUD_KEY).
         #[arg(long)]
         key: Option<String>,
+    },
+    /// Internal route for the direct `reproit cap_...` form.
+    #[command(name = "__capture", hide = true)]
+    Capture {
+        /// Immutable original capture id (cap_...).
+        capture: String,
+        /// Open the original local video.
+        #[arg(long, visible_alias = "record", conflicts_with_all = ["upload", "open"])]
+        watch: bool,
+        /// Review and upload the immutable original to Repro It Cloud.
+        #[arg(long, conflicts_with = "open")]
+        upload: bool,
+        /// Open the uploaded capture page in a browser.
+        #[arg(long)]
+        open: bool,
+        /// Print a browser URL instead of opening it.
+        #[arg(long, requires = "upload")]
+        no_open: bool,
     },
     /// Update a production bug's lifecycle state. Example:
     /// `reproit triage bkt_... fixed --fixed-in-build 1.2.3`.
@@ -1130,6 +1158,16 @@ mod tests {
             cli.command,
             Cmd::ReplayBucket { ref issue, .. } if issue == "bkt_deadbeef0001"
         ));
+
+        let cli = Cli::parse_args(["reproit", "cap_deadbeef00000000", "--record"]);
+        assert!(matches!(
+            cli.command,
+            Cmd::Capture {
+                ref capture,
+                watch: true,
+                ..
+            } if capture == "cap_deadbeef00000000"
+        ));
     }
 
     #[test]
@@ -1216,5 +1254,16 @@ mod tests {
             }
         ));
         assert!(Cli::try_parse_from(["reproit", "record", "--cloud-tester", "--attach"]).is_err());
+        assert!(Cli::try_parse_from(["reproit", "record", "--cloud-tester", "--upload"]).is_err());
+
+        let cli = Cli::try_parse_from(["reproit", "record", "--upload", "--no-open"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Record {
+                upload: true,
+                no_open: true,
+                ..
+            }
+        ));
     }
 }

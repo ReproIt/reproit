@@ -141,9 +141,11 @@ reproit doctor                        # check app, platform, runner, and auth se
 reproit scan [target]                 # scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]                 # find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>           # reproduce one bug
+reproit <cap_...>                     # show one immutable original capture
 reproit check                         # verify the whole saved suite
 reproit record                        # launch the app and preserve a human-authored original
 reproit record --attach               # capture an already-running app from its current state
+reproit record --upload               # capture, review in browser, then upload the original
 reproit record --cloud-tester         # verify/minimize an SDK-marked Cloud tester capture
 reproit record <id>                   # annotated repro video (--flicker also scans it)
 reproit baseline [--update]           # visual-regression diff vs the committed baseline
@@ -155,6 +157,9 @@ reproit bugs [query]                  # impact-ranked confirmed production bugs
 reproit debug map show                # advanced: inspect the internal app model
 reproit triage <bkt_...> fixed        # record the fix intent
 reproit watch <id>                    # open a repro's recorded video
+reproit cap_... --watch               # open an original capture video (--record is an alias)
+reproit cap_... --upload              # review and upload an existing local original
+reproit cap_... --open                # open its private Cloud page
 reproit repro simplify|why <id>       # shorten a repro (verified) / localize the failure
 reproit auth <account>                # configure/discover/verify a test login
 reproit mcp                           # serve reproit to your coding agent (stdio)

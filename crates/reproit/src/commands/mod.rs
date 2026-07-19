@@ -1,6 +1,7 @@
 //! Application command dispatch and command-oriented workflows.
 
 mod auth;
+mod capture;
 mod cloud;
 mod device;
 mod doctor;
@@ -31,6 +32,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use auth::{auth_cmd, auth_prompt, discover_and_verify_login};
+use capture::{load_original, open_cloud_capture, show_original, upload_original, watch_original};
 #[cfg(test)]
 use cloud::choose_cloud_project;
 use cloud::{cloud_app_id, cloud_cmd, cloud_creds};
@@ -184,6 +186,8 @@ where
             title,
             actions_file,
             no_video,
+            upload,
+            no_open,
             app,
             timeout,
             kind,
@@ -218,7 +222,7 @@ where
                          --flicker apply only to --cloud-tester or an existing repro id"
                     );
                 }
-                return human_record_session(
+                let capture = human_record_session(
                     cli.config.as_deref(),
                     attach,
                     title.as_deref(),
@@ -226,9 +230,32 @@ where
                     no_video,
                     &ctx,
                 )
-                .await;
+                .await?;
+                if upload {
+                    upload_original(&capture, no_open, &ctx).await?;
+                } else if ctx.json {
+                    ctx.emit(&serde_json::json!({
+                        "command": "record",
+                        "status": "captured",
+                        "capture": capture.id,
+                        "path": capture.path,
+                        "verified": false,
+                        "oracle": null,
+                        "immutableOriginal": true,
+                    }));
+                } else {
+                    ctx.say("  local only; upload explicitly with `reproit cap_... --upload`");
+                }
+                return Ok(ExitCode::SUCCESS);
             }
-            if cloud_tester || attach || title.is_some() || actions_file.is_some() || no_video {
+            if cloud_tester
+                || attach
+                || title.is_some()
+                || actions_file.is_some()
+                || no_video
+                || upload
+                || no_open
+            {
                 anyhow::bail!("capture options cannot be combined with an existing repro id");
             }
             let repro = repro.expect("checked above");
@@ -780,6 +807,25 @@ where
                 key,
             )
             .await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Capture {
+            capture,
+            watch,
+            upload,
+            open,
+            no_open,
+        } => {
+            let capture = load_original(cli.config.as_deref(), &capture)?;
+            if watch {
+                watch_original(&capture)?;
+            } else if upload {
+                upload_original(&capture, no_open, &ctx).await?;
+            } else if open {
+                open_cloud_capture(&capture, &ctx).await?;
+            } else {
+                show_original(&capture, &ctx)?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Triage {

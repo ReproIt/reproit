@@ -27,7 +27,7 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 regex = { workspace = true }
 # `multipart` (on top of the workspace defaults) for evidence uploads to the
 # cloud's POST /v1/errors/:app/:idx/evidence endpoint.
-reqwest = { workspace = true, features = ["multipart"] }
+reqwest = { workspace = true, features = ["multipart", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9"
@@ -41,6 +41,7 @@ prost-types = "0.14"
 tokio-tungstenite = "0.30.0"
 futures-util = "0.3.32"
 tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
 # auth vault + TOTP. getrandom is the OS CSPRNG primitive for salt/nonce/keyfile
 # bytes (rand 0.10 dropped rand::rngs::OsRng; getrandom is the canonical source).
 aes-gcm = "0.11.0"

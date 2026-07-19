@@ -22,6 +22,8 @@ pub(crate) fn expand_direct_bug_arg(mut args: Vec<std::ffi::OsString>) -> Vec<st
     };
     let command = if first.starts_with("bkt_") {
         Some(("__replay-bucket", None))
+    } else if first.starts_with("cap_") {
+        Some(("__capture", None))
     } else if first.starts_with("fnd_") || first.starts_with("rep_") {
         Some(("check", Some("--repro-id")))
     } else {
@@ -48,6 +50,10 @@ mod tests {
                 .map(|arg| arg.to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
         };
+        assert_eq!(
+            expand(&["reproit", "cap_deadbeef00000000", "--watch"]),
+            ["reproit", "__capture", "cap_deadbeef00000000", "--watch"]
+        );
         assert_eq!(
             expand(&["reproit", "bkt_deadbeef0001"]),
             ["reproit", "__replay-bucket", "bkt_deadbeef0001"]

@@ -41,6 +41,11 @@ struct OriginalCaptureManifest {
     upload: serde_json::Value,
 }
 
+pub(super) struct OriginalCapture {
+    pub(super) id: String,
+    pub(super) path: PathBuf,
+}
+
 /// Record the tester's original experience rather than attempting to prove a
 /// machine-detected finding. The original is deliberately not a `repro::Meta`:
 /// it has no oracle and must never enter `check` or the regression suite until
@@ -52,7 +57,7 @@ pub(super) async fn human_record_session(
     actions_file: Option<&Path>,
     no_video: bool,
     ctx: &Ctx,
-) -> Result<ExitCode> {
+) -> Result<OriginalCapture> {
     let loaded = config::load(config_path).with_context(|| {
         "record needs a runnable reproit.yaml; run `reproit init` in the app checkout"
     })?;
@@ -219,22 +224,14 @@ pub(super) async fn human_record_session(
     std::fs::rename(&staging, &final_dir)?;
     make_capture_files_readonly(&final_dir)?;
 
-    if ctx.json {
-        ctx.emit(&serde_json::json!({
-            "command": "record",
-            "status": "captured",
-            "capture": public_id,
-            "path": final_dir,
-            "verified": false,
-            "oracle": null,
-            "immutableOriginal": true,
-        }));
-    } else {
+    if !ctx.json {
         ctx.say(format!("CAPTURED {public_id}"));
         ctx.say(format!("  original: {}", final_dir.display()));
-        ctx.say("  local only; review it before any explicit Cloud upload");
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(OriginalCapture {
+        id: public_id,
+        path: final_dir,
+    })
 }
 
 fn capture_target(loaded: &config::Loaded) -> Result<String> {

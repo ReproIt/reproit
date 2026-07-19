@@ -1888,6 +1888,7 @@ dependencies = [
  "tar",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "vt100",
  "windows",
  "zip",

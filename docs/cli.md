@@ -163,6 +163,7 @@ reproit rep_a3f2c1b8e0d5          # reproduce one saved repro (fnd_... works too
 reproit check                 # run your whole saved suite
 reproit record                # launch the app and preserve the original human capture
 reproit record --attach       # start from an already-running app
+reproit record --upload       # capture, review in browser, then upload the original
 reproit record --cloud-tester # verify and shrink an SDK-marked Cloud capture
 reproit record <id>           # produce an annotated video of the bug
 ```
@@ -185,10 +186,20 @@ live export path with `--actions-file` and Repro It reads and freezes it after y
 currently require such an SDK export. A capture with no finalized video and no action export fails
 closed and reports the private staging directory for review or deletion.
 
-Original captures remain local and require explicit consent before upload. The current CLI
-prepares the versioned, hashed upload artifact but does not yet implement the Cloud upload
-endpoint. Any later deterministic replay or minimized repro is a derived artifact and must
-reference its parent `cap_...`; it never
+Original captures remain local unless upload is explicitly requested. `record --upload` opens a
+browser review where the signed-in user selects the organization project, title, description,
+severity, and visibility. After approval, the CLI uploads each file and its SHA-256 hash, then the
+Cloud verifies every hash before publishing the private capture page. `--no-open` prints the review
+link for a headless terminal. The local original remains immutable. An interrupted upload can be
+resumed with `reproit cap_... --upload`.
+
+The capture id is also the direct command. Bare `reproit cap_...` shows its local summary,
+`--watch` (or `--record`) opens the original video, `--upload` starts or resumes browser review,
+and `--open` opens the completed Cloud capture page. Global `--json` returns the same status as
+structured output. A separate `inspect` command is unnecessary.
+
+Any later deterministic replay or minimized repro is a derived artifact and must reference its
+parent `cap_...`; it never
 replaces or mutates the original. The older SDK/Cloud tester workflow is available explicitly as
 `record --cloud-tester`: it pulls a marked rolling path, verifies the captured state, and derives a
 minimized repro only when verification succeeds.
@@ -418,6 +429,11 @@ reproit <fnd_|rep_|bkt_...>    reproduce one bug
 reproit check                  verify the whole saved suite
 reproit keep [id] [--as name] keep a repro in your suite
 reproit record                preserve an immutable human-authored original
+reproit record --upload       capture, browser-review, and upload the original
+reproit cap_...               show an immutable original capture
+reproit cap_... --watch       open its video (--record is an alias)
+reproit cap_... --upload      review and upload it to Cloud
+reproit cap_... --open        open its completed Cloud page
 reproit record --cloud-tester verify/shrink an SDK-marked Cloud capture
 reproit record <id>           annotated video of a repro (--flicker also scans it)
 reproit baseline [--update]   visual-regression diff vs the committed baseline
