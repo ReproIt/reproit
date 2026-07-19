@@ -37,7 +37,7 @@ body, not HTTP/1.1 framing octets or HTTP/2 DATA frames.
 | HEAD | No raw response framing | No stream-frame capture | ABSTAIN |
 | 1xx | No complete interim-response capture | No stream-frame capture | ABSTAIN |
 | 204 | Body exposed only after parser semantics | No stream-frame capture | ABSTAIN |
-| 304 | Pure validator accepts supplied bytes, live capture is post-parser | No stream-frame capture | ABSTAIN |
+| 304 | Validator accepts supplied bytes; live capture is parsed | No frame capture | ABSTAIN |
 
 The existing conditional-cache oracle remains valid for a violation only when
 an adapter supplies a non-empty exact 304 response body. The checked-in
