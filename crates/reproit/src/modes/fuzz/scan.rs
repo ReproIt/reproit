@@ -947,7 +947,7 @@ async fn record_native_clips(
         if !boxed {
             // No spec, or the overlay failed: fall back to the raw window film so
             // the finding still gets a clip (unboxed, but honest).
-            if std::fs::copy(&mov, &dest).is_err() {
+            if std::fs::copy(&mov, dest).is_err() {
                 say(json, format!("    could not save clip for {label}"));
                 continue;
             }
