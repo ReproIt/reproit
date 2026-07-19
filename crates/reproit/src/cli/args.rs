@@ -121,7 +121,14 @@ pub(crate) enum Cmd {
         /// default human capture, this requires verification.
         #[arg(
             long,
-            conflicts_with_all = ["attach", "title", "actions_file", "no_video", "upload", "no_open"]
+            conflicts_with_all = [
+                "attach",
+                "title",
+                "actions_file",
+                "no_video",
+                "upload",
+                "no_open"
+            ]
         )]
         cloud_tester: bool,
         /// Capture an app that is already running instead of launching the
