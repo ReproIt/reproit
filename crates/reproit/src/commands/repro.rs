@@ -3,6 +3,8 @@
 use super::record::web_record_metadata;
 use super::*;
 use crate::model::repro;
+use crate::modes::fuzz;
+use std::path::PathBuf;
 
 /// A human label for a repro in CLI output: `<id> (<alias>)` when an alias is
 /// set, else just the id.
@@ -402,6 +404,108 @@ pub(super) fn keep_repro(
         ctx.say(format!("  verify: reproit {public_id}"));
     }
     Ok(())
+}
+
+pub(super) async fn simplify_repro(
+    ctx: &Ctx,
+    config_path: Option<&Path>,
+    reference: &str,
+    raw_candidate: &str,
+) -> Result<ExitCode> {
+    let loaded = config::load(config_path)?;
+    let meta = repro::resolve(&loaded.root, reference)
+        .or_else(|| find_finding_by_id(&loaded, reference).map(|finding| finding.pending_meta()))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no repro or finding `{reference}` (by id or alias). List them with `reproit \
+                 repros`."
+            )
+        })?;
+    let current = load_repro_actions(&loaded, &meta.id)?;
+    let parsed: Vec<String> = serde_json::from_str(raw_candidate)
+        .map_err(|error| anyhow::anyhow!("--to must be a JSON array of action strings: {error}"))?;
+    let candidate = repro::normalize_actions(&parsed);
+    if candidate.is_empty() {
+        anyhow::bail!("--to is empty");
+    }
+    let times = loaded.config.gate.runs.max(1);
+    let (result, _) = check_repro(
+        &loaded,
+        &meta.id,
+        times,
+        1,
+        None,
+        None,
+        ctx.json || ctx.quiet,
+        Some(&candidate),
+    )
+    .await?;
+    let reproduces = result.outcome == repro::Outcome::Fail;
+    let new_id = repro::repro_id(meta.seed, &candidate);
+    let adopted = reproduces && candidate.len() <= current.len() && new_id != meta.id;
+    if adopted {
+        adopt_simplified(&loaded, &meta, &candidate, &new_id)?;
+    }
+    report_simplification(
+        ctx,
+        &meta,
+        result.outcome,
+        current.len(),
+        candidate.len(),
+        &new_id,
+        adopted,
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+fn report_simplification(
+    ctx: &Ctx,
+    meta: &repro::Meta,
+    outcome: repro::Outcome,
+    current_actions: usize,
+    candidate_actions: usize,
+    new_id: &str,
+    adopted: bool,
+) {
+    let reproduces = outcome == repro::Outcome::Fail;
+    if ctx.json {
+        ctx.emit(&serde_json::json!({
+            "command": "simplify",
+            "repro": public_json_id(meta),
+            "kind": public_json_kind(meta),
+            "reproduces": reproduces,
+            "verdict": outcome.as_str(),
+            "from_actions": current_actions,
+            "to_actions": candidate_actions,
+            "adopted": adopted,
+            "new_id": adopted.then(|| repro::display_repro_id(new_id)),
+            "alias": meta.alias,
+        }));
+    } else if adopted {
+        let tag = meta
+            .alias
+            .as_deref()
+            .map(|alias| format!(" [{alias}]"))
+            .unwrap_or_default();
+        ctx.say(format!(
+            "  simplified {} ({current_actions} actions) -> {} ({candidate_actions} \
+             actions){tag}",
+            public_json_id(meta),
+            repro::display_repro_id(new_id),
+        ));
+    } else if !reproduces {
+        ctx.say(format!(
+            "  candidate did NOT reproduce (verdict: {}); kept {}",
+            outcome.as_str(),
+            public_json_id(meta)
+        ));
+    } else {
+        ctx.say(format!(
+            "  candidate reproduces but is not shorter ({candidate_actions} vs \
+             {current_actions}); kept {}",
+            public_json_id(meta)
+        ));
+    }
 }
 
 /// The action sequence a repro currently replays: from its committed

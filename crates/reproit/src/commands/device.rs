@@ -1,7 +1,9 @@
 //! Device discovery, target execution, and cross-target divergence.
 
+use super::repro::check_repro;
 use super::*;
 use crate::model::repro;
+use crate::modes::fuzz;
 
 pub(super) async fn enumerate_devices() -> Vec<crosscut::Device> {
     let mut out: Vec<crosscut::Device> = Vec::new();

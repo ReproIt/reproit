@@ -1,6 +1,7 @@
 //! Cloud credential, project-selection, and command workflows.
 
 use super::*;
+use crate::modes::fuzz;
 
 /// Resolve the effective cloud (url, key) for a cloud subcommand. Precedence:
 ///   url:  --cloud flag > $REPROIT_CLOUD_URL > the persisted login url.

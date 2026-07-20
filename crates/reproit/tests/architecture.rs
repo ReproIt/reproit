@@ -96,6 +96,11 @@ fn production_code_uses_canonical_artifact_layout() {
             if path.is_dir() {
                 pending.push(path);
             } else if path.extension().is_some_and(|extension| extension == "rs") {
+                // A conventional `tests.rs` module is compiled only through its parent's
+                // `#[cfg(test)] mod tests;` declaration, so none of its contents are production.
+                if path.file_name().is_some_and(|name| name == "tests.rs") {
+                    continue;
+                }
                 let body = std::fs::read_to_string(&path).expect("read Rust source");
                 let production = body.split("#[cfg(test)]").next().unwrap_or(&body);
                 for forbidden in [".reproit/findings", ".reproit/tools"] {
@@ -144,12 +149,23 @@ fn responsibility_heavy_modules_stay_split() {
             "{relative} has {lines} lines; move the next responsibility into a named submodule"
         );
     }
+    let commands = source("src/commands/mod.rs");
+    assert!(
+        commands.lines().count() <= 1_000,
+        "src/commands/mod.rs must stay below 1,000 lines; move command workflows into named modules"
+    );
     for relative in [
         "src/capsule/crypto.rs",
         "src/capsule/matching.rs",
         "src/capsule/redaction.rs",
         "src/config/loader.rs",
         "src/mcp/dispatch.rs",
+        "src/commands/backend_target.rs",
+        "src/commands/check.rs",
+        "src/commands/fuzz_command.rs",
+        "src/commands/proof.rs",
+        "src/commands/record_command.rs",
+        "src/commands/scan_command.rs",
     ] {
         assert!(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))

@@ -1,10 +1,12 @@
 //! Recording, capture shrinking, and video playback workflows.
 
+use super::repro::{adopt_simplified, check_repro};
 use super::*;
 use crate::model::repro;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

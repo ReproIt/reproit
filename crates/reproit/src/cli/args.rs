@@ -3,7 +3,7 @@
 use super::context::Ctx;
 use super::rewrite;
 use crate::{config, skills, VERSION};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -38,6 +38,144 @@ impl Cli {
             yes: self.yes,
         }
     }
+}
+
+#[derive(Args)]
+pub(crate) struct ScanArgs {
+    /// What to scan. An OpenAPI, GraphQL introspection, or protobuf schema
+    /// checks read-only service operations; use `--service` when the schema
+    /// has no local server URL. An A2UI JSON/JSONL stream runs against the
+    /// official React and Lit renderers. A URL (https://app.com) runs
+    /// zero-config against that deployed app; a terminal EXECUTABLE (e.g.
+    /// `lazygit`, `htop`, or a path) runs zero-config in a PTY; any other
+    /// value scopes the crawl to that alias/node in a reproit.yaml.
+    #[arg(value_name = "TARGET")]
+    pub(crate) target: Option<String>,
+    /// Disposable backend service URL for an OpenAPI, GraphQL, or protobuf
+    /// target. Overrides the schema server URL.
+    #[arg(long, value_name = "URL")]
+    pub(crate) service: Option<String>,
+    /// Coverage budget: how many actions the crawl may take to reach screens.
+    #[arg(long, default_value_t = 60)]
+    pub(crate) budget: u32,
+    /// Force the simulator tier (default: headless / web).
+    #[arg(long)]
+    pub(crate) sim: bool,
+    /// After the crawl, record every distinct reported finding. Visually
+    /// localizable findings are boxed; the rest are diagnostic clips.
+    #[arg(long)]
+    pub(crate) record: bool,
+    /// Where the `--record` clips land (default:
+    /// .reproit/recordings/scan/<scan-run>/).
+    #[arg(long)]
+    pub(crate) out: Option<PathBuf>,
+    /// Extra HTTP header injected into the browser context, `"Name: value"`.
+    /// Repeatable. Use it to pass a WAF clearance cookie, an auth bearer, or a
+    /// preview token so a challenge-fronted or authenticated target is reachable.
+    #[arg(long = "header", value_name = "NAME: VALUE")]
+    pub(crate) headers: Vec<String>,
+}
+
+#[derive(Args)]
+pub(crate) struct FuzzArgs {
+    /// What to fuzz (optional). Schemas drive valid service calls, A2UI streams
+    /// are checked across renderers, tests become a replay prefix, URLs and
+    /// terminal executables run zero-config, and other values name a journey.
+    #[arg(value_name = "TARGET")]
+    pub(crate) target_arg: Option<String>,
+    /// Disposable backend service URL for schema-driven targets.
+    #[arg(long, value_name = "URL")]
+    pub(crate) service: Option<String>,
+    /// Same-origin reset endpoint for exact stateful replay and minimization.
+    #[arg(long, value_name = "URL")]
+    pub(crate) reset: Option<String>,
+    /// Explorer journey to drive.
+    #[arg(long, default_value = "explore")]
+    pub(crate) journey: String,
+    /// First seed; runs use seed, seed+1, ...
+    #[arg(long, default_value_t = 1)]
+    pub(crate) seed: u64,
+    /// Number of seeds to try.
+    #[arg(long, default_value_t = 3)]
+    pub(crate) runs: u32,
+    /// Actions per walk.
+    #[arg(long, default_value_t = 40)]
+    pub(crate) budget: u32,
+    /// Skip clean-session confirmation and minimization.
+    #[arg(long)]
+    pub(crate) no_confirm: bool,
+    /// Keep hunting and collect unique findings across the whole seed budget.
+    #[arg(long)]
+    pub(crate) all: bool,
+    /// Start each walk from the least-visited reachable state.
+    #[arg(long)]
+    pub(crate) frontier: bool,
+    /// Replay a journey, then fuzz outward from its end state.
+    #[arg(long)]
+    pub(crate) from: Option<String>,
+    /// Use uniform-random choices and a fixed budget.
+    #[arg(long)]
+    pub(crate) uniform: bool,
+    /// JSON array of real user action paths to branch from.
+    #[arg(long)]
+    pub(crate) seeds: Option<String>,
+    /// Seeds per drive session. Zero runs all seeds in one session.
+    #[arg(long, default_value_t = 0)]
+    pub(crate) batch: u32,
+    /// Print a per-phase timing breakdown for each drive session.
+    #[arg(long)]
+    pub(crate) profile_timing: bool,
+    /// Force the simulator tier.
+    #[arg(long)]
+    pub(crate) sim: bool,
+    /// Confirm a headless finding once on a simulator.
+    #[arg(long)]
+    pub(crate) confirm_on_sim: bool,
+    /// Cloud base URL for the optional delivery pipeline.
+    #[arg(long)]
+    pub(crate) cloud: Option<String>,
+    /// Cloud app id for delivered evidence.
+    #[arg(long)]
+    pub(crate) app: Option<String>,
+    /// Cloud bucket id for delivered evidence.
+    #[arg(long)]
+    pub(crate) bucket: Option<String>,
+    /// Post the generated pull request comment instead of emitting a dry run.
+    #[arg(long)]
+    pub(crate) post_comment: bool,
+    /// Run the leak detector over a reversible cycle.
+    #[arg(long)]
+    pub(crate) soak: bool,
+    /// Semicolon-separated actions for a soak cycle.
+    #[arg(long)]
+    pub(crate) cycle: Option<String>,
+    /// Number of soak cycle repetitions.
+    #[arg(long, default_value_t = 15)]
+    pub(crate) repeats: u32,
+    /// Reuse the previous build for a soak run.
+    #[arg(long)]
+    pub(crate) warm: bool,
+    /// Comma-separated engines or platforms.
+    #[arg(long)]
+    pub(crate) target: Option<String>,
+    /// URL for a web-engine target, defaulting to app.url.
+    #[arg(long)]
+    pub(crate) url: Option<String>,
+    /// Run web-engine targets headlessly.
+    #[arg(long)]
+    pub(crate) headless: bool,
+    /// Comma-separated locales.
+    #[arg(long)]
+    pub(crate) locale: Option<String>,
+    /// Restrict execution to these detector categories.
+    #[arg(long)]
+    pub(crate) only: Option<String>,
+    /// Exclude these detector categories after applying --only.
+    #[arg(long = "no")]
+    pub(crate) no_oracles: Option<String>,
+    /// Specific device name or id.
+    #[arg(long)]
+    pub(crate) device: Option<String>,
 }
 
 // A clap subcommand enum: variants carry their flags by value and are
@@ -316,191 +454,12 @@ pub(crate) enum Cmd {
     /// Results retain an authoritative or specialist classification, but both
     /// are reported when their oracle predicate holds.
     /// `--record` saves quick audit clips; use `record <id>` for a fuzz repro.
-    Scan {
-        /// What to scan. An OpenAPI, GraphQL introspection, or protobuf schema
-        /// checks read-only service operations; use `--service` when the schema
-        /// has no local server URL. An A2UI JSON/JSONL stream runs against the
-        /// official React and Lit renderers. A URL (https://app.com) runs
-        /// zero-config against that deployed app; a terminal EXECUTABLE (e.g.
-        /// `lazygit`, `htop`, or a path) runs zero-config in a PTY; any other
-        /// value scopes the crawl to that alias/node in a reproit.yaml.
-        #[arg(value_name = "TARGET")]
-        target_arg: Option<String>,
-        /// Disposable backend service URL for an OpenAPI, GraphQL, or protobuf
-        /// target. Overrides the schema server URL.
-        #[arg(long, value_name = "URL")]
-        service: Option<String>,
-        /// Coverage budget: how many actions the crawl may take to reach
-        /// screens.
-        #[arg(long, default_value_t = 60)]
-        budget: u32,
-        /// Force the simulator tier (default: headless / web).
-        #[arg(long)]
-        sim: bool,
-        /// After the crawl, record every distinct reported finding. Visually
-        /// localizable findings are boxed; the rest are diagnostic clips.
-        #[arg(long)]
-        record: bool,
-        /// Where the `--record` clips land (default:
-        /// .reproit/recordings/scan/<scan-run>/).
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// Extra HTTP header injected into the browser context, `"Name:
-        /// value"`. Repeatable. Use it to pass a WAF clearance cookie
-        /// (`--header "Cookie: cf_clearance=..."`), an auth bearer, or a
-        /// preview token so a challenge-fronted or authed target is
-        /// reachable.
-        #[arg(long = "header", value_name = "NAME: VALUE")]
-        header: Vec<String>,
-    },
+    Scan(ScanArgs),
     /// Find confirmed, replayable bugs through deeper interaction exploration.
     /// ReproIt learns and refreshes its internal app model automatically.
     /// Stable, objective detectors are on by default. Specialist detectors are
     /// opt-in with `--only`; `--soak` runs the leak cycle.
-    Fuzz {
-        /// What to fuzz (optional). An OpenAPI, GraphQL introspection, or
-        /// protobuf schema drives schema-valid service calls; use `--service`
-        /// for the disposable target and `--reset` for exact stateful replay.
-        /// An A2UI JSON/JSONL stream is checked across the official React and
-        /// Lit renderers with schema-valid mutations. A PLAYWRIGHT TEST file
-        /// (`reproit fuzz your-test.spec.ts`) is run under trace; reproit
-        /// replays its actions to reach its deep state, then fuzzes
-        /// onward for the bugs the test never covered (you wrote the
-        /// test; reproit finds the bugs you didn't). A URL (https://app.com) is
-        /// auto-detected and runs zero-config
-        /// against that deployed app; a terminal EXECUTABLE (e.g. `lazygit`, or
-        /// a path) runs zero-config in a PTY; no reproit.yaml needed
-        /// for any of these. Any other value scopes the hunt to that
-        /// alias/node.
-        #[arg(value_name = "TARGET")]
-        target_arg: Option<String>,
-        /// Disposable backend service URL for an OpenAPI, GraphQL, or protobuf
-        /// target. Remote mutating fuzz still requires `--yes`.
-        #[arg(long, value_name = "URL")]
-        service: Option<String>,
-        /// Same-origin reset endpoint used before confirmation, shrinking, and
-        /// replay of stateful backend findings.
-        #[arg(long, value_name = "URL")]
-        reset: Option<String>,
-        /// Explorer journey to drive (resolves like any journey target)
-        #[arg(long, default_value = "explore")]
-        journey: String,
-        /// First seed; runs use seed, seed+1, ...
-        #[arg(long, default_value_t = 1)]
-        seed: u64,
-        /// Number of seeds to try
-        #[arg(long, default_value_t = 3)]
-        runs: u32,
-        /// Actions per walk
-        #[arg(long, default_value_t = 40)]
-        budget: u32,
-        /// Skip clean-session confirmation and minimization. Observations remain
-        /// local candidates and cannot be delivered or kept as confirmed guards.
-        #[arg(long)]
-        no_confirm: bool,
-        /// Collect findings across the whole seed budget instead of stopping at
-        /// the first, and group them by crash signature into UNIQUE bugs (the
-        /// deduped "fuzz and fix" work-list). Slower (it keeps hunting).
-        #[arg(long)]
-        all: bool,
-        /// Coverage-guided: deterministic path to the least-visited state,
-        /// then the seeded walk explores from that frontier
-        #[arg(long)]
-        frontier: bool,
-        /// Fuzz FROM a journey: replay this journey (a name like any journey
-        /// target, or a path to a .yaml, e.g. one just written by
-        /// `reproit import`) to its end state, then branch the seeded walk
-        /// outward from there. Turns a recorded/imported flow into a launchpad
-        /// for the bugs it never covered. Takes precedence over --frontier.
-        #[arg(long)]
-        from: Option<String>,
-        /// A/B control: uniform-random pick + fixed budget (disables the
-        /// inverse-visit-count scoring and power schedule)
-        #[arg(long)]
-        uniform: bool,
-        /// Production-seeded fuzzing: path to a JSON array of real user action
-        /// paths (e.g. from SDK telemetry). The fuzzer branches outward from
-        /// them instead of always launching cold.
-        #[arg(long)]
-        seeds: Option<String>,
-        /// Seeds per drive session (batch-seeds-per-session). One install +
-        /// launch + connect is amortized across this many seeds, resetting app
-        /// state between them. Default 0 = all `runs` in ONE session. Use
-        /// `--batch 1` for a one-drive-per-seed A/B control.
-        #[arg(long, default_value_t = 0)]
-        batch: u32,
-        /// Print a per-phase wall-clock breakdown (sim ensure, reset, build,
-        /// launch->ready, walk, teardown) for each drive session.
-        #[arg(long)]
-        profile_timing: bool,
-        /// Force the SIMULATOR tier (flutter drive on an iOS sim). Default is
-        /// the HEADLESS tier (flutter test, no sim, runs in seconds on Linux).
-        /// Use --sim for jank/runtime/keyboard/plugin oracles or repro video.
-        #[arg(long)]
-        sim: bool,
-        /// On a headless finding, replay the minimized repro ONCE on the
-        /// simulator to confirm on the real runtime (default off).
-        #[arg(long)]
-        confirm_on_sim: bool,
-        /// Cloud base URL. When set (with --app), a finding triggers the
-        /// delivery pipeline: annotate + upload the minimized-repro clip, then
-        /// emit the PR-comment markdown.
-        #[arg(long)]
-        cloud: Option<String>,
-        /// Cloud app id the finding's evidence attaches to (with --cloud).
-        #[arg(long)]
-        app: Option<String>,
-        /// Cloud bucket id the finding's evidence attaches to (bkt_...).
-        #[arg(long)]
-        bucket: Option<String>,
-        /// Actually POST the PR comment (needs GITHUB_TOKEN + repo + PR);
-        /// otherwise the pipeline emits the comment markdown as a dry-run.
-        #[arg(long)]
-        post_comment: bool,
-        /// Leak oracle: repeat a reversible cycle and watch heap growth per
-        /// cycle. Use with --cycle / --repeats.
-        #[arg(long)]
-        soak: bool,
-        /// (--soak) semicolon-separated actions, e.g.
-        /// "tap:Compose;tap:New post;tap:Publish"
-        #[arg(long)]
-        cycle: Option<String>,
-        /// (--soak) how many times to repeat the cycle
-        #[arg(long, default_value_t = 15)]
-        repeats: u32,
-        /// Reuse the previous build (--no-build). Applies to --soak.
-        #[arg(long)]
-        warm: bool,
-        /// Target engines/platforms. When set to web engines (e.g.
-        /// "chromium,firefox,webkit"), runs the cross-engine differential
-        /// (divergence oracle). The first engine is reference.
-        #[arg(long)]
-        target: Option<String>,
-        /// (--target web engines) URL under test (defaults to app.url)
-        #[arg(long)]
-        url: Option<String>,
-        /// (--target web engines) run headless (default headed, so the real
-        /// GPU compositor runs)
-        #[arg(long)]
-        headless: bool,
-        /// Comma-separated locale list to fuzz across (e.g. de,ar,ja). Each
-        /// locale runs the flow once with REPROIT_LOCALE set; findings are
-        /// tagged with their locale and locale-specific i18n findings are
-        /// noted. Unset = the app default (behavior unchanged).
-        #[arg(long)]
-        locale: Option<String>,
-        /// Restrict to oracle categories. This also opts into preview or
-        /// experimental detectors that are not part of the stable default.
-        #[arg(long)]
-        only: Option<String>,
-        /// Exclude these oracle categories. Applied after --only.
-        #[arg(long = "no")]
-        no_oracles: Option<String>,
-        /// Specific device name/id to route to (else the interactive picker
-        /// when a TTY is present and --target is a platform).
-        #[arg(long)]
-        device: Option<String>,
-    },
+    Fuzz(FuzzArgs),
     /// Serve reproit as an MCP server (stdio) for coding agents
     Mcp,
     /// Show the platform support matrix: which UI frameworks map to which

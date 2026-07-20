@@ -3,6 +3,7 @@
 use super::*;
 use crate::auth;
 use crate::model::{map, repro};
+use std::path::PathBuf;
 
 pub(super) fn auth_prompt(label: &str, _secret: bool) -> Result<String> {
     use std::io::Write;
