@@ -565,7 +565,7 @@ fn persist_pulled_package(
     );
     println!("  files:     {}", dir.join("meta.json").display());
     println!(
-        "\nnow run: reproit check {as_name}\ncommit {} with the fix so CI can verify it",
+        "\nnow run: reproit @{as_name}\ncommit {} with the fix so CI can verify it",
         dir.display()
     );
     Ok(())

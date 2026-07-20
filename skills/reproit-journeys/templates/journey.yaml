@@ -1,6 +1,6 @@
 # reproit journey template. Two examples: a single-actor flow and a multi-user
 # flow. Delete whichever you do not need. Save/validate with `reproit journey`,
-# run with `reproit check <name>`.
+# run with `reproit @name`.
 
 # --------------------------------------------------------------------------
 # Single actor: log in as guest, create an item, assert it appears.

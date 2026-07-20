@@ -83,12 +83,12 @@ impl Finding {
 }
 
 /// Find a fuzz finding by its content-hash id, scanning EVERY run dir under the
-/// evidence out dir (not just the latest), so `check <id>` can confirm any
+/// evidence out dir (not just the latest), so `reproit <id>` can confirm any
 /// finding the last `fuzz` reported, before it is `keep`-ed. Returns the first
 /// dir whose `fuzz.md` repro block hashes to `id`.
 pub(super) fn find_finding_by_id(loaded: &config::Loaded, id: &str) -> Option<Finding> {
     // Direct `reproit fnd_...` syntax is normalized into the internal raw id
-    // before command dispatch. Explicit `check fnd_...` still arrives prefixed.
+    // before command dispatch. The hidden check route still receives the prefix.
     // Accept both forms at this internal lookup boundary.
     let id = repro::raw_finding_id(id)
         .or_else(|| (id.len() == 12 && id.chars().all(|c| c.is_ascii_hexdigit())).then_some(id))?;
@@ -247,7 +247,7 @@ pub(super) fn keep_repro(
 ) -> Result<()> {
     let root = loaded.root.as_path();
     // Resolve the finding to keep: a specific one by id (any finding the last
-    // fuzz reported, so `keep <id>` pairs with `check <id>`), or the latest when
+    // fuzz reported, so `keep <id>` pairs with `reproit <id>`), or the latest when
     // no id is given.
     let finding = match id {
         Some(want) => find_finding_by_id(loaded, want).ok_or_else(|| {
@@ -280,6 +280,10 @@ pub(super) fn keep_repro(
     )?;
     // Carry the discovering report for human reference (best-effort).
     let _ = std::fs::copy(finding.run_dir.join("fuzz.md"), dir.join("fuzz.md"));
+    let finding_evidence = layout::finding_dir(root, &computed).join("run-evidence.json");
+    if finding_evidence.exists() {
+        std::fs::copy(finding_evidence, dir.join("run-evidence.json"))?;
+    }
     let finding_capsule = layout::finding_dir(root, &computed).join("capsule-id");
     if let Ok(id) = std::fs::read_to_string(finding_capsule) {
         std::fs::write(dir.join("capsule-id"), id)?;
@@ -605,7 +609,7 @@ pub(super) async fn check_repro(
             });
     // Replay source: a KEPT repro's store (replay.json + meta trigger) when it
     // exists, else a PENDING fuzz finding by id read straight from the artifact,
-    // so `check <id>` can confirm a finding BEFORE it is `keep`-ed. For the
+    // so `reproit <id>` can confirm a finding BEFORE it is `keep`-ed. For the
     // pending case the trigger is derived from the finding itself (full minimized
     // length; oracle/sig from its fuzz.md).
     let (replay, trigger): (serde_json::Value, repro::Trigger) = if dir.join("replay.json").exists()
@@ -677,7 +681,7 @@ pub(super) async fn check_repro(
     // Precedence: an explicit `--locale` (the cross-locale matrix) wins; otherwise
     // fall back to a `locale` pinned in the stored production replay.json /
     // `reproduce` (the property-matched fixture's locale), so a locale-dependent
-    // prod bug reproduces under a plain `reproit check <name>` without the caller
+    // prod bug reproduces under a plain `reproit @name` without the caller
     // having to remember which locale it came from. The runner reads `inputs` off
     // the config directly, but reads locale ONLY from REPROIT_LOCALE, so the
     // fixture locale must be lifted here.

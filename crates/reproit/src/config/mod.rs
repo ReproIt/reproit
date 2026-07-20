@@ -806,7 +806,7 @@ mod tests {
     fn zero_config_persists_and_reloads_rooted_at_cwd() {
         // The zero-config `fuzz <url>` papercut fix: synthesize_web persists its
         // config, and loading that persisted `.reproit/reproit.yaml` re-roots at
-        // the PROJECT dir (not `.reproit/`), so a follow-up `check <id>` resolves
+        // the PROJECT dir (not `.reproit/`), so a follow-up `reproit <id>` resolves
         // `.reproit/runs` and friends from the cwd and replays correctly.
         let proj = std::env::temp_dir().join(format!("reproit_reload_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&proj);
@@ -883,7 +883,7 @@ mod tests {
     // real loader, both the :-default fallback and an explicit override.
     #[test]
     fn loader_resolves_app_web_runner_dir() {
-        let dir = std::env::temp_dir().join("rit_cfg_e2e_wrd");
+        let dir = std::env::temp_dir().join(format!("rit_cfg_e2e_wrd_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("reproit.yaml");
         std::fs::write(

@@ -141,7 +141,10 @@ reproit doctor                        # check app, platform, runner, and auth se
 reproit scan [target]                 # scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]                 # find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>           # reproduce one bug
+reproit @saved-name                   # reproduce one saved repro or journey by name
 reproit <cap_...>                     # show one immutable original capture
+reproit proof <id>                    # explain authority, replay, minimization, and promotion
+reproit candidates                    # list candidates with exact promotion blockers
 reproit check                         # verify the whole saved suite
 reproit record                        # launch the app and preserve a human-authored original
 reproit record --attach               # capture an already-running app from its current state

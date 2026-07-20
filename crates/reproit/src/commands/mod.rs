@@ -3,11 +3,14 @@
 mod auth;
 mod authored_contract;
 mod capture;
+mod check;
 mod cloud;
 mod device;
 mod doctor;
 mod map;
+mod proof;
 mod record;
+mod record_command;
 mod repro;
 
 #[cfg(all(target_os = "linux", feature = "linux-atspi"))]
@@ -24,35 +27,31 @@ use crate::cli::target::{target_as_executable, target_as_url};
 use crate::infra::ScopedEnv;
 use crate::model::{accessibility, appmap, backend, fault};
 use crate::modes::{
-    a2ui, analyze, backend_headless, fix, flicker, fuzz, graph, import, journey, mapplan, pwfuzz,
+    a2ui, analyze, backend_headless, fix, fuzz, graph, import, journey, mapplan, pwfuzz,
     screenshots, soak, triage, visual,
 };
 use crate::{
-    capsule, config, crashreporter, crosscut, exec, init, junit, layout, mcp, skills, update,
-    VERSION,
+    capsule, config, crashreporter, crosscut, exec, init, layout, mcp, skills, update, VERSION,
 };
 use anyhow::{Context, Result};
 use auth::{auth_cmd, auth_prompt, discover_and_verify_login};
 use authored_contract::run_vitest_contract;
 use capture::{load_original, open_cloud_capture, show_original, upload_original, watch_original};
+use check::CheckArgs;
 #[cfg(test)]
 use cloud::choose_cloud_project;
 use cloud::{cloud_app_id, cloud_cmd, cloud_creds};
-use device::{
-    is_web_engines, pick_device_interactive, resolve_check_device, run_check_targets,
-    run_needs_device_pick, run_targets,
-};
+use device::{is_web_engines, pick_device_interactive, run_needs_device_pick, run_targets};
 use doctor::doctor;
 use map::{debug_map, ensure_app_map, rebuild_app_map};
+use proof::{list_candidates, show_proof};
 #[cfg(test)]
-use record::web_record_metadata;
-use record::{
-    exploratory_record_session, human_record_session, minimize_record_replay, open_in_player,
-    resolve_repro_video,
-};
+use record::{minimize_record_replay, web_record_metadata};
+use record::{open_in_player, resolve_repro_video};
+use record_command::RecordArgs;
 use repro::{
-    adopt_simplified, check_label, check_repro, find_finding_by_id, keep_repro, latest_finding,
-    load_repro_actions, public_json_id, public_json_kind, repro_label, resolve_repro_journey,
+    adopt_simplified, check_repro, find_finding_by_id, keep_repro, latest_finding,
+    load_repro_actions, public_json_id, public_json_kind, repro_label,
 };
 #[cfg(test)]
 use repro::{
@@ -179,14 +178,6 @@ where
             test_name,
             pnpm_version,
         } => run_vitest_contract(&ctx, &cwd, &test_path, &test_name, &pnpm_version).await,
-        // `record`: run a repro ONCE with full evidence + annotated video,
-        // REPLAYING the kept repro. The runner draws the annotated overlay (paced
-        // action HUD + the red finding box) ONLY when it is fed a replay; without
-        // one it explores freely and the "annotated video" is a random walk, not
-        // the bug. So we write the repro's stored action sequence to the fuzz
-        // config the runner reads and hand the path to the orchestrator as a
-        // define, instead of running a bare `explore` journey. `--flicker` then
-        // scans the recorded video for transient render glitches.
         Cmd::Record {
             repro,
             cloud_tester,
@@ -205,143 +196,29 @@ where
             profile,
             flicker,
         } => {
-            if repro.is_none() {
-                if cloud_tester {
-                    return exploratory_record_session(
-                        cli.config.as_deref(),
-                        app,
-                        timeout,
-                        kind.as_deref(),
-                        &ctx,
-                    )
-                    .await;
-                }
-                if app.is_some()
-                    || kind.is_some()
-                    || devices != 1
-                    || warm
-                    || shots_dir.is_some()
-                    || profile
-                    || flicker
-                    || timeout != 1800
-                {
-                    anyhow::bail!(
-                        "--app, --timeout, --kind, --devices, --warm, --shots-dir, --profile, and \
-                         --flicker apply only to --cloud-tester or an existing repro id"
-                    );
-                }
-                let capture = human_record_session(
-                    cli.config.as_deref(),
+            record_command::run(
+                &ctx,
+                RecordArgs {
+                    config_path: cli.config,
+                    repro,
+                    cloud_tester,
                     attach,
-                    title.as_deref(),
-                    actions_file.as_deref(),
+                    title,
+                    actions_file,
                     no_video,
-                    &ctx,
-                )
-                .await?;
-                if upload {
-                    upload_original(&capture, no_open, &ctx).await?;
-                } else if ctx.json {
-                    ctx.emit(&serde_json::json!({
-                        "command": "record",
-                        "status": "captured",
-                        "capture": capture.id,
-                        "path": capture.path,
-                        "verified": false,
-                        "oracle": null,
-                        "immutableOriginal": true,
-                    }));
-                } else {
-                    ctx.say("  local only; upload explicitly with `reproit cap_... --upload`");
-                }
-                return Ok(ExitCode::SUCCESS);
-            }
-            if cloud_tester
-                || attach
-                || title.is_some()
-                || actions_file.is_some()
-                || no_video
-                || upload
-                || no_open
-            {
-                anyhow::bail!("capture options cannot be combined with an existing repro id");
-            }
-            let repro = repro.expect("checked above");
-            let loaded = config::load(cli.config.as_deref()).with_context(|| {
-                "recording a production bug needs a runnable app configuration. In a source \
-                 checkout run `reproit init`; for a deployed web app run `reproit init \
-                 https://app.example.com` in a workspace; from elsewhere pass \
-                 `--config /path/to/reproit.yaml`"
-            })?;
-            if repro.starts_with("bkt_") && repro::resolve(&loaded.root, &repro).is_none() {
-                let (cloud, key) = cloud_creds(None, None);
-                triage::pull_global(&loaded.root, &repro, &repro, ctx.json, cloud, key).await?;
-            }
-            let journey = resolve_repro_journey(&loaded.root, &repro)?;
-            let meta = repro::resolve(&loaded.root, &repro)
-                .ok_or_else(|| anyhow::anyhow!("no repro `{repro}` (by id or alias)"))?;
-            let replay_path = repro::repro_dir(&loaded.root, &meta.id).join("replay.json");
-            let mut replay: serde_json::Value =
-                serde_json::from_str(&std::fs::read_to_string(&replay_path).map_err(|e| {
-                    anyhow::anyhow!(
-                        "reading replay for `{repro}` ({}): {e}",
-                        replay_path.display()
-                    )
-                })?)?;
-            // Tell the runner which finding this clip is for, so the annotated box
-            // is scoped to JUST that oracle's issue (one box), not every problem
-            // on the page. The runner reads `highlight` from the config.
-            let saved_meta = repro::load_meta(&loaded.root, &meta.id);
-            if let Some(saved) = saved_meta.as_ref() {
-                minimize_record_replay(&mut replay, saved);
-            }
-            if let Some(oracle) = saved_meta.and_then(|m| m.oracle) {
-                if let Some(obj) = replay.as_object_mut() {
-                    obj.insert("highlight".to_string(), serde_json::Value::String(oracle));
-                }
-            }
-            let cfg_path = layout::fuzz_config_path(&loaded.root);
-            std::fs::create_dir_all(cfg_path.parent().unwrap())?;
-            std::fs::write(&cfg_path, replay.to_string())?;
-            let extra = vec![(
-                "REPROIT_FUZZ_CONFIG".to_string(),
-                cfg_path.to_string_lossy().into_owned(),
-            )];
-            let outcome = orchestrator::run_journey(
-                &loaded.config,
-                &loaded.root,
-                &journey,
-                &orchestrator::RunOpts {
-                    kind: kind.as_deref(),
+                    upload,
+                    no_open,
+                    app,
+                    timeout_seconds: timeout,
+                    kind,
                     devices,
                     warm,
-                    shots_dir: shots_dir.as_deref(),
+                    shots_dir,
                     profile,
-                    extra_defines: &extra,
-                    // `record` produces an annotated video, so the runner must
-                    // record even when evidence.video is off.
-                    record_video: true,
-                    ..Default::default()
+                    flicker,
                 },
             )
-            .await?;
-            // `--flicker`: scan the just-recorded video frame-to-frame for
-            // transient render glitches (a frame that diverges then snaps back).
-            if flicker {
-                let events =
-                    flicker::analyze_run(&outcome.run_dir, &flicker::FlickerCfg::default()).await?;
-                let clean = flicker::report(&events);
-                return Ok(if clean {
-                    ExitCode::SUCCESS
-                } else {
-                    exit_with(Exit::Regression)
-                });
-            }
-            Ok(if outcome.passed {
-                ExitCode::SUCCESS
-            } else {
-                exit_with(Exit::Regression)
-            })
+            .await
         }
         // `baseline`: the visual oracle. Diff the current capture against the
         // committed baseline (per-pixel tolerance + ignore regions); `--update`
@@ -373,279 +250,32 @@ where
             target,
             device,
         } => {
-            if let Some(id) = repro.as_deref() {
-                if let Some(code) = backend_headless::try_replay(&ctx, id).await? {
-                    return Ok(code);
-                }
-                if let Some(code) = a2ui::try_replay(&ctx, id)? {
-                    return Ok(code);
-                }
-            }
-            let loaded = config::load(cli.config.as_deref())?;
-            ensure_app_map(&ctx, &loaded, "explore").await?;
-            let locales = locale
-                .as_deref()
-                .map(crosscut::parse_locales)
-                .unwrap_or_default();
-            // MULTI-TARGET --target dispatch for `check`: when `--target` names
-            // more than one run target (web engines chromium,firefox,webkit, or
-            // platforms ios,android), run the saved suite on EACH target and diff
-            // which repros are red on a SUBSET of targets (a divergence). The
-            // single-target / no-target path below stays the rich locale+junit+
-            // promotion flow unchanged.
-            if let Some(raw) = target.as_deref() {
-                let (rts, unknown_t) = crosscut::parse_run_targets(raw);
-                for u in &unknown_t {
-                    ctx.say(format!("  warn: unknown target `{u}` (ignored)"));
-                }
-                if rts.len() > 1 {
-                    return run_check_targets(
-                        &ctx,
-                        &loaded,
-                        &rts,
-                        device.as_deref(),
-                        &repro,
-                        runs,
-                        devices,
-                        kind.as_deref(),
-                    )
-                    .await;
-                }
-            }
-            // --target / --device device selection. When neither is given and a
-            // TTY is present (and not --yes), pick interactively; non-interactive
-            // falls back to the config default rather than hanging.
-            let selected_device = resolve_check_device(
+            check::run(
                 &ctx,
-                &loaded.config.app.platform,
-                target.as_deref(),
-                device.as_deref(),
+                cli.config.as_deref(),
+                CheckArgs {
+                    repro,
+                    devices,
+                    kind,
+                    runs,
+                    junit,
+                    strict,
+                    locale,
+                    target,
+                    device,
+                },
             )
-            .await;
-            if let Some(d) = &selected_device {
-                std::env::set_var("REPROIT_PLATFORM", d.target.as_str());
-                std::env::set_var("REPROIT_DEVICE", &d.id);
-                ctx.say(format!("  device: {} ({})", d.name, d.target.as_str()));
-            }
-            let times = runs.unwrap_or(loaded.config.gate.runs).max(1);
-            // A scripted journey (journeys/<name>.yaml) is a first-class check
-            // target. If the name is not a saved repro or a pending finding but a
-            // journey file exists, run it as a journey (repros win a name clash).
-            if let Some(r) = &repro {
-                if repro::resolve(&loaded.root, r).is_none()
-                    && find_finding_by_id(&loaded, r).is_none()
-                    && journey::exists(&loaded.root, r)
-                {
-                    let result = journey::run(&loaded, r, times, ctx.json || ctx.quiet).await?;
-                    if ctx.json {
-                        ctx.emit(&serde_json::json!({
-                            "command": "check",
-                            "journey": r,
-                            "outcome": result.outcome.as_str(),
-                            "rate": result.rate(),
-                            "exit": result.outcome.exit_code(),
-                        }));
-                    } else {
-                        ctx.say(format!(
-                            "\ncheck: {} ({})  journey {r}",
-                            result.outcome.as_str().to_uppercase(),
-                            result.rate()
-                        ));
-                    }
-                    return Ok(ExitCode::from(result.outcome.exit_code()));
-                }
-            }
-            // `check` with no name = run the whole saved suite; aggregate worst.
-            let metas = match &repro {
-                // A kept repro (id or alias) first; failing that, a PENDING fuzz
-                // finding by id, so you can `check <id>` to confirm a finding
-                // replays before you `keep` it.
-                Some(r) => vec![match repro::resolve(&loaded.root, r) {
-                    Some(m) => m,
-                    None => find_finding_by_id(&loaded, r)
-                        .map(|f| f.pending_meta())
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "no repro or finding `{r}` (by id or alias). List saved bugs with \
-                                 `reproit bugs`, or find some with `reproit fuzz`."
-                            )
-                        })?,
-                }],
-                None => {
-                    let all = repro::list(&loaded.root);
-                    if all.is_empty() {
-                        if ctx.json {
-                            ctx.emit(&serde_json::json!({
-                                "command": "check",
-                                "repros": [],
-                                "outcome": "pass",
-                                "exit": 0,
-                            }));
-                            return Ok(ExitCode::SUCCESS);
-                        }
-                        anyhow::bail!(
-                            "no repros to check. Find some with `reproit fuzz`, then `reproit \
-                             keep`."
-                        );
-                    }
-                    all
-                }
-            };
-
-            let mut results = Vec::new();
-            let mut worst = repro::Outcome::Pass;
-            let mut cases: Vec<junit::Case> = Vec::new();
-            // Locale runs: either one app-default pass (None) or one pass per
-            // locale. For the cross-locale diff we record, per repro id, the set
-            // of locales it FAILED in (fail/flaky/stale), so a repro red in one
-            // locale and green in another is flagged as a locale-specific bug.
-            let locale_runs: Vec<Option<&str>> = if locales.is_empty() {
-                vec![None]
-            } else {
-                locales.iter().map(|l| Some(l.as_str())).collect()
-            };
-            let mut failed_by_id: std::collections::BTreeMap<String, Vec<String>> =
-                std::collections::BTreeMap::new();
-            for loc in &locale_runs {
-                if let Some(l) = loc {
-                    ctx.say(format!("\n=== locale {l} ==="));
-                }
-                for meta in &metas {
-                    let label = match loc {
-                        Some(l) => format!("{} @{l}", check_label(meta)),
-                        None => check_label(meta),
-                    };
-                    ctx.say(format!("check {label}"));
-                    let (result, run_dir) = check_repro(
-                        &loaded,
-                        &meta.id,
-                        times,
-                        devices,
-                        kind.as_deref(),
-                        *loc,
-                        ctx.json || ctx.quiet,
-                        None,
-                    )
-                    .await?;
-                    // Quarantined repros are "reported but non-blocking" in a
-                    // WHOLE-SUITE check (no id): a fresh keep can't break CI before
-                    // it has proven green once. But an EXPLICIT `check <id>` is the
-                    // user verifying THAT bug -- if it still reproduces it must be
-                    // RED (exit non-zero), so the find -> check(RED) -> fix ->
-                    // check(GREEN) -> guard loop is honest. `--strict` blocks
-                    // everywhere; required repros always gate.
-                    let blocks =
-                        strict || repro.is_some() || meta.status != repro::Status::Quarantined;
-                    let effective = if blocks {
-                        result.outcome
-                    } else {
-                        repro::Outcome::Pass
-                    };
-                    worst = worst.max(effective);
-                    if result.outcome != repro::Outcome::Pass {
-                        if let Some(l) = loc {
-                            failed_by_id
-                                .entry(meta.id.clone())
-                                .or_default()
-                                .push(l.to_string());
-                        }
-                    }
-                    cases.push(junit::Case {
-                        name: format!("check {label}"),
-                        passed: result.outcome == repro::Outcome::Pass,
-                        time_s: 0.0,
-                        message: format!(
-                            "{} ({}); evidence: {}",
-                            result.outcome.as_str(),
-                            result.rate(),
-                            run_dir.display()
-                        ),
-                    });
-                    // Auto-promote: the first time a quarantined repro passes, it
-                    // becomes required (write meta).
-                    let mut updated = meta.clone();
-                    updated.last_checked = Some(chrono::Local::now().to_rfc3339());
-                    updated.last_result = Some(result.outcome.as_str().to_string());
-                    let mut promoted = false;
-                    if result.outcome == repro::Outcome::Pass
-                        && meta.status == repro::Status::Quarantined
-                    {
-                        updated.status = repro::Status::Required;
-                        promoted = true;
-                    }
-                    repro::save_meta(&loaded.root, &updated)?;
-                    ctx.say(format!(
-                        "  {} {} ({}){}",
-                        result.outcome.as_str().to_uppercase(),
-                        label,
-                        result.rate(),
-                        if promoted {
-                            "  promoted -> required"
-                        } else {
-                            ""
-                        }
-                    ));
-                    results.push(serde_json::json!({
-                        "id": public_json_id(meta),
-                        "kind": public_json_kind(meta),
-                        "alias": meta.alias,
-                        "locale": loc,
-                        "outcome": result.outcome.as_str(),
-                        "rate": result.rate(),
-                        "green": result.green,
-                        "total": result.total,
-                        "status": updated.status.as_str(),
-                        "promoted": promoted,
-                        "exit": result.outcome.exit_code(),
-                        "evidence": run_dir.to_string_lossy(),
-                    }));
-                }
-            }
-            // Cross-locale diff: a repro that failed in SOME locales but not all
-            // is a locale-specific (i18n) finding.
-            if locale_runs.len() > 1 {
-                let mut any = false;
-                for meta in &metas {
-                    if let Some(failed) = failed_by_id.get(&meta.id) {
-                        if failed.len() < locale_runs.len() {
-                            if !any {
-                                ctx.say("\nlocale diff: locale-specific failures (i18n):");
-                                any = true;
-                            }
-                            ctx.say(format!(
-                                "  {} fails only in: {}",
-                                check_label(meta),
-                                failed.join(", ")
-                            ));
-                        }
-                    }
-                }
-                if !any {
-                    ctx.say("\nlocale diff: no locale-specific failures");
-                }
-            }
-            if let Some(path) = junit.as_deref() {
-                if let Err(e) = junit::write(path, "check", &cases) {
-                    ctx.say(format!(
-                        "  warn: could not write junit {}: {e}",
-                        path.display()
-                    ));
-                } else {
-                    ctx.say(format!("  junit: {}", path.display()));
-                }
-            }
-            ctx.emit(&serde_json::json!({
-                "command": "check",
-                "repros": results,
-                "outcome": worst.as_str(),
-                "exit": worst.exit_code(),
-            }));
-            ctx.say(format!(
-                "\ncheck: {} ({} repro(s))",
-                worst.as_str().to_uppercase(),
-                metas.len()
-            ));
-            Ok(exit_with(Exit::from(worst)))
+            .await
+        }
+        Cmd::Proof { reference } => {
+            let loaded = config::load(cli.config.as_deref())?;
+            show_proof(&ctx, &loaded, &reference)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::Candidates => {
+            let loaded = config::load(cli.config.as_deref())?;
+            list_candidates(&ctx, &loaded)?;
+            Ok(ExitCode::SUCCESS)
         }
         Cmd::Keep {
             id,
@@ -1047,7 +677,6 @@ where
             seed,
             runs,
             budget,
-            shrink: _shrink,
             no_confirm,
             all,
             frontier,

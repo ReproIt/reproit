@@ -98,11 +98,18 @@ valid bounded contract hash limits that abstention to the exact matching contrac
 and unsupported versions are shared defects. The removed `REPROIT:EVENT/1` envelope is never
 decoded as protocol evidence.
 
-Normalized traces, evaluations, confirmation results, and minimized traces are persisted as a
-topologically ordered evidence graph. Every node id is the SHA-256 digest of its kind, parents, and
-payload. The cloud validates every node again, stores nodes by `(app, digest)`, and attaches graph
-roots to run ids. CLI/cloud handoff therefore transfers immutable identities rather than mutable
-files with parallel interpretations.
+Normalized traces, evaluations, confirmation results, minimized traces, and proof ledgers are
+persisted as a topologically ordered evidence graph. Every node id is the SHA-256 digest of its
+kind, parents, and payload. A proof ledger cannot serialize as `confirmed` unless every finding has
+an authority source, evaluation is `VIOLATION`, clean replay reproduced the exact identity, and
+minimization preserved it. The cloud validates every node again, stores nodes by `(app, digest)`,
+and attaches graph roots to run ids. CLI/cloud handoff therefore transfers immutable identities
+rather than mutable files with parallel interpretations.
+
+Graph analysis is search guidance only. Bounded strongly connected component and dominator
+analysis prioritizes rare frontiers that unlock more reachable state. It degrades to the existing
+deterministic visit ordering above its analysis bounds and never enters evaluation, confirmation,
+or finding identity.
 
 ## Finding-preservation rule
 

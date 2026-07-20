@@ -203,12 +203,6 @@ pub(super) fn perf_findings(run_dir: &Path) -> Vec<Value> {
     out
 }
 
-pub(super) fn all_findings(run_dir: &Path) -> Vec<Value> {
-    let mut f = app_exceptions(run_dir);
-    f.extend(perf_findings(run_dir));
-    f
-}
-
 /// Build the observation bundle the INVARIANTS oracle evaluates: this seed's
 /// parsed state graph (EXPLORE:STATE/EDGE), the already-parsed exception
 /// findings, and the tier. Per-state jank and a non-exception leak signal are

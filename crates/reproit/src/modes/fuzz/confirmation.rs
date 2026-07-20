@@ -153,11 +153,10 @@ pub(super) fn replay_is_hermetic(log: &str) -> bool {
     !log.lines().any(|line| line.contains("CAPSULE:MISS "))
 }
 
-/// ddmin (Zeller & Hildebrand 2002): minimize a failing trace by removing
-/// CHUNKS at decreasing granularity rather than one action at a time. Each
-/// replay is an expensive device run, so we want the 1-minimal trace in
-/// O(log n) replays, not O(n). Granularity starts at 2 (remove halves) and
-/// doubles only when no chunk at the current granularity can be dropped.
+/// Bounded delta reduction removes chunks at decreasing granularity rather
+/// than one action at a time. Each replay is an expensive device run, so the
+/// reducer tries large complements first and accepts only exact, hermetic
+/// reproductions.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn shrink(
     cfg: &Config,
@@ -188,15 +187,8 @@ pub(super) async fn shrink(
     // the SAME finding category fires with zero actions, that IS the minimal repro.
     // The reproduces_original category gate rejects an empty replay that trips a
     // different finding category.
-    std::fs::write(
-        cfg_path,
-        json!({ "replay": Vec::<String>::new() }).to_string(),
-    )?;
     let load_only_reproduces =
-        match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
-            Ok(o) => reproduces_original(&findings_for_tier(cfg, &o.run_dir, sim), want),
-            Err(_) => false,
-        };
+        confirm_trace(cfg, root, journey, cfg_path, defines, &[], sim, want).await?;
     if load_only_reproduces {
         say(
             json,
@@ -208,6 +200,28 @@ pub(super) async fn shrink(
     let mut current = trace;
     let mut granularity = 2usize;
     let mut replays = 1usize; // the zero-action probe above counts as one replay
+    for action_index in 0..current.len() {
+        if replays >= MAX_SHRINK_REPLAYS {
+            break;
+        }
+        let original = current[action_index].clone();
+        for reduced in action_value_reductions(&original) {
+            if replays >= MAX_SHRINK_REPLAYS {
+                break;
+            }
+            let mut candidate = current.clone();
+            candidate[action_index] = reduced;
+            replays += 1;
+            if confirm_trace(cfg, root, journey, cfg_path, defines, &candidate, sim, want).await? {
+                current = candidate;
+                say(
+                    json,
+                    format!("    value[{action_index}]: smaller value still reproduces"),
+                );
+                break;
+            }
+        }
+    }
     while current.len() >= 2 && replays < MAX_SHRINK_REPLAYS {
         let chunk = current.len().div_ceil(granularity);
         let mut removed_any = false;
@@ -221,19 +235,9 @@ pub(super) async fn shrink(
                 .cloned()
                 .collect();
             replays += 1;
-            let reproduces = if candidate.is_empty() {
-                false
-            } else {
-                std::fs::write(cfg_path, json!({ "replay": candidate }).to_string())?;
-                // Shrink replays run on the SAME tier as the discovering run
-                // (headless replays are deterministic with the sim path). A
-                // candidate reproduces ONLY if it trips the SAME finding
-                // category as the original.
-                match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
-                    Ok(o) => reproduces_original(&findings_for_tier(cfg, &o.run_dir, sim), want),
-                    Err(_) => false,
-                }
-            };
+            let reproduces = !candidate.is_empty()
+                && confirm_trace(cfg, root, journey, cfg_path, defines, &candidate, sim, want)
+                    .await?;
             if reproduces {
                 say(
                     json,
@@ -287,16 +291,9 @@ pub(super) async fn shrink(
                     // Re-verify the keyed-truncated trace still reproduces from
                     // cold before adopting it; keep the longer trace otherwise.
                     let candidate: Vec<String> = current[..n].to_vec();
-                    std::fs::write(cfg_path, json!({ "replay": candidate }).to_string())?;
                     let still =
-                        match run_explorer(cfg, root, journey, true, defines, false, sim, false)
-                            .await
-                        {
-                            Ok(o2) => {
-                                reproduces_original(&findings_for_tier(cfg, &o2.run_dir, sim), want)
-                            }
-                            Err(_) => false,
-                        };
+                        confirm_trace(cfg, root, journey, cfg_path, defines, &candidate, sim, want)
+                            .await?;
                     if still {
                         current = candidate;
                         say(
@@ -309,6 +306,53 @@ pub(super) async fn shrink(
         }
     }
     Ok(current)
+}
+
+fn action_value_reductions(action: &str) -> Vec<String> {
+    const MAX_REDUCTIONS: usize = 8;
+    let Some((prefix, value)) = action.rsplit_once('=') else {
+        return Vec::new();
+    };
+    if let Some(text_prefix) = prefix.strip_prefix("type:") {
+        let characters = value.chars().collect::<Vec<_>>();
+        let mut values = vec![String::new()];
+        if let Some(first) = characters.first() {
+            values.push(first.to_string());
+        }
+        if characters.len() > 1 {
+            values.push(characters[..characters.len().div_ceil(2)].iter().collect());
+        }
+        values.push(
+            if value.chars().all(|character| character.is_ascii_digit()) {
+                "0".to_string()
+            } else {
+                "a".to_string()
+            },
+        );
+        return values
+            .into_iter()
+            .map(|reduced| format!("type:{text_prefix}={reduced}"))
+            .filter(|reduced| reduced != action)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .take(MAX_REDUCTIONS)
+            .collect();
+    }
+    if prefix.starts_with("scroll:") {
+        let Ok(amount) = value.parse::<i64>() else {
+            return Vec::new();
+        };
+        let sign = amount.signum();
+        return [sign, amount / 2]
+            .into_iter()
+            .filter(|reduced| *reduced != 0 && *reduced != amount)
+            .map(|reduced| format!("{prefix}={reduced}"))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .take(MAX_REDUCTIONS)
+            .collect();
+    }
+    Vec::new()
 }
 
 /// True for the crash/exception finding category (the invariant id or kind a
@@ -343,4 +387,28 @@ pub(super) fn crash_trigger_index(log: &str) -> Option<usize> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::action_value_reductions;
+
+    #[test]
+    fn typed_action_reductions_preserve_selector_structure() {
+        let reductions = action_value_reductions("type:key:email=example@example.test");
+        assert!(reductions.contains(&"type:key:email=".to_string()));
+        assert!(reductions.contains(&"type:key:email=e".to_string()));
+        assert!(reductions
+            .iter()
+            .all(|reduction| reduction.starts_with("type:key:email=")));
+    }
+
+    #[test]
+    fn scroll_reductions_preserve_direction_and_target() {
+        assert_eq!(
+            action_value_reductions("scroll:key:list=-300"),
+            vec!["scroll:key:list=-1", "scroll:key:list=-150"]
+        );
+        assert!(action_value_reductions("tap:key:submit").is_empty());
+    }
 }

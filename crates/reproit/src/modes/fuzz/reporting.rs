@@ -160,6 +160,10 @@ pub(super) fn persist_finding_report(root: &Path, id: &str, report_dir: &Path) -
     if !stored.exists() {
         std::fs::copy(report_dir.join("fuzz.md"), stored)?;
     }
+    let evidence = report_dir.join("run-evidence.json");
+    if evidence.exists() {
+        std::fs::copy(evidence, dir.join("run-evidence.json"))?;
+    }
     Ok(())
 }
 
@@ -170,9 +174,12 @@ pub(super) fn write_report(
     findings: &[Value],
     trace: &[String],
     shrunk: &[String],
+    confirmation: reproit_protocol::ConfirmationStatus,
 ) -> Result<()> {
+    let reproduced = confirmation == reproit_protocol::ConfirmationStatus::Reproduced;
+    let result_name = if reproduced { "finding" } else { "candidate" };
     let mut md =
-        format!("# fuzz finding (seed {seed})\n\n<!-- finding-id: {finding_raw_id} -->\n\n");
+        format!("# fuzz {result_name} (seed {seed})\n\n<!-- finding-id: {finding_raw_id} -->\n\n");
     // Each finding carries an `invariant` id (the named property it violates),
     // so the report leads with the invariant summary, then the detail. Findings
     // without an invariant fall under "exception".
@@ -233,28 +240,45 @@ pub(super) fn write_report(
         }
     }
     let finding_id = crate::model::repro::display_finding_id(finding_raw_id);
+    let trace_name = if reproduced {
+        "confirmed repro"
+    } else {
+        "unconfirmed candidate trace"
+    };
     md.push_str(&format!(
-        "\n## confirmed repro ({} actions{})\n\n```\n{}\n```\n\nReproduce: `reproit \
-         {finding_id}`\nKeep: `reproit keep {finding_id} --as <name>`\nAfter keeping, record an \
-         annotated video with `reproit record <alias-or-rep-id>`.\n",
+        "\n## {trace_name} ({} actions{})\n\n```\n{}\n```\n",
         shrunk.len(),
         if shrunk.len() < trace.len() {
             format!(", shrunk from {}", trace.len())
         } else {
             String::new()
         },
-        shrunk.join("\n")
+        shrunk.join("\n"),
     ));
+    if reproduced {
+        md.push_str(&format!(
+            "\nReproduce: `reproit {finding_id}`\nKeep: `reproit keep {finding_id} --as \
+             <name>`\nAfter keeping, record an annotated video with `reproit record \
+             <alias-or-rep-id>`.\n"
+        ));
+    } else {
+        md.push_str(&format!(
+            "\nInspect blockers: `reproit proof {finding_id}`\nRun a clean replay: `reproit \
+             {finding_id}`\n"
+        ));
+    }
     std::fs::write(run_dir.join("fuzz.md"), md).context("writing fuzz report")
 }
 
 pub(super) fn write_run_evidence_graph(
     output_dir: &Path,
     capture_dir: &Path,
+    finding_id: &str,
     trace: &[String],
     findings: &[Value],
     minimized: &[String],
-) -> Result<()> {
+    confirmation: reproit_protocol::ConfirmationStatus,
+) -> Result<reproit_protocol::ProofLedger> {
     let log = std::fs::read(capture_dir.join("drive-a.log")).unwrap_or_default();
     let raw = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::RawCapture,
@@ -275,28 +299,88 @@ pub(super) fn write_run_evidence_graph(
         vec![normalized.id.clone()],
         json!({ "findings": findings }),
     )?;
+    let replay_identity_matched = confirmation == reproit_protocol::ConfirmationStatus::Reproduced;
     let replay = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::Replay,
         vec![evaluation.id.clone()],
-        json!({ "confirmed": true }),
+        json!({
+            "confirmation": confirmation,
+            "identityMatched": replay_identity_matched,
+        }),
     )?;
     let minimized = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::MinimizedTrace,
         vec![replay.id.clone()],
         json!({ "actions": minimized }),
     )?;
-    let digest = minimized.id.trim_start_matches("sha256:");
+    let authority = authority_for_findings(findings);
+    let (evaluation_status, evaluation_reasons) = if authority.is_empty() {
+        (
+            reproit_protocol::EvaluationStatus::Abstain,
+            vec![reproit_protocol::ReasonCode::AuthorityUnavailable],
+        )
+    } else {
+        (reproit_protocol::EvaluationStatus::Violation, vec![])
+    };
+    let minimization = if replay_identity_matched {
+        reproit_protocol::MinimizationStatus::Preserved
+    } else if confirmation == reproit_protocol::ConfirmationStatus::NotAttempted {
+        reproit_protocol::MinimizationStatus::NotAttempted
+    } else {
+        reproit_protocol::MinimizationStatus::CouldNotConfirm
+    };
+    let proof = reproit_protocol::ProofLedger::from_stages(
+        vec![crate::model::repro::display_finding_id(finding_id)],
+        authority,
+        evaluation_status,
+        evaluation_reasons,
+        confirmation,
+        replay_identity_matched,
+        minimization,
+    )?;
+    let ledger = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::ProofLedger,
+        vec![minimized.id.clone()],
+        serde_json::to_value(&proof)?,
+    )?;
+    let digest = ledger.id.trim_start_matches("sha256:");
     let graph = reproit_protocol::EvidenceGraph {
         run_id: format!("run-{}", &digest[..16]),
-        root: minimized.id.clone(),
-        nodes: vec![raw, normalized, evaluation, replay, minimized],
+        root: ledger.id.clone(),
+        nodes: vec![raw, normalized, evaluation, replay, minimized, ledger],
     };
     graph.validate()?;
     std::fs::write(
         output_dir.join("run-evidence.json"),
         serde_json::to_vec_pretty(&graph)?,
     )?;
-    Ok(())
+    Ok(proof)
+}
+
+fn authority_for_findings(findings: &[Value]) -> Vec<reproit_protocol::AuthoritySource> {
+    let mut authority = std::collections::BTreeSet::new();
+    for finding in findings {
+        let Some(source) = finding
+            .get("oracle")
+            .and_then(Value::as_str)
+            .and_then(authority_for_oracle)
+        else {
+            return Vec::new();
+        };
+        authority.insert(source);
+    }
+    authority.into_iter().collect()
+}
+
+fn authority_for_oracle(oracle: &str) -> Option<reproit_protocol::AuthoritySource> {
+    use reproit_protocol::AuthoritySource;
+    match oracle {
+        "crash" => Some(AuthoritySource::RuntimeDiagnosis),
+        "contract" | "invariant" | "detached-indicator" | "backend-contract" => {
+            Some(AuthoritySource::AuthoredContract)
+        }
+        _ => None,
+    }
 }
 
 /// Run the find -> PR delivery pipeline for one finding: annotate + upload the

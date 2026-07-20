@@ -8,7 +8,7 @@ the command list, jump to [Reference](#reference).
 
 ## The idea in 30 seconds
 
-reproit has three core verbs:
+reproit has three core workflows:
 
 ```sh
 reproit scan    # audit visible bugs on every reachable screen
@@ -43,6 +43,8 @@ reproit fuzz --all            # hunt for confirmed, replayable bugs
 
 reproit fnd_a3f2c1b8e0d5          # reproduce that finding
 # -> fail (3/3).  real bug, reproduced every run
+
+reproit proof fnd_a3f2c1b8e0d5    # explain authority, replay, minimization, and promotion
 
 reproit keep fnd_a3f2c1b8e0d5 --as login-crash   # keep it as a guard
 # -> saved (quarantined). Verify after the fix: reproit check
@@ -148,8 +150,8 @@ suite until you choose to `keep` it.
 
 ### Reproduce one bug; check the suite
 
-Run `reproit <id>` for one bug. `reproit check` runs the whole saved suite. Both classify the replay
-the same way:
+Run `reproit <id>` for one bug or `reproit @name` for a saved alias or journey. `reproit check`
+runs the whole saved suite. All three forms classify replay the same way:
 
 | Outcome   | Meaning                                                        | Exit code |
 | --------- | -------------------------------------------------------------- | --------- |
@@ -160,6 +162,9 @@ the same way:
 
 ```sh
 reproit rep_a3f2c1b8e0d5          # reproduce one saved repro (fnd_... works too)
+reproit @login-crash              # reproduce one saved repro by alias
+reproit proof rep_a3f2c1b8e0d5    # inspect its immutable proof ledger
+reproit candidates                # show candidates and exact promotion blockers
 reproit check                 # run your whole saved suite
 reproit record                # launch the app and preserve the original human capture
 reproit record --attach       # start from an already-running app
@@ -223,7 +228,7 @@ automatically promoted to a **required** guard the first time it passes (that is
 the bug). Re-keeping the same case is harmless: it's content-addressed, so it maps to the same id
 and keeps its history.
 
-That's the whole loop: `scan` (audit and clips) -> `fuzz --all` (replayable ids) -> `check <id>`
+That's the whole loop: `scan` (audit and clips) -> `fuzz --all` (replayable ids) -> `reproit <id>`
 (confirm it's real) -> `keep` (guard it) -> `check` (prove the fix).
 
 ## Saving and re-running bugs
@@ -426,6 +431,9 @@ reproit                       help: the scan -> fuzz -> check -> keep story
 reproit scan [target]         scan every screen for visible bugs (--record for clips)
 reproit fuzz [target]         find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>    reproduce one bug
+reproit @saved-name            reproduce one saved repro or journey by name
+reproit proof <id>             explain its immutable proof ledger
+reproit candidates             list candidates with exact promotion blockers
 reproit check                  verify the whole saved suite
 reproit keep [id] [--as name] keep a repro in your suite
 reproit record                preserve an immutable human-authored original

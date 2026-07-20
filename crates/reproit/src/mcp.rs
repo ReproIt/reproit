@@ -201,7 +201,8 @@ const SIMPLIFY_DESCRIPTION: &str = concat!(
     "can deterministically verify it still reproduces the same finding. Use it to clean up a ",
     "tangled fuzz-found repro (e.g. one that ends on a positional `role:button#4` selector or ",
     "post-crash UI). Read the repro's actions (reproit_repros), propose a minimal equivalent ",
-    "using KEYED selectors (`tap:key:...`), and reproit verify-and-adopts it, or rejects it if ",
+    "using KEYED selectors (`tap:key:...`), and reproit checks equivalence before adopting it, \
+     or rejects it if ",
     "it doesn't reproduce or isn't shorter. The engine verifies, so your simplification can ",
     "never be wrong (you propose, reproit disposes). Slow: it replays the candidate."
 );

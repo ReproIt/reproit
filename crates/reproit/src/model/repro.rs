@@ -68,7 +68,7 @@ impl Status {
 pub struct Meta {
     /// Content-hash id (12 hex of sha256 over seed + normalized actions).
     pub id: String,
-    /// Optional human alias (the friendly name used in `check <alias>`).
+    /// Optional human alias (the friendly name used in `reproit @alias`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
     /// quarantined | required.

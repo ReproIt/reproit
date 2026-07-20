@@ -60,10 +60,6 @@ pub(super) fn build_argv(
             // across the seed budget and group them into unique bugs (same bug
             // reached by different paths counts once).
             argv.push("--all".into());
-            // Minimize each repro (ddmin) so the agent gets the SHORTEST
-            // reproducing action sequence, not the raw exploration walk (a
-            // 19-action path shrinks to the 2-action one that actually matters).
-            argv.push("--shrink".into());
             if let Some(t) = s("target") {
                 argv.extend(["--journey".into(), t]);
             }

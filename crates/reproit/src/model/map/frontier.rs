@@ -2,6 +2,7 @@
 
 use super::index::GraphIndex;
 use super::merge::action_str;
+use super::GraphGuidance;
 use crate::model::appmap::AppMap;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
@@ -171,6 +172,14 @@ pub(crate) fn frontier_path_with_index(
             queue.push_back(to);
         }
     }
+    let guidance = GraphGuidance::analyze(graph, start_id);
+    let component_visits = guidance.component_totals(|state| {
+        graph
+            .signature_for_state(state)
+            .and_then(|signature| visits.counts.get(signature))
+            .copied()
+            .unwrap_or(0)
+    });
     let target = depth
         .iter()
         .filter(|(id, _)| **id != start_id)
@@ -182,7 +191,18 @@ pub(crate) fn frontier_path_with_index(
         .min_by_key(|(id, depth)| {
             let sig = graph.signature_for_state(id).unwrap_or("");
             let count = visits.counts.get(sig).copied().unwrap_or(0);
-            (count, usize::MAX - **depth, sig, **id)
+            let component_visits = component_visits.get(*id).copied().unwrap_or(0);
+            let dominated = guidance.dominated_count(id);
+            let component_size = guidance.component_members(id).len();
+            (
+                count,
+                component_visits,
+                usize::MAX - dominated,
+                usize::MAX - component_size,
+                usize::MAX - **depth,
+                sig,
+                **id,
+            )
         })
         .map(|(id, _)| *id)?;
     let mut path = Vec::new();

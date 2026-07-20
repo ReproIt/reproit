@@ -19,6 +19,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+mod analysis;
 mod frontier;
 mod index;
 mod merge;
@@ -26,6 +27,7 @@ mod parse;
 mod persistence;
 mod provenance;
 
+pub(crate) use analysis::GraphGuidance;
 #[cfg(any(test, feature = "perf-bench"))]
 pub(crate) use frontier::frontier_path;
 pub(crate) use frontier::frontier_path_with_index;
@@ -526,6 +528,56 @@ mod tests {
         assert_eq!(matches[0].to, "Settings");
         assert_eq!(graph.summary("Home").outgoing, 1);
         assert_eq!(graph.summary("Home").distinct_actions, 1);
+    }
+
+    #[test]
+    fn graph_guidance_finds_components_and_dominator_reach() {
+        let mut map = sample();
+        map.states.insert("Loop".to_string(), st("loop"));
+        map.transitions.push(tap("About", "Loop", "Loop"));
+        map.transitions.push(tap("Loop", "About", "About"));
+        let graph = GraphIndex::new(&map);
+        let guidance = GraphGuidance::analyze(&graph, "Home");
+
+        assert_eq!(guidance.component_members("About"), &["About", "Loop"]);
+        assert_eq!(guidance.dominated_count("Settings"), 2);
+        assert_eq!(guidance.dominated_count("About"), 1);
+    }
+
+    #[test]
+    fn frontier_prefers_a_state_that_unlocks_more_reachable_graph() {
+        let sig_state = |sig: &str| {
+            let mut state = st("state");
+            state.signature.semantics_hash = Some(sig.to_string());
+            state
+        };
+        let states = ["Home", "Gate", "DeepA", "DeepB", "Leaf"]
+            .into_iter()
+            .map(|state| (state.to_string(), sig_state(&format!("sig-{state}"))))
+            .collect();
+        let map = AppMap {
+            app: "demo".to_string(),
+            schema_version: APP_MAP_SCHEMA_VERSION,
+            revision: 1,
+            states,
+            transitions: vec![
+                tap("Home", "gate", "Gate"),
+                tap("Gate", "a", "DeepA"),
+                tap("Gate", "b", "DeepB"),
+                tap("Home", "leaf", "Leaf"),
+            ],
+            invariants: vec![],
+            interrupts: vec![],
+        };
+        let visits = Visits {
+            map_revision: 1,
+            start: Some("sig-Home".to_string()),
+            ..Visits::default()
+        };
+
+        let (target, path) = frontier_path(&map, &visits).unwrap();
+        assert_eq!(target, "Gate");
+        assert_eq!(path, vec!["tap:gate"]);
     }
 
     #[test]

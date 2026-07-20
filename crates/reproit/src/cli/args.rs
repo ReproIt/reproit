@@ -10,7 +10,8 @@ use std::path::PathBuf;
 #[command(
     name = "reproit",
     version = VERSION,
-    about = "Find UI failures and keep every confirmed bug reproducible"
+    about = "Find UI failures and keep every confirmed bug reproducible",
+    after_help = "Direct replay:\n  reproit fnd_<id>\n  reproit rep_<id>\n  reproit @saved-name"
 )]
 pub(crate) struct Cli {
     /// Path to reproit.yaml (default: search cwd and ancestors)
@@ -72,10 +73,12 @@ pub(crate) enum Cmd {
         action: DebugAction,
     },
     /// Run the saved regression suite and classify each: pass (0) / fail (1) /
-    /// flaky (2) / stale (3). To reproduce one bug, run `reproit <id>`.
+    /// flaky (2) / stale (3). To reproduce one bug, run `reproit <id>` or
+    /// `reproit @saved-name`.
     /// (Annotated video is `record`; the visual oracle is `baseline`.)
     Check {
-        /// Internal direct-id route. Users run `reproit <id>`.
+        /// Internal direct-reference route. Users run `reproit <id>` or
+        /// `reproit @saved-name`.
         #[arg(long = "repro-id", hide = true)]
         repro: Option<String>,
         /// Number of concurrent devices (multi-actor)
@@ -212,6 +215,15 @@ pub(crate) enum Cmd {
         #[command(subcommand)]
         action: ReproAction,
     },
+    /// Explain the immutable authority, evaluation, replay, minimization, and
+    /// promotion decision for a finding or saved repro.
+    Proof {
+        /// Finding id, repro id, or saved repro alias.
+        reference: String,
+    },
+    /// List discovered candidates that are still blocked from promotion, with
+    /// the exact missing proof stages.
+    Candidates,
     /// List saved local repros under .reproit/repros/.
     Repros,
     /// List confirmed production bugs, impact-ranked, for the project selected
@@ -382,12 +394,8 @@ pub(crate) enum Cmd {
         /// Actions per walk
         #[arg(long, default_value_t = 40)]
         budget: u32,
-        /// Deprecated compatibility flag: confirmation now minimizes by
-        /// default.
-        #[arg(long, hide = true)]
-        shrink: bool,
-        /// Skip the clean-session confirmation/minimization replay. Unconfirmed
-        /// observations are candidates and should not be alerted or saved.
+        /// Skip clean-session confirmation and minimization. Observations remain
+        /// local candidates and cannot be delivered or kept as confirmed guards.
         #[arg(long)]
         no_confirm: bool,
         /// Collect findings across the whole seed budget instead of stopping at
@@ -893,7 +901,7 @@ pub(crate) enum CloudAction {
         /// check.
         #[arg(long)]
         bucket: String,
-        /// Local name (alias) for the saved repro, used in `check <name>`.
+        /// Local name (alias) for the saved repro, run with `reproit @name`.
         #[arg(long = "as", name = "replay_as")]
         as_name: String,
         /// Actually execute the replay (otherwise just write/save the repro).
@@ -915,7 +923,7 @@ pub(crate) enum CloudAction {
     /// cloud boundary in the check loop: fetches the bucket's replay package
     /// and writes it as a saved repro under `.reproit/repros/` named `--as
     /// <name>`, the SAME on-disk shape `keep` produces. Afterwards `reproit
-    /// check <name>` runs the standard local, network-free verification and
+    /// @name` runs the standard local, network-free verification and
     /// `reproit repros` lists it -- indistinguishable from a locally found
     /// repro. Fetches the content-addressed `GET
     /// /v1/apps/:app/buckets/:bucket`.
@@ -928,7 +936,7 @@ pub(crate) enum CloudAction {
         /// Pull the highest-impact unresolved bucket from `cloud buckets`.
         #[arg(long, conflicts_with = "bucket")]
         top: bool,
-        /// Local name (alias) for the saved repro, used in `check <name>`.
+        /// Local name (alias) for the saved repro, run with `reproit @name`.
         #[arg(long = "as", name = "name")]
         as_name: String,
         #[arg(long)]
@@ -1139,14 +1147,14 @@ impl AuthStrategyArg {
 
 impl Cli {
     /// Parse a complete process argument sequence after expanding direct bug
-    /// IDs.
+    /// IDs and named references.
     pub(crate) fn parse_args<I, T>(args: I) -> Self
     where
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString>,
     {
         let args = args.into_iter().map(Into::into).collect();
-        Self::parse_from(rewrite::expand_direct_bug_arg(args))
+        Self::parse_from(rewrite::expand_direct_reference_arg(args))
     }
 }
 
@@ -1170,6 +1178,15 @@ mod tests {
                 repro: Some(ref id),
                 ..
             } if id == "fnd_deadbeef0001"
+        ));
+
+        let cli = Cli::parse_args(["reproit", "@checkout-crash"]);
+        assert!(matches!(
+            cli.command,
+            Cmd::Check {
+                repro: Some(ref alias),
+                ..
+            } if alias == "checkout-crash"
         ));
 
         let cli = Cli::parse_args(["reproit", "bkt_deadbeef0001"]);
@@ -1198,6 +1215,8 @@ mod tests {
             vec!["reproit", "pull", "bkt_deadbeef0001"],
             vec!["reproit", "check", "fnd_deadbeef0001"],
             vec!["reproit", "check", "checkout"],
+            vec!["reproit", "verify", "fnd_deadbeef0001"],
+            vec!["reproit", "fuzz", "--shrink"],
             vec!["reproit", "cloud"],
             vec!["reproit", "cloud", "login"],
             vec!["reproit", "cloud", "pull"],

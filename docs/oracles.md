@@ -4,6 +4,20 @@ An oracle is a rule ReproIt uses to decide whether an observation is a bug. Repr
 finding unusual behavior from proving incorrect behavior. This is the boundary that keeps normal
 product behavior out of the confirmed bug list.
 
+## Checks, detectors, oracles, and confirmation
+
+The product uses `check` as the plain-language umbrella. The internal terms name separate proof
+responsibilities:
+
+- A detector discovers an observation and may create a candidate. It cannot confirm a finding.
+- An oracle evaluates authoritative evidence as `VIOLATION`, `SATISFIED`, or `ABSTAIN`.
+- Confirmation clean-replays the same identity. Only `REPRODUCED` can promote it.
+- The proof ledger records authority, evaluation, confirmation, minimization, and any promotion
+  blockers as one immutable, content-addressed graph root.
+
+This distinction is intentional. Calling every oracle a detector would combine discovery with
+proof, while calling every detector an oracle would give heuristics authority they do not have.
+
 ## Evidence evaluation and reproduction are separate
 
 An oracle evaluates one rule against one authoritative evidence channel. These are evidence
@@ -20,6 +34,9 @@ has its own statuses: `REPRODUCED`, `NOT_REPRODUCED`, `FLAKY`, `STALE`, and `COU
 Only `REPRODUCED` promotes a discovered violation into a confirmed finding. `ABSTAIN` is not success
 or failure and never becomes a finding. A failing test, unusual screenshot, timing spike, or
 different implementation is not automatically a bug.
+
+`reproit proof <id>` explains the complete ledger. `reproit candidates` lists observations still
+blocked by missing authority, a non-violation, abstention, replay, identity, or minimization.
 
 ## What runs by default
 

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 /// Build a web `Loaded` for the zero-config `reproit fuzz <url>` run, with
 /// `.reproit/` output under `root` (the cwd). The synthesized config is also
-/// persisted to `<root>/.reproit/reproit.yaml` so a follow-up `check <id>` /
+/// persisted to `<root>/.reproit/reproit.yaml` so a follow-up `reproit <id>` /
 /// `keep` / `repros` can replay the run without a hand-written reproit.yaml.
 pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result<Loaded> {
     // Serialize the URL and path as JSON strings: YAML is a JSON superset, so a

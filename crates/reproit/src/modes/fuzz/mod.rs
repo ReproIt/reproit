@@ -26,19 +26,19 @@ mod log;
 mod reporting;
 mod scan;
 
-use confirmation::{confirm_trace, shrink, shrink_causal_capsule};
+use confirmation::{confirm_trace, replay_is_hermetic, shrink, shrink_causal_capsule};
 #[cfg(test)]
 use confirmation::{crash_trigger_index, is_keyed_action};
 #[cfg(test)]
 use findings::finding_category;
+pub(crate) use findings::{
+    app_exceptions, finding_signature, finding_signatures_for_log, normalize_message,
+};
 use findings::{
-    all_findings, batch_completed, equivalent_findings_key, finding_label, findings_for_tier,
+    batch_completed, equivalent_findings_key, finding_label, findings_for_tier,
     findings_from_parsed, map_escapable_routes, perf_findings, primary_finding,
     reproduces_original, reserve_shrink_representative, shrink_target, target_identity,
     NormalizedEvidence,
-};
-pub(crate) use findings::{
-    app_exceptions, finding_signature, finding_signatures_for_log, normalize_message,
 };
 #[cfg(test)]
 use log::exceptions_in_log;
@@ -571,16 +571,17 @@ async fn fuzz_one_locale(
             say(
                 json,
                 format!(
-                    "  seed {seed}: FINDING ({} violation(s): {summary})",
+                    "  seed {seed}: observation ({} violation(s): {summary})",
                     findings.len()
                 ),
             );
             let mut shrunk = trace.clone();
             let want = shrink_target(&findings);
+            let mut confirmation = reproit_protocol::ConfirmationStatus::NotAttempted;
             // Confirmation is the product trust gate, not an optional polish
             // pass: replay in a clean session and require the same oracle before
-            // a candidate receives a public finding id. The shrinker starts with
-            // a zero-action replay, so load-state failures are confirmed too.
+            // a candidate can be promoted. The shrinker starts with a zero-action
+            // replay, so load-state failures are confirmed too.
             if args.shrink {
                 if !confirm_trace(
                     cfg,
@@ -594,28 +595,44 @@ async fn fuzz_one_locale(
                 )
                 .await?
                 {
+                    confirmation = reproit_protocol::ConfirmationStatus::NotReproduced;
                     say(
                         json,
                         format!(
                             "  seed {seed}: candidate did NOT reproduce in a clean session; \
-                             discarded"
+                             retained with replay blocker"
                         ),
                     );
-                    continue;
-                }
-                say(json, format!("  seed {seed}: CONFIRMED in a clean replay"));
-                let equivalent = equivalent_findings_key(&findings);
-                if args.all {
-                    if !reserve_shrink_representative(&mut shrink_representatives, &findings) {
-                        let representative = shrink_cache
-                            .get(&equivalent)
-                            .expect("reserved shrink representative must be cached");
-                        shrunk = representative.clone();
-                        say(
-                            json,
-                            "  shrink: equivalent finding already minimized; reusing \
-                             representative",
-                        );
+                } else {
+                    confirmation = reproit_protocol::ConfirmationStatus::Reproduced;
+                    say(json, format!("  seed {seed}: CONFIRMED in a clean replay"));
+                    let equivalent = equivalent_findings_key(&findings);
+                    if args.all {
+                        if !reserve_shrink_representative(&mut shrink_representatives, &findings) {
+                            let representative = shrink_cache
+                                .get(&equivalent)
+                                .expect("reserved shrink representative must be cached");
+                            shrunk = representative.clone();
+                            say(
+                                json,
+                                "  shrink: equivalent finding already minimized; reusing \
+                                 representative",
+                            );
+                        } else {
+                            shrunk = shrink(
+                                cfg,
+                                root,
+                                &args.journey,
+                                &cfg_path,
+                                &defines,
+                                trace.clone(),
+                                args.sim,
+                                &want,
+                                json,
+                            )
+                            .await?;
+                            shrink_cache.insert(equivalent, shrunk.clone());
+                        }
                     } else {
                         shrunk = shrink(
                             cfg,
@@ -629,26 +646,12 @@ async fn fuzz_one_locale(
                             json,
                         )
                         .await?;
-                        shrink_cache.insert(equivalent, shrunk.clone());
                     }
-                } else {
-                    shrunk = shrink(
-                        cfg,
-                        root,
-                        &args.journey,
-                        &cfg_path,
-                        &defines,
-                        trace.clone(),
-                        args.sim,
-                        &want,
-                        json,
-                    )
-                    .await?;
                 }
             }
             // The finding's content-hash id (over seed + the minimized actions,
             // exactly what `keep` later hashes), plus the two commands it teaches:
-            // `check <id>` confirms it replays NOW (before you commit it to the
+            // `reproit <id>` confirms it replays NOW (before you commit it to the
             // suite), `keep <id>` saves it as a guard.
             let primary_sig = primary_finding(&findings)
                 .map(finding_signature)
@@ -671,8 +674,25 @@ async fn fuzz_one_locale(
             } else {
                 outcome.run_dir.clone()
             };
-            write_report(&report_dir, &repro_id, seed, &findings, &trace, &shrunk)?;
-            write_run_evidence_graph(&report_dir, &outcome.run_dir, &trace, &findings, &shrunk)?;
+            write_report(
+                &report_dir,
+                &repro_id,
+                seed,
+                &findings,
+                &trace,
+                &shrunk,
+                confirmation,
+            )?;
+            let proof = write_run_evidence_graph(
+                &report_dir,
+                &outcome.run_dir,
+                &repro_id,
+                &trace,
+                &findings,
+                &shrunk,
+                confirmation,
+            )?;
+            let promoted = proof.promotion == reproit_protocol::PromotionStatus::Confirmed;
             persist_finding_report(root, &repro_id, &report_dir)?;
             if let Some(guard) = crate::model::contracts::FrozenContractGuard::from_findings(
                 &cfg.contracts,
@@ -685,7 +705,7 @@ async fn fuzz_one_locale(
             {
                 guard.save(&layout::finding_dir(root, &repro_id).join("backend-contract.json"))?;
             }
-            if let Some(primary) = primary_finding(&findings) {
+            if let Some(primary) = primary_finding(&findings).filter(|_| promoted) {
                 let capsule =
                     persist_causal_capsule(cfg, root, &outcome.run_dir, primary, &shrunk, seed)?;
                 let capsule = shrink_causal_capsule(
@@ -751,7 +771,21 @@ async fn fuzz_one_locale(
             // summary at the end is authoritative and teaches the commands on the
             // one canonical id; here we just note the finding. Without --all this
             // IS the single finding, so teach its commands directly.
-            if args.all {
+            if !promoted {
+                say(
+                    json,
+                    format!(
+                        "  candidate {finding_id}   blockers: {}   inspect: reproit proof \
+                         {finding_id}",
+                        proof
+                            .blockers
+                            .iter()
+                            .map(|blocker| blocker.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                );
+            } else if args.all {
                 say(
                     json,
                     format!("  found ({} action(s)) -> id {finding_id}", shrunk.len()),
@@ -771,7 +805,7 @@ async fn fuzz_one_locale(
             );
             // --all: file this finding under its crash signature so the same bug
             // reached by different paths collapses to one bucket.
-            if args.all {
+            if promoted && args.all {
                 if let Some(primary) = primary_finding(&findings) {
                     let sig = finding_signature(primary);
                     buckets
@@ -791,8 +825,8 @@ async fn fuzz_one_locale(
             // sim-confirm run when we have one, else the discovering run (already
             // a sim run when --sim was used directly).
             let mut deliver_dir = outcome.run_dir.clone();
-            let mut confirmed = args.sim && !findings.is_empty();
-            if args.confirm_on_sim && !args.sim && !shrunk.is_empty() {
+            let mut confirmed = args.sim && promoted;
+            if promoted && args.confirm_on_sim && !args.sim && !shrunk.is_empty() {
                 say(
                     json,
                     format!(
@@ -814,7 +848,13 @@ async fn fuzz_one_locale(
                 .await
                 {
                     Ok(o) => {
-                        confirmed = !all_findings(&o.run_dir).is_empty() || !o.passed;
+                        let sim_log = std::fs::read_to_string(o.run_dir.join("drive-a.log"))
+                            .unwrap_or_default();
+                        confirmed = replay_is_hermetic(&sim_log)
+                            && reproduces_original(
+                                &findings_for_tier(cfg, &o.run_dir, true),
+                                &want,
+                            );
                         say(
                             json,
                             format!(
@@ -830,9 +870,28 @@ async fn fuzz_one_locale(
                         // The sim run holds the .mov; copy the finding's report
                         // (with the minimized repro block) into it so the
                         // delivery pipeline reads the repro + summary from there.
-                        write_report(&o.run_dir, &repro_id, seed, &findings, &trace, &shrunk)?;
-                        write_run_evidence_graph(
-                            &o.run_dir, &o.run_dir, &trace, &findings, &shrunk,
+                        let sim_confirmation = if confirmed {
+                            reproit_protocol::ConfirmationStatus::Reproduced
+                        } else {
+                            reproit_protocol::ConfirmationStatus::NotReproduced
+                        };
+                        write_report(
+                            &o.run_dir,
+                            &repro_id,
+                            seed,
+                            &findings,
+                            &trace,
+                            &shrunk,
+                            sim_confirmation,
+                        )?;
+                        let _ = write_run_evidence_graph(
+                            &o.run_dir,
+                            &o.run_dir,
+                            &repro_id,
+                            &trace,
+                            &findings,
+                            &shrunk,
+                            sim_confirmation,
                         )?;
                         deliver_dir = o.run_dir;
                     }
@@ -840,12 +899,11 @@ async fn fuzz_one_locale(
                 }
             }
 
-            // Delivery pipeline (the CodeRabbit moment): with --cloud set, record
-            // + upload the annotated minimized-repro clip, then emit the PR
-            // comment (dry-run unless --post-comment with a resolvable GitHub
-            // repo/PR/token). Best-effort: a delivery failure never fails fuzz.
-            if let (Some(cloud), Some(app), Some(bucket)) =
-                (&args.cloud, &args.app, &args.app_bucket)
+            // With --cloud set, record and upload the annotated minimized-repro
+            // clip, then optionally emit the review comment. Best-effort: a
+            // delivery failure never fails fuzz.
+            if let (true, Some(cloud), Some(app), Some(bucket)) =
+                (promoted, &args.cloud, &args.app, &args.app_bucket)
             {
                 if let Err(e) = deliver_finding(
                     cfg,
@@ -862,7 +920,9 @@ async fn fuzz_one_locale(
                 {
                     say(json, format!("  deliver: {e}"));
                 }
-            } else if args.cloud.is_some() || args.app.is_some() || args.app_bucket.is_some() {
+            } else if promoted
+                && (args.cloud.is_some() || args.app.is_some() || args.app_bucket.is_some())
+            {
                 say(
                     json,
                     "  deliver: need --cloud, --app, and --bucket to deliver; skipping",
@@ -1004,16 +1064,16 @@ fn batch_guidance<'a>(
     visits: &crate::model::map::Visits,
     static_guidance: &'a StaticGuidance,
 ) -> BatchGuidance<'a> {
-    // Inverse-visit-count action scoring (Adamo et al.): weight each candidate
-    // edge by 1/(1+globalVisits) using this snapshot. --uniform zeroes it.
+    // Inverse-visit-count action scoring weights each candidate edge by
+    // 1/(1+globalVisits) using this snapshot. --uniform zeroes it.
     let edge_weights = if args.uniform {
         std::collections::BTreeMap::<String, std::collections::BTreeMap<String, u64>>::new()
     } else {
         visits.edge_weights(map)
     };
 
-    // Power schedule (AFLFast FAST): a rare, edge-rich frontier state earns
-    // more budget; a saturated one earns less.
+    // A rare, edge-rich frontier state earns more budget; a saturated one earns
+    // less.
     let mut budget = args.budget;
     let mut prefix = args.from_prefix.clone();
     let mut frontier = None;
@@ -1094,10 +1154,8 @@ fn plan_seed(args: &FuzzArgs, guidance: &BatchGuidance<'_>, seed: u64, i: u32) -
     SeedPlan { seed, config }
 }
 
-/// Power schedule (AFLFast FAST): give a frontier state energy inverse to
-/// its visit count and proportional to how many of its outgoing edges are
-/// still unexplored, clamped to [base/2, base*4]. Rare, edge-rich states
-/// get more actions per run; saturated ones get fewer.
+/// Give a frontier state energy inverse to its visit count and proportional to
+/// how many outgoing edges are still unexplored, clamped to [base/2, base*4].
 fn energy_budget(
     map: &crate::model::appmap::AppMap,
     visits: &crate::model::map::Visits,
@@ -1416,6 +1474,7 @@ FUZZ:ACT back
             &findings,
             &["tap:Advanced".into()],
             &["tap:Advanced".into()],
+            reproit_protocol::ConfirmationStatus::Reproduced,
         )
         .unwrap();
         let md = std::fs::read_to_string(dir.join("fuzz.md")).unwrap();
@@ -1424,6 +1483,70 @@ FUZZ:ACT back
         assert!(md.contains("- invariant: `no-occluded-control`"), "{md}");
         assert!(md.contains("- sig: `advanced`"), "{md}");
         assert!(md.contains("<!-- finding-id: abcdef123456 -->"), "{md}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn evidence_graph_keeps_unconfirmed_observation_as_candidate() {
+        let dir = std::env::temp_dir().join(format!("reproit-proof-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("drive-a.log"), "bounded evidence").unwrap();
+        let findings = vec![json!({
+            "oracle": "contract",
+            "invariant": "response-status",
+            "kind": "CONTRACT",
+            "message": "unexpected status",
+        })];
+        let proof = write_run_evidence_graph(
+            &dir,
+            &dir,
+            "abcdef123456",
+            &["tap:key:submit".into()],
+            &findings,
+            &["tap:key:submit".into()],
+            reproit_protocol::ConfirmationStatus::NotAttempted,
+        )
+        .unwrap();
+        assert_eq!(
+            proof.promotion,
+            reproit_protocol::PromotionStatus::Candidate
+        );
+        assert!(proof
+            .blockers
+            .contains(&reproit_protocol::PromotionBlocker::ReplayNotReproduced));
+        let graph: reproit_protocol::EvidenceGraph =
+            serde_json::from_slice(&std::fs::read(dir.join("run-evidence.json")).unwrap()).unwrap();
+        assert_eq!(graph.proof_ledger().unwrap(), Some(proof));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn evidence_graph_abstains_without_authority() {
+        let dir = std::env::temp_dir().join(format!("reproit-authority-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let findings = vec![json!({
+            "oracle": "experimental-shape",
+            "invariant": "unusual-shape",
+            "kind": "SPECIALIST",
+            "message": "unusual observation",
+        })];
+        let proof = write_run_evidence_graph(
+            &dir,
+            &dir,
+            "abcdef123456",
+            &[],
+            &findings,
+            &[],
+            reproit_protocol::ConfirmationStatus::Reproduced,
+        )
+        .unwrap();
+        assert_eq!(
+            proof.evaluation,
+            reproit_protocol::EvaluationStatus::Abstain
+        );
+        assert!(proof
+            .blockers
+            .contains(&reproit_protocol::PromotionBlocker::MissingAuthority));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
