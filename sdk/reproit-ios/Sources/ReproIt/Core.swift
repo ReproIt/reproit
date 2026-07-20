@@ -512,13 +512,14 @@ public enum ReproItBatch {
           event.jsonObject(redactLabels: redactLabels), batchContext: ctx),
       ] as [String: Any]
     }
-    let batch: [String: Any] = [
+    var batch: [String: Any] = [
       "version": 1,
       "batchId": batchId,
       "appId": appId,
       "frames": frames,
       "evidence": [],
     ]
+    if let deployment = ctx["build"] { batch["deployment"] = deployment }
     return try? JSONSerialization.data(withJSONObject: batch)
   }
 

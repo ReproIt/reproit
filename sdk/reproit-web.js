@@ -1161,13 +1161,15 @@
         event: protocolEvent,
       };
     });
-    return {
+    var batch = {
       version: 1,
       batchId: batchId,
       appId: appId,
       frames: frames,
       evidence: [],
     };
+    if (context && context.build) batch.deployment = context.build;
+    return batch;
   }
 
   // ---- the SDK ------------------------------------------------------------

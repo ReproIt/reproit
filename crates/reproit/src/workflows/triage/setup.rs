@@ -404,6 +404,7 @@ pub async fn setup(
         version: reproit_protocol::VERSION,
         batch_id: format!("setup-{}", chrono::Utc::now().timestamp_millis()),
         app_id: app.to_string(),
+        deployment: None,
         frames: vec![reproit_protocol::EventFrame {
             run_id: "setup".into(),
             sequence: 1,

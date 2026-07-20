@@ -1721,6 +1721,14 @@ class ReproIt {
       'version': 1,
       'batchId': batchId,
       'appId': _cfg.appId,
+      if ((_cfg.buildVersion ?? '').isNotEmpty ||
+          (_cfg.buildCommit ?? '').isNotEmpty)
+        'deployment': {
+          if ((_cfg.buildVersion ?? '').isNotEmpty)
+            'version': _cfg.buildVersion!,
+          if ((_cfg.buildCommit ?? '').isNotEmpty)
+            'commit': _cfg.buildCommit!,
+        },
       'frames': [
         for (var index = 0; index < batch.length; index += 1)
           {

@@ -2,6 +2,7 @@
   "version": 1,
   "batchId": "sdk-1717939200123-1",
   "appId": "app-demo",
+  "deployment": { "version": "1.0.0" },
   "frames": [
     {
       "runId": "sdk-1717939200123-1",

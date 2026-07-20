@@ -107,6 +107,10 @@ check('init WITH build -> finding context has version and commit', function () {
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
     assert.strictEqual(sent[0].version, 1);
+    assert.deepStrictEqual(sent[0].deployment, {
+      version: '1.4.2',
+      commit: 'abc123',
+    });
     assert.deepStrictEqual(sent[0].frames[0].event.context.build, {
       version: '1.4.2',
       commit: 'abc123',
@@ -136,6 +140,7 @@ check('init WITHOUT build -> safe environment context, no build', function () {
     assert.strictEqual(sent.length, 1);
     assert.strictEqual(sent[0].frames[0].event.context.platform, 'web');
     assert.strictEqual(sent[0].frames[0].event.context.build, undefined);
+    assert.strictEqual(sent[0].deployment, undefined);
   });
 });
 

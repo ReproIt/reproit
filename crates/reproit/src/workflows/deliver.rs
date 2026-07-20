@@ -251,6 +251,7 @@ impl Cloud {
             version: reproit_protocol::VERSION,
             batch_id,
             app_id: app.to_string(),
+            deployment: None,
             frames: vec![],
             evidence: graphs,
         };

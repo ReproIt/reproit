@@ -371,7 +371,7 @@ class Engine(
           "event" to protocolEvent(event, ctx ?: emptyMap()),
         )
       }
-    return Json.encode(
+    val payload =
       linkedMapOf<String, Any?>(
         "version" to 1,
         "batchId" to batchId,
@@ -379,7 +379,8 @@ class Engine(
         "frames" to frames,
         "evidence" to emptyList<Any?>(),
       )
-    )
+    ctx?.get("build")?.let { payload["deployment"] = it }
+    return Json.encode(payload)
   }
 
   private fun protocolEvent(

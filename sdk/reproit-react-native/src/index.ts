@@ -132,6 +132,7 @@ function protocolBatch(
     version: 1,
     batchId,
     appId,
+    ...(context.build ? { deployment: context.build } : {}),
     frames: events.map((event, index) => {
       if (event.kind === 'edge') {
         return {

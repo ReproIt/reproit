@@ -92,6 +92,7 @@ Every SDK normalizes its platform capture records into the same strict version 1
   "version": 1,
   "batchId": "sdk-1717939200123-1",
   "appId": "app_...",
+  "deployment": { "version": "1.0.0", "commit": "abc123" },
   "frames": [
     {
       "runId": "sdk-1717939200123-1",
@@ -104,7 +105,9 @@ Every SDK normalizes its platform capture records into the same strict version 1
 }
 ```
 
-The allowed event kinds are `action`, `observation`, `backend`, `graph-edge`, `finding`, and
+`deployment` identifies the release for the whole batch, including clean batches, so production
+traffic can confirm whether a fix has seen enough use. The allowed event kinds are `action`,
+`observation`, `backend`, `graph-edge`, `finding`, and
 `stream-defect`. A finding contains its identity, minimized path, and PII-safe context. Unknown or
 unrepresentable capture records become an explicit `stream-defect`; they are never silently
 dropped or treated as clean evidence. The shared protocol implementation owns validation, size

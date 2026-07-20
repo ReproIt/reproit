@@ -132,6 +132,7 @@ export interface Batch {
   version: 1;
   batchId: string;
   appId: string;
+  deployment?: { version?: string; commit?: string };
   frames: EventFrame[];
   evidence: [];
 }
