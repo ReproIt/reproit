@@ -9,7 +9,7 @@
  *
  * It mirrors the web SDK (`sdk/reproit-web.js`) and Flutter SDK
  * (`sdk/reproit_flutter`): same FNV-1a state signature, same event shapes,
- * same `{appId, sentAt, events}` batch POSTed to `<endpoint>/v1/events`, so
+ * same version 1 event batch POSTed to `<endpoint>/v1/events`, so
  * web, Flutter and RN telemetry land in one cloud graph.
  *
  * Usage (one init call in your app entry):
@@ -116,11 +116,73 @@ function normalizeBuild(
   return out.version || out.commit ? out : null;
 }
 
+function structuralMessage(message: string): string {
+  return message.replace(/(["']).*?\1/g, '<q>').replace(/[0-9][0-9.,]*/g, '#');
+}
+
+function protocolBatch(
+  appId: string,
+  events: ReproItEvent[],
+  context: Record<string, unknown>,
+  sentAt: number,
+  batchSequence: number,
+): Batch {
+  const batchId = `sdk-${sentAt}-${batchSequence}`;
+  return {
+    version: 1,
+    batchId,
+    appId,
+    frames: events.map((event, index) => {
+      if (event.kind === 'edge') {
+        return {
+          runId: batchId,
+          sequence: index + 1,
+          scope: { domain: 'shared' as const },
+          event: {
+            kind: 'graph-edge' as const,
+            from: event.from ?? '∅',
+            action: event.action || 'auto',
+            to: event.to || '?',
+          },
+        };
+      }
+      const identity = event.findingIdentity ?? {
+        oracle: event.oracle,
+        invariant: 'no-exception',
+        kind: 'exception',
+        message: structuralMessage(event.message),
+        frame: '',
+        trigger: event.path.length ? event.path[event.path.length - 1].action : '',
+        boundary: null,
+      };
+      return {
+        runId: batchId,
+        sequence: index + 1,
+        scope: { domain: 'shared' as const },
+        event: {
+          kind: 'finding' as const,
+          signature: event.sig || '?',
+          message: event.message || '',
+          identity,
+          path: event.path.map((step) => ({
+            signature: step.sig || '?',
+            action: step.action || 'auto',
+            label: step.label ?? null,
+          })),
+          context: { ...context, ...(event.context ?? {}) },
+        },
+      };
+    }),
+    evidence: [],
+  };
+}
+
 /** The telemetry singleton. */
 class ReproItImpl {
   private cfg: ResolvedConfig | null = null;
   private on = false;
   private buf: ReproItEvent[] = [];
+  private batchSequence = 0;
   private path: PathStep[] = [];
   // PII-safe context dimensions sent with each batch (the "which users" answer).
   // The scalar dimensions are `Context`; the developer-provided build identity
@@ -198,8 +260,8 @@ class ReproItImpl {
    * `enableInRelease` is set, so shipping this one line does nothing in
    * production by default. `appId` defaults to `'app'` when not supplied (RN has
    * no synchronous bundle id without a native module); pass `appId`, or any
-   * other config field, to override. Additive and backward-compatible: use
-   * {@link init} directly when you want telemetry in every build.
+   * other config field, to override. Use {@link init} directly when you want
+   * telemetry in every build.
    */
   start(opts: Partial<ReproItConfig> & { enableInRelease?: boolean } = {}): ReproItImpl {
     const dev = (globalThis as { __DEV__?: boolean }).__DEV__;
@@ -215,8 +277,8 @@ class ReproItImpl {
   flush(): void {
     if (!this.cfg || !this.buf.length) return;
     const cfg = this.cfg;
-    const batch: Batch = { appId: cfg.appId, sentAt: Date.now(), events: this.buf };
-    if (Object.keys(this.ctx).length) batch.ctx = this.ctx;
+    this.batchSequence += 1;
+    const batch = protocolBatch(cfg.appId, this.buf, this.ctx, Date.now(), this.batchSequence);
     this.buf = [];
     if (!cfg.endpoint) {
       if (!cfg.onEvent && typeof console !== 'undefined') {
@@ -739,6 +801,7 @@ class ReproItImpl {
     this.on = false;
     this.cfg = null;
     this.buf = [];
+    this.batchSequence = 0;
     this.path = [];
     this.ctx = {};
     this.cur = null;
@@ -762,3 +825,4 @@ export default ReproIt;
 
 // Re-export for advanced/manual use.
 export { snapshot, snapshotFromTree };
+export { protocolBatch };

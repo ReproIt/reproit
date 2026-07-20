@@ -1123,6 +1123,53 @@
     };
   }
 
+  function protocolBatch(appId, events, context, sentAt, batchSequence) {
+    var batchId = 'sdk-' + sentAt + '-' + batchSequence;
+    var frames = events.map(function (event, index) {
+      var protocolEvent;
+      if (event.kind === 'edge') {
+        protocolEvent = {
+          kind: 'graph-edge',
+          from: event.from || '∅',
+          action: event.action || 'auto',
+          to: event.to || '?',
+        };
+      } else if (event.kind === 'error') {
+        var identity = event.findingIdentity || crashIdentity(event.message);
+        var findingContext = Object.assign({}, context || {}, event.context || {});
+        protocolEvent = {
+          kind: 'finding',
+          signature: event.sig || '?',
+          message: event.message || '',
+          identity: identity,
+          path: (event.path || []).map(function (step) {
+            return {
+              signature: step.sig || '?',
+              action: step.action || 'auto',
+              label: step.label || null,
+            };
+          }),
+          context: findingContext,
+        };
+      } else {
+        protocolEvent = { kind: 'stream-defect', reason: 'invalid-event' };
+      }
+      return {
+        runId: batchId,
+        sequence: index + 1,
+        scope: { domain: 'shared' },
+        event: protocolEvent,
+      };
+    });
+    return {
+      version: 1,
+      batchId: batchId,
+      appId: appId,
+      frames: frames,
+      evidence: [],
+    };
+  }
+
   // ---- the SDK ------------------------------------------------------------
   var ReproIt = {
     _cfg: null,
@@ -1133,6 +1180,7 @@
     _timer: null,
     _on: false,
     _build: null, // developer-provided { version, commit } or null
+    _batchSequence: 0,
     init: function (opts) {
       if (this._on) return this;
       var cfg = Object.assign({}, DEFAULTS, opts || {});
@@ -1254,8 +1302,7 @@
     // Zero-config start: the one-line quickstart. Begins telemetry with sensible
     // defaults and no required options, deriving appId from the page host when
     // one is not supplied, then delegating to init (which stays the full,
-    // explicit entry point). Additive and backward-compatible: ReproIt.start()
-    // is the copy-paste one-liner, ReproIt.init(opts) is unchanged. A web page
+    // explicit entry point). ReproIt.start() is the copy-paste one-liner. A web page
     // has no build-mode distinction, so start() is active wherever it is loaded;
     // the existing webdriver/reportAutomation guard still keeps test-rig sessions
     // out of production telemetry. Pass any init option to override a default
@@ -1441,18 +1488,25 @@
 
     _flush: function (useBeacon) {
       if (!this._buf.length) return;
-      var batch = { appId: this._cfg.appId, sentAt: Date.now(), events: this._buf };
-      batch.ctx = environmentContext();
+      var context = environmentContext();
       if (
         this._cfg.context &&
         typeof this._cfg.context === 'object' &&
         !Array.isArray(this._cfg.context)
       ) {
-        batch.ctx = Object.assign(batch.ctx, this._cfg.context);
+        context = Object.assign(context, this._cfg.context);
       }
       // Stamp the developer-provided build identity as context.build (only the
       // provided fields); omitted entirely when no build was supplied.
-      if (this._build) batch.ctx.build = this._build;
+      if (this._build) context.build = this._build;
+      this._batchSequence += 1;
+      var batch = protocolBatch(
+        this._cfg.appId,
+        this._buf,
+        context,
+        Date.now(),
+        this._batchSequence,
+      );
       this._buf = [];
       var cfg = this._cfg;
       if (!cfg.endpoint) {
@@ -1501,6 +1555,7 @@
   // Developer-provided build identity normalizer (load-bearing, host-testable):
   // keeps only the provided {version, commit} string fields, else null.
   ReproIt.normalizeBuild = normalizeBuild;
+  ReproIt.protocolBatch = protocolBatch;
   ReproIt._actionKeyOf = actionKeyOf;
 
   global.ReproIt = ReproIt;

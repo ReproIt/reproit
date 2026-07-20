@@ -56,7 +56,8 @@ a confirmed bug.
   selector (`tap:key:<key>` or `tap:role:<role>#<idx>`); `label` is optional display text.
 - Hooks `FlutterError.onError` and `PlatformDispatcher.onError`; an error event carries the full
   action path leading to it.
-- Batches events and POSTs `{appId, sentAt, events}` to `<endpoint>/v1/events` with
+- Normalizes capture records into version 1 event frames and POSTs them to
+  `<endpoint>/v1/events` with
   `Authorization: Bearer <apiKey>`.
 
 ## Usage

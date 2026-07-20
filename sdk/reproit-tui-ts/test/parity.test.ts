@@ -202,8 +202,8 @@ test('Reporter records an edge only on structural change', () => {
   assert.equal(errs[0].message, 'boom');
 });
 
-// flush() POSTs the {appId, sentAt, ctx?, events} batch via the injected fetch.
-test('flush POSTs the {appId, sentAt, ctx?, events} batch', () => {
+// flush() POSTs one strict versioned batch via the injected fetch.
+test('flush POSTs versioned protocol frames', () => {
   const posted: Array<{ url: string; body: string }> = [];
   const fakeFetch = ((url: string, init: { body: string }) => {
     posted.push({ url, body: init.body });
@@ -221,9 +221,11 @@ test('flush POSTs the {appId, sentAt, ctx?, events} batch', () => {
 
   assert.equal(posted.length, 1, 'flush POSTed a batch');
   const batch = JSON.parse(posted[0].body);
+  assert.equal(batch.version, 1);
   assert.equal(batch.appId, 'myapp');
-  assert.equal(typeof batch.sentAt, 'number');
-  assert.deepEqual(batch.ctx, { release: '1.2.3' });
-  assert.ok(Array.isArray(batch.events) && batch.events.length >= 2);
-  assert.equal(batch.events[0].kind, 'session');
+  assert.match(batch.batchId, /^sdk-[0-9]+-1$/);
+  assert.ok(Array.isArray(batch.frames) && batch.frames.length >= 2);
+  assert.equal(batch.frames[0].event.kind, 'action');
+  assert.equal(batch.frames[1].event.kind, 'graph-edge');
+  assert.deepEqual(batch.evidence, []);
 });

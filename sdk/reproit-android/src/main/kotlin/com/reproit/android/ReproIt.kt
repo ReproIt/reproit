@@ -2,6 +2,7 @@ package com.reproit.android
 
 import android.app.Activity
 import android.app.Application
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -740,7 +741,7 @@ object ReproIt {
           cls.endsWith("ImageView") -> "image"
           cls.endsWith("TabWidget") -> "tab"
           else -> {
-            if (info.isHeading) "header"
+            if (Build.VERSION.SDK_INT >= 28 && info.isHeading) "header"
             else if (info.isCheckable) "checkbox" else if (info.isClickable) "button" else null
           }
         }
@@ -754,12 +755,14 @@ object ReproIt {
    * A header is a TextView the developer marked as a heading via accessibility
    * (`android:accessibilityHeading` / setAccessibilityHeading).
    */
-  private fun isHeader(view: View): Boolean =
-    try {
+  private fun isHeader(view: View): Boolean {
+    if (Build.VERSION.SDK_INT < 28) return false
+    return try {
       view.isAccessibilityHeading
     } catch (_: Throwable) {
       false
     }
+  }
 
   /**
    * The optional input-`type` refinement for a textfield node, from the EditText `inputType`.

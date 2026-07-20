@@ -61,10 +61,11 @@ ReproIt._buf = [{ kind: 'error', message: 'test' }];
 ReproIt._flush();
 
 const body = JSON.parse(request.options.body);
-assert.equal(body.ctx.browser, 'Chrome');
-assert.equal(body.ctx.os, 'macOS');
-assert.equal(body.ctx.plan, 'team');
-assert.equal(body.ctx.build.version, '1.2.3');
+const findingContext = body.frames[0].event.context;
+assert.equal(findingContext.browser, 'Chrome');
+assert.equal(findingContext.os, 'macOS');
+assert.equal(findingContext.plan, 'team');
+assert.equal(findingContext.build.version, '1.2.3');
 assert.equal(JSON.stringify(body).includes(navigator.userAgent), false);
 
 console.log('environment context: ok');

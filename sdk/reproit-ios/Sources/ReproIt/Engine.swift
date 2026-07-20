@@ -21,6 +21,7 @@ public final class ReproItEngine {
   // users" answer the cloud turns into a cohort discriminator). Populated with
   // tier-1 auto dimensions at start and extended via identify/setContext.
   private var context: [String: Any] = [:]
+  private var batchSequence: UInt64 = 0
   private var currentSig: String?
   private var pendingAction: String?  // set at tap/nav time, consumed by the next edge
   private var pendingLabel: String?  // display-only label for pendingAction
@@ -444,11 +445,13 @@ public final class ReproItEngine {
     let batch = buffer
     buffer.removeAll(keepingCapacity: true)
     let ctx = context
+    batchSequence += 1
+    let sequence = batchSequence
     lock.unlock()
 
     guard let url = URL(string: "\(endpoint)/v1/events"),
       let body = ReproItBatch.encode(
-        appId: cfg.appId, sentAt: reproitNowMs(),
+        appId: cfg.appId, sentAt: reproitNowMs(), batchSequence: sequence,
         ctx: ctx, events: batch, redactLabels: cfg.redactLabels)
     else {
       // Couldn't build a request; put events back so they aren't lost.

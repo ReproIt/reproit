@@ -6,7 +6,7 @@
 //
 //   • the FNV-1a state signature over sorted, '|'-joined accessible names
 //   • the accessible-name normalization rule
-//   • the edge / error event shapes and the {appId, sentAt, events} batch
+//   • capture records normalized into strict version 1 event frames
 //   • the POST /v1/events transport (URLSession), batching, flush, sampling
 //
 // The live view-hierarchy capture (snapshotting, tap hit-testing, error hooks)
@@ -493,24 +493,87 @@ public enum ReproItEvent {
 // MARK: - Batch encoding
 
 public enum ReproItBatch {
-  /// Encode `{appId, sentAt, ctx?, events:[...]}` exactly like the other SDKs.
-  /// `ctx` is the PII-safe context map (the "which users" answer the cloud uses
-  /// to compute a cohort discriminator); it is included only when non-empty so
-  /// key presence matches the web/Flutter batch (`if (_context.isNotEmpty)`).
+  /// Normalize capture records into the strict version 1 event protocol.
   public static func encode(
     appId: String,
     sentAt: Int64,
+    batchSequence: UInt64,
     ctx: [String: Any] = [:],
     events: [ReproItEvent],
     redactLabels: Bool
   ) -> Data? {
-    var batch: [String: Any] = [
+    let batchId = "sdk-\(sentAt)-\(batchSequence)"
+    let frames = events.enumerated().map { index, event in
+      [
+        "runId": batchId,
+        "sequence": index + 1,
+        "scope": ["domain": "shared"],
+        "event": protocolEvent(
+          event.jsonObject(redactLabels: redactLabels), batchContext: ctx),
+      ] as [String: Any]
+    }
+    let batch: [String: Any] = [
+      "version": 1,
+      "batchId": batchId,
       "appId": appId,
-      "sentAt": sentAt,
-      "events": events.map { $0.jsonObject(redactLabels: redactLabels) },
+      "frames": frames,
+      "evidence": [],
     ]
-    if !ctx.isEmpty { batch["ctx"] = ctx }
     return try? JSONSerialization.data(withJSONObject: batch)
+  }
+
+  private static func protocolEvent(
+    _ event: [String: Any], batchContext: [String: Any]
+  ) -> [String: Any] {
+    if event["kind"] as? String == "edge" {
+      return [
+        "kind": "graph-edge",
+        "from": event["from"] as? String ?? "∅",
+        "action": event["action"] as? String ?? "auto",
+        "to": event["to"] as? String ?? "?",
+      ]
+    }
+    guard event["kind"] as? String == "error" else {
+      return ["kind": "stream-defect", "reason": "invalid-event"]
+    }
+
+    let path = event["path"] as? [[String: Any]] ?? []
+    let message = event["message"] as? String ?? ""
+    let identity =
+      event["findingIdentity"] as? [String: Any] ?? [
+        "oracle": event["oracle"] as? String ?? "crash",
+        "invariant": "no-exception",
+        "kind": "exception",
+        "message": structuralMessage(message),
+        "frame": "",
+        "trigger": path.last?["action"] as? String ?? "",
+      ]
+    var context = batchContext
+    if let eventContext = event["context"] as? [String: Any] {
+      context.merge(eventContext) { _, eventValue in eventValue }
+    }
+    return [
+      "kind": "finding",
+      "signature": event["sig"] as? String ?? "?",
+      "message": message,
+      "identity": identity,
+      "path": path.map { step in
+        var normalized: [String: Any] = [
+          "signature": step["sig"] as? String ?? "?",
+          "action": step["action"] as? String ?? "auto",
+        ]
+        if let label = step["label"] { normalized["label"] = label }
+        return normalized
+      },
+      "context": context,
+    ]
+  }
+
+  private static func structuralMessage(_ message: String) -> String {
+    let quoted = message.replacingOccurrences(
+      of: #"(["']).*?\1"#, with: "<q>", options: .regularExpression)
+    return quoted.replacingOccurrences(
+      of: #"[0-9][0-9.,]*"#, with: "#", options: .regularExpression)
   }
 }
 

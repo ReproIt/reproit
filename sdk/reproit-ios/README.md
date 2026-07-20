@@ -13,7 +13,7 @@ canonical node model and reuse the same `Signature.swift`, so every platform has
 identically to the Rust oracle and the web / Flutter SDKs.
 
 It mirrors the web SDK (`sdk/reproit-web.js`) and `reproit_flutter`: same FNV-1a state signature,
-same event shapes, same `{appId, sentAt, events}` batch POST to `<endpoint>/v1/events`, so web,
+same version 1 event batch POST to `<endpoint>/v1/events`, so web,
 Flutter, and iOS telemetry land in one cloud graph.
 
 ## Quickstart
@@ -301,11 +301,11 @@ Error (with replay path + PII-safe input fingerprint):
 }
 ```
 
-Batched as `{ "appId", "sentAt", "ctx"?, "events": [...] }` and POSTed to `<endpoint>/v1/events`
-with `Content-Type: application/json` and, when `apiKey` is set, `Authorization: Bearer <apiKey>`.
-`ctx` is the PII-safe context map and is present only when non-empty. These match the cloud's
-`POST /v1/events` contract, which folds edges into the production graph, attaches `ctx` to each
-event for cohort discrimination, and stores errors with their path for repro
+The wire body is `{ "version": 1, "batchId": "...", "appId": "...", "frames": [...],
+"evidence": [] }` and is POSTed to `<endpoint>/v1/events` with `Content-Type: application/json`
+and, when `apiKey` is set, `Authorization: Bearer <apiKey>`. Findings carry the PII-safe context
+map. This matches the cloud contract, which folds edges into the production graph and stores
+findings with their path for repro
 (`GET /v1/apps/:app/buckets/:bucket`).
 
 ## Configuration

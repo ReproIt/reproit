@@ -87,7 +87,7 @@ describe('ReproIt context API (mirrors Flutter)', () => {
     expect(ctx.seats).toBe(3);
   });
 
-  test('the batch posted to /v1/events carries ctx when non-empty', () => {
+  test('finding frames posted to /v1/events carry context', () => {
     const batches: unknown[] = [];
     const fetchMock = jest.fn(() => Promise.resolve({} as Response));
     (globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
@@ -105,17 +105,19 @@ describe('ReproIt context API (mirrors Flutter)', () => {
       },
       'load',
     );
-    ReproIt.flush();
+    ReproIt.captureBug();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, opts] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
     const body = JSON.parse(opts.body);
     batches.push(body);
-    expect(body.ctx).toBeDefined();
-    expect(body.ctx.uid).toBe(hashUid('u1'));
-    expect(body.ctx.platform).toBe('ios');
-    expect(Array.isArray(body.events)).toBe(true);
-    expect(body.events.length).toBeGreaterThan(0);
+    expect(body.version).toBe(1);
+    expect(Array.isArray(body.frames)).toBe(true);
+    const finding = body.frames.find(
+      (frame: { event: { kind: string } }) => frame.event.kind === 'finding',
+    );
+    expect(finding.event.context.uid).toBe(hashUid('u1'));
+    expect(finding.event.context.platform).toBe('ios');
 
     delete (globalThis as { fetch?: typeof fetch }).fetch;
   });

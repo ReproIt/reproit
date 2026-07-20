@@ -432,11 +432,11 @@ class SignatureParityTest {
       )
     val body = engine.buildBatch(listOf(ev))
     assertEquals(
-      "{\"appId\":\"example\",\"sentAt\":1717939200123,\"events\":" +
-        "[{\"kind\":\"edge\",\"action\":\"tap:key:open-settings\"," +
-        "\"label\":\"Open \\\"Settings\\\"\",\"to\":\"054d1bbf\"," +
-            "\"labels\":[\"Settings\",\"Back\"]," +
-        "\"t\":1717939200123}]}",
+      "{\"version\":1,\"batchId\":\"sdk-1717939200123-1\",\"appId\":\"example\"," +
+        "\"frames\":[{\"runId\":\"sdk-1717939200123-1\",\"sequence\":1," +
+        "\"scope\":{\"domain\":\"shared\"},\"event\":{\"kind\":\"graph-edge\"," +
+        "\"from\":\"∅\",\"action\":\"tap:key:open-settings\"," +
+        "\"to\":\"054d1bbf\"}}],\"evidence\":[]}",
       body,
     )
   }
@@ -508,7 +508,11 @@ class SignatureParityTest {
   fun batchEnvelopeOmitsCtxWhenEmpty() {
     val engine = Engine(ReproItConfig(appId = "example"), now = { 1_717_939_200_123L })
     val body = engine.buildBatch(emptyList())
-    assertEquals("{\"appId\":\"example\",\"sentAt\":1717939200123,\"events\":[]}", body)
+    assertEquals(
+      "{\"version\":1,\"batchId\":\"sdk-1717939200123-1\",\"appId\":\"example\"," +
+        "\"frames\":[],\"evidence\":[]}",
+      body,
+    )
   }
 
   @Test
@@ -519,29 +523,44 @@ class SignatureParityTest {
     )
     val ev =
       linkedMapOf<String, Any?>(
-        "kind" to "edge",
-        "action" to "load",
-        "to" to "811c9dc5",
-        "t" to 1_717_939_200_123L,
+        "kind" to "error",
+        "oracle" to "crash",
+        "sig" to "811c9dc5",
+        "path" to emptyList<Any?>(),
+        "message" to "boom",
       )
     val body = engine.buildBatch(listOf(ev))
-    assertEquals(
-      "{\"appId\":\"example\",\"sentAt\":1717939200123," +
-        "\"ctx\":{\"platform\":\"android\",\"locale\":\"en-US\"," +
-        "\"tz\":\"America/New_York\"}," +
-        "\"events\":[{\"kind\":\"edge\",\"action\":\"load\"," +
-        "\"to\":\"811c9dc5\",\"t\":1717939200123}]}",
-      body,
-    )
+    @Suppress("UNCHECKED_CAST")
+    val root = Json.decode(body) as Map<String, Any?>
+    @Suppress("UNCHECKED_CAST")
+    val frames = root["frames"] as List<Map<String, Any?>>
+    @Suppress("UNCHECKED_CAST")
+    val finding = frames.single()["event"] as Map<String, Any?>
+    @Suppress("UNCHECKED_CAST")
+    val ctx = finding["context"] as Map<String, Any?>
+    assertEquals("android", ctx["platform"])
+    assertEquals("en-US", ctx["locale"])
+    assertEquals("America/New_York", ctx["tz"])
   }
 
   @Test
   fun identifiedBatchEnvelopeCarriesHashedUidNotRawValue() {
     val engine = Engine(ReproItConfig(appId = "example"), now = { 1_717_939_200_123L })
     engine.identify("secret-user")
-    val body = engine.buildBatch(emptyList())
+    val body =
+      engine.buildBatch(
+        listOf(
+          mapOf(
+            "kind" to "error",
+            "oracle" to "crash",
+            "sig" to "state",
+            "path" to emptyList<Any?>(),
+            "message" to "boom",
+          )
+        )
+      )
     assertFalse("raw user id must never appear in the wire body", body.contains("secret-user"))
-    assertTrue(body.contains("\"ctx\":{\"uid\":\""))
+    assertTrue(body.contains("\"context\":{\"uid\":\""))
   }
 
   // ---- PII-safe input fingerprint (tier-3 on-error context) ----------------

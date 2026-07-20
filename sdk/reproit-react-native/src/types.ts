@@ -92,19 +92,48 @@ export type ReproItEvent = EdgeEvent | ErrorEvent;
 export type InvariantResult = boolean | { ok: boolean; message?: string };
 export type InvariantPredicate = () => InvariantResult;
 
-/** A batch as POSTed to `<endpoint>/v1/events`. */
+export interface ProtocolPathStep {
+  signature: string;
+  action: string;
+  label: string | null;
+}
+
+export interface ProtocolFindingIdentity {
+  oracle: string;
+  invariant: string;
+  kind: string;
+  message: string;
+  frame: string;
+  trigger: string;
+  boundary?: string | null;
+}
+
+export type ProtocolEvent =
+  | { kind: 'graph-edge'; from: string; action: string; to: string }
+  | {
+      kind: 'finding';
+      signature: string;
+      message: string;
+      identity: ProtocolFindingIdentity;
+      path: ProtocolPathStep[];
+      context: Record<string, unknown>;
+    }
+  | { kind: 'stream-defect'; reason: 'invalid-event' };
+
+export interface EventFrame {
+  runId: string;
+  sequence: number;
+  scope: { domain: 'shared' };
+  event: ProtocolEvent;
+}
+
+/** The strict versioned batch POSTed to `<endpoint>/v1/events`. */
 export interface Batch {
+  version: 1;
+  batchId: string;
   appId: string;
-  sentAt: number;
-  /**
-   * PII-safe context dimensions for the batch (omitted when empty). Scalar
-   * dimensions plus an optional developer-provided `build` identity (the cloud
-   * reads `context.build.version`/`.commit` to segment bugs by build).
-   */
-  ctx?: Record<string, string | number | boolean | null> & {
-    build?: { version?: string; commit?: string };
-  };
-  events: ReproItEvent[];
+  frames: EventFrame[];
+  evidence: [];
 }
 
 /**
@@ -116,7 +145,7 @@ export interface ReproItConfig {
   /** Identifies the app in the cloud (the `appId` in every batch). Required. */
   appId: string;
   /**
-   * Developer-provided build identity, stamped into every event's context as
+   * Developer-provided build identity, stamped into every finding's context as
    * `context.build = { version, commit }` (only the provided fields). RN can't
    * auto-detect these without a native module, so the developer supplies them
    * from their build pipeline (app version from package.json/Info.plist/gradle,

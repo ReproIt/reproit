@@ -135,7 +135,9 @@ class CausalHttp {
       connection.requestMethod = method.uppercase(Locale.ROOT)
       connection.connectTimeout = connectMs
       connection.readTimeout = readMs
-      headers.forEach(connection::setRequestProperty)
+      for ((name, value) in headers) {
+        connection.setRequestProperty(name, value)
+      }
       if (body != null) {
         connection.doOutput = true
         connection.outputStream.use { it.write(body) }

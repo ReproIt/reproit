@@ -18,7 +18,7 @@ import { Reporter, ScreenContents } from 'reproit-tui';
 const reporter = new Reporter({
   appId: 'my-ink-cli',
   endpoint: process.env.REPROIT_ENDPOINT || null,
-  // optional static context attached to every batch
+  // optional static context attached to every finding
   ctx: { release: process.env.npm_package_version },
 });
 // Flush a crash event with the current screen signature before the process dies.

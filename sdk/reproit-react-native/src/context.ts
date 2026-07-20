@@ -26,7 +26,7 @@
 /** A single context value: low-cardinality, JSON-serializable, zero-PII. */
 export type ContextValue = string | number | boolean | null;
 
-/** The context map sent as the batch-level `ctx`. */
+/** The context map attached to finding events. */
 export type Context = Record<string, ContextValue>;
 
 /**

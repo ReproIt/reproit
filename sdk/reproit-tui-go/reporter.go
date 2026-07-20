@@ -7,8 +7,7 @@ package reproittui
 //  1. computes the SAME TUI screen signature the fuzz runner computes (signature.go),
 //  2. records a coverage EDGE whenever the structural signature changes (and uses the
 //     content fingerprint as the Layer-1 effect token, exactly like the runner),
-//  3. batches events and POSTs them to the cloud as the SAME contract every other
-//     reproit SDK uses: {appId, sentAt, ctx?, events},
+//  3. normalizes capture records into bounded version 1 protocol frames,
 //  4. installs a panic + signal handler that flushes the buffer (with a crash event
 //     carrying the crashing screen's signature) before the process dies, so a
 //     production crash is reported with the exact state signature to replay locally.
@@ -134,20 +133,31 @@ type Event struct {
 	Error  string   `json:"error,omitempty"`  // crash: the panic/signal message
 }
 
-// batch is the wire contract POSTed to the endpoint: identical to every other reproit
-// SDK ({appId, sentAt, ctx?, events}).
+type protocolScope struct {
+	Domain string `json:"domain"`
+}
+
+type protocolFrame struct {
+	RunID    string                 `json:"runId"`
+	Sequence uint64                 `json:"sequence"`
+	Scope    protocolScope          `json:"scope"`
+	Event    map[string]interface{} `json:"event"`
+}
+
+// batch is the strict versioned wire contract POSTed to the endpoint.
 type batch struct {
-	AppID  string                 `json:"appId"`
-	SentAt int64                  `json:"sentAt"`
-	Ctx    map[string]interface{} `json:"ctx,omitempty"`
-	Events []Event                `json:"events"`
+	Version  int             `json:"version"`
+	BatchID  string          `json:"batchId"`
+	AppID    string          `json:"appId"`
+	Frames   []protocolFrame `json:"frames"`
+	Evidence []interface{}   `json:"evidence"`
 }
 
 // Config configures a Reporter.
 type Config struct {
 	AppID    string                 // application identifier (required for cloud reporting)
 	Endpoint string                 // POST target; if "", events go to OnEvent / are dropped
-	Ctx      map[string]interface{} // optional static context attached to every batch
+	Ctx      map[string]interface{} // optional static context attached to every finding
 	OnEvent  func(Event)            // optional local sink (testing / custom transport)
 	// FlushAt is the buffered-event count that triggers an automatic flush (default 50,
 	// matching the web SDK).
@@ -166,6 +176,7 @@ type Reporter struct {
 
 	mu         sync.Mutex
 	buf        []Event
+	batchSeq   uint64
 	cur        string // current structural signature
 	curFP      string // current content fingerprint (Layer-1 effect token, ephemeral)
 	started    bool
@@ -369,9 +380,28 @@ func (r *Reporter) Flush() {
 	}
 	events := r.buf
 	r.buf = nil
+	r.batchSeq++
+	batchSeq := r.batchSeq
 	r.mu.Unlock()
 
-	b := batch{AppID: r.cfg.AppID, SentAt: time.Now().UnixMilli(), Ctx: r.cfg.Ctx, Events: events}
+	sentAt := time.Now().UnixMilli()
+	batchID := fmt.Sprintf("sdk-%d-%d", sentAt, batchSeq)
+	frames := make([]protocolFrame, 0, len(events))
+	for index, event := range events {
+		frames = append(frames, protocolFrame{
+			RunID:    batchID,
+			Sequence: uint64(index + 1),
+			Scope:    protocolScope{Domain: "shared"},
+			Event:    r.protocolEvent(event),
+		})
+	}
+	b := batch{
+		Version:  1,
+		BatchID:  batchID,
+		AppID:    r.cfg.AppID,
+		Frames:   frames,
+		Evidence: []interface{}{},
+	}
 	body, err := json.Marshal(b)
 	if err != nil {
 		return
@@ -389,6 +419,98 @@ func (r *Reporter) Flush() {
 		return
 	}
 	_ = resp.Body.Close()
+}
+
+func (r *Reporter) protocolEvent(event Event) map[string]interface{} {
+	switch event.Kind {
+	case "session":
+		return map[string]interface{}{
+			"kind": "action", "actor": nil, "action": "session-start",
+		}
+	case "edge":
+		from := event.From
+		if from == "" {
+			from = "∅"
+		}
+		action := event.Action
+		if action == "" {
+			action = "auto"
+		}
+		to := event.To
+		if to == "" {
+			to = "?"
+		}
+		return map[string]interface{}{
+			"kind": "graph-edge", "from": from, "action": action, "to": to,
+		}
+	case "state":
+		return map[string]interface{}{
+			"kind": "observation", "actor": nil, "state": event.Sig,
+			"route": nil, "visibleText": []interface{}{}, "counts": map[string]uint64{},
+			"oracleSignals": []interface{}{}, "networkStatuses": []interface{}{},
+			"responseShapes": []interface{}{},
+		}
+	case "error", "crash":
+		signature := event.Sig
+		if signature == "" {
+			signature = event.To
+		}
+		if signature == "" {
+			signature = "?"
+		}
+		context := r.cfg.Ctx
+		if context == nil {
+			context = map[string]interface{}{}
+		}
+		return map[string]interface{}{
+			"kind":      "finding",
+			"signature": signature,
+			"message":   event.Error,
+			"identity": map[string]interface{}{
+				"oracle": "crash", "invariant": "no-exception", "kind": "exception",
+				"message": structuralMessage(event.Error), "frame": "", "trigger": "",
+				"boundary": nil,
+			},
+			"path":    []interface{}{},
+			"context": context,
+		}
+	default:
+		return map[string]interface{}{
+			"kind": "stream-defect", "reason": "invalid-event",
+		}
+	}
+}
+
+func structuralMessage(message string) string {
+	runes := []rune(message)
+	out := make([]rune, 0, len(runes))
+	for index := 0; index < len(runes); index++ {
+		current := runes[index]
+		if current == '\'' || current == '"' {
+			quote := current
+			for index+1 < len(runes) && runes[index+1] != quote {
+				index++
+			}
+			if index+1 < len(runes) {
+				index++
+			}
+			out = append(out, '<', 'q', '>')
+			continue
+		}
+		if current >= '0' && current <= '9' {
+			out = append(out, '#')
+			for index+1 < len(runes) {
+				next := runes[index+1]
+				if !((next >= '0' && next <= '9') || next == '.' || next == ',') {
+					break
+				}
+				index++
+			}
+			continue
+		}
+		out = append(out, current)
+	}
+	return string(out)
 }
 
 // ReportCrash records a crash event carrying the CURRENT signature (the state to

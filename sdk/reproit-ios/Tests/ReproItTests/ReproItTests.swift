@@ -453,14 +453,19 @@ final class ReproItTests: XCTestCase {
 
   func testBatchEncodesValidJSON() throws {
     let data = ReproItBatch.encode(
-      appId: "myapp", sentAt: 12345,
+      appId: "myapp", sentAt: 12345, batchSequence: 7,
       events: [.edge(from: nil, action: "load", to: "811c9dc5", labels: [], t: 1)],
       redactLabels: false)
     let obj = try XCTUnwrap(
       try JSONSerialization.jsonObject(with: try XCTUnwrap(data)) as? [String: Any])
     XCTAssertEqual(obj["appId"] as? String, "myapp")
-    XCTAssertEqual(obj["sentAt"] as? Int64, 12345)
-    XCTAssertEqual((obj["events"] as? [[String: Any]])?.count, 1)
+    XCTAssertEqual(obj["version"] as? Int, 1)
+    XCTAssertEqual(obj["batchId"] as? String, "sdk-12345-7")
+    let frames = try XCTUnwrap(obj["frames"] as? [[String: Any]])
+    XCTAssertEqual(frames.count, 1)
+    let event = try XCTUnwrap(frames.first?["event"] as? [String: Any])
+    XCTAssertEqual(event["kind"] as? String, "graph-edge")
+    XCTAssertEqual(event["from"] as? String, "∅")
   }
 
   // MARK: engine edge logic (no network: endpoint = nil, onEvent sink)
@@ -695,25 +700,29 @@ final class ReproItTests: XCTestCase {
     XCTAssertEqual(ctx["seats"] as? Int, 12)
   }
 
-  func testBatchIncludesCtxWhenNonEmptyAndOmitsWhenEmpty() throws {
+  func testBatchFindingCarriesMergedContext() throws {
     let withCtx = ReproItBatch.encode(
-      appId: "a", sentAt: 1,
+      appId: "a", sentAt: 1, batchSequence: 1,
       ctx: ["platform": "ios", "uid": "deadbeefdeadbeef"],
-      events: [.edge(from: nil, action: "load", to: "811c9dc5", labels: [], t: 1)],
+      events: [.testerCapture(sig: "811c9dc5", path: [], trigger: "load", t: 1)],
       redactLabels: false)
     let obj1 = try XCTUnwrap(
       try JSONSerialization.jsonObject(with: try XCTUnwrap(withCtx)) as? [String: Any])
-    let ctx = obj1["ctx"] as? [String: Any]
+    let frame = try XCTUnwrap((obj1["frames"] as? [[String: Any]])?.first)
+    let finding = try XCTUnwrap(frame["event"] as? [String: Any])
+    let ctx = finding["context"] as? [String: Any]
     XCTAssertEqual(ctx?["platform"] as? String, "ios")
     XCTAssertEqual(ctx?["uid"] as? String, "deadbeefdeadbeef")
 
     let noCtx = ReproItBatch.encode(
-      appId: "a", sentAt: 1,
-      events: [.edge(from: nil, action: "load", to: "811c9dc5", labels: [], t: 1)],
+      appId: "a", sentAt: 1, batchSequence: 2,
+      events: [.testerCapture(sig: "811c9dc5", path: [], trigger: "load", t: 1)],
       redactLabels: false)
     let obj2 = try XCTUnwrap(
       try JSONSerialization.jsonObject(with: try XCTUnwrap(noCtx)) as? [String: Any])
-    XCTAssertNil(obj2["ctx"])
+    let noCtxFrame = try XCTUnwrap((obj2["frames"] as? [[String: Any]])?.first)
+    let noCtxFinding = try XCTUnwrap(noCtxFrame["event"] as? [String: Any])
+    XCTAssertEqual((noCtxFinding["context"] as? [String: Any])?.count, 0)
   }
 
   // MARK: PII-safe input fingerprint (tier-3 on-error context)

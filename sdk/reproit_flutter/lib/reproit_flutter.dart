@@ -502,6 +502,7 @@ class ReproIt {
   String? _anchor; // current screen anchor (route name), prefixes the signature
   bool _disposed = false;
   int _causalActionIndex = 0;
+  int _batchSequence = 0;
 
   /// Zero-config start: the one-line quickstart. Begins telemetry with sensible
   /// defaults and no required configuration, then delegates to [init]. Enabled
@@ -709,8 +710,8 @@ class ReproIt {
     if (path != null) {
       invchan.appendInvariantLine(path, marker);
     } else {
-      for (final result
-          in results.where((r) => r.status == ReproItContractStatus.violation)) {
+      for (final result in results
+          .where((r) => r.status == ReproItContractStatus.violation)) {
         _i?._captureContractBug(result);
       }
     }
@@ -1713,11 +1714,23 @@ class ReproIt {
     }
     final batch = _queue.toList();
     _queue.clear();
+    final sentAt = DateTime.now().millisecondsSinceEpoch;
+    _batchSequence += 1;
+    final batchId = 'sdk-$sentAt-$_batchSequence';
     final body = jsonEncode({
+      'version': 1,
+      'batchId': batchId,
       'appId': _cfg.appId,
-      'sentAt': DateTime.now().millisecondsSinceEpoch,
-      if (_context.isNotEmpty) 'ctx': _context,
-      'events': batch,
+      'frames': [
+        for (var index = 0; index < batch.length; index += 1)
+          {
+            'runId': batchId,
+            'sequence': index + 1,
+            'scope': {'domain': 'shared'},
+            'event': _protocolEvent(batch[index]),
+          },
+      ],
+      'evidence': <Object?>[],
     });
     try {
       await http.post(
@@ -1733,6 +1746,59 @@ class ReproIt {
       _queue.insertAll(0, batch);
     }
   }
+
+  Map<String, Object?> _protocolEvent(Map<String, dynamic> event) {
+    if (event['kind'] == 'edge') {
+      return {
+        'kind': 'graph-edge',
+        'from': event['from'] ?? '∅',
+        'action': event['action'] ?? 'auto',
+        'to': event['to'] ?? '?',
+      };
+    }
+
+    if (event['kind'] != 'error') {
+      return {'kind': 'stream-defect', 'reason': 'invalid-event'};
+    }
+
+    final path = (event['path'] as List<dynamic>? ?? const <dynamic>[]);
+    final message = event['message']?.toString() ?? '';
+    final identity = event['findingIdentity'] ??
+        {
+          'oracle': event['oracle']?.toString() ?? 'crash',
+          'invariant': 'no-exception',
+          'kind': 'exception',
+          'message': _structuralMessage(message),
+          'frame': '',
+          'trigger': path.isEmpty
+              ? ''
+              : (path.last as Map<String, dynamic>)['action']?.toString() ?? '',
+          'boundary': null,
+        };
+    final eventContext = event['context'];
+    return {
+      'kind': 'finding',
+      'signature': event['sig']?.toString() ?? '?',
+      'message': message,
+      'identity': identity,
+      'path': [
+        for (final step in path)
+          {
+            'signature': (step as Map<String, dynamic>)['sig'] ?? '?',
+            'action': step['action'] ?? 'auto',
+            'label': step['label'],
+          },
+      ],
+      'context': {
+        ..._context,
+        if (eventContext is Map<String, dynamic>) ...eventContext,
+      },
+    };
+  }
+
+  static String _structuralMessage(String message) => message
+      .replaceAll(RegExp(r'''(["']).*?\1'''), '<q>')
+      .replaceAll(RegExp(r'[0-9][0-9.,]*'), '#');
 
   /// Tear down (mainly for tests).
   static void dispose() {

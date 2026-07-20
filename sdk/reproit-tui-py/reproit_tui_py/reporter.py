@@ -9,17 +9,16 @@ rendered frame, and the SDK:
   2. records a coverage EDGE only when the STRUCTURAL signature changes (and tracks
      the content fingerprint as the Layer-1 effect token, exactly like the Go/Rust
      SDKs and the runner);
-  3. batches events and POSTs them to the cloud as the SAME contract every other
-     reproit SDK uses, via stdlib urllib (best-effort, drop on failure):
-         { appId, sentAt, ctx?, events }
+  3. normalizes capture records into bounded version 1 protocol frames and
+     POSTs them via stdlib urllib (best-effort, drop on failure);
   4. installs a crash handler (sys.excepthook + SIGSEGV/SIGABRT/SIGBUS/SIGFPE)
      that records an error event carrying the crashing screen's signature and the
      graph path, flushes, then chains to the prior disposition so the crash is not
      swallowed.
 
 This mirrors the Linux SDK reporter (sdk/reproit-linux/reproit_linux/reporter.py)
-event contract byte-for-byte (edge + error events, the {appId, sentAt, ctx?,
-events} batch, the urllib transport, the crash handler), and the Go TUI reporter's
+event contract byte-for-byte (typed event frames, the urllib transport, the crash handler), and
+the Go TUI reporter's
 observe-on-signature-change behavior. It has NO Textual/Rich import: the capture
 layer (capture.py) feeds it a ScreenContents.
 
@@ -27,6 +26,7 @@ No em dashes anywhere, per project rules.
 """
 
 import json
+import re
 import os
 import sys
 import signal
@@ -48,6 +48,70 @@ except Exception:  # pragma: no cover
 
 def _now_ms():
     return int(time.time() * 1000)
+
+
+def _structural_message(message):
+    quoted = re.sub(r"""(["']).*?\1""", "<q>", message)
+    return re.sub(r"[0-9][0-9.,]*", "#", quoted)
+
+
+def _protocol_event(event, context):
+    if event.get("kind") == "edge":
+        return {
+            "kind": "graph-edge",
+            "from": event.get("from") or "∅",
+            "action": event.get("action") or "auto",
+            "to": event.get("to") or "?",
+        }
+    if event.get("kind") not in ("error", "crash"):
+        return {"kind": "stream-defect", "reason": "invalid-event"}
+    message = event.get("message") or event.get("error") or ""
+    path = event.get("path") or []
+    identity = event.get("findingIdentity") or {
+        "oracle": "crash",
+        "invariant": "no-exception",
+        "kind": "exception",
+        "message": _structural_message(message),
+        "frame": "",
+        "trigger": path[-1].get("action", "") if path else "",
+        "boundary": None,
+    }
+    finding_context = dict(context)
+    finding_context.update(event.get("context") or {})
+    return {
+        "kind": "finding",
+        "signature": event.get("sig") or event.get("to") or "?",
+        "message": message,
+        "identity": identity,
+        "path": [
+            {
+                "signature": step.get("sig") or "?",
+                "action": step.get("action") or "auto",
+                "label": step.get("label"),
+            }
+            for step in path
+        ],
+        "context": finding_context,
+    }
+
+
+def _protocol_batch(app_id, events, context, sent_at, batch_sequence):
+    batch_id = "sdk-%d-%d" % (sent_at, batch_sequence)
+    return {
+        "version": 1,
+        "batchId": batch_id,
+        "appId": app_id,
+        "frames": [
+            {
+                "runId": batch_id,
+                "sequence": index + 1,
+                "scope": {"domain": "shared"},
+                "event": _protocol_event(event, context),
+            }
+            for index, event in enumerate(events)
+        ],
+        "evidence": [],
+    }
 
 
 def auto_context():
@@ -113,6 +177,7 @@ class Reporter:
 
         self._lock = threading.RLock()
         self._buf = []
+        self._batch_sequence = 0
         self._path = []  # the graph trail: list of {sig, action}
         self._cur = None  # current structural signature
         self._cur_fp = None  # current content fingerprint (Layer-1, ephemeral)
@@ -289,7 +354,7 @@ class Reporter:
             self.flush()
 
     def flush(self):
-        """Flush queued events as one `{appId, sentAt, ctx?, events}` batch to
+        """Flush queued events as one strict version 1 batch to
         `<endpoint>/v1/events`. Best-effort: drops on failure (matches the other
         SDKs). With no endpoint set, the batch goes to the on_event hook, or the
         debug stream if there is none."""
@@ -298,9 +363,14 @@ class Reporter:
                 return
             events = self._buf
             self._buf = []
-            batch = {"appId": self.app_id, "sentAt": _now_ms(), "events": events}
-            if self._ctx:
-                batch["ctx"] = dict(self._ctx)
+            self._batch_sequence += 1
+            batch = _protocol_batch(
+                self.app_id,
+                events,
+                self._ctx,
+                _now_ms(),
+                self._batch_sequence,
+            )
             endpoint = self.endpoint
             api_key = self.api_key
         if not endpoint:
@@ -434,6 +504,9 @@ def _report_invariants(invariants, sig):
         return
     try:
         with open(path, "a", encoding="utf-8") as f:
-            f.write("REPROIT_INVARIANT %s\n" % json.dumps({"sig": sig or "", "items": items}))
+            f.write(
+                "REPROIT_INVARIANT %s\n"
+                % json.dumps({"sig": sig or "", "items": items})
+            )
     except OSError:
         pass

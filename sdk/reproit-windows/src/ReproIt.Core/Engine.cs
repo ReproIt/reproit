@@ -5,15 +5,15 @@
 //
 // Mirrors sdk/reproit-android/.../Engine.kt and sdk/reproit-web.js exactly: the
 // edge/error state machine, the PII-safe context map (SetContext / SetContexts /
-// Identify with the SHA-256 "uid" hash) and the {appId, sentAt, ctx?, events}
-// batch envelope are byte-for-byte the same wire shape as the other SDKs and the
-// cloud's ingest endpoint (POST /v1/events).
+// Identify with the SHA-256 "uid" hash) and the strict version 1 event batch
+// are the same wire shape as the other SDKs and the cloud ingest endpoint.
 
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ReproIt.Core
 {
@@ -115,10 +115,10 @@ namespace ReproIt.Core
         private string _currentSig;
         private string _pendingAction;
         private string _pendingLabel;
+        private long _batchSequence;
 
         // PII-safe context dimensions sent with each batch (the "which users" answer).
-        // Insertion-ordered and merged in place; included as the batch envelope's
-        // "ctx" field (only when non-empty), exactly like the other SDKs.
+        // Insertion-ordered and merged into each finding's context.
         private readonly Dictionary<string, object> _context = new Dictionary<string, object>();
 
         // App-declared invariants, keyed by id (registration idempotent). Inert in
@@ -548,30 +548,142 @@ namespace ReproIt.Core
             }
         }
 
-        /// <summary>Build the batch body for the given queued events (without draining).</summary>
+        /// <summary>Build a strict version 1 event batch from capture records.</summary>
         public string BuildBatch(IList<IDictionary<string, object>> events)
         {
-            var envelope = new Dictionary<string, object>();
-            envelope["appId"] = _cfg.AppId;
-            envelope["sentAt"] = _now();
-            // Include "ctx" only when non-empty, placed BEFORE "events" to match the
-            // other SDKs' envelope order.
+            long sentAt = _now();
+            long sequence;
+            lock (_queueLock)
+            {
+                sequence = ++_batchSequence;
+            }
+            string batchId = "sdk-" + sentAt + "-" + sequence;
             Dictionary<string, object> ctx;
             lock (_ctxLock)
             {
-                ctx = _context.Count == 0 ? null : new Dictionary<string, object>(_context);
+                ctx = new Dictionary<string, object>(_context);
             }
-            if (ctx != null)
+            var frames = new List<object>();
+            for (int index = 0; index < events.Count; index++)
             {
-                envelope["ctx"] = ctx;
+                frames.Add(new Dictionary<string, object> {
+                    ["runId"] = batchId,
+                    ["sequence"] = index + 1,
+                    ["scope"] = new Dictionary<string, object> { ["domain"] = "shared" },
+                    ["event"] = ProtocolEvent(events[index], ctx),
+                });
             }
-            var evList = new List<object>();
-            foreach (var e in events)
+            return Json.Encode(new Dictionary<string, object> {
+                ["version"] = 1,
+                ["batchId"] = batchId,
+                ["appId"] = _cfg.AppId,
+                ["frames"] = frames,
+                ["evidence"] = new List<object>(),
+            });
+        }
+
+        private static IDictionary<string, object> ProtocolEvent(
+            IDictionary<string, object> capture, IDictionary<string, object> batchContext)
+        {
+            object kindValue;
+            string kind = capture.TryGetValue("kind", out kindValue) ? kindValue as string : null;
+            if (kind == "edge")
             {
-                evList.Add(e);
+                return new Dictionary<string, object> {
+                    ["kind"] = "graph-edge",
+                    ["from"] = ValueOr(capture, "from", "∅"),
+                    ["action"] = ValueOr(capture, "action", "auto"),
+                    ["to"] = ValueOr(capture, "to", "?"),
+                };
             }
-            envelope["events"] = evList;
-            return Json.Encode(envelope);
+            if (kind != "error" && kind != "crash")
+            {
+                return new Dictionary<string, object> {
+                    ["kind"] = "stream-defect",
+                    ["reason"] = "invalid-event",
+                };
+            }
+
+            var path = capture.ContainsKey("path")
+                ? capture["path"] as List<object> ?? new List<object>()
+                : new List<object>();
+            string message = ValueOr(capture, "message", string.Empty) as string ?? string.Empty;
+            return new Dictionary<string, object> {
+                ["kind"] = "finding",
+                ["signature"] = ValueOr(capture, "sig", "?"),
+                ["message"] = message,
+                ["identity"] = FindingIdentity(capture, path, message),
+                ["path"] = FindingPath(path),
+                ["context"] = FindingContext(capture, batchContext),
+            };
+        }
+
+        private static object FindingIdentity(
+            IDictionary<string, object> capture, IList<object> path, string message)
+        {
+            object identity;
+            if (capture.TryGetValue("findingIdentity", out identity) && identity != null)
+            {
+                return identity;
+            }
+            var trigger = string.Empty;
+            if (path.Count > 0 && path[path.Count - 1] is IDictionary<string, object> last)
+            {
+                trigger = ValueOr(last, "action", string.Empty) as string ?? string.Empty;
+            }
+            return new Dictionary<string, object> {
+                ["oracle"] = ValueOr(capture, "oracle", "crash"),
+                ["invariant"] = "no-exception",
+                ["kind"] = "exception",
+                ["message"] = StructuralMessage(message),
+                ["frame"] = string.Empty,
+                ["trigger"] = trigger,
+            };
+        }
+
+        private static IList<object> FindingPath(IEnumerable<object> path)
+        {
+            var normalized = new List<object>();
+            foreach (object rawStep in path)
+            {
+                if (rawStep is IDictionary<string, object> step)
+                {
+                    normalized.Add(new Dictionary<string, object> {
+                        ["signature"] = ValueOr(step, "sig", "?"),
+                        ["action"] = ValueOr(step, "action", "auto"),
+                        ["label"] = ValueOr(step, "label", null),
+                    });
+                }
+            }
+            return normalized;
+        }
+
+        private static IDictionary<string, object> FindingContext(
+            IDictionary<string, object> capture, IDictionary<string, object> batchContext)
+        {
+            var context = new Dictionary<string, object>(batchContext);
+            object eventContext;
+            if (capture.TryGetValue("context", out eventContext) &&
+                eventContext is IDictionary<string, object> values)
+            {
+                foreach (var pair in values)
+                {
+                    context[pair.Key] = pair.Value;
+                }
+            }
+            return context;
+        }
+
+        private static object ValueOr(IDictionary<string, object> values, string key, object fallback)
+        {
+            object value;
+            return values.TryGetValue(key, out value) && value != null ? value : fallback;
+        }
+
+        private static string StructuralMessage(string message)
+        {
+            string quoted = Regex.Replace(message, "([\"']).*?\\1", "<q>");
+            return Regex.Replace(quoted, "[0-9][0-9.,]*", "#");
         }
 
         /// <summary>Drain the queue and ship it via the transport. On failure the batch

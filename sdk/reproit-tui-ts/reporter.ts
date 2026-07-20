@@ -8,8 +8,7 @@
 //  2. records a coverage EDGE whenever the structural signature changes (and uses
 //     the content fingerprint as the Layer-1 effect token, exactly like the
 //     runner and the Go/Rust SDKs),
-//  3. batches events and POSTs them to the cloud as the SAME wire contract every
-//     other reproit SDK uses: {appId, sentAt, ctx?, events},
+//  3. normalizes capture records into bounded version 1 protocol frames,
 //  4. installs process crash handlers (uncaughtException / unhandledRejection)
 //     plus SIGINT/SIGTERM that flush a crash event carrying the crashing screen's
 //     signature before the process dies, so a production crash is reported with
@@ -46,19 +45,44 @@ export interface ReproitEvent {
   stack?: string[]; // error/crash: trimmed stack frames
 }
 
-// Batch is the wire contract POSTed to the endpoint: identical to every other
-// reproit SDK ({appId, sentAt, ctx?, events}).
+type ProtocolEvent =
+  | { kind: 'action'; actor: null; action: string }
+  | { kind: 'graph-edge'; from: string; action: string; to: string }
+  | {
+      kind: 'finding';
+      signature: string;
+      message: string;
+      identity: {
+        oracle: string;
+        invariant: string;
+        kind: string;
+        message: string;
+        frame: string;
+        trigger: string;
+        boundary: null;
+      };
+      path: Array<{ signature: string; action: string; label: null }>;
+      context: Record<string, unknown>;
+    }
+  | { kind: 'stream-defect'; reason: 'invalid-event' };
+
 export interface Batch {
+  version: 1;
+  batchId: string;
   appId: string;
-  sentAt: number;
-  ctx?: Record<string, unknown>;
-  events: ReproitEvent[];
+  frames: Array<{
+    runId: string;
+    sequence: number;
+    scope: { domain: 'shared' };
+    event: ProtocolEvent;
+  }>;
+  evidence: [];
 }
 
 export interface ReporterConfig {
   appId: string; // application identifier (sent in every batch)
   endpoint?: string | null; // POST target; if null/"", events go to onEvent / are dropped
-  ctx?: Record<string, unknown>; // optional static context attached to every batch
+  ctx?: Record<string, unknown>; // optional static context attached to every finding
   onEvent?: (ev: ReproitEvent) => void; // optional local sink (testing / custom transport)
   flushAt?: number; // buffered-event count that triggers an auto flush (default 50)
   pathCap?: number; // how much of the graph trail to keep for repros (default 60)
@@ -73,6 +97,7 @@ export class Reporter {
   private cfg: Required<Omit<ReporterConfig, 'endpoint' | 'ctx' | 'onEvent' | 'fetchImpl'>> &
     Pick<ReporterConfig, 'endpoint' | 'ctx' | 'onEvent' | 'fetchImpl'>;
   private buf: ReproitEvent[] = [];
+  private batchSequence = 0;
   private cur = ''; // current structural signature
   private curFP = ''; // current content fingerprint (Layer-1 effect token, ephemeral)
   private path: Array<{ sig: string; action: string }> = [];
@@ -344,11 +369,20 @@ export class Reporter {
     if (this.buf.length === 0) return;
     const events = this.buf;
     this.buf = [];
+    this.batchSequence += 1;
+    const sentAt = Date.now();
+    const batchId = `sdk-${sentAt}-${this.batchSequence}`;
     const batch: Batch = {
+      version: 1,
+      batchId,
       appId: this.cfg.appId,
-      sentAt: Date.now(),
-      ctx: this.cfg.ctx,
-      events,
+      frames: events.map((event, index) => ({
+        runId: batchId,
+        sequence: index + 1,
+        scope: { domain: 'shared' },
+        event: this.protocolEvent(event),
+      })),
+      evidence: [],
     };
     if (!this.cfg.endpoint) {
       // no endpoint: onEvent already saw each event; nothing to POST.
@@ -372,6 +406,45 @@ export class Reporter {
     } catch {
       // best-effort
     }
+  }
+
+  private protocolEvent(event: ReproitEvent): ProtocolEvent {
+    if (event.kind === 'session') {
+      return { kind: 'action', actor: null, action: 'session-start' };
+    }
+    if (event.kind === 'edge') {
+      return {
+        kind: 'graph-edge',
+        from: event.from || '∅',
+        action: event.action || 'auto',
+        to: event.to || '?',
+      };
+    }
+    if (event.kind !== 'error' && event.kind !== 'crash') {
+      return { kind: 'stream-defect', reason: 'invalid-event' };
+    }
+    const path = event.path ?? [];
+    const message = event.message ?? '';
+    return {
+      kind: 'finding',
+      signature: event.sig || event.to || '?',
+      message,
+      identity: {
+        oracle: 'crash',
+        invariant: 'no-exception',
+        kind: 'exception',
+        message: message.replace(/(["']).*?\1/g, '<q>').replace(/[0-9][0-9.,]*/g, '#'),
+        frame: event.stack?.[0] ?? '',
+        trigger: path.length ? path[path.length - 1].action : '',
+        boundary: null,
+      },
+      path: path.map((step) => ({
+        signature: step.sig || '?',
+        action: step.action || 'auto',
+        label: null,
+      })),
+      context: { ...(this.cfg.ctx ?? {}) },
+    };
   }
 }
 

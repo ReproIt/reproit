@@ -7,7 +7,7 @@ reproit cloud turns into a deterministic replay: a prod "cannot reproduce" becom
 test.
 
 It mirrors the web SDK (`sdk/reproit-web.js`) and the Flutter SDK (`sdk/reproit_flutter`): same
-FNV-1a state signature, same event shapes, same `{appId, sentAt, events}` batch POSTed to
+FNV-1a state signature and the same version 1 event batch POSTed to
 `<endpoint>/v1/events`, so web, Flutter and React Native telemetry land in one cloud graph.
 
 ## Quickstart
@@ -169,21 +169,24 @@ ReproIt.identify("user@example.com", { role: "admin", plan: "free" });
 The hash is byte-identical to the Flutter SDK, so the same user maps to the same `uid` across
 platforms. The optional second argument merges extra dimensions.
 
-**Set dimensions** any time (merged into the next batch's `ctx`):
+**Set dimensions** any time (merged into the next finding's `context`):
 
 ```ts
 ReproIt.setContext("plan", "free");
 ReproIt.setContexts({ region: "eu", seats: 3 });
 ```
 
-When non-empty, the context rides along as the batch-level `ctx`:
+Context is carried by each finding frame:
 
 ```json
-{ "appId": "example", "sentAt": 1717939200123,
-  "ctx": { "platform": "ios", "osVersion": "17.4", "locale": "en-US",
-           "tz": "America/New_York", "release": true,
-           "uid": "8f1b...", "role": "admin" },
-  "events": [ ... ] }
+{ "version": 1, "batchId": "sdk-1717939200123-1", "appId": "example",
+  "frames": [{ "runId": "sdk-1717939200123-1", "sequence": 1,
+    "scope": { "domain": "shared" },
+    "event": { "kind": "finding", "context": {
+      "platform": "ios", "osVersion": "17.4", "locale": "en-US",
+      "tz": "America/New_York", "release": true,
+      "uid": "8f1b...", "role": "admin" } } }],
+  "evidence": [] }
 ```
 
 > **Locale source (honest limitation).** `locale`/`tz` come from the JS `Intl` API, not a native

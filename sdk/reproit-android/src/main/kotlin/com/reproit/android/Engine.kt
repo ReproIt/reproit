@@ -45,6 +45,7 @@ class Engine(
   private val path = ArrayList<Step>()
   private var currentSig: String? = null
   private var pending: PendingStep? = null
+  private var batchSequence = 0L
 
   /**
    * App-declared invariants (see [ReproIt.invariant]): predicates that must hold in every visited
@@ -58,9 +59,8 @@ class Engine(
 
   /**
    * PII-safe context dimensions sent with each batch (the "which users" answer). Insertion-ordered
-   * and merged in place; included as the batch envelope's `ctx` field (only when non-empty),
-   * exactly like the Flutter/web SDKs. The cloud's ingest endpoint (`POST /v1/events`) folds this
-   * into each event's context and computes a cohort discriminator from it.
+   * and merged in place; included in each finding event's `context` field, exactly like the
+   * Flutter/web SDKs.
    */
   private val context = LinkedHashMap<String, Any?>()
 
@@ -356,18 +356,83 @@ class Engine(
     if (queueSize >= 50) flush()
   }
 
-  /** Build the batch body for the currently queued events (without draining). */
+  /** Build a strict version 1 event batch for the currently queued capture records. */
   fun buildBatch(events: List<Map<String, Any?>>): String {
-    val envelope = LinkedHashMap<String, Any?>()
-    envelope["appId"] = cfg.appId
-    envelope["sentAt"] = now()
-    // Include context only when non-empty (matches Flutter's `if isNotEmpty`).
-    // Placed before `events` to mirror the Flutter SDK's envelope order.
+    val sentAt = now()
+    val sequence = synchronized(this) { ++batchSequence }
+    val batchId = "sdk-$sentAt-$sequence"
     val ctx = synchronized(context) { if (context.isEmpty()) null else LinkedHashMap(context) }
-    if (ctx != null) envelope["ctx"] = ctx
-    envelope["events"] = events
-    return Json.encode(envelope)
+    val frames =
+      events.mapIndexed { index, event ->
+        linkedMapOf<String, Any?>(
+          "runId" to batchId,
+          "sequence" to index + 1,
+          "scope" to linkedMapOf("domain" to "shared"),
+          "event" to protocolEvent(event, ctx ?: emptyMap()),
+        )
+      }
+    return Json.encode(
+      linkedMapOf<String, Any?>(
+        "version" to 1,
+        "batchId" to batchId,
+        "appId" to cfg.appId,
+        "frames" to frames,
+        "evidence" to emptyList<Any?>(),
+      )
+    )
   }
+
+  private fun protocolEvent(
+    event: Map<String, Any?>,
+    batchContext: Map<String, Any?>,
+  ): Map<String, Any?> {
+    if (event["kind"] == "edge") {
+      return linkedMapOf(
+        "kind" to "graph-edge",
+        "from" to (event["from"] ?: "∅"),
+        "action" to (event["action"] ?: "auto"),
+        "to" to (event["to"] ?: "?"),
+      )
+    }
+    if (event["kind"] != "error") {
+      return linkedMapOf("kind" to "stream-defect", "reason" to "invalid-event")
+    }
+
+    val path = (event["path"] as? List<*>)?.filterIsInstance<Map<String, Any?>>() ?: emptyList()
+    val message = event["message"]?.toString() ?: ""
+    val identity =
+      event["findingIdentity"]
+        ?: linkedMapOf(
+          "oracle" to (event["oracle"]?.toString() ?: "crash"),
+          "invariant" to "no-exception",
+          "kind" to "exception",
+          "message" to structuralMessage(message),
+          "frame" to "",
+          "trigger" to (path.lastOrNull()?.get("action")?.toString() ?: ""),
+          "boundary" to null,
+        )
+    val findingContext = LinkedHashMap(batchContext)
+    @Suppress("UNCHECKED_CAST")
+    (event["context"] as? Map<String, Any?>)?.let { findingContext.putAll(it) }
+    return linkedMapOf(
+      "kind" to "finding",
+      "signature" to (event["sig"]?.toString() ?: "?"),
+      "message" to message,
+      "identity" to identity,
+      "path" to
+        path.map { step ->
+          linkedMapOf(
+            "signature" to (step["sig"] ?: "?"),
+            "action" to (step["action"] ?: "auto"),
+            "label" to step["label"],
+          )
+        },
+      "context" to findingContext,
+    )
+  }
+
+  private fun structuralMessage(message: String): String =
+    message.replace(Regex("([\"']).*?\\1"), "<q>").replace(Regex("[0-9][0-9.,]*"), "#")
 
   /**
    * Drain the queue and ship it via [transport]. On failure the batch is re-queued ahead of newer

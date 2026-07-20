@@ -19,10 +19,14 @@ If you only read one section, read the next one.
 - **Control labels** (the visible UI text of controls, e.g. a button reading "Submit"), by default,
   to make the graph readable. You can turn this off (`redactLabels: true`) so only hashes leave,
   never any UI text.
-- **An oracle tag on findings.** Each error event carries an `oracle` field: a genuine uncaught
-  error / native crash / fatal signal is tagged `oracle:
-  "crash"` (the crash oracle firing). The
-  cloud gates ingest on this tag so only oracle-grade findings ship, identical across every SDK.
+- **A typed finding identity.** Each finding carries `identity.oracle`, its structural invariant,
+  boundary, trigger, and minimized action path. A genuine uncaught error, native crash, or fatal
+  signal uses the `crash` oracle.
+
+All SDKs send one bounded, versioned protocol. Every frame has a run id, monotonically increasing
+sequence, explicit evidence scope, and one typed event. Invalid or oversized evidence is represented
+as a `stream-defect` reason code so evaluation can abstain instead of treating missing evidence as a
+clean result.
 
 **Never sent:**
 

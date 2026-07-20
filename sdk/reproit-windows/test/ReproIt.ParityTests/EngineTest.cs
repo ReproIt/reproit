@@ -1,6 +1,6 @@
 // Engine + JSON + Fingerprint behavior tests. These mirror the Android
 // SignatureParityTest's Engine / context / fingerprint cases, pinning the exact
-// wire shape ({appId, sentAt, ctx?, events}), the edge/error state machine, the
+// version 1 wire shape, the edge/error state machine, the
 // SHA-256 uid hashing, and the PII-safe input fingerprint. They reference only
 // ReproIt.Core, so they run cross-platform on the .NET SDK.
 
@@ -111,7 +111,9 @@ namespace ReproIt.ParityTests
         {
             var engine = new Engine(new ReproItConfig("example"), now: () => 1_717_939_200_123L);
             string body = engine.BuildBatch(new List<IDictionary<string, object>>());
-            Assert.Equal("{\"appId\":\"example\",\"sentAt\":1717939200123,\"events\":[]}", body);
+            Assert.Equal("{\"version\":1,\"batchId\":\"sdk-1717939200123-1\"," +
+                             "\"appId\":\"example\",\"frames\":[],\"evidence\":[]}",
+                         body);
         }
 
         [Fact]
@@ -124,18 +126,15 @@ namespace ReproIt.ParityTests
                 { "tz", "America/New_York" },
             });
             var ev = new Dictionary<string, object> {
-                { "kind", "edge" },
-                { "action", "load" },
-                { "to", "811c9dc5" },
-                { "t", 1_717_939_200_123L },
+                { "kind", "error" },
+                { "oracle", "crash" },
+                { "sig", "811c9dc5" },
+                { "path", new List<object>() },
+                { "message", "boom" },
             };
             string body = engine.BuildBatch(new List<IDictionary<string, object>> { ev });
-            Assert.Equal("{\"appId\":\"example\",\"sentAt\":1717939200123," +
-                             "\"ctx\":{\"platform\":\"winui\",\"locale\":\"en-US\"," +
-                             "\"tz\":\"America/New_York\"}," +
-                             "\"events\":[{\"kind\":\"edge\",\"action\":\"load\"," +
-                             "\"to\":\"811c9dc5\",\"t\":1717939200123}]}",
-                         body);
+            Assert.Contains("\"context\":{\"platform\":\"winui\",\"locale\":\"en-US\"," +
+                            "\"tz\":\"America/New_York\"}", body);
         }
 
         [Fact]
@@ -170,9 +169,17 @@ namespace ReproIt.ParityTests
         {
             var engine = new Engine(new ReproItConfig("example"), now: () => 1_717_939_200_123L);
             engine.Identify("secret-user");
-            string body = engine.BuildBatch(new List<IDictionary<string, object>>());
+            var finding = new Dictionary<string, object> {
+                { "kind", "error" },
+                { "oracle", "crash" },
+                { "sig", "state" },
+                { "path", new List<object>() },
+                { "message", "boom" },
+            };
+            string body = engine.BuildBatch(
+                new List<IDictionary<string, object>> { finding });
             Assert.DoesNotContain("secret-user", body);
-            Assert.Contains("\"ctx\":{\"uid\":\"", body);
+            Assert.Contains("\"context\":{\"uid\":\"", body);
         }
 
         [Fact]
@@ -190,11 +197,13 @@ namespace ReproIt.ParityTests
             };
             string body = engine.BuildBatch(new List<IDictionary<string, object>> { ev });
             Assert.Equal(
-                "{\"appId\":\"example\",\"sentAt\":1717939200123,\"events\":" +
-                    "[{\"kind\":\"edge\",\"action\":\"tap:key:open-settings\"," +
-                    "\"label\":\"Open " +
-                    "\\\"Settings\\\"\",\"to\":\"054d1bbf\",\"labels\":[\"Settings\",\"Back\"]," +
-                    "\"t\":1717939200123}]}",
+                "{\"version\":1,\"batchId\":\"sdk-1717939200123-1\"," +
+                    "\"appId\":\"example\",\"frames\":[{" +
+                    "\"runId\":\"sdk-1717939200123-1\",\"sequence\":1," +
+                    "\"scope\":{\"domain\":\"shared\"},\"event\":{" +
+                    "\"kind\":\"graph-edge\",\"from\":\"∅\"," +
+                    "\"action\":\"tap:key:open-settings\",\"to\":\"054d1bbf\"}}]," +
+                    "\"evidence\":[]}",
                 body);
         }
 

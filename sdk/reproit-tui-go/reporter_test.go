@@ -1,7 +1,7 @@
 package reproittui
 
 // Tests for the embeddable reporter half: event contract, edge-on-signature-change,
-// batch shape ({appId, sentAt, ctx?, events}), and crash flush.
+// version 1 batch shape and crash flush.
 
 import (
 	"encoding/json"
@@ -11,6 +11,17 @@ import (
 	"sync"
 	"testing"
 )
+
+func TestProtocolDefectsAndStructuralMessages(t *testing.T) {
+	reporter := New(Config{AppID: "app", OnEvent: func(Event) {}})
+	defect := reporter.protocolEvent(Event{Kind: "mystery"})
+	if defect["kind"] != "stream-defect" || defect["reason"] != "invalid-event" {
+		t.Fatalf("unknown capture record was not an explicit defect: %#v", defect)
+	}
+	if got := structuralMessage(`failed for "Alice" at 12,345.67`); got != "failed for <q> at #" {
+		t.Fatalf("structural message = %q", got)
+	}
+}
 
 func TestObserveEmitsEdgeOnlyOnSignatureChange(t *testing.T) {
 	var mu sync.Mutex
@@ -76,14 +87,17 @@ func TestFlushPostsCanonicalBatchContract(t *testing.T) {
 	if b.AppID != "myapp" {
 		t.Errorf("batch.appId = %q, want myapp", b.AppID)
 	}
-	if b.SentAt == 0 {
-		t.Errorf("batch.sentAt must be set")
+	if b.Version != 1 {
+		t.Errorf("batch.version = %d, want 1", b.Version)
 	}
-	if b.Ctx["v"] != "1.0" {
-		t.Errorf("batch.ctx not forwarded: %+v", b.Ctx)
+	if b.BatchID == "" {
+		t.Errorf("batch.batchId must be set")
 	}
-	if len(b.Events) == 0 {
-		t.Errorf("batch.events must be non-empty")
+	if len(b.Frames) == 0 {
+		t.Errorf("batch.frames must be non-empty")
+	}
+	if b.Frames[0].Event["kind"] != "action" {
+		t.Errorf("first frame must be session action: %+v", b.Frames[0])
 	}
 }
 

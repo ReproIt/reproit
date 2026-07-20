@@ -3,9 +3,9 @@
  *
  * No test framework required: run with `node test/build_test.js` from the sdk/
  * directory. Covers the pure normalizeBuild bucketer and the end-to-end flush:
- * init({ build }) -> the batch carries context.build = { version, commit } (only
- * the provided fields); init without build still carries safe environment
- * context. Mirrors the
+ * init({ build }) -> each finding frame carries context.build =
+ * { version, commit } (only the provided fields); init without build still
+ * carries safe environment context. Mirrors the
  * RN SDK's build.test.ts. The cloud reads context.build.version/.commit to
  * segment bugs by build (regressed in / resolved since).
  */
@@ -80,47 +80,86 @@ function withStubs(run) {
     ReproIt._cur = null;
     ReproIt._path = [];
     ReproIt._build = null;
+    ReproIt._batchSequence = 0;
     if (ReproIt._timer) clearInterval(ReproIt._timer);
   }
 }
 
-check('init WITH build -> batch.ctx.build = { version, commit }', function () {
+function seedFinding() {
+  ReproIt._buf.push({
+    kind: 'error',
+    oracle: 'crash',
+    sig: 'deadbeef',
+    message: 'boom',
+    path: [],
+    t: 1,
+  });
+}
+
+check('init WITH build -> finding context has version and commit', function () {
   withStubs(function (sent) {
     ReproIt.init({
       appId: 'app',
       endpoint: 'https://ingest.example/v1/events',
       build: { version: '1.4.2', commit: 'abc123' },
     });
-    // Seed one event and flush.
-    ReproIt._buf.push({ kind: 'edge', action: 'load', to: 'deadbeef', t: 1 });
+    seedFinding();
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
-    assert.deepStrictEqual(sent[0].ctx.build, { version: '1.4.2', commit: 'abc123' });
-    assert.strictEqual(sent[0].ctx.platform, 'web');
+    assert.strictEqual(sent[0].version, 1);
+    assert.deepStrictEqual(sent[0].frames[0].event.context.build, {
+      version: '1.4.2',
+      commit: 'abc123',
+    });
+    assert.strictEqual(sent[0].frames[0].event.context.platform, 'web');
   });
 });
 
-check('init WITH only-version -> batch.ctx.build has version, no commit', function () {
+check('init WITH only-version -> finding context has version only', function () {
   withStubs(function (sent) {
     ReproIt.init({
       appId: 'app',
       endpoint: 'https://ingest.example/v1/events',
       build: { version: '9.9.9' },
     });
-    ReproIt._buf.push({ kind: 'edge', action: 'load', to: 'deadbeef', t: 1 });
+    seedFinding();
     ReproIt._flush();
-    assert.deepStrictEqual(sent[0].ctx.build, { version: '9.9.9' });
+    assert.deepStrictEqual(sent[0].frames[0].event.context.build, { version: '9.9.9' });
   });
 });
 
 check('init WITHOUT build -> safe environment context, no build', function () {
   withStubs(function (sent) {
     ReproIt.init({ appId: 'app', endpoint: 'https://ingest.example/v1/events' });
-    ReproIt._buf.push({ kind: 'edge', action: 'load', to: 'deadbeef', t: 1 });
+    seedFinding();
     ReproIt._flush();
     assert.strictEqual(sent.length, 1);
-    assert.strictEqual(sent[0].ctx.platform, 'web');
-    assert.strictEqual(sent[0].ctx.build, undefined);
+    assert.strictEqual(sent[0].frames[0].event.context.platform, 'web');
+    assert.strictEqual(sent[0].frames[0].event.context.build, undefined);
+  });
+});
+
+check('protocol batch maps graph edges to scoped frames', function () {
+  var batch = ReproIt.protocolBatch(
+    'app',
+    [{ kind: 'edge', from: 'a', action: 'tap', to: 'b' }],
+    {},
+    42,
+    3,
+  );
+  assert.deepStrictEqual(batch, {
+    version: 1,
+    batchId: 'sdk-42-3',
+    appId: 'app',
+    frames: [
+      {
+        runId: 'sdk-42-3',
+        sequence: 1,
+        scope: { domain: 'shared' },
+        event: { kind: 'graph-edge', from: 'a', action: 'tap', to: 'b' },
+      },
+    ],
+    evidence: [],
   });
 });
 

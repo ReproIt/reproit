@@ -97,9 +97,10 @@ the platform SDK.
   `Application.UnhandledException`), plus `TaskScheduler.UnobservedTaskException`. An error event
   carries the current signature and the full action path leading to it, and is flushed synchronously
   before the process dies.
-- Batches events and POSTs `{appId, sentAt, ctx?, events}` to `<endpoint>/v1/events` with
+- Normalizes capture records into version 1 event frames and POSTs them to
+  `<endpoint>/v1/events` with
   `Authorization: Bearer <apiKey>` (via `HttpClient`).
-- Attaches a PII-safe **context** map (`ctx`) to each batch (see below), which the cloud uses to
+- Attaches a PII-safe **context** map to each finding (see below), which the cloud uses to
   answer "which users hit this?" without storing identity.
 
 ## Usage
@@ -205,14 +206,14 @@ Error (with replay path):
 }
 ```
 
-Batch envelope: `{ "appId": "...", "sentAt": <ms>, "ctx": {...}?, "events": [...] }` (`ctx` is
-omitted when empty). These match the cloud's `POST /v1/events` contract, which folds edges into the
-production graph and stores errors with their path for repro.
+The wire body is `{ "version": 1, "batchId": "...", "appId": "...", "frames": [...],
+"evidence": [] }`. Each frame has a run id, sequence, scope, and one typed event. Findings carry
+their own `context`. This matches the cloud's `POST /v1/events` contract.
 
-## Context: which users hit it (`ctx` / `Identify`)
+## Context: which users hit it (`context` / `Identify`)
 
-The SDK attaches a small, **PII-safe** context map to every batch as the `ctx` field; the cloud
-folds it into each event and computes a cohort discriminator (e.g. "this error is 6x
+The SDK attaches a small, **PII-safe** context map to every finding's `context` field; the cloud
+computes a cohort discriminator (e.g. "this error is 6x
 over-represented in `locale=tr`").
 
 **Tier-1 auto dimensions** are populated automatically at `Init` (zero PII):

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "batchId": "sdk-1717939200123-1",
+  "appId": "app-demo",
+  "frames": [
+    {
+      "runId": "sdk-1717939200123-1",
+      "sequence": 1,
+      "scope": { "domain": "shared" },
+      "event": {
+        "kind": "graph-edge",
+        "from": "a",
+        "action": "tap:key:submit",
+        "to": "b"
+      }
+    },
+    {
+      "runId": "sdk-1717939200123-1",
+      "sequence": 2,
+      "scope": { "domain": "shared" },
+      "event": {
+        "kind": "finding",
+        "signature": "b",
+        "message": "submit failed",
+        "identity": {
+          "oracle": "crash",
+          "invariant": "no-exception",
+          "kind": "exception",
+          "message": "submit failed",
+          "frame": "",
+          "trigger": "tap:key:submit",
+          "boundary": "b"
+        },
+        "path": [
+          {
+            "signature": "a",
+            "action": "tap:key:submit",
+            "label": null
+          }
+        ],
+        "context": { "build": { "version": "1.0.0" } }
+      }
+    }
+  ],
+  "evidence": []
+}

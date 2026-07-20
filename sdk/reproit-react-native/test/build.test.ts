@@ -26,13 +26,14 @@ afterEach(() => ReproIt.dispose());
 
 /** Post one snapshot, flush, and return the JSON batch body the SDK POSTed. */
 function flushOneBatch(opts: Parameters<typeof ReproIt.init>[0]): {
-  ctx?: Record<string, unknown>;
+  version: number;
+  frames: Array<{ event: { kind: string; context?: Record<string, unknown> } }>;
 } {
   const fetchMock = jest.fn(() => Promise.resolve({} as Response));
   (globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
   ReproIt.init({ ...opts, endpoint: 'https://ingest.example' });
   ReproIt.recordSnapshot({ role: 'screen', children: [{ role: 'header', id: 'title' }] }, 'load');
-  ReproIt.flush();
+  ReproIt.captureBug();
   const [, fetchOpts] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
   delete (globalThis as { fetch?: typeof fetch }).fetch;
   return JSON.parse(fetchOpts.body);
@@ -45,18 +46,20 @@ describe('developer-provided build identity (context.build)', () => {
     expect(ctx.build).toEqual({ version: '1.4.2', commit: 'abc123' });
   });
 
-  test('the batch posted to /v1/events carries ctx.build = { version, commit }', () => {
+  test('the finding frame carries context.build = { version, commit }', () => {
     const body = flushOneBatch({ appId: 'b', build: { version: '1.4.2', commit: 'abc123' } });
-    expect(body.ctx).toBeDefined();
-    expect(body.ctx!.build).toEqual({ version: '1.4.2', commit: 'abc123' });
+    expect(body.version).toBe(1);
+    const finding = body.frames.find((frame) => frame.event.kind === 'finding');
+    expect(finding?.event.context?.build).toEqual({ version: '1.4.2', commit: 'abc123' });
     // The auto dimensions still ride alongside it.
-    expect(body.ctx!.platform).toBe('ios');
+    expect(finding?.event.context?.platform).toBe('ios');
   });
 
   test('init WITHOUT build -> no build key', () => {
     const body = flushOneBatch({ appId: 'b' });
-    expect(body.ctx).toBeDefined(); // auto dimensions still present
-    expect('build' in (body.ctx as object)).toBe(false);
+    const finding = body.frames.find((frame) => frame.event.kind === 'finding');
+    expect(finding?.event.context).toBeDefined();
+    expect('build' in (finding?.event.context ?? {})).toBe(false);
     expect(ReproIt.context().build).toBeUndefined();
   });
 

@@ -45,7 +45,7 @@ reproduces.
 
 ## Events and crashes
 
-The reporter sends `{appId, sentAt, ctx?, events}` batches. Without an endpoint, events go to the
+The reporter sends strict version 1 event batches. Without an endpoint, events go to the
 configured development hook or are dropped. The crash handler records the current signature and
 path, flushes the batch, and preserves the application's panic or signal behavior.
 

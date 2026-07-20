@@ -55,7 +55,7 @@ the same violation reproduces.
 
 ## Events and crashes
 
-The reporter sends `{appId, sentAt, ctx?, events}` batches with optional bearer authentication. Set
+The reporter sends strict version 1 event batches with optional bearer authentication. Set
 `redact_labels=True` to omit human labels from edge events. Without an endpoint, batches use the
 configured development hook.
 

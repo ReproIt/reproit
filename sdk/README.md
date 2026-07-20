@@ -83,10 +83,39 @@ redactLabels:  true when visible control labels must not leave the app
 
 Each platform guide provides the native spelling for these fields.
 
+## Wire protocol
+
+Every SDK normalizes its platform capture records into the same strict version 1 event batch:
+
+```json
+{
+  "version": 1,
+  "batchId": "sdk-1717939200123-1",
+  "appId": "app_...",
+  "frames": [
+    {
+      "runId": "sdk-1717939200123-1",
+      "sequence": 1,
+      "scope": { "domain": "shared" },
+      "event": { "kind": "graph-edge", "from": "a", "action": "tap", "to": "b" }
+    }
+  ],
+  "evidence": []
+}
+```
+
+The allowed event kinds are `action`, `observation`, `backend`, `graph-edge`, `finding`, and
+`stream-defect`. A finding contains its identity, minimized path, and PII-safe context. Unknown or
+unrepresentable capture records become an explicit `stream-defect`; they are never silently
+dropped or treated as clean evidence. The shared protocol implementation owns validation, size
+limits, reason codes, and tri-state evaluation semantics. The canonical complete fixture is
+[`event-batch-v1.json`](event-batch-v1.json), and the shared Rust protocol parses and validates it
+in its test suite.
+
 ## What is captured
 
-The SDK records structural state signatures, stable control selectors, the action path, the crash
-oracle, build identity, and bounded derived input properties such as length or Unicode class. It
+The SDK records structural state signatures, stable control selectors, the action path, the finding
+identity, build identity, and bounded derived input properties such as length or Unicode class. It
 does not record raw input values.
 
 Read [data handling and privacy](../docs/data-handling.md) for the complete wire contract and

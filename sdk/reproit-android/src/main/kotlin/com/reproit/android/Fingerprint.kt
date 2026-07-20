@@ -27,7 +27,7 @@ object Fingerprint {
    * isRtl: Boolean flags hasCombiningMarks / hasZeroWidth / hasNewline / leadingTrailingWhitespace
    */
   fun fingerprintValue(value: String): Map<String, Any> {
-    val codePoints = value.codePoints().toArray()
+    val codePoints = codePoints(value)
     val len = codePoints.size
     val isEmpty = value.trim().isEmpty()
     var hasUnicode = false
@@ -53,6 +53,19 @@ object Fingerprint {
     out["hasNewline"] = hasNewline(value)
     out["leadingTrailingWhitespace"] = edgeWs
     return out
+  }
+
+  private fun codePoints(value: String): IntArray {
+    val points = IntArray(value.codePointCount(0, value.length))
+    var charOffset = 0
+    var pointOffset = 0
+    while (charOffset < value.length) {
+      val point = Character.codePointAt(value, charOffset)
+      points[pointOffset] = point
+      pointOffset += 1
+      charOffset += Character.charCount(point)
+    }
+    return points
   }
 
   /** Fixed whitespace set (parity-safe across SDKs, not locale-dependent). */

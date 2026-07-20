@@ -303,7 +303,7 @@ impl ScreenContents {
 }
 
 /// Where telemetry batches go. Implement this to wire your own HTTP client (the
-/// batch is a complete `{appId, sentAt, ctx?, events}` JSON string). The
+/// batch is a complete strict version 1 event batch JSON string). The
 /// default [`SpoolTransport`] writes newline-delimited JSON to a file or
 /// stderr; an HTTP transport is a few lines over any blocking client (see the
 /// README).
@@ -368,6 +368,7 @@ struct Inner {
     last_sig: Option<String>,
     last_action: Option<String>,
     events: Vec<serde_json::Value>,
+    batch_sequence: u64,
     /// App-declared invariants, keyed by id (registration is idempotent). Inert
     /// in production; evaluated only under the fuzzer (see
     /// [`report_invariants`]).
@@ -393,6 +394,7 @@ impl ReproIt {
                 last_sig: None,
                 last_action: None,
                 events: Vec::new(),
+                batch_sequence: 0,
                 invariants: Vec::new(),
             })),
         }
@@ -471,14 +473,29 @@ impl ReproIt {
         if inner.events.is_empty() {
             return;
         }
-        let mut batch = serde_json::json!({
+        let sent_at = now_millis();
+        inner.batch_sequence += 1;
+        let batch_id = format!("sdk-{sent_at}-{}", inner.batch_sequence);
+        let events = std::mem::take(&mut inner.events);
+        let frames = events
+            .iter()
+            .enumerate()
+            .map(|(index, event)| {
+                serde_json::json!({
+                    "runId": batch_id,
+                    "sequence": index + 1,
+                    "scope": { "domain": "shared" },
+                    "event": protocol_event(event, inner.ctx.as_ref()),
+                })
+            })
+            .collect::<Vec<_>>();
+        let batch = serde_json::json!({
+            "version": 1,
+            "batchId": batch_id,
             "appId": inner.app_id,
-            "sentAt": now_millis(),
-            "events": std::mem::take(&mut inner.events),
+            "frames": frames,
+            "evidence": [],
         });
-        if let Some(ctx) = &inner.ctx {
-            batch["ctx"] = ctx.clone();
-        }
         inner.transport.send(&batch.to_string());
     }
 
@@ -494,6 +511,102 @@ impl ReproIt {
             prev(info);
         }));
     }
+}
+
+fn protocol_event(
+    event: &serde_json::Value,
+    context: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    match event["kind"].as_str() {
+        Some("state") => serde_json::json!({
+            "kind": "observation",
+            "actor": null,
+            "state": event["sig"].as_str(),
+            "route": null,
+            "visibleText": [],
+            "counts": {},
+            "oracleSignals": [],
+            "networkStatuses": [],
+            "responseShapes": [],
+        }),
+        Some("edge") => serde_json::json!({
+            "kind": "graph-edge",
+            "from": event["from"].as_str().filter(|value| !value.is_empty()).unwrap_or("∅"),
+            "action": event["action"].as_str().filter(|value| !value.is_empty()).unwrap_or("auto"),
+            "to": event["to"].as_str().filter(|value| !value.is_empty()).unwrap_or("?"),
+        }),
+        Some("error" | "crash") => {
+            let signature = event["sig"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .unwrap_or("?");
+            let message = event["message"].as_str().unwrap_or("");
+            let action = event["path"].as_str().unwrap_or("");
+            let path = if action.is_empty() {
+                Vec::new()
+            } else {
+                vec![serde_json::json!({
+                    "signature": signature,
+                    "action": action,
+                    "label": null,
+                })]
+            };
+            serde_json::json!({
+                "kind": "finding",
+                "signature": signature,
+                "message": message,
+                "identity": {
+                    "oracle": "crash",
+                    "invariant": "no-exception",
+                    "kind": "exception",
+                    "message": structural_message(message),
+                    "frame": "",
+                    "trigger": action,
+                    "boundary": null,
+                },
+                "path": path,
+                "context": context.cloned().unwrap_or_else(|| serde_json::json!({})),
+            })
+        }
+        _ => serde_json::json!({
+            "kind": "stream-defect",
+            "reason": "invalid-event",
+        }),
+    }
+}
+
+fn structural_message(message: &str) -> String {
+    let chars = message.chars().collect::<Vec<_>>();
+    let mut output = String::with_capacity(message.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let current = chars[index];
+        if current == '\'' || current == '"' {
+            let quote = current;
+            index += 1;
+            while index < chars.len() && chars[index] != quote {
+                index += 1;
+            }
+            if index < chars.len() {
+                index += 1;
+            }
+            output.push_str("<q>");
+            continue;
+        }
+        if current.is_ascii_digit() {
+            output.push('#');
+            index += 1;
+            while index < chars.len()
+                && (chars[index].is_ascii_digit() || matches!(chars[index], '.' | ','))
+            {
+                index += 1;
+            }
+            continue;
+        }
+        output.push(current);
+        index += 1;
+    }
+    output
 }
 
 fn now_millis() -> u128 {
@@ -560,6 +673,18 @@ mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
 
+    #[test]
+    fn unknown_capture_records_are_explicit_defects() {
+        let event = protocol_event(&serde_json::json!({"kind": "mystery"}), None);
+        assert_eq!(
+            event,
+            serde_json::json!({"kind": "stream-defect", "reason": "invalid-event"})
+        );
+        assert_eq!(
+            structural_message("failed for \"Alice\" at 12,345.67"),
+            "failed for <q> at #"
+        );
+    }
     // A transport that captures batches in memory for assertions.
     struct Capture(Arc<StdMutex<Vec<String>>>);
     impl Transport for Capture {
@@ -587,15 +712,16 @@ mod tests {
         let batches = sink.lock().unwrap();
         assert_eq!(batches.len(), 1);
         let v: serde_json::Value = serde_json::from_str(&batches[0]).unwrap();
-        let events = v["events"].as_array().unwrap();
+        assert_eq!(v["version"], 1);
+        let frames = v["frames"].as_array().unwrap();
         assert_eq!(
-            events.len(),
+            frames.len(),
             2,
             "one state + one edge, no event for the no-op"
         );
-        assert_eq!(events[0]["kind"], "state");
-        assert_eq!(events[1]["kind"], "edge");
-        assert_eq!(events[1]["action"], "key:Up");
+        assert_eq!(frames[0]["event"]["kind"], "observation");
+        assert_eq!(frames[1]["event"]["kind"], "graph-edge");
+        assert_eq!(frames[1]["event"]["action"], "key:Up");
     }
 
     #[test]
@@ -675,11 +801,11 @@ mod tests {
         sdk.record_error("kaboom");
         let batches = sink.lock().unwrap();
         let v: serde_json::Value = serde_json::from_str(batches.last().unwrap()).unwrap();
-        let err = v["events"].as_array().unwrap().last().unwrap();
-        assert_eq!(err["kind"], "error");
+        let err = &v["frames"].as_array().unwrap().last().unwrap()["event"];
+        assert_eq!(err["kind"], "finding");
         assert_eq!(err["message"], "kaboom");
-        assert_eq!(err["sig"], s.structural_sig());
-        assert_eq!(err["path"], "tap:crash");
+        assert_eq!(err["signature"], s.structural_sig());
+        assert_eq!(err["path"][0]["action"], "tap:crash");
     }
 
     #[test]

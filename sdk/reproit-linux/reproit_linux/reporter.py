@@ -2,11 +2,8 @@
 
 Emits the SAME state-graph + error events the reproit test runners and the other
 production SDKs emit, so the production graph aligns 1:1 with test-time graphs.
-Mirrors the React Native / web / Flutter SDKs' event contract exactly: a batch
-
-    { appId, sentAt, ctx?, events }
-
-is POSTed to `<endpoint>/v1/events` (JSON, Bearer apiKey). Each event is either
+Capture records are normalized into bounded version 1 frames and POSTed to
+`<endpoint>/v1/events` (JSON, Bearer apiKey). Each capture record is either
 an `edge` (a state transition: from -> to with an action label) or an `error`
 (an uncaught crash carrying the graph path that produced it). The transport has
 no third-party dependency (urllib only) so the SDK adds nothing to a GTK/Qt
@@ -16,6 +13,7 @@ This module has no GTK/AT-SPI import; the capture layer feeds it Node trees.
 """
 
 import json
+import re
 import sys
 import signal
 import threading
@@ -36,6 +34,70 @@ except Exception:  # pragma: no cover
 
 def _now_ms():
     return int(time.time() * 1000)
+
+
+def _structural_message(message):
+    quoted = re.sub(r"""(["']).*?\1""", "<q>", message)
+    return re.sub(r"[0-9][0-9.,]*", "#", quoted)
+
+
+def _protocol_event(event, context):
+    if event.get("kind") == "edge":
+        return {
+            "kind": "graph-edge",
+            "from": event.get("from") or "∅",
+            "action": event.get("action") or "auto",
+            "to": event.get("to") or "?",
+        }
+    if event.get("kind") not in ("error", "crash"):
+        return {"kind": "stream-defect", "reason": "invalid-event"}
+    message = event.get("message") or event.get("error") or ""
+    path = event.get("path") or []
+    identity = event.get("findingIdentity") or {
+        "oracle": "crash",
+        "invariant": "no-exception",
+        "kind": "exception",
+        "message": _structural_message(message),
+        "frame": "",
+        "trigger": path[-1].get("action", "") if path else "",
+        "boundary": None,
+    }
+    finding_context = dict(context)
+    finding_context.update(event.get("context") or {})
+    return {
+        "kind": "finding",
+        "signature": event.get("sig") or event.get("to") or "?",
+        "message": message,
+        "identity": identity,
+        "path": [
+            {
+                "signature": step.get("sig") or "?",
+                "action": step.get("action") or "auto",
+                "label": step.get("label"),
+            }
+            for step in path
+        ],
+        "context": finding_context,
+    }
+
+
+def _protocol_batch(app_id, events, context, sent_at, batch_sequence):
+    batch_id = "sdk-%d-%d" % (sent_at, batch_sequence)
+    return {
+        "version": 1,
+        "batchId": batch_id,
+        "appId": app_id,
+        "frames": [
+            {
+                "runId": batch_id,
+                "sequence": index + 1,
+                "scope": {"domain": "shared"},
+                "event": _protocol_event(event, context),
+            }
+            for index, event in enumerate(events)
+        ],
+        "evidence": [],
+    }
 
 
 def auto_context():
@@ -99,6 +161,7 @@ class Reporter:
 
         self._lock = threading.RLock()
         self._buf = []
+        self._batch_sequence = 0
         self._path = []  # the graph trail: list of {sig, action}
         self._cur = None  # current state signature
         self._ctx = auto_context()
@@ -267,7 +330,7 @@ class Reporter:
             self.flush()
 
     def flush(self):
-        """Flush queued events as one `{appId, sentAt, ctx?, events}` batch to
+        """Flush queued events as one strict version 1 batch to
         `<endpoint>/v1/events`. Best-effort: drops on failure (matches the other
         SDKs). With no endpoint set, the batch goes to the debug stream / the
         on_event hook only."""
@@ -276,9 +339,14 @@ class Reporter:
                 return
             events = self._buf
             self._buf = []
-            batch = {"appId": self.app_id, "sentAt": _now_ms(), "events": events}
-            if self._ctx:
-                batch["ctx"] = dict(self._ctx)
+            self._batch_sequence += 1
+            batch = _protocol_batch(
+                self.app_id,
+                events,
+                self._ctx,
+                _now_ms(),
+                self._batch_sequence,
+            )
             endpoint = self.endpoint
             api_key = self.api_key
         if not endpoint:
