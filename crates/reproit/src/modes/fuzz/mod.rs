@@ -26,7 +26,9 @@ mod log;
 mod reporting;
 mod scan;
 
-use confirmation::{confirm_trace, replay_is_hermetic, shrink, shrink_causal_capsule};
+use confirmation::{
+    capture_confirmed_trace, confirm_trace, replay_is_hermetic, shrink, shrink_causal_capsule,
+};
 #[cfg(test)]
 use confirmation::{crash_trigger_index, is_keyed_action};
 #[cfg(test)]
@@ -49,7 +51,7 @@ use log::trace_in_log;
 use log::{marker_seed, split_seed_segments};
 use reporting::{
     deliver_finding, persist_causal_capsule, persist_finding_report, write_report,
-    write_run_evidence_graph,
+    write_run_evidence_graph, RunEvidence,
 };
 use scan::state_present_footer;
 #[cfg(test)]
@@ -656,16 +658,16 @@ async fn fuzz_one_locale(
             let primary_sig = primary_finding(&findings)
                 .map(finding_signature)
                 .unwrap_or_else(|| "unknown".to_string());
-            let repro_id =
+            let mut repro_id =
                 crate::model::repro::finding_id(&target_identity(cfg), &primary_sig, seed, &shrunk);
-            let finding_id = crate::model::repro::display_finding_id(&repro_id);
+            let mut finding_id = crate::model::repro::display_finding_id(&repro_id);
             // `--all` batches every seed into ONE drive run_dir, so writing each
             // finding's report to that shared dir would overwrite the previous
             // fuzz.md and only the last finding would be resolvable by
             // check/keep. Give each finding its OWN report dir, keyed by id and an
             // immediate child of the evidence out dir, so find_finding_by_id can
             // resolve EVERY unique bug the run reports, not just the last.
-            let report_dir = if args.all {
+            let mut report_dir = if args.all {
                 let d = root
                     .join(&cfg.evidence.out_dir)
                     .join(format!("finding-{repro_id}"));
@@ -685,12 +687,15 @@ async fn fuzz_one_locale(
             )?;
             let proof = write_run_evidence_graph(
                 &report_dir,
-                &outcome.run_dir,
-                &repro_id,
-                &trace,
-                &findings,
-                &shrunk,
-                confirmation,
+                RunEvidence {
+                    capture_dir: &outcome.run_dir,
+                    finding_id: &repro_id,
+                    trace: &trace,
+                    findings: &findings,
+                    minimized: &shrunk,
+                    confirmation,
+                    capsule: None,
+                },
             )?;
             let promoted = proof.promotion == reproit_protocol::PromotionStatus::Confirmed;
             persist_finding_report(root, &repro_id, &report_dir)?;
@@ -706,9 +711,7 @@ async fn fuzz_one_locale(
                 guard.save(&layout::finding_dir(root, &repro_id).join("backend-contract.json"))?;
             }
             if let Some(primary) = primary_finding(&findings).filter(|_| promoted) {
-                let capsule =
-                    persist_causal_capsule(cfg, root, &outcome.run_dir, primary, &shrunk, seed)?;
-                let capsule = shrink_causal_capsule(
+                let Some(capsule_capture) = capture_confirmed_trace(
                     cfg,
                     root,
                     &args.journey,
@@ -717,10 +720,89 @@ async fn fuzz_one_locale(
                     &shrunk,
                     args.sim,
                     &want,
+                )
+                .await?
+                else {
+                    let _ = std::fs::remove_dir_all(layout::finding_dir(root, &repro_id));
+                    say(
+                        json,
+                        format!(
+                            "  seed {seed}: minimized trace lost its exact identity during final \
+                             causal capture; quarantined"
+                        ),
+                    );
+                    continue;
+                };
+                let capsule = persist_causal_capsule(
+                    cfg,
+                    root,
+                    &capsule_capture.run_dir,
+                    primary,
+                    &shrunk,
+                    &defines,
+                    seed,
+                )?;
+                let capsule = shrink_causal_capsule(
+                    cfg,
+                    root,
+                    &args.journey,
+                    &cfg_path,
+                    &defines,
+                    args.sim,
+                    &want,
                     capsule,
                     json,
                 )
                 .await?;
+                let causal_actions = capsule.replay_actions();
+                if causal_actions != shrunk {
+                    let previous_repro_id = repro_id.clone();
+                    let previous_report_dir = report_dir.clone();
+                    shrunk = causal_actions;
+                    repro_id = crate::model::repro::finding_id(
+                        &target_identity(cfg),
+                        &primary_sig,
+                        seed,
+                        &shrunk,
+                    );
+                    finding_id = crate::model::repro::display_finding_id(&repro_id);
+                    if args.all {
+                        report_dir = root
+                            .join(&cfg.evidence.out_dir)
+                            .join(format!("finding-{repro_id}"));
+                        std::fs::create_dir_all(&report_dir)?;
+                    }
+                    write_report(
+                        &report_dir,
+                        &repro_id,
+                        seed,
+                        &findings,
+                        &trace,
+                        &shrunk,
+                        confirmation,
+                    )?;
+                    if let Some(guard) = crate::model::contracts::FrozenContractGuard::from_findings(
+                        &cfg.contracts,
+                        &findings,
+                    ) {
+                        guard.save(&layout::finding_dir(root, &repro_id).join("contract.json"))?;
+                    }
+                    if let Some(guard) = crate::model::backend::FrozenBackendGuard::from_findings(
+                        &cfg.backend,
+                        &findings,
+                    ) {
+                        guard.save(
+                            &layout::finding_dir(root, &repro_id).join("backend-contract.json"),
+                        )?;
+                    }
+                    if previous_repro_id != repro_id {
+                        let _ =
+                            std::fs::remove_dir_all(layout::finding_dir(root, &previous_repro_id));
+                        if args.all && previous_report_dir != report_dir {
+                            let _ = std::fs::remove_dir_all(previous_report_dir);
+                        }
+                    }
+                }
                 let capsule_id = capsule.id.clone();
                 let guard = crate::capsule::Capsule::materialize_plaintext(root, &capsule_id)?;
                 let mut capsule_defines = defines.clone();
@@ -751,6 +833,19 @@ async fn fuzz_one_locale(
                     );
                     continue;
                 }
+                let _ = write_run_evidence_graph(
+                    &report_dir,
+                    RunEvidence {
+                        capture_dir: &capsule_capture.run_dir,
+                        finding_id: &repro_id,
+                        trace: &trace,
+                        findings: &findings,
+                        minimized: &shrunk,
+                        confirmation,
+                        capsule: Some(&capsule),
+                    },
+                )?;
+                persist_finding_report(root, &repro_id, &report_dir)?;
                 let finding_dir = layout::finding_dir(root, &repro_id);
                 std::fs::create_dir_all(&finding_dir)?;
                 std::fs::write(finding_dir.join("capsule-id"), &capsule_id)?;
@@ -886,12 +981,15 @@ async fn fuzz_one_locale(
                         )?;
                         let _ = write_run_evidence_graph(
                             &o.run_dir,
-                            &o.run_dir,
-                            &repro_id,
-                            &trace,
-                            &findings,
-                            &shrunk,
-                            sim_confirmation,
+                            RunEvidence {
+                                capture_dir: &o.run_dir,
+                                finding_id: &repro_id,
+                                trace: &trace,
+                                findings: &findings,
+                                minimized: &shrunk,
+                                confirmation: sim_confirmation,
+                                capsule: None,
+                            },
                         )?;
                         deliver_dir = o.run_dir;
                     }
@@ -1206,10 +1304,37 @@ pub(super) async fn run_explorer(
     sim: bool,
     record_video: bool,
 ) -> Result<RunOutcome> {
+    run_explorer_with_exclusions(
+        cfg,
+        root,
+        journey,
+        warm,
+        defines,
+        &[],
+        profile_timing,
+        sim,
+        record_video,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn run_explorer_with_exclusions(
+    cfg: &Config,
+    root: &Path,
+    journey: &str,
+    warm: bool,
+    defines: &[(String, String)],
+    excluded_defines: &[String],
+    profile_timing: bool,
+    sim: bool,
+    record_video: bool,
+) -> Result<RunOutcome> {
     let opts = orchestrator::RunOpts {
         devices: 1,
         warm,
         extra_defines: defines,
+        excluded_defines,
         profile_timing,
         record_video,
         ..Default::default()
@@ -1499,12 +1624,15 @@ FUZZ:ACT back
         })];
         let proof = write_run_evidence_graph(
             &dir,
-            &dir,
-            "abcdef123456",
-            &["tap:key:submit".into()],
-            &findings,
-            &["tap:key:submit".into()],
-            reproit_protocol::ConfirmationStatus::NotAttempted,
+            RunEvidence {
+                capture_dir: &dir,
+                finding_id: "abcdef123456",
+                trace: &["tap:key:submit".into()],
+                findings: &findings,
+                minimized: &["tap:key:submit".into()],
+                confirmation: reproit_protocol::ConfirmationStatus::NotAttempted,
+                capsule: None,
+            },
         )
         .unwrap();
         assert_eq!(
@@ -1532,12 +1660,15 @@ FUZZ:ACT back
         })];
         let proof = write_run_evidence_graph(
             &dir,
-            &dir,
-            "abcdef123456",
-            &[],
-            &findings,
-            &[],
-            reproit_protocol::ConfirmationStatus::Reproduced,
+            RunEvidence {
+                capture_dir: &dir,
+                finding_id: "abcdef123456",
+                trace: &[],
+                findings: &findings,
+                minimized: &[],
+                confirmation: reproit_protocol::ConfirmationStatus::Reproduced,
+                capsule: None,
+            },
         )
         .unwrap();
         assert_eq!(
@@ -1547,6 +1678,65 @@ FUZZ:ACT back
         assert!(proof
             .blockers
             .contains(&reproit_protocol::PromotionBlocker::MissingAuthority));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn evidence_graph_carries_validated_causal_and_environment_proofs() {
+        let dir = std::env::temp_dir().join(format!("reproit-causal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut capsule = crate::capsule::Capsule::new(
+            "app",
+            crate::capsule::FindingIdentity {
+                oracle: "contract".into(),
+                invariant: "response-status".into(),
+                kind: "CONTRACT".into(),
+                message: "unexpected status".into(),
+                frame: String::new(),
+                trigger: "tap:key:submit".into(),
+                boundary: None,
+            },
+        );
+        capsule.environment.insert("platform".into(), "web".into());
+        capsule.actions.push(crate::capsule::Action {
+            index: 1,
+            actor: "a".into(),
+            action: "tap:key:submit".into(),
+            from_sig: None,
+            to_sig: None,
+        });
+        capsule.finalize_id().unwrap();
+        let findings = vec![json!({
+            "oracle": "contract",
+            "invariant": "response-status",
+            "kind": "CONTRACT",
+        })];
+
+        write_run_evidence_graph(
+            &dir,
+            RunEvidence {
+                capture_dir: &dir,
+                finding_id: "abcdef123456",
+                trace: &["tap:key:submit".into()],
+                findings: &findings,
+                minimized: &["tap:key:submit".into()],
+                confirmation: reproit_protocol::ConfirmationStatus::Reproduced,
+                capsule: Some(&capsule),
+            },
+        )
+        .unwrap();
+
+        let graph: reproit_protocol::EvidenceGraph =
+            serde_json::from_slice(&std::fs::read(dir.join("run-evidence.json")).unwrap()).unwrap();
+        graph.validate().unwrap();
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.kind == reproit_protocol::ArtifactKind::CausalGraph));
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| { node.kind == reproit_protocol::ArtifactKind::EnvironmentEnvelope }));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

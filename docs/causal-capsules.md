@@ -19,9 +19,11 @@ An observation becomes public only after:
 
 1. a clean live replay returns the exact finding identity;
 2. action ddmin preserves that identity;
-3. the causal exchanges are replayed with live access fail-closed;
-4. exchange and JSON reduction preserve the identity;
-5. a final clean capsule replay returns the identity again.
+3. a final live capture aligns all evidence to the minimized action clock;
+4. dependency-aware causal reduction preserves that identity;
+5. environment reduction preserves that identity or records `ABSTAIN`;
+6. the causal exchanges are replayed with live access fail-closed; and
+7. a final clean capsule replay returns the identity again.
 
 An unmatched request is `CAPSULE:MISS` and classifies as stale/incomplete, even if aborting it
 produces a secondary application exception. A schema difference without an observed consumer failure
@@ -29,9 +31,43 @@ is a candidate, not a bug.
 
 ## Artifact
 
-The versioned schema records actors, 1-based UI actions, bootstrap phase `0`, HTTP/event exchanges,
-build identities, environment, capabilities, redaction manifest, and the exact oracle identity. IDs
-are SHA-256 content addresses.
+Capsule schema version 2 records actors, 1-based UI actions, bootstrap phase `0`, HTTP/event
+exchanges, build identities, environment, capabilities, redaction manifest, the exact oracle
+identity, a causal event DAG, and an environment-minimization envelope. IDs are SHA-256 content
+addresses. Version 1 capsules are deliberately rejected rather than interpreted with weaker proof
+semantics.
+
+## Causal graph and reduction
+
+The bounded causal DAG contains action, response, timer, state-write, callback, permission,
+actor-event, backend-event, environment, and finding nodes. Its edges have five explicit meanings:
+
+- `happens-before` records observed order;
+- `data-dependency` connects a producer to evidence that consumes its value;
+- `state-prerequisite` connects state establishment to a dependent event;
+- `actor-ownership` connects actor events to their actor's actions and observations; and
+- `contract-scope` connects evidence to the exact finding it supports.
+
+The graph is validated for version, size, unique node identity, valid endpoints, and acyclicity in
+both the CLI and Cloud protocol packages. Causal reduction removes candidate nodes in bounded
+chunks. Removing an action also removes the response or state evidence that depends on it, while a
+mere ordering edge does not imply deletion. Every accepted candidate must reproduce the exact
+finding identity. The graph is rebuilt from the reduced capsule and compared during loading, so a
+stored graph cannot drift from the executable artifact.
+
+## Environment minimization
+
+After causal reduction, Reproit tests captured, non-secret runtime defines one at a time by omitting
+them from a cold replay. The work is bounded to 32 dimensions and eight replay attempts. A dimension
+is relaxed only when the same finding identity reproduces. If the candidate does not reproduce, the
+baseline is replayed again before the dimension may be called required. Runner errors, incomplete
+capsule replay, unavailable mutation adapters, and exhausted budgets produce `ABSTAIN` instead of a
+portability claim.
+
+The accepted relaxed dimensions are then tested together. If that final combined replay is not an
+exact reproduction, all relaxed claims are cleared. Captured values remain pinned by default during
+normal replay; explicit command-line overrides still take precedence. `reproit proof <id>` displays
+the DAG size, environment replay count, portable dimensions, non-reproducing trials, and abstentions.
 
 Multi-actor capsules use actor-local 1-based action clocks. The authored checkpoint remains
 immutable, generated actions shrink across the shared schedule, and capability aggregation uses the

@@ -35,6 +35,9 @@ pub struct RunOpts<'a> {
     pub shots_dir: Option<&'a Path>,
     /// Extra --dart-define pairs. Keep CONSTANT across warm-reused runs.
     pub extra_defines: &'a [(String, String)],
+    /// Config and extra defines deliberately omitted for a controlled
+    /// environment-minimization replay.
+    pub excluded_defines: &'a [String],
     /// Drive in profile mode (AOT): required for representative frame/perf
     /// evidence; debug-mode (JIT) numbers overstate jank.
     pub profile: bool,
@@ -89,6 +92,7 @@ pub async fn run_journey(
         warm,
         shots_dir,
         extra_defines,
+        excluded_defines,
         profile,
         profile_timing,
         record_video,
@@ -233,13 +237,18 @@ pub async fn run_journey(
         .app
         .defines
         .iter()
-        .filter(|(_, v)| !v.is_empty())
+        .filter(|(key, value)| !value.is_empty() && !excluded_defines.contains(*key))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     if let Some(k) = kind {
         defines.push(("PROMPT_KIND".to_string(), k.to_string()));
     }
-    defines.extend(extra_defines.iter().cloned());
+    defines.extend(
+        extra_defines
+            .iter()
+            .filter(|(key, _)| !excluded_defines.contains(key))
+            .cloned(),
+    );
     // Login secrets resolved from the encrypted vault. Login-UI journeys receive
     // them via env/defines; host-authored actions get their ${REPROIT_SECRET_*}
     // placeholders resolved before delivery. The same values are handed to log
@@ -713,13 +722,18 @@ pub async fn run_journey_headless(
         .app
         .defines
         .iter()
-        .filter(|(_, v)| !v.is_empty())
+        .filter(|(key, value)| !value.is_empty() && !opts.excluded_defines.contains(*key))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     if let Some(k) = opts.kind {
         defines.push(("PROMPT_KIND".to_string(), k.to_string()));
     }
-    defines.extend(opts.extra_defines.iter().cloned());
+    defines.extend(
+        opts.extra_defines
+            .iter()
+            .filter(|(key, _)| !opts.excluded_defines.contains(key))
+            .cloned(),
+    );
     let secrets = match crate::auth::secret_env(&cfg.auth, root) {
         Ok(secrets) => secrets,
         Err(e) => {

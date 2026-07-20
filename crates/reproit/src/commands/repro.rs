@@ -804,6 +804,7 @@ pub(super) async fn check_repro(
         .filter(|s| !s.is_empty());
     let mut capsule_plaintext = None;
     let mut expected_finding_identity = None;
+    let mut excluded_defines = std::collections::BTreeSet::new();
     if let Some(capsule_id) = capsule_id {
         let capsule = capsule::Capsule::load(&loaded.root, &capsule_id)?;
         let missing = capsule.missing_required_replay_capabilities();
@@ -814,6 +815,7 @@ pub(super) async fn check_repro(
                 missing.join(", ")
             );
         }
+        capsule.apply_replay_environment(&mut defines, &mut excluded_defines);
         let guard = capsule::Capsule::materialize_plaintext(&loaded.root, &capsule_id)?;
         defines.push((
             "REPROIT_CAPSULE".into(),
@@ -822,6 +824,7 @@ pub(super) async fn check_repro(
         expected_finding_identity = Some(capsule.finding.clone());
         capsule_plaintext = Some(guard);
     }
+    let excluded_defines = excluded_defines.into_iter().collect::<Vec<_>>();
 
     let _ = devices; // a repro replays on one device; kept for parity.
 
@@ -852,6 +855,7 @@ pub(super) async fn check_repro(
                 devices: 1,
                 warm: false,
                 extra_defines: &defines,
+                excluded_defines: &excluded_defines,
                 record_video,
                 ..Default::default()
             },

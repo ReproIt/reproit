@@ -91,6 +91,13 @@ capture-adapter concern. Verdict-bearing evidence crosses the core boundary only
 `reproit-protocol` package. CLI and cloud compile the same package source and reject unknown fields,
 unknown versions, invalid ordering, malformed scopes, and values outside explicit bounds.
 
+The same shared protocol defines the causal graph and environment-minimization envelope used by
+capsule schema version 2. A capsule is assembled through five layers: bounded capture,
+normalization, pure tri-state evaluation, exact confirmation and minimization, then immutable
+artifact persistence. The causal graph is data, not an execution framework. Platform adapters
+capture facts and apply bounded environment mutations; the core owns graph construction,
+dependency closure, proof rules, and content identity.
+
 One frame is limited to 1 MiB. Its fixed header fits in the first 512 bytes, before the JSON event.
 An oversized frame becomes a persisted stream defect with reason `frame-too-large`; its payload is
 not parsed. An unattributed contract defect makes every configured temporal contract abstain. A
@@ -110,6 +117,13 @@ Graph analysis is search guidance only. Bounded strongly connected component and
 analysis prioritizes rare frontiers that unlock more reachable state. It degrades to the existing
 deterministic visit ordering above its analysis bounds and never enters evaluation, confirmation,
 or finding identity.
+
+Causal reduction is separate from search guidance. It operates on a validated acyclic event graph
+whose edges distinguish ordering, data flow, state prerequisites, actor ownership, and contract
+scope. Hard dependencies are removed atomically, each candidate receives a clean exact-identity
+replay, and the accepted graph is regenerated from the executable capsule. Environment reduction
+uses the same tri-state rule: only an exact reproduction permits relaxation, a reconfirmed baseline
+permits a required-dimension claim, and uncertainty remains `ABSTAIN`.
 
 ## Finding-preservation rule
 

@@ -1,5 +1,49 @@
 use super::*;
 
+const MAX_ENVIRONMENT_REPLAYS: usize = 8;
+const MAX_ENVIRONMENT_DIMENSIONS: usize = 32;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplayTrial {
+    Reproduced,
+    NotReproduced,
+    Abstain,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn capsule_candidate_trial(
+    cfg: &Config,
+    root: &Path,
+    journey: &str,
+    cfg_path: &PathBuf,
+    defines: &[(String, String)],
+    excluded_defines: &[String],
+    warm: bool,
+    sim: bool,
+    want: &std::collections::BTreeSet<String>,
+    candidate: &crate::capsule::Capsule,
+) -> Result<ReplayTrial> {
+    let guard = candidate.materialize_candidate(root)?;
+    let mut candidate_defines = defines.to_vec();
+    candidate_defines.push((
+        "REPROIT_CAPSULE".into(),
+        guard.path().to_string_lossy().into_owned(),
+    ));
+    confirm_trace_trial(
+        cfg,
+        root,
+        journey,
+        cfg_path,
+        &candidate_defines,
+        excluded_defines,
+        &candidate.replay_actions(),
+        warm,
+        sim,
+        want,
+    )
+    .await
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn capsule_candidate_reproduces(
     cfg: &Config,
@@ -7,33 +51,30 @@ async fn capsule_candidate_reproduces(
     journey: &str,
     cfg_path: &PathBuf,
     defines: &[(String, String)],
-    actions: &[String],
     sim: bool,
     want: &std::collections::BTreeSet<String>,
     candidate: &crate::capsule::Capsule,
 ) -> Result<bool> {
-    let guard = candidate.materialize_candidate(root)?;
-    let mut candidate_defines = defines.to_vec();
-    candidate_defines.push((
-        "REPROIT_CAPSULE".into(),
-        guard.path().to_string_lossy().into_owned(),
-    ));
-    confirm_trace(
+    Ok(capsule_candidate_trial(
         cfg,
         root,
         journey,
         cfg_path,
-        &candidate_defines,
-        actions,
+        defines,
+        &[],
+        true,
         sim,
         want,
+        candidate,
     )
-    .await
+    .await?
+        == ReplayTrial::Reproduced)
 }
 
-/// Joint network/payload half of minimization. Action ddmin has already run;
-/// every candidate below starts from that minimal action trace and is accepted
-/// only after an independent clean replay of the exact original finding.
+/// Dependency-aware reduction operates on the capsule's causal DAG. Removing
+/// an action atomically removes hard-dependent responses and backend events;
+/// every accepted graph and payload reduction independently replays the exact
+/// original finding.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn shrink_causal_capsule(
     cfg: &Config,
@@ -41,7 +82,6 @@ pub(super) async fn shrink_causal_capsule(
     journey: &str,
     cfg_path: &PathBuf,
     defines: &[(String, String)],
-    actions: &[String],
     sim: bool,
     want: &std::collections::BTreeSet<String>,
     mut best: crate::capsule::Capsule,
@@ -49,21 +89,18 @@ pub(super) async fn shrink_causal_capsule(
 ) -> Result<crate::capsule::Capsule> {
     let original_id = best.id.clone();
     let mut replays = 0usize;
-    let mut i = 0;
-    while i < best.exchanges.len() && replays < MAX_SHRINK_REPLAYS {
-        let mut candidate = best.clone();
-        candidate.exchanges.remove(i);
-        replays += 1;
-        if capsule_candidate_reproduces(
-            cfg, root, journey, cfg_path, defines, actions, sim, want, &candidate,
-        )
-        .await?
-        {
-            best = candidate;
-        } else {
-            i += 1;
-        }
-    }
+    best = shrink_causal_nodes(
+        cfg,
+        root,
+        journey,
+        cfg_path,
+        defines,
+        sim,
+        want,
+        best,
+        &mut replays,
+    )
+    .await?;
     for exchange_index in 0..best.exchanges.len() {
         if replays >= MAX_SHRINK_REPLAYS {
             break;
@@ -79,9 +116,10 @@ pub(super) async fn shrink_causal_capsule(
                 }
                 let mut candidate = best.clone();
                 candidate.exchanges[exchange_index].response_body = Some(reduced.clone());
+                candidate.refresh_causal_graph()?;
                 replays += 1;
                 if capsule_candidate_reproduces(
-                    cfg, root, journey, cfg_path, defines, actions, sim, want, &candidate,
+                    cfg, root, journey, cfg_path, defines, sim, want, &candidate,
                 )
                 .await?
                 {
@@ -96,13 +134,23 @@ pub(super) async fn shrink_causal_capsule(
             current = reduced;
         }
     }
-    if !capsule_candidate_reproduces(
-        cfg, root, journey, cfg_path, defines, actions, sim, want, &best,
-    )
-    .await?
+    if !capsule_candidate_reproduces(cfg, root, journey, cfg_path, defines, sim, want, &best)
+        .await?
     {
         anyhow::bail!("jointly minimized causal capsule failed final clean confirmation");
     }
+    best = minimize_environment(
+        cfg,
+        root,
+        journey,
+        cfg_path,
+        defines,
+        sim,
+        want,
+        best,
+        json_output,
+    )
+    .await?;
     best.persist(root)?;
     if best.id != original_id {
         let _ = std::fs::remove_dir_all(crate::layout::capsule_dir(root, &original_id));
@@ -110,11 +158,222 @@ pub(super) async fn shrink_causal_capsule(
     say(
         json_output,
         format!(
-            "  capsule shrink: {} exchange(s), {replays} clean replay(s)",
-            best.exchanges.len()
+            "  causal shrink: {} node(s), {} action(s), {} exchange(s), {replays} clean replay(s)",
+            best.causal_graph.nodes.len(),
+            best.actions.len(),
+            best.exchanges.len(),
         ),
     );
     Ok(best)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn shrink_causal_nodes(
+    cfg: &Config,
+    root: &Path,
+    journey: &str,
+    cfg_path: &PathBuf,
+    defines: &[(String, String)],
+    sim: bool,
+    want: &std::collections::BTreeSet<String>,
+    mut best: crate::capsule::Capsule,
+    replays: &mut usize,
+) -> Result<crate::capsule::Capsule> {
+    let mut granularity = 2usize;
+    loop {
+        let units = best.causal_graph.reduction_nodes();
+        if units.is_empty() || *replays >= MAX_SHRINK_REPLAYS {
+            break;
+        }
+        let chunk_size = units.len().div_ceil(granularity);
+        let mut accepted = false;
+        for chunk in units.chunks(chunk_size) {
+            if *replays >= MAX_SHRINK_REPLAYS {
+                break;
+            }
+            let requested = chunk.iter().cloned().collect();
+            let candidate = best.reduced_without_nodes(&requested)?;
+            if candidate.actions.len() == best.actions.len()
+                && candidate.exchanges.len() == best.exchanges.len()
+                && candidate.backend_events.len() == best.backend_events.len()
+            {
+                continue;
+            }
+            *replays += 1;
+            if capsule_candidate_reproduces(
+                cfg, root, journey, cfg_path, defines, sim, want, &candidate,
+            )
+            .await?
+            {
+                best = candidate;
+                accepted = true;
+                granularity = 2;
+                break;
+            }
+        }
+        if accepted {
+            continue;
+        }
+        if granularity >= units.len() {
+            break;
+        }
+        granularity = (granularity * 2).min(units.len());
+    }
+    Ok(best)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn minimize_environment(
+    cfg: &Config,
+    root: &Path,
+    journey: &str,
+    cfg_path: &PathBuf,
+    defines: &[(String, String)],
+    sim: bool,
+    want: &std::collections::BTreeSet<String>,
+    mut capsule: crate::capsule::Capsule,
+    json_output: bool,
+) -> Result<crate::capsule::Capsule> {
+    use crate::capsule::{EnvironmentEnvelope, EnvironmentOutcome, EnvironmentTrial};
+
+    let mut envelope = EnvironmentEnvelope::default();
+    let dimensions = capsule
+        .environment
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    let mut excluded = Vec::<String>::new();
+    for (dimension_index, (dimension, baseline)) in dimensions.into_iter().enumerate() {
+        if dimension_index >= MAX_ENVIRONMENT_DIMENSIONS {
+            envelope.trials.push(EnvironmentTrial {
+                dimension,
+                baseline,
+                candidate: None,
+                outcome: EnvironmentOutcome::Abstain,
+                reason: "dimension-budget-exhausted".into(),
+                replay_attempts: 0,
+            });
+            continue;
+        }
+        let Some(name) = dimension.strip_prefix("define:").map(str::to_string) else {
+            envelope.trials.push(EnvironmentTrial {
+                dimension,
+                baseline,
+                candidate: None,
+                outcome: EnvironmentOutcome::Abstain,
+                reason: "no-bounded-mutation-adapter".into(),
+                replay_attempts: 0,
+            });
+            continue;
+        };
+        if envelope.replay_attempts as usize >= MAX_ENVIRONMENT_REPLAYS {
+            envelope.trials.push(EnvironmentTrial {
+                dimension,
+                baseline,
+                candidate: None,
+                outcome: EnvironmentOutcome::Abstain,
+                reason: "replay-budget-exhausted".into(),
+                replay_attempts: 0,
+            });
+            continue;
+        }
+        let mut candidate_excluded = excluded.clone();
+        candidate_excluded.push(name);
+        let trial = capsule_candidate_trial(
+            cfg,
+            root,
+            journey,
+            cfg_path,
+            defines,
+            &candidate_excluded,
+            false,
+            sim,
+            want,
+            &capsule,
+        )
+        .await?;
+        envelope.replay_attempts += 1;
+        let (outcome, reason, attempts) = match trial {
+            ReplayTrial::Reproduced => {
+                excluded = candidate_excluded;
+                envelope.relaxed_dimensions.insert(dimension.clone());
+                (
+                    EnvironmentOutcome::Reproduces,
+                    "exact-identity-reproduced".to_string(),
+                    1,
+                )
+            }
+            ReplayTrial::Abstain => (
+                EnvironmentOutcome::Abstain,
+                "candidate-replay-incomplete".to_string(),
+                1,
+            ),
+            ReplayTrial::NotReproduced => {
+                let (baseline_trial, baseline_attempts) =
+                    if envelope.replay_attempts as usize >= MAX_ENVIRONMENT_REPLAYS {
+                        (ReplayTrial::Abstain, 0)
+                    } else {
+                        envelope.replay_attempts += 1;
+                        (
+                            capsule_candidate_trial(
+                                cfg, root, journey, cfg_path, defines, &excluded, false, sim, want,
+                                &capsule,
+                            )
+                            .await?,
+                            1,
+                        )
+                    };
+                if baseline_trial == ReplayTrial::Reproduced {
+                    (
+                        EnvironmentOutcome::DoesNotReproduce,
+                        "exact-identity-disappeared-and-baseline-reconfirmed".to_string(),
+                        1 + baseline_attempts,
+                    )
+                } else {
+                    (
+                        EnvironmentOutcome::Abstain,
+                        "baseline-could-not-be-reconfirmed".to_string(),
+                        1 + baseline_attempts,
+                    )
+                }
+            }
+        };
+        envelope.trials.push(EnvironmentTrial {
+            dimension,
+            baseline,
+            candidate: None,
+            outcome,
+            reason,
+            replay_attempts: attempts,
+        });
+    }
+    if (envelope.replay_attempts as usize) < MAX_ENVIRONMENT_REPLAYS {
+        envelope.replay_attempts += 1;
+        envelope.complete = capsule_candidate_trial(
+            cfg, root, journey, cfg_path, defines, &excluded, false, sim, want, &capsule,
+        )
+        .await?
+            == ReplayTrial::Reproduced;
+    }
+    if !envelope.complete {
+        envelope.relaxed_dimensions.clear();
+    }
+    say(
+        json_output,
+        format!(
+            "  environment: {} relaxed dimension(s), {} replay(s), final {}",
+            envelope.relaxed_dimensions.len(),
+            envelope.replay_attempts,
+            if envelope.complete {
+                "confirmed"
+            } else {
+                "ABSTAIN"
+            }
+        ),
+    );
+    capsule.environment_envelope = envelope;
+    capsule.refresh_causal_graph()?;
+    Ok(capsule)
 }
 
 /// Trust gate between an observation and a public finding. Replays the complete
@@ -132,18 +391,61 @@ pub(super) async fn confirm_trace(
     sim: bool,
     want: &std::collections::BTreeSet<String>,
 ) -> Result<bool> {
-    std::fs::write(cfg_path, json!({ "replay": trace }).to_string())?;
-    Ok(
-        match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
-            Ok(outcome) => {
-                let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log"))
-                    .unwrap_or_default();
-                replay_is_hermetic(&log)
-                    && reproduces_original(&findings_for_tier(cfg, &outcome.run_dir, sim), want)
-            }
-            Err(_) => false,
-        },
+    Ok(confirm_trace_trial(
+        cfg,
+        root,
+        journey,
+        cfg_path,
+        defines,
+        &[],
+        trace,
+        true,
+        sim,
+        want,
     )
+    .await?
+        == ReplayTrial::Reproduced)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn confirm_trace_trial(
+    cfg: &Config,
+    root: &Path,
+    journey: &str,
+    cfg_path: &PathBuf,
+    defines: &[(String, String)],
+    excluded_defines: &[String],
+    trace: &[String],
+    warm: bool,
+    sim: bool,
+    want: &std::collections::BTreeSet<String>,
+) -> Result<ReplayTrial> {
+    std::fs::write(cfg_path, json!({ "replay": trace }).to_string())?;
+    let outcome = match run_explorer_with_exclusions(
+        cfg,
+        root,
+        journey,
+        warm,
+        defines,
+        excluded_defines,
+        false,
+        sim,
+        false,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(_) => return Ok(ReplayTrial::Abstain),
+    };
+    let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+    if !replay_is_hermetic(&log) {
+        return Ok(ReplayTrial::Abstain);
+    }
+    if reproduces_original(&findings_for_tier(cfg, &outcome.run_dir, sim), want) {
+        Ok(ReplayTrial::Reproduced)
+    } else {
+        Ok(ReplayTrial::NotReproduced)
+    }
 }
 
 /// A causal-capsule confirmation is valid only if every external request was
@@ -151,6 +453,35 @@ pub(super) async fn confirm_trace(
 /// secondary artifact of the incomplete environment, not the original bug.
 pub(super) fn replay_is_hermetic(log: &str) -> bool {
     !log.lines().any(|line| line.contains("CAPSULE:MISS "))
+}
+
+/// Capture one final live replay after action minimization so the causal
+/// exchanges and backend events share the minimized action clock. Earlier
+/// discovery evidence may refer to actions that ddmin has already removed.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn capture_confirmed_trace(
+    cfg: &Config,
+    root: &Path,
+    journey: &str,
+    cfg_path: &PathBuf,
+    defines: &[(String, String)],
+    trace: &[String],
+    sim: bool,
+    want: &std::collections::BTreeSet<String>,
+) -> Result<Option<RunOutcome>> {
+    std::fs::write(cfg_path, json!({ "replay": trace }).to_string())?;
+    let outcome = match run_explorer(cfg, root, journey, true, defines, false, sim, false).await {
+        Ok(outcome) => outcome,
+        Err(_) => return Ok(None),
+    };
+    let log = std::fs::read_to_string(outcome.run_dir.join("drive-a.log")).unwrap_or_default();
+    if replay_is_hermetic(&log)
+        && reproduces_original(&findings_for_tier(cfg, &outcome.run_dir, sim), want)
+    {
+        Ok(Some(outcome))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Bounded delta reduction removes chunks at decreasing granularity rather

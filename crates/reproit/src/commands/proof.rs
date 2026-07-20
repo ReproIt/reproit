@@ -21,6 +21,7 @@ pub(super) fn show_proof(ctx: &Ctx, loaded: &config::Loaded, reference: &str) ->
             graph_path.display()
         )
     })?;
+    let capsule = load_capsule(loaded, reference)?;
     if ctx.json {
         let next_evidence = additional_evidence(&ledger);
         ctx.emit(&serde_json::json!({
@@ -30,11 +31,80 @@ pub(super) fn show_proof(ctx: &Ctx, loaded: &config::Loaded, reference: &str) ->
             "graphRoot": graph.root,
             "ledger": ledger,
             "nextEvidence": next_evidence,
+            "causalGraph": capsule.as_ref().map(|capsule| &capsule.causal_graph),
+            "environmentEnvelope": capsule
+                .as_ref()
+                .map(|capsule| &capsule.environment_envelope),
         }));
         return Ok(());
     }
     print_ledger(ctx, &public_id, &graph, &ledger);
+    if let Some(capsule) = capsule {
+        print_capsule_proof(ctx, &capsule);
+    }
     Ok(())
+}
+
+fn load_capsule(
+    loaded: &config::Loaded,
+    reference: &str,
+) -> Result<Option<crate::capsule::Capsule>> {
+    let link = if let Some(meta) = repro::resolve(&loaded.root, reference) {
+        layout::repro_dir(&loaded.root, &meta.id).join("capsule-id")
+    } else {
+        let raw = repro::raw_finding_id(reference).unwrap_or(reference);
+        layout::finding_dir(&loaded.root, raw).join("capsule-id")
+    };
+    let id = match std::fs::read_to_string(&link) {
+        Ok(id) => id,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", link.display())),
+    };
+    Ok(Some(crate::capsule::Capsule::load(
+        &loaded.root,
+        id.trim(),
+    )?))
+}
+
+fn print_capsule_proof(ctx: &Ctx, capsule: &crate::capsule::Capsule) {
+    ctx.say(format!(
+        "  causal graph: v{}, {} nodes, {} edges",
+        capsule.causal_graph.version,
+        capsule.causal_graph.nodes.len(),
+        capsule.causal_graph.edges.len()
+    ));
+    let envelope = &capsule.environment_envelope;
+    ctx.say(format!(
+        "  environment: {} ({} replay attempts)",
+        if envelope.complete {
+            "final minimized replay confirmed"
+        } else {
+            "ABSTAIN"
+        },
+        envelope.replay_attempts
+    ));
+    if !envelope.relaxed_dimensions.is_empty() {
+        ctx.say(format!(
+            "    portable without: {}",
+            envelope
+                .relaxed_dimensions
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    for trial in &envelope.trials {
+        if trial.outcome == crate::capsule::EnvironmentOutcome::Reproduces {
+            continue;
+        }
+        ctx.say(format!(
+            "    {}: {} ({})",
+            trial.dimension,
+            serialized_name(&trial.outcome),
+            trial.reason
+        ));
+    }
 }
 
 pub(super) fn list_candidates(ctx: &Ctx, loaded: &config::Loaded) -> Result<()> {

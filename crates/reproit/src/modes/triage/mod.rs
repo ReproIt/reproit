@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn production_pull_accepts_only_complete_redacted_replayable_capsules() {
         let capsule = json!({
-            "version": 1, "id": "cloud-id", "app": "chat", "builds": {}, "environment": {},
+            "version": 2, "id": "cloud-id", "app": "chat", "builds": {}, "environment": {},
             "capabilities": {
                 "ui_actions": {"status":"captured"}, "http": {"status":"captured"},
                 "http_replay": {"status":"captured"}
@@ -297,6 +297,11 @@ mod tests {
                 "response_body": {"ok": true},
                 "required": true
             }],
+            "causalGraph": {"version":1,"nodes":[],"edges":[]},
+            "environmentEnvelope": {
+                "version":1,"complete":false,"replayAttempts":0,
+                "relaxedDimensions":[],"trials":[]
+            },
             "finding": {
                 "oracle": "crash",
                 "invariant": "no-exception",

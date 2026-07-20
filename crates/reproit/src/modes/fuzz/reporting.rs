@@ -6,6 +6,7 @@ pub(super) fn persist_causal_capsule(
     run_dir: &Path,
     finding: &Value,
     actions: &[String],
+    runtime_defines: &[(String, String)],
     seed: u64,
 ) -> Result<crate::capsule::Capsule> {
     let first = |keys: &[&str]| {
@@ -89,6 +90,13 @@ pub(super) fn persist_causal_capsule(
                 .environment
                 .insert(format!("define:{key}"), value.clone());
             flag_count += 1;
+        }
+    }
+    for (key, value) in runtime_defines {
+        if key == crate::crosscut::LOCALE_ENV && !value.is_empty() {
+            capsule
+                .environment
+                .insert(format!("define:{key}"), value.clone());
         }
     }
     capsule.capabilities.insert(
@@ -270,16 +278,21 @@ pub(super) fn write_report(
     std::fs::write(run_dir.join("fuzz.md"), md).context("writing fuzz report")
 }
 
+pub(super) struct RunEvidence<'a> {
+    pub capture_dir: &'a Path,
+    pub finding_id: &'a str,
+    pub trace: &'a [String],
+    pub findings: &'a [Value],
+    pub minimized: &'a [String],
+    pub confirmation: reproit_protocol::ConfirmationStatus,
+    pub capsule: Option<&'a crate::capsule::Capsule>,
+}
+
 pub(super) fn write_run_evidence_graph(
     output_dir: &Path,
-    capture_dir: &Path,
-    finding_id: &str,
-    trace: &[String],
-    findings: &[Value],
-    minimized: &[String],
-    confirmation: reproit_protocol::ConfirmationStatus,
+    evidence: RunEvidence<'_>,
 ) -> Result<reproit_protocol::ProofLedger> {
-    let log = std::fs::read(capture_dir.join("drive-a.log")).unwrap_or_default();
+    let log = std::fs::read(evidence.capture_dir.join("drive-a.log")).unwrap_or_default();
     let raw = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::RawCapture,
         vec![],
@@ -292,28 +305,29 @@ pub(super) fn write_run_evidence_graph(
     let normalized = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::NormalizedTrace,
         vec![raw.id.clone()],
-        json!({ "actions": trace }),
+        json!({ "actions": evidence.trace }),
     )?;
     let evaluation = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::Evaluation,
         vec![normalized.id.clone()],
-        json!({ "findings": findings }),
+        json!({ "findings": evidence.findings }),
     )?;
-    let replay_identity_matched = confirmation == reproit_protocol::ConfirmationStatus::Reproduced;
+    let replay_identity_matched =
+        evidence.confirmation == reproit_protocol::ConfirmationStatus::Reproduced;
     let replay = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::Replay,
         vec![evaluation.id.clone()],
         json!({
-            "confirmation": confirmation,
+            "confirmation": evidence.confirmation,
             "identityMatched": replay_identity_matched,
         }),
     )?;
     let minimized = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::MinimizedTrace,
         vec![replay.id.clone()],
-        json!({ "actions": minimized }),
+        json!({ "actions": evidence.minimized }),
     )?;
-    let authority = authority_for_findings(findings);
+    let authority = authority_for_findings(evidence.findings);
     let (evaluation_status, evaluation_reasons) = if authority.is_empty() {
         (
             reproit_protocol::EvaluationStatus::Abstain,
@@ -324,30 +338,52 @@ pub(super) fn write_run_evidence_graph(
     };
     let minimization = if replay_identity_matched {
         reproit_protocol::MinimizationStatus::Preserved
-    } else if confirmation == reproit_protocol::ConfirmationStatus::NotAttempted {
+    } else if evidence.confirmation == reproit_protocol::ConfirmationStatus::NotAttempted {
         reproit_protocol::MinimizationStatus::NotAttempted
     } else {
         reproit_protocol::MinimizationStatus::CouldNotConfirm
     };
     let proof = reproit_protocol::ProofLedger::from_stages(
-        vec![crate::model::repro::display_finding_id(finding_id)],
+        vec![crate::model::repro::display_finding_id(evidence.finding_id)],
         authority,
         evaluation_status,
         evaluation_reasons,
-        confirmation,
+        evidence.confirmation,
         replay_identity_matched,
         minimization,
     )?;
+    let mut nodes = vec![raw, normalized, evaluation, replay, minimized];
+    let mut proof_parent = nodes.last().expect("minimized node exists").id.clone();
+    if let Some(capsule) = evidence.capsule {
+        let causal = reproit_protocol::ArtifactNode::new(
+            reproit_protocol::ArtifactKind::CausalGraph,
+            vec![proof_parent],
+            serde_json::to_value(&capsule.causal_graph)?,
+        )?;
+        proof_parent = causal.id.clone();
+        nodes.push(causal);
+        let environment = reproit_protocol::ArtifactNode::new(
+            reproit_protocol::ArtifactKind::EnvironmentEnvelope,
+            vec![proof_parent],
+            serde_json::to_value(reproit_protocol::EnvironmentProof {
+                captured: capsule.environment.clone(),
+                envelope: capsule.environment_envelope.clone(),
+            })?,
+        )?;
+        proof_parent = environment.id.clone();
+        nodes.push(environment);
+    }
     let ledger = reproit_protocol::ArtifactNode::new(
         reproit_protocol::ArtifactKind::ProofLedger,
-        vec![minimized.id.clone()],
+        vec![proof_parent],
         serde_json::to_value(&proof)?,
     )?;
     let digest = ledger.id.trim_start_matches("sha256:");
+    nodes.push(ledger.clone());
     let graph = reproit_protocol::EvidenceGraph {
         run_id: format!("run-{}", &digest[..16]),
         root: ledger.id.clone(),
-        nodes: vec![raw, normalized, evaluation, replay, minimized, ledger],
+        nodes,
     };
     graph.validate()?;
     std::fs::write(
