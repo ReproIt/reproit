@@ -2,7 +2,7 @@
 // Marker-drift guard: canonicalize + diff a LIVE operability EXPLORE:GROUNDTRUTH
 // marker against the committed golden for one platform. The goldens live next to
 // this script (tests/golden/operability/<platform>.json) and are the SINGLE
-// source of truth the engine contract tests read (crates/reproit/src/model/map.rs
+// source of truth the engine contract tests read (crates/reproit/src/domain/map.rs
 // gaps_from_golden). This script is what keeps that golden honest in CI: it
 // re-captures the marker the REAL agent emits and fails the job (naming the
 // platform + the changed field) the moment the live marker drifts from the

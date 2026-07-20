@@ -103,7 +103,7 @@ appends `*` to the role: `2:listitem*`.
 ### Clarifications (normative)
 
 These pin the simplest deterministic reading where the prose above is silent, so every language
-matches the Rust oracle in `crates/reproit/src/model/signature.rs`:
+matches the Rust oracle in `crates/reproit/src/domain/signature.rs`:
 
 - **Token field order is fixed**: `:type` then `#icon` then `@id`, each present only when set. The
   `*` repeat marker is appended to the whole token after the id: `1:textfield:password#lock@pwd*`
@@ -281,7 +281,7 @@ Because the descriptor source isn't a node tree, TUI and ImGui/Clay signatures a
 to match the a11y golden vectors in `signature_vectors.json`. The guarantee they share with every
 surface is narrower and exact: the same hash primitive and output format, a deterministic
 locale-invariant descriptor, and the identical `value_class` buckets. The TUI backend's own tests
-(`crates/reproit/src/backends/tui/mod.rs`) pin that contract directly.
+(`crates/reproit/src/adapters/tui/mod.rs`) pin that contract directly.
 
 ## Anchors
 

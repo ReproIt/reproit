@@ -1,7 +1,7 @@
 //! Feature-gated benchmark workloads over real production hot paths.
 
-use crate::model::appmap::{Action, AppMap, Reversibility, State, StateSignature, Transition};
-use crate::model::map::{GraphIndex, Visits};
+use crate::domain::appmap::{Action, AppMap, Reversibility, State, StateSignature, Transition};
+use crate::domain::map::{GraphIndex, Visits};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -63,7 +63,7 @@ impl FrontierWorkload {
     }
 
     pub fn run(&self) -> usize {
-        crate::model::map::frontier_path(&self.map, &self.visits)
+        crate::domain::map::frontier_path(&self.map, &self.visits)
             .map(|(_, path)| path.len())
             .unwrap_or(0)
     }
@@ -93,13 +93,13 @@ impl LogWorkload {
     }
 
     pub fn run(&self) -> usize {
-        let parsed = crate::model::runner::ParsedRun::new(&self.log, &[], false, false);
+        let parsed = crate::domain::runner::ParsedRun::new(&self.log, &[], false, false);
         parsed.events.len() + parsed.map.edges.len() + parsed.trace.len()
     }
 }
 
 pub struct MergeWorkload {
-    observations: crate::model::map::RunObs,
+    observations: crate::domain::map::RunObs,
 }
 
 impl MergeWorkload {
@@ -120,13 +120,13 @@ impl MergeWorkload {
             }
         }
         Self {
-            observations: crate::model::map::parse_run(&log),
+            observations: crate::domain::map::parse_run(&log),
         }
     }
 
     pub fn run(&self) -> usize {
         let mut map = AppMap::empty("benchmark".to_string());
-        crate::model::map::merge(&mut map, &self.observations);
+        crate::domain::map::merge(&mut map, &self.observations);
         map.states.len() + map.transitions.len()
     }
 }
@@ -146,7 +146,7 @@ impl BatchWorkload {
     pub fn run(&self) -> usize {
         let weights = self.visits.edge_weights(&self.map);
         let graph = GraphIndex::new(&self.map);
-        let path = crate::model::map::frontier_path_with_index(&self.map, &self.visits, &graph)
+        let path = crate::domain::map::frontier_path_with_index(&self.map, &self.visits, &graph)
             .map(|(_, path)| path.len())
             .unwrap_or(0);
         (0..self.seeds)
@@ -156,7 +156,7 @@ impl BatchWorkload {
 }
 
 pub struct PermissionWorkload {
-    observations: crate::model::map::RunObs,
+    observations: crate::domain::map::RunObs,
 }
 
 impl PermissionWorkload {
@@ -181,12 +181,12 @@ impl PermissionWorkload {
             }
         }
         Self {
-            observations: crate::model::map::parse_run(&log),
+            observations: crate::domain::map::parse_run(&log),
         }
     }
 
     pub fn run(&self) -> usize {
-        crate::model::invariants::benchmark_permission_traps(&self.observations)
+        crate::domain::invariants::benchmark_permission_traps(&self.observations)
     }
 }
 
@@ -208,7 +208,7 @@ impl PersistenceWorkload {
 
     pub fn run(&mut self) -> usize {
         self.map.mark_changed();
-        crate::model::map::benchmark_save_snapshot(&self.root, &self.map, &mut self.visits)
+        crate::domain::map::benchmark_save_snapshot(&self.root, &self.map, &mut self.visits)
             .expect("benchmark snapshot");
         self.map.revision as usize
     }
@@ -236,12 +236,12 @@ impl FingerprintWorkload {
             std::fs::write(root.join(format!("src/file-{index:05}.rs")), &body)
                 .expect("benchmark source file");
         }
-        crate::model::map::benchmark_fingerprint(&root, 1).expect("prime fingerprint cache");
+        crate::domain::map::benchmark_fingerprint(&root, 1).expect("prime fingerprint cache");
         Self { root }
     }
 
     pub fn run(&self) -> usize {
-        crate::model::map::benchmark_fingerprint(&self.root, 1)
+        crate::domain::map::benchmark_fingerprint(&self.root, 1)
             .expect("benchmark fingerprint")
             .len()
     }

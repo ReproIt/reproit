@@ -8,29 +8,15 @@
 // Keep the alignment rather than reflow it to satisfy a purely stylistic lint.
 #![allow(clippy::doc_overindented_list_items, clippy::doc_lazy_continuation)]
 
-// Top-level application support.
-mod auth;
+// Narrow public integration surface.
 pub mod backend_contracts;
-mod capsule;
-mod cli;
-mod commands;
-mod config;
-mod crashreporter;
-mod crosscut;
-mod exec;
-mod infra;
-mod init;
-mod junit;
-mod layout;
-mod mcp;
-mod skills;
-mod startup;
-mod update;
+mod interface;
 
 // Domain and platform namespaces.
-mod backends;
-mod model;
-mod modes;
+mod adapters;
+mod domain;
+mod runtime;
+mod workflows;
 
 #[cfg(feature = "perf-bench")]
 pub mod perf_bench;
@@ -41,7 +27,7 @@ pub mod perf_bench;
 /// `0.1.64` while a dev build is obviously identifiable.
 pub(crate) const VERSION: &str = env!("REPROIT_VERSION");
 
-pub use startup::run as startup;
+pub use runtime::startup::run as startup;
 
 /// Run the CLI from an explicit argument sequence.
 pub(crate) async fn run_from<I, T>(args: I) -> anyhow::Result<std::process::ExitCode>
@@ -49,5 +35,5 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString>,
 {
-    commands::run_from(args).await
+    workflows::run_from(args).await
 }

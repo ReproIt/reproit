@@ -243,8 +243,8 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
         .to_path_buf();
     let clients = [
         (
-            "crates/reproit/scaffolds/flutter/integration_test/reproit_explorer/runner.dart",
-            "crates/reproit/scaffolds/flutter/integration_test/reproit_explorer/config.dart",
+            "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart",
+            "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/config.dart",
             "FlutterDrive",
         ),
         ("runners/web/runner.mjs", "", "WebCdp (web)"),
@@ -256,17 +256,17 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
             "Appium (react-native/swift-ios/android)",
         ),
         ("runners/macos-ax.swift", "", "DesktopAx"),
-        ("crates/reproit/src/backends/uia/mod.rs", "", "DesktopUia"),
+        ("crates/reproit/src/adapters/uia/mod.rs", "", "DesktopUia"),
         (
-            "crates/reproit/src/backends/atspi/session.rs",
-            "crates/reproit/src/backends/atspi/mod.rs",
+            "crates/reproit/src/adapters/atspi/session.rs",
+            "crates/reproit/src/adapters/atspi/mod.rs",
             "DesktopAtspi",
         ),
         ("runners/reproit_imgui.h", "", "Instrumented (imgui)"),
         ("runners/reproit_clay.h", "", "Instrumented (clay)"),
         (
-            "crates/reproit/src/backends/tui/mod.rs",
-            "crates/reproit/src/backends/tui/scenario.rs",
+            "crates/reproit/src/adapters/tui/mod.rs",
+            "crates/reproit/src/adapters/tui/scenario.rs",
             "Tui",
         ),
     ];

@@ -4,7 +4,7 @@ Each `<platform>.json` here is the **verbatim** `EXPLORE:GROUNDTRUTH` JSON paylo
 platform's in-process operability agent emits for its fixture, copied byte-for-byte from the real
 marker. These goldens are the **single source of truth** for the operability contract:
 
-- The engine contract tests read them, not inline literals (`crates/reproit/src/model/map.rs`,
+- The engine contract tests read them, not inline literals (`crates/reproit/src/domain/map.rs`,
   `gaps_from_golden(...)` / `golden_groundtruth(...)`). Each
   `*_in_process_agent_groundtruth_detects_fake_button_gap` test parses the golden through the real
   engine and asserts the same `pointer_only` / `keyboard_unreachable` / `no_role` gap
@@ -66,4 +66,4 @@ re-capture and diff on the machine that has the toolchain:
   capture, `... canonicalize-diff.mjs gtk <file>`.
 
 If the diff fails, the agent has drifted: confirm whether the contract still holds, then update the
-golden here AND the matching assertions in `crates/reproit/src/model/map.rs` in the same change.
+golden here AND the matching assertions in `crates/reproit/src/domain/map.rs` in the same change.

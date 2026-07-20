@@ -83,7 +83,8 @@ windows = { version = "0.62.2", features = [
 
 # NOTE: the Linux desktop runner (`reproit __atspi`) needs NO Rust crate: it
 # binds the OFFICIAL AT-SPI C library (libatspi.so.0) directly via hand-declared
-# `#[link(name = "atspi"/"gobject-2.0"/"glib-2.0")]` FFI in backends/atspi/protocol.rs, so
+# `#[link(name = "atspi"/"gobject-2.0"/"glib-2.0")]` FFI in
+# adapters/atspi/protocol.rs, so
 # there is no `[target.'cfg(target_os = "linux")'.dependencies]` stanza. The dev
 # package that provides the link-time .so (libatspi2.0-dev, which pulls glib) is
 # installed in CI/release for the Linux build; the shipped binary dynamically

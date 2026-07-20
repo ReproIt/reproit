@@ -6,31 +6,29 @@ process-global arguments, or terminal output.
 ## Dependency direction
 
 ```text
-process entry point -> CLI parsing -> command dispatch -> workflow modes
-                                       |               -> domain model
-                                       +---------------> backend adapters -> infrastructure
+process entry point -> interface -> workflows -> domain
+                                  |            -> adapters
+                                  +------------> runtime
 ```
 
-- `src/main.rs` only delegates to `startup.rs`; startup owns the explicit bounded-stack thread and
-  Tokio runtime used on every platform.
-- `cli/` owns process exit codes, argument parsing, target classification, and compatibility
-  rewrites.
-- `commands/` translates parsed commands into calls to workflows, models, and adapters. It is the
-  only application-level dispatcher.
-- `modes/` owns cohesive user-facing workflows such as fuzzing, journeys, triage, and headless
-  backend exploration.
-- `model/` owns deterministic data and analysis. Model code must not read the environment, start
-  processes, perform network requests, or print.
-- `backends/` owns runtime and device adapters.
-- `infra/` owns explicit operating-system and external-system mechanisms.
-- `layout.rs` is the sole authority for canonical project artifact paths.
+- `src/main.rs` delegates to `runtime/startup.rs`, which owns the bounded-stack thread and Tokio
+  runtime used on every platform.
+- `interface/` owns CLI parsing, process output and exit policy, JUnit rendering, and the MCP
+  protocol boundary.
+- `workflows/` owns command dispatch and cohesive use cases such as fuzzing, journeys, triage,
+  accessibility reporting, and headless service exploration.
+- `domain/` owns canonical data, protocol evaluation, evidence identity, graph analysis, and
+  persistence rules. Deterministic evaluation stays separate from acquisition mechanisms.
+- `adapters/` owns configuration loading, credentials, project scaffolding, platform acquisition,
+  device control, update checks, and other external-system mechanisms.
+- `runtime/` owns process execution, startup, and canonical project artifact paths.
+- `assets/` owns data embedded into the binary. Flutter source under
+  `assets/scaffolds/flutter/` is a generated-project asset, not Rust implementation code.
 
-Dependencies point inward: models do not depend on commands or process state, and workflow modes do
-not parse process arguments. Backends may translate external state into model types, but model code
-does not call a backend.
-
-Temporary crate-root re-exports preserve compatibility while callers migrate from the historical
-flat namespace. New code must use the real namespace.
+Dependencies point away from external interfaces. Domain and adapter production code cannot import
+the interface or workflows, and the interface cannot import workflows. Workflows coordinate the
+layers after parsing. A few domain persistence modules use configuration and project-layout types,
+but deterministic evaluators do not acquire external evidence themselves.
 
 ## Correctness rules
 
@@ -85,7 +83,7 @@ a general graph abstraction.
 - Typed input values are runtime evidence, not graph identity, and are discarded at map ingestion.
 - Unknown or malformed actions abstain. They are never converted into another action.
 
-Runner output crosses one lexical boundary in `model/runner.rs`. Platform control markers remain a
+Runner output crosses one lexical boundary in `domain/runner.rs`. Platform control markers remain a
 capture-adapter concern. Verdict-bearing evidence crosses the core boundary only as a strict
 `REPROIT/1 <domain> <subject> <sequence> <run-id> <event-json>` frame defined by the
 `reproit-protocol` package. CLI and cloud compile the same package source and reject unknown fields,
