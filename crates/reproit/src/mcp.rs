@@ -164,6 +164,8 @@ const CHECK_DESCRIPTION: &str = concat!(
     "stale (UI changed, couldn't replay, exit 3). `repro` is a saved repro (id/alias) OR a ",
     "pending fuzz finding id from reproit_fuzz, so you can confirm a finding reproduces BEFORE ",
     "reproit_keep. With no `repro`, runs the whole committed suite and reports the worst. ",
+    "Set `changed` to a git base (for example HEAD^) to run mapped affected repros first, then ",
+    "the rest of the full suite. It changes ordering only and never skips coverage. ",
     "Deterministic, so a green check means the bug is really fixed. `record_video=true` adds ",
     "annotated video evidence; `flicker=true` also checks that video for transient glitches. ",
     "For a baseline pixel diff use reproit_baseline."
@@ -396,6 +398,13 @@ fn tool_defs() -> Value {
                     "description": concat!(
                         "Saved repro id/alias, or a pending finding id from reproit_fuzz. ",
                         "Omit to run the whole saved suite."
+                    )
+                },
+                "changed": {
+                    "type": "string",
+                    "description": concat!(
+                        "Git base used to prioritize repros mapped to changed source files. ",
+                        "The complete saved suite still runs."
                     )
                 },
                 "record_video": {
@@ -982,6 +991,17 @@ mod tests {
         assert!(a.contains(&"@cart-1".to_string()));
         assert!(a.contains(&"--record-video".to_string()));
         assert!(a.contains(&"--flicker".to_string()));
+
+        let a = argv("reproit_check", json!({ "changed": "origin/main" }));
+        assert!(a.windows(2).any(|w| w == ["--changed", "origin/main"]));
+
+        let error = dispatch::build_argv(
+            None,
+            "reproit_check",
+            &json!({ "repro": "cart-1", "changed": "origin/main" }),
+        )
+        .unwrap_err();
+        assert!(error.0.contains("cannot be combined"));
     }
 
     #[test]

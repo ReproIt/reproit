@@ -25,6 +25,7 @@ pub(super) struct CheckArgs {
     pub(super) device: Option<String>,
     pub(super) record_video: bool,
     pub(super) flicker: bool,
+    pub(super) changed: Option<String>,
 }
 
 pub(super) async fn run(
@@ -56,7 +57,10 @@ pub(super) async fn run(
     if let Some(code) = try_journey(ctx, &loaded, &args, times).await? {
         return Ok(code);
     }
-    let metas = resolve_metas(ctx, &loaded, args.repro.as_deref())?;
+    let mut metas = resolve_metas(ctx, &loaded, args.repro.as_deref())?;
+    if let Some(base) = args.changed.as_deref() {
+        metas = super::change_selection::prioritize(ctx, &loaded.root, metas, base);
+    }
     run_repro_matrix(ctx, &loaded, &args, times, &metas).await
 }
 

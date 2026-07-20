@@ -19,6 +19,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+mod advice;
 mod analysis;
 mod frontier;
 mod index;
@@ -27,6 +28,7 @@ mod parse;
 mod persistence;
 mod provenance;
 
+pub(crate) use advice::{budget_advice, contract_drafts, shadow_model};
 pub(crate) use analysis::GraphGuidance;
 #[cfg(any(test, feature = "perf-bench"))]
 pub(crate) use frontier::frontier_path;

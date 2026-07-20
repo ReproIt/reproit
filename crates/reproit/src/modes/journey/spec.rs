@@ -29,6 +29,11 @@ pub struct Journey {
     /// contract language as top-level fuzz and scan contracts.
     #[serde(default)]
     pub contracts: Vec<crate::model::contracts::ContractSpec>,
+    /// Exact action pairs the application owner declares independent across
+    /// different actors. Undeclared pairs remain dependent and are never
+    /// reordered or pruned.
+    #[serde(default, rename = "independentActions")]
+    pub independent_actions: Vec<IndependentActionPair>,
     /// Execution tier override. Scripted journeys default to the SIM tier (real
     /// simulator + real backend + determinism/permission pinning), because they
     /// are E2E by nature: login needs the network, multi-actor needs N sims,
@@ -38,6 +43,13 @@ pub struct Journey {
     /// always sim.
     #[serde(default)]
     pub tier: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct IndependentActionPair {
+    pub left: String,
+    pub right: String,
 }
 
 /// A per-actor auth prelude, parsed from the actor's `login`/`auth` config.

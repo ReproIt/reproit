@@ -165,7 +165,8 @@ reproit rep_a3f2c1b8e0d5          # reproduce one saved repro (fnd_... works too
 reproit @login-crash              # reproduce one saved repro by alias
 reproit proof rep_a3f2c1b8e0d5    # inspect its immutable proof ledger
 reproit candidates                # show candidates and exact promotion blockers
-reproit check                 # run your whole saved suite
+reproit check                     # run your whole saved suite
+reproit check --changed [BASE]    # mapped repros first, then the full suite
 reproit create                # demonstrate a bug and preserve the original human capture
 reproit create --attach       # start from an already-running app
 reproit create --push         # create, review in browser, then push the original
@@ -268,6 +269,21 @@ steps:
 Multi-user flows (one user posts, another sees it) are supported: add an `actors` block and tag each
 step with its actor. reproit runs one device per actor and coordinates them in order. See
 `reproit journey list` and `reproit journey create`.
+
+For concurrent exploration, the application owner may declare exact cross-actor action pairs that
+commute. Undeclared pairs remain dependent, so they are never reordered or pruned:
+
+```yaml
+actors: [alice, bob]
+independentActions:
+  - { left: "tap:key:refresh", right: "tap:key:open-settings" }
+steps:
+  - { actor: alice, do: "tap:key:refresh" }
+  - { actor: bob, do: "tap:key:open-settings" }
+```
+
+These declarations reduce equivalent schedules during search only. They do not create authority or
+change the contract and replay requirements for a confirmed finding.
 
 ### Structural contracts
 
@@ -436,6 +452,7 @@ reproit @saved-name            reproduce one saved repro or journey by name
 reproit proof <id>             explain its immutable proof ledger
 reproit candidates             list candidates with exact promotion blockers
 reproit check                  verify the whole saved suite
+reproit check --changed [BASE] run mapped repros first, then the complete saved suite
 reproit keep [id] [--as name] keep a repro in your suite
 reproit create                preserve an immutable human-authored original
 reproit create --push         create, browser-review, and push the original
@@ -466,6 +483,11 @@ reproit debug map ...         advanced internal-model diagnostics
 Normal commands refresh the graph automatically. These advanced views explain or force its behavior:
 
 - `debug map show`: render the current graph.
+- `debug map model`: project the observed graph as an explicitly incomplete, non-authoritative
+  state machine with unknown actions.
+- `debug map budget`: report guidance-only campaign saturation and a bounded next action budget.
+- `debug map suggest-contracts`: emit local draft contracts from verified reversible transitions.
+  Drafts never become authority until an application owner reviews and adds them.
 - `debug map structural`: force a full crawl.
 - `debug map semantic`: an LLM reads your _source_ for the screens that _should_ exist, as a
   worklist (the one optional model call; never an assertion target).
@@ -493,6 +515,10 @@ coverage, and `VIOLATION` / `SATISFIED` / `ABSTAIN` semantics.
 --only / --no crash,jank,leak  narrow the oracles (default: confirmed set)
 --strict                       new repros block instead of starting quarantined
 ```
+
+`check --changed [BASE]` is a safe ordering optimization. Repros with an exact saved source mapping
+to the git diff run first, followed by every other saved repro. If git or mapping evidence is
+missing, Reproit runs the normal full suite.
 
 ## Globals (every command)
 
@@ -536,7 +562,7 @@ reproit_accessibility(state?, kind?)  UI-vs-a11y diff per screen, grounded by se
 reproit_coverage()                    candidate map from source + coverage ledger + worklist
 reproit_scan(target?, record_video?)  default find: state-present bugs, one per (screen x issue)
 reproit_fuzz(target?, platform?)      deep sequence bugs (crash/jank/hang); deduped unique-bugs list
-reproit_check(repro?, record_video?, flicker?)  run and classify, optionally with video evidence
+reproit_check(repro?, changed?, record_video?, flicker?)  run and classify; changed only reorders
 reproit_baseline(update?)             visual-regression diff vs the committed baseline
 reproit_keep(id?, as?)                save a repro into the suite
 reproit_simplify(repro, actions)      adopt a shorter, verified-equivalent sequence

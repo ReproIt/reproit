@@ -4,7 +4,7 @@ use crate::cli::context::Ctx;
 use crate::model::repro;
 use crate::{config, layout};
 use anyhow::{Context, Result};
-use reproit_protocol::{EvidenceGraph, PromotionStatus, ProofLedger};
+use reproit_protocol::{EvidenceGraph, PromotionBlocker, PromotionStatus, ProofLedger, ReasonCode};
 use serde::Serialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -22,12 +22,14 @@ pub(super) fn show_proof(ctx: &Ctx, loaded: &config::Loaded, reference: &str) ->
         )
     })?;
     if ctx.json {
+        let next_evidence = additional_evidence(&ledger);
         ctx.emit(&serde_json::json!({
             "command": "proof",
             "id": public_id,
             "runId": graph.run_id,
             "graphRoot": graph.root,
             "ledger": ledger,
+            "nextEvidence": next_evidence,
         }));
         return Ok(());
     }
@@ -98,6 +100,7 @@ pub(super) fn list_candidates(ctx: &Ctx, loaded: &config::Loaded) -> Result<()> 
                     "id": id,
                     "graphRoot": graph.root,
                     "blockers": ledger.blockers,
+                    "nextEvidence": additional_evidence(&ledger),
                     "ledger": ledger,
                 })
             })
@@ -123,6 +126,9 @@ pub(super) fn list_candidates(ctx: &Ctx, loaded: &config::Loaded) -> Result<()> 
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+        for request in additional_evidence(&ledger) {
+            ctx.say(format!("    next: {}", request.action));
+        }
     }
     Ok(())
 }
@@ -211,8 +217,65 @@ fn print_ledger(ctx: &Ctx, public_id: &str, graph: &EvidenceGraph, ledger: &Proo
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+        for request in additional_evidence(ledger) {
+            ctx.say(format!("  next evidence: {}", request.action));
+        }
     }
     ctx.say(format!("  graph: {} ({})", graph.root, graph.run_id));
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EvidenceRequest {
+    blocker: &'static str,
+    action: &'static str,
+}
+
+fn additional_evidence(ledger: &ProofLedger) -> Vec<EvidenceRequest> {
+    ledger
+        .blockers
+        .iter()
+        .map(|blocker| EvidenceRequest {
+            blocker: blocker.as_str(),
+            action: evidence_action(*blocker, &ledger.evaluation_reasons),
+        })
+        .collect()
+}
+
+fn evidence_action(blocker: PromotionBlocker, reasons: &[ReasonCode]) -> &'static str {
+    match blocker {
+        PromotionBlocker::MissingAuthority => {
+            "attach an authored contract, approved baseline, published standard, or runtime diagnosis"
+        }
+        PromotionBlocker::NoViolation => {
+            "no contradiction was observed; keep this result clean unless a new candidate identity appears"
+        }
+        PromotionBlocker::EvaluationAbstained if reasons.contains(&ReasonCode::FrameTooLarge) => {
+            "capture a bounded frame with the same explicit contract scope"
+        }
+        PromotionBlocker::EvaluationAbstained
+            if reasons.contains(&ReasonCode::AuthorityUnavailable) =>
+        {
+            "provide the exact authority referenced by the evaluation"
+        }
+        PromotionBlocker::EvaluationAbstained
+            if reasons.contains(&ReasonCode::NoObservations) =>
+        {
+            "capture at least one complete normalized observation for the evaluated scope"
+        }
+        PromotionBlocker::EvaluationAbstained => {
+            "recapture a complete, ordered, supported, and bounded evidence stream"
+        }
+        PromotionBlocker::ReplayNotReproduced => {
+            "run the exact candidate again in a clean reset environment"
+        }
+        PromotionBlocker::ReplayIdentityMismatch => {
+            "replay until the original canonical finding identity is observed"
+        }
+        PromotionBlocker::MinimizationNotPreserved => {
+            "minimize again and retain only a trace that reproduces the exact identity"
+        }
+    }
 }
 
 fn serialized_name(value: &impl Serialize) -> String {
@@ -220,4 +283,46 @@ fn serialized_name(value: &impl Serialize) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_string))
         .unwrap_or_else(|| "invalid".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reproit_protocol::{
+        AuthoritySource, ConfirmationStatus, EvaluationStatus, MinimizationStatus,
+    };
+
+    #[test]
+    fn planner_requests_the_smallest_evidence_for_a_scoped_oversized_frame() {
+        let ledger = ProofLedger::from_stages(
+            vec!["candidate".into()],
+            vec![AuthoritySource::AuthoredContract],
+            EvaluationStatus::Abstain,
+            vec![ReasonCode::FrameTooLarge],
+            ConfirmationStatus::NotAttempted,
+            false,
+            MinimizationStatus::NotAttempted,
+        )
+        .unwrap();
+        let requests = additional_evidence(&ledger);
+        assert_eq!(requests[0].blocker, "evaluation-abstained");
+        assert!(requests[0].action.contains("bounded frame"));
+    }
+
+    #[test]
+    fn planner_never_suggests_overriding_a_clean_evaluation() {
+        let ledger = ProofLedger::from_stages(
+            vec!["candidate".into()],
+            vec![AuthoritySource::ApprovedBaseline],
+            EvaluationStatus::Satisfied,
+            vec![],
+            ConfirmationStatus::NotReproduced,
+            false,
+            MinimizationStatus::NotAttempted,
+        )
+        .unwrap();
+        let requests = additional_evidence(&ledger);
+        assert_eq!(requests[0].blocker, "no-violation");
+        assert!(requests[0].action.contains("keep this result clean"));
+    }
 }

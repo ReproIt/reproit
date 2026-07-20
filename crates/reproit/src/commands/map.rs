@@ -196,6 +196,30 @@ pub(super) async fn debug_map(
             mapplan::converge_cmd(&loaded, ctx.json)?;
             Ok(ExitCode::SUCCESS)
         }
+        MapAction::Model => {
+            let loaded = config::load(config_path)?;
+            ensure_app_map(ctx, &loaded, "explore").await?;
+            let (app_map, _) = map::load_snapshot(&loaded.root, &loaded.config)?;
+            let output = serde_json::to_value(map::shadow_model(&app_map)?)?;
+            ctx.emit(&output);
+            Ok(ExitCode::SUCCESS)
+        }
+        MapAction::Budget { base } => {
+            let loaded = config::load(config_path)?;
+            ensure_app_map(ctx, &loaded, "explore").await?;
+            let (app_map, visits) = map::load_snapshot(&loaded.root, &loaded.config)?;
+            let output = serde_json::to_value(map::budget_advice(&app_map, &visits, base))?;
+            ctx.emit(&output);
+            Ok(ExitCode::SUCCESS)
+        }
+        MapAction::SuggestContracts => {
+            let loaded = config::load(config_path)?;
+            ensure_app_map(ctx, &loaded, "explore").await?;
+            let (app_map, _) = map::load_snapshot(&loaded.root, &loaded.config)?;
+            let output = serde_json::to_value(map::contract_drafts(&app_map)?)?;
+            ctx.emit(&output);
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 

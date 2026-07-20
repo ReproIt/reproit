@@ -74,6 +74,7 @@ pub async fn fuzz_multi_checkpoint(
     }
 
     let mut summary = MultiFuzzSummary::default();
+    let mut seen_schedules = BTreeSet::new();
     for run in 0..runs.max(1) {
         let seed = first_seed.wrapping_add(run as u64);
         let mut rng = seed as u32;
@@ -101,6 +102,10 @@ pub async fn fuzz_multi_checkpoint(
             let edge = outgoing[(rng as usize) % outgoing.len()];
             suffix.push((actor.clone(), edge.1.clone()));
             actor_states.insert(actor, edge.2.clone());
+        }
+        suffix = super::schedule::canonicalize(&suffix, &j.independent_actions)?;
+        if !seen_schedules.insert(suffix.clone()) {
+            continue;
         }
         let (log, completed, _) =
             run_tagged_scenario_once(loaded, &actors, &checkpoint, &suffix, None).await?;
@@ -174,6 +179,7 @@ pub async fn fuzz_multi_checkpoint(
                 &minimal,
                 &signature,
                 &capsule.id,
+                &j.independent_actions,
             )?;
             summary.confirmed += 1;
             println!(
@@ -828,6 +834,7 @@ pub(super) fn persist_multi_finding(
     suffix: &[(String, String)],
     signature: &str,
     capsule_id: &str,
+    independence: &[IndependentActionPair],
 ) -> Result<String> {
     let mut hash = 0x811c9dc5u32;
     for b in signature.bytes() {
@@ -864,6 +871,7 @@ pub(super) fn persist_multi_finding(
             "seed": seed,
             "generatedSteps": suffix.len(),
             "capsuleId": capsule_id,
+            "independentActions": independence,
             "run": format!("reproit @{id}"),
         }))?,
     )?;

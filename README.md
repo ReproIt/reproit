@@ -147,6 +147,7 @@ reproit <cap_...>                     # show one immutable original capture
 reproit proof <id>                    # explain authority, replay, minimization, and promotion
 reproit candidates                    # list candidates with exact promotion blockers
 reproit check                         # verify the whole saved suite
+reproit check --changed [BASE]        # run mapped repros first, then the full suite
 reproit create                        # demonstrate a bug and preserve the human-authored original
 reproit create --attach               # demonstrate it in an already-running app
 reproit create --record-video         # explicitly add screen video to structural actions
@@ -160,6 +161,9 @@ reproit keep [id] [--as name]         # keep a repro in the suite
 reproit repros                        # list saved repros + last status
 reproit bugs [query]                  # impact-ranked confirmed production bugs
 reproit debug map show                # advanced: inspect the internal app model
+reproit debug map model               # non-authoritative observed state machine
+reproit debug map budget              # bounded campaign-budget guidance
+reproit debug map suggest-contracts   # local, non-authoritative contract drafts
 reproit triage <bkt_...> fixed        # record the fix intent
 reproit watch <id>                    # open a repro's recorded video
 reproit cap_... --watch               # open an original capture video
@@ -205,6 +209,10 @@ Cross-cutting flags on `fuzz`/`check`:
 --only / --no crash,jank,leak,…
 --json --quiet --yes  # CI
 ```
+
+`check --changed [BASE]` uses exact source locations already retained by saved repros to order
+affected repros first. It always runs every remaining saved repro afterward. Missing or ambiguous
+mappings therefore affect speed only, never verification coverage.
 
 `import` + `fuzz --from` is the switch path: convert a Maestro flow to a journey, then fuzz _from_
 it. Reaching a valid deep state is the costly part, so an imported flow becomes a launchpad for the

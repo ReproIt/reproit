@@ -78,6 +78,13 @@ pub(super) fn build_argv(
         }
         "reproit_check" => {
             if let Some(r) = s("repro") {
+                if args.get("changed").is_some() {
+                    return Err((
+                        "`changed` orders the full suite and cannot be combined with `repro`"
+                            .into(),
+                        true,
+                    ));
+                }
                 let direct = if r.starts_with('@')
                     || r.starts_with("fnd_")
                     || r.starts_with("rep_")
@@ -90,6 +97,9 @@ pub(super) fn build_argv(
                 argv.push(direct);
             } else {
                 argv.push("check".into());
+                if let Some(base) = s("changed") {
+                    argv.extend(["--changed".into(), base]);
+                }
             }
             if b("record_video") {
                 argv.push("--record-video".into());

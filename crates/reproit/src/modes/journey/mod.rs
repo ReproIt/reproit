@@ -45,7 +45,7 @@ use std::path::{Path, PathBuf};
 mod spec;
 use spec::{parse_setup, resolve_fill_value, ActorAuth, SetupKind};
 #[allow(unused_imports)]
-pub use spec::{ActorList, Expect, Journey, Step};
+pub use spec::{ActorList, Expect, IndependentActionPair, Journey, Step};
 /// Where journeys live, relative to the project root.
 mod persistence;
 use persistence::*;
@@ -58,6 +58,7 @@ mod planning;
 use planning::*;
 pub use planning::{is_multi_actor_target, prefix_actions};
 mod execution;
+mod schedule;
 #[cfg(test)]
 use execution::*;
 #[allow(unused_imports)]
@@ -517,6 +518,7 @@ mod tests {
             &suffix,
             "crash:no-exception:error:boom:frame:key",
             "cap_test",
+            &[],
         )
         .unwrap();
         let saved = load(&dir, &id).unwrap();

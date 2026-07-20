@@ -255,6 +255,17 @@ pub(crate) enum Cmd {
         /// Scan recorded video for transient render glitches.
         #[arg(long, requires = "record_video")]
         flicker: bool,
+        /// Run repros connected to files changed since BASE first, then run the
+        /// rest of the full suite. With no value, BASE defaults to HEAD^. This
+        /// changes feedback order only and never skips an unmapped repro.
+        #[arg(
+            long,
+            value_name = "BASE",
+            num_args = 0..=1,
+            default_missing_value = "HEAD^",
+            conflicts_with = "repro"
+        )]
+        changed: Option<String>,
     },
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified
@@ -684,6 +695,18 @@ pub(crate) enum MapAction {
     /// Validate semantic candidates against the structural map, prune the wrong
     /// ones, repeat until nothing new resolves.
     Converge,
+    /// Print the bounded observed state machine and its still-unknown actions.
+    /// The model is explicitly incomplete and cannot produce a finding.
+    Model,
+    /// Estimate useful exploration work from current state/transition coverage.
+    Budget {
+        /// Normal campaign action budget used as the recommendation baseline.
+        #[arg(long, default_value_t = 100)]
+        base: u32,
+    },
+    /// Propose draft temporal contracts from verified reversible transitions.
+    /// Drafts are non-authoritative until an application owner accepts them.
+    SuggestContracts,
     /// Render the map graph as text (mermaid | dot) for an external viewer.
     Show {
         #[arg(long, default_value = "mermaid")]
@@ -1121,6 +1144,29 @@ mod tests {
     }
 
     #[test]
+    fn changed_check_defaults_the_base_and_stays_suite_only() {
+        let cli = Cli::parse_args(["reproit", "check", "--changed"]);
+        assert!(matches!(
+            cli.command,
+            Cmd::Check {
+                repro: None,
+                changed: Some(ref base),
+                ..
+            } if base == "HEAD^"
+        ));
+
+        let cli = Cli::parse_args(["reproit", "check", "--changed", "origin/main"]);
+        assert!(matches!(
+            cli.command,
+            Cmd::Check {
+                repro: None,
+                changed: Some(ref base),
+                ..
+            } if base == "origin/main"
+        ));
+    }
+
+    #[test]
     fn parser_boundary_applies_direct_bug_id_rewriting() {
         let cli = Cli::parse_args(["reproit", "--json", "fnd_deadbeef0001"]);
         assert!(cli.json);
@@ -1138,6 +1184,7 @@ mod tests {
             Cmd::Check {
                 repro: Some(ref alias),
                 record_video: true,
+                changed: None,
                 ..
             } if alias == "checkout-crash"
         ));

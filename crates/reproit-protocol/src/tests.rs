@@ -1,5 +1,13 @@
 use super::*;
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LineCase {
+    name: String,
+    line: String,
+    outcome: String,
+}
+
 fn action_frame() -> EventFrame {
     EventFrame {
         run_id: "run-1".into(),
@@ -17,6 +25,19 @@ fn frame_round_trip_is_exact() {
     let frame = action_frame();
     let line = frame.encode_line().unwrap();
     assert_eq!(decode_frame_line(&line).unwrap(), frame);
+}
+
+#[test]
+fn canonical_line_corpus_has_exact_outcomes() {
+    let cases: Vec<LineCase> =
+        serde_json::from_str(include_str!("../fixtures/event-lines-v1.json")).unwrap();
+    for case in cases {
+        let actual = match decode_frame_line(&case.line) {
+            Ok(_) => "accepted",
+            Err(defect) => defect.reason.as_str(),
+        };
+        assert_eq!(actual, case.outcome, "case: {}", case.name);
+    }
 }
 
 #[test]

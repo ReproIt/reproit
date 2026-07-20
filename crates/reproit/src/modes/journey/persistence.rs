@@ -83,6 +83,7 @@ pub(super) fn validate_structure(j: &Journey) -> Result<()> {
     if j.steps.is_empty() {
         bail!("journey has no steps");
     }
+    super::schedule::validate_independence(&j.independent_actions)?;
     for (i, step) in j.steps.iter().enumerate() {
         let n = i + 1;
         let set = [

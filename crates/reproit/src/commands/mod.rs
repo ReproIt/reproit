@@ -4,6 +4,7 @@ mod auth;
 mod authored_contract;
 mod backend_target;
 mod capture;
+mod change_selection;
 mod check;
 mod cloud;
 mod create_command;
@@ -243,6 +244,7 @@ where
             device,
             record_video,
             flicker,
+            changed,
         } => {
             check::run(
                 &ctx,
@@ -259,6 +261,7 @@ where
                     device,
                     record_video,
                     flicker,
+                    changed,
                 },
             )
             .await
