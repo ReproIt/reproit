@@ -453,6 +453,9 @@ reproit proof <id>             explain its immutable proof ledger
 reproit candidates             list candidates with exact promotion blockers
 reproit check                  verify the whole saved suite
 reproit check --changed [BASE] run mapped repros first, then the complete saved suite
+reproit reset                 remove only regenerable local project state
+reproit reset --all           remove all local Reproit state after confirmation
+reproit reset --all --init    remove all state and initialize the project again
 reproit keep [id] [--as name] keep a repro in your suite
 reproit create                preserve an immutable human-authored original
 reproit create --push         create, browser-review, and push the original
@@ -639,6 +642,12 @@ The local project state is grouped by concept:
 
 `runs/`, `recordings/`, `captures/`, `tmp/`, logs, and vault files are local-only. `repros/` is the
 guard suite; `map/` is the learned graph if you choose to review it.
+
+`reproit init` never clears existing state. `reproit reset` removes only `map/`, `runs/`,
+`recordings/`, `tmp/`, and `tools/`; it preserves configuration, repros, captures, findings,
+capsules, and secrets. `reproit reset --all` removes the complete `.reproit/` directory and the
+active project config after an interactive confirmation (or `--yes`). Add `--init` to initialize
+again after the full reset. Application source files and journeys are outside both reset scopes.
 
 ## Config (reproit.yaml)
 

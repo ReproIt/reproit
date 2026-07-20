@@ -23,6 +23,11 @@ reproit keep fnd_...   # keep it as a regression guard
 reproit check          # run the saved suite after the fix
 ```
 
+`reproit init` is nondestructive. Use `reproit reset` to discard only regenerable local state, or
+`reproit reset --all --init` for a confirmed clean start that removes all project-local Reproit
+state and configuration before initializing again. Neither reset mode removes application source
+or journeys.
+
 `reproit scan` audits visible screen-level problems. `reproit fuzz` explores deeper action
 sequences. The default confirmed set is deliberately small: objective crashes, explicit structural
 contracts, and explicitly declared indicator relationships. Built-in layout, content, routing,
@@ -148,6 +153,9 @@ reproit proof <id>                    # explain authority, replay, minimization,
 reproit candidates                    # list candidates with exact promotion blockers
 reproit check                         # verify the whole saved suite
 reproit check --changed [BASE]        # run mapped repros first, then the full suite
+reproit reset                         # remove regenerable local state
+reproit reset --all                   # remove all local Reproit state after confirmation
+reproit reset --all --init            # remove all state and initialize again
 reproit create                        # demonstrate a bug and preserve the human-authored original
 reproit create --attach               # demonstrate it in an already-running app
 reproit create --record-video         # explicitly add screen video to structural actions

@@ -15,6 +15,7 @@ mod map;
 mod proof;
 mod record;
 mod repro;
+mod reset;
 mod scan_command;
 
 #[cfg(all(target_os = "linux", feature = "linux-atspi"))]
@@ -127,6 +128,17 @@ where
             }
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::Reset {
+            all,
+            init: initialize,
+            platform,
+        } => reset::run(
+            cli.config.as_deref(),
+            &ctx,
+            all,
+            initialize,
+            platform.as_deref(),
+        ),
         Cmd::Update { check } => {
             update::run(VERSION, check).await?;
             Ok(ExitCode::SUCCESS)

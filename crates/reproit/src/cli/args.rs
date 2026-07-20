@@ -198,6 +198,20 @@ pub(crate) enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Reset Reproit state for this project. The default removes only
+    /// regenerable state; --all also removes saved evidence and configuration.
+    Reset {
+        /// Remove all project-local Reproit state and reproit.yaml. This
+        /// requires confirmation and never removes application source files.
+        #[arg(long)]
+        all: bool,
+        /// Initialize the project again after --all completes.
+        #[arg(long, requires = "all")]
+        init: bool,
+        /// Platform override for the initialization after reset.
+        #[arg(long, requires = "init")]
+        platform: Option<String>,
+    },
     /// Check for or install the latest ReproIt CLI release.
     Update {
         /// Report whether an update is available without installing it.
@@ -1164,6 +1178,32 @@ mod tests {
                 ..
             } if base == "origin/main"
         ));
+    }
+
+    #[test]
+    fn reset_modes_parse_with_explicit_destructive_dependencies() {
+        let cli = Cli::parse_args(["reproit", "reset"]);
+        assert!(matches!(
+            cli.command,
+            Cmd::Reset {
+                all: false,
+                init: false,
+                platform: None,
+            }
+        ));
+
+        let cli = Cli::parse_args(["reproit", "reset", "--all", "--init", "--platform", "web"]);
+        assert!(matches!(
+            cli.command,
+            Cmd::Reset {
+                all: true,
+                init: true,
+                platform: Some(ref platform),
+            } if platform == "web"
+        ));
+
+        assert!(Cli::try_parse_from(["reproit", "reset", "--init"]).is_err());
+        assert!(Cli::try_parse_from(["reproit", "reset", "--platform", "web"]).is_err());
     }
 
     #[test]
