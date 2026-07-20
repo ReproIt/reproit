@@ -154,6 +154,12 @@ fn responsibility_heavy_modules_stay_split() {
         commands.lines().count() <= 1_000,
         "src/commands/mod.rs must stay below 1,000 lines; move command workflows into named modules"
     );
+    let tui = source("src/backends/tui/mod.rs");
+    let tui_runtime = tui.split("#[cfg(test)]\nmod tests").next().unwrap_or(&tui);
+    assert!(
+        tui_runtime.lines().count() <= 1_000,
+        "src/backends/tui/mod.rs runtime must stay below 1,000 lines; keep adapters in named modules"
+    );
     for relative in [
         "src/capsule/crypto.rs",
         "src/capsule/matching.rs",
@@ -166,6 +172,11 @@ fn responsibility_heavy_modules_stay_split() {
         "src/commands/proof.rs",
         "src/commands/record_command.rs",
         "src/commands/scan_command.rs",
+        "src/backends/tui/capture.rs",
+        "src/backends/tui/fuzz_config.rs",
+        "src/backends/tui/interaction.rs",
+        "src/backends/tui/scenario.rs",
+        "src/backends/tui/session.rs",
     ] {
         assert!(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))

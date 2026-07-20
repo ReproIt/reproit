@@ -264,7 +264,11 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
         ),
         ("runners/reproit_imgui.h", "", "Instrumented (imgui)"),
         ("runners/reproit_clay.h", "", "Instrumented (clay)"),
-        ("crates/reproit/src/backends/tui/mod.rs", "", "Tui"),
+        (
+            "crates/reproit/src/backends/tui/mod.rs",
+            "crates/reproit/src/backends/tui/scenario.rs",
+            "Tui",
+        ),
     ];
     for (rel, companion, backend) in clients {
         let mut src = std::fs::read_to_string(root.join(rel))
