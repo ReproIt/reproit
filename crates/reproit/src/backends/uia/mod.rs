@@ -783,13 +783,12 @@ fn observe_scenario(
     // cannot be produced here.
     let snap = snapshot(automation, window, value_selectors, cap);
     let observation_labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
-    emit(&format!(
-        "FUZZ:OBS {}",
-        serde_json::json!({
+    emit(&crate::model::runner::observation_frame_line(
+        &serde_json::json!({
             "sig": snap.sig,
             "labels": observation_labels,
             "elements": snap.elements
-        })
+        }),
     ));
     if seen.insert(snap.sig.clone()) {
         let labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
@@ -838,7 +837,7 @@ fn run_scenario_actor(
             continue;
         }
         let act = body.strip_prefix("ACT\t").unwrap_or(&body).to_string();
-        emit(&format!("FUZZ:ACT {role} {act}"));
+        emit(&crate::model::runner::action_frame_line(Some(role), &act));
         // Bring this actor's own window forward before acting.
         unsafe {
             let _ = SetForegroundWindow(window_hwnd(window));
@@ -1108,13 +1107,12 @@ pub fn run() -> Result<()> {
         let snap = snapshot(automation, window, &value_selectors, cap);
         let observation_labels: Vec<&String> =
             snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
-        emit(&format!(
-            "FUZZ:OBS {}",
-            serde_json::json!({
+        emit(&crate::model::runner::observation_frame_line(
+            &serde_json::json!({
                 "sig": snap.sig,
                 "labels": observation_labels,
                 "elements": snap.elements
-            })
+            }),
         ));
         if seen.insert(snap.sig.clone()) {
             let labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
@@ -1260,7 +1258,7 @@ pub fn run() -> Result<()> {
         };
 
         let Some(act) = act else { break };
-        emit(&format!("FUZZ:ACT {act}"));
+        emit(&crate::model::runner::action_frame_line(None, &act));
 
         if let Some(name) = act.strip_prefix("shoot:") {
             shoot(&window, name);

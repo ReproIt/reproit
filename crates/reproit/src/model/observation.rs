@@ -189,6 +189,57 @@ pub(crate) fn from_runner_events(
     out
 }
 
+pub(crate) fn from_protocol_frames(
+    frames: &[reproit_protocol::EventFrame],
+    actor_names: &[String],
+) -> Vec<Observation> {
+    let mut observations = Vec::new();
+    let mut pending_action = None;
+    let mut pending_actor = None;
+    for frame in frames {
+        match &frame.event {
+            reproit_protocol::Event::Action { actor, action } => {
+                pending_action = Some(action.clone());
+                pending_actor = actor.as_deref().map(|actor| {
+                    let index = actor
+                        .as_bytes()
+                        .first()
+                        .filter(|_| actor.len() == 1)
+                        .map(|byte| byte.wrapping_sub(b'a') as usize);
+                    index
+                        .and_then(|index| actor_names.get(index))
+                        .cloned()
+                        .unwrap_or_else(|| actor.to_string())
+                });
+            }
+            reproit_protocol::Event::Observation {
+                actor,
+                state,
+                route,
+                visible_text,
+                counts,
+                oracle_signals,
+                network_statuses,
+                response_shapes,
+            } => observations.push(Observation {
+                sequence: frame.sequence,
+                elapsed_ms: frame.sequence,
+                actor: actor.clone().or_else(|| pending_actor.take()),
+                state: state.clone(),
+                route: route.clone(),
+                action: pending_action.take(),
+                visible_text: visible_text.clone(),
+                counts: counts.clone(),
+                oracle_signals: oracle_signals.clone(),
+                network_statuses: network_statuses.clone(),
+                response_shapes: response_shapes.clone(),
+            }),
+            _ => {}
+        }
+    }
+    observations
+}
+
 fn marker_value<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
     line.strip_prefix(marker)
 }

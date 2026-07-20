@@ -85,9 +85,24 @@ a general graph abstraction.
 - Typed input values are runtime evidence, not graph identity, and are discarded at map ingestion.
 - Unknown or malformed actions abstain. They are never converted into another action.
 
-Runner output crosses one lexical boundary in `model/runner.rs`. Graph, observation, contract, and
-backend reducers consume the same recognized event stream. A fuzz segment is split by borrowed byte
-ranges and parsed once; reducers do not rescan the complete raw log independently.
+Runner output crosses one lexical boundary in `model/runner.rs`. Platform control markers remain a
+capture-adapter concern. Verdict-bearing evidence crosses the core boundary only as a strict
+`REPROIT/1 <domain> <subject> <sequence> <run-id> <event-json>` frame defined by the
+`reproit-protocol` package. CLI and cloud compile the same package source and reject unknown fields,
+unknown versions, invalid ordering, malformed scopes, and values outside explicit bounds.
+
+One frame is limited to 1 MiB. Its fixed header fits in the first 512 bytes, before the JSON event.
+An oversized frame becomes a persisted stream defect with reason `frame-too-large`; its payload is
+not parsed. An unattributed contract defect makes every configured temporal contract abstain. A
+valid bounded contract hash limits that abstention to the exact matching contract. Malformed frames
+and unsupported versions are shared defects. The removed `REPROIT:EVENT/1` envelope is never
+decoded as protocol evidence.
+
+Normalized traces, evaluations, confirmation results, and minimized traces are persisted as a
+topologically ordered evidence graph. Every node id is the SHA-256 digest of its kind, parents, and
+payload. The cloud validates every node again, stores nodes by `(app, digest)`, and attaches graph
+roots to run ids. CLI/cloud handoff therefore transfers immutable identities rather than mutable
+files with parallel interpretations.
 
 ## Finding-preservation rule
 

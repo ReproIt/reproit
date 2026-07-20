@@ -30,6 +30,7 @@ regex = { workspace = true }
 reqwest = { workspace = true, features = ["multipart", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+reproit-protocol = { workspace = true }
 serde_yaml = "0.9"
 graphql-parser = "0.4.1"
 flate2 = "1"

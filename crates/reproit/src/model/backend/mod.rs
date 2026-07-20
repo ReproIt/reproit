@@ -87,6 +87,7 @@ mod effect;
 pub use effect::{EffectKind, EffectPattern};
 
 mod event;
+pub(crate) use event::from_protocol_frames;
 pub(crate) use event::parse_runner_events;
 pub use event::{parse_events, BackendEvent, BackendEventKind, GraphqlSelection};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -261,15 +262,33 @@ pub fn write_evidence(
     if !config.enabled || (events.is_empty() && violations.is_empty()) {
         return Ok(());
     }
-    let payload = json!({
-        "version": 1,
+    let normalized = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::NormalizedTrace,
+        vec![],
+        json!({
         "operations": config.operations,
         "resources": config.resources,
         "graph": build_graph(config, events),
         "events": events,
-        "violations": violations,
-    });
-    std::fs::write(path, serde_json::to_vec_pretty(&payload)?)
+        }),
+    )
+    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let evaluation = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::Evaluation,
+        vec![normalized.id.clone()],
+        json!({ "violations": violations }),
+    )
+    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let run_hash = hash(&serde_json::to_vec(events)?);
+    let graph = reproit_protocol::EvidenceGraph {
+        run_id: format!("backend-{}", &run_hash[..16]),
+        root: evaluation.id.clone(),
+        nodes: vec![normalized, evaluation],
+    };
+    graph
+        .validate()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    std::fs::write(path, serde_json::to_vec_pretty(&graph)?)
 }
 
 mod graph;

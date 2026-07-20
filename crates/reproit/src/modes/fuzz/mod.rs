@@ -35,6 +35,7 @@ use findings::{
     all_findings, batch_completed, equivalent_findings_key, finding_label, findings_for_tier,
     findings_from_parsed, map_escapable_routes, perf_findings, primary_finding,
     reproduces_original, reserve_shrink_representative, shrink_target, target_identity,
+    NormalizedEvidence,
 };
 pub(crate) use findings::{
     app_exceptions, finding_signature, finding_signatures_for_log, normalize_message,
@@ -46,7 +47,10 @@ pub(crate) use log::split_log_segments;
 #[cfg(test)]
 use log::trace_in_log;
 use log::{marker_seed, split_seed_segments};
-use reporting::{deliver_finding, persist_causal_capsule, persist_finding_report, write_report};
+use reporting::{
+    deliver_finding, persist_causal_capsule, persist_finding_report, write_report,
+    write_run_evidence_graph,
+};
 use scan::state_present_footer;
 #[cfg(test)]
 use scan::{boxed_drew, broken_route_for_finding, url_origin};
@@ -440,24 +444,32 @@ async fn fuzz_one_locale(
             // `escapable` routes keep a permission trap only when no batch's
             // evidence escapes it. Jank/leak stay handled by perf_findings below
             // for the sim tier (session-wide frame stream).
+            let normalized_evidence = NormalizedEvidence {
+                observations: &parsed.observations,
+                backend_events: &parsed.backend,
+                stream_defects: &parsed.defects,
+            };
             let mut findings = findings_from_parsed(
                 cfg,
                 parsed.map,
                 parsed.exceptions,
                 args.sim,
                 escapable.clone(),
-                &parsed.observations,
-                &parsed.backend,
+                normalized_evidence,
             );
-            let contract_violations =
-                crate::model::contracts::evaluate_all(&cfg.contracts, &parsed.observations);
+            let contract_evaluations = crate::model::contracts::evaluate_stream(
+                &cfg.contracts,
+                &parsed.observations,
+                &parsed.defects,
+            );
             let _ = crate::model::contracts::write_evidence(
                 &outcome
                     .run_dir
                     .join(format!("contract-evidence-{seed}.json")),
                 &cfg.contracts,
                 &parsed.observations,
-                &contract_violations,
+                &contract_evaluations,
+                &parsed.defects,
             );
             // Perf is session-wide (one frame stream); attribute it once. The
             // sim manifest's per-device jank is the authoritative no-jank signal;
@@ -660,6 +672,7 @@ async fn fuzz_one_locale(
                 outcome.run_dir.clone()
             };
             write_report(&report_dir, &repro_id, seed, &findings, &trace, &shrunk)?;
+            write_run_evidence_graph(&report_dir, &outcome.run_dir, &trace, &findings, &shrunk)?;
             persist_finding_report(root, &repro_id, &report_dir)?;
             if let Some(guard) = crate::model::contracts::FrozenContractGuard::from_findings(
                 &cfg.contracts,
@@ -818,6 +831,9 @@ async fn fuzz_one_locale(
                         // (with the minimized repro block) into it so the
                         // delivery pipeline reads the repro + summary from there.
                         write_report(&o.run_dir, &repro_id, seed, &findings, &trace, &shrunk)?;
+                        write_run_evidence_graph(
+                            &o.run_dir, &o.run_dir, &trace, &findings, &shrunk,
+                        )?;
                         deliver_dir = o.run_dir;
                     }
                     Err(e) => say(json, format!("  confirm-on-sim: sim run failed: {e}")),

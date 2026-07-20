@@ -349,15 +349,18 @@ pub(super) fn findings_from_log(
         !cfg.contracts.is_empty(),
         cfg.backend.enabled,
     );
-    findings_from_parsed(
-        cfg,
-        parsed.map,
-        parsed.exceptions,
-        sim,
-        escapable,
-        &parsed.observations,
-        &parsed.backend,
-    )
+    let evidence = NormalizedEvidence {
+        observations: &parsed.observations,
+        backend_events: &parsed.backend,
+        stream_defects: &parsed.defects,
+    };
+    findings_from_parsed(cfg, parsed.map, parsed.exceptions, sim, escapable, evidence)
+}
+
+pub(super) struct NormalizedEvidence<'a> {
+    pub(super) observations: &'a [crate::model::observation::Observation],
+    pub(super) backend_events: &'a [crate::model::backend::BackendEvent],
+    pub(super) stream_defects: &'a [crate::model::runner::StreamDefect],
 }
 
 pub(super) fn findings_from_parsed(
@@ -366,8 +369,7 @@ pub(super) fn findings_from_parsed(
     exceptions: Vec<Value>,
     sim: bool,
     escapable: crate::model::map::EscapableRoutes,
-    observations: &[crate::model::observation::Observation],
-    backend_events: &[crate::model::backend::BackendEvent],
+    evidence: NormalizedEvidence<'_>,
 ) -> Vec<Value> {
     let inv_obs = invariant_observations(obs, exceptions.clone(), sim, escapable);
     let mut f = crate::model::invariants::evaluate(&inv_obs, &cfg.invariants);
@@ -376,14 +378,19 @@ pub(super) fn findings_from_parsed(
     }
     if !cfg.contracts.is_empty() {
         f.extend(
-            crate::model::contracts::evaluate_all(&cfg.contracts, observations)
-                .iter()
-                .map(crate::model::contracts::finding),
+            crate::model::contracts::evaluate_stream(
+                &cfg.contracts,
+                evidence.observations,
+                evidence.stream_defects,
+            )
+            .iter()
+            .flat_map(|evaluation| &evaluation.violations)
+            .map(crate::model::contracts::finding),
         );
     }
     if cfg.backend.enabled {
         f.extend(
-            crate::model::backend::evaluate(&cfg.backend, backend_events)
+            crate::model::backend::evaluate(&cfg.backend, evidence.backend_events)
                 .iter()
                 .map(crate::model::backend::finding),
         );
@@ -406,13 +413,17 @@ pub(super) fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<
         !cfg.contracts.is_empty(),
         cfg.backend.enabled,
     );
-    let contract_violations =
-        crate::model::contracts::evaluate_all(&cfg.contracts, &parsed.observations);
+    let contract_evaluations = crate::model::contracts::evaluate_stream(
+        &cfg.contracts,
+        &parsed.observations,
+        &parsed.defects,
+    );
     let _ = crate::model::contracts::write_evidence(
         &run_dir.join("contract-evidence.json"),
         &cfg.contracts,
         &parsed.observations,
-        &contract_violations,
+        &contract_evaluations,
+        &parsed.defects,
     );
     let backend_violations = crate::model::backend::evaluate(&cfg.backend, &parsed.backend);
     let _ = crate::model::backend::write_evidence(
@@ -429,14 +440,18 @@ pub(super) fn findings_for_tier(cfg: &Config, run_dir: &Path, sim: bool) -> Vec<
     // The check path re-verifies a specific recorded finding without the
     // aggregate map in scope; an empty set keeps its permission-trap check
     // unchanged.
+    let evidence = NormalizedEvidence {
+        observations: &parsed.observations,
+        backend_events: &parsed.backend,
+        stream_defects: &parsed.defects,
+    };
     let mut f = findings_from_parsed(
         cfg,
         parsed.map,
         exceptions,
         sim,
         Default::default(),
-        &parsed.observations,
-        &parsed.backend,
+        evidence,
     );
     if sim {
         f.extend(perf_findings(run_dir));

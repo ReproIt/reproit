@@ -159,13 +159,12 @@ fn observe_scenario(
     // truth those oracles need cannot be produced here.
     let snap = snapshot(app, value_selectors, cap);
     let observation_labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
-    emit(&format!(
-        "FUZZ:OBS {}",
-        serde_json::json!({
+    emit(&crate::model::runner::observation_frame_line(
+        &serde_json::json!({
             "sig": snap.sig,
             "labels": observation_labels,
             "elements": snap.elements
-        })
+        }),
     ));
     if seen.insert(snap.sig.clone()) {
         let labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
@@ -213,7 +212,7 @@ pub(super) fn run_scenario_actor(
             continue;
         }
         let act = body.strip_prefix("ACT\t").unwrap_or(&body).to_string();
-        emit(&format!("FUZZ:ACT {role} {act}"));
+        emit(&crate::model::runner::action_frame_line(Some(role), &act));
         grab_focus(&app_window(app));
 
         if let Some(name) = act.strip_prefix("shoot:") {
@@ -338,13 +337,12 @@ pub(super) fn run_seed(
         let snap = snapshot(app, value_selectors, cap);
         let observation_labels: Vec<&String> =
             snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
-        emit(&format!(
-            "FUZZ:OBS {}",
-            serde_json::json!({
+        emit(&crate::model::runner::observation_frame_line(
+            &serde_json::json!({
                 "sig": snap.sig,
                 "labels": observation_labels,
                 "elements": snap.elements
-            })
+            }),
         ));
         if seen.insert(snap.sig.clone()) {
             let labels: Vec<&String> = snap.labels.iter().take(MAX_LABELS_PER_STATE).collect();
@@ -485,7 +483,7 @@ pub(super) fn run_seed(
         };
 
         let Some(act) = act else { break };
-        emit(&format!("FUZZ:ACT {act}"));
+        emit(&crate::model::runner::action_frame_line(None, &act));
 
         if let Some(name) = act.strip_prefix("shoot:") {
             shoot(app, name);

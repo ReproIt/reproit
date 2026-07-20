@@ -3,18 +3,12 @@
 use serde::Serialize;
 use serde_json::Value;
 
+pub use reproit_protocol::EvaluationStatus as EvidenceStatus;
+
 /// Oracle families whose findings are already represented by an explicit
 /// tri-state runner marker parsed by `EvidenceCounts::from_log`.
 pub fn has_explicit_status_marker(oracle: &str) -> bool {
     matches!(oracle, "detached-indicator" | "accessibility-state")
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum EvidenceStatus {
-    Violation,
-    Satisfied,
-    Abstain,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]

@@ -150,6 +150,17 @@ impl ActorOutput {
     fn contains(&self, needle: &str) -> bool {
         self.stdout.contains(needle)
     }
+
+    fn actions(&self) -> Vec<(Option<String>, String)> {
+        self.stdout
+            .lines()
+            .filter_map(|line| reproit_protocol::decode_frame_line(line).ok())
+            .filter_map(|frame| match frame.event {
+                reproit_protocol::Event::Action { actor, action } => Some((actor, action)),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 impl std::fmt::Display for ActorOutput {
@@ -185,8 +196,14 @@ fn two_tui_actors_interleave_in_the_scripted_order() {
     // Each actor executed exactly its own actions and reported the shared
     // completion markers the orchestrator keys on.
     assert!(out_a.contains("JOURNEY claimed role=a"), "{out_a}");
-    assert!(out_a.contains("FUZZ:ACT a key:Down"), "{out_a}");
-    assert!(out_a.contains("FUZZ:ACT a key:Up"), "{out_a}");
+    assert_eq!(
+        out_a.actions(),
+        vec![
+            (Some("a".into()), "key:Down".into()),
+            (Some("a".into()), "key:Up".into()),
+        ],
+        "{out_a}"
+    );
     assert!(
         !out_a.contains("key:Right"),
         "bob's step leaked to a\n{out_a}"
@@ -194,7 +211,11 @@ fn two_tui_actors_interleave_in_the_scripted_order() {
     assert!(out_a.contains("JOURNEY DONE"), "{out_a}");
     assert!(out_a.contains("All tests passed"), "{out_a}");
     assert!(out_b.contains("JOURNEY claimed role=b"), "{out_b}");
-    assert!(out_b.contains("FUZZ:ACT b key:Right"), "{out_b}");
+    assert_eq!(
+        out_b.actions(),
+        vec![(Some("b".into()), "key:Right".into())],
+        "{out_b}"
+    );
     assert!(
         !out_b.contains("key:Down"),
         "alice's step leaked to b\n{out_b}"
@@ -278,12 +299,19 @@ fn an_unlabeled_actor_claims_a_role_and_runs_assertions() {
     let (port, observed) = start_conductor(script, 1);
     let out = stdout_of(spawn_actor(port, None));
     assert!(out.contains("JOURNEY claimed role=a"), "{out}");
-    assert!(out.contains("FUZZ:ACT a key:Down"), "{out}");
+    let actions = out.actions();
+    assert!(
+        actions.contains(&(Some("a".into()), "key:Down".into())),
+        "{out}"
+    );
     assert!(
         out.contains("FUZZ:ASSERT fail text=\"nonexistent\" actor=a"),
         "{out}"
     );
-    assert!(out.contains("FUZZ:ACT a type:field=hello"), "{out}");
+    assert!(
+        actions.contains(&(Some("a".into()), "type:field=hello".into())),
+        "{out}"
+    );
     assert!(out.contains("JOURNEY DONE"), "{out}");
     let obs = observed.lock().unwrap();
     assert_eq!(obs.acked.len(), 3, "every step acked: {:?}", obs.acked);

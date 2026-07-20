@@ -111,3 +111,17 @@ pub(crate) fn parse_runner_events(
     events.sort_by_key(|event| event.sequence);
     events
 }
+
+pub(crate) fn from_protocol_frames(frames: &[reproit_protocol::EventFrame]) -> Vec<BackendEvent> {
+    let mut events = frames
+        .iter()
+        .filter_map(|frame| match &frame.event {
+            reproit_protocol::Event::Backend { evidence } => {
+                serde_json::from_value::<BackendEvent>(evidence.clone()).ok()
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    events.sort_by_key(|event| event.sequence);
+    events
+}

@@ -873,6 +873,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hmac"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1878,13 +1884,14 @@ dependencies = [
  "prost-types",
  "protox",
  "regex",
+ "reproit-protocol",
  "reproit-tui-sig",
  "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha1",
- "sha2",
+ "sha2 0.11.0",
  "tar",
  "tokio",
  "tokio-tungstenite",
@@ -1901,7 +1908,17 @@ dependencies = [
  "base64",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "reproit-protocol"
+version = "1.0.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2224,6 +2241,17 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "digest 0.11.3",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
 ]
 
 [[package]]

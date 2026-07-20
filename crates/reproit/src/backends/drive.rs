@@ -564,12 +564,7 @@ async fn handle_line(
                 &mut manifest,
             );
             if let Ok(json) = serde_json::to_string(&event) {
-                line = format!(
-                    "{}{}{}",
-                    &line[..pos],
-                    crate::model::backend::EVENT_MARKER,
-                    json
-                );
+                line = crate::model::runner::backend_frame_line(&event);
                 append_sidecar(
                     &ctx.backend_files,
                     label,
@@ -580,7 +575,9 @@ async fn handle_line(
         }
     }
     let line = line.as_str();
-    if line.contains("FUZZ:ACT ") {
+    let is_protocol_action = reproit_protocol::decode_frame_line(line.trim())
+        .is_ok_and(|frame| matches!(frame.event, reproit_protocol::Event::Action { .. }));
+    if is_protocol_action || line.contains("FUZZ:ACT ") {
         let index = {
             let mut current = state.lock().unwrap();
             current.causal_action_index = current.causal_action_index.saturating_add(1);

@@ -770,8 +770,8 @@ pub(super) async fn check_repro(
                 verdict = repro::RunVerdict::Broke;
             }
             if let Some(guard) = &frozen_contract {
-                let observations = crate::model::observation::from_runner_log(seg, &[]);
-                if guard.reproduces(&observations) {
+                let parsed = crate::model::runner::ParsedRun::new(seg, &[], true, false);
+                if guard.reproduces(&parsed.observations, &parsed.defects) {
                     verdict = repro::RunVerdict::Broke;
                 }
             }

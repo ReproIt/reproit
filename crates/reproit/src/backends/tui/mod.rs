@@ -1192,7 +1192,7 @@ fn observe_scenario(parser: &Arc<Mutex<vt100::Parser>>, seen: &mut BTreeSet<Stri
         "labels": labels,
         "elements": structural_input_elements()
     });
-    emit(&format!("FUZZ:OBS {observation}"));
+    emit(&crate::model::runner::observation_frame_line(&observation));
     if seen.insert(sig.clone()) {
         let payload = serde_json::json!({
             "sig": sig,
@@ -1257,7 +1257,7 @@ fn run_scenario_actor(cmdline: &str, base: &str) -> Result<()> {
             continue;
         }
         let act = body.strip_prefix("ACT\t").unwrap_or(&body).to_string();
-        emit(&format!("FUZZ:ACT {role} {act}"));
+        emit(&crate::model::runner::action_frame_line(Some(&role), &act));
 
         if let Some(name) = act.strip_prefix("shoot:") {
             // Screenshot point: capture the current screen, no state move.
@@ -1524,7 +1524,7 @@ pub fn run() -> Result<()> {
             "labels": labels,
             "elements": structural_input_elements()
         });
-        emit(&format!("FUZZ:OBS {observation}"));
+        emit(&crate::model::runner::observation_frame_line(&observation));
         let is_new = seen.insert(sig.clone());
         if is_new {
             let payload = serde_json::json!({
@@ -1786,7 +1786,7 @@ pub fn run() -> Result<()> {
             // pickers emit only "key:" actions. We still advance the step counter
             // so a replay/seed cursor progresses past the shoot.
             if let Some(name) = act.strip_prefix("shoot:") {
-                emit(&format!("FUZZ:ACT {act}"));
+                emit(&crate::model::runner::action_frame_line(None, &act));
                 shoot(&parser, name);
                 i += 1;
                 if frames_path.is_some() {
@@ -1795,7 +1795,7 @@ pub fn run() -> Result<()> {
                 }
                 continue;
             }
-            emit(&format!("FUZZ:ACT {act}"));
+            emit(&crate::model::runner::action_frame_line(None, &act));
             actions_attempted += 1;
             tried.insert(edge_key(&cur_sig, &act));
             *live_visits.entry(edge_key(&cur_sig, &act)).or_insert(0) += 1;

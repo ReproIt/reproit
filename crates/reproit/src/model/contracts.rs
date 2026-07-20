@@ -100,6 +100,18 @@ pub struct ContractViolation {
     pub actor: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractEvaluation {
+    pub contract_id: String,
+    pub contract_hash: String,
+    pub status: crate::model::evidence::EvidenceStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reason_codes: Vec<reproit_protocol::ReasonCode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub violations: Vec<ContractViolation>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct FrozenContractGuard {
@@ -145,9 +157,14 @@ impl FrozenContractGuard {
         })
     }
 
-    pub fn reproduces(&self, observations: &[Observation]) -> bool {
-        evaluate_all(&self.contracts, observations)
+    pub(crate) fn reproduces(
+        &self,
+        observations: &[Observation],
+        defects: &[crate::model::runner::StreamDefect],
+    ) -> bool {
+        evaluate_stream(&self.contracts, observations, defects)
             .iter()
+            .flat_map(|evaluation| &evaluation.violations)
             .any(|violation| self.fingerprints.contains(&violation.fingerprint))
     }
 
@@ -343,9 +360,60 @@ fn evaluate_formula(
 }
 
 pub fn evaluate_all(contracts: &[ContractSpec], trace: &[Observation]) -> Vec<ContractViolation> {
+    evaluate_stream(contracts, trace, &[])
+        .iter()
+        .flat_map(|evaluation| evaluation.violations.iter().cloned())
+        .collect()
+}
+
+pub(crate) fn evaluate_stream(
+    contracts: &[ContractSpec],
+    trace: &[Observation],
+    defects: &[crate::model::runner::StreamDefect],
+) -> Vec<ContractEvaluation> {
     contracts
         .iter()
-        .flat_map(|contract| contract.evaluate(trace))
+        .map(|contract| {
+            let contract_hash = contract.stable_hash();
+            let reason_codes = defects
+                .iter()
+                .filter(|defect| defect.scope.affects_contract(&contract_hash))
+                .map(|defect| defect.reason)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            if !reason_codes.is_empty() {
+                return ContractEvaluation {
+                    contract_id: contract.id.clone(),
+                    contract_hash,
+                    status: crate::model::evidence::EvidenceStatus::Abstain,
+                    reason_codes,
+                    violations: Vec::new(),
+                };
+            }
+            if trace.is_empty() {
+                return ContractEvaluation {
+                    contract_id: contract.id.clone(),
+                    contract_hash,
+                    status: crate::model::evidence::EvidenceStatus::Abstain,
+                    reason_codes: vec![reproit_protocol::ReasonCode::NoObservations],
+                    violations: Vec::new(),
+                };
+            }
+            let violations = contract.evaluate(trace);
+            let status = if violations.is_empty() {
+                crate::model::evidence::EvidenceStatus::Satisfied
+            } else {
+                crate::model::evidence::EvidenceStatus::Violation
+            };
+            ContractEvaluation {
+                contract_id: contract.id.clone(),
+                contract_hash,
+                status,
+                reason_codes: Vec::new(),
+                violations,
+            }
+        })
         .collect()
 }
 
@@ -375,22 +443,63 @@ pub fn action_hints(contracts: &[ContractSpec]) -> Vec<String> {
         .collect()
 }
 
-pub fn write_evidence(
+pub(crate) fn write_evidence(
     path: &std::path::Path,
     contracts: &[ContractSpec],
     observations: &[Observation],
-    violations: &[ContractViolation],
+    evaluations: &[ContractEvaluation],
+    defects: &[crate::model::runner::StreamDefect],
 ) -> std::io::Result<()> {
-    if violations.is_empty() {
+    if contracts.is_empty() {
         return Ok(());
     }
-    let payload = serde_json::json!({
-        "version": 1,
+    let graph = contract_evidence_graph(contracts, observations, evaluations, defects)?;
+    std::fs::write(path, serde_json::to_vec_pretty(&graph)?)
+}
+
+fn contract_evidence_graph(
+    contracts: &[ContractSpec],
+    observations: &[Observation],
+    evaluations: &[ContractEvaluation],
+    defects: &[crate::model::runner::StreamDefect],
+) -> std::io::Result<reproit_protocol::EvidenceGraph> {
+    let violations = evaluations
+        .iter()
+        .flat_map(|evaluation| &evaluation.violations)
+        .collect::<Vec<_>>();
+    let normalized_payload = serde_json::json!({
         "contracts": contracts,
         "observations": observations,
-        "violations": violations,
+        "streamDefects": defects,
     });
-    std::fs::write(path, serde_json::to_vec_pretty(&payload)?)
+    let normalized = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::NormalizedTrace,
+        vec![],
+        normalized_payload,
+    )
+    .map_err(protocol_io)?;
+    let evaluation = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::Evaluation,
+        vec![normalized.id.clone()],
+        serde_json::json!({
+            "outcomes": evaluations,
+            "violations": violations,
+        }),
+    )
+    .map_err(protocol_io)?;
+    let run_hash =
+        hash_bytes(&serde_json::to_vec(observations).expect("normalized observations serialize"));
+    let graph = reproit_protocol::EvidenceGraph {
+        run_id: format!("contract-{}", &run_hash[..16]),
+        root: evaluation.id.clone(),
+        nodes: vec![normalized, evaluation],
+    };
+    graph.validate().map_err(protocol_io)?;
+    Ok(graph)
+}
+
+fn protocol_io(error: reproit_protocol::ProtocolError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, error)
 }
 
 fn collect_action_hints(formula: &Formula, actions: &mut BTreeSet<String>) {
@@ -600,5 +709,102 @@ must:
 "#;
         let contract: ContractSpec = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(contract.id, "no-crash");
+    }
+
+    #[test]
+    fn unscoped_stream_defect_makes_every_contract_abstain() {
+        let contracts = ["first", "second"].map(|id| ContractSpec {
+            id: id.to_string(),
+            scope: ContractScope::Trace,
+            when: None,
+            must: is_state("expected"),
+        });
+        let defects = [crate::model::runner::StreamDefect {
+            reason: crate::model::runner::StreamDefectReason::FrameTooLarge,
+            scope: crate::model::runner::EvidenceScope::Contract {
+                contract_hash: None,
+            },
+            sequence: None,
+        }];
+        let outcomes = evaluate_stream(
+            &contracts,
+            &[observation(1, "actor", "unexpected")],
+            &defects,
+        );
+        assert!(outcomes.iter().all(|outcome| {
+            outcome.status == crate::model::evidence::EvidenceStatus::Abstain
+                && outcome.reason_codes == [reproit_protocol::ReasonCode::FrameTooLarge]
+                && outcome.violations.is_empty()
+        }));
+    }
+
+    #[test]
+    fn attributed_stream_defect_only_abstains_the_matching_contract() {
+        let contracts = ["first", "second"].map(|id| ContractSpec {
+            id: id.to_string(),
+            scope: ContractScope::Trace,
+            when: None,
+            must: is_state("expected"),
+        });
+        let defects = [crate::model::runner::StreamDefect {
+            reason: crate::model::runner::StreamDefectReason::FrameTooLarge,
+            scope: crate::model::runner::EvidenceScope::Contract {
+                contract_hash: Some(contracts[0].stable_hash()),
+            },
+            sequence: None,
+        }];
+        let outcomes = evaluate_stream(
+            &contracts,
+            &[observation(1, "actor", "unexpected")],
+            &defects,
+        );
+        assert_eq!(
+            outcomes[0].status,
+            crate::model::evidence::EvidenceStatus::Abstain
+        );
+        assert!(outcomes[0].violations.is_empty());
+        assert_eq!(
+            outcomes[1].status,
+            crate::model::evidence::EvidenceStatus::Violation
+        );
+        assert_eq!(outcomes[1].violations.len(), 1);
+    }
+
+    #[test]
+    fn evidence_artifact_persists_tri_state_outcome_and_stream_defect() {
+        let contracts = [ContractSpec {
+            id: "bounded".to_string(),
+            scope: ContractScope::Trace,
+            when: None,
+            must: is_state("expected"),
+        }];
+        let defects = [crate::model::runner::StreamDefect {
+            reason: crate::model::runner::StreamDefectReason::FrameTooLarge,
+            scope: crate::model::runner::EvidenceScope::Contract {
+                contract_hash: None,
+            },
+            sequence: None,
+        }];
+        let outcomes = evaluate_stream(&contracts, &[], &defects);
+        let graph = contract_evidence_graph(&contracts, &[], &outcomes, &defects).unwrap();
+        assert_eq!(graph.nodes.len(), 2);
+        assert_eq!(
+            graph.nodes[0].kind,
+            reproit_protocol::ArtifactKind::NormalizedTrace
+        );
+        assert_eq!(
+            graph.nodes[0].payload["streamDefects"][0]["reason"],
+            "frame-too-large"
+        );
+        assert_eq!(
+            graph.nodes[1].kind,
+            reproit_protocol::ArtifactKind::Evaluation
+        );
+        assert_eq!(graph.nodes[1].payload["outcomes"][0]["status"], "abstain");
+        assert_eq!(
+            graph.nodes[1].payload["outcomes"][0]["reasonCodes"][0],
+            "frame-too-large"
+        );
+        assert_eq!(graph.nodes[1].payload["violations"], serde_json::json!([]));
     }
 }

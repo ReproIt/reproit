@@ -395,20 +395,25 @@ pub async fn setup(
     // sent, so onboarding can never create a false production alert.
     let verify_from = "reproit-setup-start";
     let verify_to = "reproit-setup-ready";
-    c.post(
-        "/v1/events",
-        &serde_json::json!({
-            "appId": app,
-            "events": [{
-                "kind": "edge",
-                "from": verify_from,
-                "action": "setup:verify",
-                "to": verify_to
-            }]
-        }),
-    )
-    .await
-    .context("sending the setup verification event")?;
+    let batch = reproit_protocol::EventBatch {
+        version: reproit_protocol::VERSION,
+        batch_id: format!("setup-{}", chrono::Utc::now().timestamp_millis()),
+        app_id: app.to_string(),
+        frames: vec![reproit_protocol::EventFrame {
+            run_id: "setup".into(),
+            sequence: 1,
+            scope: reproit_protocol::EvidenceScope::Shared,
+            event: reproit_protocol::Event::GraphEdge {
+                from: verify_from.into(),
+                action: "setup:verify".into(),
+                to: verify_to.into(),
+            },
+        }],
+        evidence: vec![],
+    };
+    c.post("/v1/events", &serde_json::to_value(batch)?)
+        .await
+        .context("sending the setup verification event")?;
     let graph = c
         .get(&format!("/v1/graph/{app}"))
         .await

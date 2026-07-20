@@ -78,6 +78,11 @@ pub async fn publish(
         .unwrap_or_else(|| root.join("runners/web"));
 
     println!("publish: run {}", run_dir.display());
+    let c = Cloud::new(cloud, key);
+    let graph_count = c.post_evidence_graphs(app, &run_dir).await?;
+    if graph_count > 0 {
+        println!("  evidence graphs: {graph_count}");
+    }
     let clip = record_repro_clip(&run_dir, &web_runner_dir, &bug_label, &action_label).await?;
     let Some((mp4, gif)) = clip else {
         println!(
@@ -89,7 +94,6 @@ pub async fn publish(
     println!("  annotated: {}", mp4.display());
     println!("  gif:       {}", gif.display());
 
-    let c = Cloud::new(cloud, key);
     let stored = c
         .post_evidence(app, bucket, &[mp4.clone(), gif.clone()])
         .await?;
@@ -199,6 +203,73 @@ impl Cloud {
 
     pub fn base(&self) -> &str {
         &self.base
+    }
+
+    async fn post_evidence_graphs(&self, app: &str, run_dir: &Path) -> Result<usize> {
+        let mut paths = std::fs::read_dir(run_dir)
+            .with_context(|| format!("reading {}", run_dir.display()))?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        (name.starts_with("contract-evidence")
+                            || name.starts_with("backend-evidence")
+                            || name == "run-evidence.json")
+                            && name.ends_with(".json")
+                    })
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+        if paths.len() > 256 {
+            anyhow::bail!("run contains more than 256 contract evidence graphs");
+        }
+        let mut graphs = Vec::with_capacity(paths.len());
+        for path in paths {
+            let bytes = std::fs::read(&path)
+                .with_context(|| format!("reading evidence graph {}", path.display()))?;
+            let graph: reproit_protocol::EvidenceGraph = serde_json::from_slice(&bytes)
+                .with_context(|| format!("parsing evidence graph {}", path.display()))?;
+            graph
+                .validate()
+                .with_context(|| format!("validating evidence graph {}", path.display()))?;
+            graphs.push(graph);
+        }
+        if graphs.is_empty() {
+            return Ok(0);
+        }
+        let roots = graphs
+            .iter()
+            .map(|graph| graph.root.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let batch_id = format!(
+            "evidence-{}",
+            &crate::infra::sha256_hex(roots.as_bytes())[..16]
+        );
+        let batch = reproit_protocol::EventBatch {
+            version: reproit_protocol::VERSION,
+            batch_id,
+            app_id: app.to_string(),
+            frames: vec![],
+            evidence: graphs,
+        };
+        batch.validate().context("validating evidence upload")?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_default();
+        let mut request = client.post(format!("{}/v1/events", self.base)).json(&batch);
+        if let Some(key) = &self.key {
+            request = request.bearer_auth(key);
+        }
+        let response = request.send().await.context("uploading evidence graphs")?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("cloud evidence upload failed ({status}): {}", body.trim());
+        }
+        Ok(batch.evidence.len())
     }
 
     async fn get(&self, path: &str) -> Result<Value> {

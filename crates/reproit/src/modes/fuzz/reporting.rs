@@ -248,6 +248,57 @@ pub(super) fn write_report(
     std::fs::write(run_dir.join("fuzz.md"), md).context("writing fuzz report")
 }
 
+pub(super) fn write_run_evidence_graph(
+    output_dir: &Path,
+    capture_dir: &Path,
+    trace: &[String],
+    findings: &[Value],
+    minimized: &[String],
+) -> Result<()> {
+    let log = std::fs::read(capture_dir.join("drive-a.log")).unwrap_or_default();
+    let raw = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::RawCapture,
+        vec![],
+        json!({
+            "path": "drive-a.log",
+            "bytes": log.len(),
+            "sha256": crate::infra::sha256_hex(&log),
+        }),
+    )?;
+    let normalized = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::NormalizedTrace,
+        vec![raw.id.clone()],
+        json!({ "actions": trace }),
+    )?;
+    let evaluation = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::Evaluation,
+        vec![normalized.id.clone()],
+        json!({ "findings": findings }),
+    )?;
+    let replay = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::Replay,
+        vec![evaluation.id.clone()],
+        json!({ "confirmed": true }),
+    )?;
+    let minimized = reproit_protocol::ArtifactNode::new(
+        reproit_protocol::ArtifactKind::MinimizedTrace,
+        vec![replay.id.clone()],
+        json!({ "actions": minimized }),
+    )?;
+    let digest = minimized.id.trim_start_matches("sha256:");
+    let graph = reproit_protocol::EvidenceGraph {
+        run_id: format!("run-{}", &digest[..16]),
+        root: minimized.id.clone(),
+        nodes: vec![raw, normalized, evaluation, replay, minimized],
+    };
+    graph.validate()?;
+    std::fs::write(
+        output_dir.join("run-evidence.json"),
+        serde_json::to_vec_pretty(&graph)?,
+    )?;
+    Ok(())
+}
+
 /// Run the find -> PR delivery pipeline for one finding: annotate + upload the
 /// minimized-repro clip to the cloud, then emit the PR comment (dry-run unless
 /// `post` and a GitHub repo/PR/token are resolvable). Reuses the `deliver`
