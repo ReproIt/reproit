@@ -212,7 +212,7 @@ pub(super) fn run_scenario_actor(
             continue;
         }
         let act = body.strip_prefix("ACT\t").unwrap_or(&body).to_string();
-        emit(&crate::model::runner::action_frame_line(Some(role), &act));
+        emit(&crate::model::runner::action_frame_line(Some(&role), &act));
         grab_focus(&app_window(app));
 
         if let Some(name) = act.strip_prefix("shoot:") {

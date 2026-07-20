@@ -47,7 +47,9 @@ for (let index = 0; index < flushRuns; index += 1) {
 const flushMicros = ((performance.now() - started) * 1000) / flushRuns;
 delete global.fetch;
 
-assert.equal(JSON.parse(bodies[0]).events.length, 50);
+const batch = JSON.parse(bodies[0]);
+assert.equal(batch.version, 1);
+assert.equal(batch.frames.length, 50);
 assert.ok(
   fingerprintMicros < 100,
   `fingerprint cost ${fingerprintMicros.toFixed(2)}us exceeds 100us`,
