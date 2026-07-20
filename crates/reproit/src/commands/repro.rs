@@ -438,6 +438,7 @@ pub(super) async fn simplify_repro(
         None,
         ctx.json || ctx.quiet,
         Some(&candidate),
+        false,
     )
     .await?;
     let reproduces = result.outcome == repro::Outcome::Fail;
@@ -608,15 +609,6 @@ pub(super) fn adopt_simplified(
     Ok(())
 }
 
-/// Resolve the journey a kept repro replays under (for `record`). Repros
-/// replay through the explorer journey, fed the stored replay.json; the journey
-/// name carried is the default explorer.
-pub(super) fn resolve_repro_journey(root: &std::path::Path, name: &str) -> Result<String> {
-    repro::resolve(root, name)
-        .ok_or_else(|| anyhow::anyhow!("no repro `{name}` (by id or alias)"))?;
-    Ok("explore".to_string())
-}
-
 /// Detect an exact reproduction of a stored startup-crash identity in one
 /// structured exception stream. Web page exceptions are deliberately written
 /// to `exceptions.jsonl` rather than mixed into `drive-a.log`; a zero-action
@@ -687,6 +679,7 @@ pub(super) async fn check_repro(
     // the same finding?" The seed is kept; the trigger's oracle still selects the
     // crash/graph path.
     override_actions: Option<&[String]>,
+    record_video: bool,
 ) -> Result<(repro::CheckResult, PathBuf)> {
     // Crash-reporter suppression for native check replays (which can crash the
     // target app while re-confirming a crash repro). Inert for web/headless.
@@ -716,41 +709,50 @@ pub(super) async fn check_repro(
     // so `reproit <id>` can confirm a finding BEFORE it is `keep`-ed. For the
     // pending case the trigger is derived from the finding itself (full minimized
     // length; oracle/sig from its fuzz.md).
-    let (replay, trigger): (serde_json::Value, repro::Trigger) = if dir.join("replay.json").exists()
-    {
-        let replay = serde_json::from_str(&std::fs::read_to_string(dir.join("replay.json"))?)?;
-        // The finding's trigger context, recorded at `keep`. A repro kept
-        // before this field existed loads with all None, so the classifier
-        // falls back to its first-action heuristic.
-        let trigger = match repro::load_meta(&loaded.root, id) {
-            Some(m) => repro::Trigger {
-                index: m.trigger_index,
-                sig: m.trigger_sig,
-                selector: m.trigger_selector,
-                fingerprint: m.trigger_fingerprint,
-                oracle: m.oracle,
-            },
-            None => repro::Trigger::unknown(),
-        };
-        (replay, trigger)
-    } else if let Some(f) = find_finding_by_id(loaded, id) {
-        let md = std::fs::read_to_string(f.run_dir.join("fuzz.md")).unwrap_or_default();
-        let (oracle, sig, selector, fingerprint) = parse_fuzz_oracle(&md);
-        let replay = serde_json::json!({ "seed": f.seed, "replay": f.actions });
-        let trigger = repro::Trigger {
-            index: Some(repro::normalize_actions(&f.actions).len()),
-            sig,
-            selector,
-            fingerprint,
-            oracle,
-        };
-        (replay, trigger)
-    } else {
-        anyhow::bail!(
-            "no repro or finding `{id}`; keep it from a fuzz finding (`reproit keep`) or run \
+    let (mut replay, trigger): (serde_json::Value, repro::Trigger) =
+        if dir.join("replay.json").exists() {
+            let replay = serde_json::from_str(&std::fs::read_to_string(dir.join("replay.json"))?)?;
+            // The finding's trigger context, recorded at `keep`. A repro kept
+            // before this field existed loads with all None, so the classifier
+            // falls back to its first-action heuristic.
+            let trigger = match repro::load_meta(&loaded.root, id) {
+                Some(m) => repro::Trigger {
+                    index: m.trigger_index,
+                    sig: m.trigger_sig,
+                    selector: m.trigger_selector,
+                    fingerprint: m.trigger_fingerprint,
+                    oracle: m.oracle,
+                },
+                None => repro::Trigger::unknown(),
+            };
+            (replay, trigger)
+        } else if let Some(f) = find_finding_by_id(loaded, id) {
+            let md = std::fs::read_to_string(f.run_dir.join("fuzz.md")).unwrap_or_default();
+            let (oracle, sig, selector, fingerprint) = parse_fuzz_oracle(&md);
+            let replay = serde_json::json!({ "seed": f.seed, "replay": f.actions });
+            let trigger = repro::Trigger {
+                index: Some(repro::normalize_actions(&f.actions).len()),
+                sig,
+                selector,
+                fingerprint,
+                oracle,
+            };
+            (replay, trigger)
+        } else {
+            anyhow::bail!(
+                "no repro or finding `{id}`; keep it from a fuzz finding (`reproit keep`) or run \
              `reproit fuzz` first"
-        );
-    };
+            );
+        };
+    if record_video {
+        if let Some(saved) = repro::load_meta(&loaded.root, id) {
+            if let Some(oracle) = saved.oracle {
+                if let Some(object) = replay.as_object_mut() {
+                    object.insert("highlight".to_string(), serde_json::Value::String(oracle));
+                }
+            }
+        }
+    }
 
     // Verify an alternate sequence (simplify): replace ONLY the actions, keeping
     // the seed AND the property-matched fixture (inputs/locale) so the verdict
@@ -850,6 +852,7 @@ pub(super) async fn check_repro(
                 devices: 1,
                 warm: false,
                 extra_defines: &defines,
+                record_video,
                 ..Default::default()
             },
             false,

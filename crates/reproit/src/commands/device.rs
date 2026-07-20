@@ -166,6 +166,7 @@ pub(super) async fn run_check_targets(
     runs: Option<u32>,
     devices: usize,
     kind: Option<&str>,
+    record_video: bool,
 ) -> Result<ExitCode> {
     let times = runs.unwrap_or(loaded.config.gate.runs).max(1);
     // The suite: a single named repro, or every saved repro.
@@ -228,6 +229,7 @@ pub(super) async fn run_check_targets(
                 None,
                 ctx.json || ctx.quiet,
                 None,
+                record_video,
             )
             .await?;
             worst = worst.max(result.outcome);

@@ -75,8 +75,14 @@ mod tests {
             ["reproit", "check", "--repro-id", "rep_deadbeef0001"]
         );
         assert_eq!(
-            expand(&["reproit", "@checkout-crash"]),
-            ["reproit", "check", "--repro-id", "checkout-crash"]
+            expand(&["reproit", "@checkout-crash", "--record-video"]),
+            [
+                "reproit",
+                "check",
+                "--repro-id",
+                "checkout-crash",
+                "--record-video"
+            ]
         );
         assert_eq!(
             expand(&["reproit", "--json", "bkt_deadbeef0001"]),

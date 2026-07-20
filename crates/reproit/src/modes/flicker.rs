@@ -4,7 +4,7 @@
 //! unstyled frame, a layout that jumps and snaps back during a transition. It
 //! needs no baseline, so it fits the "automatic, no curated goldens" model.
 //!
-//! Source: the repro video (already recorded for `--record`). We sample frames
+//! Source: the repro video (already recorded for `--record-video`). We sample frames
 //! with ffmpeg (already a runner dependency), downscale them (robust to AA
 //! noise and cheap), and flag any frame i that is far from BOTH neighbors while
 //! the neighbors are close to each other, i.e. the screen jumped away at frame

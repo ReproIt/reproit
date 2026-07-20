@@ -15,7 +15,7 @@ locally with one command. They do not send typed values, passwords, hidden field
 reproit login
 reproit bugs
 reproit bkt_...
-reproit record bkt_...
+reproit bkt_... --record-video
 ```
 
 `reproit login` opens the browser and discovers every project you can access. The bucket command

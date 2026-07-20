@@ -66,9 +66,9 @@ inputs:
     description: "Exclude these oracle categories (comma list). Applied after `only`."
     required: false
     default: ""
-  record:
+  confirm-on-sim:
     description: >-
-      Confirm and record findings on the simulator tier. Requires a macOS simulator runner.
+      Confirm findings on the simulator tier. Requires a macOS simulator runner.
     required: false
     default: "false"
   cloud-app:
@@ -128,7 +128,7 @@ runs:
         if [ -n "${{ inputs.no }}" ]; then
           args+=( --no "${{ inputs.no }}" )
         fi
-        if [ "${{ inputs.record }}" = "true" ]; then
+        if [ "${{ inputs['confirm-on-sim'] }}" = "true" ]; then
           args+=( --confirm-on-sim )
         fi
         reproit "${args[@]}"

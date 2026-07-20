@@ -637,7 +637,7 @@ fn capture_window(window: &IUIAutomationElement, path: &std::path::Path) -> Resu
     Ok(())
 }
 
-// --record clip capture (ffmpeg gdigrab, window-region only).
+// --record-video clip capture (ffmpeg gdigrab, window-region only).
 //
 // Films ONLY the target window (never the whole desktop, a hard privacy rule)
 // for the duration of a replay. The Windows twin of the macOS runner's
@@ -1180,7 +1180,7 @@ pub fn run() -> Result<()> {
         sample_rss(target_pid, 0);
     }
 
-    // --record clip capture: film the target window for the whole replay, then box
+    // --record-video clip capture: film the target window for the whole replay, then box
     // the finding's element after it settles. Only armed in replay mode with a clip
     // plan and REPROIT_VIDEO_DIR set. clip_el / clip_action_at are captured live at
     // the tap that triggered the finding (the freshest element handle + timestamp).
@@ -1294,7 +1294,7 @@ pub fn run() -> Result<()> {
         let label = act.strip_prefix("tap:").unwrap_or(&act).to_string();
         let from_sig = current.sig.clone();
         tried.insert(edge_key(&current.sig, &act));
-        // --record: the tap on the finding's element is the moment to box. Grab the
+        // --record-video: the tap on the finding's element is the moment to box. Grab the
         // freshest element handle and capture-relative timestamp now, before the
         // press may mutate the tree (post-loop resolution can fall back to this).
         if clip_armed && fuzz.clip_sel.as_deref() == Some(label.as_str()) {
@@ -1339,7 +1339,7 @@ pub fn run() -> Result<()> {
         i += 1;
     }
 
-    // --record clip finalize: resolve the finding's element to a window-relative
+    // --record-video clip finalize: resolve the finding's element to a window-relative
     // rect (BoundingRectangle and the window bounds are both screen pixels with a
     // top-left origin, so the box is element - windowOrigin), write box-spec.json
     // in the window's own pixel space, then quit ffmpeg so it flushes clip.mov.

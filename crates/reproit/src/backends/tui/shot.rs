@@ -13,7 +13,7 @@ use vt100::Color;
 
 /// Pixel size of one terminal cell. 8x16 matches the baked font glyph box and
 /// the classic VGA text-mode aspect ratio, so a 120x40 screen renders to a
-/// 960x640 image. Public so the --record clip path (backends/tui/mod.rs) maps a
+/// 960x640 image. Public so the --record-video clip path (backends/tui/mod.rs) maps a
 /// cell rect to the same video pixel space render_screen paints in.
 pub const CELL_W: u32 = 8;
 pub const CELL_H: u32 = 16;

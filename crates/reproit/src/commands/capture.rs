@@ -169,7 +169,7 @@ pub(super) async fn open_cloud_capture(capture: &record::OriginalCapture, ctx: &
         &key,
     )
     .await?
-    .context("capture has not been uploaded; run `reproit cap_... --upload`")?;
+    .context("capture has not been pushed; run `reproit push cap_...`")?;
     if capture_status(&status) != Some("complete") {
         anyhow::bail!("capture upload is not complete");
     }

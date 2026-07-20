@@ -158,7 +158,7 @@ ReproIt.start({
 });
 ```
 
-Run `reproit record` in the source checkout and use the app normally. When a bug is visible, press
+Run `reproit create` in the source checkout and use the app normally. When a bug is visible, press
 `Alt+Shift+B`. The SDK sends only the bounded structural path and current structural signature.
 Cloud keeps the capture pending while the CLI replays and minimizes it. It enters the confirmed bug
 feed only after the same state reproduces on a clean launch.

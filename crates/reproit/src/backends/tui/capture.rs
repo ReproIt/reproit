@@ -39,7 +39,7 @@ pub(super) fn shoot(parser: &Arc<Mutex<vt100::Parser>>, raw_name: &str) {
     emit(&format!("SHOOT:{name}"));
 }
 
-// --record clip capture (video + finding box).
+// --record-video clip capture (video + finding box).
 //
 // Every finding gets a filmed clip with a red box on the offending element, on
 // EVERY backend. The TUI "window" IS its own rendered cell buffer, so there is
@@ -142,7 +142,7 @@ fn assemble_clip(frames_dir: &std::path::Path, fps: u32, out: &std::path::Path) 
         .unwrap_or(false)
 }
 
-/// The --record clip capture state for one replay. Frames are written as PNGs
+/// The --record-video clip capture state for one replay. Frames are written as PNGs
 /// and assembled to `$REPROIT_VIDEO_DIR/clip.mov`; the finding's cell rect + a
 /// time window go to `box-spec.json`; a `FINDING:BOXED` marker reports whether
 /// the box drew, all in the video's own px/sec space (logical == px here, so
@@ -276,7 +276,7 @@ impl ClipCapture {
     }
 }
 
-/// --record clip plan (replay mode only). When present AND REPROIT_VIDEO_DIR is
+/// --record-video clip plan (replay mode only). When present AND REPROIT_VIDEO_DIR is
 /// set, the driver assembles the frames it renders during the replay into
 /// clip.mov and, after the replay settles, resolves the finding's `sel` to a
 /// CELL rect of the offending screen region, writing box-spec.json next to

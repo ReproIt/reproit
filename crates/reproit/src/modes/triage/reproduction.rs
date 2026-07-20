@@ -42,11 +42,20 @@ fn run_check_and_classify(
     root: &std::path::Path,
     target: &str,
     context_hint: Option<&Value>,
+    record_video: bool,
+    flicker: bool,
 ) -> Result<ReproVerdict> {
     println!("\nRunning the replay ({target})...");
     let exe = std::env::current_exe()?;
+    let mut check_args = vec!["check", "--repro-id", target, "--json"];
+    if record_video {
+        check_args.push("--record-video");
+    }
+    if flicker {
+        check_args.push("--flicker");
+    }
     let out = std::process::Command::new(exe)
-        .args(["check", "--repro-id", target, "--json"])
+        .args(check_args)
         // Reproduction may have been launched from any directory with
         // `--config /path/to/app/reproit.yaml`. Run the private check from the
         // loaded app root so it resolves that same config and local artifacts.
@@ -141,7 +150,10 @@ pub async fn reproduce_bucket(
     // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
     // (fixture folded in) and prints the save summary + the `check` hint.
     pull(root, app, bucket, as_name, json, cloud.clone(), key.clone()).await?;
-    report_reproduction(root, app, bucket, as_name, run, run_id, cloud, key).await
+    report_reproduction(
+        root, app, bucket, as_name, run, run_id, false, false, cloud, key,
+    )
+    .await
 }
 
 /// Pull and replay a tester capture without changing its Cloud confirmation
@@ -158,7 +170,7 @@ pub async fn verify_tester_capture(
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     pull(root, app, bucket, as_name, json, cloud, key).await?;
-    run_check_and_classify(root, as_name, None)
+    run_check_and_classify(root, as_name, None, false, false)
 }
 
 /// Publish the final tester-capture verdict after local verification is done.
@@ -203,12 +215,26 @@ pub async fn reproduce_bucket_global(
     as_name: &str,
     run: bool,
     run_id: Option<i64>,
+    record_video: bool,
+    flicker: bool,
     json: bool,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     let app = pull_global(root, bucket, as_name, json, cloud.clone(), key.clone()).await?;
-    report_reproduction(root, &app, bucket, as_name, run, run_id, cloud, key).await
+    report_reproduction(
+        root,
+        &app,
+        bucket,
+        as_name,
+        run,
+        run_id,
+        record_video,
+        flicker,
+        cloud,
+        key,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -219,6 +245,8 @@ async fn report_reproduction(
     as_name: &str,
     run: bool,
     run_id: Option<i64>,
+    record_video: bool,
+    flicker: bool,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<ReproVerdict> {
@@ -227,7 +255,7 @@ async fn report_reproduction(
     }
     // Reuse the standard local verification by alias; no context hint (the pulled
     // repro carries its own fixture, so a CLEAN verdict is a genuine no-repro).
-    let verdict = run_check_and_classify(root, as_name, None)?;
+    let verdict = run_check_and_classify(root, as_name, None, record_video, flicker)?;
     let status = match verdict {
         ReproVerdict::Reproduced => "reproduced",
         ReproVerdict::NotReproduced => "not_reproduced",

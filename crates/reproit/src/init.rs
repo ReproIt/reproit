@@ -303,7 +303,7 @@ fn init_flutter(dir: &Path, force: bool) -> Result<()> {
 /// Self-heal the FlutterDrive sim tier: vendor reproit's own explorer (the same
 /// journey_explore.dart + helpers + driver that `reproit init` lays down, with
 /// the app entry inferred from the project) into a project that only had the
-/// headless explorer, so `reproit record` / `--sim` just works instead
+/// headless explorer, so `--record-video` / `--sim` just works instead
 /// of erroring on a file reproit knows how to create. Only writes what's
 /// missing, so a configured explorer, shared module, helper, or driver is never
 /// clobbered.

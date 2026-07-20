@@ -6,9 +6,9 @@ pub struct ScanArgs {
     pub budget: u32,
     pub sim: bool,
     pub json: bool,
-    /// `--record`: after the crawl, record every distinct reported finding;
-    /// exact visual targets are boxed and the rest are diagnostic clips.
-    pub record: bool,
+    /// `--record-video`: after the crawl, record every distinct reported
+    /// finding; exact visual targets are boxed and the rest are diagnostic clips.
+    pub record_video: bool,
     /// `--out <dir>`: where the clips land (default
     /// `.reproit/recordings/scan/<scan-run>/`).
     pub out: Option<std::path::PathBuf>,
@@ -187,9 +187,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
         .count();
     evidence.observe_unreported_violations(unreported_violations);
 
-    // `--record`: save one clip for every distinct reported finding. Done after
-    // report grouping so clip identity exactly matches the visible issue list.
-    let clips = if args.record {
+    // `--record-video`: save one clip for every distinct reported finding. Done
+    // after grouping so clip identity exactly matches the visible issue list.
+    let clips = if args.record_video {
         let clip_input = ScanClipInput {
             findings: &findings,
             reported: &by_screen,
@@ -677,14 +677,14 @@ async fn record_scan_clips(
     if plans.is_empty() {
         say(
             json,
-            "\nscan --record: no reported findings to record on this run.".to_string(),
+            "\nscan --record-video: no reported findings to record on this run.".to_string(),
         );
         return Vec::new();
     }
     say(
         json,
         format!(
-            "\nscan --record: recording all {} distinct finding(s) to {}...",
+            "\nscan --record-video: recording all {} distinct finding(s) to {}...",
             plans.len(),
             out.display()
         ),
@@ -752,9 +752,9 @@ async fn record_scan_clips(
                 // a fix rather than silently dropping all of them.
                 say(
                     json,
-                    "\nscan --record: the web runner is out of date and cannot record clips for \
-                     this version.\n  Refresh it: delete the cached runner (re-downloaded on next \
-                     run), or set REPROIT_WEB_RUNNER_DIR to a matching runner."
+                    "\nscan --record-video: the web runner is out of date and cannot record \
+                     clips for this version.\n  Refresh it: delete the cached runner (re-downloaded \
+                     on next run), or set REPROIT_WEB_RUNNER_DIR to a matching runner."
                         .to_string(),
                 );
                 return clips;
@@ -806,7 +806,7 @@ async fn record_scan_clips(
     clips
 }
 
-/// `--record` for NATIVE targets (desktop AX / mobile), which have no URL to
+/// `--record-video` for NATIVE targets (desktop AX / mobile), which have no URL to
 /// open. A native clip REPLAYS the map's action path from the crawl entry to
 /// the exact state the finding was observed on, then the finding's own action
 /// -- the runner films its own window (never the desktop) for the whole replay
@@ -831,7 +831,7 @@ async fn record_native_clips(
         Err(e) => {
             say(
                 json,
-                format!("\nscan --record: cannot locate the box-overlay tool: {e}"),
+                format!("\nscan --record-video: cannot locate the box-overlay tool: {e}"),
             );
             return Vec::new();
         }
@@ -913,14 +913,14 @@ async fn record_native_clips(
     if plans.is_empty() {
         say(
             json,
-            "\nscan --record: no reported findings to record on this run.".to_string(),
+            "\nscan --record-video: no reported findings to record on this run.".to_string(),
         );
         return Vec::new();
     }
     say(
         json,
         format!(
-            "\nscan --record: recording all {} distinct finding(s) to {}...",
+            "\nscan --record-video: recording all {} distinct finding(s) to {}...",
             plans.len(),
             out.display()
         ),
@@ -978,7 +978,7 @@ async fn record_native_clips(
         }
         // Draw the finding box post-capture. With a box-spec present the tool
         // annotates; without one (element never resolved) we still ship the raw
-        // film so `--record` always yields a clip.
+        // film so `--record-video` always yields a clip.
         let spec = find_named(&outcome.run_dir, "box-spec.json");
         let boxed_dest = out.join(format!("{label}.mp4"));
         let diagnostic_dest = out.join(format!("{label}.diagnostic.mp4"));

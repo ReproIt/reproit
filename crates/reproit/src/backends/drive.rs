@@ -418,7 +418,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let mut c = Command::new("swift");
             c.arg(runner_script(ctx, "macos-ax.swift")?);
             c.env("REPROIT_TARGET", target_app(ctx)?);
-            // --record: the runner films the target window (screencapture -v -l)
+            // --record-video: the runner films the target window (screencapture -v -l)
             // and writes clip.mov + box-spec.json here; the host box-overlay step
             // draws the finding box post-capture (no live DOM overlay on native).
             if ctx.wants_video {
@@ -435,7 +435,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let mut c = Command::new(exe);
             c.arg("__uia");
             c.env("REPROIT_TARGET", target_app(ctx)?);
-            // --record: the in-process UIA driver films the target window and
+            // --record-video: the in-process UIA driver films the target window and
             // writes clip.mov + box-spec.json here; host box-overlay draws the box.
             if ctx.wants_video {
                 c.env("REPROIT_VIDEO_DIR", &video_dir);
@@ -477,7 +477,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             // `__tui` opens a second child inside a PTY. Carry the configured
             // project directory explicitly across that intermediate process.
             c.env("REPROIT_TUI_CWD", &ctx.project_dir);
-            // --record: the PTY driver assembles rendered frames into clip.mov and
+            // --record-video: the PTY driver assembles rendered frames into clip.mov and
             // writes box-spec.json (cell rect -> px) here for host box-overlay.
             if ctx.wants_video {
                 c.env("REPROIT_VIDEO_DIR", &video_dir);

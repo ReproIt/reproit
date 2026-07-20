@@ -3,7 +3,7 @@
 //! deterministic runner ("the acceptance oracle for agents").
 //!
 //! The agent-facing surface mirrors the new CLI (see docs/cli.md, "MCP"): the
-//! deterministic core (map / scan / fuzz / check / keep / record / repro /
+//! deterministic core (map / scan / fuzz / check / keep / repro /
 //! cloud) is exposed; authoring, triage and fixing are NOT tools, the host does
 //! those itself (no bundled LLM). `reproit_context` is the one composite tool:
 //! it assembles the scoped graph + screen list + selectors the agent needs to
@@ -26,8 +26,9 @@ const MCP_INSTRUCTIONS: &str = concat!(
     "yourself (no bundled LLM here). reproit_scan is the default finder (state-present bugs ",
     "visible on each screen); reproit_fuzz is the deep search for sequence bugs ",
     "(crash/jank/hang). reproit_check classifies each pass/fail/flaky/stale (deterministic, so a ",
-    "green check means you really fixed it); reproit_keep saves a repro; reproit_record clips ",
-    "it; reproit_why ranks suspect code. The cloud tools close the FULL production loop, so an ",
+    "green check means you really fixed it); reproit_keep saves a repro; reproit_check with ",
+    "record_video clips it; reproit_why ranks suspect code. The cloud tools close the FULL ",
+    "production loop, so an ",
     "agent can MANAGE + MONITOR bugs, not just fix them: reproit_cloud_buckets lists ",
     "impact-ranked bugs -> reproit_cloud_pull the top one -> reproit_check (reproduce) -> fix ",
     "-> reproit_check (verify) -> reproit_keep -> reproit_cloud_triage status=fixed ",
@@ -141,9 +142,9 @@ const SCAN_DESCRIPTION: &str = concat!(
     "require an application-owned structural contract. Built-in content, layout, and routing ",
     "observations are specialist oracles available explicitly through reproit_fuzz --only ",
     "<oracle>; repeatability alone does not prove application intent. Pass a URL (zero-config, ",
-    "deployed app) or an alias/node to scope. `record=true` saves quick clips for confirmed ",
-    "findings into .reproit/recordings/scan/. Use reproit_fuzz for deeper sequence-dependent ",
-    "bugs, then reproit_check / reproit_keep / reproit_record on the fnd_... id. Slow: a real ",
+    "deployed app) or an alias/node to scope. `record_video=true` saves quick clips for ",
+    "confirmed findings into .reproit/recordings/scan/. Use reproit_fuzz for deeper ",
+    "sequence-dependent bugs, then reproit_check / reproit_keep on the fnd_... id. Slow: a real ",
     "run."
 );
 
@@ -152,8 +153,9 @@ const FUZZ_DESCRIPTION: &str = concat!(
     "provoke bugs that only appear after the right actions in the right order (crash / jank / ",
     "hang / leak). Returns a deduped work-list with a shortest fnd_... repro id per bug. ",
     "Reproit maintains its internal app model automatically. For bugs simply visible on a ",
-    "screen prefer reproit_scan. Pass an id to reproit_check, reproit_keep, then ",
-    "reproit_record. `target` concentrates the hunt on an alias/node; `platform` selects ",
+    "screen prefer reproit_scan. Pass an id to reproit_check, then reproit_keep. Set ",
+    "record_video=true on reproit_check for video evidence. `target` concentrates the hunt on ",
+    "an alias/node; `platform` selects ",
     "ios|android|web|all. Slow: real runs."
 );
 
@@ -162,18 +164,9 @@ const CHECK_DESCRIPTION: &str = concat!(
     "stale (UI changed, couldn't replay, exit 3). `repro` is a saved repro (id/alias) OR a ",
     "pending fuzz finding id from reproit_fuzz, so you can confirm a finding reproduces BEFORE ",
     "reproit_keep. With no `repro`, runs the whole committed suite and reports the worst. ",
-    "Deterministic, so a green check means the bug is really fixed. For an annotated video use ",
-    "reproit_record; for a baseline pixel diff use reproit_baseline."
-);
-
-const RECORD_DESCRIPTION: &str = concat!(
-    "Record one replayable repro id ONCE with full evidence + an annotated video (paced action ",
-    "HUD + a red box scoped to the repro's oracle, marking the bug's effect). `repro` is a ",
-    "saved repro (id/alias) or a pending fuzz finding id. Use after reproit_fuzz prints an ",
-    "fnd_... id, or after reproit_keep. This is different from reproit_scan(record=true), which ",
-    "saves quick audit clips for visible scan findings. `flicker=true` also scans the recorded ",
-    "video for transient render glitches (a frame that diverges then snaps back). Slow: a real ",
-    "run."
+    "Deterministic, so a green check means the bug is really fixed. `record_video=true` adds ",
+    "annotated video evidence; `flicker=true` also checks that video for transient glitches. ",
+    "For a baseline pixel diff use reproit_baseline."
 );
 
 const BASELINE_DESCRIPTION: &str = concat!(
@@ -367,7 +360,7 @@ fn tool_defs() -> Value {
                         "crawl to."
                     )
                 },
-                "record": {
+                "record_video": {
                     "type": "boolean",
                     "description": concat!(
                         "Record every distinct reported finding into ",
@@ -404,25 +397,16 @@ fn tool_defs() -> Value {
                         "Saved repro id/alias, or a pending finding id from reproit_fuzz. ",
                         "Omit to run the whole saved suite."
                     )
-                }
-            } }
-        },
-        {
-            "name": "reproit_record",
-            "description": RECORD_DESCRIPTION,
-            "inputSchema": { "type": "object", "properties": {
-                "repro": {
-                    "type": "string",
-                    "description": concat!(
-                        "Saved repro id/alias, or a pending finding id from ",
-                        "reproit_fuzz."
-                    )
+                },
+                "record_video": {
+                    "type": "boolean",
+                    "description": "Save annotated screen video as supporting evidence."
                 },
                 "flicker": {
                     "type": "boolean",
-                    "description": "Also scan the recorded video for intra-run flicker."
+                    "description": "With record_video, also scan for intra-run flicker."
                 }
-            }, "required": ["repro"] }
+            } }
         },
         {
             "name": "reproit_baseline",
@@ -957,12 +941,13 @@ mod tests {
     }
 
     #[test]
-    fn scan_record_baseline_tools_are_present() {
+    fn scan_check_video_and_baseline_tools_are_present() {
         // The redesigned find/evidence surface is advertised.
         let names = tool_names();
-        for want in ["reproit_scan", "reproit_record", "reproit_baseline"] {
+        for want in ["reproit_scan", "reproit_check", "reproit_baseline"] {
             assert!(names.contains(&want.to_string()), "missing tool {want}");
         }
+        assert!(!names.contains(&"reproit_record".to_string()));
     }
 
     #[test]
@@ -985,25 +970,18 @@ mod tests {
     }
 
     #[test]
-    fn check_no_longer_carries_record() {
-        // record is its own verb now: a plain check never forwards --record.
+    fn check_uses_direct_repro_syntax_and_explicit_video_flag() {
         let a = argv("reproit_check", json!({ "repro": "cart-1" }));
-        assert!(a.windows(2).any(|w| w == ["check", "cart-1"]));
-        assert!(!a.iter().any(|x| x == "--record"));
-    }
+        assert!(a.contains(&"@cart-1".to_string()));
+        assert!(!a.iter().any(|x| x == "--record-video"));
 
-    #[test]
-    fn record_dispatches_and_requires_repro() {
         let a = argv(
-            "reproit_record",
-            json!({ "repro": "cart-1", "flicker": true }),
+            "reproit_check",
+            json!({ "repro": "cart-1", "record_video": true, "flicker": true }),
         );
-        assert!(a.windows(2).any(|w| w == ["record", "cart-1"]));
+        assert!(a.contains(&"@cart-1".to_string()));
+        assert!(a.contains(&"--record-video".to_string()));
         assert!(a.contains(&"--flicker".to_string()));
-        // repro is required.
-        let err =
-            build_argv(None, "reproit_record", &json!({})).expect_err("missing repro should error");
-        assert!(err.1 && err.0.contains("repro"));
     }
 
     #[test]

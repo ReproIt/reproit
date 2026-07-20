@@ -10,7 +10,7 @@ pub(super) struct Fuzz {
     pub(super) replay: Option<Vec<String>>,
     pub(super) prefix: Option<Vec<String>>,
     pub(super) edge_weights: BTreeMap<String, BTreeMap<String, u64>>,
-    /// --record clip plan (see Clip); armed only alongside a replay.
+    /// --record-video clip plan (see Clip); armed only alongside a replay.
     pub(super) clip: Option<Clip>,
     // Production-seeded corpus: real user paths (from SDK telemetry) to replay
     // into a realistic deep state, then BRANCH outward from. Bugs cluster where
@@ -56,7 +56,7 @@ pub(super) fn load_fuzz() -> Fuzz {
             .filter_map(|x| x.as_str().map(String::from))
             .collect()
     });
-    // --record clip plan: {"clip":{"sel","label","oracle"}}. Only meaningful in
+    // --record-video clip plan: {"clip":{"sel","label","oracle"}}. Only meaningful in
     // replay mode with REPROIT_VIDEO_DIR set; the driver checks both before arming.
     if let Some(c) = j.get("clip").and_then(|v| v.as_object()) {
         if let Some(sel) = c.get("sel").and_then(|v| v.as_str()) {

@@ -42,7 +42,7 @@ pub struct RunOpts<'a> {
     /// launch->ready, walk, teardown). Off unless set.
     pub profile_timing: bool,
     /// Record an annotated video for THIS run even when `evidence.video` is
-    /// off: the `record` command and `scan --record` clip pass need the
+    /// off: direct `--record-video` runs and the `scan --record-video` clip pass need the
     /// runner-side webm. A plain fuzz/scan walk leaves this false so the
     /// (web/electron/tauri) runner doesn't record an unwanted video every
     /// run.

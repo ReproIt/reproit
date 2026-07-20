@@ -258,8 +258,8 @@ pub(super) fn write_report(
     if reproduced {
         md.push_str(&format!(
             "\nReproduce: `reproit {finding_id}`\nKeep: `reproit keep {finding_id} --as \
-             <name>`\nAfter keeping, record an annotated video with `reproit record \
-             <alias-or-rep-id>`.\n"
+             <name>`\nAfter keeping, record an annotated video with `reproit \
+             @<alias> --record-video`.\n"
         ));
     } else {
         md.push_str(&format!(

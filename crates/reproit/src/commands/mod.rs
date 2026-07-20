@@ -6,13 +6,13 @@ mod backend_target;
 mod capture;
 mod check;
 mod cloud;
+mod create_command;
 mod device;
 mod doctor;
 mod fuzz_command;
 mod map;
 mod proof;
 mod record;
-mod record_command;
 mod repro;
 mod scan_command;
 
@@ -41,6 +41,7 @@ use check::CheckArgs;
 #[cfg(test)]
 use cloud::choose_cloud_project;
 use cloud::{cloud_app_id, cloud_cmd, cloud_creds};
+use create_command::CreateArgs;
 #[cfg(test)]
 use device::{is_web_engines, run_needs_device_pick};
 use doctor::doctor;
@@ -49,7 +50,6 @@ use proof::{list_candidates, show_proof};
 #[cfg(test)]
 use record::{minimize_record_replay, web_record_metadata};
 use record::{open_in_player, resolve_repro_video};
-use record_command::RecordArgs;
 #[cfg(test)]
 use repro::{
     build_simplified_replay, find_finding_by_id, parse_fuzz_finding_id, parse_fuzz_oracle,
@@ -177,47 +177,40 @@ where
             test_name,
             pnpm_version,
         } => run_vitest_contract(&ctx, &cwd, &test_path, &test_name, &pnpm_version).await,
-        Cmd::Record {
-            repro,
+        Cmd::Create {
             cloud_tester,
             attach,
             title,
             actions_file,
-            no_video,
-            upload,
+            record_video,
+            push,
             no_open,
             app,
             timeout,
             kind,
-            devices,
-            warm,
-            shots_dir,
-            profile,
-            flicker,
         } => {
-            record_command::run(
+            create_command::run(
                 &ctx,
-                RecordArgs {
+                CreateArgs {
                     config_path: cli.config,
-                    repro,
                     cloud_tester,
                     attach,
                     title,
                     actions_file,
-                    no_video,
-                    upload,
+                    record_video,
+                    push,
                     no_open,
                     app,
                     timeout_seconds: timeout,
                     kind,
-                    devices,
-                    warm,
-                    shots_dir,
-                    profile,
-                    flicker,
                 },
             )
             .await
+        }
+        Cmd::Push { capture, no_open } => {
+            let capture = load_original(cli.config.as_deref(), &capture)?;
+            upload_original(&capture, no_open, &ctx).await?;
+            Ok(ExitCode::SUCCESS)
         }
         // `baseline`: the visual oracle. Diff the current capture against the
         // committed baseline (per-pixel tolerance + ignore regions); `--update`
@@ -236,8 +229,8 @@ where
         }
         // `check`: run saved repros and classify each pass/fail/flaky/stale (the
         // four-outcome CI contract). With no name, runs the whole suite and
-        // aggregates the worst outcome. Recording and baseline diff are their own
-        // verbs now (`record`/`baseline`).
+        // aggregates the worst outcome. Video evidence is an explicit option;
+        // baseline diff remains its own operation.
         Cmd::Check {
             repro,
             devices,
@@ -248,6 +241,8 @@ where
             locale,
             target,
             device,
+            record_video,
+            flicker,
         } => {
             check::run(
                 &ctx,
@@ -262,6 +257,8 @@ where
                     locale,
                     target,
                     device,
+                    record_video,
+                    flicker,
                 },
             )
             .await
@@ -343,6 +340,8 @@ where
             issue,
             as_name,
             no_run,
+            record_video,
+            flicker,
             cloud,
             key,
         } => {
@@ -360,6 +359,8 @@ where
                 &alias,
                 !no_run,
                 None,
+                record_video,
+                flicker,
                 ctx.json,
                 cloud,
                 key,
@@ -370,15 +371,11 @@ where
         Cmd::Capture {
             capture,
             watch,
-            upload,
             open,
-            no_open,
         } => {
             let capture = load_original(cli.config.as_deref(), &capture)?;
             if watch {
                 watch_original(&capture)?;
-            } else if upload {
-                upload_original(&capture, no_open, &ctx).await?;
             } else if open {
                 open_cloud_capture(&capture, &ctx).await?;
             } else {

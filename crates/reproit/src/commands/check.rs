@@ -7,7 +7,7 @@ use super::repro::{
 };
 use crate::cli::context::{exit_with, Ctx, Exit};
 use crate::model::repro;
-use crate::modes::{a2ui, backend_headless, journey};
+use crate::modes::{a2ui, backend_headless, flicker, journey};
 use crate::{config, crosscut, junit};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,8 @@ pub(super) struct CheckArgs {
     pub(super) locale: Option<String>,
     pub(super) target: Option<String>,
     pub(super) device: Option<String>,
+    pub(super) record_video: bool,
+    pub(super) flicker: bool,
 }
 
 pub(super) async fn run(
@@ -32,9 +34,15 @@ pub(super) async fn run(
 ) -> Result<ExitCode> {
     if let Some(id) = args.repro.as_deref() {
         if let Some(code) = backend_headless::try_replay(ctx, id).await? {
+            if args.record_video {
+                anyhow::bail!("backend repros do not produce screen video evidence");
+            }
             return Ok(code);
         }
         if let Some(code) = a2ui::try_replay(ctx, id)? {
+            if args.record_video {
+                anyhow::bail!("A2UI repros do not produce screen video evidence");
+            }
             return Ok(code);
         }
     }
@@ -67,6 +75,9 @@ async fn try_multi_target(
     if targets.len() <= 1 {
         return Ok(None);
     }
+    if args.flicker {
+        anyhow::bail!("--flicker supports one execution target at a time");
+    }
     run_check_targets(
         ctx,
         loaded,
@@ -76,6 +87,7 @@ async fn try_multi_target(
         args.runs,
         args.devices,
         args.kind.as_deref(),
+        args.record_video,
     )
     .await
     .map(Some)
@@ -114,6 +126,9 @@ async fn try_journey(
         || !journey::exists(&loaded.root, reference)
     {
         return Ok(None);
+    }
+    if args.record_video {
+        anyhow::bail!("--record-video needs a saved repro or finding id, not a journey name");
     }
     let result = journey::run(loaded, reference, times, ctx.json || ctx.quiet).await?;
     if ctx.json {
@@ -254,26 +269,35 @@ async fn execute_case(
         locale,
         ctx.json || ctx.quiet,
         None,
+        args.record_video,
     )
     .await?;
+    let video_flicker = if args.flicker {
+        let events = flicker::analyze_run(&run_dir, &flicker::FlickerCfg::default()).await?;
+        !flicker::report(&events)
+    } else {
+        false
+    };
+    // Video analysis is supporting evidence. It must never replace the exact
+    // repro's detector verdict or report an unrelated visual signal as this bug.
+    let outcome = result.outcome;
     let blocks = args.strict || args.repro.is_some() || meta.status != repro::Status::Quarantined;
     let effective = if blocks {
-        result.outcome
+        outcome
     } else {
         repro::Outcome::Pass
     };
     let mut updated = meta.clone();
     updated.last_checked = Some(chrono::Local::now().to_rfc3339());
-    updated.last_result = Some(result.outcome.as_str().to_string());
-    let promoted =
-        result.outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
+    updated.last_result = Some(outcome.as_str().to_string());
+    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
     if promoted {
         updated.status = repro::Status::Required;
     }
     repro::save_meta(&loaded.root, &updated)?;
     ctx.say(format!(
         "  {} {} ({}){}",
-        result.outcome.as_str().to_uppercase(),
+        outcome.as_str().to_uppercase(),
         label,
         result.rate(),
         if promoted {
@@ -284,11 +308,11 @@ async fn execute_case(
     ));
     let case = junit::Case {
         name: format!("check {label}"),
-        passed: result.outcome == repro::Outcome::Pass,
+        passed: outcome == repro::Outcome::Pass,
         time_s: 0.0,
         message: format!(
             "{} ({}); evidence: {}",
-            result.outcome.as_str(),
+            outcome.as_str(),
             result.rate(),
             run_dir.display()
         ),
@@ -298,18 +322,19 @@ async fn execute_case(
         "kind": public_json_kind(meta),
         "alias": meta.alias,
         "locale": locale,
-        "outcome": result.outcome.as_str(),
+        "outcome": outcome.as_str(),
         "rate": result.rate(),
         "green": result.green,
         "total": result.total,
         "status": updated.status.as_str(),
         "promoted": promoted,
-        "exit": result.outcome.exit_code(),
+        "exit": outcome.exit_code(),
         "evidence": run_dir.to_string_lossy(),
+        "videoFlicker": video_flicker,
     });
     Ok(CaseExecution {
         effective,
-        failed: result.outcome != repro::Outcome::Pass,
+        failed: outcome != repro::Outcome::Pass,
         case,
         json,
     })

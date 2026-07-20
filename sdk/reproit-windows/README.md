@@ -40,7 +40,7 @@ Release builds. `ReproItClient.Start(this)` remains a Debug-only convenience.
 ## Exploratory testing
 
 Add `ReproItClient.CaptureBug()` to a debug menu or tester button. It sends the rolling structural
-path and current state, never field values. Run `reproit record` in the app source directory. The
+path and current state, never field values. Run `reproit create` in the app source directory. The
 CLI waits for the report, replays it from a clean launch, shrinks the path, and only then promotes
 it to a confirmed bug.
 

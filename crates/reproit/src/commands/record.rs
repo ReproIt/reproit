@@ -48,23 +48,23 @@ pub(super) struct OriginalCapture {
     pub(super) path: PathBuf,
 }
 
-/// Record the tester's original experience rather than attempting to prove a
+/// Preserve the tester's original experience rather than attempting to prove a
 /// machine-detected finding. The original is deliberately not a `repro::Meta`:
 /// it has no oracle and must never enter `check` or the regression suite until
 /// a separately derived replay has been verified.
-pub(super) async fn human_record_session(
+pub(super) async fn human_create_session(
     config_path: Option<&Path>,
     attach: bool,
     title: Option<&str>,
     actions_file: Option<&Path>,
-    no_video: bool,
+    record_video: bool,
     ctx: &Ctx,
 ) -> Result<OriginalCapture> {
     let loaded = config::load(config_path).with_context(|| {
-        "record needs a runnable reproit.yaml; run `reproit init` in the app checkout"
+        "create needs a runnable reproit.yaml; run `reproit init` in the app checkout"
     })?;
     if !std::io::stdin().is_terminal() {
-        anyhow::bail!("human recording requires an interactive terminal; run it from a terminal");
+        anyhow::bail!("creating a human repro requires an interactive terminal");
     }
 
     let captures = layout::captures_dir(&loaded.root);
@@ -79,13 +79,13 @@ pub(super) async fn human_record_session(
         capture_target(&loaded)?
     };
     let video_path = staging.join("original.mov");
-    let (mut recorder, video_unavailable) = if no_video {
-        (None, Some("disabled by --no-video".to_string()))
-    } else {
+    let (mut recorder, video_unavailable) = if record_video {
         match start_human_screen_recording(&video_path) {
             Ok(child) => (Some(child), None),
             Err(error) => (None, Some(error.to_string())),
         }
+    } else {
+        (None, Some("video was not requested".to_string()))
     };
     if !attach {
         if let Err(error) = launch_capture_target(&loaded, &target) {
@@ -103,7 +103,7 @@ pub(super) async fn human_record_session(
 
     if !ctx.json {
         ctx.say(format!(
-            "Recording original capture ({})...",
+            "Creating bug report ({})...",
             if attach {
                 "attached app"
             } else {
@@ -123,7 +123,7 @@ pub(super) async fn human_record_session(
     if let Some(child) = recorder.as_mut() {
         stop_human_screen_recording(child).await;
     }
-    input_result.context("waiting for the recording stop signal")?;
+    input_result.context("waiting for the demonstration stop signal")?;
 
     let mut action_count = 0usize;
     let mut has_states = false;
@@ -284,8 +284,8 @@ fn launch_capture_target(loaded: &config::Loaded, target: &str) -> Result<()> {
 fn start_human_screen_recording(path: &Path) -> Result<std::process::Child> {
     if !cfg!(target_os = "macos") {
         anyhow::bail!(
-            "host screen recording is not yet implemented on this OS; use --actions-file or \
-             --no-video"
+            "host screen recording is not yet implemented on this OS; create from an \
+             --actions-file without --record-video"
         )
     }
     std::process::Command::new("/usr/sbin/screencapture")
@@ -458,7 +458,7 @@ fn make_capture_files_readonly(dir: &Path) -> Result<()> {
 /// Watch the selected Cloud project for a tester-marked capture, then pull,
 /// clean-launch replay, and ddmin it locally. The capture never enters Cloud's
 /// confirmed feed unless `check` reaches the exact captured structural state.
-pub(super) async fn exploratory_record_session(
+pub(super) async fn exploratory_create_session(
     config_path: Option<&Path>,
     app: Option<String>,
     timeout_secs: u64,
@@ -550,7 +550,7 @@ pub(super) async fn exploratory_record_session(
             .await?;
             if ctx.json {
                 ctx.emit(&serde_json::json!({
-                    "command": "record",
+                    "command": "create",
                     "status": "confirmed",
                     "bucket": bucket,
                     "repro": public,
@@ -625,8 +625,18 @@ async fn shrink_tester_capture(
                 .cloned()
                 .collect();
             replays += 1;
-            let (result, _) =
-                check_repro(loaded, &meta.id, 1, 1, kind, None, true, Some(&candidate)).await?;
+            let (result, _) = check_repro(
+                loaded,
+                &meta.id,
+                1,
+                1,
+                kind,
+                None,
+                true,
+                Some(&candidate),
+                false,
+            )
+            .await?;
             if result.outcome == repro::Outcome::Fail {
                 current = candidate;
                 removed = true;
@@ -643,8 +653,18 @@ async fn shrink_tester_capture(
         }
     }
 
-    let (final_check, _) =
-        check_repro(loaded, &meta.id, 2, 1, kind, None, true, Some(&current)).await?;
+    let (final_check, _) = check_repro(
+        loaded,
+        &meta.id,
+        2,
+        1,
+        kind,
+        None,
+        true,
+        Some(&current),
+        false,
+    )
+    .await?;
     if final_check.outcome != repro::Outcome::Fail {
         anyhow::bail!("the minimized tester capture was not deterministic; keeping it pending");
     }
@@ -664,6 +684,7 @@ async fn shrink_tester_capture(
 
 /// Prefer a direct screen URL for recordings. Legacy repros lack this metadata
 /// and retain their original full replay unchanged.
+#[cfg(test)]
 pub(super) fn minimize_record_replay(replay: &mut serde_json::Value, meta: &repro::Meta) {
     let Some(url) = meta.record_url.as_ref() else {
         return;
@@ -757,8 +778,8 @@ fn is_video(p: &Path) -> bool {
 ///
 /// Lookup order: the per-id recording slot
 /// (`.reproit/recordings/repro/<id>/video.*`) first; else the newest recording
-/// under `.reproit/runs/` (the one you just produced with `record <id>`), which
-/// we then copy into the per-id slot. Bails with a how-to if neither exists.
+/// under `.reproit/runs/` (the one just produced with `--record-video`), which
+/// is then copied into the per-id slot. Bails with a how-to if neither exists.
 /// `.reproit/recordings/` is gitignored, so cached videos can never be
 /// committed by accident.
 pub(super) fn resolve_repro_video(loaded: &config::Loaded, id_or_alias: &str) -> Result<PathBuf> {
@@ -789,7 +810,9 @@ pub(super) fn resolve_repro_video(loaded: &config::Loaded, id_or_alias: &str) ->
             .map_err(|e| anyhow::anyhow!("caching recording to {}: {e}", dest.display()))?;
         return Ok(dest);
     }
-    anyhow::bail!("no recording for `{id_or_alias}`. Make one with:  reproit record {id_or_alias}")
+    anyhow::bail!(
+        "no recording for `{id_or_alias}`. Make one with: reproit @{id_or_alias} --record-video"
+    )
 }
 
 /// Newest video file under `dir` (recursively), by modification time. When

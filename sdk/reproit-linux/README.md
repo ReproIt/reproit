@@ -52,7 +52,7 @@ retain the same structural identity.
 ## Capture an exploratory bug
 
 Add `ReproIt.capture_bug()` to a debug action. It sends the rolling structural path and current
-state without field values. Run `reproit record` from the application source directory. The CLI
+state without field values. Run `reproit create` from the application source directory. The CLI
 replays and shrinks the path before it creates a confirmed bug.
 
 ## Report invariants

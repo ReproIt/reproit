@@ -72,22 +72,28 @@ pub(super) fn build_argv(
             if let Some(t) = s("target") {
                 argv.push(t);
             }
-            if b("record") {
-                argv.push("--record".into());
+            if b("record_video") {
+                argv.push("--record-video".into());
             }
         }
         "reproit_check" => {
-            argv.push("check".into());
             if let Some(r) = s("repro") {
-                argv.push(r);
+                let direct = if r.starts_with('@')
+                    || r.starts_with("fnd_")
+                    || r.starts_with("rep_")
+                    || r.starts_with("bkt_")
+                {
+                    r
+                } else {
+                    format!("@{r}")
+                };
+                argv.push(direct);
+            } else {
+                argv.push("check".into());
             }
-        }
-        "reproit_record" => {
-            argv.push("record".into());
-            let Some(r) = s("repro") else {
-                return Err((missing("repro"), true));
-            };
-            argv.push(r);
+            if b("record_video") {
+                argv.push("--record-video".into());
+            }
             if b("flicker") {
                 argv.push("--flicker".into());
             }

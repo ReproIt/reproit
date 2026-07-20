@@ -39,12 +39,16 @@ the loop between its commands, not the finding itself.
    (quarantined/non-blocking until it next passes, then promoted to required). `keep` is not a git
    commit; it writes a local guard.
 
-For clips, use the right recorder:
+For video evidence, use the explicit video option:
 
-- `reproit scan --record` saves quick audit clips for visible, boxable scan findings into
+- `reproit scan --record-video` saves quick audit clips for visible, boxable scan findings into
   `.reproit/recordings/scan/`.
-- `reproit record <id>` replays one confirmed fuzz/kept repro id and produces the shareable evidence
-  video (paced action HUD + a red box on the bug's effect).
+- `reproit <id> --record-video` runs one confirmed fuzz or kept repro and produces the shareable
+  evidence video (paced action HUD plus a red box on the bug's effect).
+
+Human-authored reports use a separate workflow. `reproit create` opens an interactive demonstration
+session, and `reproit push cap_...` publishes the resulting immutable original after review. Agents
+must not invoke `create` because it requires a person at an interactive terminal.
 
 ## Rules
 
@@ -54,7 +58,7 @@ For clips, use the right recorder:
 - Screens are keyed **structurally** (roles + dev keys, text excluded), so the graph is
   locale-invariant. Do not assume a screen changed just because text did.
 - `reproit repros` lists saved guards + last status. `reproit watch <id>` opens the recorded video
-  for a finding (record one with `reproit record <id>`).
+  for a finding (make one with `reproit <id> --record-video`).
 - `reproit repro simplify <id> --to '[...]'` adopts a shorter action sequence that reproit verifies
   still reproduces; `reproit repro why <id>` localizes.
 

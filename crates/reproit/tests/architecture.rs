@@ -170,7 +170,7 @@ fn responsibility_heavy_modules_stay_split() {
         "src/commands/check.rs",
         "src/commands/fuzz_command.rs",
         "src/commands/proof.rs",
-        "src/commands/record_command.rs",
+        "src/commands/create_command.rs",
         "src/commands/scan_command.rs",
         "src/backends/tui/capture.rs",
         "src/backends/tui/fuzz_config.rs",

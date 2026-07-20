@@ -376,7 +376,7 @@ pub fn run() -> Result<()> {
     // outside replay (a plain fuzz walk is not a soak), matching every runner.
     let is_soak = fuzz.replay.is_some();
     let soak_start = Instant::now();
-    // --record clip capture: only in replay mode (a clip reproduces one finding)
+    // --record-video clip capture: only in replay mode (a clip reproduces one finding)
     // and only when REPROIT_VIDEO_DIR is set. We film the frames render_screen
     // produces during the replay, then box the finding's element after it settles.
     let mut clip: Option<ClipCapture> = if fuzz.replay.is_some() {
@@ -523,7 +523,7 @@ pub fn run() -> Result<()> {
             let scr = parser.lock().unwrap().screen().contents();
             frames.push(serde_json::json!({ "action": "(launch)", "screen": scr }));
         }
-        // --record: film the launch/start frame before any action, so the clip
+        // --record-video: film the launch/start frame before any action, so the clip
         // opens on the app's initial screen (the lead-in the desktop runners get
         // from screencapture's warm-up).
         if let Some(cap) = clip.as_mut() {
@@ -698,7 +698,7 @@ pub fn run() -> Result<()> {
                 let scr = parser.lock().unwrap().screen().contents();
                 frames.push(serde_json::json!({ "action": act, "screen": scr }));
             }
-            // --record: film this action's settled frame. The LAST replay action is
+            // --record-video: film this action's settled frame. The LAST replay action is
             // the finding's trigger, so once the replay cursor is spent we also
             // resolve the sel to a cell rect from the screen it just left behind.
             if let Some(cap) = clip.as_mut() {
@@ -858,7 +858,7 @@ pub fn run() -> Result<()> {
         }
     }
 
-    // --record clip finalize: assemble the filmed frames into clip.mov, write the
+    // --record-video clip finalize: assemble the filmed frames into clip.mov, write the
     // finding box's cell rect + time window to box-spec.json, and emit
     // FINDING:BOXED. The host box-overlay step draws the red box post-capture.
     if let Some(mut cap) = clip.take() {

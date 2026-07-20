@@ -44,7 +44,7 @@ Call it once at launch. An explicit configuration runs in release builds. The no
 ## Exploratory testing
 
 Add `ReproIt.captureBug()` to a debug menu or tester button. It sends the rolling structural path
-and current state, never field values. Run `reproit record` in the app source directory. The CLI
+and current state, never field values. Run `reproit create` in the app source directory. The CLI
 waits for the report, replays it from a clean launch, shrinks the path, and only then promotes it to
 a confirmed bug.
 

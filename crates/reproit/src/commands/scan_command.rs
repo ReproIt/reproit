@@ -22,10 +22,10 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
     };
     if let Some(path) = args.target.as_deref().map(PathBuf::from) {
         if path.is_file() && a2ui::looks_like_target(&path) {
-            if args.record {
+            if args.record_video {
                 anyhow::bail!(
-                    "A2UI streams produce a minimal JSON reproduction, so `scan --record` does \
-                     not apply"
+                    "A2UI streams produce a minimal JSON reproduction, so \
+                     `scan --record-video` does not apply"
                 );
             }
             return a2ui::run_target(ctx, &path, "scan", 1, 1);
@@ -34,19 +34,19 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
     set_extra_headers(&args.headers)?;
     if let Some(path) = args.target.as_deref().map(PathBuf::from) {
         if path.is_file() && backend_headless::looks_like_schema(&path) {
-            if args.record {
+            if args.record_video {
                 anyhow::bail!(
-                    "backend streams produce a structural reproduction, so `scan --record` does \
-                     not apply"
+                    "backend streams produce a structural reproduction, so \
+                     `scan --record-video` does not apply"
                 );
             }
             return backend_headless::run_target(ctx, &path, "scan", 1, 1).await;
         }
     } else if let Some((path, config)) = configured_backend {
-        if args.record {
+        if args.record_video {
             anyhow::bail!(
-                "backend streams produce a structural reproduction, so `scan --record` does not \
-                 apply"
+                "backend streams produce a structural reproduction, so `scan --record-video` \
+                 does not apply"
             );
         }
         return backend_headless::run_configured_target(ctx, &path, "scan", 1, 1, config).await;
@@ -111,7 +111,7 @@ async fn run_app_scan(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -> 
         budget: args.budget,
         sim: args.sim,
         json: ctx.json,
-        record: args.record,
+        record_video: args.record_video,
         out: args.out,
     };
     let summary = fuzz::scan(&loaded.config, &loaded.root, &scan_args).await?;

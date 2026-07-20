@@ -28,7 +28,7 @@ action) that you copy into your own repo.
 | `version`   | no       | `latest`                    | reproit release to install (e.g. `v0.1.88`), or `latest`.                                                  |
 | `only`      | no       | (empty)                     | Restrict to these oracle categories (comma list: `crash,jank,leak,visual,divergence,a11y,graph`).          |
 | `no`        | no       | (empty)                     | Exclude these oracle categories (comma list). Applied after `only`.                                        |
-| `record`    | no       | `false`                     | On a finding, confirm and record the repro on the simulator tier. Needs a runner with a simulator (macOS). |
+| `confirm-on-sim` | no   | `false`                     | Confirm a finding on the simulator tier. Needs a runner with a simulator (macOS).                         |
 | `cloud-app` | no       | (empty)                     | Cloud app id to attach evidence to. Only needed on CLI versions that require it alongside the bucket.      |
 
 There are no action outputs. The action's product is the uploaded evidence and the posted PR

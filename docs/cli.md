@@ -35,7 +35,7 @@ the same graph, and your repros survive copy edits and translations.
 From inside your app's project:
 
 ```sh
-reproit scan --record         # audit visible bugs and save clips
+reproit scan --record-video   # audit visible bugs and save clips
 # -> 6 issues across 4 screens.  Next: reproit fuzz --all
 
 reproit fuzz --all            # hunt for confirmed, replayable bugs
@@ -100,19 +100,19 @@ reproit scan https://app.com  # zero-config: scan a deployed app, no setup
 reproit scan                  # scan the whole app (uses ./reproit.yaml)
 reproit scan login            # scope the crawl to one alias/node
 reproit scan ui.jsonl         # validate and render an A2UI v0.9 stream
-reproit scan --record         # also save an annotated clip per boxable finding
+reproit scan --record-video   # also save an annotated clip per boxable finding
 ```
 
-`--record` (web) replays the path to each finding's screen and saves an annotated video with a red
-box on the bug, one clip per (screen x issue), into `.reproit/recordings/scan/<scan-run>/` (or
-`--out <dir>`). It clips the findings with an on-screen element (content, broken-route,
-choice-anomaly). Sequence-dependent hang, jank, leak, and crash findings remain in `fuzz`; they are
-not inferred from a single screen crawl.
+`--record-video` (web) runs the path to each finding's screen and saves an annotated video with a
+red box on the bug, one clip per (screen x issue), into
+`.reproit/recordings/scan/<scan-run>/` (or `--out <dir>`). It clips the findings with an on-screen
+element (content, broken-route, choice-anomaly). Sequence-dependent hang, jank, leak, and crash
+findings remain in `fuzz`; they are not inferred from a single screen crawl.
 
 Reach for `scan` first when auditing an app. It is deterministic (no action permutations) and
-surfaces every per-screen issue, where `fuzz` collapses to one finding per seed. `scan --record` is
-the fastest way to hand someone a clip of a visible bug. Use `fuzz` when you need a replayable
-`fnd_...` finding that can be checked and kept as a guard.
+surfaces every per-screen issue, where `fuzz` collapses to one finding per seed.
+`scan --record-video` is the fastest way to hand someone a clip of a visible bug. Use `fuzz` when
+you need a replayable `fnd_...` finding that can be checked and kept as a guard.
 
 ### `fuzz`: find the deep, sequence-dependent bugs
 
@@ -166,19 +166,19 @@ reproit @login-crash              # reproduce one saved repro by alias
 reproit proof rep_a3f2c1b8e0d5    # inspect its immutable proof ledger
 reproit candidates                # show candidates and exact promotion blockers
 reproit check                 # run your whole saved suite
-reproit record                # launch the app and preserve the original human capture
-reproit record --attach       # start from an already-running app
-reproit record --upload       # capture, review in browser, then upload the original
-reproit record --cloud-tester # verify and shrink an SDK-marked Cloud capture
-reproit record <id>           # produce an annotated video of the bug
+reproit create                # demonstrate a bug and preserve the original human capture
+reproit create --attach       # start from an already-running app
+reproit create --push         # create, review in browser, then push the original
+reproit create --cloud-tester # verify and shrink an SDK-marked Cloud capture
+reproit <id> --record-video   # run the bug and produce annotated video evidence
 ```
 
-The `record` video is paced and annotated: a caption names each action (the trigger step in red),
+The repro video is paced and annotated: a caption names each action (the trigger step in red),
 and the clip ends with a red box around what broke - the crashing control, the overflowing element,
 the `[object Object]` text, the choice that shifts the layout. (Leak has no on-screen element, so no
 box.)
 
-With no id, `record` captures what the tester actually experienced. It launches the configured app
+`create` captures what the tester actually experienced. It launches the configured app
 by default; `--attach` begins from the current state of an app that is already running. The tester
 uses the app normally and returns to the terminal to stop. Repro It stores an immutable original in
 `.reproit/captures/cap_.../`. It does not need an oracle, replay the session, or remove actions.
@@ -191,27 +191,27 @@ live export path with `--actions-file` and Repro It reads and freezes it after y
 currently require such an SDK export. A capture with no finalized video and no action export fails
 closed and reports the private staging directory for review or deletion.
 
-Original captures remain local unless upload is explicitly requested. `record --upload` opens a
+Original captures remain local unless push is explicitly requested. `create --push` opens a
 browser review where the signed-in user selects the organization project, title, description,
 severity, and visibility. After approval, the CLI uploads each file and its SHA-256 hash, then the
 Cloud verifies every hash before publishing the private capture page. `--no-open` prints the review
 link for a headless terminal. The local original remains immutable. An interrupted upload can be
-resumed with `reproit cap_... --upload`.
+resumed with `reproit push cap_...`.
 
 The capture id is also the direct command. Bare `reproit cap_...` shows its local summary,
-`--watch` (or `--record`) opens the original video, `--upload` starts or resumes browser review,
-and `--open` opens the completed Cloud capture page. Global `--json` returns the same status as
+`--watch` opens the original video, `reproit push cap_...` starts or resumes browser review, and
+`--open` opens the completed Cloud capture page. Global `--json` returns the same status as
 structured output. A separate `inspect` command is unnecessary.
 
 Any later deterministic replay or minimized repro is a derived artifact and must reference its
 parent `cap_...`; it never
 replaces or mutates the original. The older SDK/Cloud tester workflow is available explicitly as
-`record --cloud-tester`: it pulls a marked rolling path, verifies the captured state, and derives a
+`create --cloud-tester`: it pulls a marked rolling path, verifies the captured state, and derives a
 minimized repro only when verification succeeds.
 
-This is different from `scan --record`: scan clips are quick audit artifacts, one per visible issue.
-`record <id>` is evidence for one replayable repro id (`fnd_...`, `rep_...`, or an alias), and is
-what `watch <id>` opens later.
+This is different from `scan --record-video`: scan clips are quick audit artifacts, one per visible
+issue. `<id> --record-video` is evidence for one replayable repro id (`fnd_...`, `rep_...`, or an
+alias), and is what `watch <id>` opens later.
 
 Because repros are stored by _structure_ (developer keys), a button that simply moved comes back as
 **stale**, not a false **fail**. The exit codes are the CI contract.
@@ -234,7 +234,8 @@ That's the whole loop: `scan` (audit and clips) -> `fuzz --all` (replayable ids)
 ## Saving and re-running bugs
 
 - `reproit repros` lists your saved repros with each one's last status and action sequence.
-- `reproit watch <id>` opens a repro's recorded video (record one with `reproit record <id>`).
+- `reproit watch <id>` opens a repro's recorded video (make one with
+  `reproit <id> --record-video`).
 - `reproit repro simplify <id> --to '<actions>'` swaps in a shorter action sequence, but only if
   reproit can verify it still reproduces the same bug. Fuzz-found repros are sometimes tangled; this
   cleans them up safely. Your agent proposes a minimal sequence, reproit replays it, and adopts it
@@ -403,7 +404,7 @@ locally.
 reproit login                                          # once: browser sign-in and project selection
 reproit bugs                                             # impact-ranked bucket ids
 reproit bkt_...                                          # reproduce locally
-reproit record bkt_...                                   # pull if needed, then record
+reproit bkt_... --record-video                           # pull if needed and save video
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit resolution-events
 ```
@@ -428,7 +429,7 @@ cloud view is backed by exportable raw data.
 
 ```
 reproit                       help: the scan -> fuzz -> check -> keep story
-reproit scan [target]         scan every screen for visible bugs (--record for clips)
+reproit scan [target]         scan every screen for visible bugs (--record-video for clips)
 reproit fuzz [target]         find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>    reproduce one bug
 reproit @saved-name            reproduce one saved repro or journey by name
@@ -436,14 +437,14 @@ reproit proof <id>             explain its immutable proof ledger
 reproit candidates             list candidates with exact promotion blockers
 reproit check                  verify the whole saved suite
 reproit keep [id] [--as name] keep a repro in your suite
-reproit record                preserve an immutable human-authored original
-reproit record --upload       capture, browser-review, and upload the original
+reproit create                preserve an immutable human-authored original
+reproit create --push         create, browser-review, and push the original
 reproit cap_...               show an immutable original capture
-reproit cap_... --watch       open its video (--record is an alias)
-reproit cap_... --upload      review and upload it to Cloud
+reproit cap_... --watch       open its video
+reproit push cap_...          review and push it to Cloud
 reproit cap_... --open        open its completed Cloud page
-reproit record --cloud-tester verify/shrink an SDK-marked Cloud capture
-reproit record <id>           annotated video of a repro (--flicker also scans it)
+reproit create --cloud-tester verify/shrink an SDK-marked Cloud capture
+reproit <id> --record-video   annotated video of a repro (--flicker also scans it)
 reproit baseline [--update]   visual-regression diff vs the committed baseline
 reproit repros                list saved repros + last status
 reproit repro simplify <id> --to ..  swap in a shorter, verified-equivalent sequence
@@ -533,10 +534,9 @@ Precedence: flag > config > default.
 reproit_context(target?)              scoped graph + screens + selectors for a target
 reproit_accessibility(state?, kind?)  UI-vs-a11y diff per screen, grounded by selector + file:line
 reproit_coverage()                    candidate map from source + coverage ledger + worklist
-reproit_scan(target?)                 default find: state-present bugs, one per (screen x issue)
+reproit_scan(target?, record_video?)  default find: state-present bugs, one per (screen x issue)
 reproit_fuzz(target?, platform?)      deep sequence bugs (crash/jank/hang); deduped unique-bugs list
-reproit_check(repro?)                 run a repro / journey / pending finding and classify it
-reproit_record(repro, flicker?)       annotated video of a repro (flicker = also scan it)
+reproit_check(repro?, record_video?, flicker?)  run and classify, optionally with video evidence
 reproit_baseline(update?)             visual-regression diff vs the committed baseline
 reproit_keep(id?, as?)                save a repro into the suite
 reproit_simplify(repro, actions)      adopt a shorter, verified-equivalent sequence
@@ -568,7 +568,7 @@ watch `reproit_cloud_resolution_events` for a regression (prod contradicting the
 reproit login                       sign in in the browser and select a discovered project
 reproit bugs [query]                impact-ranked confirmed production bugs
 reproit <bkt_...>                   pull and verify locally
-reproit record <bkt_...>            pull if needed and record the exact replay
+reproit <bkt_...> --record-video    pull if needed and save video of the exact repro
 reproit triage <bucket> <status>    update lifecycle state
 reproit timeline <bucket>           occurrence history and production resolution
 reproit diagnose <report>           match a report to a confirmed bug
@@ -601,10 +601,10 @@ The local project state is grouped by concept:
 ```
 .reproit/
   map/                  # appmap.json, visits.json, semantic candidates
-  runs/                 # raw evidence from scan/fuzz/check/record runs
+  runs/                 # raw evidence from scan/fuzz/check runs
   recordings/
-    scan/               # quick audit clips from scan --record
-    repro/              # record <id> videos opened by watch <id>
+    scan/               # quick audit clips from scan --record-video
+    repro/              # <id> --record-video videos opened by watch <id>
   captures/             # immutable, private human-authored originals
   repros/               # saved regression guards
   tmp/                  # transient runner scratch

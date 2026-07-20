@@ -11,7 +11,7 @@ use std::path::PathBuf;
     name = "reproit",
     version = VERSION,
     about = "Find UI failures and keep every confirmed bug reproducible",
-    after_help = "Direct replay:\n  reproit fnd_<id>\n  reproit rep_<id>\n  reproit @saved-name"
+    after_help = "Run one repro:\n  reproit fnd_<id>\n  reproit rep_<id>\n  reproit @saved-name\n\nAdd video evidence:\n  reproit @saved-name --record-video"
 )]
 pub(crate) struct Cli {
     /// Path to reproit.yaml (default: search cwd and ancestors)
@@ -61,11 +61,11 @@ pub(crate) struct ScanArgs {
     /// Force the simulator tier (default: headless / web).
     #[arg(long)]
     pub(crate) sim: bool,
-    /// After the crawl, record every distinct reported finding. Visually
-    /// localizable findings are boxed; the rest are diagnostic clips.
+    /// After the crawl, record a video for every distinct reported finding.
+    /// Visually localizable findings are boxed; the rest are diagnostic clips.
     #[arg(long)]
-    pub(crate) record: bool,
-    /// Where the `--record` clips land (default:
+    pub(crate) record_video: bool,
+    /// Where the `--record-video` clips land (default:
     /// .reproit/recordings/scan/<scan-run>/).
     #[arg(long)]
     pub(crate) out: Option<PathBuf>,
@@ -213,7 +213,8 @@ pub(crate) enum Cmd {
     /// Run the saved regression suite and classify each: pass (0) / fail (1) /
     /// flaky (2) / stale (3). To reproduce one bug, run `reproit <id>` or
     /// `reproit @saved-name`.
-    /// (Annotated video is `record`; the visual oracle is `baseline`.)
+    /// Add `--record-video` to save video evidence; the visual oracle is
+    /// `baseline`.
     Check {
         /// Internal direct-reference route. Users run `reproit <id>` or
         /// `reproit @saved-name`.
@@ -248,26 +249,27 @@ pub(crate) enum Cmd {
         /// Specific device name/id to route to (else the interactive picker).
         #[arg(long)]
         device: Option<String>,
+        /// Save screen video as supporting evidence for each executed repro.
+        #[arg(long)]
+        record_video: bool,
+        /// Scan recorded video for transient render glitches.
+        #[arg(long, requires = "record_video")]
+        flicker: bool,
     },
-    /// Capture a bug exactly as a person experiences it. With no id Repro It
-    /// launches the configured app, records until you stop, and preserves the
-    /// immutable original without requiring an oracle. Pass a repro id to film
-    /// an existing deterministic repro instead.
-    Record {
-        /// Existing repro to film: pending fnd_..., saved rep_..., or alias.
-        /// Omit it to create a new human-authored original capture.
-        repro: Option<String>,
-        /// Preserve the legacy SDK/Cloud tester workflow: wait for a marked SDK
-        /// capture, clean-replay it, and derive a minimized repro. Unlike the
-        /// default human capture, this requires verification.
+    /// Create a bug report by demonstrating the problem in the configured app.
+    /// Repro It preserves the immutable original without claiming an unverified
+    /// detector result.
+    Create {
+        /// Wait for a marked SDK capture, clean-run it, and derive a minimized
+        /// repro. Unlike the default human capture, this requires verification.
         #[arg(
             long,
             conflicts_with_all = [
                 "attach",
                 "title",
                 "actions_file",
-                "no_video",
-                "upload",
+                "record_video",
+                "push",
                 "no_open"
             ]
         )]
@@ -284,16 +286,16 @@ pub(crate) enum Cmd {
         /// `actions` and `states`. It is copied into the immutable original.
         #[arg(long)]
         actions_file: Option<PathBuf>,
-        /// Do not record screen video. Useful when the SDK export contains all
-        /// evidence or screen-recording permission is unavailable.
+        /// Also record screen video as supporting evidence. Video is captured
+        /// automatically when no structural action export is supplied.
         #[arg(long)]
-        no_video: bool,
-        /// Review and upload the immutable original to Repro It Cloud after
-        /// recording stops.
+        record_video: bool,
+        /// Review and push the immutable original to Repro It Cloud after the
+        /// demonstration stops.
         #[arg(long)]
-        upload: bool,
+        push: bool,
         /// Print the Cloud review link instead of opening a browser.
-        #[arg(long, requires = "upload")]
+        #[arg(long, requires = "push")]
         no_open: bool,
         /// Cloud project for --cloud-tester. Defaults to the selected project.
         #[arg(long)]
@@ -304,24 +306,14 @@ pub(crate) enum Cmd {
         /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
         #[arg(long)]
         kind: Option<String>,
-        /// Number of concurrent devices (multi-actor)
-        #[arg(long, default_value_t = 1)]
-        devices: usize,
-        /// Reuse the previous build (--no-build). Only valid when the last
-        /// build was this same journey.
+    },
+    /// Push a local human-created bug report to Repro It Cloud.
+    Push {
+        /// Immutable local capture id (cap_...).
+        capture: String,
+        /// Print the Cloud review link instead of opening a browser.
         #[arg(long)]
-        warm: bool,
-        /// Capture SHOOT screenshots into this directory
-        #[arg(long)]
-        shots_dir: Option<PathBuf>,
-        /// Drive in profile mode (AOT) for representative perf
-        #[arg(long)]
-        profile: bool,
-        /// After recording, scan the video for transient render glitches
-        /// (intra-run flicker: a frame that diverges then snaps back).
-        /// No baseline needed.
-        #[arg(long)]
-        flicker: bool,
+        no_open: bool,
     },
     /// Visual-regression the current capture against the committed baseline:
     /// per-pixel tolerance, ignore regions, and `--update` to accept the
@@ -381,6 +373,12 @@ pub(crate) enum Cmd {
         /// Download without running the local confirmation replay.
         #[arg(long)]
         no_run: bool,
+        /// Save screen video as supporting evidence for the executed repro.
+        #[arg(long, conflicts_with = "no_run")]
+        record_video: bool,
+        /// Scan recorded video for transient render glitches.
+        #[arg(long, requires = "record_video")]
+        flicker: bool,
         /// Cloud base URL (default: persisted login / $REPROIT_CLOUD_URL).
         #[arg(long)]
         cloud: Option<String>,
@@ -394,17 +392,11 @@ pub(crate) enum Cmd {
         /// Immutable original capture id (cap_...).
         capture: String,
         /// Open the original local video.
-        #[arg(long, visible_alias = "record", conflicts_with_all = ["upload", "open"])]
-        watch: bool,
-        /// Review and upload the immutable original to Repro It Cloud.
         #[arg(long, conflicts_with = "open")]
-        upload: bool,
+        watch: bool,
         /// Open the uploaded capture page in a browser.
         #[arg(long)]
         open: bool,
-        /// Print a browser URL instead of opening it.
-        #[arg(long, requires = "upload")]
-        no_open: bool,
     },
     /// Update a production bug's lifecycle state. Example:
     /// `reproit triage bkt_... fixed --fixed-in-build 1.2.3`.
@@ -427,8 +419,8 @@ pub(crate) enum Cmd {
     /// List recent production confirmation and regression transitions.
     ResolutionEvents,
     /// Open a repro's recorded video in your default player. Recordings live
-    /// under .reproit/recordings/repro/ (gitignored); make one with `record
-    /// <id>`.
+    /// under .reproit/recordings/repro/ (gitignored); make one with
+    /// `reproit @name --record-video`.
     Watch {
         /// The repro to watch (id or alias).
         repro: String,
@@ -453,7 +445,8 @@ pub(crate) enum Cmd {
     /// Scan each reachable screen once for state-present oracle findings.
     /// Results retain an authoritative or specialist classification, but both
     /// are reported when their oracle predicate holds.
-    /// `--record` saves quick audit clips; use `record <id>` for a fuzz repro.
+    /// `--record-video` saves quick audit clips; use
+    /// `reproit <id> --record-video` for a fuzz repro.
     Scan(ScanArgs),
     /// Find confirmed, replayable bugs through deeper interaction exploration.
     /// ReproIt learns and refreshes its internal app model automatically.
@@ -1139,22 +1132,27 @@ mod tests {
             } if id == "fnd_deadbeef0001"
         ));
 
-        let cli = Cli::parse_args(["reproit", "@checkout-crash"]);
+        let cli = Cli::parse_args(["reproit", "@checkout-crash", "--record-video"]);
         assert!(matches!(
             cli.command,
             Cmd::Check {
                 repro: Some(ref alias),
+                record_video: true,
                 ..
             } if alias == "checkout-crash"
         ));
 
-        let cli = Cli::parse_args(["reproit", "bkt_deadbeef0001"]);
+        let cli = Cli::parse_args(["reproit", "bkt_deadbeef0001", "--record-video"]);
         assert!(matches!(
             cli.command,
-            Cmd::ReplayBucket { ref issue, .. } if issue == "bkt_deadbeef0001"
+            Cmd::ReplayBucket {
+                ref issue,
+                record_video: true,
+                ..
+            } if issue == "bkt_deadbeef0001"
         ));
 
-        let cli = Cli::parse_args(["reproit", "cap_deadbeef00000000", "--record"]);
+        let cli = Cli::parse_args(["reproit", "cap_deadbeef00000000", "--watch"]);
         assert!(matches!(
             cli.command,
             Cmd::Capture {
@@ -1175,11 +1173,21 @@ mod tests {
             vec!["reproit", "check", "fnd_deadbeef0001"],
             vec!["reproit", "check", "checkout"],
             vec!["reproit", "verify", "fnd_deadbeef0001"],
+            vec!["reproit", "replay", "fnd_deadbeef0001"],
+            vec!["reproit", "record"],
+            vec!["reproit", "scan", "--record"],
             vec!["reproit", "fuzz", "--shrink"],
             vec!["reproit", "cloud"],
             vec!["reproit", "cloud", "login"],
             vec!["reproit", "cloud", "pull"],
             vec!["reproit", "cloud", "reproduce"],
+            vec![
+                "reproit",
+                "check",
+                "--repro-id",
+                "fnd_deadbeef0001",
+                "--flicker",
+            ],
         ] {
             assert!(Cli::try_parse_from(args).is_err());
         }
@@ -1227,40 +1235,50 @@ mod tests {
     }
 
     #[test]
-    fn record_defaults_to_original_capture_and_cloud_tester_is_explicit() {
-        let cli =
-            Cli::try_parse_from(["reproit", "record", "--attach", "--title", "menu bug"]).unwrap();
+    fn create_is_distinct_from_video_and_push_is_explicit() {
+        let cli = Cli::try_parse_from([
+            "reproit",
+            "create",
+            "--attach",
+            "--title",
+            "menu bug",
+            "--record-video",
+        ])
+        .unwrap();
         assert!(matches!(
             cli.command,
-            Cmd::Record {
-                repro: None,
+            Cmd::Create {
                 cloud_tester: false,
                 attach: true,
                 title: Some(ref title),
+                record_video: true,
                 ..
             } if title == "menu bug"
         ));
 
-        let cli = Cli::try_parse_from(["reproit", "record", "--cloud-tester"]).unwrap();
+        let cli = Cli::try_parse_from(["reproit", "create", "--cloud-tester"]).unwrap();
         assert!(matches!(
             cli.command,
-            Cmd::Record {
+            Cmd::Create {
                 cloud_tester: true,
                 attach: false,
                 ..
             }
         ));
-        assert!(Cli::try_parse_from(["reproit", "record", "--cloud-tester", "--attach"]).is_err());
-        assert!(Cli::try_parse_from(["reproit", "record", "--cloud-tester", "--upload"]).is_err());
+        assert!(Cli::try_parse_from(["reproit", "create", "--cloud-tester", "--attach"]).is_err());
+        assert!(Cli::try_parse_from(["reproit", "create", "--cloud-tester", "--push"]).is_err());
 
-        let cli = Cli::try_parse_from(["reproit", "record", "--upload", "--no-open"]).unwrap();
+        let cli = Cli::try_parse_from(["reproit", "create", "--push", "--no-open"]).unwrap();
         assert!(matches!(
             cli.command,
-            Cmd::Record {
-                upload: true,
+            Cmd::Create {
+                push: true,
                 no_open: true,
                 ..
             }
         ));
+
+        let cli = Cli::try_parse_from(["reproit", "push", "cap_deadbeef00000000"]).unwrap();
+        assert!(matches!(cli.command, Cmd::Push { .. }));
     }
 }

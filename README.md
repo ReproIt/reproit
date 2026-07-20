@@ -96,7 +96,7 @@ run, so there is no manual `npm install` step.
 cd <your-app>
 reproit doctor                         # see missing platform setup before the run
 reproit auth <account> --email ... --password ...  # optional logged-in flows
-reproit scan --record                  # fast visible-bug audit + clips
+reproit scan --record-video            # fast visible-bug audit + clips
 reproit fuzz --all                     # find confirmed bugs with fnd_... ids
 reproit fnd_...                        # reproduce that finding
 reproit keep fnd_...                   # keep it as a regression guard
@@ -108,26 +108,27 @@ simulator/device, native app, terminal command, or instrumented binary), but the
 `doctor`, optional `auth`, `scan`, `fuzz`, direct bug id, `keep`, then `check` again after the fix.
 
 `scan` checks each reachable screen for visible problems like overflow, broken content, missing
-labels, and odd layout choices. `--record` turns boxable scan findings into clips. `fuzz` explores
-longer action sequences and emits the replayable `fnd_...` findings you can run directly and `keep`.
+labels, and odd layout choices. `--record-video` turns boxable scan findings into clips. `fuzz`
+explores longer action sequences and emits the replayable `fnd_...` findings you can run directly
+and `keep`.
 
 A finding is not useful until it replays. `reproit <id>` proves that the bug still happens on your
 machine. `keep <id>` saves the repro locally as a non-blocking guard; once you fix the bug, `check`
 flips it to PASS and makes it part of the required suite.
 
-There are three recording paths on purpose:
+Action capture and video evidence are separate concepts:
 
-- `scan --record` is an audit convenience: after scan finds visible, boxable issues, it saves one
-  short clip per issue into `.reproit/recordings/scan/`.
-- `record <id>` is repro evidence: after `fuzz` prints an `fnd_...` id, or after you keep a repro,
-  it replays that exact bug once and saves the annotated video that `watch <id>` opens later.
-- `record` preserves a human-authored original: it launches the configured app, records the
+- `scan --record-video` is an audit convenience: after scan finds visible, boxable issues, it saves
+  one short clip per issue into `.reproit/recordings/scan/`.
+- `<id> --record-video` is repro evidence: after `fuzz` prints an `fnd_...` id, or after you keep a
+  repro, it runs that exact bug once and saves the annotated video that `watch <id>` opens later.
+- `create` preserves a human-authored original: it launches the configured app and captures the
   tester's experience from before launch until they stop, and saves main-display video plus
   environment data without requiring an oracle or changing the original. `--attach` starts from
   an already-running app.
   Instrumented SDKs can supply actions and state snapshots with `--actions-file`; unavailable
   channels stay explicit. A replay or minimized repro is a separate derived artifact.
-- `record --cloud-tester` retains the older SDK/Cloud workflow: it waits for a marked capture,
+- `create --cloud-tester` retains the SDK/Cloud workflow: it waits for a marked capture,
   clean-launch verifies it, and derives a minimized repro when verification succeeds.
 
 `.reproit/` is organized by concept: `map/` is the internal versioned app model, `runs/` is raw
@@ -138,7 +139,7 @@ repro video, `tmp/` is ignored runner scratch, and `repros/` is the saved regres
 
 ```sh
 reproit doctor                        # check app, platform, runner, and auth setup
-reproit scan [target]                 # scan every screen for visible bugs (--record for clips)
+reproit scan [target]                 # scan every screen (--record-video for clips)
 reproit fuzz [target]                 # find deeper interaction bugs
 reproit <fnd_|rep_|bkt_...>           # reproduce one bug
 reproit @saved-name                   # reproduce one saved repro or journey by name
@@ -146,11 +147,12 @@ reproit <cap_...>                     # show one immutable original capture
 reproit proof <id>                    # explain authority, replay, minimization, and promotion
 reproit candidates                    # list candidates with exact promotion blockers
 reproit check                         # verify the whole saved suite
-reproit record                        # launch the app and preserve a human-authored original
-reproit record --attach               # capture an already-running app from its current state
-reproit record --upload               # capture, review in browser, then upload the original
-reproit record --cloud-tester         # verify/minimize an SDK-marked Cloud tester capture
-reproit record <id>                   # annotated repro video (--flicker also scans it)
+reproit create                        # demonstrate a bug and preserve the human-authored original
+reproit create --attach               # demonstrate it in an already-running app
+reproit create --record-video         # explicitly add screen video to structural actions
+reproit create --push                 # create, review in browser, then push the original
+reproit create --cloud-tester         # verify/minimize an SDK-marked Cloud tester capture
+reproit <id> --record-video           # run a repro and save annotated video
 reproit baseline [--update]           # visual-regression diff vs the committed baseline
 reproit screenshots [tour]            # store/marketing shots: a tour across locales + devices
 reproit import maestro <flow.yaml>    # convert a Maestro flow into a reproit journey
@@ -160,8 +162,8 @@ reproit bugs [query]                  # impact-ranked confirmed production bugs
 reproit debug map show                # advanced: inspect the internal app model
 reproit triage <bkt_...> fixed        # record the fix intent
 reproit watch <id>                    # open a repro's recorded video
-reproit cap_... --watch               # open an original capture video (--record is an alias)
-reproit cap_... --upload              # review and upload an existing local original
+reproit cap_... --watch               # open an original capture video
+reproit push cap_...                   # review and push an existing local original
 reproit cap_... --open                # open its private Cloud page
 reproit repro simplify|why <id>       # shorten a repro (verified) / localize the failure
 reproit auth <account>                # configure/discover/verify a test login
@@ -174,7 +176,7 @@ Cloud golden path (production bug -> local repro -> triaged fix):
 reproit login                                       # once: browser sign-in and project selection
 reproit bugs
 reproit bkt_...
-reproit record bkt_...
+reproit bkt_... --record-video
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit resolution-events
 ```
