@@ -33,4 +33,5 @@ The gate:
 Set `REPROIT_CLOUD_ACCOUNT_KEY` in CI. A local run can use the account token saved by
 `reproit login`.
 
-The latest successful measurements are stored in `validation/cloud/artifacts/`.
+Both commands print their measurements. Set `REPROIT_WEB_BENCH_OUT` or
+`REPROIT_CONTRACT_RESULTS` when a CI job needs to retain a report outside the source tree.

@@ -32,7 +32,7 @@ const unexpectedFindings = [
 ];
 const report = {
   upstream: renderer.upstream,
-  corpus: renderer.corpus,
+  fixtures: renderer.fixtures,
   evidenceSha256: renderer.evidenceSha256,
   policy: {
     knownIssueBackedFindingsDoNotFail: true,

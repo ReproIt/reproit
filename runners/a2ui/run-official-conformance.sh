@@ -13,15 +13,15 @@ expected="${A2UI_EXPECTED_COMMIT:-$actual}"
 }
 
 artifacts="${A2UI_ARTIFACT_DIR:-${TMPDIR:-/tmp}/a2ui-conformance-$actual}"
-mkdir -p "$artifacts/corpus"
+mkdir -p "$artifacts/fixtures"
 
-A2UI_EXPECTED_COMMIT="$expected" node "$root/runners/a2ui/generate-official-corpus.mjs" \
-  "$checkout" "$artifacts/corpus" > "$artifacts/corpus-report.json"
+A2UI_EXPECTED_COMMIT="$expected" node "$root/runners/a2ui/generate-official-fixtures.mjs" \
+  "$checkout" "$artifacts/fixtures" > "$artifacts/fixtures-report.json"
 
 renderer_status=0
 A2UI_CHECKOUT="$checkout" \
 A2UI_EXPECTED_COMMIT="$expected" \
-A2UI_HARNESS="$root/runners/a2ui/official-corpus-renderer-harness.mjs" \
+A2UI_HARNESS="$root/runners/a2ui/official-fixture-renderer-harness.mjs" \
 A2UI_REPORT="$artifacts/renderer-report.json" \
   "$root/runners/a2ui/run-official-live.sh" > "$artifacts/renderer-stdout.log" || renderer_status=$?
 

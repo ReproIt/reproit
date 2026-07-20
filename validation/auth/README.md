@@ -1,4 +1,4 @@
-# Auth discovery validation corpus
+# Auth discovery validation fixtures
 
 Fixtures in this directory model mapped login UIs used to validate automatic journey inference. They
 must contain no real credentials. Coverage should grow across password, multi-screen OTP, split OTP

@@ -109,7 +109,7 @@ jobs:
           node --test \
             ../../validation/backend/sdk-node.test.mjs \
             ../../validation/backend/web-e2e.test.mjs
-      - name: Prepare the pinned official A2UI validator and corpus
+      - name: Prepare the pinned official A2UI validator and fixtures
         run: |
           git clone --filter=blob:none https://github.com/a2ui-project/a2ui.git "$RUNNER_TEMP/a2ui"
           git -C "$RUNNER_TEMP/a2ui" checkout --detach 96abfdc60de0657c6322028d10c1cc7bc25c237c

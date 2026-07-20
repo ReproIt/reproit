@@ -23,7 +23,7 @@ async function runPolicy({
     rendererPath,
     JSON.stringify({
       upstream: { commit: rendererCommit },
-      corpus: {},
+      fixtures: {},
       evidenceSha256: 'evidence',
       findings: [],
       metamorphicFindings: [],

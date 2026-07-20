@@ -4,7 +4,7 @@ This opt-in release gate runs disposable, pinned open-source services and feeds 
 schemas plus actual responses through Reproit's real backend schema importer and evaluator. It never
 calls or mutates a production service.
 
-The corpus covers:
+The fixture set covers:
 
 - Swagger Petstore 3: OpenAPI 3, JSON and XML media types, request bodies, path/query/header
   parameters, arrays, maps, references, enums, and a local create/read/delete lifecycle.

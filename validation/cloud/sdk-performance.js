@@ -8,9 +8,7 @@ const ReproIt = require('../../sdk/reproit-web.js');
 
 const fingerprintRuns = Number(process.env.REPROIT_WEB_BENCH_FINGERPRINT_RUNS || 100000);
 const flushRuns = Number(process.env.REPROIT_WEB_BENCH_FLUSH_RUNS || 10000);
-const out =
-  process.env.REPROIT_WEB_BENCH_OUT ||
-  require('path').join(__dirname, 'artifacts', 'sdk-latest.json');
+const out = process.env.REPROIT_WEB_BENCH_OUT;
 const sentinel = 'private-sdk-benchmark-value';
 
 let started = performance.now();
@@ -65,6 +63,8 @@ const result = {
     rawFingerprintValueAbsent: true,
   },
 };
-fs.mkdirSync(require('path').dirname(out), { recursive: true });
-fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
+if (out) {
+  fs.mkdirSync(require('path').dirname(out), { recursive: true });
+  fs.writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
+}
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

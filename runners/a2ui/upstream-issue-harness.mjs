@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '../web/node_modules/playwright/index.mjs';
 import { capture, replay, sha256 } from './adapter.mjs';
-import { validateMessageDirectory } from './generate-official-corpus.mjs';
+import { validateMessageDirectory } from './generate-official-fixtures.mjs';
 
 const checkout = process.argv[2];
 if (!checkout)

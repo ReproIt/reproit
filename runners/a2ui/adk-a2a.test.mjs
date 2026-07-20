@@ -176,7 +176,7 @@ test(
 test(
   'fixture messages pass the validator built from the pinned official ' + 'checkout',
   async (t) => {
-    const checkout = process.env.A2UI_CHECKOUT ?? '/private/tmp/a2ui-research';
+    const checkout = process.env.A2UI_CHECKOUT ?? '/private/tmp/a2ui-checkout';
     let sdk;
     try {
       sdk = await import(`${checkout}/renderers/web_core/dist/src/v0_9/index.js`);
