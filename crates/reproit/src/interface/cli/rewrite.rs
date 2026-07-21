@@ -21,6 +21,21 @@ pub(crate) fn expand_direct_reference_arg(
     let Some(first) = args.get(index).and_then(|arg| arg.to_str()) else {
         return args;
     };
+    if first == "auth" {
+        let mode = args.get(index + 1).and_then(|arg| arg.to_str());
+        let has_account = args.get(index + 2).is_some_and(|arg| {
+            arg.to_str()
+                .is_some_and(|value| !value.starts_with('-') && !value.is_empty())
+        });
+        if has_account && matches!(mode, Some("verify" | "discover")) {
+            let discover = mode == Some("discover");
+            args.remove(index + 1);
+            if discover {
+                args.insert(index + 2, "--discover".into());
+            }
+            return args;
+        }
+    }
     let direct_alias = first
         .strip_prefix('@')
         .filter(|alias| !alias.is_empty())
@@ -90,5 +105,27 @@ mod tests {
         );
         assert_eq!(expand(&["reproit", "scan"]), ["reproit", "scan"]);
         assert_eq!(expand(&["reproit", "@"]), ["reproit", "@"]);
+    }
+
+    #[test]
+    fn explicit_auth_verbs_preserve_the_short_account_form() {
+        let expand = |args: &[&str]| {
+            expand_direct_reference_arg(args.iter().map(std::ffi::OsString::from).collect())
+                .into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            expand(&["reproit", "auth", "verify", "alice"]),
+            ["reproit", "auth", "alice"]
+        );
+        assert_eq!(
+            expand(&["reproit", "--json", "auth", "discover", "alice"]),
+            ["reproit", "--json", "auth", "alice", "--discover"]
+        );
+        assert_eq!(
+            expand(&["reproit", "auth", "alice"]),
+            ["reproit", "auth", "alice"]
+        );
     }
 }

@@ -52,7 +52,7 @@ pub(crate) use log::split_log_segments;
 use log::trace_in_log;
 use log::{marker_seed, split_seed_segments};
 use reporting::{
-    deliver_finding, persist_causal_capsule, persist_finding_report, write_report,
+    deliver_finding, persist_causal_capsule, persist_finding_report, promote_finding, write_report,
     write_run_evidence_graph, RunEvidence,
 };
 use scan::state_present_footer;
@@ -186,6 +186,8 @@ pub struct FuzzSummary {
     pub seeds_run: u32,
     pub seeds_requested: u32,
     pub evidence: crate::domain::evidence::EvidenceCounts,
+    pub confirmed_findings: usize,
+    pub last_cause: Option<crate::domain::capsule::CauseCategory>,
 }
 
 pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<FuzzSummary> {
@@ -222,6 +224,8 @@ pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<FuzzSumm
         summary.seeds_run = summary.seeds_run.saturating_add(result.seeds_run);
         summary.signatures.extend(result.signatures.iter().cloned());
         summary.evidence.merge(&result.evidence);
+        summary.confirmed_findings += result.confirmed_findings;
+        summary.last_cause = result.last_cause.or(summary.last_cause);
         per_locale.push((locale.clone(), result.signatures));
     }
     // Cross-locale i18n report: a finding present in some but not all locales is
@@ -264,6 +268,8 @@ pub async fn fuzz_targeted(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result
         all.seeds_run = all.seeds_run.saturating_add(result.seeds_run);
         all.signatures.extend(result.signatures);
         all.evidence.merge(&result.evidence);
+        all.confirmed_findings += result.confirmed_findings;
+        all.last_cause = result.last_cause.or(all.last_cause);
     }
     Ok(all)
 }

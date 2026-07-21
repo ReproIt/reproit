@@ -208,6 +208,10 @@ fn sim_self_heal_adds_missing_dependencies_without_overwriting_custom_files() {
         "reproit_explorer/environment_oracles.dart",
         "reproit_explorer/simulator_watchdog.dart",
         "reproit_explorer/runtime.dart",
+        "reproit_explorer/settling.dart",
+        "reproit_explorer/navigation.dart",
+        "reproit_explorer/action_execution.dart",
+        "reproit_explorer/oracle_collection.dart",
         "reproit_explorer/runner.dart",
     ] {
         assert!(journeys.join(relative).is_file(), "missing {relative}");

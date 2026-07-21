@@ -520,6 +520,35 @@ fn url_origin_extracts_scheme_and_authority() {
 }
 
 #[test]
+fn promotion_keeps_one_canonical_finding_and_a_lightweight_alias() {
+    let root =
+        std::env::temp_dir().join(format!("reproit-finding-promotion-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let provisional = "aaaaaaaaaaaa";
+    let confirmed = "bbbbbbbbbbbb";
+    let provisional_dir = layout::finding_dir(&root, provisional);
+    let confirmed_dir = layout::finding_dir(&root, confirmed);
+    let report_dir = root.join("report");
+    std::fs::create_dir_all(&provisional_dir).unwrap();
+    std::fs::create_dir_all(&confirmed_dir).unwrap();
+    std::fs::create_dir_all(&report_dir).unwrap();
+    for directory in [&provisional_dir, &confirmed_dir] {
+        std::fs::write(directory.join("fuzz.md"), "report").unwrap();
+        std::fs::write(directory.join("run-evidence.json"), "{}").unwrap();
+    }
+
+    promote_finding(&root, Some(provisional), confirmed, &report_dir).unwrap();
+
+    assert_eq!(layout::canonical_finding_id(&root, provisional), confirmed);
+    assert!(confirmed_dir.join("fuzz.md").is_file());
+    assert!(confirmed_dir.join("run-evidence.json").is_file());
+    assert!(confirmed_dir.join("status.json").is_file());
+    assert!(!provisional_dir.join("fuzz.md").exists());
+    assert!(provisional_dir.join("promoted-to").is_file());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn broken_route_recording_matches_each_exact_destination() {
     let routes = vec![
         ("home".into(), "/gone-a".into(), 404, Some("home".into())),

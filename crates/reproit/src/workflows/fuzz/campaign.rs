@@ -75,6 +75,8 @@ pub(super) async fn fuzz_one_locale(
     let mut seeds_run = 0u32;
     let mut complete = true;
     let mut evidence = crate::domain::evidence::EvidenceCounts::default();
+    let mut confirmed_findings = 0usize;
+    let mut last_cause = None;
     while done < args.runs {
         let this_batch = batch_size.min(args.runs - done);
         let guidance = batch_guidance(args, &map, &visits, &static_guidance);
@@ -488,9 +490,11 @@ pub(super) async fn fuzz_one_locale(
                     json,
                 )
                 .await?;
+                let mut provisional_id = None;
                 let causal_actions = capsule.replay_actions();
                 if causal_actions != shrunk {
                     let previous_repro_id = repro_id.clone();
+                    provisional_id = Some(previous_repro_id.clone());
                     let previous_report_dir = report_dir.clone();
                     shrunk = causal_actions;
                     repro_id = crate::domain::repro::finding_id(
@@ -531,12 +535,11 @@ pub(super) async fn fuzz_one_locale(
                             &layout::finding_dir(root, &repro_id).join("backend-contract.json"),
                         )?;
                     }
-                    if previous_repro_id != repro_id {
-                        let _ =
-                            std::fs::remove_dir_all(layout::finding_dir(root, &previous_repro_id));
-                        if args.all && previous_report_dir != report_dir {
-                            let _ = std::fs::remove_dir_all(previous_report_dir);
-                        }
+                    if previous_repro_id != repro_id
+                        && args.all
+                        && previous_report_dir != report_dir
+                    {
+                        let _ = std::fs::remove_dir_all(previous_report_dir);
                     }
                 }
                 let capsule_id = capsule.id.clone();
@@ -597,8 +600,36 @@ pub(super) async fn fuzz_one_locale(
                         "identity": capsule.finding,
                     }))?,
                 )?;
+                promote_finding(root, provisional_id.as_deref(), &repro_id, &report_dir)?;
+                confirmed_findings += 1;
+                last_cause = Some(capsule.cause_category());
                 say(json, format!("  capsule: {capsule_id}"));
                 say(json, format!("  structural bug: {bug_id}"));
+                say(json, "  Finding confirmed: yes");
+                say(
+                    json,
+                    format!("  Cause: {}", capsule.cause_category().as_str()),
+                );
+                say(
+                    json,
+                    format!("  Actions required: {}", capsule.actions.len()),
+                );
+                say(
+                    json,
+                    format!(
+                        "  Causal HTTP request: {}",
+                        if matches!(
+                            capsule.cause_category(),
+                            crate::domain::capsule::CauseCategory::HttpTransaction
+                        ) {
+                            "captured"
+                        } else {
+                            "not applicable"
+                        }
+                    ),
+                );
+                say(json, "  Finding minimized: yes");
+                say(json, "  Regression saved: yes");
             }
             // In --all the per-seed id is intermediate: the SAME bug reached by
             // different seeds yields different ids, so teaching check/keep here
@@ -778,6 +809,8 @@ pub(super) async fn fuzz_one_locale(
                     seeds_run,
                     seeds_requested: args.runs,
                     evidence,
+                    confirmed_findings,
+                    last_cause,
                 });
             }
         }
@@ -832,6 +865,8 @@ pub(super) async fn fuzz_one_locale(
             seeds_run,
             seeds_requested: args.runs,
             evidence,
+            confirmed_findings,
+            last_cause,
         });
     }
     say(
@@ -858,5 +893,7 @@ pub(super) async fn fuzz_one_locale(
         seeds_run,
         seeds_requested: args.runs,
         evidence,
+        confirmed_findings,
+        last_cause,
     })
 }

@@ -68,6 +68,24 @@ pub(crate) fn finding_dir(root: &Path, id: &str) -> PathBuf {
     findings_dir(root).join(id)
 }
 
+/// Follow a bounded provisional-to-confirmed finding alias chain. Alias files
+/// contain only validated raw content ids and never escape the findings root.
+pub(crate) fn canonical_finding_id(root: &Path, id: &str) -> String {
+    let mut current = id.to_string();
+    for _ in 0..4 {
+        let Ok(next) = std::fs::read_to_string(finding_dir(root, &current).join("promoted-to"))
+        else {
+            break;
+        };
+        let next = next.trim();
+        if next.len() != 12 || !next.chars().all(|character| character.is_ascii_hexdigit()) {
+            break;
+        }
+        current = next.to_string();
+    }
+    current
+}
+
 pub(crate) fn tools_dir(root: &Path) -> PathBuf {
     reproit_dir(root).join("tools")
 }
@@ -195,5 +213,19 @@ mod tests {
                 path.display()
             );
         }
+    }
+
+    #[test]
+    fn finding_aliases_resolve_without_leaving_the_findings_store() {
+        let root =
+            std::env::temp_dir().join(format!("reproit-finding-alias-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let alias = finding_dir(&root, "aaaaaaaaaaaa");
+        std::fs::create_dir_all(&alias).unwrap();
+        std::fs::write(alias.join("promoted-to"), "bbbbbbbbbbbb\n").unwrap();
+        assert_eq!(canonical_finding_id(&root, "aaaaaaaaaaaa"), "bbbbbbbbbbbb");
+        std::fs::write(alias.join("promoted-to"), "../../outside\n").unwrap();
+        assert_eq!(canonical_finding_id(&root, "aaaaaaaaaaaa"), "aaaaaaaaaaaa");
+        let _ = std::fs::remove_dir_all(root);
     }
 }

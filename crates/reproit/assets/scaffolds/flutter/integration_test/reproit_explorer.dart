@@ -21,4 +21,8 @@ part 'reproit_explorer/invariants.dart';
 part 'reproit_explorer/environment_oracles.dart';
 part 'reproit_explorer/simulator_watchdog.dart';
 part 'reproit_explorer/runtime.dart';
+part 'reproit_explorer/settling.dart';
+part 'reproit_explorer/navigation.dart';
+part 'reproit_explorer/action_execution.dart';
+part 'reproit_explorer/oracle_collection.dart';
 part 'reproit_explorer/runner.dart';

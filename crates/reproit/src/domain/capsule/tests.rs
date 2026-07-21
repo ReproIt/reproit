@@ -70,18 +70,76 @@ fn completeness_is_derived_from_required_inputs() {
 #[test]
 fn load_only_ui_finding_is_confirmable_with_a_captured_empty_schedule() {
     let mut c = Capsule::new("app", finding());
-    for name in ["ui_actions", "http"] {
-        c.capabilities.insert(
-            name.into(),
-            Capability {
-                status: CaptureStatus::Captured,
-                detail: None,
-            },
-        );
-    }
+    c.capabilities.insert(
+        "ui_actions".into(),
+        Capability {
+            status: CaptureStatus::Captured,
+            detail: Some("captured empty launch schedule".into()),
+        },
+    );
 
     assert!(c.actions.is_empty());
     assert!(c.confirmable());
+    c.finalize_id().unwrap();
+    assert_eq!(c.cause, CauseCategory::ApplicationLaunch);
+    assert_eq!(c.capabilities["http"].status, CaptureStatus::NotApplicable);
+    assert!(c.missing_required_replay_capabilities().is_empty());
+}
+
+#[test]
+fn http_caused_finding_still_requires_capture_and_replay() {
+    let mut c = Capsule::new("app", finding());
+    c.cause = CauseCategory::HttpTransaction;
+    assert_eq!(c.missing_required_capabilities(), vec!["http"]);
+    assert_eq!(
+        c.missing_required_replay_capabilities(),
+        vec!["http_replay"]
+    );
+}
+
+#[test]
+fn user_action_without_network_requires_only_the_captured_schedule() {
+    let mut c = Capsule::new("app", finding());
+    c.actions.push(Action {
+        index: 1,
+        actor: "a".into(),
+        action: "tap:key:menu".into(),
+        from_sig: None,
+        to_sig: None,
+    });
+    c.capabilities.insert(
+        "ui_actions".into(),
+        Capability {
+            status: CaptureStatus::Captured,
+            detail: None,
+        },
+    );
+    c.finalize_id().unwrap();
+
+    assert_eq!(c.cause, CauseCategory::UserAction);
+    assert!(c.confirmable());
+    assert!(c.missing_required_replay_capabilities().is_empty());
+}
+
+#[test]
+fn legacy_capsule_without_cause_is_classified_from_executable_inputs() {
+    let mut original = Capsule::new("app", finding());
+    original.capabilities.insert(
+        "ui_actions".into(),
+        Capability {
+            status: CaptureStatus::Captured,
+            detail: None,
+        },
+    );
+    let mut value = serde_json::to_value(original).unwrap();
+    value.as_object_mut().unwrap().remove("cause");
+    let mut loaded: Capsule = serde_json::from_value(value).unwrap();
+
+    assert_eq!(loaded.cause, CauseCategory::Unclassified);
+    assert_eq!(loaded.cause_category(), CauseCategory::ApplicationLaunch);
+    assert!(loaded.confirmable());
+    loaded.finalize_id().unwrap();
+    assert_eq!(loaded.cause, CauseCategory::ApplicationLaunch);
 }
 
 #[test]

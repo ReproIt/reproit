@@ -58,7 +58,7 @@ use crate::interface::mcp;
 use crate::runtime::{process as exec, project_layout as layout};
 use crate::VERSION;
 use anyhow::{Context, Result};
-use auth::{auth_cmd, auth_prompt, discover_and_verify_login};
+use auth::{auth_cmd, auth_prompt, discover_and_verify_login, verify_configured_login};
 use authored_contract::run_vitest_contract;
 use capture::{load_original, open_cloud_capture, show_original, upload_original, watch_original};
 use check::CheckArgs;
@@ -516,6 +516,7 @@ where
             user_id,
             validate_text,
             no_discover,
+            discover,
         } => {
             let loaded = config::load(cli.config.as_deref())?;
             let exists = loaded
@@ -538,7 +539,11 @@ where
                 || totp_secret.is_some()
                 || session.is_some();
             if exists && !has_new_values {
-                discover_and_verify_login(cli.config.as_deref(), &account).await?;
+                if discover {
+                    discover_and_verify_login(cli.config.as_deref(), &account).await?;
+                } else {
+                    verify_configured_login(cli.config.as_deref(), &account).await?;
+                }
             } else {
                 if !exists && !has_new_values {
                     if ctx.yes || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
@@ -599,7 +604,7 @@ where
                         session,
                         user_id,
                         validate_text,
-                        no_discover,
+                        no_discover: no_discover && !discover,
                     },
                 )
                 .await?;

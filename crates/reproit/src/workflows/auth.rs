@@ -5,6 +5,9 @@ use crate::adapters::credentials;
 use crate::domain::{map, repro};
 use std::path::PathBuf;
 
+mod config_edit;
+use config_edit::update_account_config;
+
 pub(super) fn auth_prompt(label: &str, _secret: bool) -> Result<String> {
     use std::io::Write;
     print!("  {label}: ");
@@ -57,53 +60,8 @@ fn resolve_config_path(config_path: Option<&std::path::Path>) -> Result<PathBuf>
     }
 }
 
-fn yaml_str(s: impl Into<String>) -> serde_yaml::Value {
-    serde_yaml::Value::String(s.into())
-}
-
-fn yaml_mapping_mut(v: &mut serde_yaml::Value) -> Result<&mut serde_yaml::Mapping> {
-    match v {
-        serde_yaml::Value::Mapping(m) => Ok(m),
-        _ => anyhow::bail!("reproit.yaml must be a YAML mapping"),
-    }
-}
-
-fn yaml_child_mapping<'a>(
-    parent: &'a mut serde_yaml::Mapping,
-    key: &str,
-) -> Result<&'a mut serde_yaml::Mapping> {
-    let k = yaml_str(key);
-    if !parent.contains_key(&k) {
-        parent.insert(k.clone(), serde_yaml::Value::Mapping(Default::default()));
-    }
-    match parent.get_mut(&k) {
-        Some(serde_yaml::Value::Mapping(m)) => Ok(m),
-        _ => anyhow::bail!("`{key}` in reproit.yaml must be a mapping"),
-    }
-}
-
-fn yaml_child_sequence<'a>(
-    parent: &'a mut serde_yaml::Mapping,
-    key: &str,
-) -> Result<&'a mut Vec<serde_yaml::Value>> {
-    let k = yaml_str(key);
-    if !parent.contains_key(&k) {
-        parent.insert(k.clone(), serde_yaml::Value::Sequence(Vec::new()));
-    }
-    match parent.get_mut(&k) {
-        Some(serde_yaml::Value::Sequence(s)) => Ok(s),
-        _ => anyhow::bail!("`{key}` in reproit.yaml must be a list"),
-    }
-}
-
 fn account_ref(account: &str, field: &str) -> String {
     format!("{account}.{field}")
-}
-
-fn insert_yaml_opt(map: &mut serde_yaml::Mapping, key: &str, value: Option<String>) {
-    if let Some(value) = value.filter(|s| !s.trim().is_empty()) {
-        map.insert(yaml_str(key), yaml_str(value));
-    }
 }
 
 fn store_secret_opt(
@@ -117,52 +75,6 @@ fn store_secret_opt(
         vault.set(&key, &value);
     }
     Some(key)
-}
-
-fn update_account_config(
-    config_path: &Path,
-    account: &str,
-    strategy: config::AuthStrategy,
-    refs: &AuthRefs,
-    user_id: Option<String>,
-    validate_text: Option<String>,
-) -> Result<()> {
-    let raw = std::fs::read_to_string(config_path)
-        .with_context(|| format!("reading {}", config_path.display()))?;
-    let mut doc: serde_yaml::Value =
-        serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", config_path.display()))?;
-    let root = yaml_mapping_mut(&mut doc)?;
-    let auth = yaml_child_mapping(root, "auth")?;
-    let accounts = yaml_child_sequence(auth, "accounts")?;
-    accounts.retain(|v| {
-        !matches!(
-            v,
-            serde_yaml::Value::Mapping(m)
-                if m.get(yaml_str("name")).and_then(serde_yaml::Value::as_str) == Some(account)
-        )
-    });
-
-    let mut acct = serde_yaml::Mapping::new();
-    acct.insert(yaml_str("name"), yaml_str(account));
-    acct.insert(yaml_str("strategy"), yaml_str(strategy.as_str()));
-    insert_yaml_opt(&mut acct, "userId", user_id);
-    insert_yaml_opt(&mut acct, "usernameRef", refs.username_ref.clone());
-    insert_yaml_opt(&mut acct, "emailRef", refs.email_ref.clone());
-    insert_yaml_opt(&mut acct, "phoneRef", refs.phone_ref.clone());
-    insert_yaml_opt(&mut acct, "passwordRef", refs.password_ref.clone());
-    insert_yaml_opt(&mut acct, "totpRef", refs.totp_ref.clone());
-    insert_yaml_opt(&mut acct, "otpRef", refs.otp_ref.clone());
-    insert_yaml_opt(&mut acct, "storageRef", refs.storage_ref.clone());
-    if let Some(text) = validate_text.filter(|s| !s.trim().is_empty()) {
-        let mut validate = serde_yaml::Mapping::new();
-        validate.insert(yaml_str("text"), yaml_str(text));
-        acct.insert(yaml_str("validate"), serde_yaml::Value::Mapping(validate));
-    }
-    accounts.push(serde_yaml::Value::Mapping(acct));
-
-    std::fs::write(config_path, serde_yaml::to_string(&doc)?)
-        .with_context(|| format!("writing {}", config_path.display()))?;
-    Ok(())
 }
 
 #[derive(Default)]
@@ -441,6 +353,27 @@ pub(super) async fn discover_and_verify_login(
     Ok(())
 }
 
+/// Replay the configured authentication contract directly. Discovery is kept
+/// separate so verification remains deterministic even when the latest map is
+/// small, stale, or intentionally absent.
+pub(super) async fn verify_configured_login(
+    config_path: Option<&std::path::Path>,
+    account: &str,
+) -> Result<()> {
+    let loaded = config::load(config_path)?;
+    auth_account_doctor(config_path, account)?;
+    println!("  verifying configured login from a clean state...");
+    let result = journey::verify_account(&loaded, account).await?;
+    if result.outcome != repro::Outcome::Pass {
+        anyhow::bail!(
+            "configured login did not verify ({})",
+            result.outcome.as_str()
+        );
+    }
+    println!("  login verified: setup: login({account})");
+    Ok(())
+}
+
 fn vault_has(vault: &credentials::Vault, key: &Option<String>) -> bool {
     key.as_ref().is_some_and(|k| vault.get(k).is_some())
 }
@@ -457,7 +390,13 @@ fn auth_account_doctor(config_path: Option<&std::path::Path>, account: &str) -> 
         .ok_or_else(|| anyhow::anyhow!("no account named {account} in reproit.yaml"))?;
     let strategy = acct.strategy.unwrap_or(config::AuthStrategy::Password);
     let vault = credentials::Vault::open(&vpath)?;
-    let login_journey = loaded.root.join("journeys/login.yaml");
+    let account_login = journey::journey_path(&loaded.root, &format!("login-{account}"));
+    let shared_login = journey::journey_path(&loaded.root, "login");
+    let login_journey = if account_login.exists() {
+        account_login
+    } else {
+        shared_login
+    };
 
     let mut ok = true;
     let mut check = |name: &str, passed: bool, detail: String| {

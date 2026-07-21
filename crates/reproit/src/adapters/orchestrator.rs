@@ -65,6 +65,7 @@ struct Manifest {
     passed: bool,
     devices: Vec<DeviceManifest>,
     composite: Option<String>,
+    toolchain: String,
 }
 
 #[derive(Serialize)]
@@ -161,6 +162,9 @@ pub async fn run_journey(
             }
         }
     };
+    if let Err(error) = crate::runtime::toolchain::write(&run_dir, root, cfg).await {
+        eprintln!("  warn: could not record toolchain identity: {error}");
+    }
 
     // BEFORE provisioning a device: the FlutterDrive sim tier needs a vendored
     // explorer (journey_<name>.dart or <name>.dart). Check it here so a missing
@@ -635,6 +639,7 @@ pub async fn run_journey(
         passed,
         devices: device_manifests,
         composite: composite_path,
+        toolchain: "toolchain.json".into(),
     };
     std::fs::write(
         run_dir.join("manifest.json"),
@@ -718,6 +723,9 @@ pub async fn run_journey_headless(
         .join(&cfg.evidence.out_dir)
         .join(format!("{}-{journey}", started_at.format("%Y%m%d-%H%M%S")));
     std::fs::create_dir_all(&run_dir)?;
+    if let Err(error) = crate::runtime::toolchain::write(&run_dir, root, cfg).await {
+        eprintln!("  warn: could not record toolchain identity: {error}");
+    }
 
     // Resolve the headless test target from test/ first. A file under
     // integration_test/ may be classified as a device test when several devices
@@ -835,6 +843,7 @@ pub async fn run_journey_headless(
         "finished_at": chrono::Local::now().to_rfc3339(),
         "passed": passed,
         "log": log_path.to_string_lossy(),
+        "toolchain": "toolchain.json",
     });
     std::fs::write(
         run_dir.join("manifest.json"),

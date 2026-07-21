@@ -322,6 +322,18 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
     // can keep it without re-parsing the human report.
     if ctx.json {
         let evidence_status = fuzz_summary.evidence.status(fuzz_summary.complete);
+        let confirmed = fuzz_summary.confirmed_findings > 0;
+        let cause = fuzz_summary.last_cause.map(|cause| cause.as_str());
+        let causal_http_request = fuzz_summary.last_cause.map(|cause| {
+            if matches!(
+                cause,
+                crate::domain::capsule::CauseCategory::HttpTransaction
+            ) {
+                "captured"
+            } else {
+                "not applicable"
+            }
+        });
         match latest_finding(&loaded) {
             Some(f) => ctx.emit(&serde_json::json!({
                 "command": "fuzz",
@@ -329,6 +341,12 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
                 "seeds_run": fuzz_summary.seeds_run,
                 "seeds_requested": fuzz_summary.seeds_requested,
                 "found": true,
+                "confirmed": confirmed,
+                "confirmedFindings": fuzz_summary.confirmed_findings,
+                "cause": cause,
+                "causalHttpRequest": causal_http_request,
+                "minimized": confirmed,
+                "regressionSaved": confirmed,
                 "id": repro::display_finding_id(&f.id()),
                 "kind": "finding",
                 "seed": f.seed,
@@ -343,6 +361,8 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
                 "seeds_run": fuzz_summary.seeds_run,
                 "seeds_requested": fuzz_summary.seeds_requested,
                 "found": false,
+                "confirmed": false,
+                "confirmedFindings": 0,
                 "evidenceStatus": evidence_status,
                 "evidence": fuzz_summary.evidence,
             })),

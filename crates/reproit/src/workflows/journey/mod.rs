@@ -62,7 +62,7 @@ mod schedule;
 #[cfg(test)]
 use execution::*;
 #[allow(unused_imports)]
-pub use execution::{fuzz_multi_checkpoint, run, MultiFuzzSummary};
+pub use execution::{fuzz_multi_checkpoint, run, verify_account, MultiFuzzSummary};
 mod replay;
 use replay::*;
 mod verification;

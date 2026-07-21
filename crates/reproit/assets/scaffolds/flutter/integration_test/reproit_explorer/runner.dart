@@ -6,11 +6,8 @@ void registerExplorer({
 }) {
   _runtime = runtime;
 
-  Future<void> settle(WidgetTester t, int ms) async {
-    for (var i = 0; i < ms ~/ 100; i++) {
-      await t.pump(const Duration(milliseconds: 100));
-    }
-  }
+  Future<void> settle(WidgetTester tester, int milliseconds) =>
+      settleExplorer(tester, milliseconds);
 
   testWidgets(runtime.testName, (tester) async {
     final semantics = tester.ensureSemantics();
@@ -44,32 +41,7 @@ void registerExplorer({
     // Simulator runs collect real frame timings. The headless runtime keeps
     // this hook inert because the widget-test clock is synthetic.
     runtime.startSession(tester);
-
-    // Last-resort: resolve a tappable by its (localized) visible text. Kept ONLY
-    // for backward compatibility with old `tap:<label>` replay configs; the
-    // explorer itself never emits label selectors anymore. find.byKey / the
-    // role+index path below are the locale-invariant routes.
-    Finder? findByLabel(String label) {
-      final isClipped =
-          label.length == maxLabelLen &&
-          RegExp(r'#[0-9a-f]{8}$').hasMatch(label);
-      if (isClipped) {
-        final prefix = label.substring(0, label.lastIndexOf('#'));
-        final re = RegExp('^${RegExp.escape(prefix)}');
-        var f = find.bySemanticsLabel(re);
-        if (f.evaluate().isNotEmpty) return f;
-        f = find.textContaining(re);
-        if (f.evaluate().isNotEmpty) return f;
-        return null;
-      }
-      var f = find.bySemanticsLabel(label);
-      if (f.evaluate().isNotEmpty) return f;
-      f = find.bySemanticsLabel(RegExp(RegExp.escape(label)));
-      if (f.evaluate().isNotEmpty) return f;
-      f = find.text(label);
-      if (f.evaluate().isNotEmpty) return f;
-      return null;
-    }
+    final actions = ExplorerActions(tester, runtime);
 
     // STRUCTURAL tap: resolve a locale-invariant selector and tap it. Returns
     // true on success.
@@ -77,128 +49,17 @@ void registerExplorer({
     //   role:<role>#<idx>  -> the idx-th tappable of that role, in document
     //                         order, tapped via the semantics action (no text)
     //   <anything else>    -> legacy label fallback (find by visible text)
-    Future<bool> tapSelector(String sel) async {
-      if (sel.startsWith('key:')) {
-        final f = find.byKey(keyFromString(sel.substring(4)));
-        if (f.evaluate().isEmpty) return false;
-        try {
-          await tester.tap(f.first, warnIfMissed: false);
-          return true;
-        } catch (_) {
-          return false;
-        }
-      }
-      if (sel.startsWith('role:')) {
-        final hash = sel.indexOf('#');
-        if (hash < 0) return false;
-        final role = sel.substring('role:'.length, hash);
-        final idx = int.tryParse(sel.substring(hash + 1)) ?? -1;
-        if (idx < 0) return false;
-        // Re-derive document-order tappables of this role from the live tree and
-        // tap the idx-th via its semantics tap action. No text involved.
-        var seen = -1;
-        SemanticsNode? target;
-        final root = _semanticsRoot(tester);
-        if (root != null) {
-          void walk(SemanticsNode n) {
-            if (target != null) return;
-            final d = n.getSemanticsData();
-            if (!d.flagsCollection.isHidden) {
-              final tappable =
-                  d.hasAction(SemanticsAction.tap) &&
-                  !d.flagsCollection.isTextField;
-              if (tappable && roleOf(d) == role) {
-                seen++;
-                if (seen == idx) target = n;
-              }
-            }
-            n.visitChildren((c) {
-              walk(c);
-              return true;
-            });
-          }
+    Future<bool> tapSelector(String selector) =>
+        actions.navigation.tapSelector(selector);
 
-          walk(root);
-        }
-        if (target == null) return false;
-        try {
-          tester.semantics.tap(find.semantics.byPredicate((n) => n == target));
-          return true;
-        } catch (_) {
-          return false;
-        }
-      }
-      // Label selector: an explicit `label:` prefix, or a bare string (legacy),
-      // resolved by visible/semantic label. An ACTION selector only has to be
-      // stable within the run's locale, so resolving by (localized) label is
-      // fine; the state SIGNATURE stays structural and locale-invariant. This is
-      // parity with fillField (already label-based) and with how Playwright/
-      // Appium address by visible name. Use key:/role: to override when a label
-      // is ambiguous or you want locale-proof selection.
-      final label = sel.startsWith('label:')
-          ? sel.substring('label:'.length)
-          : sel;
-      final f = findByLabel(label);
-      if (f == null) return false;
-      try {
-        await tester.tap(f.first, warnIfMissed: false);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
-
-    Future<bool> goBack() async {
-      try {
-        final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
-        final popped = await nav.maybePop();
-        await settle(tester, 900);
-        return popped;
-      } catch (_) {
-        return false;
-      }
-    }
+    Future<bool> goBack() => actions.navigation.goBack();
 
     // Property-matched replay: type a synthesized value into the text field that
     // matches `field` (by a11y label, then by a positional "#<n>" / digit index
     // into the on-screen EditableTexts). Returns true if it filled something, so
     // the caller can mark that input done and not retype it every step.
-    Future<bool> fillField(String field, String value) async {
-      // 1) By semantics label (a TextField's labelText becomes its a11y label).
-      for (final f in [
-        find.bySemanticsLabel(field),
-        find.bySemanticsLabel(RegExp(RegExp.escape(field))),
-      ]) {
-        if (f.evaluate().isNotEmpty) {
-          try {
-            await tester.enterText(f.first, value);
-            await settle(tester, 500);
-            return true;
-          } catch (_) {}
-        }
-      }
-      // 2) Positional fallback: "#2" / "field2" -> the Nth ON-SCREEN field.
-      // Index only VISIBLE (hit-testable) fields, so a field built but offstage
-      // on another PageView/IndexedStack/Tab page can't shift the index (the bug
-      // that made "first field" land on an offstage page). Same visible-only
-      // discipline the tap path uses; fall back to the full set only if nothing
-      // is hit-testable.
-      var edits = find.byType(EditableText).hitTestable();
-      if (edits.evaluate().isEmpty) {
-        edits = find.byType(EditableText);
-      }
-      final n = edits.evaluate().length;
-      final digits = field.replaceAll(RegExp(r'[^0-9]'), '');
-      final idx = int.tryParse(digits);
-      if (idx != null && idx < n) {
-        try {
-          await tester.enterText(edits.at(idx), value);
-          await settle(tester, 500);
-          return true;
-        } catch (_) {}
-      }
-      return false;
-    }
+    Future<bool> fillField(String field, String value) =>
+        actions.fillField(field, value);
 
     // One seed's walk. Identical to the single-seed path so the determinism
     // contract is unchanged: the action SEQUENCE is fully determined by
@@ -211,91 +72,10 @@ void registerExplorer({
     // identically and the two paths can't drift. (The single-actor path used to
     // treat every non-back action as a tap, silently degrading fills/asserts to
     // misses.)
-    Future<bool> waitFor(bool Function() pred) async {
-      final sw = Stopwatch()..start();
-      while (sw.elapsed < const Duration(seconds: 8)) {
-        if (pred()) return true;
-        await Future.delayed(const Duration(milliseconds: 250));
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      return pred();
-    }
-
-    bool textPresent(String want) =>
-        find.textContaining(want).evaluate().isNotEmpty ||
-        find
-            .bySemanticsLabel(RegExp(RegExp.escape(want)))
-            .evaluate()
-            .isNotEmpty;
-
-    int countMatching(String finder) {
-      if (finder.startsWith('key:')) {
-        return find.byKey(keyFromString(finder.substring(4))).evaluate().length;
-      }
-      if (finder.startsWith('role:')) {
-        final hash = finder.indexOf('#');
-        final wantRole = finder.substring(
-          'role:'.length,
-          hash < 0 ? finder.length : hash,
-        );
-        var c = 0;
-        final root = _semanticsRoot(tester);
-        if (root != null) {
-          void walk(SemanticsNode n) {
-            final d = n.getSemanticsData();
-            if (!d.flagsCollection.isHidden && roleOf(d) == wantRole) {
-              c++;
-            }
-            n.visitChildren((ch) {
-              walk(ch);
-              return true;
-            });
-          }
-
-          walk(root);
-        }
-        return c;
-      }
-      return find.textContaining(finder).evaluate().length;
-    }
-
-    Future<bool> fillSelector(String finder, String value) async {
-      if (finder.startsWith('key:')) {
-        final f = find.byKey(keyFromString(finder.substring(4)));
-        if (f.evaluate().isEmpty) return false;
-        try {
-          await tester.enterText(f.first, value);
-          await settle(tester, 500);
-          return true;
-        } catch (_) {
-          return false;
-        }
-      }
-      return fillField(finder, value);
-    }
-
-    Future<void> execAssert(String spec, String who) async {
-      if (spec.startsWith('text=')) {
-        final want = spec.substring('text='.length);
-        final ok = await waitFor(() => textPresent(want));
-        runtime.emit(
-          'FUZZ:ASSERT ${ok ? "pass" : "fail"} text=${jsonEncode(want)} actor=$who',
-        );
-        return;
-      }
-      if (spec.startsWith('count:')) {
-        final r = spec.substring('count:'.length);
-        final eq = r.lastIndexOf('=');
-        final finder = eq >= 0 ? r.substring(0, eq) : r;
-        final want = eq >= 0 ? (int.tryParse(r.substring(eq + 1)) ?? 0) : 0;
-        final ok = await waitFor(() => countMatching(finder) == want);
-        final result = ok ? "pass" : "fail";
-        final got = countMatching(finder);
-        runtime.emit(
-          'FUZZ:ASSERT $result count $finder want=$want got=$got actor=$who',
-        );
-      }
-    }
+    Future<bool> fillSelector(String selector, String value) =>
+        actions.fillSelector(selector, value);
+    Future<void> execAssert(String specification, String actor) =>
+        actions.executeAssertion(specification, actor);
 
     Future<void> runSeed(FuzzCfg fuzz) async {
       final seenStates = <String>{};
@@ -762,82 +542,10 @@ void registerExplorer({
       // folds these into the verified graph: the dual-user journeys double as the
       // mapper for screens only reachable with data or a peer.
       final scenarioSeen = <String>{};
-      String observeScenario() {
-        final snap = snapshot(tester);
-        emitJson('FUZZ:OBS', {
-          "sig": snap.sig,
-          if (snap.anchor != null) "route": snap.anchor,
-          "labels": snap.labels.take(maxLabelsPerState).toList(),
-          "elements": roleElements(snap),
-        });
-        if (scenarioSeen.add(snap.sig)) {
-          emitJson('EXPLORE:STATE', {
-            "sig": snap.sig,
-            if (snap.anchor != null) "route": snap.anchor,
-            "labels": snap.labels.take(maxLabelsPerState).toList(),
-            "elements": stateElements(snap),
-          });
-          runtime.emit(
-            'EXPLORE:GROUNDTRUTH ${jsonEncode(groundTruth(tester, snap.sig))}',
-          );
-        }
-        return snap.sig;
-      }
+      String observeScenario() =>
+          observeScenarioState(tester, runtime, scenarioSeen);
 
       String? lastSig = observeScenario();
-
-      // exec() below uses the shared waitFor/textPresent/countMatching/
-      // fillSelector/execAssert hoisted to the testWidgets scope (so the
-      // single-actor replay loop runs the exact same verbs).
-      Future<void> exec(String act) async {
-        runtime.emit('FUZZ:ACT $role $act');
-        if (act == 'back') {
-          await goBack();
-          return;
-        }
-        if (act.startsWith('auth:')) {
-          // Session-restore login is not yet wired on the Flutter runner; use
-          // `login(<account>)` (UI flow) for multi-user auth. No-op so ordering
-          // still advances, but flag it loudly.
-          runtime.emit(
-            'JOURNEY[a] step: auth-restore unsupported on flutter runner; use login() for $act',
-          );
-          await settle(tester, 200);
-          return;
-        }
-        if (act.startsWith('assert:')) {
-          await execAssert(act.substring('assert:'.length), role);
-          return;
-        }
-        if (act.startsWith('type:')) {
-          final body = act.substring('type:'.length);
-          final eq = body.lastIndexOf('=');
-          final finder = eq >= 0 ? body.substring(0, eq) : body;
-          final value = eq >= 0 ? body.substring(eq + 1) : '';
-          var ok = await fillSelector(finder, value);
-          if (!ok) {
-            ok =
-                await waitFor(() => countMatching(finder) > 0) &&
-                await fillSelector(finder, value);
-          }
-          if (!ok) runtime.emit('FUZZ:MISS $role $act');
-          return;
-        }
-        // default: tap:<selector>
-        final sel = act.startsWith('tap:') ? act.substring('tap:'.length) : act;
-        var ok = await tapSelector(sel);
-        if (!ok) {
-          // The target may be peer-produced and not on screen yet: retry.
-          final sw = Stopwatch()..start();
-          while (!ok && sw.elapsed < const Duration(seconds: 8)) {
-            await Future.delayed(const Duration(milliseconds: 250));
-            await tester.pump(const Duration(milliseconds: 100));
-            ok = await tapSelector(sel);
-          }
-        }
-        if (!ok) runtime.emit('FUZZ:MISS $role $act');
-        await settle(tester, 1000);
-      }
 
       for (var guard = 0; guard < 100000; guard++) {
         String body;
@@ -853,7 +561,7 @@ void registerExplorer({
           continue;
         }
         final act = body.startsWith('ACT\t') ? body.substring(4) : body;
-        await exec(act);
+        await actions.executeScenario(act, role);
         // Record the traversal: a state on every step, an edge when a tap/back
         // moved the structural signature.
         final newSig = observeScenario();

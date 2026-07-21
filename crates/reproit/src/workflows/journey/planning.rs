@@ -255,8 +255,11 @@ pub fn account_setup_actions(loaded: &config::Loaded, account: &str) -> Result<V
         | config::AuthStrategy::Api => SetupKind::Auth,
         _ => SetupKind::Login,
     };
-    let map = load_map(&loaded.root)?;
-    let mut plan = build_auth_prelude(&loaded.root, map.as_ref(), kind, account)?;
+    // Authentication verification is a contract replay, not exploration. A
+    // login contract must therefore contain explicit actions and assertions
+    // that can run without whichever map happened to be discovered most
+    // recently.
+    let mut plan = build_auth_prelude(&loaded.root, None, kind, account)?;
     let validate = configured.validate.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
             "routeAccess principal {account:?} needs auth.accounts[].validate authority"
@@ -268,12 +271,7 @@ pub fn account_setup_actions(loaded: &config::Loaded, account: &str) -> Result<V
         assertions += 1;
     }
     if let Some(state) = &validate.state {
-        let map = map.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("auth validation by state needs an app map; run `reproit scan` first")
-        })?;
-        let signature = resolve_state_sig(map, state).ok_or_else(|| {
-            anyhow::anyhow!("auth validation state {state:?} is absent from the app map")
-        })?;
+        let signature = state.strip_prefix("s_").unwrap_or(state);
         plan.actions.push(format!("assert:state={signature}"));
         assertions += 1;
     }

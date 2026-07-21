@@ -83,7 +83,7 @@ pub async fn which(bin: &str) -> bool {
     executable_path(bin).is_some()
 }
 
-fn executable_path(bin: &str) -> Option<PathBuf> {
+pub(crate) fn executable_path(bin: &str) -> Option<PathBuf> {
     let requested = Path::new(bin);
     if requested.components().count() > 1 {
         return is_executable(requested).then(|| requested.to_path_buf());

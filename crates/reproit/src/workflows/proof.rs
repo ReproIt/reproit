@@ -212,9 +212,10 @@ fn resolve_graph_path(loaded: &config::Loaded, reference: &str) -> Result<(Strin
         ));
     }
     let raw = repro::raw_finding_id(reference).unwrap_or(reference);
-    let path = layout::finding_dir(&loaded.root, raw).join("run-evidence.json");
+    let canonical = layout::canonical_finding_id(&loaded.root, raw);
+    let path = layout::finding_dir(&loaded.root, &canonical).join("run-evidence.json");
     if path.exists() {
-        return Ok((repro::display_finding_id(raw), path));
+        return Ok((repro::display_finding_id(&canonical), path));
     }
     anyhow::bail!("no finding or saved repro `{reference}` with an immutable proof graph")
 }

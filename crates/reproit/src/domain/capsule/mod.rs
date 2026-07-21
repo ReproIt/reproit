@@ -50,6 +50,7 @@ impl Drop for PlaintextGuard {
 #[serde(rename_all = "snake_case")]
 pub enum CaptureStatus {
     Captured,
+    NotApplicable,
     Unsupported,
     Unavailable,
     Redacted,
@@ -60,7 +61,32 @@ fn capability_rank(status: &CaptureStatus) -> u8 {
         CaptureStatus::Captured => 3,
         CaptureStatus::Redacted => 2,
         CaptureStatus::Unavailable => 1,
-        CaptureStatus::Unsupported => 0,
+        CaptureStatus::Unsupported | CaptureStatus::NotApplicable => 0,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CauseCategory {
+    ApplicationLaunch,
+    UserAction,
+    HttpTransaction,
+    TimerOrBackgroundEvent,
+    EnvironmentChange,
+    #[default]
+    Unclassified,
+}
+
+impl CauseCategory {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ApplicationLaunch => "application launch",
+            Self::UserAction => "user action",
+            Self::HttpTransaction => "HTTP transaction",
+            Self::TimerOrBackgroundEvent => "timer or background event",
+            Self::EnvironmentChange => "environment change",
+            Self::Unclassified => "unclassified",
+        }
     }
 }
 
@@ -163,6 +189,11 @@ pub struct Capsule {
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub capabilities: BTreeMap<String, Capability>,
+    /// The event class whose replay is required to reproduce this finding.
+    /// Legacy capsules omit this field and are classified from their captured
+    /// executable inputs when loaded or finalized.
+    #[serde(default)]
+    pub cause: CauseCategory,
     pub actions: Vec<Action>,
     #[serde(default)]
     pub exchanges: Vec<Exchange>,
@@ -194,6 +225,7 @@ impl Capsule {
             builds: BTreeMap::new(),
             environment: BTreeMap::new(),
             capabilities: BTreeMap::new(),
+            cause: CauseCategory::Unclassified,
             actions: Vec::new(),
             exchanges: Vec::new(),
             backend_events: Vec::new(),
@@ -206,6 +238,7 @@ impl Capsule {
 
     pub fn finalize_id(&mut self) -> Result<String> {
         self.version = CAPSULE_VERSION;
+        self.classify_cause();
         // Action order is the executable schedule. In multi-actor capsules each
         // actor has its own 1-based index, so sorting by index would interleave
         // actors incorrectly and destroy the conductor order.
@@ -218,14 +251,69 @@ impl Capsule {
         Ok(self.id.clone())
     }
 
+    fn classify_cause(&mut self) {
+        if self.cause == CauseCategory::Unclassified {
+            self.cause = if self.exchanges.iter().any(|exchange| exchange.required) {
+                CauseCategory::HttpTransaction
+            } else if self.actions.is_empty() {
+                CauseCategory::ApplicationLaunch
+            } else {
+                CauseCategory::UserAction
+            };
+        }
+        if self.exchanges.is_empty() && !matches!(self.cause, CauseCategory::HttpTransaction) {
+            self.capabilities.insert(
+                "http".into(),
+                Capability {
+                    status: CaptureStatus::NotApplicable,
+                    detail: Some("no HTTP transaction is part of this finding's cause".into()),
+                },
+            );
+            self.capabilities.insert(
+                "http_replay".into(),
+                Capability {
+                    status: CaptureStatus::NotApplicable,
+                    detail: Some("no causal HTTP transaction requires replay".into()),
+                },
+            );
+        }
+    }
+
+    pub fn cause_category(&self) -> CauseCategory {
+        if self.cause != CauseCategory::Unclassified {
+            return self.cause;
+        }
+        if self.exchanges.iter().any(|exchange| exchange.required) {
+            CauseCategory::HttpTransaction
+        } else if self.actions.is_empty() {
+            CauseCategory::ApplicationLaunch
+        } else {
+            CauseCategory::UserAction
+        }
+    }
+
     /// Required capabilities are derived from actual causal inputs. An absent
     /// transport can never silently degrade into a confirmed reproduction.
     pub fn missing_required_capabilities(&self) -> Vec<String> {
-        // External-input observation is required even when this particular run
-        // emitted zero exchanges. Otherwise an unsupported adapter and a truly
-        // network-free path are indistinguishable, allowing a live-backend replay
-        // to masquerade as a hermetic reproduction.
-        let mut required = BTreeSet::from(["ui_actions", "http"]);
+        let mut required = BTreeSet::new();
+        match self.cause_category() {
+            CauseCategory::ApplicationLaunch | CauseCategory::UserAction => {
+                required.insert("ui_actions");
+            }
+            CauseCategory::HttpTransaction => {
+                required.insert("http");
+                if !self.actions.is_empty() {
+                    required.insert("ui_actions");
+                }
+            }
+            CauseCategory::TimerOrBackgroundEvent => {
+                required.insert("background_events");
+            }
+            CauseCategory::EnvironmentChange => {
+                required.insert("environment");
+            }
+            CauseCategory::Unclassified => unreachable!("cause_category classifies legacy data"),
+        }
         if self.is_backend_finding() {
             required.insert("backend_effects");
         }
@@ -272,10 +360,20 @@ impl Capsule {
     }
 
     pub fn missing_required_replay_capabilities(&self) -> Vec<String> {
-        // Replay interception is required even for a traffic-free capture. It is
-        // what proves a newly introduced/unexpected request will become a
-        // CAPSULE:MISS instead of reaching live infrastructure.
-        let mut required = BTreeSet::from(["http_replay"]);
+        let mut required = BTreeSet::new();
+        match self.cause_category() {
+            CauseCategory::ApplicationLaunch | CauseCategory::UserAction => {}
+            CauseCategory::HttpTransaction => {
+                required.insert("http_replay");
+            }
+            CauseCategory::TimerOrBackgroundEvent => {
+                required.insert("background_events_replay");
+            }
+            CauseCategory::EnvironmentChange => {
+                required.insert("environment_replay");
+            }
+            CauseCategory::Unclassified => unreachable!("cause_category classifies legacy data"),
+        }
         if self.is_backend_finding() {
             required.insert("backend_effects_replay");
         }

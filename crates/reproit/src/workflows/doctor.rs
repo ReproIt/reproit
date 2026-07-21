@@ -151,6 +151,7 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
         .unwrap_or(false);
 
     if let Some(l) = &loaded {
+        let toolchain = crate::runtime::toolchain::collect(&l.root, &l.config).await;
         let platform = platform::resolve(&l.config.app.platform);
         if let Some(p) = platform {
             doctor_push(
@@ -305,7 +306,6 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
                     for (bin, why) in [
                         ("xcrun", "simulator control"),
                         ("ffmpeg", "video/evidence tooling"),
-                        ("flutter", "Flutter app driving"),
                     ] {
                         let found = exec::which(bin).await;
                         doctor_push(
@@ -317,6 +317,38 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
                             Some(format!("install {bin} for Flutter/iOS simulator runs")),
                         );
                     }
+                    for (name, required) in [("flutter", true), ("dart", true), ("xcode", false)] {
+                        let executable = toolchain.resolved_executables.get(name);
+                        let version = toolchain.versions.get(name);
+                        let detail = match (executable, version) {
+                            (Some(path), Some(version)) => format!("{path} | {version}"),
+                            (Some(path), None) => format!("{path} | version query failed"),
+                            (None, _) => "not found on PATH".into(),
+                        };
+                        doctor_push(
+                            &mut checks,
+                            format!("{name} toolchain"),
+                            executable.is_some() && version.is_some(),
+                            required,
+                            detail,
+                            Some(format!(
+                                "install or select a consistent {name} toolchain on PATH"
+                            )),
+                        );
+                    }
+                    doctor_push(
+                        &mut checks,
+                        "dependency locks",
+                        !toolchain.dependency_locks.is_empty(),
+                        false,
+                        format!(
+                            "{} lockfile fingerprint(s) recorded per run",
+                            toolchain.dependency_locks.len()
+                        ),
+                        Some(
+                            "commit the platform dependency lockfiles for reproducible runs".into(),
+                        ),
+                    );
                     let sims = exec::run("xcrun", &["simctl", "list", "devices", "booted"]).await;
                     doctor_push(
                         &mut checks,

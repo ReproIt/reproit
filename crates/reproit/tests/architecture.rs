@@ -254,7 +254,7 @@ fn responsibility_heavy_modules_stay_split() {
 #[test]
 fn flutter_explorer_scaffold_stays_modular() {
     const MAX_ENTRY_LINES: usize = 40;
-    const MAX_MODULE_LINES: usize = 1_000;
+    const MAX_MODULE_LINES: usize = 700;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/scaffolds/flutter");
 
     for entry in [
@@ -276,6 +276,17 @@ fn flutter_explorer_scaffold_stays_modular() {
     }
 
     let modules = root.join("integration_test/reproit_explorer");
+    for responsibility in [
+        "navigation.dart",
+        "action_execution.dart",
+        "settling.dart",
+        "oracle_collection.dart",
+    ] {
+        assert!(
+            modules.join(responsibility).is_file(),
+            "Flutter explorer is missing its {responsibility} responsibility module"
+        );
+    }
     for entry in std::fs::read_dir(modules).expect("read Flutter explorer modules") {
         let path = entry.expect("read Flutter explorer module entry").path();
         if path.extension().is_none_or(|extension| extension != "dart") {

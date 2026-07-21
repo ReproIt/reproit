@@ -180,6 +180,80 @@ pub(super) fn persist_finding_report(root: &Path, id: &str, report_dir: &Path) -
     Ok(())
 }
 
+const MAX_PROMOTED_ALIASES: usize = 200;
+const PROMOTED_ALIAS_RETENTION: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
+
+/// Make the confirmed finding canonical and reduce an earlier provisional
+/// identity to a small compatibility alias. The canonical evidence is checked
+/// before duplicate files are removed, so promotion never discards the only
+/// copy of a finding.
+pub(super) fn promote_finding(
+    root: &Path,
+    provisional_id: Option<&str>,
+    confirmed_id: &str,
+    report_dir: &Path,
+) -> Result<()> {
+    let confirmed = layout::finding_dir(root, confirmed_id);
+    if !confirmed.join("fuzz.md").is_file() || !confirmed.join("run-evidence.json").is_file() {
+        anyhow::bail!("confirmed finding is missing its durable report or evidence graph");
+    }
+    std::fs::write(
+        confirmed.join("status.json"),
+        serde_json::to_vec_pretty(&json!({
+            "status": "confirmed",
+            "canonicalId": confirmed_id,
+        }))?,
+    )?;
+    std::fs::write(report_dir.join("canonical-finding-id"), confirmed_id)?;
+
+    if let Some(provisional_id) = provisional_id.filter(|id| *id != confirmed_id) {
+        let provisional = layout::finding_dir(root, provisional_id);
+        std::fs::create_dir_all(&provisional)?;
+        std::fs::write(provisional.join("promoted-to"), confirmed_id)?;
+        for duplicate in [
+            "fuzz.md",
+            "run-evidence.json",
+            "contract.json",
+            "backend-contract.json",
+            "capsule-id",
+            "identity.json",
+            "status.json",
+        ] {
+            let _ = std::fs::remove_file(provisional.join(duplicate));
+        }
+    }
+    prune_promoted_aliases(root)
+}
+
+fn prune_promoted_aliases(root: &Path) -> Result<()> {
+    let Ok(entries) = std::fs::read_dir(layout::findings_dir(root)) else {
+        return Ok(());
+    };
+    let mut aliases = Vec::new();
+    for entry in entries.take(MAX_PROMOTED_ALIASES * 4) {
+        let entry = entry?;
+        if !entry.path().join("promoted-to").is_file() {
+            continue;
+        }
+        let modified = entry
+            .metadata()?
+            .modified()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        aliases.push((modified, entry.path()));
+    }
+    aliases.sort_by_key(|(modified, path)| (*modified, path.clone()));
+    let excess = aliases.len().saturating_sub(MAX_PROMOTED_ALIASES);
+    for (index, (modified, path)) in aliases.into_iter().enumerate() {
+        let expired = modified
+            .elapsed()
+            .is_ok_and(|age| age > PROMOTED_ALIAS_RETENTION);
+        if index < excess || expired {
+            std::fs::remove_dir_all(path)?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn write_report(
     run_dir: &Path,
     finding_raw_id: &str,

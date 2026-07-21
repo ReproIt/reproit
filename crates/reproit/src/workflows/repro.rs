@@ -94,8 +94,9 @@ pub(super) fn find_finding_by_id(loaded: &config::Loaded, id: &str) -> Option<Fi
     // Accept both forms at this internal lookup boundary.
     let id = repro::raw_finding_id(id)
         .or_else(|| (id.len() == 12 && id.chars().all(|c| c.is_ascii_hexdigit())).then_some(id))?;
-    let durable = layout::finding_dir(&loaded.root, id);
-    if let Some(finding) = finding_from_report_dir(&durable, id) {
+    let canonical_id = layout::canonical_finding_id(&loaded.root, id);
+    let durable = layout::finding_dir(&loaded.root, &canonical_id);
+    if let Some(finding) = finding_from_report_dir(&durable, &canonical_id) {
         return Some(finding);
     }
     let base = loaded.root.join(&loaded.config.evidence.out_dir);

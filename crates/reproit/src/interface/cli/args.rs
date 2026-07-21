@@ -514,8 +514,8 @@ pub(crate) enum Cmd {
     /// Diagnose local setup: config, runner deps, app URL, and cloud
     /// credentials.
     Doctor,
-    /// Configure, discover, and verify one test login. Existing accounts need
-    /// only `reproit auth <account>`; flags create/update an account for CI.
+    /// Configure and verify one test login. `auth verify <account>` replays the
+    /// contract directly; `auth discover <account>` regenerates it first.
     Auth {
         account: String,
         #[arg(long, value_enum)]
@@ -540,6 +540,9 @@ pub(crate) enum Cmd {
         validate_text: Option<String>,
         #[arg(long)]
         no_discover: bool,
+        /// Rebuild the login contract from exploration before verifying it.
+        #[arg(long, conflicts_with = "no_discover")]
+        discover: bool,
     },
     /// Run and manage scripted journeys (declarative YAML paths).
     #[command(

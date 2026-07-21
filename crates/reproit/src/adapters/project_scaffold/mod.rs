@@ -44,6 +44,18 @@ const EXPLORER_RUNTIME: &str = include_str!(
 );
 const EXPLORER_RUNNER: &str =
     include_str!("../../../assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart");
+const EXPLORER_SETTLING: &str = include_str!(
+    "../../../assets/scaffolds/flutter/integration_test/reproit_explorer/settling.dart"
+);
+const EXPLORER_NAVIGATION: &str = include_str!(
+    "../../../assets/scaffolds/flutter/integration_test/reproit_explorer/navigation.dart"
+);
+const EXPLORER_ACTION_EXECUTION: &str = include_str!(
+    "../../../assets/scaffolds/flutter/integration_test/reproit_explorer/action_execution.dart"
+);
+const EXPLORER_ORACLE_COLLECTION: &str = include_str!(
+    "../../../assets/scaffolds/flutter/integration_test/reproit_explorer/oracle_collection.dart"
+);
 const HELPERS: &str =
     include_str!("../../../assets/scaffolds/flutter/integration_test/journey_helpers.dart");
 
@@ -69,6 +81,16 @@ const EXPLORER_SHARED_FILES: &[(&str, &str)] = &[
         EXPLORER_SIMULATOR_WATCHDOG,
     ),
     ("reproit_explorer/runtime.dart", EXPLORER_RUNTIME),
+    ("reproit_explorer/settling.dart", EXPLORER_SETTLING),
+    ("reproit_explorer/navigation.dart", EXPLORER_NAVIGATION),
+    (
+        "reproit_explorer/action_execution.dart",
+        EXPLORER_ACTION_EXECUTION,
+    ),
+    (
+        "reproit_explorer/oracle_collection.dart",
+        EXPLORER_ORACLE_COLLECTION,
+    ),
     ("reproit_explorer/runner.dart", EXPLORER_RUNNER),
 ];
 

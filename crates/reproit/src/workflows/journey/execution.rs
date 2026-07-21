@@ -277,6 +277,19 @@ pub async fn run(
     Ok(repro::CheckResult::from_verdicts(&verdicts))
 }
 
+/// Verify one configured account from a clean application run without reading
+/// or rebuilding the exploration map. The login journey itself is the authored
+/// contract and must use explicit actions rather than map-dependent `goto`s.
+pub async fn verify_account(loaded: &config::Loaded, account: &str) -> Result<repro::CheckResult> {
+    let actions = account_setup_actions(loaded, account)?;
+    if actions.is_empty() {
+        bail!("authentication contract for `{account}` has no actions");
+    }
+    let (log, passed) = run_replay(loaded, &actions, false, true).await?;
+    let result = repro::CheckResult::from_verdicts(&[classify_run(&log, passed)]);
+    Ok(result)
+}
+
 /// Scripted journeys are E2E by default: real sim + backend, not the in-process
 /// headless tier (no backend, no sim, can't satisfy login or multi-actor).
 /// `tier: headless` opts a pure-widget journey out.
