@@ -295,6 +295,7 @@ network statuses, response shapes, and counts from every runner.
 ```yaml
 contracts:
   - id: peer-sees-message
+    authority: declared
     when:
       actor: alice
       action: tap:key:testid:send
@@ -312,6 +313,10 @@ default `scope` is `trace`; use `scope: state` only when each single observation
 disprove the property. Contract action keys are fed back into exploration as hints. A discovered
 violation receives a stable fingerprint, exact replay confirmation, structural evidence, and shrink
 protection, so minimization cannot silently replace it with a different bug.
+
+`authority` is `declared`, `derived`, or `suggested`. Omitted authority remains `declared` for
+existing application-owned contracts. A suggested contract always returns `ABSTAIN` and does not
+steer exploration. Use `derived` only when a mechanical source proves the complete predicate.
 
 ### Fuzz from a journey
 
@@ -394,14 +399,23 @@ auth:
 
 routeAccess:
   - route: /login
+    authority:
+      anonymous: declared
+      member: declared
     access:
       anonymous: allow
       member: { redirect: /app }
   - route: /app
+    authority:
+      anonymous: declared
+      member: declared
     access:
       anonymous: { redirect: /login }
       member: allow
   - route: /admin
+    authority:
+      anonymous: declared
+      member: declared
     access:
       anonymous: { redirect: /login }
       member: { status: 403 }
@@ -418,6 +432,10 @@ either `anonymous` or the exact name of an `auth.accounts` entry. `allow` requir
 route to remain active with a successful document response. `{ redirect: /path }` requires the
 exact final route, including client-side guards. `{ status: 403 }` requires that exact document
 response status.
+
+Authority is recorded per route/principal cell. A `suggested` cell returns `ABSTAIN` before ReproIt
+starts a browser context. An omitted cell authority is `declared`, preserving existing contracts.
+Use `derived` only when the cited mechanical source proves the exact access outcome.
 
 Every non-anonymous account needs `validate.text`, `validate.state`, or `validate.route` so ReproIt
 can prove the principal before probing the route. It runs each matrix cell in an isolated browser
@@ -524,11 +542,25 @@ reproit screenshots [tour]    store/marketing shots across locales + devices
 reproit import maestro <f>    convert a Maestro flow into a journey
 reproit auth <account>        configure, discover, and verify a test login
 reproit mcp                   serve reproit to your coding agent (stdio)
+reproit skills install        install the configuration and debugging playbook
 reproit login                 connect production telemetry to this account
 reproit platforms             UI-framework -> backend matrix
 reproit update                verify and install the latest CLI release
 reproit debug map ...         advanced internal-model diagnostics
 ```
+
+### Agent-assisted configuration
+
+Run `reproit skills install` in an application repository, then ask the coding agent to configure
+Reproit. The installed playbook separates candidate rules into declared, mechanically derived, and
+suggested classes. Suggested intent never enters executable configuration without explicit review.
+The agent validates the resulting setup with `reproit doctor` and narrow contract runs, but the
+deterministic CLI remains the only component that emits a pass, violation, or abstention.
+
+For access policy, the agent first produces a route/principal matrix with a source for each cell.
+A route name or visible label is not authority. Missing or contradictory policy remains uncovered
+instead of being guessed. See the
+[contract-authoring workflow](../skills/reproit/references/configuration.md).
 
 ### Internal-model diagnostics
 

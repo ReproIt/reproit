@@ -2,6 +2,7 @@
 
 use super::{action_str, Visits};
 use crate::domain::appmap::{AppMap, Reversibility};
+use crate::domain::authority::ContractAuthority;
 use crate::domain::contracts::{ContractScope, ContractSpec, Eventually, Formula, Predicate};
 use anyhow::Result;
 use serde::Serialize;
@@ -173,6 +174,7 @@ fn transition_contract(from: &str, to: &str, action: &str) -> ContractSpec {
         .collect::<String>();
     ContractSpec {
         id: format!("draft-transition-{suffix}"),
+        authority: ContractAuthority::Suggested,
         scope: ContractScope::Trace,
         when: Some(Predicate {
             state: Some(from.to_string()),
@@ -273,5 +275,6 @@ mod tests {
         let drafts = contract_drafts(&map()).unwrap();
         assert_eq!(drafts.classification, "draft-non-authoritative");
         assert_eq!(drafts.contracts.len(), 1);
+        assert_eq!(drafts.contracts[0].authority, ContractAuthority::Suggested);
     }
 }

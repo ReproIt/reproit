@@ -24,6 +24,18 @@ reproit keep fnd_...   # keep it as a regression guard
 reproit check          # run the saved suite after the fix
 ```
 
+Install the bundled agent playbook when you want a coding agent to configure that loop for the
+application:
+
+```sh
+reproit skills install
+```
+
+Then ask the agent to "Configure Reproit for this application." The playbook makes the agent
+inventory routes, authorization, schemas, test accounts, resets, and existing assertions. It may
+activate explicit policy and mechanically proven facts, while inferred product intent stays a
+reviewable suggestion outside `reproit.yaml`. Reproit remains the deterministic pass/fail boundary.
+
 `reproit init` is nondestructive. Use `reproit reset` to discard only regenerable local state, or
 `reproit reset --all --init` for a confirmed clean start that removes all project-local Reproit
 state and configuration before initializing again. Neither reset mode removes application source
@@ -181,6 +193,7 @@ reproit cap_... --open                # open its private Cloud page
 reproit repro simplify|why <id>       # shorten a repro (verified) / localize the failure
 reproit auth <account>                # configure/discover/verify a test login
 reproit mcp                           # serve reproit to your coding agent (stdio)
+reproit skills install                # install the contract-authoring agent playbook
 ```
 
 Cloud golden path (production bug -> local repro -> triaged fix):

@@ -1,4 +1,5 @@
 use super::parse_str;
+use crate::domain::authority::ContractAuthority;
 use std::path::PathBuf;
 
 #[test]
@@ -15,6 +16,9 @@ auth:
       validate: { route: /app }
 routeAccess:
   - route: /login
+    authority:
+      anonymous: derived
+      member: declared
     access:
       anonymous: allow
       member: { redirect: /app }
@@ -25,6 +29,14 @@ routeAccess:
 "#;
     let loaded = parse_str(yaml, PathBuf::from("/tmp/route-access")).unwrap();
     assert_eq!(loaded.config.route_access.len(), 2);
+    assert_eq!(
+        loaded.config.route_access[0].authority_for("anonymous"),
+        ContractAuthority::Derived
+    );
+    assert_eq!(
+        loaded.config.route_access[1].authority_for("anonymous"),
+        ContractAuthority::Declared
+    );
 }
 
 #[test]

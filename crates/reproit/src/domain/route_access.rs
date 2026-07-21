@@ -1,6 +1,7 @@
 //! Declarative access policy for concrete web document routes.
 
 use crate::adapters::config::Account;
+use crate::domain::authority::ContractAuthority;
 use crate::domain::evidence::EvidenceStatus;
 use anyhow::{bail, Result};
 use reproit_protocol::ReasonCode;
@@ -16,6 +17,14 @@ const MAX_ROUTE_BYTES: usize = 256;
 pub struct RouteAccessSpec {
     pub route: String,
     pub access: BTreeMap<String, RouteAccessExpectation>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub authority: BTreeMap<String, ContractAuthority>,
+}
+
+impl RouteAccessSpec {
+    pub fn authority_for(&self, principal: &str) -> ContractAuthority {
+        self.authority.get(principal).copied().unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -46,6 +55,7 @@ pub struct RouteAccessObservation {
 pub struct RouteAccessEvaluation {
     pub route: String,
     pub principal: String,
+    pub authority: ContractAuthority,
     pub expected: RouteAccessExpectation,
     pub status: EvidenceStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,6 +107,11 @@ pub fn validate(specs: &[RouteAccessSpec], accounts: &[Account]) -> Result<()> {
                 }
             }
         }
+        for principal in spec.authority.keys() {
+            if !spec.access.contains_key(principal) {
+                bail!("routeAccess authority principal {principal:?} has no matching access entry");
+            }
+        }
     }
     Ok(())
 }
@@ -119,42 +134,66 @@ pub fn validate_route_path(route: &str, field: &str) -> Result<()> {
 pub fn evaluate(
     route: &str,
     principal: &str,
+    authority: ContractAuthority,
     expected: &RouteAccessExpectation,
     observation: Option<RouteAccessObservation>,
     authority_available: bool,
 ) -> RouteAccessEvaluation {
-    let fingerprint = fingerprint(route, principal, expected);
+    let fingerprint = fingerprint(route, principal, authority, expected);
+    if !authority.can_evaluate() {
+        return abstain(
+            route,
+            principal,
+            authority,
+            expected,
+            observation,
+            fingerprint,
+            (
+                ReasonCode::AuthorityUnavailable,
+                "the route-access rule is a non-authoritative suggestion",
+            ),
+        );
+    }
     if !authority_available {
         return abstain(
             route,
             principal,
+            authority,
             expected,
             observation,
             fingerprint,
-            ReasonCode::AuthorityUnavailable,
-            "principal authentication could not be proven",
+            (
+                ReasonCode::AuthorityUnavailable,
+                "principal authentication could not be proven",
+            ),
         );
     }
     let Some(observation) = observation else {
         return abstain(
             route,
             principal,
+            authority,
             expected,
             None,
             fingerprint,
-            ReasonCode::NoObservations,
-            "the runner emitted no bounded route observation",
+            (
+                ReasonCode::NoObservations,
+                "the runner emitted no bounded route observation",
+            ),
         );
     };
     if !observation.settled || observation.requested != route || observation.status.is_none() {
         return abstain(
             route,
             principal,
+            authority,
             expected,
             Some(observation),
             fingerprint,
-            ReasonCode::IncompleteStream,
-            "route navigation did not settle with an attributed document response",
+            (
+                ReasonCode::IncompleteStream,
+                "route navigation did not settle with an attributed document response",
+            ),
         );
     }
 
@@ -182,6 +221,7 @@ pub fn evaluate(
     RouteAccessEvaluation {
         route: route.to_string(),
         principal: principal.to_string(),
+        authority,
         expected: expected.clone(),
         status,
         reason,
@@ -194,6 +234,7 @@ pub fn evaluate(
 pub fn abstain_for_defect(
     route: &str,
     principal: &str,
+    authority: ContractAuthority,
     expected: &RouteAccessExpectation,
     reason_code: ReasonCode,
     reason: &str,
@@ -201,30 +242,31 @@ pub fn abstain_for_defect(
     abstain(
         route,
         principal,
+        authority,
         expected,
         None,
-        fingerprint(route, principal, expected),
-        reason_code,
-        reason,
+        fingerprint(route, principal, authority, expected),
+        (reason_code, reason),
     )
 }
 
 fn abstain(
     route: &str,
     principal: &str,
+    authority: ContractAuthority,
     expected: &RouteAccessExpectation,
     observation: Option<RouteAccessObservation>,
     fingerprint: String,
-    reason_code: ReasonCode,
-    reason: &str,
+    cause: (ReasonCode, &str),
 ) -> RouteAccessEvaluation {
     RouteAccessEvaluation {
         route: route.to_string(),
         principal: principal.to_string(),
+        authority,
         expected: expected.clone(),
         status: EvidenceStatus::Abstain,
-        reason: Some(reason.to_string()),
-        reason_code: Some(reason_code),
+        reason: Some(cause.1.to_string()),
+        reason_code: Some(cause.0),
         observation,
         fingerprint,
     }
@@ -240,9 +282,18 @@ fn expectation_label(expectation: &RouteAccessExpectation) -> String {
     }
 }
 
-fn fingerprint(route: &str, principal: &str, expectation: &RouteAccessExpectation) -> String {
+fn fingerprint(
+    route: &str,
+    principal: &str,
+    authority: ContractAuthority,
+    expectation: &RouteAccessExpectation,
+) -> String {
     let encoded = serde_json::to_string(expectation).expect("route expectation serializes");
-    let material = format!("route-access-v1\n{route}\n{principal}\n{encoded}");
+    let authority_suffix = match authority {
+        ContractAuthority::Declared => String::new(),
+        other => format!("\n{}", other.as_str()),
+    };
+    let material = format!("route-access-v1\n{route}\n{principal}\n{encoded}{authority_suffix}");
     crate::domain::hash::sha256_hex(material.as_bytes())[..20].to_string()
 }
 
@@ -268,6 +319,7 @@ mod tests {
             evaluate(
                 "/admin",
                 "anonymous",
+                ContractAuthority::Declared,
                 &redirect,
                 Some(observation("/login", 200)),
                 true
@@ -279,6 +331,7 @@ mod tests {
             evaluate(
                 "/admin",
                 "anonymous",
+                ContractAuthority::Declared,
                 &redirect,
                 Some(observation("/admin", 200)),
                 true
@@ -290,6 +343,7 @@ mod tests {
             evaluate(
                 "/admin",
                 "member",
+                ContractAuthority::Declared,
                 &redirect,
                 Some(observation("/login", 200)),
                 false
@@ -306,11 +360,41 @@ mod tests {
         let result = evaluate(
             "/admin",
             "anonymous",
+            ContractAuthority::Declared,
             &RouteAccessExpectation::Decision(RouteAccessDecision::Allow),
             Some(incomplete),
             true,
         );
         assert_eq!(result.status, EvidenceStatus::Abstain);
         assert_eq!(result.reason_code, Some(ReasonCode::IncompleteStream));
+    }
+
+    #[test]
+    fn suggested_access_rule_abstains_before_observation() {
+        let result = evaluate(
+            "/admin",
+            "anonymous",
+            ContractAuthority::Suggested,
+            &RouteAccessExpectation::Status { status: 403 },
+            None,
+            true,
+        );
+        assert_eq!(result.authority, ContractAuthority::Suggested);
+        assert_eq!(result.status, EvidenceStatus::Abstain);
+        assert_eq!(result.reason_code, Some(ReasonCode::AuthorityUnavailable));
+    }
+
+    #[test]
+    fn authority_must_name_an_access_cell() {
+        let specs = [RouteAccessSpec {
+            route: "/admin".to_string(),
+            access: BTreeMap::from([(
+                "anonymous".to_string(),
+                RouteAccessExpectation::Status { status: 403 },
+            )]),
+            authority: BTreeMap::from([("member".to_string(), ContractAuthority::Suggested)]),
+        }];
+        let error = validate(&specs, &[]).unwrap_err().to_string();
+        assert!(error.contains("has no matching access entry"));
     }
 }

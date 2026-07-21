@@ -1,5 +1,6 @@
 //! Portable temporal contracts over normalized Reproit observations.
 
+use crate::domain::authority::ContractAuthority;
 use crate::domain::observation::Observation;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -8,6 +9,8 @@ use std::collections::BTreeSet;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContractSpec {
     pub id: String,
+    #[serde(default, skip_serializing_if = "ContractAuthority::is_declared")]
+    pub authority: ContractAuthority,
     #[serde(default)]
     pub scope: ContractScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -105,6 +108,7 @@ pub struct ContractViolation {
 pub struct ContractEvaluation {
     pub contract_id: String,
     pub contract_hash: String,
+    pub authority: ContractAuthority,
     pub status: crate::domain::evidence::EvidenceStatus,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reason_codes: Vec<reproit_protocol::ReasonCode>,
@@ -183,7 +187,10 @@ impl ContractSpec {
             .to_string()
     }
 
-    pub fn evaluate(&self, trace: &[Observation]) -> Vec<ContractViolation> {
+    fn evaluate(&self, trace: &[Observation]) -> Vec<ContractViolation> {
+        if !self.authority.can_evaluate() {
+            return Vec::new();
+        }
         if trace.is_empty() {
             return Vec::new();
         }
@@ -375,6 +382,16 @@ pub(crate) fn evaluate_stream(
         .iter()
         .map(|contract| {
             let contract_hash = contract.stable_hash();
+            if !contract.authority.can_evaluate() {
+                return ContractEvaluation {
+                    contract_id: contract.id.clone(),
+                    contract_hash,
+                    authority: contract.authority,
+                    status: crate::domain::evidence::EvidenceStatus::Abstain,
+                    reason_codes: vec![reproit_protocol::ReasonCode::AuthorityUnavailable],
+                    violations: Vec::new(),
+                };
+            }
             let reason_codes = defects
                 .iter()
                 .filter(|defect| defect.scope.affects_contract(&contract_hash))
@@ -386,6 +403,7 @@ pub(crate) fn evaluate_stream(
                 return ContractEvaluation {
                     contract_id: contract.id.clone(),
                     contract_hash,
+                    authority: contract.authority,
                     status: crate::domain::evidence::EvidenceStatus::Abstain,
                     reason_codes,
                     violations: Vec::new(),
@@ -395,6 +413,7 @@ pub(crate) fn evaluate_stream(
                 return ContractEvaluation {
                     contract_id: contract.id.clone(),
                     contract_hash,
+                    authority: contract.authority,
                     status: crate::domain::evidence::EvidenceStatus::Abstain,
                     reason_codes: vec![reproit_protocol::ReasonCode::NoObservations],
                     violations: Vec::new(),
@@ -409,6 +428,7 @@ pub(crate) fn evaluate_stream(
             ContractEvaluation {
                 contract_id: contract.id.clone(),
                 contract_hash,
+                authority: contract.authority,
                 status,
                 reason_codes: Vec::new(),
                 violations,
@@ -437,6 +457,7 @@ pub fn finding(violation: &ContractViolation) -> serde_json::Value {
 pub fn action_hints(contracts: &[ContractSpec]) -> Vec<String> {
     contracts
         .iter()
+        .filter(|contract| contract.authority.can_evaluate())
         .flat_map(ContractSpec::action_hints)
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -563,6 +584,7 @@ mod tests {
     fn eventual_contract_passes_across_actors() {
         let contract = ContractSpec {
             id: "message-visible".to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: Some(Predicate {
                 actor: Some("alice".to_string()),
@@ -611,6 +633,7 @@ mod tests {
     fn violation_identity_is_stable() {
         let contract = ContractSpec {
             id: "must-finish".to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: None,
             must: Formula::Eventually {
@@ -629,6 +652,7 @@ mod tests {
     fn shrink_may_move_positions_without_changing_violation_identity() {
         let contract = ContractSpec {
             id: "must-finish".to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: Some(Predicate {
                 actor: Some("alice".to_string()),
@@ -663,6 +687,7 @@ mod tests {
     fn action_hints_are_sorted_and_deduplicated() {
         let contract = ContractSpec {
             id: "send".to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: Some(Predicate {
                 actor: None,
@@ -709,12 +734,75 @@ must:
 "#;
         let contract: ContractSpec = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(contract.id, "no-crash");
+        assert_eq!(contract.authority, ContractAuthority::Declared);
+        assert!(serde_json::to_value(contract)
+            .unwrap()
+            .get("authority")
+            .is_none());
+    }
+
+    #[test]
+    fn suggested_contracts_abstain_without_steering_exploration() {
+        let contract = ContractSpec {
+            id: "proposal".to_string(),
+            authority: ContractAuthority::Suggested,
+            scope: ContractScope::Trace,
+            when: None,
+            must: Formula::Is {
+                is: Box::new(Predicate {
+                    actor: None,
+                    state: None,
+                    route: None,
+                    action: Some("tap:key:guess".to_string()),
+                    text: None,
+                    oracle: None,
+                    network_status: None,
+                    response_shape: None,
+                    count: None,
+                }),
+            },
+        };
+        let outcomes = evaluate_stream(
+            std::slice::from_ref(&contract),
+            &[observation(1, "actor", "home")],
+            &[],
+        );
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].authority, ContractAuthority::Suggested);
+        assert_eq!(
+            outcomes[0].status,
+            crate::domain::evidence::EvidenceStatus::Abstain
+        );
+        assert_eq!(
+            outcomes[0].reason_codes,
+            [reproit_protocol::ReasonCode::AuthorityUnavailable]
+        );
+        assert!(outcomes[0].violations.is_empty());
+        assert!(action_hints(&[contract]).is_empty());
+    }
+
+    #[test]
+    fn mechanically_derived_contracts_remain_executable() {
+        let contract = ContractSpec {
+            id: "derived-state".to_string(),
+            authority: ContractAuthority::Derived,
+            scope: ContractScope::Trace,
+            when: None,
+            must: is_state("expected"),
+        };
+        let outcomes = evaluate_stream(&[contract], &[observation(1, "actor", "unexpected")], &[]);
+        assert_eq!(outcomes[0].authority, ContractAuthority::Derived);
+        assert_eq!(
+            outcomes[0].status,
+            crate::domain::evidence::EvidenceStatus::Violation
+        );
     }
 
     #[test]
     fn unscoped_stream_defect_makes_every_contract_abstain() {
         let contracts = ["first", "second"].map(|id| ContractSpec {
             id: id.to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: None,
             must: is_state("expected"),
@@ -742,6 +830,7 @@ must:
     fn attributed_stream_defect_only_abstains_the_matching_contract() {
         let contracts = ["first", "second"].map(|id| ContractSpec {
             id: id.to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: None,
             must: is_state("expected"),
@@ -774,6 +863,7 @@ must:
     fn evidence_artifact_persists_tri_state_outcome_and_stream_defect() {
         let contracts = [ContractSpec {
             id: "bounded".to_string(),
+            authority: ContractAuthority::Declared,
             scope: ContractScope::Trace,
             when: None,
             must: is_state("expected"),

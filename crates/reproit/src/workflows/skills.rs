@@ -94,7 +94,7 @@ fn install_skill(global: bool, dir: Option<PathBuf>) -> Result<()> {
         FILES.len(),
         base.display()
     );
-    println!("  reproit             find -> reproduce -> fix -> check loop");
+    println!("  reproit             configure -> find -> reproduce -> fix -> check loop");
     println!("  reproit-journeys    author single/multi-user scripted journeys");
     println!("  reproit-screenshots author store/marketing screenshot tours");
     Ok(())
@@ -234,6 +234,25 @@ mod tests {
                  (expected a `{tag}` table row)"
             );
         }
+    }
+
+    #[test]
+    fn configuration_skill_preserves_the_authority_boundary() {
+        let skill = skill_file("reproit/SKILL.md");
+        let reference = skill_file("reproit/references/configuration.md");
+        for class in ["`declared`", "`derived`", "`suggested`"] {
+            assert!(
+                skill.contains(class),
+                "main skill omits authority class {class}"
+            );
+            assert!(
+                reference.contains(class),
+                "configuration reference omits authority class {class}"
+            );
+        }
+        assert!(skill.contains("Never activate a suggested rule"));
+        assert!(reference.contains("never in `reproit.yaml`"));
+        assert!(reference.contains("Never count an abstention or uncovered cell as a pass"));
     }
 
     // Drift guard, the other direction: the core verbs the skills teach must

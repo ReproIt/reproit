@@ -129,7 +129,8 @@ Performance and storage changes must not broaden a finding predicate. A refactor
 when the same authoritative evidence produces the same finding identity and incomplete, malformed,
 or unsupported evidence still abstains. In particular:
 
-- inferred contracts do not produce confirmed findings;
+- contracts and route-access cells carry typed `declared`, `derived`, or `suggested` authority;
+  `suggested` rules abstain before evaluation and cannot steer exploration;
 - missing effects or lifecycle observations do not prove absence;
 - sparse graph snapshots do not prove permission traps when an equivalent route has a forward exit;
 - advisory timing or pixel signals do not become verdict-bearing reproductions; and

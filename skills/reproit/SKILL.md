@@ -9,7 +9,7 @@ description: >-
   reproit repro id.
 ---
 
-# Fixing bugs with reproit
+# Configure and use reproit
 
 reproit drives the app like a user, finds bugs, and hands back a **replayable repro**: a seed +
 exact action sequence that fails the same way every run, addressed by a content hash. Your job is
@@ -53,14 +53,23 @@ must not invoke `create` because it requires a person at an interactive terminal
 
 ## Configuration authority
 
-When asked to configure ReproIt, inspect the application and propose the smallest reviewable config
-diff. Use authoritative route tables, middleware, schemas, existing tests, and explicit user policy.
-Do not turn model inference, UI copy, route names, role names, or common conventions into detector
-authority. If intent is absent or contradictory, ask for the policy or leave that cell undeclared.
+When asked to configure ReproIt, act as a contract authoring assistant. Inspect the application and
+build an authority ledger before editing configuration. Classify every proposed rule as:
 
-Run `reproit doctor` after changing configuration, then execute the narrow contract family. Report
-`ABSTAIN` as missing authority or evidence, never as a pass or bug. See
-`references/configuration.md` for the discovery workflow and the browser route-access contract.
+- `declared`: explicit user policy, an application-owned assertion, or an existing test.
+- `derived`: a mechanical fact from a route table, schema, middleware, SDK registration, or runtime
+  structure. It can support only the fact it directly proves.
+- `suggested`: model inference, naming convention, visible copy, or an expected product convention.
+
+Only put declared policy and safely derived mechanical facts in `reproit.yaml`.
+Never activate a suggested rule. Present suggested rules for review and ask for policy when the
+missing decision would change pass/fail behavior. A user's explicit approval turns that exact
+suggestion into a declared rule; do not broaden it.
+
+After the config diff, run `reproit doctor`, execute each narrow contract family, and report
+`SATISFIED`, `VIOLATION`, `ABSTAIN`, and uncovered policy separately. ReproIt, not the model, owns
+the verdict. See `references/configuration.md` for the complete authoring workflow, activation
+rules, output format, and browser route-access example.
 
 ## Rules
 

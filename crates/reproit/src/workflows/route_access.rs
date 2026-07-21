@@ -39,7 +39,19 @@ pub async fn run(ctx: &Ctx, loaded: &config::Loaded) -> Result<RouteAccessSummar
     let mut results = Vec::new();
     for spec in &loaded.config.route_access {
         for (principal, expected) in &spec.access {
+            let authority = spec.authority_for(principal);
             ctx.say(format!("  route-access: {principal} -> {}", spec.route));
+            if !authority.can_evaluate() {
+                results.push(route_access::evaluate(
+                    &spec.route,
+                    principal,
+                    authority,
+                    expected,
+                    None,
+                    true,
+                ));
+                continue;
+            }
             let setup = if principal == "anonymous" {
                 Ok(Vec::new())
             } else {
@@ -48,10 +60,20 @@ pub async fn run(ctx: &Ctx, loaded: &config::Loaded) -> Result<RouteAccessSummar
             let mut evaluation = match setup {
                 Ok(mut actions) => {
                     actions.push(format!("visit:{}", spec.route));
-                    probe(loaded, &spec.route, principal, expected, &actions).await?
+                    probe(
+                        loaded,
+                        &spec.route,
+                        principal,
+                        authority,
+                        expected,
+                        &actions,
+                    )
+                    .await?
                 }
-                Err(error) => route_access::evaluate(&spec.route, principal, expected, None, false)
-                    .with_reason(format!("principal authority unavailable: {error:#}")),
+                Err(error) => {
+                    route_access::evaluate(&spec.route, principal, authority, expected, None, false)
+                        .with_reason(format!("principal authority unavailable: {error:#}"))
+                }
             };
             if evaluation.status == EvidenceStatus::Violation {
                 let setup = if principal == "anonymous" {
@@ -62,8 +84,15 @@ pub async fn run(ctx: &Ctx, loaded: &config::Loaded) -> Result<RouteAccessSummar
                 let confirmed = match setup {
                     Ok(mut actions) => {
                         actions.push(format!("visit:{}", spec.route));
-                        let replay =
-                            probe(loaded, &spec.route, principal, expected, &actions).await?;
+                        let replay = probe(
+                            loaded,
+                            &spec.route,
+                            principal,
+                            authority,
+                            expected,
+                            &actions,
+                        )
+                        .await?;
                         replay.status == EvidenceStatus::Violation
                             && replay.observation == evaluation.observation
                     }
@@ -118,6 +147,7 @@ async fn probe(
     loaded: &config::Loaded,
     route: &str,
     principal: &str,
+    authority: crate::domain::authority::ContractAuthority,
     expected: &RouteAccessExpectation,
     actions: &[String],
 ) -> Result<RouteAccessEvaluation> {
@@ -157,16 +187,21 @@ async fn probe(
         || (!log.contains("FUZZ:MISS ") && !log.contains("FUZZ:ASSERT fail"));
     if !authority_available {
         return Ok(route_access::evaluate(
-            route, principal, expected, None, false,
+            route, principal, authority, expected, None, false,
         ));
     }
     Ok(match observation_for(&log, route) {
         RouteObservation::Observed(observation) => {
-            route_access::evaluate(route, principal, expected, observation, true)
+            route_access::evaluate(route, principal, authority, expected, observation, true)
         }
-        RouteObservation::Defect(reason_code, reason) => {
-            route_access::abstain_for_defect(route, principal, expected, reason_code, reason)
-        }
+        RouteObservation::Defect(reason_code, reason) => route_access::abstain_for_defect(
+            route,
+            principal,
+            authority,
+            expected,
+            reason_code,
+            reason,
+        ),
     })
 }
 

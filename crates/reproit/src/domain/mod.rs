@@ -2,6 +2,7 @@
 
 pub(crate) mod appmap;
 pub(crate) mod attribute;
+pub(crate) mod authority;
 pub(crate) mod backend;
 pub(crate) mod candidate;
 pub(crate) mod capsule;
