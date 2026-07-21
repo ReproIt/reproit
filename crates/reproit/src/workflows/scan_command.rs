@@ -2,7 +2,7 @@
 
 use super::{backend_target, confirm_tui_fuzz};
 use crate::adapters::config;
-use crate::interface::cli::args::ScanArgs;
+use crate::interface::cli::args::{ScanArgs, ScanOnly};
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
 use crate::interface::cli::target::{target_as_executable, target_as_url};
 use crate::workflows::map;
@@ -77,6 +77,14 @@ fn set_extra_headers(headers: &[String]) -> Result<()> {
 }
 
 async fn run_app_scan(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -> Result<ExitCode> {
+    if args.only == Some(ScanOnly::RouteAccess) {
+        if args.target.is_some() {
+            anyhow::bail!("`scan --only route-access` uses the configured routeAccess matrix");
+        }
+        if args.record_video {
+            anyhow::bail!("`scan --only route-access` emits exact route evidence, not video");
+        }
+    }
     let target_url = args.target.as_deref().and_then(target_as_url);
     let mut synthesized = target_url.is_some();
     let loaded = if let Some(url) = &target_url {
@@ -104,6 +112,14 @@ async fn run_app_scan(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -> 
         Some(target) if !synthesized => target,
         _ => "explore".to_string(),
     };
+    if args.only == Some(ScanOnly::RouteAccess) {
+        let summary = super::route_access::run(ctx, &loaded).await?;
+        return Ok(if summary.complete && summary.violations == 0 {
+            ExitCode::SUCCESS
+        } else {
+            exit_with(Exit::Regression)
+        });
+    }
     let freshness = crate::domain::map::map_freshness(&loaded.root)?;
     report_freshness(ctx, &freshness);
     let scan_args = fuzz::ScanArgs {

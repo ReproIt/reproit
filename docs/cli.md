@@ -379,6 +379,55 @@ vault. Journeys stay simple: `setup: login(alice)`. Inside the login journey, us
 resolves those values before the runner types them, and redacts them from logs. For stored-session
 or API-style accounts, use `setup: auth(admin)` or an actor binding like `{ auth: admin }`.
 
+### Browser route access
+
+Declare exact access outcomes when a browser route has an application-owned policy that ReproIt
+cannot infer safely:
+
+```yaml
+auth:
+  accounts:
+    - name: member
+      strategy: session
+      storageRef: member-session
+      validate: { route: /app }
+
+routeAccess:
+  - route: /login
+    access:
+      anonymous: allow
+      member: { redirect: /app }
+  - route: /app
+    access:
+      anonymous: { redirect: /login }
+      member: allow
+  - route: /admin
+    access:
+      anonymous: { redirect: /login }
+      member: { status: 403 }
+```
+
+Run the bounded matrix with:
+
+```sh
+reproit scan --only route-access
+```
+
+Routes and redirects must be concrete same-origin paths without a query or fragment. A principal is
+either `anonymous` or the exact name of an `auth.accounts` entry. `allow` requires the requested
+route to remain active with a successful document response. `{ redirect: /path }` requires the
+exact final route, including client-side guards. `{ status: 403 }` requires that exact document
+response status.
+
+Every non-anonymous account needs `validate.text`, `validate.state`, or `validate.route` so ReproIt
+can prove the principal before probing the route. It runs each matrix cell in an isolated browser
+context and confirms a violation with identical evidence in a second clean context. Failed auth,
+external redirects, incomplete navigation, missing responses, and unstable results are `ABSTAIN`.
+They are never reported as access bugs.
+
+This contract covers browser document navigation. Use a backend `authorization-matrix` proof for
+API operations and protected response data.
+
 ### Many platforms, many locales
 
 `fuzz` and `check` take cross-cutting flags:

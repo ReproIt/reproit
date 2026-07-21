@@ -56,7 +56,7 @@ pub use persistence::{
 /// Load the committed app map, if one has been built.
 mod planning;
 use planning::*;
-pub use planning::{is_multi_actor_target, prefix_actions};
+pub use planning::{account_setup_actions, is_multi_actor_target, prefix_actions};
 mod execution;
 mod schedule;
 #[cfg(test)]

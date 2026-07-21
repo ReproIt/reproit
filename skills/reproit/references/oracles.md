@@ -54,6 +54,7 @@ Useful exact contract identities include:
 - `detached-indicator:<id>`
 - `overflow:<subject>:<container>`
 - `accessibility-state:<identity>:<property>`
+- `route-access:<route>:<principal>`
 
 When one of these returns `ABSTAIN`, report which required signal was absent. Do not replace the
 missing signal with a screenshot or language-dependent text guess.
@@ -80,6 +81,12 @@ event correlated to the exact operation.
 Backend semantics must not be inferred from operation, field, route, framework, or function names.
 Missing strong consistency, snapshot identity, complete effects, or an explicit behavioral contract
 means `ABSTAIN`.
+
+Browser document access is a separate authored matrix. Run
+`reproit scan --only route-access`. A non-anonymous cell first proves its configured principal,
+then directly navigates to the exact route in an isolated browser context. A violation is confirmed
+only when a second clean context produces the identical observation. Missing auth authority,
+incomplete navigation, external redirects, and unstable evidence return `ABSTAIN`.
 
 HTTP media-type and cache proofs require exact captured headers and body bytes. Lifecycle proofs
 require one complete, stably identified, totally ordered scope. Codec proofs require a declared

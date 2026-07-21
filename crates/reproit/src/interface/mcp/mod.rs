@@ -142,8 +142,9 @@ const SCAN_DESCRIPTION: &str = concat!(
     "require an application-owned structural contract. Built-in content, layout, and routing ",
     "observations are specialist oracles available explicitly through reproit_fuzz --only ",
     "<oracle>; repeatability alone does not prove application intent. Pass a URL (zero-config, ",
-    "deployed app) or an alias/node to scope. `record_video=true` saves quick clips for ",
-    "confirmed findings into .reproit/recordings/scan/. Use reproit_fuzz for deeper ",
+    "deployed app) or an alias/node to scope. Set `only=route-access` to evaluate the exact ",
+    "authored browser route matrix instead of crawling. `record_video=true` saves quick clips ",
+    "for confirmed findings into .reproit/recordings/scan/. Use reproit_fuzz for deeper ",
     "sequence-dependent bugs, then reproit_check / reproit_keep on the fnd_... id. Slow: a real ",
     "run."
 );
@@ -369,6 +370,11 @@ fn tool_defs() -> Value {
                         ".reproit/recordings/scan/. Visually localizable findings are boxed; ",
                         "the rest are diagnostic clips."
                     )
+                },
+                "only": {
+                    "type": "string",
+                    "enum": ["route-access"],
+                    "description": "Evaluate only the declared browser route-access matrix."
                 }
             } }
         },
@@ -976,6 +982,10 @@ mod tests {
         // A target (URL or alias) is forwarded positionally.
         let scoped = argv("reproit_scan", json!({ "target": "https://app.com" }));
         assert!(scoped.windows(2).any(|w| w == ["scan", "https://app.com"]));
+        let route_access = argv("reproit_scan", json!({ "only": "route-access" }));
+        assert!(route_access
+            .windows(2)
+            .any(|w| w == ["--only", "route-access"]));
     }
 
     #[test]

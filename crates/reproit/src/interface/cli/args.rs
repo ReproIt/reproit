@@ -40,6 +40,12 @@ pub(crate) enum SkillFormat {
     Skill,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ScanOnly {
+    /// Evaluate only the declared browser route-access matrix.
+    RouteAccess,
+}
+
 impl Cli {
     pub(crate) fn ctx(&self) -> Ctx {
         Ctx {
@@ -84,6 +90,9 @@ pub(crate) struct ScanArgs {
     /// preview token so a challenge-fronted or authenticated target is reachable.
     #[arg(long = "header", value_name = "NAME: VALUE")]
     pub(crate) headers: Vec<String>,
+    /// Restrict the scan to one declarative contract family.
+    #[arg(long, value_enum)]
+    pub(crate) only: Option<ScanOnly>,
 }
 
 #[derive(Args)]

@@ -40,6 +40,10 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/reproit/references/cloud.md"),
     ),
     (
+        "reproit/references/configuration.md",
+        include_str!("../../../../skills/reproit/references/configuration.md"),
+    ),
+    (
         "reproit-journeys/SKILL.md",
         include_str!("../../../../skills/reproit-journeys/SKILL.md"),
     ),

@@ -32,6 +32,9 @@ pub struct Config {
     /// Portable temporal properties evaluated over normalized runner events.
     #[serde(default)]
     pub contracts: Vec<crate::domain::contracts::ContractSpec>,
+    /// Exact access outcomes for concrete same-origin web document routes.
+    #[serde(default, rename = "routeAccess")]
+    pub route_access: Vec<crate::domain::route_access::RouteAccessSpec>,
     /// Experimental backend structural analysis. This is intentionally absent
     /// from public documentation until its cross-language validation gate is
     /// complete.
@@ -82,6 +85,7 @@ impl AuthStrategy {
 pub struct AuthValidate {
     pub text: Option<String>,
     pub state: Option<String>,
+    pub route: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -756,6 +760,9 @@ pub use web_runner::web_runner_data_dir;
 
 #[cfg(test)]
 use loader::interpolate_env;
+
+#[cfg(test)]
+mod route_access_tests;
 
 #[cfg(test)]
 mod tests {

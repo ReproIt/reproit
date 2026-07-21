@@ -266,6 +266,11 @@ framework diagnostics, and timing alone are not authority.
 | `concurrent-update`       | Two overlapping updates using the same authored version both committed to the same resource.                   |
 | `concurrent-conservation` | Overlapping committed updates contradicted an authored conservation transition.                                |
 
+Browser document routes use the separate top-level `routeAccess` matrix. Each cell is identified by
+its exact route, principal, and authored outcome. `reproit scan --only route-access` proves the
+principal, navigates directly in an isolated browser context, and confirms any violation with an
+identical second observation. Incomplete principal or navigation evidence returns `ABSTAIN`.
+
 Backend evaluation returns `ABSTAIN` when it lacks strong consistency, a stable operation or
 resource identity, complete effects, an exact snapshot, an authoritative schema, or an authored
 behavioral contract. It does not derive semantics from names such as `admin`, `sort`, `cursor`,

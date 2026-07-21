@@ -50,10 +50,29 @@ auth:
       passwordRef: alice.password   # vault key
       totpRef: alice.totp           # vault key (base32 TOTP seed), if 2FA
       storageRef: alice.session     # vault key (session blob) for auth(<acct>)
+      validate:
+        route: /app                 # proves the restored principal before checks
     - name: bob
       userId: dev-bbbb-bbbb-bbbb-bbbbbbbbbbbb
       username: bob@dev.local
       passwordRef: bob.password
+
+# Exact browser document-route policy. Principals name auth accounts above;
+# `anonymous` is built in. ReproIt evaluates only these authored outcomes and
+# abstains when login or navigation evidence is incomplete.
+routeAccess:
+  - route: /login
+    access:
+      anonymous: allow
+      alice: { redirect: /app }
+  - route: /app
+    access:
+      anonymous: { redirect: /login }
+      alice: allow
+  - route: /admin
+    access:
+      anonymous: { redirect: /login }
+      alice: { status: 403 }
 
 # State reset: ordered steps, run before every journey/gate run. This is the
 # customer-facing integration contract (see docs/cli.md). Steps are best-effort

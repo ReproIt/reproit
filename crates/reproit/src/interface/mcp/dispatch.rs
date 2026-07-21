@@ -72,6 +72,12 @@ pub(super) fn build_argv(
             if let Some(t) = s("target") {
                 argv.push(t);
             }
+            if let Some(only) = s("only") {
+                if only != "route-access" {
+                    return Err((format!("unsupported scan contract family {only:?}"), true));
+                }
+                argv.extend(["--only".into(), only]);
+            }
             if b("record_video") {
                 argv.push("--record-video".into());
             }

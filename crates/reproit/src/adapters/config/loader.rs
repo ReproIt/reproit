@@ -53,6 +53,16 @@ pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     if config.journeys.done_markers.is_empty() {
         bail!("journeys.doneMarkers must not be empty");
     }
+    crate::domain::route_access::validate(&config.route_access, &config.auth.accounts)?;
+    for account in &config.auth.accounts {
+        if let Some(route) = account
+            .validate
+            .as_ref()
+            .and_then(|validate| validate.route.as_deref())
+        {
+            crate::domain::route_access::validate_route_path(route, "auth validate.route")?;
+        }
+    }
     config.backend.load_schemas(&root)?;
     Ok(Loaded { config, root })
 }

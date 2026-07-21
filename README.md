@@ -17,6 +17,7 @@ The small loop is:
 reproit init           # detect the app and create the smallest working setup
 reproit doctor         # check local setup for this app and platform
 reproit auth <account> --email ... --password ...  # configure + verify once
+reproit scan --only route-access  # check an authored browser access matrix
 reproit fuzz --all     # find deeper, confirmed interaction bugs
 reproit fnd_...        # reproduce that finding
 reproit keep fnd_...   # keep it as a regression guard

@@ -36,6 +36,7 @@ mod proof;
 mod record;
 mod repro;
 mod reset;
+mod route_access;
 mod scan_command;
 
 #[cfg(all(target_os = "linux", feature = "linux-atspi"))]

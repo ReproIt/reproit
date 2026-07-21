@@ -17,6 +17,7 @@ pub(crate) mod observation;
 pub(crate) mod oracle;
 pub(crate) mod overflow;
 pub(crate) mod repro;
+pub(crate) mod route_access;
 pub(crate) mod runner;
 pub(crate) mod signature;
 pub(crate) mod target;

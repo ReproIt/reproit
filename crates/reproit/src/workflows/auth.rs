@@ -571,10 +571,13 @@ fn auth_account_doctor(config_path: Option<&std::path::Path>, account: &str) -> 
             println!("  ok      validate: text `{text}`");
         } else if let Some(state) = &validate.state {
             println!("  ok      validate: state `{state}`");
+        } else if let Some(route) = &validate.route {
+            println!("  ok      validate: route `{route}`");
         }
     } else {
         println!(
-            "  warn    validate: add validate.text or validate.state for clearer auth failures"
+            "  warn    validate: add validate.text, validate.state, or validate.route for clearer \
+             auth failures"
         );
     }
     if !ok {

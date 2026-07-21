@@ -1,11 +1,12 @@
 ---
 name: reproit
 description: >-
-  Use when finding, reproducing, or fixing UI bugs in an app under test with
-  reproit. Drives the find -> reproduce -> localize -> fix -> prove loop and
-  knows how to read repros, oracles, and fault-localization output. Trigger on
-  "find bugs", "this UI is broken", "reproduce this crash", "fix the failing
-  check", or any reproit repro id.
+  Configure reproit or use it to find, reproduce, and fix bugs in an app under
+  test. Drives contract discovery, the find, reproduce, localize, fix, and
+  prove loop, plus interpretation of repros, oracles, and fault-localization
+  output. Trigger on "set up reproit", "find bugs", "this UI is broken",
+  "reproduce this crash", "fix the failing check", access-policy checks, or any
+  reproit repro id.
 ---
 
 # Fixing bugs with reproit
@@ -50,6 +51,17 @@ Human-authored reports use a separate workflow. `reproit create` opens an intera
 session, and `reproit push cap_...` publishes the resulting immutable original after review. Agents
 must not invoke `create` because it requires a person at an interactive terminal.
 
+## Configuration authority
+
+When asked to configure ReproIt, inspect the application and propose the smallest reviewable config
+diff. Use authoritative route tables, middleware, schemas, existing tests, and explicit user policy.
+Do not turn model inference, UI copy, route names, role names, or common conventions into detector
+authority. If intent is absent or contradictory, ask for the policy or leave that cell undeclared.
+
+Run `reproit doctor` after changing configuration, then execute the narrow contract family. Report
+`ABSTAIN` as missing authority or evidence, never as a pass or bug. See
+`references/configuration.md` for the discovery workflow and the browser route-access contract.
+
 ## Rules
 
 - A repro is seed + action sequence, identical across machines. Trust the id, not your memory of the
@@ -67,5 +79,6 @@ must not invoke `create` because it requires a person at an interactive terminal
 - Oracle catalog and how to read each failure: `references/oracles.md`
 - Fault localization (`why`) interpretation: `references/why.md`
 - Reproducing a real production crash from the cloud: `references/cloud.md`
+- Authoring authoritative configuration and route access: `references/configuration.md`
 - Authoring multi-user / scripted test journeys: use the `reproit-journeys` skill instead, that is a
   different task.

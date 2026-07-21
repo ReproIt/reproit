@@ -192,41 +192,109 @@ pub(super) fn build_plan(root: &Path, map: Option<&AppMap>, j: &Journey) -> Resu
     };
     let account = setup.as_ref().map(|(_, a)| a.as_str());
 
-    let mut prelude = Plan::default();
-    if let Some((kind, acct)) = &setup {
-        match kind {
-            SetupKind::Login => {
-                let account_login = format!("login-{acct}");
-                let login_name = if exists(root, &account_login) {
-                    account_login.as_str()
-                } else {
-                    "login"
-                };
-                if !exists(root, login_name) {
-                    bail!(
-                        "`setup: login({acct})` needs `{account_login}` or `login`; run `reproit \
-                         auth discover {acct}`"
-                    );
-                }
-                let login = load(root, login_name)
-                    .with_context(|| format!("loading the `login` journey for setup({acct})"))?;
-                if login.setup.is_some() {
-                    bail!("the `login` journey must not itself declare `setup` (would recurse)");
-                }
-                prelude = resolve(map, &login, Some(acct))
-                    .with_context(|| format!("resolving the `login` journey for {acct}"))?;
-            }
-            SetupKind::Auth => {
-                prelude.actions.push(format!("auth:{acct}"));
-            }
-        }
-    }
+    let prelude = match &setup {
+        Some((kind, account)) => build_auth_prelude(root, map, *kind, account)?,
+        None => Plan::default(),
+    };
 
     let mut main = resolve(map, j, account)?;
     // The prelude runs first, then the journey's own actions.
     let mut actions = prelude.actions;
     actions.append(&mut main.actions);
     Ok(Plan { actions })
+}
+
+fn build_auth_prelude(
+    root: &Path,
+    map: Option<&AppMap>,
+    kind: SetupKind,
+    account: &str,
+) -> Result<Plan> {
+    if kind == SetupKind::Auth {
+        return Ok(Plan {
+            actions: vec![format!("auth:{account}")],
+        });
+    }
+
+    let account_login = format!("login-{account}");
+    let login_name = if exists(root, &account_login) {
+        account_login.as_str()
+    } else {
+        "login"
+    };
+    if !exists(root, login_name) {
+        bail!(
+            "`setup: login({account})` needs `{account_login}` or `login`; run `reproit auth \
+             discover {account}`"
+        );
+    }
+    let login = load(root, login_name)
+        .with_context(|| format!("loading the `login` journey for setup({account})"))?;
+    if login.setup.is_some() {
+        bail!("the `login` journey must not itself declare `setup` (would recurse)");
+    }
+    resolve(map, &login, Some(account))
+        .with_context(|| format!("resolving the `login` journey for {account}"))
+}
+
+/// Build and verify one configured principal before a route-access probe.
+pub fn account_setup_actions(loaded: &config::Loaded, account: &str) -> Result<Vec<String>> {
+    let configured = loaded
+        .config
+        .auth
+        .accounts
+        .iter()
+        .find(|candidate| candidate.name == account)
+        .ok_or_else(|| anyhow::anyhow!("unknown auth account {account:?}"))?;
+    let strategy = configured
+        .strategy
+        .unwrap_or(config::AuthStrategy::Password);
+    let kind = match strategy {
+        config::AuthStrategy::OauthTest
+        | config::AuthStrategy::Session
+        | config::AuthStrategy::Api => SetupKind::Auth,
+        _ => SetupKind::Login,
+    };
+    let map = load_map(&loaded.root)?;
+    let mut plan = build_auth_prelude(&loaded.root, map.as_ref(), kind, account)?;
+    let validate = configured.validate.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "routeAccess principal {account:?} needs auth.accounts[].validate authority"
+        )
+    })?;
+    let mut assertions = 0usize;
+    if let Some(text) = &validate.text {
+        plan.actions.push(format!("assert:text={text}"));
+        assertions += 1;
+    }
+    if let Some(state) = &validate.state {
+        let map = map.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("auth validation by state needs an app map; run `reproit scan` first")
+        })?;
+        let signature = resolve_state_sig(map, state).ok_or_else(|| {
+            anyhow::anyhow!("auth validation state {state:?} is absent from the app map")
+        })?;
+        plan.actions.push(format!("assert:state={signature}"));
+        assertions += 1;
+    }
+    if let Some(route) = &validate.route {
+        plan.actions.push(format!("assert:route={route}"));
+        assertions += 1;
+    }
+    if assertions == 0 {
+        bail!(
+            "routeAccess principal {account:?} needs validate.text, validate.state, or \
+             validate.route"
+        );
+    }
+
+    let secrets = crate::adapters::credentials::secret_env(&loaded.config.auth, &loaded.root)
+        .with_context(|| format!("loading credentials for routeAccess principal {account:?}"))?;
+    Ok(plan
+        .actions
+        .iter()
+        .map(|action| crate::adapters::credentials::resolve_placeholders(action, &secrets))
+        .collect())
 }
 
 /// Load a journey by NAME (`journeys/<name>.yaml`, like any journey target) or

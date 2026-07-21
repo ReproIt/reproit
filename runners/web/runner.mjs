@@ -73,6 +73,7 @@ import {
   inspectLinkedRoutes,
   isDeadRouteStatus,
   isSoftHandled,
+  publicRouteKey,
   requestRouteKey,
   soft404View,
 } from './route-inspection.mjs';
@@ -394,6 +395,57 @@ export async function clearClientStorage(page) {
       } catch (_) {}
     })
     .catch(() => {});
+}
+
+export function validRouteAccessPath(route) {
+  return (
+    typeof route === 'string' &&
+    route.startsWith('/') &&
+    !route.startsWith('//') &&
+    !route.includes('?') &&
+    !route.includes('#') &&
+    route.length <= 256 &&
+    !/\s/.test(route)
+  );
+}
+
+export async function visitRoute(page, requested, appOrigin) {
+  if (!validRouteAccessPath(requested)) return null;
+  const target = new URL(requested, appOrigin).href;
+  let response = null;
+  let navigationFailed = false;
+  try {
+    response = await page.goto(target, {
+      waitUntil: 'domcontentloaded',
+      timeout: 8000,
+    });
+  } catch (_) {
+    navigationFailed = true;
+  }
+  // Client-side guards commonly redirect after a session probe. Give that
+  // bounded work time to finish, then require a stable URL sample.
+  await page.waitForTimeout(750);
+  let previous = '';
+  let stableSamples = 0;
+  for (let sample = 0; sample < 12 && stableSamples < 3; sample++) {
+    const observed = page.url();
+    stableSamples = observed === previous ? stableSamples + 1 : 0;
+    previous = observed;
+    if (stableSamples < 3) await page.waitForTimeout(150);
+  }
+  let finalRoute = '';
+  let sameOrigin = false;
+  try {
+    const finalUrl = new URL(page.url());
+    sameOrigin = finalUrl.origin === appOrigin;
+    if (sameOrigin) finalRoute = publicRouteKey(finalUrl.pathname);
+  } catch (_) {}
+  return {
+    requested,
+    finalRoute,
+    status: response ? response.status() : null,
+    settled: !navigationFailed && sameOrigin && stableSamples >= 3,
+  };
 }
 
 // shared by markAnchors/churnedAnchors; inlined into each (page.evaluate
@@ -6381,6 +6433,22 @@ async function main() {
         current = await observe(); // observe() emits FUZZ:STATE in replay mode
         continue;
       }
+      if (act.startsWith('visit:')) {
+        const requested = act.slice('visit:'.length);
+        if (!validRouteAccessPath(requested)) {
+          log('FUZZ:MISS ' + act + ' (route must be a bounded same-origin path)');
+          stuck++;
+          continue;
+        }
+        const routeObservation = await visitRoute(page, requested, APP_ORIGIN);
+        log('REPROIT:ROUTE_ACCESS ' + JSON.stringify(routeObservation));
+        if (!routeObservation || !routeObservation.settled) {
+          stuck++;
+          continue;
+        }
+        current = await observe();
+        continue;
+      }
       if (act.startsWith('assert:')) {
         // Journey assertions: evaluated against the live screen at this point in
         // the replay. They never move state (no observe/stuck change); the verdict
@@ -6403,6 +6471,21 @@ async function main() {
             .evaluate((t) => !!(document.body && document.body.innerText.includes(t)), want)
             .catch(() => false);
           log('FUZZ:ASSERT ' + (ok ? 'pass' : 'fail') + ' text=' + JSON.stringify(want));
+        } else if (body.startsWith('route=')) {
+          const want = body.slice('route='.length);
+          let got = '';
+          try {
+            const url = new URL(page.url());
+            if (url.origin === APP_ORIGIN) got = publicRouteKey(url.pathname);
+          } catch (_) {}
+          log(
+            'FUZZ:ASSERT ' +
+              (got === want ? 'pass' : 'fail') +
+              ' route want=' +
+              want +
+              ' got=' +
+              got,
+          );
         } else if (body.startsWith('count:')) {
           const rest = body.slice('count:'.length);
           const eq = rest.lastIndexOf('=');
