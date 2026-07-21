@@ -22,6 +22,7 @@ contains the rules an agent needs while diagnosing a finding.
 | Oracle               | Authority                                                               |
 | -------------------- | ----------------------------------------------------------------------- |
 | `crash`              | Uncaught exception, fatal assertion, signal, or native crash            |
+| `overflow`           | Declared container plus two stable exact-layout samples                 |
 | `detached-indicator` | Application-declared owner, container, gap, and settled geometry        |
 | `contract`           | Application-declared structural or temporal rule with a frozen identity |
 
@@ -51,6 +52,7 @@ Useful exact contract identities include:
 - `action-effect:<id>:route`
 - `action-effect:<id>:state`
 - `detached-indicator:<id>`
+- `overflow:<subject>:<container>`
 - `accessibility-state:<identity>:<property>`
 
 When one of these returns `ABSTAIN`, report which required signal was absent. Do not replace the

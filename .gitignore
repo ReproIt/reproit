@@ -1,5 +1,7 @@
 node_modules/
 dist/
+!examples/tauri-fixture/dist/
+!examples/tauri-fixture/dist/index.html
 .reproit/runs/
 .reproit/findings/
 .reproit/recordings/

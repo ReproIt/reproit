@@ -73,6 +73,25 @@ pub fn any_content_bug(obs: &RunObs) -> bool {
     obs.content_bugs.values().any(|items| !items.is_empty())
 }
 
+/// Re-evaluate the exact layout subject and container pair. Only SATISFIED
+/// proves a fix. Missing or ABSTAIN evidence means the replay cannot decide.
+pub fn recheck_overflow(obs: &RunObs, sig: &str, fingerprint: &str) -> GraphRecheck {
+    if !obs.states.contains_key(sig) {
+        return GraphRecheck::NotReached;
+    }
+    let Some(checks) = obs.overflow_checks.get(sig) else {
+        return GraphRecheck::NotReached;
+    };
+    let Some(check) = checks.iter().find(|check| check.fingerprint == fingerprint) else {
+        return GraphRecheck::NotReached;
+    };
+    match check.outcome {
+        crate::domain::overflow::OverflowOutcome::Violation => GraphRecheck::StillViolating,
+        crate::domain::overflow::OverflowOutcome::Satisfied => GraphRecheck::Fixed,
+        crate::domain::overflow::OverflowOutcome::Abstain => GraphRecheck::NotReached,
+    }
+}
+
 /// Re-confirm an explicit detached-indicator relationship at its recorded
 /// state. ABSTAIN relationships emit no marker and therefore evaluate as fixed
 /// only after the state itself was reached; an unreachable state remains stale.

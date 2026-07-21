@@ -545,7 +545,8 @@ Precedence: flag > config > default.
 
 ## Oracles
 
-`fuzz` runs all of these by default; findings are tagged so you can filter with `--only` / `--no`.
+Findings are tagged so you can filter with `--only` / `--no`. The default set contains only
+categories with authoritative evidence and exact replay.
 
 - **crash** uncaught exceptions / process death
 - **jank** dropped frames past a threshold
@@ -553,9 +554,11 @@ Precedence: flag > config > default.
 - **visual** screenshot regression vs a baseline
 - **divergence** disagreement between targets (run with multiple `--target`)
 - **a11y** accessibility violations
-- **overflow** DOM/layout overflow: content clipped or overflowing its container/viewport, including
-  RTL / long-string breaks under other locales (web; deterministic structural measurement; run with
-  `--locale`)
+- **overflow** content outside an app-declared layout container in two settled samples. DOM apps
+  declare the container with `data-reproit-contain`; scrolling, truncation, transforms, missing
+  ownership, and unstable geometry abstain. The shared collector covers web, Electron, Tauri, and
+  DOM frameworks such as React, Vue, Svelte, and Angular. Use `--locale` to exercise long and RTL
+  strings.
 
 ## MCP tools
 

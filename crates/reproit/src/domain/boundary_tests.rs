@@ -180,6 +180,12 @@ mod tests {
         // The new categories parse from their --only/--no names + aliases.
         assert_eq!(Oracle::parse("content-bug"), Some(Oracle::ContentBug));
         assert_eq!(Oracle::parse("content"), Some(Oracle::ContentBug));
+        assert_eq!(
+            classify(&json!({ "invariant": "no-layout-overflow" })),
+            Oracle::Overflow
+        );
+        assert_eq!(classify(&json!({ "kind": "OVERFLOW" })), Oracle::Overflow);
+        assert_eq!(Oracle::parse("layout-overflow"), Some(Oracle::Overflow));
         assert_eq!(Oracle::parse("hang"), Some(Oracle::Hang));
         assert_eq!(Oracle::parse("freeze"), Some(Oracle::Hang));
         assert_eq!(classify(&json!({ "kind": "PERF" })), Oracle::Jank);

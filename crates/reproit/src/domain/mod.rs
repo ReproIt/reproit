@@ -15,6 +15,7 @@ pub(crate) mod locale;
 pub(crate) mod map;
 pub(crate) mod observation;
 pub(crate) mod oracle;
+pub(crate) mod overflow;
 pub(crate) mod repro;
 pub(crate) mod runner;
 pub(crate) mod signature;

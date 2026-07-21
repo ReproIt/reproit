@@ -1856,4 +1856,25 @@ mod tests {
         assert_eq!(checks[0].fingerprint, "sha256:f264f36f3b511e4ae5993d43");
         assert_eq!(checks[0].outcome, "VIOLATION");
     }
+
+    #[test]
+    fn parses_overflow_through_the_shared_evaluator() {
+        let obs = parse_run(concat!(
+            "EXPLORE:STATE {\"sig\":\"card\",\"labels\":[\"Message\"]}\n",
+            "EXPLORE:OVERFLOW {\"sig\":\"card\",\"version\":1,\"complete\":true,",
+            "\"checks\":[{\"subjectKey\":\"key:id:message\",",
+            "\"containerKey\":\"key:id:card\",\"authority\":\"exact-layout\",",
+            "\"ownership\":\"app\",\"stableSamples\":2,\"transformed\":false,",
+            "\"policy\":\"contain\",",
+            "\"subjectRect\":{\"left\":4,\"top\":4,\"right\":108,\"bottom\":36},",
+            "\"containerRect\":{\"left\":0,\"top\":0,\"right\":100,\"bottom\":40}}]}\n",
+        ));
+        let checks = obs.overflow_checks.get("card").expect("overflow checks");
+        assert_eq!(checks.len(), 1);
+        assert_eq!(
+            checks[0].outcome,
+            crate::domain::overflow::OverflowOutcome::Violation
+        );
+        assert_eq!(checks[0].spill_x_centipx, 800);
+    }
 }

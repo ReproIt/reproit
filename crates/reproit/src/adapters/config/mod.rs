@@ -214,6 +214,12 @@ pub struct InvariantsCfg {
     /// web runner (`EXPLORE:CONTENTBUG`).
     #[serde(default = "default_true")]
     pub no_broken_render: bool,
+    /// Layout containment: app-owned content must stay inside a stable,
+    /// explicitly bounded container. Runners emit versioned geometry evidence;
+    /// ambiguous ownership, intentional scrolling/truncation, transforms, and
+    /// incomplete samples abstain.
+    #[serde(default = "default_true")]
+    pub no_overflow: bool,
     /// Blank screen: a settled empty state corroborated by independent
     /// authority such as a first-party exception or renderer crash. Structural
     /// visual emptiness alone is diagnostic and always abstains.
@@ -373,6 +379,7 @@ impl Default for InvariantsCfg {
             no_leak: true,
             rerender_flicker: true,
             no_broken_render: true,
+            no_overflow: true,
             no_blank_screen: true,
             no_broken_asset: true,
             no_zoom_reflow: true,

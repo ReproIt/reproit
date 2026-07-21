@@ -4,6 +4,7 @@ mod contracts;
 mod structure;
 
 use crate::domain::appmap::{OperabilityGap, OperabilityGaps, StateElement, StateText};
+use crate::domain::overflow::OverflowCheck;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -113,6 +114,10 @@ pub(crate) struct RunObs {
     /// scan, so it re-confirms on replay; empty for runners/states that
     /// render no broken content.
     pub content_bugs: BTreeMap<String, Vec<(String, String, String)>>,
+    /// sig -> bounded layout containment checks. VIOLATION and SATISFIED are
+    /// retained for exact replay; ABSTAIN is retained so unavailable evidence
+    /// can never be mistaken for a fix.
+    pub overflow_checks: BTreeMap<String, Vec<OverflowCheck>>,
     /// sig -> explicit structural relationship violations. Web currently emits
     /// only `indicator-anchor` records from `data-reproit-*` ownership
     /// contracts. Missing or ambiguous contracts are ABSTAIN upstream and
@@ -379,6 +384,7 @@ pub(crate) fn parse_runner_events(events: &[crate::domain::runner::RunnerEvent<'
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),
         content_bugs: BTreeMap::new(),
+        overflow_checks: BTreeMap::new(),
         relations: BTreeMap::new(),
         relation_checks: BTreeMap::new(),
         accessibility_state_checks: BTreeMap::new(),
@@ -426,7 +432,14 @@ pub(crate) fn parse_runner_events(events: &[crate::domain::runner::RunnerEvent<'
         if structure::absorb(&mut obs, line) || contracts::absorb(&mut obs, line) {
             continue;
         }
-        if let Some(json) = extract(line, "EXPLORE:CONTENTBUG ") {
+        if let Some(json) = extract(line, "EXPLORE:OVERFLOW ") {
+            if let Some(sig) = json.get("sig").and_then(Value::as_str) {
+                let checks = crate::domain::overflow::evaluate_marker(&json);
+                if !checks.is_empty() {
+                    obs.overflow_checks.insert(sig.to_string(), checks);
+                }
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:CONTENTBUG ") {
             // Broken rendered content for a state: labels carrying a stringify/
             // template artifact ([object Object], undefined/null/NaN, an
             // unrendered {{...}}). Keyed by signature (last write wins); each item

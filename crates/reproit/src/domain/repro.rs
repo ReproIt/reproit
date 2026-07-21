@@ -378,6 +378,10 @@ impl Trigger {
         self.oracle.as_deref() == Some("content-bug")
     }
 
+    fn is_overflow(&self) -> bool {
+        self.oracle.as_deref() == Some("overflow")
+    }
+
     fn is_detached_indicator(&self) -> bool {
         self.oracle.as_deref() == Some("detached-indicator")
     }
@@ -478,6 +482,9 @@ pub fn verdict_from_log_with_trigger(log: &str, passed: bool, trigger: &Trigger)
     // the defect is still present. Re-confirm by re-evaluating those records.
     if trigger.is_content_bug() {
         return content_bug_verdict(log, trigger);
+    }
+    if trigger.is_overflow() {
+        return overflow_verdict(log, trigger);
     }
     if trigger.is_detached_indicator() {
         return detached_indicator_verdict(log, trigger);
@@ -698,6 +705,24 @@ fn content_bug_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
         RunVerdict::Broke
     } else {
         RunVerdict::Green
+    }
+}
+
+fn overflow_verdict(log: &str, trigger: &Trigger) -> RunVerdict {
+    let obs = crate::domain::map::parse_run(log);
+    let (Some(sig), Some(fingerprint)) = (
+        trigger.sig.as_deref().filter(|value| !value.is_empty()),
+        trigger
+            .fingerprint
+            .as_deref()
+            .filter(|value| !value.is_empty()),
+    ) else {
+        return RunVerdict::CouldNotReplay;
+    };
+    match crate::domain::invariants::recheck_overflow(&obs, sig, fingerprint) {
+        crate::domain::invariants::GraphRecheck::StillViolating => RunVerdict::Broke,
+        crate::domain::invariants::GraphRecheck::Fixed => RunVerdict::Green,
+        crate::domain::invariants::GraphRecheck::NotReached => RunVerdict::CouldNotReplay,
     }
 }
 
@@ -1393,6 +1418,49 @@ JOURNEY DONE
         incomplete.fingerprint = None;
         assert_eq!(
             verdict_from_log_with_trigger(violation, true, &incomplete),
+            RunVerdict::CouldNotReplay
+        );
+    }
+
+    #[test]
+    fn overflow_replay_requires_same_subject_and_authoritative_clean_evidence() {
+        let marker = |right: i64, policy: &str| {
+            format!(
+                concat!(
+                    "EXPLORE:STATE {{\"sig\":\"card\",\"labels\":[]}}\n",
+                    "EXPLORE:OVERFLOW {{\"sig\":\"card\",\"version\":1,",
+                    "\"complete\":true,\"checks\":[{{",
+                    "\"subjectKey\":\"key:id:message\",",
+                    "\"containerKey\":\"key:id:card\",",
+                    "\"authority\":\"exact-layout\",\"ownership\":\"app\",",
+                    "\"stableSamples\":2,\"transformed\":false,\"policy\":\"{}\",",
+                    "\"subjectRect\":{{\"left\":4,\"top\":4,\"right\":{},",
+                    "\"bottom\":36}},\"containerRect\":{{\"left\":0,\"top\":0,",
+                    "\"right\":100,\"bottom\":40}}}}]}}\n"
+                ),
+                policy, right
+            )
+        };
+        let violation = marker(108, "contain");
+        let parsed = crate::domain::map::parse_run(&violation);
+        let fingerprint = parsed.overflow_checks["card"][0].fingerprint.clone();
+        let trigger = Trigger {
+            index: Some(0),
+            sig: Some("card".into()),
+            selector: Some("key:id:message".into()),
+            fingerprint: Some(fingerprint),
+            oracle: Some("overflow".into()),
+        };
+        assert_eq!(
+            verdict_from_log_with_trigger(&violation, true, &trigger),
+            RunVerdict::Broke
+        );
+        assert_eq!(
+            verdict_from_log_with_trigger(&marker(96, "contain"), true, &trigger),
+            RunVerdict::Green
+        );
+        assert_eq!(
+            verdict_from_log_with_trigger(&marker(108, "scroll"), true, &trigger),
             RunVerdict::CouldNotReplay
         );
     }

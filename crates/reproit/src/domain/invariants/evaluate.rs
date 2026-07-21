@@ -111,6 +111,37 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    if cfg.no_overflow {
+        for (sig, checks) in &obs.obs.overflow_checks {
+            for check in checks.iter().filter(|check| {
+                check.outcome == crate::domain::overflow::OverflowOutcome::Violation
+            }) {
+                let spill_x = check.spill_x_centipx as f64 / 100.0;
+                let spill_y = check.spill_y_centipx as f64 / 100.0;
+                let mut found = finding(
+                    "no-layout-overflow",
+                    "OVERFLOW",
+                    format!(
+                        "state {sig} renders {} outside its declared container {} by \
+                         {spill_x:.2}px horizontally and {spill_y:.2}px vertically",
+                        check.subject_key, check.container_key
+                    ),
+                    Some(sig),
+                );
+                found["selector"] = json!(check.subject_key);
+                found["fingerprint"] = json!(check.fingerprint);
+                found["overflow"] = json!({
+                    "subjectKey": check.subject_key,
+                    "containerKey": check.container_key,
+                    "reason": check.reason,
+                    "spillX": spill_x,
+                    "spillY": spill_y,
+                });
+                out.push(found);
+            }
+        }
+    }
+
     // no-blank-screen: an empty state already corroborated by independent
     // authority at ingestion (for example, a first-party exception on the same
     // URL). Structural visual emptiness never reaches this collection.

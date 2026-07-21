@@ -48,7 +48,7 @@ use graph::permission_traps;
 pub use recheck::{
     any_content_bug, any_detached_indicator, any_hang, any_jank, any_rerender_flicker,
     recheck_accessibility_state, recheck_content_bug, recheck_detached_indicator, recheck_hang,
-    recheck_jank, recheck_rerender_flicker, GraphRecheck,
+    recheck_jank, recheck_overflow, recheck_rerender_flicker, GraphRecheck,
 };
 
 #[cfg(feature = "perf-bench")]
@@ -211,6 +211,7 @@ mod tests {
                 rerenders: Default::default(),
                 paint_flickers: Default::default(),
                 content_bugs: Default::default(),
+                overflow_checks: Default::default(),
                 relations: Default::default(),
                 relation_checks: Default::default(),
                 accessibility_state_checks: Default::default(),
@@ -457,6 +458,36 @@ mod tests {
             ..Default::default()
         };
         assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-broken-render".to_string()));
+    }
+
+    #[test]
+    fn layout_overflow_finding_keeps_exact_replay_identity() {
+        let log = concat!(
+            "EXPLORE:STATE {\"sig\":\"card\",\"labels\":[\"Message\"]}\n",
+            "EXPLORE:OVERFLOW {\"sig\":\"card\",\"version\":1,\"complete\":true,",
+            "\"checks\":[{\"subjectKey\":\"key:id:message\",",
+            "\"containerKey\":\"key:id:card\",\"authority\":\"exact-layout\",",
+            "\"ownership\":\"app\",\"stableSamples\":2,\"transformed\":false,",
+            "\"policy\":\"contain\",",
+            "\"subjectRect\":{\"left\":4,\"top\":4,\"right\":108,\"bottom\":36},",
+            "\"containerRect\":{\"left\":0,\"top\":0,\"right\":100,\"bottom\":40}}]}\n",
+        );
+        let mut observations = obs_with(&[("card", &["Message"])], &[], Some("card"));
+        observations.obs = crate::domain::map::parse_run(log);
+        let findings = evaluate(&observations, &InvariantsCfg::default());
+        let finding = findings
+            .iter()
+            .find(|finding| finding["invariant"] == "no-layout-overflow")
+            .expect("overflow finding");
+        assert_eq!(finding["kind"], "OVERFLOW");
+        assert_eq!(finding["selector"], "key:id:message");
+        assert!(finding["fingerprint"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("sha256:")));
+        assert_eq!(
+            crate::domain::oracle::classify(finding),
+            crate::domain::oracle::Oracle::Overflow
+        );
     }
 
     #[test]

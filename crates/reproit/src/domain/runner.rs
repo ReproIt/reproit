@@ -210,6 +210,9 @@ fn parse_all(log: &str) -> ParsedStream<'_> {
             }
             continue;
         }
+        if let Some(defect) = overflow_marker_defect(line) {
+            defects.push(defect);
+        }
         if let Some(event) = parse_line(raw) {
             events.push(event);
         }
@@ -246,6 +249,26 @@ fn parse_all(log: &str) -> ParsedStream<'_> {
         exceptions,
         defects,
     }
+}
+
+fn overflow_marker_defect(line: &str) -> Option<StreamDefect> {
+    let value: serde_json::Value =
+        serde_json::from_str(line.strip_prefix("EXPLORE:OVERFLOW ")?).ok()?;
+    if value.get("complete").and_then(serde_json::Value::as_bool) != Some(false) {
+        return None;
+    }
+    let reason = match value.get("defect").and_then(serde_json::Value::as_str) {
+        Some("evidence-limit-exceeded") => StreamDefectReason::BatchTooLarge,
+        Some("capture-unavailable") => StreamDefectReason::AuthorityUnavailable,
+        _ => StreamDefectReason::InvalidArtifact,
+    };
+    Some(StreamDefect {
+        reason,
+        scope: EvidenceScope::Contract {
+            contract_hash: None,
+        },
+        sequence: None,
+    })
 }
 
 fn recognized_scope(line: &str) -> Option<EvidenceScope> {
@@ -430,6 +453,37 @@ mod tests {
                 },
                 sequence: None,
             }]
+        );
+    }
+
+    #[test]
+    fn incomplete_overflow_batch_is_an_explicit_stream_defect() {
+        let parsed = parse_all(
+            "EXPLORE:OVERFLOW {\"version\":1,\"complete\":false,\
+             \"defect\":\"evidence-limit-exceeded\",\"checks\":[]}",
+        );
+        assert_eq!(parsed.events.len(), 1);
+        assert_eq!(
+            parsed.defects,
+            [StreamDefect {
+                reason: StreamDefectReason::BatchTooLarge,
+                scope: EvidenceScope::Contract {
+                    contract_hash: None,
+                },
+                sequence: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn unavailable_overflow_capture_has_a_distinct_reason_code() {
+        let parsed = parse_all(
+            "EXPLORE:OVERFLOW {\"version\":1,\"complete\":false,\
+             \"defect\":\"capture-unavailable\",\"checks\":[]}",
+        );
+        assert_eq!(
+            parsed.defects[0].reason,
+            StreamDefectReason::AuthorityUnavailable
         );
     }
 

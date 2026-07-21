@@ -53,6 +53,8 @@ grep -q '^EXPLORE:STATE ' /tmp/run.log
 grep -q '^EXPLORE:EDGE ' /tmp/run.log
 grep -q 'key:testid:toggle' /tmp/run.log
 grep -q 'Detail revealed' /tmp/run.log
+grep -q '^EXPLORE:OVERFLOW ' /tmp/run.log
+grep -q 'key:id:overflow-message' /tmp/run.log
 grep -q '^JOURNEY DONE$' /tmp/run.log
 grep -q '^All tests passed$' /tmp/run.log
 ! grep -q 'EXCEPTION CAUGHT BY REPROIT' /tmp/run.log

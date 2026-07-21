@@ -63,6 +63,7 @@ import {
   installListenerLeakCounter,
   listenerLeakSample,
 } from './web/hygiene-oracles.mjs';
+import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
 // Shared FP-hardening helpers, imported from the web runner so the exact SAME
 // stabilization/guards apply to the Electron (Chromium) backend (fix across all
 // platforms): DOM-quiescence settle, the deep-link/metamorphic content-divergence
@@ -2970,14 +2971,24 @@ async function main() {
             }),
           }),
       );
-      // Operability/accessibility ground truth for this newly-seen state, keyed
-      // by the SAME sig (alongside the EXPLORE:STATE line). The keyboard probe
-      // can mutate the DOM, so it runs AFTER the snapshot is captured/recorded.
-      await emitGroundtruth(page, gtCdp, snap.sig);
       // DOM/layout overflow for this newly-seen state, keyed by the SAME sig.
-      // Pure structural measurement (scrollWidth/clientWidth, child-vs-parent
-      // content box, offsetWidth<scrollWidth), no pixels, so it reproduces on
-      // replay. Only emitted when something overflows; a clean layout stays silent.
+      const overflow1 = await page.evaluate(layoutOverflowScan).catch(() => null);
+      await page.waitForTimeout(120);
+      const overflow2 = await page.evaluate(layoutOverflowScan).catch(() => null);
+      const overflow = confirmLayoutOverflow(overflow1, overflow2);
+      if (overflow.checks.length || !overflow.complete) {
+        log(
+          'EXPLORE:OVERFLOW ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              ...overflow,
+            }),
+        );
+      }
+      // Operability/accessibility ground truth can mutate the DOM, so it runs
+      // after every state-present layout scan.
+      await emitGroundtruth(page, gtCdp, snap.sig);
       // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
       // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
       // emitted when a broken-content artifact is actually rendered.

@@ -24,6 +24,9 @@ pub enum Oracle {
     /// deterministic DOM/label finding from the web runner, built-in (no custom
     /// invariant needed).
     ContentBug,
+    /// App-owned content lies outside an explicitly bounded container in two
+    /// settled layout samples. Ambiguous containment or ownership abstains.
+    Overflow,
     /// Main-thread freeze / no-progress hang: an action that blocked the main
     /// thread past the hang floor. Deterministic, keyed off the Long Tasks
     /// trace.
@@ -191,6 +194,7 @@ impl Oracle {
         Oracle::Flicker,
         Oracle::Divergence,
         Oracle::ContentBug,
+        Oracle::Overflow,
         Oracle::Hang,
         Oracle::Occlusion,
         Oracle::DetachedIndicator,
@@ -224,6 +228,7 @@ impl Oracle {
             Oracle::Flicker => "flicker",
             Oracle::Divergence => "divergence",
             Oracle::ContentBug => "content-bug",
+            Oracle::Overflow => "overflow",
             Oracle::Hang => "hang",
             Oracle::Occlusion => "occlusion",
             Oracle::DetachedIndicator => "detached-indicator",
@@ -260,6 +265,7 @@ impl Oracle {
             "flicker" | "flash" => Some(Oracle::Flicker),
             "divergence" | "diverge" | "diff" => Some(Oracle::Divergence),
             "content-bug" | "content" | "contentbug" | "broken-render" => Some(Oracle::ContentBug),
+            "overflow" | "layout-overflow" | "clipping" => Some(Oracle::Overflow),
             "hang" | "freeze" | "frozen" | "no-progress" => Some(Oracle::Hang),
             "occlusion" | "occluded" | "blocked-control" => Some(Oracle::Occlusion),
             "detached-indicator" | "detachedindicator" | "indicator" | "badge" => {
@@ -325,6 +331,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-listener-leak" => return Oracle::Leak,
         "rerender-flicker" | "paint-flicker" => return Oracle::Flicker,
         "no-broken-render" => return Oracle::ContentBug,
+        "no-layout-overflow" => return Oracle::Overflow,
         "no-hang" => return Oracle::Hang,
         "no-occluded-control" => return Oracle::Occlusion,
         "no-detached-indicator" => return Oracle::DetachedIndicator,
@@ -358,6 +365,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "FLICKER" => Oracle::Flicker,
         "DIVERGENCE" => Oracle::Divergence,
         "CONTENTBUG" => Oracle::ContentBug,
+        "OVERFLOW" => Oracle::Overflow,
         "SECURITY" => Oracle::Security,
         "STUCKKEYBOARD" => Oracle::StuckKeyboard,
         "DUPSUBMIT" => Oracle::DuplicateSubmit,
@@ -459,10 +467,15 @@ impl OracleFilter {
     }
 
     pub(super) fn stable_set() -> BTreeSet<&'static str> {
-        [Oracle::Crash, Oracle::DetachedIndicator, Oracle::Contract]
-            .into_iter()
-            .map(Oracle::as_str)
-            .collect()
+        [
+            Oracle::Crash,
+            Oracle::Overflow,
+            Oracle::DetachedIndicator,
+            Oracle::Contract,
+        ]
+        .into_iter()
+        .map(Oracle::as_str)
+        .collect()
     }
 
     /// Whether a given oracle category passes the filter.

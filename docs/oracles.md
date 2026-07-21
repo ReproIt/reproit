@@ -45,6 +45,7 @@ The default confirmed set is intentionally small:
 | Oracle               | What proves the bug                                                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `crash`              | An uncaught exception, fatal assertion, signal, or native crash occurred.                                                           |
+| `overflow`           | App-owned text escaped an explicitly declared container in two stable exact-layout samples.                                         |
 | `detached-indicator` | An application-declared indicator escaped its owner/container relationship in two settled samples.                                  |
 | `contract`           | An application-declared structural or temporal contract failed with the same contract identity and violation fingerprint on replay. |
 
@@ -75,6 +76,7 @@ not how interesting it looks.
 | `flicker`            | environment-dependent | A presented frame diverges and then resolves                                           | runners with a frame or DOM presentation stream                               |
 | `divergence`         | specialist            | The same flow differs across targets or engines                                        | multi-target runs                                                             |
 | `content-bug`        | heuristic             | Visible stringify or template artifacts such as `[object Object]`                      | DOM, accessibility labels, TUI grid, instrumented labels                      |
+| `overflow`           | declared proof        | Text outside an explicitly bounded app-owned container                                 | web, Electron, Tauri, and all DOM frameworks                                  |
 | `hang`               | environment-dependent | An action makes no progress beyond a high threshold                                    | runners with an attributable progress signal                                  |
 | `occlusion`          | heuristic             | A visible control's hit target is covered by a foreign element                         | geometry-capable UI runners                                                   |
 | `choice-anomaly`     | heuristic             | One sibling choice changes global layout unlike the others                             | browser, Electron, Tauri                                                      |
@@ -110,6 +112,7 @@ specific identity:
 | `action-effect:<id>:route`           | The observed route differs from the route declared for the action.                                                              |
 | `action-effect:<id>:state`           | The observed application state differs from the declared exact or changed state.                                                |
 | `detached-indicator:<id>`            | The declared owner, container, maximum gap, and global rectangles prove detachment.                                             |
+| `overflow:<subject>:<container>`      | The declared container and two settled text-layout rectangles prove spill.                                                     |
 
 These contracts never infer intent from visible language, color, proximity, handler names, or
 screenshots. Missing ownership, duplicate identities, animation, unresolved geometry, missing state
@@ -132,6 +135,22 @@ Web applications opt in with stable structural IDs:
 
 React Native, Flutter, iOS, and Android expose the same relationship through their SDKs using stable
 keys and global rectangles. Every implementation requires two identical settled samples.
+
+### Layout containment example
+
+DOM applications declare only the boundary whose contents must remain inside it:
+
+```html
+<aside id="resolution-card" data-reproit-contain>
+  <p id="resolution-message">Resolving: a fix is claimed on build 6a2304d...</p>
+</aside>
+```
+
+The container needs a stable `id` or `data-testid`. Descendant text can use its own stable ID or a
+bounded structural path under the container. Set `data-reproit-overflow="scroll"` or
+`data-reproit-overflow="truncate"` when that behavior is intentional. Those policies abstain.
+Without the containment declaration ReproIt does not infer intent from borders, colors, or a
+screenshot.
 
 ## Backend oracles
 

@@ -38,6 +38,7 @@ import {
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
 import { scanAccessibilityStateParity } from './accessibility-state-oracle.mjs';
+import { layoutOverflowScan, confirmLayoutOverflow } from './overflow-oracle.mjs';
 import {
   occlusionScan,
   confirmOcclusions,
@@ -5644,6 +5645,24 @@ async function main() {
                 sig: snap.sig,
                 ...(snap.anchor ? { route: snap.anchor } : {}),
                 items: cbug,
+              }),
+          );
+        }
+        // LAYOUT CONTAINMENT. Containers opt in with `data-reproit-contain`,
+        // giving the detector authoritative intent instead of asking it to
+        // guess whether clipping, scrolling, or decorative spill was wanted.
+        // The Rust core evaluates these two-sample geometry facts.
+        const overflow1 = await page.evaluate(layoutOverflowScan).catch(() => null);
+        await page.waitForTimeout(120);
+        const overflow2 = await page.evaluate(layoutOverflowScan).catch(() => null);
+        const overflow = confirmLayoutOverflow(overflow1, overflow2);
+        if (overflow.checks.length || !overflow.complete) {
+          log(
+            'EXPLORE:OVERFLOW ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                ...overflow,
               }),
           );
         }

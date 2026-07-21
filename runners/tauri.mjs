@@ -46,6 +46,7 @@ import {
   zoomReflowScan,
   scrollRoundTripScan,
 } from './web/hygiene-oracles.mjs';
+import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
 
 // Hygiene oracles NOT ported to this runner, deliberately (no probe beats a
 // wrong finding):
@@ -2580,14 +2581,28 @@ async function main() {
             }),
           }),
       );
-      // Operability/accessibility ground truth for this newly-seen state, keyed
-      // by the SAME sig. Tauri has no CDP, so it uses native+cursor+attr signals
-      // and an in-page focusability rule (see GROUNDTRUTH_JS). The synthetic
-      // keydown probe can mutate the DOM, so it runs AFTER the state is recorded.
-      await emitGroundtruth(browser, snap.sig);
       // DOM/layout overflow for this newly-seen state, keyed by the SAME sig.
-      // Pure structural measurement, no pixels, so it reproduces on replay. Only
-      // emitted when something overflows; a clean layout stays silent.
+      let overflow1 = null;
+      let overflow2 = null;
+      try {
+        overflow1 = await browser.execute(layoutOverflowScan);
+        await browser.pause(120);
+        overflow2 = await browser.execute(layoutOverflowScan);
+      } catch (_) {}
+      const overflow = confirmLayoutOverflow(overflow1, overflow2);
+      if (overflow.checks.length || !overflow.complete) {
+        log(
+          'EXPLORE:OVERFLOW ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              ...overflow,
+            }),
+        );
+      }
+      // The synthetic keydown ground-truth probe can mutate the DOM, so it runs
+      // after every state-present layout scan.
+      await emitGroundtruth(browser, snap.sig);
       // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Pure
       // DOM/label scan (no pixels, no timing), so it reproduces on replay. Only
       // emitted when a broken-content artifact is actually rendered.
