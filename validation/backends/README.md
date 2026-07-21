@@ -5,10 +5,25 @@ launches or attaches to a native fixture, reads a non-empty UI tree, performs a 
 observes a different structural state, emits an `EXPLORE:EDGE`, and finishes with `JOURNEY DONE`
 plus `All tests passed`.
 
-`evidence.json` maps every registered `app.platform` id to at least one durable gate. The
-platform-registry unit test rejects missing paths and unrepresented platform ids. Sharing a backend
-does not by itself count as native toolkit evidence: React Native, Compose, SwiftUI, Tauri,
-Electron, Avalonia, and the other named stacks each have their own fixture.
+`evidence.json` maps every registered `app.platform` id to a bounded gate command, fixture, target
+OS and architecture, reset and cleanup strategy, execution tier, and automation owner. The
+platform-registry unit test rejects missing commands, workflows, jobs, result schemas, and
+unrepresented platform ids. Sharing a backend does not by itself count as native toolkit evidence:
+React Native, Compose, SwiftUI, Tauri, Electron, Avalonia, and the other named stacks each have
+their own fixture.
+
+Run one gate through the evidence recorder:
+
+```sh
+python3 validation/backends/gate.py web-chromium
+```
+
+The recorder applies the gate's timeout, bounds captured output to 16 MiB, checks required runtime
+markers, and writes a log plus a `result.schema.json`-compatible result under
+`target/reproit-validation/`. Set `REPROIT_GATE_OUTPUT_DIR` to place CI artifacts elsewhere. The
+weekly and manually dispatched matrix lives in `.github/workflows/native-gates.yml`. Windows UIA
+remains explicitly manual because it requires the private interactive VM SSH chain; its blocker is
+recorded in the manifest instead of being presented as hosted CI coverage.
 
 | Backend         | Native runtime evidence                      | Command                                             |
 | --------------- | -------------------------------------------- | --------------------------------------------------- |
@@ -29,10 +44,10 @@ Electron, Avalonia, and the other named stacks each have their own fixture.
 
 The Appium commands require a running server with XCUITest or UiAutomator2 as appropriate.
 `run-react-native-android.sh` accepts `REPROIT_ANDROID_UDID`; it pins React Native 0.76.9 and builds
-a bundled release APK so Metro is not part of the result. The Windows command connects through the
-OpenSSH alias in `REPROIT_WINDOWS_HOST` and runs the GUI gate as an interactive scheduled task.
-Keep connection details outside the repository. A noninteractive service session is not valid UI
-Automation evidence.
+a bundled release APK so Metro is not part of the result. The Windows command uses the workspace's
+`validation-user@windows-gateway` to `windows-jump-host` to Windows chain by default, or an OpenSSH alias supplied through
+`REPROIT_WINDOWS_HOST`, and runs the GUI gate as an interactive scheduled task. A noninteractive
+service session is not valid UI Automation evidence.
 
 Linux desktop and Tauri gates build inside pinned containers. macOS, iOS, Flutter, Android, and
 Windows gates use their native host tools. No gate treats a mocked marker stream as backend

@@ -256,7 +256,11 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
             "Appium (react-native/swift-ios/android)",
         ),
         ("runners/macos-ax.swift", "", "DesktopAx"),
-        ("crates/reproit/src/adapters/uia/mod.rs", "", "DesktopUia"),
+        (
+            "crates/reproit/src/adapters/uia/scenario.rs",
+            "crates/reproit/src/adapters/uia/mod.rs",
+            "DesktopUia",
+        ),
         (
             "crates/reproit/src/adapters/atspi/session.rs",
             "crates/reproit/src/adapters/atspi/mod.rs",

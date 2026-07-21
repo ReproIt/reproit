@@ -2,7 +2,7 @@
 //! routinely "fail" benignly (already booted, already granted), matching the
 //! original shell harness's `|| true` style.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
 
@@ -67,9 +67,12 @@ pub async fn run_timeout(cmd: &str, args: &[&str], timeout: Duration) -> RunResu
     run_command(c, timeout).await
 }
 
-/// Run a config-provided command string via the shell, in `cwd`. Bounded by
-/// `DEFAULT_TIMEOUT` so a wedged reset hook can't hang the run.
-pub async fn run_shell(command: &str, cwd: &Path) -> RunResult {
+/// Run an explicitly configured command string via the shell, in `cwd`.
+///
+/// This is reserved for configuration fields whose contract is a shell
+/// program, such as reset steps and marker hooks. Evidence, paths, executable
+/// names, and other external values must use [`run`] with separate arguments.
+pub async fn run_configured_shell(command: &str, cwd: &Path) -> RunResult {
     let mut c = Command::new("sh");
     c.arg("-c").arg(command).current_dir(cwd);
     run_command(c, DEFAULT_TIMEOUT).await
@@ -77,11 +80,79 @@ pub async fn run_shell(command: &str, cwd: &Path) -> RunResult {
 
 /// True if `bin` resolves on PATH.
 pub async fn which(bin: &str) -> bool {
-    run("sh", &["-c", &format!("command -v {bin}")]).await.ok()
+    executable_path(bin).is_some()
+}
+
+fn executable_path(bin: &str) -> Option<PathBuf> {
+    let requested = Path::new(bin);
+    if requested.components().count() > 1 {
+        return is_executable(requested).then(|| requested.to_path_buf());
+    }
+
+    let path = std::env::var_os("PATH")?;
+    for directory in std::env::split_paths(&path) {
+        for candidate in executable_candidates(&directory, bin) {
+            if is_executable(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn executable_candidates(directory: &Path, bin: &str) -> Vec<PathBuf> {
+    vec![directory.join(bin)]
+}
+
+#[cfg(windows)]
+fn executable_candidates(directory: &Path, bin: &str) -> Vec<PathBuf> {
+    let requested = Path::new(bin);
+    if requested.extension().is_some() {
+        return vec![directory.join(requested)];
+    }
+    let extensions = std::env::var_os("PATHEXT").unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
+    extensions
+        .to_string_lossy()
+        .split(';')
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| directory.join(format!("{bin}{extension}")))
+        .collect()
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 /// SIGINT a pid (used to finalize simctl recordings so the moov atom is
 /// written).
 pub async fn sigint(pid: u32) {
     let _ = run("kill", &["-INT", &pid.to_string()]).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn which_does_not_interpret_shell_syntax() {
+        assert!(!which("missing-reproit-bin || true").await);
+    }
+
+    #[tokio::test]
+    async fn which_finds_a_known_executable() {
+        #[cfg(unix)]
+        assert!(which("sh").await);
+        #[cfg(windows)]
+        assert!(which("cmd").await);
+    }
 }

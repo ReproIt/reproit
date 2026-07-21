@@ -387,10 +387,18 @@ mod tests {
         let manifest = include_str!("../../../../validation/backends/evidence.json");
         let json: serde_json::Value =
             serde_json::from_str(manifest).expect("backend evidence manifest is valid JSON");
+        assert_eq!(
+            json.get("schema").and_then(serde_json::Value::as_u64),
+            Some(2)
+        );
         let platforms = json
             .get("platforms")
             .and_then(|value| value.as_object())
             .expect("evidence manifest has a platforms object");
+        let gates = json
+            .get("gates")
+            .and_then(|value| value.as_object())
+            .expect("evidence manifest has a gates object");
 
         let registered: std::collections::BTreeSet<&str> =
             all().into_iter().map(|platform| platform.id).collect();
@@ -402,20 +410,103 @@ mod tests {
         );
 
         let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for (platform, gates) in platforms {
-            let gates = gates
+        let result_schema = json
+            .get("resultSchema")
+            .and_then(serde_json::Value::as_str)
+            .expect("evidence manifest names its result schema");
+        assert!(
+            repo.join(result_schema).is_file(),
+            "missing {result_schema}"
+        );
+
+        for (platform, platform_gates) in platforms {
+            let platform_gates = platform_gates
                 .as_array()
                 .unwrap_or_else(|| panic!("{platform} evidence must be an array"));
-            assert!(!gates.is_empty(), "{platform} must name at least one gate");
-            for gate in gates {
-                let gate = gate
+            assert!(
+                !platform_gates.is_empty(),
+                "{platform} must name at least one gate"
+            );
+            for gate_id in platform_gates {
+                let gate_id = gate_id
                     .as_str()
-                    .unwrap_or_else(|| panic!("{platform} gate must be a path string"));
+                    .unwrap_or_else(|| panic!("{platform} gate must be an id string"));
+                let gate = gates
+                    .get(gate_id)
+                    .unwrap_or_else(|| panic!("{platform} references unknown gate {gate_id}"));
+                let gate_platforms = gate["platforms"]
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{gate_id} platforms must be an array"));
                 assert!(
-                    repo.join(gate).is_file(),
-                    "{platform} evidence gate missing: {gate}"
+                    gate_platforms.iter().any(|value| value == platform),
+                    "{gate_id} does not claim {platform}"
                 );
             }
+        }
+
+        for (gate_id, gate) in gates {
+            let command = gate["command"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{gate_id} command must be an array"));
+            assert!(!command.is_empty(), "{gate_id} command cannot be empty");
+            if let Some(script) = command.get(1).and_then(serde_json::Value::as_str) {
+                assert!(
+                    repo.join(script).is_file(),
+                    "{gate_id} command missing: {script}"
+                );
+            }
+            let timeout = gate["timeoutSeconds"]
+                .as_u64()
+                .unwrap_or_else(|| panic!("{gate_id} timeout must be an integer"));
+            assert!(
+                (1..=7_200).contains(&timeout),
+                "{gate_id} timeout is unbounded"
+            );
+            for field in [
+                "backend",
+                "fixture",
+                "targetOs",
+                "resetStrategy",
+                "cleanupStrategy",
+            ] {
+                assert!(
+                    gate[field]
+                        .as_str()
+                        .is_some_and(|value| !value.trim().is_empty()),
+                    "{gate_id} must declare {field}"
+                );
+            }
+            let automation = gate["automation"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{gate_id} automation must be an object"));
+            let mode = automation["mode"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{gate_id} automation mode must be a string"));
+            if mode == "manual-required" {
+                assert!(
+                    automation["blocker"]
+                        .as_str()
+                        .is_some_and(|value| !value.trim().is_empty()),
+                    "{gate_id} manual gate must record its blocker"
+                );
+                continue;
+            }
+            let workflow = automation["workflow"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{gate_id} must name its workflow"));
+            let job = automation["job"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{gate_id} must name its workflow job"));
+            let workflow_text = std::fs::read_to_string(repo.join(workflow))
+                .unwrap_or_else(|error| panic!("read {workflow}: {error}"));
+            assert!(
+                workflow_text.contains(&format!("  {job}:\n")),
+                "{gate_id} workflow does not define job {job}"
+            );
+            assert!(
+                workflow_text.contains(&format!("gate.py {gate_id}")),
+                "{gate_id} workflow job never invokes its gate"
+            );
         }
     }
 }

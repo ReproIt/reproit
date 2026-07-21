@@ -719,7 +719,7 @@ async fn handle_line(
             println!("  hook  {label}: {marker} -> {cmd}");
             let root = ctx.root.clone();
             tokio::spawn(async move {
-                let res = crate::runtime::process::run_shell(&cmd, &root).await;
+                let res = crate::runtime::process::run_configured_shell(&cmd, &root).await;
                 if !res.ok() {
                     println!("  warn: hook command failed: {}", res.stderr.trim());
                 }

@@ -8,7 +8,7 @@
 //! with `auth.accounts` (one source of truth for each test user's id).
 
 use crate::adapters::config::{Account, ResetStep};
-use crate::runtime::process::run_shell;
+use crate::runtime::process::run_configured_shell;
 use anyhow::{bail, Result};
 use std::path::Path;
 
@@ -46,7 +46,7 @@ pub async fn run_reset(steps: &[ResetStep], accounts: &[Account], root: &Path) -
         match step {
             ResetStep::Command { run, required } => {
                 let run = expand(run, accounts);
-                let res = run_shell(&run, root).await;
+                let res = run_configured_shell(&run, root).await;
                 if res.ok() {
                     println!("  reset ok    {run}");
                 } else if *required {

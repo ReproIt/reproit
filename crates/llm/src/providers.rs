@@ -9,6 +9,7 @@ use tokio::process::Command;
 
 /// Hard cap on one llm task. Authoring runs are long; hangs are longer.
 const TASK_TIMEOUT: Duration = Duration::from_secs(900);
+const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How the prompt reaches the CLI.
 enum PromptVia {
@@ -68,14 +69,21 @@ impl Provider for CliProvider {
     }
 
     async fn check(&self) -> std::result::Result<(), String> {
-        let probe = Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {}", self.bin))
-            .output()
-            .await;
-        match probe {
-            Ok(out) if out.status.success() => Ok(()),
-            _ => Err(format!("{} not found on PATH", self.bin)),
+        let mut command = Command::new(&self.bin);
+        command
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        match tokio::time::timeout(AVAILABILITY_TIMEOUT, command.status()).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => Err(format!("{} is unavailable: {error}", self.bin)),
+            Err(_) => Err(format!(
+                "{} did not answer --version within {}s",
+                self.bin,
+                AVAILABILITY_TIMEOUT.as_secs()
+            )),
         }
     }
 
@@ -274,5 +282,19 @@ impl Provider for ClaudeApiProvider {
             .into());
         }
         Ok(resp.text())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cli_check_does_not_interpret_shell_syntax() {
+        let provider = CliProvider::codex(&Spec {
+            bin: Some("missing-reproit-bin || true".to_string()),
+            ..Spec::default()
+        });
+        assert!(provider.check().await.is_err());
     }
 }

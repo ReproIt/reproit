@@ -176,7 +176,7 @@ fn production_code_uses_canonical_artifact_layout() {
 
 #[test]
 fn source_files_stay_reviewable() {
-    const MAX_LINES: usize = 4_000;
+    const MAX_LINES: usize = 1_000;
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut pending = vec![src];
     while let Some(directory) = pending.pop() {

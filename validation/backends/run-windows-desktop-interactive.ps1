@@ -11,45 +11,44 @@ Remove-Item $log, $stdout, $stderr, $result -Force -ErrorAction SilentlyContinue
 
 try {
     $gate = Join-Path $PSScriptRoot "run-windows-desktop.ps1"
-    $child = Start-Process -FilePath "powershell.exe" `
-        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $gate) `
-        -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
-        -PassThru
-    # A clean Rust release build plus three .NET publishes can take several
+    $start = [System.Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = "powershell.exe"
+    $start.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$gate`""
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $child = [System.Diagnostics.Process]::new()
+    $child.StartInfo = $start
+    if (-not $child.Start()) { throw "Windows desktop gate did not start" }
+    $stdoutTask = $child.StandardOutput.ReadToEndAsync()
+    $stderrTask = $child.StandardError.ReadToEndAsync()
+    # A Rust release build plus three .NET publishes can take several
     # minutes on the VM. This timeout is a deadlock guard, not a build-speed
-    # assertion; keep it inside the remote harness's 15-minute ceiling.
-    $deadline = [DateTime]::UtcNow.AddMinutes(12)
+    # assertion; keep it inside the remote harness's 30-minute ceiling.
+    $deadline = [DateTime]::UtcNow.AddMinutes(25)
     while (-not $child.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Seconds 1
         $child.Refresh()
     }
     $timedOut = -not $child.HasExited
     if ($timedOut) {
-        Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+        & taskkill.exe /PID $child.Id /T /F | Out-Null
+        $child.WaitForExit()
         $code = 124
     }
     else {
         $child.WaitForExit()
-        $child.Refresh()
         $code = $child.ExitCode
     }
-    $stdoutText = if (Test-Path $stdout) { Get-Content -Raw $stdout } else { "" }
-    $stdoutText | Set-Content -Encoding UTF8 $log
-    if (Test-Path $stderr) { Get-Content -Raw $stderr | Add-Content -Encoding UTF8 $log }
+    $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+    $stderrText = $stderrTask.GetAwaiter().GetResult()
+    [System.IO.File]::WriteAllText($stdout, $stdoutText)
+    [System.IO.File]::WriteAllText($stderr, $stderrText)
+    [System.IO.File]::WriteAllText($log, $stdoutText + $stderrText)
     if ($timedOut) {
-        "Windows desktop gate timed out after 12 minutes" |
+        "Windows desktop gate timed out after 25 minutes" |
             Add-Content -Encoding UTF8 $log
-    }
-    if (-not $timedOut -and $null -eq $code) {
-        $terminalMarker = "Windows DesktopUia backend passed WPF, Avalonia, and WinUI"
-        if ($stdoutText.Contains($terminalMarker)) {
-            $code = 0
-            "WARNING: child exit code was unavailable; accepting the exact terminal matrix marker" |
-                Add-Content -Encoding UTF8 $log
-        }
-        else {
-            $code = 1
-        }
     }
 }
 catch {

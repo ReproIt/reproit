@@ -1,0 +1,157 @@
+name: native-backend-gates
+
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      run_macos_ax:
+        description: "Run the macOS AX gate on a runner with accessibility permission"
+        required: false
+        default: false
+        type: boolean
+      run_flutter_ios:
+        description: "Run the generated Flutter application on an iOS simulator"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  linux-hosted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install Rust and native libraries
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev clang
+      - name: Install browser runner and engines
+        working-directory: runners/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium firefox webkit
+      - name: Run hosted Linux native gates
+        env:
+          REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+        run: |
+          python3 validation/backends/gate.py web-chromium
+          python3 validation/backends/gate.py web-engines
+          python3 validation/backends/gate.py electron
+          python3 validation/backends/gate.py instrumented-native
+          python3 validation/backends/gate.py tui-pty
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-linux-hosted
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error
+
+  linux-containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run disposable Linux container gates
+        env:
+          REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+        run: |
+          python3 validation/backends/gate.py tauri
+          python3 validation/backends/gate.py linux-atspi-gtk
+          python3 validation/backends/gate.py linux-atspi-toolkits
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-linux-containers
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error
+
+  android-hosted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install Appium and runner dependencies
+        run: |
+          npm ci --prefix runners/rn
+          npm install -g appium
+          appium driver install uiautomator2
+      - name: Enable KVM
+        run: |
+          rule='KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'
+          printf '%s\n' "$rule" | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Android native gates
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
+            export REPROIT_GATE_OUTPUT_DIR="${RUNNER_TEMP}/native-gates"
+            python3 validation/backends/gate.py compose-android
+            if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+              python3 validation/backends/gate.py react-native-android
+            fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-android
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error
+
+  macos-hosted:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install native runner dependencies
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          npm ci --prefix runners/rn
+          npm install -g appium
+          appium driver install xcuitest
+      - name: Run SwiftUI through Appium
+        env:
+          REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+        run: |
+          appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
+          python3 validation/backends/gate.py swiftui-ios
+      - name: Run Flutter on the booted simulator
+        if: github.event_name == 'schedule' || inputs.run_flutter_ios
+        env:
+          REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+        run: python3 validation/backends/gate.py flutter-ios
+      - name: Run macOS AX with explicit permission
+        if: github.event_name == 'workflow_dispatch' && inputs.run_macos_ax
+        env:
+          REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+        run: python3 validation/backends/gate.py macos-ax
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-macos
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error

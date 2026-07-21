@@ -21,9 +21,10 @@ Start-Sleep -Milliseconds 500
 Push-Location $root
 try {
     $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "reproit-backend-target"
-    cargo clean -p reproit --release
     cargo build -p reproit --release
+    if ($LASTEXITCODE -ne 0) { throw "reproit release build failed" }
     $runner = Join-Path $env:CARGO_TARGET_DIR "release/reproit.exe"
+    if (-not (Test-Path $runner)) { throw "reproit release binary was not created" }
 
     $fixtures = @(
         @{
@@ -67,20 +68,34 @@ try {
         $env:REPROIT_CONFIG = $config
         $env:REPROIT_DEVICE = "a"
         try {
-            $run = Start-Process -FilePath $runner -ArgumentList "__uia" `
-                -RedirectStandardOutput $runOut -RedirectStandardError $runErr -PassThru
+            $start = [System.Diagnostics.ProcessStartInfo]::new()
+            $start.FileName = $runner
+            $start.Arguments = "__uia"
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $run = [System.Diagnostics.Process]::new()
+            $run.StartInfo = $start
+            if (-not $run.Start()) { throw "$($fixture.Name) UIA runner did not start" }
+            $stdoutTask = $run.StandardOutput.ReadToEndAsync()
+            $stderrTask = $run.StandardError.ReadToEndAsync()
             $finished = $run.WaitForExit(90000)
             if (-not $finished) {
-                Stop-Process -Id $run.Id -Force -ErrorAction SilentlyContinue
+                & taskkill.exe /PID $run.Id /T /F | Out-Null
+                $run.WaitForExit()
                 throw "$($fixture.Name) UIA runner timed out after 90 seconds"
             }
-            # PowerShell can leave ExitCode unpopulated after the timed .NET
-            # WaitForExit overload until the process object is refreshed.
             $run.WaitForExit()
-            $run.Refresh()
             $exitCode = $run.ExitCode
-            $stdoutText = if (Test-Path $runOut) { Get-Content -Raw $runOut } else { "" }
-            $stderrText = if (Test-Path $runErr) { Get-Content -Raw $runErr } else { "" }
+            # The target app may inherit the runner's redirected pipe handles.
+            # Close it before awaiting EOF, otherwise successful runs can wait
+            # forever for a descendant that the finally block has not reached.
+            Stop-Process -Name $fixture.Process -Force -ErrorAction SilentlyContinue
+            $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+            $stderrText = $stderrTask.GetAwaiter().GetResult()
+            [System.IO.File]::WriteAllText($runOut, $stdoutText)
+            [System.IO.File]::WriteAllText($runErr, $stderrText)
             [System.IO.File]::WriteAllText($log, $stdoutText + $stderrText)
             Write-Host $stdoutText
             if ($stderrText) { Write-Warning $stderrText }
@@ -94,12 +109,8 @@ try {
             if ($text.Contains("EXPLORE:EXCEPTION")) {
                 throw "$($fixture.Name) emitted an exception"
             }
-            if ($null -ne $exitCode -and $exitCode -ne 0) {
+            if ($exitCode -ne 0) {
                 throw "$($fixture.Name) UIA runner exited $exitCode"
-            }
-            if ($null -eq $exitCode) {
-                $warning = "$($fixture.Name) UIA runner exit code was unavailable; "
-                Write-Warning ($warning + "accepting the completed marker contract")
             }
             Write-Host "$($fixture.Name) UI Automation runtime passed"
         }

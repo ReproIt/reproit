@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reproit.com/schemas/backend-validation-result-v1.json",
+  "title": "Reproit backend native validation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "gateId", "commit", "startedAt", "finishedAt", "executor",
+    "targetOs", "architectures", "fixture", "command", "status", "exitCode",
+    "checks", "resetStrategy", "cleanupStrategy", "logSha256", "logPath"
+  ],
+  "properties": {
+    "schema": {"const": 1},
+    "gateId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "finishedAt": {"type": "string", "format": "date-time"},
+    "executor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture"],
+      "properties": {
+        "os": {"type": "string", "minLength": 1},
+        "architecture": {"type": "string", "minLength": 1}
+      }
+    },
+    "targetOs": {"type": "string", "minLength": 1},
+    "architectures": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "fixture": {"type": "string", "minLength": 1},
+    "command": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "status": {"enum": ["passed", "failed", "timed-out"]},
+    "exitCode": {"type": ["integer", "null"]},
+    "checks": {
+      "type": "object",
+      "additionalProperties": {"type": "boolean"},
+      "minProperties": 1
+    },
+    "resetStrategy": {"type": "string", "minLength": 1},
+    "cleanupStrategy": {"type": "string", "minLength": 1},
+    "logSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "logPath": {"type": "string", "minLength": 1}
+  }
+}

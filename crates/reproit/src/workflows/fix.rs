@@ -102,20 +102,26 @@ pub async fn fix(cfg: &Config, root: &Path, run: Option<&str>) -> Result<()> {
             .await;
         match result {
             Ok(summary) => {
-                let diff = crate::runtime::process::run_shell(
-                    &format!("git diff -- {}/{}", cfg.app.project_dir, finding.file),
-                    root,
+                let diff = crate::runtime::process::run(
+                    "git",
+                    &[
+                        "-C",
+                        &project_dir.to_string_lossy(),
+                        "diff",
+                        "--",
+                        &finding.file,
+                    ],
                 )
                 .await;
                 // Verify clean only for Flutter projects (where we have a fast
                 // analyzer). Other platforms: rely on the gate after review.
                 let analyze = if is_flutter(cfg) {
-                    crate::runtime::process::run_shell(
-                        &format!("flutter analyze {} 2>&1 | tail -3", finding.file),
-                        &project_dir,
+                    let result = crate::runtime::process::run(
+                        "flutter",
+                        &["analyze", finding.file.as_str()],
                     )
-                    .await
-                    .stdout
+                    .await;
+                    last_lines(&format!("{}{}", result.stdout, result.stderr), 3)
                 } else {
                     String::new()
                 };
@@ -169,6 +175,11 @@ pub async fn fix(cfg: &Config, root: &Path, run: Option<&str>) -> Result<()> {
 /// True for Flutter projects (we have `flutter analyze` to verify the patch).
 fn is_flutter(cfg: &Config) -> bool {
     cfg.app.platform.starts_with("flutter")
+}
+
+fn last_lines(text: &str, count: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(count)..].join("\n")
 }
 
 /// Build the per-finding prompt: bug class + message, the code context window,
@@ -348,8 +359,8 @@ fn app_location(frame: &str, project_dir: &Path) -> Option<(String, u32)> {
         // rest = "<app>/sub/path.ext:LINE[:COL]"
         let (_pkg, sub_with_loc) = rest.split_once('/')?;
         let (sub, line) = strip_line_col(sub_with_loc)?;
-        let rel = format!("lib/{sub}");
-        return project_dir.join(&rel).exists().then_some((rel, line));
+        let rel = project_relative_source(project_dir, Path::new(&format!("lib/{sub}")))?;
+        return Some((rel, line));
     }
 
     // file:// frames: take the absolute path, strip to project-relative.
@@ -360,9 +371,8 @@ fn app_location(frame: &str, project_dir: &Path) -> Option<(String, u32)> {
         #[cfg(not(windows))]
         let path = format!("/{}", after.trim_start_matches('/'));
         let (path_str, line) = strip_line_col(&path)?;
-        let abs = PathBuf::from(path_str);
-        let rel = abs.strip_prefix(project_dir).ok()?;
-        return Some((rel.to_string_lossy().into_owned(), line));
+        let rel = project_relative_source(project_dir, Path::new(&path_str))?;
+        return Some((rel, line));
     }
 
     // webpack:// JS frames: "webpack:///./src/app.js:12:3".
@@ -370,24 +380,33 @@ fn app_location(frame: &str, project_dir: &Path) -> Option<(String, u32)> {
         let after = &frame[idx + "webpack://".len()..];
         let after = after.trim_start_matches('/').trim_start_matches("./");
         let (sub, line) = strip_line_col(after)?;
-        return project_dir.join(&sub).exists().then_some((sub, line));
+        let rel = project_relative_source(project_dir, Path::new(&sub))?;
+        return Some((rel, line));
     }
 
     // Plain path frames with a recognized source extension (Swift/Kotlin/JS),
     // possibly wrapped in "(...)" (Kotlin) or prefixed by a symbol. Pull the
     // longest token that ends in a known extension + :LINE.
     if let Some((path, line)) = scan_path_with_ext(frame) {
-        let abs = PathBuf::from(&path);
-        // Absolute path under the project, or a relative path that exists there.
-        if abs.is_absolute() {
-            if let Ok(rel) = abs.strip_prefix(project_dir) {
-                return Some((rel.to_string_lossy().into_owned(), line));
-            }
-            return None;
-        }
-        return project_dir.join(&path).exists().then_some((path, line));
+        let rel = project_relative_source(project_dir, Path::new(&path))?;
+        return Some((rel, line));
     }
     None
+}
+
+fn project_relative_source(project_dir: &Path, candidate: &Path) -> Option<String> {
+    let project = std::fs::canonicalize(project_dir).ok()?;
+    let requested = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        project.join(candidate)
+    };
+    let source = std::fs::canonicalize(requested).ok()?;
+    if !source.is_file() {
+        return None;
+    }
+    let relative = source.strip_prefix(&project).ok()?;
+    (!relative.as_os_str().is_empty()).then(|| relative.to_string_lossy().into_owned())
 }
 
 /// Source file extensions reproit knows how to map back to app source.
@@ -519,6 +538,48 @@ mod tests {
     }
 
     #[test]
+    fn source_resolution_accepts_literal_shell_metacharacters() {
+        let tmp = std::env::temp_dir().join(format!("reproit-fix-metachar-{}", std::process::id()));
+        let rel = "src/a file;$value.js";
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::write(tmp.join(rel), "export const value = 1;\n").unwrap();
+        let frame = format!("at handler (webpack:///./{rel}:12:3)");
+        assert_eq!(app_location(&frame, &tmp), Some((rel.to_string(), 12)));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn source_resolution_rejects_parent_traversal() {
+        let base =
+            std::env::temp_dir().join(format!("reproit-fix-traversal-{}", std::process::id()));
+        let project = base.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(base.join("outside.js"), "outside\n").unwrap();
+        assert_eq!(
+            project_relative_source(&project, Path::new("../outside.js")),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_resolution_rejects_symlinks_outside_project() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!("reproit-fix-symlink-{}", std::process::id()));
+        let project = base.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(base.join("outside.js"), "outside\n").unwrap();
+        symlink(base.join("outside.js"), project.join("linked.js")).unwrap();
+        assert_eq!(
+            project_relative_source(&project, Path::new("linked.js")),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn repro_block_parsed_from_fuzz_md() {
         let md = "\
 # fuzz finding (seed 1)
@@ -550,6 +611,13 @@ Replay: write ...
         assert!(w.contains("     1 | l1"));
         assert!(w.contains("     5 | l5"));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn last_lines_is_bounded_and_handles_short_input() {
+        assert_eq!(last_lines("a\nb\nc\nd\n", 3), "b\nc\nd");
+        assert_eq!(last_lines("a\nb", 3), "a\nb");
+        assert_eq!(last_lines("", 3), "");
     }
 
     #[test]
