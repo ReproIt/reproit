@@ -1460,10 +1460,9 @@ static bool reproit_scn_http(const char *base, const char *method, const char *p
   addr.sin_port = htons((unsigned short)port);
   // The conductor URL is always a numeric localhost address (the
   // orchestrator binds 127.0.0.1), so no resolver is needed.
-  addr.sin_addr.s_addr = inet_addr(host);
+  int parsed_address = inet_pton(AF_INET, host, &addr.sin_addr);
   bool ok = false;
-  if (addr.sin_addr.s_addr != INADDR_NONE &&
-      connect(s, (struct sockaddr *)&addr, sizeof addr) == 0) {
+  if (parsed_address == 1 && connect(s, (struct sockaddr *)&addr, sizeof addr) == 0) {
     char req[512];
     int n = snprintf(req, sizeof req, "%s %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
                      method, path, host);

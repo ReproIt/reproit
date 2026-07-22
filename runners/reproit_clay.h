@@ -12,7 +12,9 @@
 // never enter the descriptor (rule 1). This is what makes a Clay finding bucket
 // to the same node a production SDK crash hits.
 //
-// Usage (one translation unit defines the impl):
+// Usage (one translation unit defines the impl). Strict POSIX C11 builds must
+// define _POSIX_C_SOURCE=200809L before including any system header:
+//   #define _POSIX_C_SOURCE 200809L
 //   #define REPROIT_CLAY_IMPLEMENTATION
 //   #include "reproit_clay.h"
 //   ... each frame, after Clay_EndLayout():
@@ -1460,10 +1462,9 @@ static bool reproit_scn_http(const char *base, const char *method, const char *p
   addr.sin_port = htons((unsigned short)port);
   // The conductor URL is always a numeric localhost address (the
   // orchestrator binds 127.0.0.1), so no resolver is needed.
-  addr.sin_addr.s_addr = inet_addr(host);
+  int parsed_address = inet_pton(AF_INET, host, &addr.sin_addr);
   bool ok = false;
-  if (addr.sin_addr.s_addr != INADDR_NONE &&
-      connect(s, (struct sockaddr *)&addr, sizeof addr) == 0) {
+  if (parsed_address == 1 && connect(s, (struct sockaddr *)&addr, sizeof addr) == 0) {
     char req[512];
     int n = snprintf(req, sizeof req, "%s %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
                      method, path, host);

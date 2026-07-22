@@ -1,3 +1,9 @@
+// Strict C11 hides clock_gettime and nanosleep on POSIX unless the application
+// selects a POSIX API level before any system header is included.
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 // Headless Clay demo, used to validate reproit's instrumented backend.
 //
 // There is NO window, NO GPU, NO real input: Clay is a pure layout library, so
