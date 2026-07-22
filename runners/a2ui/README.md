@@ -29,6 +29,9 @@ the negotiated version and catalog, required properties, one operation per messa
 component types, and surface lifecycle ordering. An update before `createSurface`, an update after
 `deleteSurface`, or a second create for a live surface is a protocol finding. Repeated deletes
 remain valid because the official processor defines deletion of a missing surface as a no-op.
+Catalog IDs are exact protocol identifiers. Historical GenUI aliases are rejected rather than
+silently normalized; supporting one requires a separately versioned adapter and authoritative
+catalog mapping.
 
 Schema-valid data bindings are then checked against the final model when the catalog declares an
 exact primitive type. Each result has one of three states:

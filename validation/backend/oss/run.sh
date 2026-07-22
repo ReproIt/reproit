@@ -2,15 +2,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+source "$ROOT/validation/backend/oss/process-tree.sh"
 WORK="$(mktemp -d -t reproit-backend-oss)"
 export REPROIT_OSS_TMP="$WORK/captured"
 mkdir -p "$REPROIT_OSS_TMP"
 PIDS=()
 cleanup() {
-  for pid in ${PIDS[@]+"${PIDS[@]}"}; do kill "$pid" 2>/dev/null || true; done
-  for pid in ${PIDS[@]+"${PIDS[@]}"}; do wait "$pid" 2>/dev/null || true; done
+  local status="$?" pid
+  for pid in ${PIDS[@]+"${PIDS[@]}"}; do
+    if ! reproit_stop_process_group "$pid"; then status=1; fi
+  done
   docker rm -f reproit-backend-oss-petstore >/dev/null 2>&1 || true
   rm -rf "$WORK"
+  trap - EXIT
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -53,8 +58,9 @@ COUNTRIES="$WORK/countries"
 git clone -q https://github.com/trevorblades/countries.git "$COUNTRIES"
 git -C "$COUNTRIES" checkout -q 5a150acb0ef9fc0f220db3f154896f1a5c37c405
 npm install --ignore-scripts --no-audit --no-fund --prefix "$COUNTRIES" >/dev/null
-(cd "$COUNTRIES" && npm run dev -- --port 18787 >"$WORK/countries.log" 2>&1) &
-PIDS+=("$!")
+reproit_start_process_group "$COUNTRIES" "$WORK/countries.log" \
+  npm run dev -- --port 18787
+PIDS+=("$REPROIT_STARTED_PID")
 for _ in $(seq 1 90); do
   if curl -fsS http://127.0.0.1:18787/graphql -H 'content-type: application/json' \
     --data-binary '{"query":"{ __typename }"}' >/dev/null 2>&1; then break; fi
@@ -97,8 +103,9 @@ post_graphql http://127.0.0.1:18787/graphql \
 jq -e '.data.country == null and (.errors|length == 1)' "$WORK/countries-error.json" >/dev/null
 
 GRAPHQL_PACKAGE_JSON="$COUNTRIES/package.json" PORT=18788 \
-  node "$ROOT/validation/backend/oss/graphql-service.mjs" >"$WORK/graphql-shapes.log" 2>&1 &
-PIDS+=("$!")
+  reproit_start_process_group "$ROOT" "$WORK/graphql-shapes.log" \
+    node "$ROOT/validation/backend/oss/graphql-service.mjs"
+PIDS+=("$REPROIT_STARTED_PID")
 for _ in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:18788/graphql -H 'content-type: application/json' \
     --data-binary '{"query":"{ __typename }"}' >/dev/null 2>&1; then break; fi
@@ -133,8 +140,9 @@ echo "CLEAN graphql-shapes public headless scan operations=4"
 GRPC="$WORK/grpc-go"
 git clone -q https://github.com/grpc/grpc-go.git "$GRPC"
 git -C "$GRPC" checkout -q 2a112a82f5c53ab3b89b5aa4a02b4195e2706879
-(cd "$GRPC/examples" && go run ./helloworld/greeter_server >"$WORK/grpc-server.log" 2>&1) &
-PIDS+=("$!")
+reproit_start_process_group "$GRPC/examples" "$WORK/grpc-server.log" \
+  go run ./helloworld/greeter_server
+PIDS+=("$REPROIT_STARTED_PID")
 for _ in $(seq 1 90); do
   if grep -q 'server listening' "$WORK/grpc-server.log" 2>/dev/null; then break; fi
   sleep 1

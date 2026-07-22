@@ -225,6 +225,15 @@ fn sample_rss(pid: u32, t_ms: u64) {
     }
 }
 
+fn coverage_is_incomplete(
+    failed: bool,
+    actions_attempted: usize,
+    actions_effective: usize,
+    nonzero_exits: u32,
+) -> bool {
+    !failed && actions_attempted > 0 && actions_effective == 0 && nonzero_exits > 0
+}
+
 /// The visible screen as (signature, fingerprint, labels).
 ///
 /// SIGNATURE: built from the LAYOUT SKELETON (`skeleton_of`) PLUS a bounded
@@ -889,11 +898,8 @@ pub fn run() -> Result<()> {
     }
 
     let transitions_observed: usize = graph.values().map(Vec::len).sum();
-    let coverage_incomplete = !failed
-        && seen.len() <= 1
-        && actions_attempted > 0
-        && actions_effective == 0
-        && nonzero_exits > 0;
+    let coverage_incomplete =
+        coverage_is_incomplete(failed, actions_attempted, actions_effective, nonzero_exits);
     let stop_reason = if failed {
         "crash"
     } else if launch_failures > 0 {

@@ -1,5 +1,32 @@
 use super::*;
 
+#[test]
+fn app_map_rejects_explicitly_incomplete_or_malformed_coverage() {
+    let volatile_error_states = concat!(
+        "EXPLORE:STATE {\"sig\":\"one\"}\n",
+        "EXPLORE:STATE {\"sig\":\"two\"}\n",
+        "EXPLORE:COVERAGE {\"complete\":false,",
+        "\"stopReason\":\"no-effective-actions-after-nonzero-exit\"}\n",
+    );
+    assert_eq!(
+        explicit_coverage_failure(volatile_error_states).as_deref(),
+        Some("no-effective-actions-after-nonzero-exit")
+    );
+    assert!(explicit_coverage_failure("EXPLORE:COVERAGE {\"complete\":true}\n").is_none());
+    assert!(explicit_coverage_failure(
+        "EXPLORE:COVERAGE {\"complete\":false,\"stopReason\":\"crash\"}\n"
+    )
+    .is_none());
+    assert_eq!(
+        explicit_coverage_failure("EXPLORE:COVERAGE {bad}\n").as_deref(),
+        Some("malformed EXPLORE:COVERAGE marker")
+    );
+    assert!(explicit_coverage_failure(
+        "REPROIT/1 contract runner {\"visible_text\":[\"EXPLORE:COVERAGE {bad}\"]}\n"
+    )
+    .is_none());
+}
+
 mod markers;
 mod persistence_tests;
 

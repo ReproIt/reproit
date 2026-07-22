@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn volatile_error_screens_do_not_count_as_effective_coverage() {
+    assert!(coverage_is_incomplete(false, 36, 0, 36));
+    assert!(!coverage_is_incomplete(false, 36, 1, 35));
+    assert!(!coverage_is_incomplete(false, 36, 0, 0));
+    assert!(!coverage_is_incomplete(true, 36, 0, 36));
+}
+
+#[test]
 fn tui_auth_registry_is_structural_and_locale_independent() {
     let path = input_file_path();
     std::fs::write(

@@ -3569,7 +3569,7 @@ async function tap(page, sel, opts) {
             b.appendChild(tag);
             layer.appendChild(b);
             (document.body || document.documentElement).appendChild(layer);
-            return true;
+            return { preview: true };
           }
           // Stash the clicked element for the post-tap oracle probes (the
           // duplicate-submit eligibility check and the focus-loss guards read it
@@ -3577,20 +3577,21 @@ async function tap(page, sel, opts) {
           // content/mutation oracles are untouched.
           try {
             window.__reproitLastTap = el;
-            // FOCUS-LOSS probe: a real user click gives the control keyboard focus
-            // before activating it; el.click() alone does not. When the walk armed
-            // the probe pre-tap (focusLossArm), focus first (no scroll, so the
-            // viewport-dependent snapshot is untouched) so the oracle can observe
-            // whether the app's re-render then drops focus back to <body>.
+            // Record whether the browser's pointer activation focused the target
+            // before application click handlers can replace it.
             if (window.__reproitFocusProbe) {
-              try {
-                el.focus({ preventScroll: true });
-              } catch (_) {}
-              window.__reproitTapFocused = document.activeElement === el;
+              window.__reproitTapFocused = false;
+              el.addEventListener(
+                'click',
+                () => {
+                  window.__reproitTapFocused = document.activeElement === el;
+                },
+                { capture: true, once: true },
+              );
             }
           } catch (_) {}
-          el.click();
-          return true;
+          const rect = el.getBoundingClientRect();
+          return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         };
 
         if (s.startsWith('key:')) {
@@ -3728,8 +3729,15 @@ async function tap(page, sel, opts) {
         boxColor: (opts && opts.boxColor) || null,
       },
     )
-    .catch(() => false);
-  return !!ok;
+    .catch(() => null);
+  if (!ok) return false;
+  if (ok.preview) return true;
+  try {
+    await page.mouse.click(ok.x, ok.y, { delay: 10 });
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 // STRUCTURAL type: resolve the SAME locale-invariant selector as tap() and type
@@ -4818,7 +4826,7 @@ async function measureGlobalLayout(page) {
 // an off-screen control before it is scrolled in).
 async function clickOptionByLabel(page, role, label) {
   if (!label) return false;
-  return await page
+  const point = await page
     .evaluate(
       ({ label }) => {
         const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -4834,14 +4842,19 @@ async function clickOptionByLabel(page, role, label) {
           if (!name) name = norm(el.textContent);
           if (name === label) {
             el.scrollIntoView({ block: 'center', inline: 'center' });
-            el.click();
-            return true;
+            const rect = el.getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
           }
         }
-        return false;
+        return null;
       },
       { label },
     )
+    .catch(() => null);
+  if (!point) return false;
+  return page.mouse
+    .click(point.x, point.y, { delay: 10 })
+    .then(() => true)
     .catch(() => false);
 }
 

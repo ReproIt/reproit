@@ -576,6 +576,28 @@ export function negotiatedConformance(messages) {
   };
 }
 
+export function normalizeDateTimeInputValue(value, mode) {
+  if (value === '') return '';
+  const dateTime =
+    mode === 'datetime-local'
+      ? value.match(/^(.+)T((?:[01][0-9]|2[0-3]):[0-5][0-9])$/)
+      : undefined;
+  if (mode === 'time') {
+    return /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(value) ? value : undefined;
+  }
+  const dateValue = mode === 'date' ? value : dateTime?.[1];
+  if (!dateValue) return undefined;
+  const match = dateValue.match(/^([0-9]{4,})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/);
+  if (!match) return undefined;
+  if (match[1] === '0000' || match[1].length > 6) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1] ? value : undefined;
+}
+
 function deterministicControl(component, initialValue, descriptor) {
   if (component.checks?.length) return undefined;
   switch (component.component) {
@@ -663,16 +685,10 @@ function deterministicControl(component, initialValue, descriptor) {
               ? 'time'
               : undefined;
       if (!mode) return undefined;
-      const normalize = (value) =>
-        mode === 'date'
-          ? value.split('T')[0]?.slice(0, 10)
-          : mode === 'time'
-            ? (value.includes('T') ? value.split('T')[1] : value).slice(0, 5)
-            : `${value.split('T')[0]?.slice(0, 10)}T${(value.split('T')[1] ?? '').slice(0, 5)}`;
       const sentinel =
         mode === 'date' ? '2031-02-03' : mode === 'time' ? '13:37' : '2031-02-03T13:37';
-      const renderedInitialValue = normalize(initialValue);
-      if (!renderedInitialValue || renderedInitialValue === sentinel) return undefined;
+      const renderedInitialValue = normalizeDateTimeInputValue(initialValue, mode);
+      if (renderedInitialValue === undefined || renderedInitialValue === sentinel) return undefined;
       return { initialValue, renderedInitialValue, sentinel, inputMode: mode };
     }
   }

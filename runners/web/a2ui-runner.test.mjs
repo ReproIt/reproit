@@ -10,9 +10,27 @@ import {
   evaluateBoundActionObservation,
   fuzzVariants,
   negotiatedConformance,
+  normalizeDateTimeInputValue,
   parseA2uiText,
   validateMessages,
 } from './a2ui-runner.mjs';
+
+test('date-time normalization preserves empty input and abstains on ambiguous values', () => {
+  assert.equal(normalizeDateTimeInputValue('', 'datetime-local'), '');
+  assert.equal(
+    normalizeDateTimeInputValue('2031-02-03T13:37', 'datetime-local'),
+    '2031-02-03T13:37',
+  );
+  assert.equal(normalizeDateTimeInputValue('2031-02-03', 'date'), '2031-02-03');
+  assert.equal(normalizeDateTimeInputValue('13:37', 'time'), '13:37');
+  assert.equal(normalizeDateTimeInputValue('2032-02-29', 'date'), '2032-02-29');
+  assert.equal(normalizeDateTimeInputValue('0000-01-01', 'date'), undefined);
+  assert.equal(normalizeDateTimeInputValue('1234567-01-01', 'date'), undefined);
+  assert.equal(normalizeDateTimeInputValue('2031-02-29', 'date'), undefined);
+  assert.equal(normalizeDateTimeInputValue('2031-04-31', 'date'), undefined);
+  assert.equal(normalizeDateTimeInputValue('2031-02-03T13:37:00', 'datetime-local'), undefined);
+  assert.equal(normalizeDateTimeInputValue('not-a-date', 'date'), undefined);
+});
 
 const create = {
   version: 'v0.9',

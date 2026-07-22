@@ -202,6 +202,33 @@ fn read_all_device_logs(run_dir: &Path) -> Result<String> {
         .join("\n"))
 }
 
+fn explicit_coverage_failure(log: &str) -> Option<String> {
+    for line in log.lines() {
+        let Some(detail) = line.strip_prefix("EXPLORE:COVERAGE ") else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(detail) else {
+            return Some("malformed EXPLORE:COVERAGE marker".to_string());
+        };
+        match value.get("complete").and_then(serde_json::Value::as_bool) {
+            Some(true) => {}
+            Some(false) => {
+                let reason = value
+                    .get("stopReason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("runner reported incomplete coverage");
+                // A crash is a candidate observation, not a coverage success. Keep its
+                // observed state so the finding pipeline can confirm and minimize it.
+                if reason != "crash" {
+                    return Some(reason.to_string());
+                }
+            }
+            None => return Some("coverage marker omitted complete".to_string()),
+        }
+    }
+    None
+}
+
 /// Fold one completed crawl into the committed app map without launching a
 /// second journey. Scan uses this after its own coverage walk so first-run and
 /// stale-map refreshes stay single-pass. `replace` discards the old graph only
@@ -275,6 +302,9 @@ pub async fn build_map(
     // now emits the same EXPLORE records the crawl does, so the dual-user
     // journeys double as the mapper for screens a single actor can't reach.
     let log = read_all_device_logs(&run_dir)?;
+    if let Some(reason) = explicit_coverage_failure(&log) {
+        anyhow::bail!("app-map exploration coverage incomplete: {reason}");
+    }
     let obs = parse_run(&log);
     if let Some(line) = log.lines().find(|line| line.contains("EXPLORE:TRUNCATED ")) {
         let detail = line

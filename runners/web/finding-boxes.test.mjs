@@ -69,6 +69,26 @@ test('tap(mark) tags the clicked control, and the crash box points at it', async
   });
 });
 
+test('tap dispatches the browser pointer sequence before click', async () => {
+  await withPage(async (page) => {
+    await page.evaluate(() => {
+      window.pointerEvents = [];
+      const target = document.getElementById('safe');
+      for (const event of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        target.addEventListener(event, () => window.pointerEvents.push(event));
+      }
+    });
+    assert.equal(await tap(page, 'key:id:safe'), true);
+    assert.deepEqual(await page.evaluate(() => window.pointerEvents), [
+      'pointerdown',
+      'mousedown',
+      'pointerup',
+      'mouseup',
+      'click',
+    ]);
+  });
+});
+
 test('tap box mode draws a labeled highlight on the target WITHOUT clicking', async () => {
   await withPage(async (page) => {
     let crashes = 0;
