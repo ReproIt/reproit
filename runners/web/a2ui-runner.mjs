@@ -576,26 +576,34 @@ export function negotiatedConformance(messages) {
   };
 }
 
+const DATE_VALUE_SOURCE = String.raw`\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])`;
+const TIME_VALUE_SOURCE = String.raw`(?:[01]\d|2[0-3]):[0-5]\d`;
+const TIME_SUFFIX_SOURCE =
+  String.raw`(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?`;
+const DATE_TIME_INPUT_PATTERN = new RegExp(
+  `^(${DATE_VALUE_SOURCE})T(${TIME_VALUE_SOURCE})${TIME_SUFFIX_SOURCE}$`,
+);
+const TIME_INPUT_PATTERN = new RegExp(`^(${TIME_VALUE_SOURCE})${TIME_SUFFIX_SOURCE}$`);
+const DATE_INPUT_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
 export function normalizeDateTimeInputValue(value, mode) {
   if (value === '') return '';
-  const dateTime =
-    mode === 'datetime-local'
-      ? value.match(/^(.+)T((?:[01][0-9]|2[0-3]):[0-5][0-9])$/)
-      : undefined;
-  if (mode === 'time') {
-    return /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(value) ? value : undefined;
-  }
-  const dateValue = mode === 'date' ? value : dateTime?.[1];
-  if (!dateValue) return undefined;
-  const match = dateValue.match(/^([0-9]{4,})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/);
-  if (!match) return undefined;
-  if (match[1] === '0000' || match[1].length > 6) return undefined;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
+  const dateTime = value.match(DATE_TIME_INPUT_PATTERN);
+  const time = value.match(TIME_INPUT_PATTERN);
+  const dateValue = dateTime?.[1] ?? (mode === 'date' ? value : undefined);
+  const date = dateValue?.match(DATE_INPUT_PATTERN);
+  if ((mode === 'date' || mode === 'datetime-local') && !date) return undefined;
+  if (mode === 'time' && !time && !dateTime) return undefined;
+  if (!['date', 'time', 'datetime-local'].includes(mode)) return undefined;
+  const year = Number(date?.[1]);
+  const month = Number(date?.[2]);
+  const day = Number(date?.[3]);
   const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return day <= daysInMonth[month - 1] ? value : undefined;
+  if (date && (year === 0 || day > daysInMonth[month - 1])) return undefined;
+  if (mode === 'date') return dateValue;
+  const timeValue = dateTime?.[2] ?? time?.[1];
+  return mode === 'time' ? timeValue : `${dateValue}T${timeValue}`;
 }
 
 function deterministicControl(component, initialValue, descriptor) {
