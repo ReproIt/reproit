@@ -235,6 +235,16 @@ fn release_asset_url(version: &str, asset: &str) -> String {
     }
 }
 
+/// Releases before 1.0 may not have published a runner checksum. Starting with
+/// 1.0, including source builds based on a 1.x manifest, integrity verification
+/// is part of the release contract and cannot be downgraded by a missing asset.
+fn runner_checksum_is_required(version: &str) -> bool {
+    version
+        .split_once('.')
+        .and_then(|(major, _)| major.parse::<u64>().ok())
+        .is_none_or(|major| major >= 1)
+}
+
 /// Download the prebuilt runner bundle and extract it flat into `dir` (so
 /// `dir/runner.mjs` and `dir/node_modules` land in place). Shells out to `curl`
 /// and `tar`, which ship on macOS, Linux, and Windows 10+, to avoid pulling a
@@ -257,13 +267,9 @@ fn download_and_extract_runner(version: &str, dir: &Path, log: &dyn Fn(&str)) ->
     // it against the SHA-256 the release publishes alongside it before trusting
     // it. We fetch the sibling `.sha256` asset and compare.
     //
-    // Transition safety: older releases predate the checksum asset, so an ABSENT
-    // checksum logs a warning and proceeds (a hard failure would brick installs
-    // of already-published releases). Whenever the checksum IS present, a
-    // mismatch is fatal (fail closed) -- we delete the temp file and bail.
-    //
-    // TODO: once every live release publishes `reproit-web-runner.tar.gz.sha256`
-    // (the release workflow now does), make a MISSING checksum fatal too.
+    // Transition safety: pre-1.0 releases may predate the checksum asset, so an
+    // absent checksum remains a warning there. The 1.0 contract requires the
+    // checksum, including for source builds which download the latest release.
     let sum_url = release_asset_url(version, "reproit-web-runner.tar.gz.sha256");
     match fetch_text(&sum_url)? {
         Some(sum_body) => match parse_sha256_hex(&sum_body) {
@@ -285,9 +291,13 @@ fn download_and_extract_runner(version: &str, dir: &Path, log: &dyn Fn(&str)) ->
             }
         },
         None => {
+            if runner_checksum_is_required(version) {
+                let _ = std::fs::remove_file(&tmp);
+                bail!("web runner checksum asset {sum_url} is missing");
+            }
             log(
                 "  WARNING: no checksum asset published for this release; skipping integrity \
-                 verification (older release).",
+                 verification (pre-1.0 release).",
             );
         }
     }
@@ -444,7 +454,17 @@ fn ensure_web_browser(dir: &Path, log: &dyn Fn(&str)) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sha256_hex, sha256_file_hex, WEB_RUNNER_FILES};
+    use super::{parse_sha256_hex, runner_checksum_is_required, sha256_file_hex, WEB_RUNNER_FILES};
+
+    #[test]
+    fn runner_checksum_is_mandatory_from_1_0() {
+        assert!(!runner_checksum_is_required("0.1.0"));
+        assert!(!runner_checksum_is_required("0.9.9-dev+gabc"));
+        assert!(runner_checksum_is_required("1.0.0"));
+        assert!(runner_checksum_is_required("1.0.0-dev+gabc.dirty"));
+        assert!(runner_checksum_is_required("2.0.0"));
+        assert!(runner_checksum_is_required("unknown"));
+    }
 
     #[test]
     fn parse_sha256_hex_accepts_shasum_lines_and_rejects_junk() {
