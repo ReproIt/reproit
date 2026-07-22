@@ -115,6 +115,7 @@ run, so there is no manual `npm install` step.
 
 ```sh
 cd <your-app>
+reproit init                           # detect the app and create the smallest working setup
 reproit doctor                         # see missing platform setup before the run
 reproit auth <account> --email ... --password ...  # optional logged-in flows
 reproit scan --record-video            # fast visible-bug audit + clips
@@ -126,7 +127,8 @@ reproit check                          # verify the suite after the fix
 
 Use the same flow for every platform in the table above. The target changes (`https://...`,
 simulator/device, native app, terminal command, or instrumented binary), but the loop stays
-`doctor`, optional `auth`, `scan`, `fuzz`, direct bug id, `keep`, then `check` again after the fix.
+`init`, `doctor`, optional `auth`, `scan`, `fuzz`, direct bug id, `keep`, then `check` again after
+the fix.
 
 `scan` checks each reachable screen for visible problems like overflow, broken content, missing
 labels, and odd layout choices. `--record-video` turns boxable scan findings into clips. `fuzz`

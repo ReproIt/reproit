@@ -15,8 +15,8 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     let file = match explicit {
         Some(path) => path.to_path_buf(),
         None => find_config(&std::env::current_dir()?).context(
-            "no reproit.yaml found in cwd or ancestors; pass --config or copy \
-             examples/reproit.example.yaml",
+            "no reproit.yaml found in cwd or ancestors; run `reproit init`, pass --config, \
+             or copy examples/reproit.example.yaml",
         )?,
     };
     let raw =
