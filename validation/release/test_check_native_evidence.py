@@ -84,5 +84,32 @@ class NativeEvidenceTests(unittest.TestCase):
             MODULE.validate_result("macos-ax", self.directory, "b" * 40)
 
 
+class SupportManifestTests(unittest.TestCase):
+    def test_release_gates_derive_from_support_manifest(self) -> None:
+        gates = MODULE.release_gates()
+        self.assertEqual(
+            gates,
+            {
+                "web-chromium": "linux-hosted",
+                "react-native-android": "android",
+                "flutter-ios": "flutter",
+                "macos-ax": "macos",
+                "windows-uia": "windows",
+            },
+        )
+
+    def test_support_manifest_is_well_formed(self) -> None:
+        support = json.loads(MODULE.SUPPORT.read_text(encoding="utf-8"))
+        known = set(json.loads(MODULE.MANIFEST.read_text(encoding="utf-8"))["gates"])
+        self.assertEqual(support["schema"], 1)
+        for target_id, target in support["targets"].items():
+            self.assertIn(target["maturity"], {"stable", "preview", "experimental"}, target_id)
+            self.assertTrue(target["scope"], target_id)
+            for gate_id in target["ownedGates"]:
+                self.assertIn(gate_id, known, target_id)
+            for gate_id in target["releaseGates"]:
+                self.assertIn(gate_id, target["ownedGates"], target_id)
+
+
 if __name__ == "__main__":
     unittest.main()

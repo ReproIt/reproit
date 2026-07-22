@@ -11,6 +11,23 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "validation/backends/evidence.json"
+SUPPORT = ROOT / "validation/support-manifest.json"
+
+
+def release_gates() -> dict[str, str]:
+    """Map each release-required gate id to its evidence directory name."""
+    support = json.loads(SUPPORT.read_text(encoding="utf-8"))
+    if support.get("schema") != 1:
+        raise ValueError("unsupported support manifest schema")
+    gates: dict[str, str] = {}
+    for target_id, target in support["targets"].items():
+        for gate_id, directory in target["releaseGates"].items():
+            if gate_id in gates:
+                raise ValueError(f"{target_id}: gate {gate_id} is release-mapped twice")
+            gates[gate_id] = directory
+    if not gates:
+        raise ValueError("support manifest names no release-required gates")
+    return gates
 
 
 def sha256(path: Path) -> str:
@@ -118,25 +135,34 @@ def validate_result(gate_id: str, directory: Path, commit: str) -> dict[str, obj
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--linux-hosted-dir", type=Path, required=True)
-    parser.add_argument("--android-dir", type=Path, required=True)
-    parser.add_argument("--flutter-dir", type=Path, required=True)
-    parser.add_argument("--macos-dir", type=Path, required=True)
-    parser.add_argument("--windows-dir", type=Path, required=True)
+    parser.add_argument(
+        "--dir",
+        action="append",
+        dest="dirs",
+        required=True,
+        metavar="NAME=PATH",
+        help="evidence directory for one release gate group; repeat per group",
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if len(args.commit) != 40 or any(ch not in "0123456789abcdef" for ch in args.commit):
         raise ValueError("--commit must be a full lowercase Git commit")
-    gate_directories = [
-        ("web-chromium", args.linux_hosted_dir),
-        ("react-native-android", args.android_dir),
-        ("flutter-ios", args.flutter_dir),
-        ("macos-ax", args.macos_dir),
-        ("windows-uia", args.windows_dir),
-    ]
+    directories: dict[str, Path] = {}
+    for entry in args.dirs:
+        name, separator, path = entry.partition("=")
+        if not separator or not name or not path or name in directories:
+            raise ValueError(f"--dir must be a unique NAME=PATH pair, got {entry!r}")
+        directories[name] = Path(path)
+    required = release_gates()
+    required_names = set(required.values())
+    if set(directories) != required_names:
+        raise ValueError(
+            f"--dir names {sorted(directories)} must match the support manifest's "
+            f"release evidence directories {sorted(required_names)}"
+        )
     gates = [
-        validate_result(gate_id, directory, args.commit)
-        for gate_id, directory in gate_directories
+        validate_result(gate_id, directories[name], args.commit)
+        for gate_id, name in sorted(required.items())
     ]
     output = {"schema": 2, "commit": args.commit, "gates": gates}
     args.out.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8")

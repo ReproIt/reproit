@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 
+SUPPORT = Path(__file__).resolve().parents[2] / "validation/support-manifest.json"
 MAX_BYTES = 1_048_576
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HTTPS_GITHUB = re.compile(r"^https://github\.com/[^/]+/[^/]+(?:\.git)?$")
@@ -97,7 +98,9 @@ def validate(document: object, allow_pending: bool = False) -> None:
     require(isinstance(document, dict), "benchmark root must be an object")
     exact_keys(document, {"schemaVersion", "target", "status", "applications"}, "benchmark")
     require(document["schemaVersion"] == 1, "unsupported benchmark schemaVersion")
-    require(document["target"] == "web-chromium", "benchmark target must be web-chromium")
+    targets = json.loads(SUPPORT.read_text(encoding="utf-8"))["targets"]
+    require(document["target"] in targets,
+            f"benchmark target must be a support-manifest target, got {document['target']!r}")
     require(document["status"] in {"pending", "complete"}, "benchmark status is invalid")
     applications = document["applications"]
     require(isinstance(applications, list), "applications must be an array")
@@ -121,7 +124,7 @@ def main() -> None:
     document = json.loads(args.benchmark.read_text(encoding="utf-8"))
     validate(document, args.allow_pending)
     state = "PENDING" if document["status"] == "pending" else "PASS"
-    print(f"Chromium field benchmark: {state}")
+    print(f"{document['target']} field benchmark: {state}")
 
 
 if __name__ == "__main__":

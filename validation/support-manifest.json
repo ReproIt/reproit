@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "comment": "Canonical support-target manifest. Maturity, exact runtime scope, owned native gates, and release-required evidence derive from here. Gate ids must exist in validation/backends/evidence.json. releaseGates maps gate id to the release evidence directory name passed to check-native-evidence.py; an empty map means the target is not release-enforced yet.",
+  "targets": {
+    "web-chromium": {
+      "maturity": "stable",
+      "scope": "Chromium web via CDP",
+      "ownedGates": ["web-chromium"],
+      "releaseGates": {"web-chromium": "linux-hosted"}
+    },
+    "web-firefox-webkit": {
+      "maturity": "preview",
+      "scope": "Firefox and WebKit via Playwright engines on Linux",
+      "ownedGates": ["web-engines"],
+      "releaseGates": {}
+    },
+    "react-native-android": {
+      "maturity": "preview",
+      "scope": "React Native on a reset Android emulator via Appium UiAutomator2",
+      "ownedGates": ["react-native-android"],
+      "releaseGates": {"react-native-android": "android"}
+    },
+    "compose-android": {
+      "maturity": "preview",
+      "scope": "Jetpack Compose on a reset Android emulator via Appium UiAutomator2",
+      "ownedGates": ["compose-android"],
+      "releaseGates": {}
+    },
+    "flutter-ios": {
+      "maturity": "preview",
+      "scope": "Flutter on the iOS simulator via flutter drive",
+      "ownedGates": ["flutter-ios"],
+      "releaseGates": {"flutter-ios": "flutter"}
+    },
+    "swiftui-ios": {
+      "maturity": "preview",
+      "scope": "SwiftUI on the iOS simulator via Appium XCUITest",
+      "ownedGates": ["swiftui-ios"],
+      "releaseGates": {}
+    },
+    "windows-desktop": {
+      "maturity": "preview",
+      "scope": "Native x86_64 Windows UIA on WPF, Avalonia, and WinUI 3",
+      "ownedGates": ["windows-uia"],
+      "releaseGates": {"windows-uia": "windows"}
+    },
+    "linux-desktop": {
+      "maturity": "preview",
+      "scope": "x86_64 Linux containers with AT-SPI on GTK, Qt, QML, and wxWidgets",
+      "ownedGates": ["linux-atspi-gtk", "linux-atspi-toolkits"],
+      "releaseGates": {}
+    },
+    "tui": {
+      "maturity": "preview",
+      "scope": "Terminal UIs on a real PTY with the VT parser",
+      "ownedGates": ["tui-pty"],
+      "releaseGates": {}
+    },
+    "electron": {
+      "maturity": "preview",
+      "scope": "Packaged Electron applications on Linux workers",
+      "ownedGates": ["electron"],
+      "releaseGates": {}
+    },
+    "tauri": {
+      "maturity": "preview",
+      "scope": "Tauri on Linux WebKitGTK workers",
+      "ownedGates": ["tauri"],
+      "releaseGates": {}
+    },
+    "macos-ax": {
+      "maturity": "preview",
+      "scope": "Permissioned macOS accessibility on SwiftUI",
+      "ownedGates": ["macos-ax"],
+      "releaseGates": {"macos-ax": "macos"}
+    },
+    "backend-contract": {
+      "maturity": "experimental",
+      "scope": "Bounded opt-in backend contract discovery",
+      "ownedGates": [],
+      "releaseGates": {}
+    }
+  }
+}

@@ -155,11 +155,11 @@ jobs:
         run: |
           python3 validation/release/check-native-evidence.py \
             --commit "$GITHUB_SHA" \
-            --linux-hosted-dir native/linux-hosted \
-            --android-dir native/android \
-            --flutter-dir native/macos-flutter \
-            --macos-dir native/macos \
-            --windows-dir native/windows \
+            --dir linux-hosted=native/linux-hosted \
+            --dir android=native/android \
+            --dir flutter=native/macos-flutter \
+            --dir macos=native/macos \
+            --dir windows=native/windows \
             --out reproit-native-evidence.json
       - uses: actions/upload-artifact@v7
         with:

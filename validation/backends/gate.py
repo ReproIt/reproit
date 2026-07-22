@@ -208,10 +208,19 @@ def write_result(
     return result_path
 
 
+def observed_architecture() -> str:
+    machine = platform.machine().lower()
+    return {"aarch64": "arm64", "amd64": "x86_64"}.get(machine, machine)
+
+
 def run(gate_id: str, architectures: list[str] | None, output_dir: Path) -> int:
     gate = load_gate(gate_id)
     command, timeout_seconds = validate_gate_fields(gate_id, gate)
-    recorded_architectures = architectures or gate["architectures"]
+    # Evidence records only what was observed on this host. A gate that pins a
+    # different target architecture (container --platform, remote worker) must
+    # attest it explicitly with --architecture; nothing is copied from the
+    # manifest's declared list.
+    recorded_architectures = architectures or [observed_architecture()]
     started_at = timestamp()
     status, exit_code, output = execute(command, timeout_seconds)
     finished_at = timestamp()
