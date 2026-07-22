@@ -44,10 +44,9 @@ recorded in the manifest instead of being presented as hosted CI coverage.
 
 The Appium commands require a running server with XCUITest or UiAutomator2 as appropriate.
 `run-react-native-android.sh` accepts `REPROIT_ANDROID_UDID`; it pins React Native 0.76.9 and builds
-a bundled release APK so Metro is not part of the result. The Windows command uses the workspace's
-`validation-user@windows-gateway` to `windows-jump-host` to Windows chain by default, or an OpenSSH alias supplied through
-`REPROIT_WINDOWS_HOST`, and runs the GUI gate as an interactive scheduled task. A noninteractive
-service session is not valid UI Automation evidence.
+a bundled release APK so Metro is not part of the result. The Windows command requires an OpenSSH
+host alias supplied through `REPROIT_WINDOWS_HOST` and runs the GUI gate as an interactive scheduled
+task. A noninteractive service session is not valid UI Automation evidence.
 
 Linux desktop and Tauri gates build inside pinned containers. macOS, iOS, Flutter, Android, and
 Windows gates use their native host tools. No gate treats a mocked marker stream as backend

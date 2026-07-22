@@ -2,37 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WINDOWS_HOST="${REPROIT_WINDOWS_HOST:-}"
+: "${REPROIT_WINDOWS_HOST:?set REPROIT_WINDOWS_HOST to an OpenSSH host alias}"
+WINDOWS_HOST="$REPROIT_WINDOWS_HOST"
 ARCHIVE="$(mktemp -t reproit-backends).tar.gz"
 NAME="reproit-backends.tar.gz"
 cleanup() { rm -f "$ARCHIVE"; }
 trap cleanup EXIT
-
-copy_archive() {
-  if [[ -n "$WINDOWS_HOST" ]]; then
-    scp -O -q "$ARCHIVE" "$WINDOWS_HOST:$NAME"
-    return
-  fi
-
-  scp -O -q "$ARCHIVE" "validation-user@windows-gateway:$NAME"
-  ssh validation-user@windows-gateway "scp -q '$NAME' windows-jump-host:'$NAME' && rm -f '$NAME'"
-  ssh validation-user@windows-gateway \
-    "ssh windows-jump-host 'scp -q -i ~/.ssh/windows-validation -P 2223 \"$NAME\" \
-reproit@localhost:\"$NAME\" && rm -f \"$NAME\"'"
-}
-
-run_windows_powershell() {
-  local encoded="$1"
-  local powershell="powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass"
-  powershell+=" -OutputFormat Text -EncodedCommand $encoded"
-  if [[ -n "$WINDOWS_HOST" ]]; then
-    ssh "$WINDOWS_HOST" "$powershell"
-    return
-  fi
-
-  ssh validation-user@windows-gateway \
-    "ssh windows-jump-host 'ssh -i ~/.ssh/windows-validation -p 2223 reproit@localhost $powershell'"
-}
 
 COPYFILE_DISABLE=1 tar -czf "$ARCHIVE" -C "$ROOT" \
   --exclude='._*' --exclude='*/._*' --exclude='.DS_Store' --exclude='*/.DS_Store' \
@@ -45,7 +20,7 @@ COPYFILE_DISABLE=1 tar -czf "$ARCHIVE" -C "$ROOT" \
   examples/winui-fixture validation/backends/invoke-windows-desktop.ps1 \
   validation/backends/run-windows-desktop.ps1 \
   validation/backends/run-windows-desktop-interactive.ps1
-copy_archive
+scp -O -q "$ARCHIVE" "$WINDOWS_HOST:$NAME"
 
 POWERSHELL_COMMAND="$(cat <<EOF
 \$d = Join-Path \$env:TEMP 'reproit-backend-validation'
@@ -80,6 +55,8 @@ Remove-Item (Join-Path \$HOME '$NAME') -Force
 EOF
 )"
 ENCODED="$(printf '%s' "$POWERSHELL_COMMAND" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n')"
-run_windows_powershell "$ENCODED"
+REMOTE_POWERSHELL="powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass"
+REMOTE_POWERSHELL+=" -OutputFormat Text"
+ssh "$WINDOWS_HOST" "$REMOTE_POWERSHELL -EncodedCommand $ENCODED"
 
 echo "remote Windows WPF/Avalonia/WinUI UIA matrix passed"
