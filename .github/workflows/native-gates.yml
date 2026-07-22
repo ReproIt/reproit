@@ -33,7 +33,7 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           sudo apt-get update
-          sudo apt-get install -y libatspi2.0-dev clang
+          sudo apt-get install -y libatspi2.0-dev clang xvfb
       - name: Install browser runner and engines
         working-directory: runners/web
         run: |
@@ -45,7 +45,7 @@ jobs:
         run: |
           python3 validation/backends/gate.py web-chromium
           python3 validation/backends/gate.py web-engines
-          python3 validation/backends/gate.py electron
+          xvfb-run -a python3 validation/backends/gate.py electron
           python3 validation/backends/gate.py instrumented-native
           python3 validation/backends/gate.py tui-pty
       - uses: actions/upload-artifact@v7
@@ -101,13 +101,7 @@ jobs:
           target: default
           disable-animations: true
           emulator-boot-timeout: 900
-          script: |
-            appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
-            export REPROIT_GATE_OUTPUT_DIR="${RUNNER_TEMP}/native-gates"
-            python3 validation/backends/gate.py compose-android
-            if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
-              python3 validation/backends/gate.py react-native-android
-            fi
+          script: bash .github/scripts/run-android-native-gates.sh
       - uses: actions/upload-artifact@v7
         if: always()
         with:
