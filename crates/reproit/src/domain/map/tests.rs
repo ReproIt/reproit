@@ -127,6 +127,38 @@ fn graph_guidance_finds_components_and_dominator_reach() {
 }
 
 #[test]
+fn graph_guidance_handles_the_maximum_dominator_graph() {
+    let count = 1_024;
+    let states = (0..count)
+        .map(|index| (format!("state-{index:04}"), st("chain state")))
+        .collect();
+    let transitions = (0..count - 1)
+        .map(|index| {
+            tap(
+                &format!("state-{index:04}"),
+                "next",
+                &format!("state-{:04}", index + 1),
+            )
+        })
+        .collect();
+    let map = AppMap {
+        app: "bounded-chain".to_string(),
+        schema_version: APP_MAP_SCHEMA_VERSION,
+        revision: 1,
+        states,
+        transitions,
+        invariants: vec![],
+        interrupts: vec![],
+    };
+    let graph = GraphIndex::new(&map);
+    let guidance = GraphGuidance::analyze(&graph, "state-0000");
+
+    assert_eq!(guidance.dominated_count("state-0000"), count - 1);
+    assert_eq!(guidance.dominated_count("state-0512"), count - 513);
+    assert_eq!(guidance.dominated_count("state-1023"), 0);
+}
+
+#[test]
 fn frontier_prefers_a_state_that_unlocks_more_reachable_graph() {
     let sig_state = |sig: &str| {
         let mut state = st("state");

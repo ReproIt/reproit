@@ -17,4 +17,4 @@ For comparisons, build each revision in an isolated worktree and pass its
 power state, workload matrix, and sample count for both revisions.
 
 The first checked-in comparison and its correctness tradeoffs are recorded in
-[`RESULTS-2026-07-17.md`](RESULTS-2026-07-17.md).
+[`RESULTS-2026-07-22.md`](RESULTS-2026-07-22.md).

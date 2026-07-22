@@ -222,6 +222,51 @@ fn fuzz_command_reports_artifact_and_guard_state_without_aggregate_cause() {
 }
 
 #[test]
+fn clean_fuzz_json_does_not_leak_a_historical_finding() {
+    let root = repo_root();
+    let dir = temp_dir("fuzz-no-stale-finding");
+    let config = dir.join("reproit.yaml");
+    fs::copy(
+        root.join("validation/release/tui-clean-output-contract.yaml"),
+        &config,
+    )
+    .unwrap();
+    let old_run = dir.join(".reproit/runs/old-finding");
+    fs::create_dir_all(&old_run).unwrap();
+    fs::write(
+        old_run.join("fuzz.md"),
+        "# fuzz finding (seed 99)\n\n## confirmed repro\n\n```\nkey:Down\n```\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::new(reproit_bin());
+    cmd.env("REPROIT_ROOT", &root)
+        .arg("--config")
+        .arg(&config)
+        .arg("--json")
+        .arg("--yes")
+        .arg("fuzz")
+        .arg("--runs")
+        .arg("1")
+        .arg("--budget")
+        .arg("1")
+        .arg("--uniform");
+    let (timed_out, stdout, stderr, code) = run_with_timeout(cmd, Duration::from_secs(60));
+    assert!(
+        !timed_out,
+        "clean fuzz output contract timed out\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        matches!(code, Some(0) | Some(1)),
+        "clean fuzz output contract failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let output: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(output["found"], false);
+    assert_eq!(output["confirmedFindings"], 0);
+    assert!(output.get("id").is_none());
+}
+
+#[test]
 fn every_supported_platform_doctor_exits_before_timeout() {
     for platform in PLATFORMS {
         let dir = temp_dir(platform);

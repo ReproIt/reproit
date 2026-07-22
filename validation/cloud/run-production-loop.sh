@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Production release gate: create a disposable Cloud project, ingest SDK-shaped
-# occurrences, prove server-side redaction, measure the hosted path, reproduce
+# occurrences, prove raw values never enter the batch, measure the hosted path, reproduce
 # the bucket locally, then permanently delete the project.
 set -euo pipefail
 
@@ -206,5 +206,5 @@ with open(destination, "w") as f:
 print(json.dumps(d, indent=2, sort_keys=True))
 PY
 
-echo "production gate passed: disposable project -> SDK ingest -> redaction -> "\
+echo "production gate passed: disposable project -> strict ingest -> redaction markers -> "\
 "bkt replay -> deletion"

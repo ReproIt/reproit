@@ -604,6 +604,12 @@ pub(super) async fn fuzz_one_locale(
                     id: finding_id.clone(),
                     cause: capsule.cause_category(),
                     action_count: capsule.actions.len(),
+                    seed,
+                    actions: capsule
+                        .actions
+                        .iter()
+                        .map(|action| action.action.clone())
+                        .collect(),
                     artifact: layout::finding_dir(root, &repro_id),
                 });
                 say(json, format!("  capsule: {capsule_id}"));

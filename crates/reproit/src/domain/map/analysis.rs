@@ -1,7 +1,7 @@
 //! Bounded graph analysis used only to prioritize exploration.
 
 use super::index::GraphIndex;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 const MAX_SCC_STATES: usize = 20_000;
 const MAX_SCC_EDGES: usize = 100_000;
@@ -152,43 +152,45 @@ fn dominated_counts<'a>(
     start: &'a str,
     reachable: &BTreeSet<&'a str>,
 ) -> HashMap<&'a str, usize> {
-    let mut predecessors = BTreeMap::<&str, BTreeSet<&str>>::new();
-    for &state in reachable {
+    let states = reverse_postorder(graph, start, reachable);
+    let indexes = states
+        .iter()
+        .enumerate()
+        .map(|(index, state)| (*state, index))
+        .collect::<HashMap<_, _>>();
+    let mut predecessors = vec![Vec::new(); states.len()];
+    for (from_index, state) in states.iter().enumerate() {
         for transition in graph.outgoing(state) {
-            let to = transition.to.as_str();
-            if reachable.contains(to) {
-                predecessors.entry(to).or_default().insert(state);
+            if let Some(to_index) = indexes.get(transition.to.as_str()) {
+                predecessors[*to_index].push(from_index);
             }
         }
     }
-    let mut dominators = BTreeMap::new();
-    for &state in reachable {
-        let initial = if state == start {
-            BTreeSet::from([start])
-        } else {
-            reachable.clone()
-        };
-        dominators.insert(state, initial);
-    }
-    for _ in 0..reachable.len() {
+
+    let start_index = indexes[start];
+    let mut immediate = vec![None; states.len()];
+    immediate[start_index] = Some(start_index);
+
+    for _ in 0..states.len() {
         let mut changed = false;
-        for &state in reachable {
-            if state == start {
+        for state_index in 0..states.len() {
+            if state_index == start_index {
                 continue;
             }
-            let Some(preds) = predecessors.get(state) else {
+            let mut resolved = predecessors[state_index]
+                .iter()
+                .copied()
+                .filter(|predecessor| immediate[*predecessor].is_some());
+            let Some(mut dominator) = resolved.next() else {
                 continue;
             };
-            let mut intersection = reachable.clone();
-            for predecessor in preds {
-                intersection = intersection
-                    .intersection(&dominators[predecessor])
-                    .copied()
-                    .collect();
+            for predecessor in resolved {
+                if let Some(common) = intersect_dominators(predecessor, dominator, &immediate) {
+                    dominator = common;
+                }
             }
-            intersection.insert(state);
-            if dominators.get(state) != Some(&intersection) {
-                dominators.insert(state, intersection);
+            if immediate[state_index] != Some(dominator) {
+                immediate[state_index] = Some(dominator);
                 changed = true;
             }
         }
@@ -196,13 +198,63 @@ fn dominated_counts<'a>(
             break;
         }
     }
-    let mut counts = HashMap::new();
-    for (&state, state_dominators) in &dominators {
-        for &dominator in state_dominators {
-            if dominator != state {
-                *counts.entry(dominator).or_insert(0) += 1;
-            }
+
+    let mut subtree_sizes = vec![1_usize; states.len()];
+    for state_index in (0..states.len()).rev() {
+        if state_index == start_index {
+            continue;
+        }
+        if let Some(parent) = immediate[state_index] {
+            subtree_sizes[parent] =
+                subtree_sizes[parent].saturating_add(subtree_sizes[state_index]);
         }
     }
-    counts
+    states
+        .into_iter()
+        .enumerate()
+        .map(|(index, state)| (state, subtree_sizes[index].saturating_sub(1)))
+        .collect()
+}
+
+fn reverse_postorder<'a>(
+    graph: &GraphIndex<'a>,
+    start: &'a str,
+    reachable: &BTreeSet<&'a str>,
+) -> Vec<&'a str> {
+    let mut visited = HashSet::from([start]);
+    let mut postorder = Vec::with_capacity(reachable.len());
+    let mut stack = vec![(start, 0_usize)];
+    while !stack.is_empty() {
+        let last = stack.len() - 1;
+        let (state, edge_index) = stack[last];
+        let edges = graph.outgoing(state);
+        if edge_index < edges.len() {
+            stack[last].1 += 1;
+            let to = edges[edge_index].to.as_str();
+            if reachable.contains(to) && visited.insert(to) {
+                stack.push((to, 0));
+            }
+        } else {
+            postorder.push(state);
+            stack.pop();
+        }
+    }
+    postorder.reverse();
+    postorder
+}
+
+fn intersect_dominators(
+    mut left: usize,
+    mut right: usize,
+    immediate: &[Option<usize>],
+) -> Option<usize> {
+    while left != right {
+        while left > right {
+            left = immediate[left]?;
+        }
+        while right > left {
+            right = immediate[right]?;
+        }
+    }
+    Some(left)
 }

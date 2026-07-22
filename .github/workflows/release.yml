@@ -12,18 +12,6 @@ on:
         required: true
         type: boolean
         default: false
-      windows_uia_commit:
-        description: Commit recorded by the private Windows UIA native gate
-        required: false
-        type: string
-      windows_uia_log_sha256:
-        description: SHA-256 from the passing private Windows UIA gate result
-        required: false
-        type: string
-      macos_ax_log_sha256:
-        description: SHA-256 from the passing permissioned macOS AX gate result
-        required: false
-        type: string
 
 permissions:
   actions: read
@@ -79,9 +67,10 @@ jobs:
           set -euo pipefail
           require_success() {
             workflow=$1
+            endpoint="repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs"
             run_id=$(
               gh api \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=20" \
+                "${endpoint}?head_sha=${GITHUB_SHA}&status=completed&per_page=20" \
                 --jq '.workflow_runs | map(select(.conclusion == "success")) | first | .id // empty'
             )
             test -n "$run_id" || {
@@ -91,20 +80,87 @@ jobs:
             echo "${workflow}: successful run ${run_id}"
           }
           require_success ci.yml
-          require_success native-gates.yml
-          test "${{ inputs.windows_uia_commit }}" = "$GITHUB_SHA" || {
-            echo "Windows UIA evidence is not for ${GITHUB_SHA}" >&2
+
+  native-evidence:
+    if: inputs.publish
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download exact-commit release-tier native evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p native/macos
+          endpoint="repos/${GITHUB_REPOSITORY}/actions/workflows/native-gates.yml/runs"
+          selected_run=""
+          mapfile -t run_ids < <(
+            gh api \
+              "${endpoint}?head_sha=${GITHUB_SHA}&status=completed&per_page=20" \
+              --jq '.workflow_runs[] | select(.conclusion == "success") | .id'
+          )
+          for run_id in "${run_ids[@]}"; do
+            if gh run download "$run_id" --name native-gates-macos-ax \
+              --dir native/macos 2>/dev/null; then
+              echo "macOS AX evidence: native-gates run $run_id"
+              selected_run="$run_id"
+              break
+            fi
+          done
+          test -n "$selected_run" || {
+            echo "no successful exact-commit native-gates run contains macOS AX evidence" >&2
             exit 1
           }
-          for digest in \
-            "${{ inputs.windows_uia_log_sha256 }}" \
-            "${{ inputs.macos_ax_log_sha256 }}"
-          do
-            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || {
-              echo "native evidence digest is not a lowercase SHA-256: $digest" >&2
-              exit 1
-            }
-          done
+          gh run download "$selected_run" --name native-gates-linux-hosted \
+            --dir native/linux-hosted
+          gh run download "$selected_run" --name native-gates-android \
+            --dir native/android
+          gh run download "$selected_run" --name native-gates-macos-flutter \
+            --dir native/macos-flutter
+      - name: Download private Windows UIA evidence bundle
+        env:
+          WINDOWS_UIA_EVIDENCE_URL: ${{ secrets.WINDOWS_UIA_EVIDENCE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$WINDOWS_UIA_EVIDENCE_URL" || {
+            echo "WINDOWS_UIA_EVIDENCE_URL is not configured" >&2
+            exit 1
+          }
+          mkdir -p native/windows
+          curl --fail --silent --show-error --location \
+            "$WINDOWS_UIA_EVIDENCE_URL" --output native/windows.zip
+          python3 -m zipfile --test native/windows.zip
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archive = Path("native/windows.zip")
+          destination = Path("native/windows")
+          expected = {"windows-uia.json", "windows-uia.log"}
+          with ZipFile(archive) as source:
+              names = set(source.namelist())
+              if names != expected:
+                  raise SystemExit(f"unexpected Windows evidence members: {sorted(names)}")
+              for name in sorted(expected):
+                  target = destination / name
+                  target.write_bytes(source.read(name))
+          PY
+      - name: Validate release-tier captured logs and result manifests
+        run: |
+          python3 validation/release/check-native-evidence.py \
+            --commit "$GITHUB_SHA" \
+            --linux-hosted-dir native/linux-hosted \
+            --android-dir native/android \
+            --flutter-dir native/macos-flutter \
+            --macos-dir native/macos \
+            --windows-dir native/windows \
+            --out reproit-native-evidence.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reproit-native-evidence
+          path: reproit-native-evidence.json
+          if-no-files-found: error
 
   build:
     needs: validate
@@ -213,6 +269,36 @@ jobs:
             reproit-web-runner.tar.gz
             reproit-web-runner.tar.gz.sha256
 
+  production-loop:
+    if: inputs.publish
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install Rust and the browser runner
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          npm ci --prefix runners/web
+          npx --prefix runners/web playwright install --with-deps chromium
+      - name: Build the release-candidate CLI
+        run: cargo build --locked -p reproit
+      - name: Run the strict hosted protocol-to-local-replay gate
+        env:
+          REPROIT_CLOUD_ACCOUNT_KEY: ${{ secrets.REPROIT_CLOUD_ACCOUNT_KEY }}
+          REPROIT_CONTRACT_RESULTS: ${{ runner.temp }}/production-loop.json
+        run: validation/cloud/run-production-loop.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: production-loop
+          path: ${{ runner.temp }}/production-loop.json
+          if-no-files-found: error
+
   install-smoke:
     needs: [validate, build, web-runner]
     name: install smoke ${{ matrix.target }}
@@ -302,27 +388,18 @@ jobs:
 
   publish:
     if: inputs.publish
-    needs: [validate, build, web-runner, install-smoke]
+    needs: [validate, build, web-runner, install-smoke, production-loop, native-evidence]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: dist
+          pattern: reproit-*
           merge-multiple: true
       - name: Verify the release payload
-        env:
-          WINDOWS_UIA_LOG_SHA256: ${{ inputs.windows_uia_log_sha256 }}
-          MACOS_AX_LOG_SHA256: ${{ inputs.macos_ax_log_sha256 }}
         run: |
           set -euo pipefail
-          cat > dist/reproit-native-evidence.json <<EOF
-          {
-            "schema": 1,
-            "commit": "${GITHUB_SHA}",
-            "windowsUiaLogSha256": "${WINDOWS_UIA_LOG_SHA256}",
-            "macosAxLogSha256": "${MACOS_AX_LOG_SHA256}"
-          }
-          EOF
+          test -s dist/reproit-native-evidence.json
           find dist -maxdepth 1 -type f -printf '%f\n' | sort
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 15
       - name: Publish the GitHub release

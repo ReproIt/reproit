@@ -24,6 +24,11 @@ in the current directory. ReproIt never downloads your source.
 
 ## Choose your platform
 
+The 1.0 release contract covers these source installation paths at the matching
+Git tag. Registry publication is not implied by a `1.0.0` package manifest.
+When a registry package is published, this table will name the registry,
+coordinate, and release-smoke evidence before showing that installation path.
+
 | Platform                      | Guide                                              | Supported installation before registry publication |
 | ----------------------------- | -------------------------------------------------- | -------------------------------------------------- |
 | Web, Electron, Tauri frontend | [Web SDK](reproit-web.README.md)                   | Vendor one JavaScript file from this repository    |
@@ -34,9 +39,10 @@ in the current directory. ReproIt never downloads your source.
 | Windows WPF and WinUI 3       | [Windows SDK](reproit-windows/README.md)           | .NET project reference from a local checkout       |
 | Linux GTK and Qt              | [Linux SDK](reproit-linux/README.md)               | pip git dependency with the SDK subdirectory       |
 
-The package names reserved in the individual guides are not presented as registry installs until
-those packages exist. Every command shown in the active quickstarts works against the public
-repository today.
+The package names reserved in the individual guides are not presented as
+registry installs until those packages exist and are release-smoked. Every
+command shown in the active quickstarts works against the public repository at
+the selected immutable release tag.
 
 ## Credentials
 

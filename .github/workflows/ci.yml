@@ -41,6 +41,8 @@ jobs:
         run: cargo build --workspace --locked
       - name: Test (incl. determinism replay)
         run: cargo test --workspace --locked
+      - name: Test native release evidence validation
+        run: python3 validation/release/test_check_native_evidence.py
       - name: Audit Rust dependencies
         run: |
           cargo install cargo-audit --locked

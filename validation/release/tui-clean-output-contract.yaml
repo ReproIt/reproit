@@ -1,0 +1,12 @@
+app:
+  platform: tui
+  executable: python3 ${REPROIT_ROOT:?set repository root}/examples/tui-demo/menu.py
+  runnerDir: ${REPROIT_ROOT:?set repository root}/runners
+devices:
+  namePrefix: ReleaseOutputClean
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]
+  timeoutSec: 20
+evidence:
+  outDir: .reproit/runs

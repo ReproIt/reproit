@@ -23,10 +23,12 @@ validation/cloud/run-production-loop.sh
 The gate:
 
 1. Creates a uniquely named disposable Cloud project.
-2. Sends 500 SDK-shaped production error occurrences with sensitive sentinels.
+2. Sends 500 strict protocol-v1 production findings whose SDK boundary has
+   replaced sensitive sentinels with explicit redaction markers.
 3. Checks hosted ingest latency and throughput.
 4. Fetches the structural bug and replay package.
-5. Proves the raw sentinels are absent and redaction metadata remains.
+5. Proves raw sentinels never enter the event batch or replay package while
+   redaction metadata remains.
 6. Pulls the bucket into a clean source workspace and reproduces it locally.
 7. Deletes the disposable project, including on failure.
 

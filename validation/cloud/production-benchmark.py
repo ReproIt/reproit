@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hosted ingest, read, and redaction benchmark for the disposable release gate."""
+"""Hosted strict-ingest and replay-package benchmark for the release gate."""
 
 import http.client
 import json
@@ -55,64 +55,102 @@ def percentile(values, percentile_value):
 
 
 path = [
-    {"sig": "home", "action": "load"},
-    {"sig": "home", "action": "tap:key:testid:contract-crash"},
+    {"signature": "home", "action": "tap:key:testid:contract-crash", "label": None},
 ]
 
-# Warm the scale-to-zero service and persistent connection without opening a bug.
+
+def event_batch(batch_label, finding_count):
+    batch_id = f"release-gate-{batch_label}-{uuid.uuid4().hex}"
+    frames = []
+    sequence = 1
+    for occurrence in range(finding_count):
+        run_id = f"release-gate-{batch_label}-{occurrence}-{uuid.uuid4().hex}"
+        frames.append(
+            {
+                "runId": run_id,
+                "sequence": sequence,
+                "scope": {"domain": "shared"},
+                "event": {
+                    "kind": "graph-edge",
+                    "from": "home",
+                    "action": "tap:key:testid:contract-crash",
+                    "to": "contract-crash",
+                },
+            }
+        )
+        sequence += 1
+        frames.append(
+            {
+                "runId": run_id,
+                "sequence": sequence,
+                "scope": {"domain": "shared"},
+                "event": {
+                    "kind": "finding",
+                    "signature": "crash:ReproitContractError:production-gate",
+                    "message": "TypeError: ReproitContractError",
+                    "identity": {
+                        "oracle": "crash",
+                        "invariant": "no-exception",
+                        "kind": "exception",
+                        "message": "TypeError: ReproitContractError",
+                        "frame": "contract-crash",
+                        "trigger": "tap:key:testid:contract-crash",
+                        "boundary": "contract-crash",
+                    },
+                    "path": path,
+                    "context": {
+                        "email": {"$reproit": {"redacted": True}},
+                        "nested": {
+                            "refreshToken": {"$reproit": {"redacted": True}},
+                            "displayName": "Release Gate",
+                        },
+                        "fingerprint": [
+                            {
+                                "field": "checkout-name",
+                                "len": 18,
+                                "bytes": 18,
+                                "charset": "ascii",
+                                "scripts": ["Latin"],
+                            }
+                        ],
+                        "fpVersion": 2,
+                    },
+                },
+            }
+        )
+        sequence += 1
+    batch = {
+        "version": 1,
+        "batchId": batch_id,
+        "appId": APP,
+        "deployment": {"version": "production-release-gate"},
+        "frames": frames,
+        "evidence": [],
+    }
+    if SENTINEL in json.dumps(batch, separators=(",", ":")):
+        raise RuntimeError("raw sensitive sentinel escaped into the strict event batch")
+    return batch
+
+# Warm the scale-to-zero service and persistent connection with a valid strict
+# protocol batch. A graph edge is clean traffic, not a finding.
 for index in range(2):
+    warmup = event_batch(f"warmup-{index}", 1)
+    warmup["frames"] = warmup["frames"][:1]
     request_json(
         "POST",
         "/v1/events",
         PUBLISHABLE_KEY,
-        {
-            "appId": APP,
-            "batchId": f"release-gate-warmup-{uuid.uuid4().hex}-{index}",
-            "events": [{"kind": "edge", "from": "home", "action": "load", "to": "home"}],
-        },
+        warmup,
     )
 
 latencies = []
 started_all = time.perf_counter()
 for batch_index in range(BATCHES):
-    events = [
-        {
-            "kind": "error",
-            "oracle": "crash",
-            "sig": "crash:ReproitContractError:production-gate",
-            "message": "TypeError: ReproitContractError",
-            "path": path,
-            "context": {
-                "email": SENTINEL,
-                "nested": {
-                    "refreshToken": SENTINEL,
-                    "displayName": "Release Gate",
-                },
-                "fingerprint": [
-                    {
-                        "field": "checkout-name",
-                        "len": 18,
-                        "bytes": 18,
-                        "graphemes": 18,
-                        "charset": "ascii",
-                        "scripts": ["Latin"],
-                    }
-                ],
-                "fpVersion": 2,
-            },
-        }
-        for _ in range(ERRORS_PER_BATCH)
-    ]
     response, elapsed_ms = request_json(
         "POST",
         "/v1/events",
         PUBLISHABLE_KEY,
-        {
-            "appId": APP,
-            "batchId": f"release-gate-{uuid.uuid4().hex}-{batch_index}",
-            "ctx": {"build": {"version": "production-release-gate"}, "platform": "web"},
-            "events": events,
-        },
+        event_batch(str(batch_index), ERRORS_PER_BATCH),
     )
     if response.get("ingested", {}).get("errors") != ERRORS_PER_BATCH:
         raise RuntimeError(f"unexpected ingest response: {response}")
@@ -133,13 +171,15 @@ if not bucket:
     raise RuntimeError(f"contract bucket missing: {buckets}")
 bucket_id = bucket["bucketId"]
 package, package_ms = request_json(
-    "GET", f"/v1/buckets/{bucket_id}", os.environ.get("REPROIT_CLOUD_KEY", PROJECT_KEY)
+    "GET",
+    f"/v1/apps/{APP}/buckets/{bucket_id}",
+    os.environ.get("REPROIT_CLOUD_KEY", PROJECT_KEY),
 )
 encoded_package = json.dumps(package, separators=(",", ":"))
 if SENTINEL in encoded_package:
     raise RuntimeError("raw sensitive sentinel escaped into the production replay package")
 if package.get("context", {}).get("email", {}).get("$reproit", {}).get("redacted") is not True:
-    raise RuntimeError(f"email context was not structurally redacted: {package.get('context')}")
+    raise RuntimeError(f"email redaction marker was not preserved: {package.get('context')}")
 if (
     package.get("context", {})
     .get("nested", {})
@@ -148,7 +188,7 @@ if (
     .get("redacted")
     is not True
 ):
-    raise RuntimeError(f"nested token was not structurally redacted: {package.get('context')}")
+    raise RuntimeError(f"nested token redaction marker was not preserved: {package.get('context')}")
 
 p95 = percentile(latencies, 95)
 maximum = max(latencies)

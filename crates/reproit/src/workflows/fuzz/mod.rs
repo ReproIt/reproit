@@ -194,6 +194,8 @@ pub struct ConfirmedFinding {
     pub id: String,
     pub cause: crate::domain::capsule::CauseCategory,
     pub action_count: usize,
+    pub seed: u64,
+    pub actions: Vec<String>,
     pub artifact: std::path::PathBuf,
 }
 

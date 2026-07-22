@@ -1,7 +1,8 @@
 # Changelog
 
 All notable user-facing changes are recorded here. ReproIt follows semantic
-versioning for the CLI, saved repro contract, wire protocol, and published SDKs.
+versioning for the stable CLI surface, saved repro contract, wire protocol, and
+versioned SDK source APIs documented in `docs/stability.md`.
 
 ## 1.0.0 - Unreleased
 
@@ -17,8 +18,8 @@ versioning for the CLI, saved repro contract, wire protocol, and published SDKs.
 
 ### Stability contract
 
-- Existing 1.x `reproit.yaml` files, saved repros, event batches, and documented
-  command behavior remain compatible throughout 1.x unless a security fix
-  requires a narrowly documented exception.
+- Existing 1.x `reproit.yaml` files, saved repros, event batches, and the command
+  behavior named in `docs/stability.md` remain compatible throughout 1.x unless
+  a security fix requires a narrowly documented exception.
 - Experimental specialist or backend-contract features are outside the stable
   API and are identified as experimental where documented.
