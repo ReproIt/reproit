@@ -46,7 +46,6 @@ jobs:
           python3 validation/backends/gate.py web-chromium
           python3 validation/backends/gate.py web-engines
           xvfb-run -a python3 validation/backends/gate.py electron
-          python3 validation/backends/gate.py instrumented-native
           python3 validation/backends/gate.py tui-pty
       - uses: actions/upload-artifact@v7
         if: always()

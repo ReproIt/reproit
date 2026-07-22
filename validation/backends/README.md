@@ -47,7 +47,6 @@ python3 validation/backends/gate.py compose-android --architecture arm64
 | `desktop-uia`   | WPF, Avalonia, and WinUI 3 apps              | `validation/backends/run-windows-desktop.ps1`       |
 | `desktop-atspi` | GTK multi-actor app                          | `.github/scripts/atspi-scenario-e2e.sh`             |
 | `desktop-atspi` | Qt Widgets, Qt Quick/QML, and wxWidgets apps | `examples/qt-fixture/qt-atspi-e2e.sh`               |
-| `instrumented`  | Dear ImGui and Clay native fixtures          | `validation/backends/run-instrumented.sh`           |
 | `tui-pty`       | Real curses app in a PTY                     | `validation/backends/run-tui.sh`                    |
 
 The Appium commands require a running server with XCUITest or UiAutomator2 as appropriate.

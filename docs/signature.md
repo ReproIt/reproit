@@ -230,18 +230,13 @@ value_nodes:
 A runner resolves each selector and sets the `value_node` flag before signing; the oracle then
 treats it as value-bearing through the same path.
 
-## Surfaces without an accessibility tree (terminals, ImGui/Clay)
+## Terminals without an accessibility tree
 
-Most surfaces have an accessibility tree to walk. Some don't: a terminal is a grid of character
-cells, and an immediate-mode GUI (ImGui, Clay) has only a per-frame widget tree. The rule for these:
-**derive the descriptor from the surface's own structural source, then hash it with the same FNV-1a
-primitive and 8-hex output.** The source differs by necessity, but the hash family is identical, so
-every signature lives in one comparable namespace. This is intentional and fully deterministic, not
-a fallback.
-
-- **ImGui / Clay:** the structural source is the widget tree the app already builds each frame
-  (window/child/group nesting, widget kinds, stable string ids). Normalize and serialize it like the
-  node descriptor (structure and ids, never the drawn text), then hash.
+Most surfaces have an accessibility tree to walk. A terminal instead exposes a grid of character
+cells. Reproit derives the descriptor from that structural source, then hashes it with the same
+FNV-1a primitive and 8-hex output. The source differs by necessity, but the hash family is
+identical, so every signature lives in one comparable namespace. This is intentional and fully
+deterministic, not a fallback.
 
 - **TUI (terminal):** the structural source is the **layout skeleton**, the part that survives
   translation. From the cell grid we keep what's stable across locales and erase what isn't:
@@ -277,10 +272,10 @@ text directly:
   section before hashing. So `0`, `1`, `12` become three distinct signatures (`ZERO`, `POS1`,
   `POS2`) while `3` and `7` (both `POS1`) collapse to one.
 
-Because the descriptor source isn't a node tree, TUI and ImGui/Clay signatures are **not** expected
-to match the a11y golden vectors in `signature_vectors.json`. The guarantee they share with every
-surface is narrower and exact: the same hash primitive and output format, a deterministic
-locale-invariant descriptor, and the identical `value_class` buckets. The TUI backend's own tests
+Because the descriptor source isn't a node tree, TUI signatures are **not** expected to match the
+a11y golden vectors in `signature_vectors.json`. The guarantee they share with every surface is
+narrower and exact: the same hash primitive and output format, a deterministic locale-invariant
+descriptor, and the identical `value_class` buckets. The TUI backend's own tests
 (`crates/reproit/src/adapters/tui/mod.rs`) pin that contract directly.
 
 ## Anchors

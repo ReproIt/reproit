@@ -135,7 +135,3 @@ automatic or an SDK transport hook is required.
 - Tauri: `tauri-plugin-reproit` installs its fetch and `XMLHttpRequest` transports through a
   document-start initialization script, before application HTML is parsed. Rust commands read the
   action clock and append validated redacted exchanges.
-- ImGui/Clay: both instrumentation headers include `reproit_causal.h`. After the application routes
-  its JSON HTTP transport through `ReproIt_Causal_Json` and calls `ReproIt_Causal_Enable`, capture
-  and replay use the same actor/action clock and fail-closed contract. Until enabled, the runner
-  continues to report HTTP as unsupported and cannot publish a network-dependent finding.

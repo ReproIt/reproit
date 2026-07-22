@@ -830,8 +830,7 @@ fn print_platforms() {
         "\n  All listed platform IDs are live. Local readiness still depends on `reproit doctor` \
          and host tooling.\n\n  The point: Qt/GTK/WinUI/Avalonia/wxWidgets share ONE backend per \
          OS\n(they publish to the OS accessibility API), Electron/Tauri reuse the\nweb backend, \
-         Appium covers native mobile, TUI uses a PTY, and only\nimmediate-mode GUIs (imgui, clay) \
-         need an in-app hook."
+         Appium covers native mobile, and TUI uses a PTY."
     );
 }
 fn journey_cmd(

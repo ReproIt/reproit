@@ -51,7 +51,6 @@ sdk/reproit-android/run_host_test.sh
 cargo test --manifest-path sdk/reproit-tui-rs/Cargo.toml
 cc -std=c11 -Wall -Wextra -Werror runners/test_causal.c -o /tmp/reproit-test-causal
 /tmp/reproit-test-causal
-
 dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj
 dotnet build sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj \
   -p:EnableWindowsTargeting=true

@@ -67,8 +67,7 @@ package_tree windows-sdk sdk/reproit-windows src/ReproIt.Core/ReproIt.Core.cspro
 package_tree linux-sdk sdk/reproit-linux pyproject.toml
 package_paths desktop-webview-sdk sdk/reproit-tauri/Cargo.toml \
   sdk/reproit-tauri sdk/reproit-web.js sdk/reproit-web.README.md
-package_paths native-ui-sdk runners/reproit_imgui.h \
-  runners/reproit_causal.h runners/reproit_clay.h runners/reproit_imgui.h
+package_paths causal-c-sdk runners/reproit_causal.h runners/reproit_causal.h
 package_paths tui-sdks sdk/reproit-tui-rs/Cargo.toml \
   sdk/reproit-tui-go sdk/reproit-tui-py sdk/reproit-tui-rs sdk/reproit-tui-ts
 

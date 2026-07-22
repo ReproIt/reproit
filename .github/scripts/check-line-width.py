@@ -43,9 +43,7 @@ CHECKED_SUFFIXES = {
 def is_generated_or_vendored(path: Path) -> bool:
     name = path.as_posix()
     return (
-        name.startswith("examples/imgui-headless/imgui/")
-        or name == "examples/clay-headless/clay.h"
-        or "/node_modules/" in f"/{name}"
+        "/node_modules/" in f"/{name}"
         or "/target/" in f"/{name}"
         or "/.reproit/" in f"/{name}"
         or "/artifacts/" in f"/{name}"

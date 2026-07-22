@@ -946,7 +946,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("{} failed to load: {e:#}", p.display()));
             count += 1;
         }
-        assert!(count >= 13, "expected >= 13 example configs, found {count}");
+        assert_eq!(count, 11, "expected 11 example configs");
     }
 
     // The desktop-toolkit example covers four platform ids in one file; verify

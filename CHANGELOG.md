@@ -4,6 +4,13 @@ All notable user-facing changes are recorded here. ReproIt follows semantic
 versioning for the stable CLI surface, saved repro contract, wire protocol, and
 versioned SDK source APIs documented in `docs/stability.md`.
 
+## Unreleased
+
+### Removed
+
+- Dear ImGui and Clay preview support, including the `imgui` and `clay` platform ids,
+  instrumentation headers, examples, native validation gate, and native UI SDK archive.
+
 ## 1.0.0 - 2026-07-22
 
 ### Added

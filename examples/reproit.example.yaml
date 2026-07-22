@@ -1,7 +1,7 @@
 # Repro It configuration, by example. Copy to <your-repo>/reproit.yaml and
 # adjust for your app. This file shows the flutter shape; per-platform
-# examples (web, rn, electron, tauri, swift-ios/macos, android, winui, imgui,
-# clay, tui, desktop toolkits) live in examples/configs/.
+# examples (web, rn, electron, tauri, swift-ios/macos, android, winui, tui,
+# desktop toolkits) live in examples/configs/.
 #
 # Environment interpolation works in ANY field of this file (not just
 # app.defines), using the familiar shell forms:

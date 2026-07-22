@@ -8,8 +8,7 @@
 //! wxWidgets and native AppKit are NOT six integrations: on a given OS they all
 //! publish to the same accessibility bus (AX / UI Automation / AT-SPI), so they
 //! share ONE backend. Electron and Tauri are web engines, so they share the web
-//! backend. Only immediate-mode GUIs (Dear ImGui, Clay), which have no retained
-//! widget tree and no a11y, need a different shape (an in-app hook).
+//! backend.
 
 /// How a platform's UI tree is introspected and driven. The runner differs per
 /// backend; everything downstream of the markers is shared.
@@ -30,11 +29,6 @@ pub enum Backend {
     DesktopUia,
     /// Native desktop read through Linux AT-SPI2.
     DesktopAtspi,
-    /// Immediate-mode GUIs (Dear ImGui, Clay) have no retained widget tree and
-    /// no OS a11y, so they cannot be introspected from outside. The app links a
-    /// tiny reproit hook that walks the frame's widget/ID stack and prints the
-    /// marker protocol. The only backend that needs app cooperation.
-    Instrumented,
     /// Terminal UIs (any CLI/TUI: vim, lazygit, k9s, Claude Code) driven in a
     /// pseudo-terminal. The "screen" is the VT cell grid parsed from the app's
     /// ANSI output; actions are keystrokes. Fully headless, no input hijack,
@@ -51,7 +45,6 @@ impl Backend {
             Backend::DesktopAx => "desktop-ax (macOS)",
             Backend::DesktopUia => "desktop-uia (Windows)",
             Backend::DesktopAtspi => "desktop-atspi (Linux)",
-            Backend::Instrumented => "instrumented (in-app hook)",
             Backend::Tui => "tui-pty (terminal)",
         }
     }
@@ -93,8 +86,7 @@ impl Backend {
     /// GLOBALLY (one ACT outstanding at a time), so no backend needs
     /// concurrent-input isolation: a desktop actor drives its OWN app instance
     /// and brings its own window forward before its one action; an Appium
-    /// actor is its own device session; an instrumented app polls between
-    /// frames. Where each client lives:
+    /// actor is its own device session. Where each client lives:
     ///   flutter          assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart
     ///   web/electron/tauri  runners/web/runner.mjs, runners/electron.mjs,
     ///                    runners/tauri.mjs
@@ -102,13 +94,9 @@ impl Backend {
     ///   desktop ax/uia/atspi  runners/macos-ax.swift, and the in-process Rust
     ///                    runners backends/uia/mod.rs (`reproit __uia`) +
     ///                    backends/atspi/mod.rs (`reproit __atspi`) (per-actor
-    /// app                    instance, bound by pid; window re-activated
-    /// per action)   instrumented     the scenario core in
-    /// reproit_imgui.h/reproit_clay.h                    (a dependency-free
-    /// blocking HTTP client over POSIX/                    Winsock sockets,
-    /// polled from FrameEnd)   tui              the actor loop in
-    /// backends/tui/mod.rs The wire contract is pinned per runner source by
-    /// tests/barrier_scenario.rs.
+    ///                    app instance, bound by pid; window re-activated per action)
+    ///   tui              the actor loop in backends/tui/mod.rs
+    /// The wire contract is pinned per runner source by tests/barrier_scenario.rs.
     pub fn speaks_barrier(self) -> bool {
         true
     }
@@ -184,16 +172,6 @@ const STATIC_PLATFORMS: &[(Backend, &str, &str)] = &[
         Backend::DesktopUia,
         "winui",
         "WinUI / WPF read through Windows UI Automation.",
-    ),
-    (
-        Backend::Instrumented,
-        "imgui",
-        "Dear ImGui: immediate-mode, no a11y; needs the in-app reproit hook.",
-    ),
-    (
-        Backend::Instrumented,
-        "clay",
-        "Clay: immediate-mode layout lib; needs the in-app reproit hook.",
     ),
     (
         Backend::Tui,
@@ -339,12 +317,6 @@ mod tests {
     }
 
     #[test]
-    fn immediate_mode_is_instrumented() {
-        assert_eq!(backend("imgui"), Some(Backend::Instrumented));
-        assert_eq!(backend("clay"), Some(Backend::Instrumented));
-    }
-
-    #[test]
     fn desktop_toolkits_resolve_to_one_os_backend() {
         // Qt and GTK collapse to the SAME backend on a given host: the point
         // of the taxonomy. Whatever this OS is, both agree.
@@ -374,6 +346,12 @@ mod tests {
     #[test]
     fn unknown_platform_is_none() {
         assert!(resolve("cobol-tui").is_none());
+    }
+
+    #[test]
+    fn removed_instrumented_platforms_are_rejected() {
+        assert!(resolve("imgui").is_none());
+        assert!(resolve("clay").is_none());
     }
 
     #[test]

@@ -55,8 +55,8 @@ correctly too.
 
 ## Supported platforms
 
-Reproit 1.0 releases the complete bug-to-regression workflow and checksummed SDK archives for every
-platform below. Release availability and compatibility maturity are separate: Chromium has closed
+Reproit 1.0 releases the complete bug-to-regression workflow and checksummed SDK archives for the
+platforms below. Release availability and compatibility maturity are separate: Chromium has closed
 its independent-application field gate, while the other released adapters remain outside the 1.x
 field-compatibility promise until their own published gates close. Every adapter fails closed and
 runs in the native release matrix.
@@ -73,7 +73,6 @@ runs in the native release matrix.
 | Terminal UIs                  | Released    | Preview       | PTY + VT parser                                                  |
 | Electron                      | Released    | Preview       | Chromium/CDP                                                     |
 | Tauri                         | Released    | Preview       | system WebKit webview through `tauri-driver`                     |
-| Dear ImGui / Clay             | Released    | Preview       | in-app instrumentation header                                    |
 
 `reproit platforms` prints the routing matrix. The exact native fixtures, commands, and pass
 contract are documented in [`validation/backends/README.md`](validation/backends/README.md);
@@ -148,7 +147,7 @@ Action capture and video evidence are separate concepts:
   tester's experience from before launch until they stop, and saves main-display video plus
   environment data without requiring an oracle or changing the original. `--attach` starts from
   an already-running app.
-  Instrumented SDKs can supply actions and state snapshots with `--actions-file`; unavailable
+  SDK integrations can supply actions and state snapshots with `--actions-file`; unavailable
   channels stay explicit. A replay or minimized repro is a separate derived artifact.
 - `create --cloud-tester` retains the SDK/Cloud workflow: it waits for a marked capture,
   clean-launch verifies it, and derives a minimized repro when verification succeeds.

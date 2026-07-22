@@ -23,8 +23,7 @@ allows them.
 The following remain available, but are outside the 1.x compatibility promise
 until their contracts have field evidence from at least two independent uses:
 
-- Firefox, WebKit, mobile, desktop, terminal, Electron, Tauri, and instrumented
-  native adapters;
+- Firefox, WebKit, mobile, desktop, terminal, Electron, and Tauri adapters;
 - specialist oracles selected explicitly with `--only`;
 - backend contract discovery;
 - `debug map` analysis and contract suggestions;

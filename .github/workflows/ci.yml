@@ -181,10 +181,6 @@ jobs:
       # runners/test_signature.py parity gate is obsolete and its coverage now
       # lives in crates/reproit/src/model/signature.rs::tests (golden vectors +
       # the value-state plumbing tests), run by the `rust` job above.
-      - name: ImGui + Clay C signature-core parity
-        run: |
-          clang -std=c11 -Wall -Wextra -o /tmp/test_signature runners/test_signature.c
-          /tmp/test_signature
       - name: Linux native SDK parity (pure-stdlib core, no GTK needed)
         run: |
           python3 sdk/reproit-linux/tests/test_parity.py

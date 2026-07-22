@@ -79,7 +79,6 @@ The same comparison runs on every platform; only the way graph 1 is gathered dif
 | Native (Qt, WPF, AppKit, GTK) | An in-process agent walks the real widget tree and joins it to its accessibility peer by object identity |
 | React Native                  | The JS handler tree vs the exported accessibility props                                                  |
 | Terminal UIs                  | Keyboard-vs-mouse operability walk over the screen grid                                                  |
-| Dear ImGui / Clay             | The per-frame widget list (accessibility is empty here by construction, so the whole surface is the gap) |
 
 ## Design notes
 
@@ -119,5 +118,5 @@ never the graph builder.
 Validated live on web against a real app (a `<div role=option tabindex=-1>` operable only through a
 delegated click handler): the probe found 5 pointer-only controls that a 60-press Tab traversal
 never reached, all confirmed deterministically. The engine contract and the web, Electron, Tauri,
-Flutter, native (Qt/WPF/AppKit/GTK), React Native, TUI, and ImGui/Clay emitters are in place, each
-validated on a real app for that platform or covered by engine contract tests.
+Flutter, native (Qt/WPF/AppKit/GTK), React Native, and TUI emitters are in place, each validated on
+a real app for that platform or covered by engine contract tests.

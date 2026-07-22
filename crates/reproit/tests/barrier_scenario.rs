@@ -266,8 +266,6 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
             "crates/reproit/src/adapters/atspi/mod.rs",
             "DesktopAtspi",
         ),
-        ("runners/reproit_imgui.h", "", "Instrumented (imgui)"),
-        ("runners/reproit_clay.h", "", "Instrumented (clay)"),
         (
             "crates/reproit/src/adapters/tui/mod.rs",
             "crates/reproit/src/adapters/tui/scenario.rs",

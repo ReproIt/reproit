@@ -194,20 +194,6 @@
       "requiredOutput": ["All tests passed"],
       "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
     },
-    "instrumented-native": {
-      "platforms": ["imgui", "clay"],
-      "backend": "instrumented",
-      "command": ["bash", "validation/backends/run-instrumented.sh"],
-      "fixture": "examples/imgui-headless and examples/clay-headless",
-      "targetOs": "linux",
-      "architectures": ["x86_64", "arm64"],
-      "tier": "change",
-      "timeoutSeconds": 900,
-      "resetStrategy": "fresh native fixture binaries and fixed fuzz inputs",
-      "cleanupStrategy": "temporary build directory removed by EXIT trap",
-      "requiredOutput": ["Dear ImGui instrumented runtime passed", "Clay instrumented runtime passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
-    },
     "tui-pty": {
       "platforms": ["tui"],
       "backend": "tui-pty",
@@ -233,8 +219,6 @@
     "android": ["compose-android"],
     "swift-macos": ["macos-ax"],
     "winui": ["windows-uia"],
-    "imgui": ["instrumented-native"],
-    "clay": ["instrumented-native"],
     "tui": ["tui-pty"],
     "qt": ["linux-atspi-toolkits"],
     "gtk": ["linux-atspi-gtk"],

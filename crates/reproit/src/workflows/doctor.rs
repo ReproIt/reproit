@@ -409,7 +409,6 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
                 platform::Backend::DesktopAx
                 | platform::Backend::DesktopUia
                 | platform::Backend::DesktopAtspi
-                | platform::Backend::Instrumented
                 | platform::Backend::Tui => {
                     let target = l.config.app.executable.as_deref().or_else(|| {
                         (!l.config.app.bundle_id.trim().is_empty())

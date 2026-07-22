@@ -15,8 +15,7 @@ confirmed when any required row reports `unsupported` or `unavailable`.
 | `android`                                    | dependency-free `ReproIt.causalHttp`            |     when used | fail-closed | 47 host tests plus native emulator capture/offline replay    |
 | `winui`                                      | `.NET` delegating handler                       |     when used | fail-closed | 19 tests plus native Windows x64 VM build and offline replay |
 | `gtk`, `qt` on Linux                         | process-wide Python `urllib`                    |           yes | fail-closed | Linux causal + 25-vector + GTK/Qt mapping tests              |
-| `qt`, `avalonia`, `wxwidgets` on other hosts | .NET, Swift, Python, or shared C host transport |     when used | fail-closed | matching host fixture plus capability gate                   |
-| `imgui`, `clay`                              | shared JSON HTTP C adapter                      |  when enabled | fail-closed | `runners/test_causal.c`, 25-vector C test                    |
+| `qt`, `avalonia`, `wxwidgets` on other hosts | .NET, Swift, Python, or shared C host transport |     when used | fail-closed | host fixture, capability gate, and `runners/test_causal.c`   |
 | `tui` TypeScript/Go/Python/Rust              | SDK transports                                  | SDK-dependent | fail-closed | language SDK causal tests                                    |
 
 ## Universal assertions

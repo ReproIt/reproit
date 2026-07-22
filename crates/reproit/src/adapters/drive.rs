@@ -456,16 +456,6 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             with_defines(&mut c);
             c
         }
-        // Immediate-mode: the app carries the reproit hook and prints markers
-        // itself, so we just launch the built executable and parse its stdout.
-        Backend::Instrumented => {
-            let mut c = Command::new(target_app(ctx)?);
-            if ctx.wants_video {
-                c.env("REPROIT_VIDEO_DIR", &video_dir);
-            }
-            with_defines(&mut c);
-            c
-        }
         // Terminal UI: re-invoke ourselves as the PTY driver (always available,
         // no external script). REPROIT_TUI_CMD is the terminal app to launch.
         Backend::Tui => {

@@ -39,9 +39,9 @@ pub fn suppresses_for(backend: Backend) -> bool {
         // can also surface an OS report on a desktop-attached device/simulator.
         Backend::Appium => true,
         // Web (CDP/WebDriver) and the Flutter headless tier have no OS crash
-        // dialog; the immediate-mode + terminal backends run in-process / in a
-        // PTY. None of these touch a system setting.
-        Backend::WebCdp | Backend::FlutterDrive | Backend::Instrumented | Backend::Tui => false,
+        // dialog; the terminal backend runs in a PTY. None of these touch a
+        // system setting.
+        Backend::WebCdp | Backend::FlutterDrive | Backend::Tui => false,
     }
 }
 
@@ -287,10 +287,9 @@ mod tests {
         assert!(suppresses_for(Backend::DesktopUia));
         assert!(suppresses_for(Backend::DesktopAtspi));
         assert!(suppresses_for(Backend::Appium));
-        // Web / Flutter-headless / in-process / terminal: never touched.
+        // Web / Flutter-headless / terminal: never touched.
         assert!(!suppresses_for(Backend::WebCdp));
         assert!(!suppresses_for(Backend::FlutterDrive));
-        assert!(!suppresses_for(Backend::Instrumented));
         assert!(!suppresses_for(Backend::Tui));
     }
 

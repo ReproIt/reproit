@@ -26,7 +26,6 @@ runners/web/node_modules/
 runners/web/.reproit-package-lock.sha256
 runners/rn/node_modules/
 .appium-home/
-examples/imgui-headless/demo
 .hegel/
 
 # Python caches (desktop runner parity tests)

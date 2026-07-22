@@ -13,8 +13,6 @@ const PLATFORMS: &[&str] = &[
     "android",
     "swift-macos",
     "winui",
-    "imgui",
-    "clay",
     "tui",
     "qt",
     "gtk",
@@ -98,8 +96,7 @@ fn config_for(platform: &str) -> String {
             ),
             common()
         ),
-        "electron" | "tauri" | "imgui" | "clay" | "tui" | "qt" | "gtk" | "avalonia"
-        | "wxwidgets" => format!(
+        "electron" | "tauri" | "tui" | "qt" | "gtk" | "avalonia" | "wxwidgets" => format!(
             concat!(
                 "app:\n  platform: {platform}\n",
                 "  executable: ./missing-smoke-target\n",
