@@ -10,10 +10,7 @@
 //   4. the background transform (paused -> resumed) reaches the app
 //   5. an app that lands on a different screen after restore            -> fires
 //   6. an app that returns to the same screen after restore             -> silent
-import 'dart:ui' show Size;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // PARITY COPY of the STRUCTURAL signal the oracles compare: the scaffold folds a

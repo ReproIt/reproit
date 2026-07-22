@@ -25,7 +25,7 @@ action) that you copy into your own repo.
 | `cloud-url` | no       | `https://cloud.reproit.com` | Cloud base URL.                                                                                            |
 | `journey`   | no       | `explore`                   | Explorer journey to drive.                                                                                 |
 | `runs`      | no       | `20`                        | Number of fuzz seeds to try.                                                                               |
-| `version`   | no       | `latest`                    | reproit release to install (e.g. `v0.1.88`), or `latest`.                                                  |
+| `version`   | no       | `latest`                    | reproit release to install (e.g. `v1.0.0`), or `latest`.                                                   |
 | `only`      | no       | (empty)                     | Restrict to these oracle categories (comma list: `crash,jank,leak,visual,divergence,a11y,graph`).          |
 | `no`        | no       | (empty)                     | Exclude these oracle categories (comma list). Applied after `only`.                                        |
 | `confirm-on-sim` | no   | `false`                     | Confirm a finding on the simulator tier. Needs a runner with a simulator (macOS).                         |

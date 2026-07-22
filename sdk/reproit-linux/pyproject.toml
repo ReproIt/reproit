@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reproit-linux"
-version = "0.1.0"
+version = "1.0.0"
 description = "ReproIt production telemetry SDK for native Linux GUI apps (GTK / Qt)."
 readme = "README.md"
 requires-python = ">=3.9"

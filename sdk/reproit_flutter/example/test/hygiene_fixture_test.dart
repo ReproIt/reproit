@@ -7,8 +7,10 @@
 //                fires one {key:"root", w, h} record.
 //   tofu       : a Text rendering U+FFFD fires reason "tofu"; clean text is
 //                silent.
+import 'dart:ui' show CheckedState, Tristate;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -44,17 +46,17 @@ String normalizeRole(String role) => kRoles.contains(role) ? role : 'node';
 
 // PARITY COPY of Flutter scaffold::roleOf.
 String roleOf(SemanticsData data) {
-  bool f(SemanticsFlag x) => data.hasFlag(x);
-  if (f(SemanticsFlag.isTextField)) return 'textfield';
-  if (f(SemanticsFlag.hasToggledState)) return 'switch';
-  if (f(SemanticsFlag.hasCheckedState)) {
-    return f(SemanticsFlag.isInMutuallyExclusiveGroup) ? 'radio' : 'checkbox';
+  final flags = data.flagsCollection;
+  if (flags.isTextField) return 'textfield';
+  if (flags.isToggled != Tristate.none) return 'switch';
+  if (flags.isChecked != CheckedState.none) {
+    return flags.isInMutuallyExclusiveGroup ? 'radio' : 'checkbox';
   }
-  if (f(SemanticsFlag.isSlider)) return 'slider';
-  if (f(SemanticsFlag.isHeader)) return 'header';
-  if (f(SemanticsFlag.isLink)) return 'link';
-  if (f(SemanticsFlag.isButton)) return 'button';
-  if (f(SemanticsFlag.isImage)) return 'image';
+  if (flags.isSlider) return 'slider';
+  if (flags.isHeader) return 'header';
+  if (flags.isLink) return 'link';
+  if (flags.isButton) return 'button';
+  if (flags.isImage) return 'image';
   if (data.hasAction(SemanticsAction.tap)) return 'button';
   return 'node';
 }
@@ -126,13 +128,22 @@ List<MapEntry<String, String>> collectKeyedTappables() {
   return out;
 }
 
+SemanticsNode? rootSemanticsNode(WidgetTester tester) {
+  for (final renderView in RendererBinding.instance.renderViews) {
+    if (renderView.flutterView.viewId == tester.view.viewId) {
+      return renderView.owner?.semanticsOwner?.rootSemanticsNode;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // PARITY COPIES of the detectors under test.
 // ---------------------------------------------------------------------------
 
 // PARITY COPY of Flutter scaffold::detectBlankScreen.
 List<Map<String, dynamic>> detectBlankScreen(WidgetTester t) {
-  final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+  final root = rootSemanticsNode(t);
   if (root == null) return const []; // semantics unavailable: never fire
   final size = t.view.physicalSize;
   if (size.width <= 0 || size.height <= 0) return const [];
@@ -140,14 +151,14 @@ List<Map<String, dynamic>> detectBlankScreen(WidgetTester t) {
   void walk(SemanticsNode node) {
     if (content) return;
     final data = node.getSemanticsData();
-    if (!data.hasFlag(SemanticsFlag.isHidden)) {
+    if (!data.flagsCollection.isHidden) {
       final named = data.label.trim().isNotEmpty ||
           data.value.trim().isNotEmpty ||
           data.tooltip.trim().isNotEmpty;
       if (named ||
           data.hasAction(SemanticsAction.tap) ||
-          data.hasFlag(SemanticsFlag.isTextField) ||
-          data.hasFlag(SemanticsFlag.isImage)) {
+          data.flagsCollection.isTextField ||
+          data.flagsCollection.isImage) {
         content = true;
         return;
       }
@@ -172,7 +183,7 @@ List<Map<String, dynamic>> detectBlankScreen(WidgetTester t) {
 
 // PARITY COPY of Flutter scaffold::detectTofu.
 List<Map<String, dynamic>> detectTofu(WidgetTester t) {
-  final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+  final root = rootSemanticsNode(t);
   if (root == null) return const [];
   final keyedIdsByRole = <String, List<String>>{};
   for (final kt in collectKeyedTappables()) {
@@ -183,7 +194,7 @@ List<Map<String, dynamic>> detectTofu(WidgetTester t) {
   final seen = <String>{};
   void walk(SemanticsNode node) {
     final data = node.getSemanticsData();
-    if (!data.hasFlag(SemanticsFlag.isHidden)) {
+    if (!data.flagsCollection.isHidden) {
       final role = roleOf(data);
       final idx = perRoleId[role] ?? 0;
       perRoleId[role] = idx + 1;

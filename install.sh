@@ -8,7 +8,7 @@
 #
 # Honors:
 #   REPROIT_BIN_DIR   where the `reproit` binary lands     (default ~/.local/bin)
-#   REPROIT_VERSION   tag to install, e.g. v0.1.2          (default: latest)
+#   REPROIT_VERSION   tag to install, e.g. v1.0.0          (default: latest)
 # Internal release gate:
 #   REPROIT_RELEASE_BASE          asset base URL instead of GitHub Releases
 #   REPROIT_SKIP_BROWSER_INSTALL  skip Playwright's browser download
@@ -32,20 +32,6 @@ fetch() {
     200) ;;
     404) die "$f_label not found (HTTP 404) at $f_url
        the release may not carry this asset; check https://github.com/$REPO/releases" ;;
-    *)   die "download failed for $f_label (HTTP $f_code) from $f_url" ;;
-  esac
-}
-
-# fetch_optional URL DEST LABEL: like fetch, but a 404 returns 1 instead of
-# dying (for .sha256 sidecars that older releases did not publish). Any other
-# failure is still fatal.
-fetch_optional() {
-  f_url=$1; f_dest=$2; f_label=$3
-  f_code="$(curl -sSL -o "$f_dest" -w '%{http_code}' "$f_url")" \
-    || die "network error downloading $f_label from $f_url"
-  case "$f_code" in
-    200) return 0 ;;
-    404) rm -f "$f_dest"; return 1 ;;
     *)   die "download failed for $f_label (HTTP $f_code) from $f_url" ;;
   esac
 }
@@ -118,6 +104,7 @@ case "$os" in
   Linux)
     case "$arch" in
       x86_64) target="x86_64-unknown-linux-gnu" ;;
+      arm64|aarch64) target="aarch64-unknown-linux-gnu" ;;
       *) die "unsupported Linux arch: $arch (try: cargo install reproit)" ;;
     esac
     install_linux_atspi ;;
@@ -161,25 +148,23 @@ fi
 bin_asset="reproit-$tag-$target.tar.gz"
 say "  downloading $bin_asset"
 fetch "$dl/$bin_asset" "$tmp/bin.tar.gz" "$bin_asset"
-if fetch_optional "$dl/$bin_asset.sha256" "$tmp/bin.tar.gz.sha256" "$bin_asset.sha256"; then
-  verify_sha256 "$tmp/bin.tar.gz" "$tmp/bin.tar.gz.sha256" "$bin_asset"
-else
-  say "  (no .sha256 published for $tag; skipping checksum verification)"
-fi
+fetch "$dl/$bin_asset.sha256" "$tmp/bin.tar.gz.sha256" "$bin_asset.sha256"
+verify_sha256 "$tmp/bin.tar.gz" "$tmp/bin.tar.gz.sha256" "$bin_asset"
 mkdir -p "$BIN_DIR"
 tar -xzf "$tmp/bin.tar.gz" -C "$BIN_DIR" || die "could not extract $bin_asset"
 chmod +x "$BIN_DIR/reproit"
+installed_version="$("$BIN_DIR/reproit" --version)" \
+  || die "installed binary could not report its version"
+[ "$installed_version" = "reproit ${tag#v}" ] \
+  || die "installed binary reported '$installed_version', expected 'reproit ${tag#v}'"
 say "  installed -> $BIN_DIR/reproit"
 
 # --- the web runner bundle (runner + node_modules), extracted flat -----------
 runner_asset="reproit-web-runner.tar.gz"
 say "  downloading web runner"
 fetch "$dl/$runner_asset" "$tmp/web.tar.gz" "$runner_asset"
-if fetch_optional "$dl/$runner_asset.sha256" "$tmp/web.tar.gz.sha256" "$runner_asset.sha256"; then
-  verify_sha256 "$tmp/web.tar.gz" "$tmp/web.tar.gz.sha256" "$runner_asset"
-else
-  say "  (no .sha256 published for $tag; skipping checksum verification)"
-fi
+fetch "$dl/$runner_asset.sha256" "$tmp/web.tar.gz.sha256" "$runner_asset.sha256"
+verify_sha256 "$tmp/web.tar.gz" "$tmp/web.tar.gz.sha256" "$runner_asset"
 mkdir -p "$web_dir"
 tar -xzf "$tmp/web.tar.gz" -C "$web_dir" || die "could not extract $runner_asset"
 say "  installed web runner -> $web_dir"

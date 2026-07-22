@@ -1,7 +1,7 @@
 name: reproit_flutter
 description: >-
   ReproIt telemetry for replaying Flutter UI paths as deterministic tests.
-version: 0.1.0
+version: 1.0.0
 homepage: https://reproit.com
 repository: https://github.com/ReproIt/reproit/tree/main/sdk/reproit_flutter
 issue_tracker: https://github.com/ReproIt/reproit/issues

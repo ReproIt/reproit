@@ -24,6 +24,6 @@ docker run --rm --platform linux/amd64 -v "$ROOT:/work" \
   sh -c 'go test ./...'
 docker run --rm --platform linux/amd64 -v "$ROOT:/work" \
   -w /work/sdk/reproit-tui-ts node:22-bookworm \
-  sh -c 'npm run test:all && npm run typecheck'
+  sh -c 'npm ci --ignore-scripts --no-audit --no-fund && npm run test:all && npm run typecheck'
 
 echo "native simulator and x86_64 Linux causal matrix passed"

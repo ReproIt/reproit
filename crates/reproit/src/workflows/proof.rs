@@ -5,7 +5,9 @@ use crate::domain::repro;
 use crate::interface::cli::context::Ctx;
 use crate::runtime::project_layout as layout;
 use anyhow::{Context, Result};
-use reproit_protocol::{EvidenceGraph, PromotionBlocker, PromotionStatus, ProofLedger, ReasonCode};
+use reproit_protocol::{
+    ArtifactKind, EvidenceGraph, PromotionBlocker, PromotionStatus, ProofLedger, ReasonCode,
+};
 use serde::Serialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -23,23 +25,47 @@ pub(super) fn show_proof(ctx: &Ctx, loaded: &config::Loaded, reference: &str) ->
         )
     })?;
     let capsule = load_capsule(loaded, reference)?;
+    let legacy = requires_reverification(&graph, &ledger);
     if ctx.json {
-        let next_evidence = additional_evidence(&ledger);
-        ctx.emit(&serde_json::json!({
+        let next_evidence = if legacy {
+            serde_json::json!([{
+                "blocker": "legacy-evidence-requires-reverification",
+                "action": "rerun the originating fuzz campaign with the current Reproit CLI",
+            }])
+        } else {
+            serde_json::to_value(additional_evidence(&ledger))?
+        };
+        let effective_promotion = if legacy {
+            "legacy".to_string()
+        } else {
+            serialized_name(&ledger.promotion)
+        };
+        let mut output = serde_json::json!({
             "command": "proof",
             "id": public_id,
             "runId": graph.run_id,
             "graphRoot": graph.root,
             "ledger": ledger,
             "nextEvidence": next_evidence,
-            "causalGraph": capsule.as_ref().map(|capsule| &capsule.causal_graph),
-            "environmentEnvelope": capsule
-                .as_ref()
-                .map(|capsule| &capsule.environment_envelope),
-        }));
+            "evidenceGeneration": if legacy { "legacy" } else { "current" },
+            "requiresReverification": legacy,
+            "effectivePromotion": effective_promotion,
+        });
+        if let Some(capsule) = &capsule {
+            let object = output.as_object_mut().expect("proof output is an object");
+            object.insert(
+                "causalGraph".into(),
+                serde_json::to_value(&capsule.causal_graph)?,
+            );
+            object.insert(
+                "environmentEnvelope".into(),
+                serde_json::to_value(&capsule.environment_envelope)?,
+            );
+        }
+        ctx.emit(&output);
         return Ok(());
     }
-    print_ledger(ctx, &public_id, &graph, &ledger);
+    print_ledger(ctx, &public_id, &graph, &ledger, legacy);
     if let Some(capsule) = capsule {
         print_capsule_proof(ctx, &capsule);
     }
@@ -153,7 +179,8 @@ pub(super) fn list_candidates(ctx: &Ctx, loaded: &config::Loaded) -> Result<()> 
         let Some(ledger) = graph.proof_ledger()? else {
             continue;
         };
-        if ledger.promotion != PromotionStatus::Candidate {
+        let legacy = requires_reverification(&graph, &ledger);
+        if ledger.promotion != PromotionStatus::Candidate && !legacy {
             continue;
         }
         let id = directory
@@ -161,17 +188,32 @@ pub(super) fn list_candidates(ctx: &Ctx, loaded: &config::Loaded) -> Result<()> 
             .and_then(|name| name.to_str())
             .map(repro::display_finding_id)
             .context("candidate directory has no valid UTF-8 identity")?;
-        candidates.push((id, graph, ledger));
+        candidates.push((id, graph, ledger, legacy));
     }
     if ctx.json {
         let candidates = candidates
             .into_iter()
-            .map(|(id, graph, ledger)| {
+            .map(|(id, graph, ledger, legacy)| {
+                let blockers = if legacy {
+                    serde_json::json!(["legacy-evidence-requires-reverification"])
+                } else {
+                    serde_json::to_value(&ledger.blockers).expect("blockers serialize")
+                };
+                let next_evidence = if legacy {
+                    serde_json::json!([{
+                        "blocker": "legacy-evidence-requires-reverification",
+                        "action": "rerun the originating fuzz campaign with the current Reproit CLI",
+                    }])
+                } else {
+                    serde_json::to_value(additional_evidence(&ledger))
+                        .expect("evidence requests serialize")
+                };
                 serde_json::json!({
                     "id": id,
                     "graphRoot": graph.root,
-                    "blockers": ledger.blockers,
-                    "nextEvidence": additional_evidence(&ledger),
+                    "blockers": blockers,
+                    "nextEvidence": next_evidence,
+                    "evidenceGeneration": if legacy { "legacy" } else { "current" },
                     "ledger": ledger,
                 })
             })
@@ -187,7 +229,14 @@ pub(super) fn list_candidates(ctx: &Ctx, loaded: &config::Loaded) -> Result<()> 
         return Ok(());
     }
     ctx.say(format!("candidate inbox ({} blocked)", candidates.len()));
-    for (id, _, ledger) in candidates {
+    for (id, _, ledger, legacy) in candidates {
+        if legacy {
+            ctx.say(format!(
+                "  {id}: legacy evidence requires clean reverification"
+            ));
+            ctx.say("    next: rerun the originating fuzz campaign with the current CLI");
+            continue;
+        }
         ctx.say(format!(
             "  {id}: {}",
             ledger
@@ -241,11 +290,21 @@ fn load_graph(path: &Path) -> Result<EvidenceGraph> {
     Ok(graph)
 }
 
-fn print_ledger(ctx: &Ctx, public_id: &str, graph: &EvidenceGraph, ledger: &ProofLedger) {
+fn print_ledger(
+    ctx: &Ctx,
+    public_id: &str,
+    graph: &EvidenceGraph,
+    ledger: &ProofLedger,
+    legacy: bool,
+) {
     ctx.say(format!("proof {public_id}"));
     ctx.say(format!(
         "  promotion: {}",
-        serialized_name(&ledger.promotion)
+        if legacy {
+            "legacy (clean reverification required)".to_string()
+        } else {
+            serialized_name(&ledger.promotion)
+        }
     ));
     let authority = ledger
         .authority
@@ -294,6 +353,21 @@ fn print_ledger(ctx: &Ctx, public_id: &str, graph: &EvidenceGraph, ledger: &Proo
         }
     }
     ctx.say(format!("  graph: {} ({})", graph.root, graph.run_id));
+}
+
+fn requires_reverification(graph: &EvidenceGraph, ledger: &ProofLedger) -> bool {
+    if ledger.promotion != PromotionStatus::Confirmed {
+        return false;
+    }
+    let has_causal_graph = graph
+        .nodes
+        .iter()
+        .any(|node| node.kind == ArtifactKind::CausalGraph);
+    let has_environment = graph
+        .nodes
+        .iter()
+        .any(|node| node.kind == ArtifactKind::EnvironmentEnvelope);
+    !has_causal_graph || !has_environment
 }
 
 #[derive(Serialize)]
@@ -396,5 +470,25 @@ mod tests {
         let requests = additional_evidence(&ledger);
         assert_eq!(requests[0].blocker, "no-violation");
         assert!(requests[0].action.contains("keep this result clean"));
+    }
+
+    #[test]
+    fn confirmed_graph_without_causal_and_environment_proof_is_legacy() {
+        let ledger = ProofLedger::from_stages(
+            vec!["fnd_legacy000001".into()],
+            vec![AuthoritySource::RuntimeDiagnosis],
+            EvaluationStatus::Violation,
+            vec![],
+            ConfirmationStatus::Reproduced,
+            true,
+            MinimizationStatus::Preserved,
+        )
+        .unwrap();
+        let graph = EvidenceGraph {
+            run_id: "run-legacy".into(),
+            root: "sha256:legacy".into(),
+            nodes: vec![],
+        };
+        assert!(requires_reverification(&graph, &ledger));
     }
 }

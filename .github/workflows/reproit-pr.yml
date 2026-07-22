@@ -98,7 +98,6 @@ jobs:
           ./target/release/reproit fuzz \
             --journey "${{ inputs.journey }}" \
             --runs "${{ inputs.runs }}" \
-            --shrink \
             --confirm-on-sim \
             --cloud "${{ inputs.cloud_url }}" \
             --app "${{ inputs.app }}" \

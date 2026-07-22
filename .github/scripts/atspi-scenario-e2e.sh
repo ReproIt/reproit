@@ -250,12 +250,19 @@ check("wire: acked order == script", observed["acked"] == expected,
 check("roles: a claimed", "JOURNEY claimed role=a" in a_log)
 check("roles: b env-pinned", "JOURNEY claimed role=b" in b_log)
 
-# 3. Each actor executed only its own actions, attributed to its role.
-check("attribution: a taps", len(re.findall(r"FUZZ:ACT a tap:Increment", a_log)) == 2)
-check("attribution: b tap", len(re.findall(r"FUZZ:ACT b tap:Increment", b_log)) == 1)
-check("attribution: b types", "FUZZ:ACT b type:msg=hello from b" in b_log)
+# 3. Each actor executed only its own actions, attributed in the canonical
+#    versioned runner contract.
+def action_marker(actor, action):
+    return ('"kind":"action","actor":"%s","action":"%s"'
+            % (actor, action))
+
+
+check("attribution: a taps", a_log.count(action_marker("a", "tap:Increment")) == 2)
+check("attribution: b tap", b_log.count(action_marker("b", "tap:Increment")) == 1)
+check("attribution: b types", action_marker("b", "type:msg=hello from b") in b_log)
 check("attribution: no cross-talk",
-      "FUZZ:ACT b" not in a_log and "FUZZ:ACT a" not in b_log)
+      '"kind":"action","actor":"b"' not in a_log
+      and '"kind":"action","actor":"a"' not in b_log)
 
 # 4. The EditableText write landed and ran the app's changed handler.
 check("type: echo asserted on b",

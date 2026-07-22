@@ -317,60 +317,115 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
     }
 
     let fuzz_summary = fuzz::fuzz(&loaded.config, &loaded.root, &args).await?;
-    // --json: surface the findings artifact (the discovered repro, by
-    // content-hash id, plus its seed/actions) so the agent/MCP bridge
-    // can keep it without re-parsing the human report.
+    // Surface the discovered artifact and every independently confirmed
+    // finding. Per-finding causes avoid inventing one aggregate cause for a run
+    // that found multiple bugs.
     if ctx.json {
-        let evidence_status = fuzz_summary.evidence.status(fuzz_summary.complete);
-        let confirmed = fuzz_summary.confirmed_findings > 0;
-        let cause = fuzz_summary.last_cause.map(|cause| cause.as_str());
-        let causal_http_request = fuzz_summary.last_cause.map(|cause| {
-            if matches!(
-                cause,
-                crate::domain::capsule::CauseCategory::HttpTransaction
-            ) {
-                "captured"
-            } else {
-                "not applicable"
-            }
-        });
-        match latest_finding(&loaded) {
-            Some(f) => ctx.emit(&serde_json::json!({
-                "command": "fuzz",
-                "complete": fuzz_summary.complete,
-                "seeds_run": fuzz_summary.seeds_run,
-                "seeds_requested": fuzz_summary.seeds_requested,
-                "found": true,
-                "confirmed": confirmed,
-                "confirmedFindings": fuzz_summary.confirmed_findings,
-                "cause": cause,
-                "causalHttpRequest": causal_http_request,
-                "minimized": confirmed,
-                "regressionSaved": confirmed,
-                "id": repro::display_finding_id(&f.id()),
-                "kind": "finding",
-                "seed": f.seed,
-                "actions": f.actions,
-                "artifact": f.run_dir.to_string_lossy(),
-                "evidenceStatus": evidence_status,
-                "evidence": fuzz_summary.evidence,
-            })),
-            None => ctx.emit(&serde_json::json!({
-                "command": "fuzz",
-                "complete": fuzz_summary.complete,
-                "seeds_run": fuzz_summary.seeds_run,
-                "seeds_requested": fuzz_summary.seeds_requested,
-                "found": false,
-                "confirmed": false,
-                "confirmedFindings": 0,
-                "evidenceStatus": evidence_status,
-                "evidence": fuzz_summary.evidence,
-            })),
-        }
+        ctx.emit(&fuzz_json(&fuzz_summary, latest_finding(&loaded).as_ref()));
     }
     Ok(if fuzz_summary.complete {
         ExitCode::SUCCESS
     } else {
         exit_with(Exit::Regression)
     })
+}
+
+fn fuzz_json(
+    summary: &fuzz::FuzzSummary,
+    latest: Option<&super::repro::Finding>,
+) -> serde_json::Value {
+    let findings = summary
+        .confirmed_findings
+        .iter()
+        .map(|finding| {
+            serde_json::json!({
+                "id": finding.id,
+                "cause": finding.cause.as_str(),
+                "causalHttpRequest": if matches!(
+                    finding.cause,
+                    crate::domain::capsule::CauseCategory::HttpTransaction
+                ) {
+                    "captured"
+                } else {
+                    "not applicable"
+                },
+                "actionCount": finding.action_count,
+                "minimized": true,
+                "findingArtifactSaved": true,
+                "regressionGuardKept": false,
+                "artifact": finding.artifact.to_string_lossy(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let evidence_status = summary.evidence.status(summary.complete);
+    let mut output = serde_json::json!({
+        "command": "fuzz",
+        "complete": summary.complete,
+        "seeds_run": summary.seeds_run,
+        "seeds_requested": summary.seeds_requested,
+        "found": latest.is_some(),
+        "confirmed": !findings.is_empty(),
+        "confirmedFindings": findings.len(),
+        "findings": findings,
+        "evidenceStatus": evidence_status,
+        "evidence": summary.evidence,
+    });
+    if let Some(finding) = latest {
+        let object = output.as_object_mut().expect("fuzz output is an object");
+        object.insert(
+            "id".into(),
+            serde_json::Value::String(repro::display_finding_id(&finding.id())),
+        );
+        object.insert("kind".into(), serde_json::Value::String("finding".into()));
+        object.insert("seed".into(), serde_json::Value::from(finding.seed));
+        object.insert(
+            "actions".into(),
+            serde_json::to_value(&finding.actions).expect("actions serialize"),
+        );
+        object.insert(
+            "artifact".into(),
+            serde_json::Value::String(finding.run_dir.to_string_lossy().into_owned()),
+        );
+        object.insert("findingArtifactSaved".into(), serde_json::Value::Bool(true));
+        object.insert("regressionGuardKept".into(), serde_json::Value::Bool(false));
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::capsule::CauseCategory;
+
+    #[test]
+    fn fuzz_json_keeps_cause_and_guard_state_per_finding() {
+        let summary = fuzz::FuzzSummary {
+            complete: true,
+            seeds_run: 2,
+            seeds_requested: 2,
+            confirmed_findings: vec![
+                fuzz::ConfirmedFinding {
+                    id: "fnd_launch000001".into(),
+                    cause: CauseCategory::ApplicationLaunch,
+                    action_count: 0,
+                    artifact: PathBuf::from(".reproit/findings/launch000001"),
+                },
+                fuzz::ConfirmedFinding {
+                    id: "fnd_http0000002".into(),
+                    cause: CauseCategory::HttpTransaction,
+                    action_count: 3,
+                    artifact: PathBuf::from(".reproit/findings/http0000002"),
+                },
+            ],
+            ..Default::default()
+        };
+        let output = fuzz_json(&summary, None);
+        assert_eq!(output["confirmedFindings"], 2);
+        assert_eq!(output["findings"][0]["cause"], "application launch");
+        assert_eq!(output["findings"][1]["cause"], "HTTP transaction");
+        assert_eq!(output["findings"][1]["causalHttpRequest"], "captured");
+        assert_eq!(output["findings"][0]["regressionGuardKept"], false);
+        assert!(output.get("cause").is_none());
+        assert!(output.get("regressionSaved").is_none());
+    }
 }

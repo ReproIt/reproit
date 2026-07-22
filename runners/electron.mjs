@@ -2621,7 +2621,11 @@ async function main() {
       : undefined,
   };
   if (launch.args) launchOpts.args = launch.args;
-  const { _electron: electron } = await import('playwright');
+  // The release and native-gate workflows install the shared browser runtime
+  // from runners/web/package-lock.json. Resolve from that package boundary so
+  // ESM lookup does not depend on an accidental runners/node_modules hoist.
+  const webRuntime = createRequire(new URL('./web/package.json', import.meta.url));
+  const { _electron: electron } = webRuntime('playwright');
   const app = await electron.launch(launchOpts);
   // Install causal routing on Electron's browser context BEFORE waiting for the
   // first window. This includes renderer bootstrap traffic; attaching to the

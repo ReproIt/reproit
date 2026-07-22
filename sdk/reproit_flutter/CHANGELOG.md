@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0
+
+- First stable release of the cross-platform event, structural identity, and causal capture
+  contract.
+
 ## 0.1.0
 
 - Capture structural Flutter state and action paths.

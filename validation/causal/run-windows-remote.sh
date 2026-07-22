@@ -17,6 +17,7 @@ POWERSHELL_COMMAND="$(cat <<EOF
 Remove-Item -Recurse -Force \$d -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path \$d | Out-Null
 tar -xzf (Join-Path \$HOME '$NAME') -C \$d
+Remove-Item (Join-Path \$HOME '$NAME') -Force
 & (Join-Path \$d 'validation/causal/run-windows.ps1')
 EOF
 )"

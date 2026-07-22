@@ -1275,7 +1275,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "llm"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1864,7 +1864,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reproit"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -1923,7 +1923,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-tui-sdk"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "reproit-tui-sig",
  "serde_json",
@@ -1931,7 +1931,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-tui-sig"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "reqwest"

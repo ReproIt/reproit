@@ -1,0 +1,12 @@
+app:
+  platform: tui
+  executable: python3 ${REPROIT_ROOT:?set repository root}/validation/release/tui-crash-fixture.py
+  runnerDir: ${REPROIT_ROOT:?set repository root}/runners
+devices:
+  namePrefix: ReleaseOutput
+journeys:
+  driver: ""
+  doneMarkers: ["All tests passed"]
+  timeoutSec: 20
+evidence:
+  outDir: .reproit/runs

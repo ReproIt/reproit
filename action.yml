@@ -54,7 +54,7 @@ inputs:
     required: false
     default: "20"
   version:
-    description: "reproit release to install (e.g. v0.1.88), or 'latest'."
+    description: "reproit release to install (e.g. v1.0.0), or 'latest'."
     required: false
     default: "latest"
   only:
@@ -115,7 +115,6 @@ runs:
         args=( fuzz "${{ inputs.app }}"
           --journey "${{ inputs.journey }}"
           --runs "${{ inputs.runs }}"
-          --shrink
           --cloud "${{ inputs.cloud-url }}"
           --bucket "${{ inputs.bucket }}"
           --post-comment )

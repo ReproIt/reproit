@@ -6,7 +6,7 @@ on:
       version:
         description: Version to release, with or without the v prefix
         required: true
-        default: 0.1.0
+        default: 1.0.0
       publish:
         description: Publish the validated artifacts as a GitHub release
         required: true
@@ -46,6 +46,7 @@ jobs:
             echo "requested $VERSION but crates/reproit/Cargo.toml contains $MANIFEST_VERSION" >&2
             exit 1
           }
+          sh validation/release/check-version-contract.sh "$VERSION"
           if [[ "$PUBLISH" == "true" ]]; then
             git rev-parse "$TAG" >/dev/null 2>&1 && {
               echo "$TAG already exists" >&2
@@ -67,15 +68,17 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-14
+          - os: macos-15-intel
             target: x86_64-apple-darwin
           # Build against an older glibc baseline so the archive runs on current
           # and still-supported Linux distributions, not only the newest image.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: windows-latest
+          - os: windows-11-arm
             target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
@@ -173,11 +176,20 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             shell: sh
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            shell: sh
           - os: macos-14
             target: aarch64-apple-darwin
             shell: sh
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            shell: sh
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            shell: pwsh
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
             shell: pwsh
     runs-on: ${{ matrix.os }}
     steps:
@@ -214,7 +226,8 @@ jobs:
           export REPROIT_BIN_DIR="$HOME/bin"
           mkdir -p "$HOME"
           sh install.sh
-          "$REPROIT_BIN_DIR/reproit" --version
+          test "$("$REPROIT_BIN_DIR/reproit" --version)" = \
+            "reproit ${REPROIT_VERSION#v}"
           "$REPROIT_BIN_DIR/reproit" --help | grep -q 'reproit scan'
           test -f "$HOME/.local/share/reproit/web/package.json" \
             || test -f "$HOME/Library/Application Support/reproit/web/package.json"
@@ -230,8 +243,11 @@ jobs:
           $env:REPROIT_BIN_DIR = Join-Path $env:RUNNER_TEMP 'reproit-bin'
           New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
           & ./install.ps1
-          & (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --version
-          $help = (& (Join-Path $env:REPROIT_BIN_DIR 'reproit.exe') --help) -join "`n"
+          $installed = Join-Path $env:REPROIT_BIN_DIR 'reproit.exe'
+          $version = (& $installed --version) -join "`n"
+          $expected = 'reproit ' + $env:REPROIT_VERSION.TrimStart('v')
+          if ($version.Trim() -ne $expected) { throw "installed $version, expected $expected" }
+          $help = (& $installed --help) -join "`n"
           if ($help -notmatch 'reproit scan') { throw 'installed CLI help is incomplete' }
           if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'reproit\web\package.json'))) {
             throw 'web runner bundle was not installed'
@@ -250,7 +266,7 @@ jobs:
         run: |
           set -euo pipefail
           find dist -maxdepth 1 -type f -printf '%f\n' | sort
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 14
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -262,3 +278,20 @@ jobs:
             --title "ReproIt ${TAG#v}" \
             --generate-notes \
             --latest
+      - name: Move the stable major Action tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "${TAG%%.*}" = "v1" || {
+            echo "refusing to move v1 for non-v1 release $TAG" >&2
+            exit 1
+          }
+          git init stable-tag
+          cd stable-tag
+          git remote add origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git tag -f v1 FETCH_HEAD
+          git push origin refs/tags/v1 --force

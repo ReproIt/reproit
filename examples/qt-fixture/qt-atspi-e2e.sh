@@ -82,7 +82,16 @@ ok(any("extra" not in (s.get("labels") or []) for s in states)
    and any("extra" in (s.get("labels") or []) for s in states),
    "hidden 'extra' panel absent pre-tap and present post-tap (structural toggle)")
 
-taps = [l for l in lines if l.startswith("FUZZ:ACT tap:")]
+actions = []
+for l in lines:
+    if l.startswith("REPROIT/1 contract") and " runner " in l:
+        try:
+            event = json.loads(l.split(" runner ", 1)[1])
+            if event.get("kind") == "action":
+                actions.append(event.get("action", ""))
+        except Exception:
+            pass
+taps = [action for action in actions if action.startswith("tap:")]
 misses = [l for l in lines if l.startswith("FUZZ:MISS ")]
 ok(len(taps) >= 1, "at least one tap attempted (%d attempted)" % len(taps))
 ok(len(taps) > len(misses),

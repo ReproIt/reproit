@@ -19,7 +19,7 @@
     <RootNamespace>ReproIt.Windows</RootNamespace>
     <Description>ReproIt production telemetry for native Windows (WPF + WinUI 3).</Description>
     <PackageId>ReproIt.Windows</PackageId>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <Authors>ReproIt, Inc.</Authors>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://reproit.com</PackageProjectUrl>

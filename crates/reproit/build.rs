@@ -1,25 +1,32 @@
-//! Stamp the version from the last RELEASE tag at compile time.
+//! Stamp an exact release version or an unmistakable source-build version.
 //!
-//! `CARGO_PKG_VERSION` alone is stuck at 0.1.0 and cannot tell builds apart, so
-//! `reproit --version` could not distinguish an old installed binary from a
-//! fresh build. We derive the version from `git describe`, which is the exact
-//! release tag on a release build (e.g. "0.1.1") and "<tag>-<n>-g<hash>" for a
-//! dev build n commits past the last release, plus "-dirty" for uncommitted
-//! changes. So the version bumps only when a new vX.Y.Z tag is cut (one per
-//! release), NOT on every commit, and an install/release shows a clean "0.1.1".
-//! Falls back to Cargo.toml's version with no git or no tag (a crates.io
-//! tarball).
+//! Release builds create the manifest's `vX.Y.Z` tag in their isolated checkout
+//! before compiling, so they report the plain manifest version. Untagged source
+//! builds include the current commit and dirty state. This prevents an old
+//! installed release and a fresh source build from both reporting the same
+//! version while a new release tag is still being prepared.
 
 use std::process::Command;
 
 fn main() {
-    let described = run(&["git", "describe", "--tags", "--dirty", "--always"])
-        .map(|d| d.trim_start_matches('v').to_string());
-    let version = match described {
-        // A real version contains dots ("0.1.1" / "0.1.1-3-gabc"); a bare hash
-        // (no tag reachable) does not, so fall back to the Cargo.toml version.
-        Some(v) if v.contains('.') => v,
-        _ => std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".into()),
+    let manifest = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
+    let release_tag = format!("v{manifest}");
+    let exact_tags = run(&["git", "tag", "--points-at", "HEAD"]);
+    let is_release = exact_tags
+        .as_deref()
+        .is_some_and(|tags| tags.lines().any(|tag| tag == release_tag));
+    let version = if is_release {
+        manifest
+    } else if let Some(commit) = run(&["git", "rev-parse", "--short=12", "HEAD"]) {
+        let dirty = run(&["git", "status", "--porcelain"]).is_some_and(|status| !status.is_empty());
+        format!(
+            "{}-dev+g{}{}",
+            manifest,
+            commit,
+            if dirty { ".dirty" } else { "" }
+        )
+    } else {
+        manifest
     };
 
     println!("cargo:rustc-env=REPROIT_VERSION={version}");
@@ -27,6 +34,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/index");
     println!("cargo:rerun-if-changed=../../.git/refs/tags");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=src");
 }
 
 /// Run a command, returning trimmed stdout, or None on failure / empty output.

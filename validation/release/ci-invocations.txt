@@ -1,0 +1,5 @@
+# Canonical CI command contracts. Keep one whitespace-delimited invocation per line.
+# Values are inert parser fixtures, not live endpoints or credentials.
+reproit fuzz https://example.invalid --journey explore --runs 20 --cloud https://cloud.example.invalid --bucket web-pr --post-comment
+reproit fuzz --journey explore --runs 20 --confirm-on-sim --cloud https://cloud.example.invalid --app app_example --bucket bkt_deadbeef0001 --post-comment
+reproit --json --yes check

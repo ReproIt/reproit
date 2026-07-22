@@ -186,8 +186,15 @@ pub struct FuzzSummary {
     pub seeds_run: u32,
     pub seeds_requested: u32,
     pub evidence: crate::domain::evidence::EvidenceCounts,
-    pub confirmed_findings: usize,
-    pub last_cause: Option<crate::domain::capsule::CauseCategory>,
+    pub confirmed_findings: Vec<ConfirmedFinding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfirmedFinding {
+    pub id: String,
+    pub cause: crate::domain::capsule::CauseCategory,
+    pub action_count: usize,
+    pub artifact: std::path::PathBuf,
 }
 
 pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<FuzzSummary> {
@@ -224,8 +231,7 @@ pub async fn fuzz(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result<FuzzSumm
         summary.seeds_run = summary.seeds_run.saturating_add(result.seeds_run);
         summary.signatures.extend(result.signatures.iter().cloned());
         summary.evidence.merge(&result.evidence);
-        summary.confirmed_findings += result.confirmed_findings;
-        summary.last_cause = result.last_cause.or(summary.last_cause);
+        merge_confirmed_findings(&mut summary.confirmed_findings, result.confirmed_findings);
         per_locale.push((locale.clone(), result.signatures));
     }
     // Cross-locale i18n report: a finding present in some but not all locales is
@@ -268,10 +274,17 @@ pub async fn fuzz_targeted(cfg: &Config, root: &Path, args: &FuzzArgs) -> Result
         all.seeds_run = all.seeds_run.saturating_add(result.seeds_run);
         all.signatures.extend(result.signatures);
         all.evidence.merge(&result.evidence);
-        all.confirmed_findings += result.confirmed_findings;
-        all.last_cause = result.last_cause.or(all.last_cause);
+        merge_confirmed_findings(&mut all.confirmed_findings, result.confirmed_findings);
     }
     Ok(all)
+}
+
+fn merge_confirmed_findings(target: &mut Vec<ConfirmedFinding>, source: Vec<ConfirmedFinding>) {
+    for finding in source {
+        if target.iter().all(|existing| existing.id != finding.id) {
+            target.push(finding);
+        }
+    }
 }
 
 /// Run the fuzz flow for a single locale (None = app default). Returns the set

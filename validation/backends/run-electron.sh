@@ -9,7 +9,7 @@ printf '{"budget":4}' > "$WORK/fuzz.json"
 
 # The fixture deliberately does not vendor Electron. Pin the runtime used by
 # this native gate while leaving product consumers free to use their own build.
-npm install --prefix "$WORK/app" --no-save --no-audit --no-fund electron@31
+npm install --prefix "$WORK/app" --no-save --no-audit --no-fund electron@31.7.7
 
 REPROIT_APP_DIR="$WORK/app" \
 REPROIT_FUZZ_CONFIG="$WORK/fuzz.json" \

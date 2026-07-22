@@ -7,6 +7,58 @@ fn clap_schema_is_internally_consistent() {
 }
 
 #[test]
+fn every_documented_ci_invocation_matches_the_current_parser() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let contracts = std::fs::read_to_string(root.join("validation/release/ci-invocations.txt"))
+        .expect("read documented CI invocations");
+    let mut parsed = 0usize;
+    for line in contracts.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let args = line.split_ascii_whitespace().collect::<Vec<_>>();
+        Cli::try_parse_from(&args)
+            .unwrap_or_else(|error| panic!("documented CI invocation failed: {line}\n{error}"));
+        parsed += 1;
+    }
+    assert_eq!(parsed, 3, "update the expected bounded invocation count");
+
+    let command = Cli::command();
+    let fuzz = command.find_subcommand("fuzz").expect("fuzz command");
+    let known_flags = fuzz
+        .get_arguments()
+        .filter_map(clap::Arg::get_long)
+        .collect::<std::collections::BTreeSet<_>>();
+    for relative in ["action.yml", ".github/workflows/reproit-pr.yml"] {
+        let document = std::fs::read_to_string(root.join(relative))
+            .unwrap_or_else(|error| panic!("read {relative}: {error}"));
+        let invocation = documented_fuzz_invocation(&document)
+            .unwrap_or_else(|| panic!("no fuzz invocation in {relative}"));
+        for token in invocation.split_ascii_whitespace() {
+            let Some(flag) = token.trim_end_matches(['\\', ')']).strip_prefix("--") else {
+                continue;
+            };
+            assert!(
+                known_flags.contains(flag),
+                "{relative} uses unknown fuzz flag --{flag}"
+            );
+        }
+    }
+}
+
+fn documented_fuzz_invocation(document: &str) -> Option<&str> {
+    let start = document
+        .find("args=( fuzz")
+        .or_else(|| document.find("./target/release/reproit fuzz"))?;
+    let tail = &document[start..];
+    let end = tail.find("\n        if ").or_else(|| tail.find("\n\n"));
+    Some(&tail[..end.unwrap_or(tail.len())])
+}
+
+#[test]
 fn changed_check_defaults_the_base_and_stays_suite_only() {
     let cli = Cli::parse_args(["reproit", "check", "--changed"]);
     assert!(matches!(

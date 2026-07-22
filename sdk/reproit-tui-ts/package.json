@@ -1,6 +1,6 @@
 {
   "name": "reproit-tui",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Production telemetry SDK for JS/TS terminal-UI apps (Ink, blessed, and other TUI frameworks): computes the canonical reproit TUI screen signature, tracks coverage edges, and reports sessions and crash signatures to the reproit cloud.",
   "license": "Apache-2.0",
   "type": "module",

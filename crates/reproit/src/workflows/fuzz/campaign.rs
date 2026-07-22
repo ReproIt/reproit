@@ -75,8 +75,7 @@ pub(super) async fn fuzz_one_locale(
     let mut seeds_run = 0u32;
     let mut complete = true;
     let mut evidence = crate::domain::evidence::EvidenceCounts::default();
-    let mut confirmed_findings = 0usize;
-    let mut last_cause = None;
+    let mut confirmed_findings = Vec::new();
     while done < args.runs {
         let this_batch = batch_size.min(args.runs - done);
         let guidance = batch_guidance(args, &map, &visits, &static_guidance);
@@ -601,8 +600,12 @@ pub(super) async fn fuzz_one_locale(
                     }))?,
                 )?;
                 promote_finding(root, provisional_id.as_deref(), &repro_id, &report_dir)?;
-                confirmed_findings += 1;
-                last_cause = Some(capsule.cause_category());
+                confirmed_findings.push(super::ConfirmedFinding {
+                    id: finding_id.clone(),
+                    cause: capsule.cause_category(),
+                    action_count: capsule.actions.len(),
+                    artifact: layout::finding_dir(root, &repro_id),
+                });
                 say(json, format!("  capsule: {capsule_id}"));
                 say(json, format!("  structural bug: {bug_id}"));
                 say(json, "  Finding confirmed: yes");
@@ -629,7 +632,12 @@ pub(super) async fn fuzz_one_locale(
                     ),
                 );
                 say(json, "  Finding minimized: yes");
-                say(json, "  Regression saved: yes");
+                say(json, "  Finding artifact saved: yes");
+                say(json, "  Regression guard kept: no");
+                say(
+                    json,
+                    format!("  Next: reproit keep {finding_id} --as <name>"),
+                );
             }
             // In --all the per-seed id is intermediate: the SAME bug reached by
             // different seeds yields different ids, so teaching check/keep here
@@ -810,7 +818,6 @@ pub(super) async fn fuzz_one_locale(
                     seeds_requested: args.runs,
                     evidence,
                     confirmed_findings,
-                    last_cause,
                 });
             }
         }
@@ -866,7 +873,6 @@ pub(super) async fn fuzz_one_locale(
             seeds_requested: args.runs,
             evidence,
             confirmed_findings,
-            last_cause,
         });
     }
     say(
@@ -894,6 +900,5 @@ pub(super) async fn fuzz_one_locale(
         seeds_requested: args.runs,
         evidence,
         confirmed_findings,
-        last_cause,
     })
 }

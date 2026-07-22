@@ -40,9 +40,10 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show CheckedState, Tristate;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // APP-SPECIFIC: import your app's root widget.
@@ -565,17 +566,17 @@ String signatureFrom(String? anchor, RNode root, Set<String>? excludeKeys) =>
 /// flags/actions only, NEVER from the (localized) label. A password is a
 /// `textfield` with `type=password` (a TYPE refinement, not a role).
 String roleOf(SemanticsData data) {
-  bool f(SemanticsFlag x) => data.hasFlag(x);
-  if (f(SemanticsFlag.isTextField)) return 'textfield';
-  if (f(SemanticsFlag.hasToggledState)) return 'switch';
-  if (f(SemanticsFlag.hasCheckedState)) {
-    return f(SemanticsFlag.isInMutuallyExclusiveGroup) ? 'radio' : 'checkbox';
+  final flags = data.flagsCollection;
+  if (flags.isTextField) return 'textfield';
+  if (flags.isToggled != Tristate.none) return 'switch';
+  if (flags.isChecked != CheckedState.none) {
+    return flags.isInMutuallyExclusiveGroup ? 'radio' : 'checkbox';
   }
-  if (f(SemanticsFlag.isSlider)) return 'slider';
-  if (f(SemanticsFlag.isHeader)) return 'header';
-  if (f(SemanticsFlag.isLink)) return 'link';
-  if (f(SemanticsFlag.isButton)) return 'button';
-  if (f(SemanticsFlag.isImage)) return 'image';
+  if (flags.isSlider) return 'slider';
+  if (flags.isHeader) return 'header';
+  if (flags.isLink) return 'link';
+  if (flags.isButton) return 'button';
+  if (flags.isImage) return 'image';
   if (data.hasAction(SemanticsAction.tap)) return 'button';
   return 'node';
 }
@@ -583,7 +584,7 @@ String roleOf(SemanticsData data) {
 /// The optional input-`type` refinement for a textfield node, from flags only.
 String? inputTypeOf(SemanticsData data, String role) {
   if (role != 'textfield') return null;
-  return data.hasFlag(SemanticsFlag.isObscured) ? 'password' : 'text';
+  return data.flagsCollection.isObscured ? 'password' : 'text';
 }
 
 /// The displayed VALUE of a value-bearing semantics node (Layer 2), or null.
@@ -592,9 +593,9 @@ String? inputTypeOf(SemanticsData data, String role) {
 /// `d.value` if set, else `d.label`, treated as a status value-role). Chrome
 /// roles return null so rule 1's chrome-text exclusion is preserved.
 String? valueOf(SemanticsData data) {
-  if (data.hasFlag(SemanticsFlag.isTextField)) return data.value;
-  if (data.hasFlag(SemanticsFlag.isSlider)) return data.value;
-  if (data.hasFlag(SemanticsFlag.isLiveRegion)) {
+  if (data.flagsCollection.isTextField) return data.value;
+  if (data.flagsCollection.isSlider) return data.value;
+  if (data.flagsCollection.isLiveRegion) {
     return data.value.trim().isNotEmpty ? data.value : data.label;
   }
   return null;
@@ -605,9 +606,8 @@ String? valueOf(SemanticsData data) {
 /// region (often `node`/`text`/`button`). A text field's role IS a value-role,
 /// so it needs no flag.
 bool valueNodeFlagOf(SemanticsData data) =>
-    !data.hasFlag(SemanticsFlag.isTextField) &&
-    (data.hasFlag(SemanticsFlag.isSlider) ||
-        data.hasFlag(SemanticsFlag.isLiveRegion));
+    !data.flagsCollection.isTextField &&
+    (data.flagsCollection.isSlider || data.flagsCollection.isLiveRegion);
 
 /// The screen anchor (route template / screen-level key). Captured from the top
 /// route's name; a ReproItScreen marker or screen-level Key would also feed here
@@ -760,6 +760,15 @@ List<MapEntry<String, String>> collectKeyedTappables() {
   return out;
 }
 
+SemanticsNode? rootSemanticsNode(WidgetTester tester) {
+  for (final renderView in RendererBinding.instance.renderViews) {
+    if (renderView.flutterView.viewId == tester.view.viewId) {
+      return renderView.owner?.semanticsOwner?.rootSemanticsNode;
+    }
+  }
+  return null;
+}
+
 /// Clip a label to the cap WITHOUT dropping its element. A label <= cap is
 /// returned unchanged (signatures stay byte-identical for short labels). A
 /// longer label is truncated to (cap - 9) code units + '#' + an 8-hex FNV-1a
@@ -887,12 +896,12 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
   // Build the CANONICAL node tree (roles + types + ids + values), wrapped in a
   // `screen` root. The same walk captures DISPLAY-ONLY labels, the tappables
   // list, and the Layer 1 content fingerprint parts.
-  final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+  final root = rootSemanticsNode(t);
   final rootChildren = <RNode>[];
   if (root != null) {
     RNode? build(SemanticsNode node) {
       final data = node.getSemanticsData();
-      if (data.hasFlag(SemanticsFlag.isHidden)) {
+      if (data.flagsCollection.isHidden) {
         final kids = <RNode>[];
         node.visitChildren((c) {
           final b = build(c);
@@ -940,7 +949,7 @@ Snapshot snapshotWith(WidgetTester t, Set<String> valueSelectors) {
             ]
           : null;
       final tappable = data.hasAction(SemanticsAction.tap) &&
-          !data.hasFlag(SemanticsFlag.isTextField);
+          !data.flagsCollection.isTextField;
       if (label.isNotEmpty) labels.add(clipLabel(label));
       if (label.isNotEmpty && bounds != null) {
         texts.add(ScreenText(clipLabel(label), bounds));
@@ -1289,11 +1298,11 @@ Map<String, dynamic> groundTruth(WidgetTester t, String sig) {
 
   // GRAPH 2: onstage semantics nodes as (id, global rect, role, named).
   final semNodes = <_SemRect>[];
-  final root = t.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+  final root = rootSemanticsNode(t);
   if (root != null) {
     void semWalk(SemanticsNode n) {
       final d = n.getSemanticsData();
-      if (!d.hasFlag(SemanticsFlag.isHidden)) {
+      if (!d.flagsCollection.isHidden) {
         final named = d.label.trim().isNotEmpty ||
             d.tooltip.trim().isNotEmpty ||
             d.value.trim().isNotEmpty;
@@ -1485,15 +1494,14 @@ void main() {
         // tap the idx-th via its semantics tap action. No text involved.
         var seen = -1;
         SemanticsNode? target;
-        final root =
-            tester.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+        final root = rootSemanticsNode(tester);
         if (root != null) {
           void walk(SemanticsNode n) {
             if (target != null) return;
             final d = n.getSemanticsData();
-            if (!d.hasFlag(SemanticsFlag.isHidden)) {
+            if (!d.flagsCollection.isHidden) {
               final tappable = d.hasAction(SemanticsAction.tap) &&
-                  !d.hasFlag(SemanticsFlag.isTextField);
+                  !d.flagsCollection.isTextField;
               if (tappable && roleOf(d) == role) {
                 seen++;
                 if (seen == idx) target = n;
@@ -1601,12 +1609,11 @@ void main() {
           hash < 0 ? finder.length : hash,
         );
         var c = 0;
-        final root =
-            tester.binding.pipelineOwner.semanticsOwner?.rootSemanticsNode;
+        final root = rootSemanticsNode(tester);
         if (root != null) {
           void walk(SemanticsNode n) {
             final d = n.getSemanticsData();
-            if (!d.hasFlag(SemanticsFlag.isHidden) && roleOf(d) == wantRole) {
+            if (!d.flagsCollection.isHidden && roleOf(d) == wantRole) {
               c++;
             }
             n.visitChildren((ch) {

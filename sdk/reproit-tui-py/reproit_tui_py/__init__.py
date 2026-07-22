@@ -42,4 +42,4 @@ __all__ = [
     "install_causal_urllib",
 ]
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

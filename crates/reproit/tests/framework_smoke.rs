@@ -176,6 +176,51 @@ fn scan_help_is_bounded() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn fuzz_command_reports_artifact_and_guard_state_without_aggregate_cause() {
+    let root = repo_root();
+    let dir = temp_dir("fuzz-output-contract");
+    let config = dir.join("reproit.yaml");
+    fs::copy(
+        root.join("validation/release/tui-output-contract.yaml"),
+        &config,
+    )
+    .unwrap();
+
+    let mut cmd = Command::new(reproit_bin());
+    cmd.env("REPROIT_ROOT", &root)
+        .arg("--config")
+        .arg(&config)
+        .arg("--json")
+        .arg("--yes")
+        .arg("fuzz")
+        .arg("--runs")
+        .arg("1")
+        .arg("--budget")
+        .arg("1")
+        .arg("--uniform");
+    let (timed_out, stdout, stderr, code) = run_with_timeout(cmd, Duration::from_secs(60));
+    assert!(
+        !timed_out,
+        "fuzz output contract timed out\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        code,
+        Some(0),
+        "fuzz output contract failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let output: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(output["confirmedFindings"], 1);
+    assert_eq!(output["findings"].as_array().map(Vec::len), Some(1));
+    assert_eq!(output["findings"][0]["findingArtifactSaved"], true);
+    assert_eq!(output["findings"][0]["regressionGuardKept"], false);
+    assert!(output.get("cause").is_none());
+    assert!(output.get("regressionSaved").is_none());
+    assert!(stderr.contains("Finding artifact saved: yes"), "{stderr}");
+    assert!(stderr.contains("Regression guard kept: no"), "{stderr}");
+}
+
 #[test]
 fn every_supported_platform_doctor_exits_before_timeout() {
     for platform in PLATFORMS {

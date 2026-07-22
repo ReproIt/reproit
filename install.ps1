@@ -7,7 +7,7 @@
 #
 # Honors:
 #   REPROIT_BIN_DIR   where reproit.exe lands   (default %LOCALAPPDATA%\Programs\reproit)
-#   REPROIT_VERSION   tag to install, e.g. v0.1.2   (default: latest)
+#   REPROIT_VERSION   tag to install, e.g. v1.0.0   (default: latest)
 # Internal release gate:
 #   REPROIT_RELEASE_BASE          asset base URL instead of GitHub Releases
 #   REPROIT_SKIP_BROWSER_INSTALL  skip Playwright's browser download
@@ -20,7 +20,16 @@ $protocol = [Net.ServicePointManager]::SecurityProtocol
     $protocol -bor [Net.SecurityProtocolType]::Tls12
 
 $Repo = 'ReproIt/reproit'
-$Target = 'x86_64-pc-windows-msvc'
+$Architecture = if ($env:PROCESSOR_ARCHITEW6432) {
+    $env:PROCESSOR_ARCHITEW6432
+} else {
+    $env:PROCESSOR_ARCHITECTURE
+}
+$Target = switch ($Architecture.ToUpperInvariant()) {
+    'AMD64' { 'x86_64-pc-windows-msvc' }
+    'ARM64' { 'aarch64-pc-windows-msvc' }
+    default { throw "unsupported Windows architecture: $Architecture" }
+}
 $BinDir = if ($env:REPROIT_BIN_DIR) {
     $env:REPROIT_BIN_DIR
 } else {
@@ -31,9 +40,8 @@ function Say([string]$Msg) { Write-Host $Msg }
 function Fail([string]$Msg) { Write-Host "error: $Msg" -ForegroundColor Red; exit 1 }
 
 # Download, failing loudly and distinguishing a missing release asset (HTTP 404)
-# from a network/server problem. Returns $false on a 404 when -Optional is set
-# (for .sha256 sidecars that older releases did not publish).
-function Fetch([string]$Url, [string]$Dest, [string]$Label, [switch]$Optional) {
+# from a network/server problem.
+function Fetch([string]$Url, [string]$Dest, [string]$Label) {
     try {
         Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing | Out-Null
         return $true
@@ -43,7 +51,6 @@ function Fetch([string]$Url, [string]$Dest, [string]$Label, [switch]$Optional) {
             try { $status = [int]$_.Exception.Response.StatusCode } catch { $status = $null }
         }
         if ($status -eq 404) {
-            if ($Optional) { Remove-Item -Path $Dest -ErrorAction SilentlyContinue; return $false }
             $message = "$Label not found (HTTP 404) at $Url`n"
             $message += "       the release may not carry this asset; "
             Fail ($message + "check https://github.com/$Repo/releases")
@@ -106,13 +113,16 @@ try {
     Say "  downloading $BinAsset"
     Fetch "$Dl/$BinAsset" $BinZip $BinAsset | Out-Null
     $BinSum = Join-Path $Tmp 'bin.zip.sha256'
-    if (Fetch "$Dl/$BinAsset.sha256" $BinSum "$BinAsset.sha256" -Optional) {
-        VerifySha256 $BinZip $BinSum $BinAsset
-    } else {
-        Say "  (no .sha256 published for $Tag; skipping checksum verification)"
-    }
+    Fetch "$Dl/$BinAsset.sha256" $BinSum "$BinAsset.sha256" | Out-Null
+    VerifySha256 $BinZip $BinSum $BinAsset
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
     Expand-Archive -Path $BinZip -DestinationPath $BinDir -Force
+    $Installed = Join-Path $BinDir 'reproit.exe'
+    $InstalledVersion = (& $Installed --version) -join "`n"
+    $ExpectedVersion = 'reproit ' + $Tag.TrimStart('v')
+    if ($InstalledVersion.Trim() -ne $ExpectedVersion) {
+        Fail "installed binary reported '$InstalledVersion', expected '$ExpectedVersion'"
+    }
     Say "  installed -> $(Join-Path $BinDir 'reproit.exe')"
 
     # --- the web runner bundle (runner + node_modules), extracted flat -------
@@ -126,11 +136,8 @@ try {
         Say '  downloading web runner'
         Fetch "$Dl/$RunnerAsset" $WebTar $RunnerAsset | Out-Null
         $WebSum = Join-Path $Tmp 'web.tar.gz.sha256'
-        if (Fetch "$Dl/$RunnerAsset.sha256" $WebSum "$RunnerAsset.sha256" -Optional) {
-            VerifySha256 $WebTar $WebSum $RunnerAsset
-        } else {
-            Say "  (no .sha256 published for $Tag; skipping checksum verification)"
-        }
+        Fetch "$Dl/$RunnerAsset.sha256" $WebSum "$RunnerAsset.sha256" | Out-Null
+        VerifySha256 $WebTar $WebSum $RunnerAsset
         New-Item -ItemType Directory -Path $WebDir -Force | Out-Null
         & $tar.Source -xzf $WebTar -C $WebDir
         if ($LASTEXITCODE -ne 0) { Fail 'could not extract reproit-web-runner.tar.gz' }
