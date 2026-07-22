@@ -148,6 +148,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run Flutter on a disposable simulator
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
