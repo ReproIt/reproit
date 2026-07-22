@@ -15,7 +15,7 @@
       "targetOs": "ios-simulator",
       "architectures": ["arm64"],
       "tier": "release",
-      "timeoutSeconds": 1800,
+      "timeoutSeconds": 900,
       "resetStrategy": "create and boot a disposable iPhone simulator plus a generated app",
       "cleanupStrategy": "delete the simulator and remove the temporary application directory",
       "requiredOutput": [
@@ -26,7 +26,7 @@
         "All tests passed",
         "iOS simulator cleanup: deleted "
       ],
-      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "macos-hosted"}
+      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "macos-flutter"}
     },
     "web-chromium": {
       "platforms": ["web"],
@@ -125,7 +125,7 @@
       "targetOs": "ios-simulator",
       "architectures": ["arm64"],
       "tier": "nightly",
-      "timeoutSeconds": 2700,
+      "timeoutSeconds": 900,
       "resetStrategy": "create and boot a disposable iPhone simulator, then install a fresh app",
       "cleanupStrategy": "delete the simulator and remove build and fuzz directories",
       "requiredOutput": [
@@ -136,7 +136,7 @@
         "All tests passed",
         "iOS simulator cleanup: deleted "
       ],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "macos-hosted"}
+      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "macos-swiftui"}
     },
     "macos-ax": {
       "platforms": ["swift-macos"],
@@ -146,11 +146,11 @@
       "targetOs": "macos",
       "architectures": ["arm64"],
       "tier": "release",
-      "timeoutSeconds": 1200,
+      "timeoutSeconds": 900,
       "resetStrategy": "fresh fixture build and bounded launch readiness",
       "cleanupStrategy": "fixture process terminated and temporary directory removed by EXIT trap",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "macos-hosted"}
+      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "macos-ax"}
     },
     "windows-uia": {
       "platforms": ["winui", "avalonia"],

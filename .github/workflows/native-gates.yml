@@ -22,7 +22,7 @@ permissions:
 jobs:
   linux-hosted:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -57,7 +57,7 @@ jobs:
 
   linux-containers:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - name: Run disposable Linux container gates
@@ -76,7 +76,7 @@ jobs:
 
   android-hosted:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -109,18 +109,15 @@ jobs:
           path: ${{ runner.temp }}/native-gates
           if-no-files-found: error
 
-  macos-hosted:
+  macos-swiftui:
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-      - name: Install native runner dependencies
+      - name: Install SwiftUI runner dependencies
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
@@ -130,22 +127,51 @@ jobs:
       - name: Run SwiftUI through Appium
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+        run: bash .github/scripts/run-swiftui-native-gate.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-macos-swiftui
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error
+
+  macos-flutter:
+    if: github.event_name == 'schedule' || inputs.run_flutter_ios
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install Rust
         run: |
-          appium --log-level warn --relaxed-security > appium-server.log 2>&1 &
-          python3 validation/backends/gate.py swiftui-ios
-      - name: Run Flutter on the booted simulator
-        if: github.event_name == 'schedule' || inputs.run_flutter_ios
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Run Flutter on a disposable simulator
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
         run: python3 validation/backends/gate.py flutter-ios
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-macos-flutter
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error
+
+  macos-ax:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_macos_ax
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
       - name: Run macOS AX with explicit permission
-        if: github.event_name == 'workflow_dispatch' && inputs.run_macos_ax
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
         run: python3 validation/backends/gate.py macos-ax
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: native-gates-macos
+          name: native-gates-macos-ax
           path: ${{ runner.temp }}/native-gates
           if-no-files-found: error

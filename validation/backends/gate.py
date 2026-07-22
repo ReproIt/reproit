@@ -12,6 +12,8 @@ import platform
 import signal
 import subprocess
 import sys
+import threading
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -54,12 +56,42 @@ def timestamp() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def bounded_output(stdout: bytes, stderr: bytes) -> bytes:
-    combined = stdout + (b"\n" if stdout and stderr else b"") + stderr
-    if len(combined) <= MAX_CAPTURE_BYTES:
-        return combined
-    marker = b"\n[reproit gate output truncated to final 16 MiB]\n"
-    return marker + combined[-(MAX_CAPTURE_BYTES - len(marker)) :]
+class BoundedCapture:
+    def __init__(self) -> None:
+        self.chunks: deque[bytes] = deque()
+        self.total_bytes = 0
+        self.captured_bytes = 0
+
+    def append(self, chunk: bytes) -> None:
+        self.total_bytes += len(chunk)
+        self.captured_bytes += len(chunk)
+        self.chunks.append(chunk)
+        while self.captured_bytes > MAX_CAPTURE_BYTES:
+            overflow = self.captured_bytes - MAX_CAPTURE_BYTES
+            first = self.chunks[0]
+            if len(first) <= overflow:
+                self.captured_bytes -= len(self.chunks.popleft())
+            else:
+                self.chunks[0] = first[overflow:]
+                self.captured_bytes -= overflow
+
+    def output(self) -> bytes:
+        combined = b"".join(self.chunks)
+        if self.total_bytes <= MAX_CAPTURE_BYTES:
+            return combined
+        marker = b"\n[reproit gate output truncated to final 16 MiB]\n"
+        return marker + combined[-(MAX_CAPTURE_BYTES - len(marker)) :]
+
+
+def stream_output(stream: Any, capture: BoundedCapture) -> None:
+    read_chunk = getattr(stream, "read1", stream.read)
+    while chunk := read_chunk(64 * 1024):
+        capture.append(chunk)
+        try:
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        except BrokenPipeError:
+            pass
 
 
 def stop_process_group(process: subprocess.Popen[bytes]) -> None:
@@ -76,21 +108,35 @@ def execute(command: list[str], timeout_seconds: int) -> tuple[str, int | None, 
         command,
         cwd=ROOT,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         start_new_session=os.name != "nt",
     )
+    assert process.stdout is not None
+    capture = BoundedCapture()
+    reader = threading.Thread(
+        target=stream_output,
+        args=(process.stdout, capture),
+        daemon=True,
+    )
+    reader.start()
     try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        process.wait(timeout=timeout_seconds)
         status = "passed" if process.returncode == 0 else "failed"
-        return status, process.returncode, bounded_output(stdout, stderr)
     except subprocess.TimeoutExpired:
         stop_process_group(process)
-        stdout, stderr = process.communicate()
-        return "timed-out", None, bounded_output(stdout, stderr)
+        process.wait()
+        status = "timed-out"
     except KeyboardInterrupt:
         stop_process_group(process)
-        process.communicate()
+        process.wait()
         raise
+    finally:
+        reader.join(timeout=10)
+        if reader.is_alive():
+            process.stdout.close()
+            reader.join(timeout=1)
+    exit_code = process.returncode if status != "timed-out" else None
+    return status, exit_code, capture.output()
 
 
 def validate_gate_fields(gate_id: str, gate: dict[str, Any]) -> tuple[list[str], int]:
@@ -180,9 +226,6 @@ def run(gate_id: str, architectures: list[str] | None, output_dir: Path) -> int:
         exit_code,
         output,
     )
-    sys.stdout.buffer.write(output)
-    if output and not output.endswith(b"\n"):
-        print()
     result = json.loads(result_path.read_text(encoding="utf-8"))
     print(f"native gate result: {result_path}")
     return 0 if result["status"] == "passed" else 1
