@@ -2,7 +2,7 @@
 # Live capture-diff for the APPKIT operability marker. Builds + runs the REAL
 # in-process AppKit agent (runners/native/appkit-agent/build-and-run.sh; it is
 # headless: the view tree is built and walked without entering the run loop or
-# touching the window server, so it works over SSH and on a macOS CI runner),
+# touching the window server, so it works on a macOS CI runner),
 # captures the EXPLORE:GROUNDTRUTH line it actually emits, and diffs it (sig
 # dropped) against tests/golden/operability/appkit.json via
 # canonicalize-diff.mjs. Non-zero exit on any drift.

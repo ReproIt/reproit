@@ -33,17 +33,8 @@ Use `REPROIT_SERVICES=node` where only Node is installed. Artifacts are written
 under `artifacts/<host>/` and intentionally ignored because they include host
 and toolchain-specific transport details.
 
-`run-host-matrix.sh` packages the exact working tree and runs macOS and two
-Linux hosts. Configure its destinations through environment variables:
-
-```sh
-REPROIT_ARM_HOST=user@arm-host \
-REPROIT_X86_HOST=user@x86-host \
-validation/backend/real-services/run-host-matrix.sh
-```
-
-The x86 destination is resolved from the ARM host, so the route also works
-when the x86 machine is not directly reachable from the initiating machine.
+Run the gate independently on each required architecture and retain each
+`artifacts/<host>/` directory as native evidence.
 
 Only the Node service is required on Windows. Run with
 `REPROIT_SERVICES=node` and report missing Node/Rust as host capability failures,

@@ -259,6 +259,5 @@ clean-state replay changes the result. The initial vertical slice does not poll 
 consistent services. A future observation-boundary contract can add that without weakening the
 current zero false-positive boundary.
 
-Run `./run.sh` on macOS. Run `./run-linux-docker.sh` for a clean Linux x86 gate. Run `run.ps1` in
-PowerShell on Windows. `run-windows-remote.sh` transfers the source gate through the configured lab
-hosts and runs it on native Windows.
+Run `./run.sh` on macOS. Run `./run-linux-docker.sh` for a clean Linux x86 gate. Run `run.ps1`
+directly in PowerShell on native Windows.

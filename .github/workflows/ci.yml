@@ -41,6 +41,10 @@ jobs:
         run: cargo build --workspace --locked
       - name: Test (incl. determinism replay)
         run: cargo test --workspace --locked
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
 
   # The Windows desktop runner (`reproit __uia`, cfg(windows)) only compiles on
   # a Windows host, so the ubuntu `rust` job above never touches uia.rs. Compile
@@ -88,6 +92,8 @@ jobs:
           node-version: "24"
       - name: Install deps
         run: npm ci
+      - name: Audit production runner dependencies
+        run: npm audit --omit=dev --audit-level=high
       - name: Install the Chromium the runner drives
         # The browser-backed tests (drawFindingBoxes, detectOverflow, the a11y/
         # trigger tagging) test the REAL runner behaviour, so CI installs the
@@ -189,6 +195,8 @@ jobs:
           node-version: "24"
       - name: Install deps
         run: npm ci
+      - name: Audit the published dependency surface
+        run: npm audit --omit=dev --omit=peer --audit-level=high
       - name: Parity + unit tests (jest)
         run: npm test
       - name: Build, typecheck, and validate the publish archive
@@ -346,6 +354,9 @@ jobs:
       - name: Install runner deps (webdriverio, pinned by the lockfile)
         working-directory: runners/rn
         run: npm ci
+      - name: Audit production runner dependencies
+        working-directory: runners/rn
+        run: npm audit --omit=dev --audit-level=high
       - name: Device-free runner tests (oracle reducers + conductor client)
         # Runs before the emulator boots: the oracle reducer tests are pure,
         # and scenario.test.mjs contract-tests the multi-actor conductor

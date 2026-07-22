@@ -49,8 +49,8 @@ namespace ReproIt.WpfAgent
             int exitCode = 0;
             // We deliberately drive our own Dispatcher rather than instantiating
             // System.Windows.Application: this lets the agent run as a console
-            // emitter over a non-interactive SSH session (no App message loop /
-            // no resource dictionaries needed). The visual tree, AutomationPeers
+            // emitter in a non-interactive process (no App message loop or
+            // resource dictionaries needed). The visual tree, AutomationPeers
             // and routed-event plumbing all work on a bare Dispatcher thread.
             var done = new ManualResetEventSlim(false);
             var dispatcher = Dispatcher.CurrentDispatcher;

@@ -71,10 +71,31 @@ curl -sf "$APPIUM_URL/status" > /dev/null || {
 )
 adb_device install -r "$ROOT/examples/compose-fixture/app/build/outputs/apk/debug/app-debug.apk"
 adb_device shell settings put global hide_error_dialogs 1 || true
+adb_device shell settings put global device_provisioned 1 || true
+adb_device shell settings put secure user_setup_complete 1 || true
+adb_device shell input keyevent KEYCODE_WAKEUP || true
+adb_device shell wm dismiss-keyguard || true
 adb_device shell setprop debug.reproit.capsule __reproit_none__ || true
 adb_device shell am force-stop com.reproit.composefixture
 adb_device shell input keyevent KEYCODE_HOME
-adb_device shell am start -W -n com.reproit.composefixture/.MainActivity
+adb_device shell am start -W -n com.reproit.composefixture/.MainActivity &
+launch_pid=$!
+launched=0
+for _ in $(seq 1 60); do
+  if ! kill -0 "$launch_pid" 2>/dev/null; then
+    if wait "$launch_pid"; then
+      launched=1
+    fi
+    break
+  fi
+  sleep 1
+done
+if [[ "$launched" != 1 ]]; then
+  kill "$launch_pid" 2>/dev/null || true
+  wait "$launch_pid" 2>/dev/null || true
+  echo "compose-appium-smoke: fixture launch did not finish within 60 seconds" >&2
+  exit 1
+fi
 sleep 3
 
 REPROIT_APPIUM_CAPS='{"platformName":"Android","appium:automationName":"UiAutomator2",'

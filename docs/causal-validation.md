@@ -38,6 +38,5 @@ adapter.
 
 `validation/causal/run-all.sh` is the repeatable local audit entry point. It fails on a missing tool
 instead of silently skipping a framework. `validation/causal/run-native.sh` adds real Android/iOS
-simulator capture and offline replay plus x86_64 Linux containers. Windows is validated by
-`run-windows-remote.sh`. Set `REPROIT_WINDOWS_HOST` to an OpenSSH alias configured outside the
-repository; SSH configuration owns its user, key, port, and any proxy routing.
+simulator capture and offline replay plus x86_64 Linux containers. Validate Windows by running
+`validation/causal/run-windows.ps1` directly in a native Windows checkout.

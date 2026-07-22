@@ -26,7 +26,7 @@
 //
 // Runs headless: it builds the view tree and runs the walk WITHOUT showing a
 // window (NSApp is created but never `run()` / `activateIgnoringOtherApps`), so
-// it works over SSH / in CI with no window server interaction. Build + run:
+// it works in CI with no window server interaction. Build + run:
 //   swiftc -O runners/native/appkit-agent/main.swift -o /tmp/appkit-agent \
 //     && /tmp/appkit-agent
 

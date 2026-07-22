@@ -45,4 +45,17 @@ require_literal sdk/reproit-windows/src/ReproIt.Core/ReproIt.Core.csproj \
 require_literal sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj \
   "    <Version>$version</Version>"
 
+require_literal sdk/reproit_flutter/README.md "      ref: v$version"
+require_literal sdk/reproit-linux/README.md \
+  "  'reproit-linux @ git+https://github.com/ReproIt/reproit.git@v$version#subdirectory=sdk/reproit-linux'"
+require_literal sdk/reproit-ios/README.md \
+  "git -C Vendor/reproit checkout v$version"
+for path in \
+  sdk/reproit-android/README.md \
+  sdk/reproit-react-native/README.md \
+  sdk/reproit-windows/README.md
+do
+  require_literal "$path" "git -C vendor/reproit checkout v$version"
+done
+
 printf 'release version contract: %s\n' "$version"

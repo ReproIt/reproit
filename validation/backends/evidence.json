@@ -155,16 +155,16 @@
     "windows-uia": {
       "platforms": ["winui", "avalonia"],
       "backend": "desktop-uia",
-      "command": ["bash", "validation/backends/run-windows-desktop-remote.sh"],
+      "command": ["powershell", "validation/backends/run-windows-desktop.ps1"],
       "fixture": "examples/wpf-fixture, examples/avalonia-fixture, examples/winui-fixture",
       "targetOs": "windows-x86_64-interactive",
       "architectures": ["x86_64"],
       "tier": "release",
       "timeoutSeconds": 2400,
-      "resetStrategy": "remote process cleanup, fresh extraction, and interactive scheduled task",
-      "cleanupStrategy": "remote fixture cleanup plus local archive removal",
-      "requiredOutput": ["remote Windows WPF/Avalonia/WinUI UIA matrix passed"],
-      "automation": {"mode": "manual-required", "blocker": "requires the private interactive Windows VM SSH chain"}
+      "resetStrategy": "fixture process cleanup, fresh builds, and an interactive Windows session",
+      "cleanupStrategy": "fixture process and temporary artifact cleanup",
+      "requiredOutput": ["Windows DesktopUia backend passed WPF, Avalonia, and WinUI"],
+      "automation": {"mode": "manual-required", "blocker": "requires a native interactive Windows runner"}
     },
     "linux-atspi-gtk": {
       "platforms": ["gtk"],

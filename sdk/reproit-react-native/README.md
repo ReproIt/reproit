@@ -16,6 +16,7 @@ Until the npm package is published, install the package directory from a public 
 
 ```sh
 git submodule add https://github.com/ReproIt/reproit vendor/reproit
+git -C vendor/reproit checkout v1.0.0
 npm install ./vendor/reproit/sdk/reproit-react-native
 ```
 
@@ -43,6 +44,7 @@ a confirmed bug.
 
 ```sh
 git submodule add https://github.com/ReproIt/reproit vendor/reproit
+git -C vendor/reproit checkout v1.0.0
 npm install ./vendor/reproit/sdk/reproit-react-native
 ```
 

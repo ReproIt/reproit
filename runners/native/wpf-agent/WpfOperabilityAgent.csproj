@@ -17,8 +17,8 @@
 
     net8.0-windows + UseWPF so System.Windows.* and the WPF AutomationPeers are
     available. WinExe is deliberately NOT used: this is a console-style emitter
-    that drives its own STA Dispatcher so it can run over a non-interactive SSH
-    session (or under an interactive scheduled task) and print the marker to
+    that drives its own STA Dispatcher so it can run in a non-interactive
+    process (or under an interactive scheduled task) and print the marker to
     stdout. ReproIt.Core is referenced only for the canonical FNV-1a signature,
     so the emitted `sig` is computed exactly like every other reproit SDK.
   -->

@@ -9,7 +9,4 @@ assertions.
 emulator and iPhone simulator, then proves live capture and offline replay inside both apps and runs
 the Linux transports in x86_64 Docker.
 
-`./validation/causal/run-windows-remote.sh` packages only the Windows SDK and gate, transfers it to
-the OpenSSH alias in `REPROIT_WINDOWS_HOST`, and executes the native PowerShell gate there. Keep
-usernames, keys, ports, and proxy routing in SSH configuration outside the repository.
-`run-windows.ps1` can also be invoked directly in an existing Windows checkout.
+Run `./validation/causal/run-windows.ps1` directly from an existing native Windows checkout.

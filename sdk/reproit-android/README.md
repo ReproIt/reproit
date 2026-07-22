@@ -17,6 +17,7 @@ Until the Maven package is published, use the Android library directly from the 
 
 ```sh
 git submodule add https://github.com/ReproIt/reproit vendor/reproit
+git -C vendor/reproit checkout v1.0.0
 ```
 
 ```kotlin
@@ -50,7 +51,7 @@ An explicit configuration runs in release builds. The no-argument `ReproIt.start
 debuggable-build convenience.
 
 The reserved Maven coordinate is `com.reproit:reproit-android`. Do not use it until it is published.
-The source checkout above is the supported 0.1 path.
+The immutable source checkout above is the supported 1.0 path.
 
 ## Exploratory testing
 

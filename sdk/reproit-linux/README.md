@@ -8,7 +8,7 @@ the Linux runner.
 
 ```sh
 pip install \
-  'reproit-linux @ git+https://github.com/ReproIt/reproit.git#subdirectory=sdk/reproit-linux'
+  'reproit-linux @ git+https://github.com/ReproIt/reproit.git@v1.0.0#subdirectory=sdk/reproit-linux'
 ```
 
 The live widget walk requires PyGObject and the applicable GTK, Qt, ATK, or AT-SPI runtime

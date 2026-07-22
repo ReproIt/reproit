@@ -3,7 +3,8 @@
 **Find a UI bug once, reproduce it forever.**
 
 [**reproit.com**](https://reproit.com) · [CLI guide](docs/cli.md) ·
-[production SDKs](sdk/README.md)
+[production SDKs](sdk/README.md) · [compatibility](docs/compatibility.md) ·
+[support](SUPPORT.md)
 
 ![reproit finds a bug and reproduces it every run](docs/demo.gif)
 

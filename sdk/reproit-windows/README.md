@@ -20,6 +20,7 @@ Until the NuGet package is published, add the Windows SDK project from a public 
 
 ```sh
 git submodule add https://github.com/ReproIt/reproit vendor/reproit
+git -C vendor/reproit checkout v1.0.0
 dotnet add reference vendor/reproit/sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj
 ```
 

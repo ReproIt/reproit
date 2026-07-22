@@ -113,6 +113,7 @@ def validate_gate_fields(gate_id: str, gate: dict[str, Any]) -> tuple[list[str],
 def write_result(
     gate_id: str,
     gate: dict[str, Any],
+    architectures: list[str],
     output_dir: Path,
     started_at: str,
     finished_at: str,
@@ -144,7 +145,7 @@ def write_result(
             "architecture": platform.machine().lower(),
         },
         "targetOs": gate["targetOs"],
-        "architectures": gate["architectures"],
+        "architectures": architectures,
         "fixture": gate["fixture"],
         "command": gate["command"],
         "status": status,
@@ -161,15 +162,17 @@ def write_result(
     return result_path
 
 
-def run(gate_id: str, output_dir: Path) -> int:
+def run(gate_id: str, architectures: list[str] | None, output_dir: Path) -> int:
     gate = load_gate(gate_id)
     command, timeout_seconds = validate_gate_fields(gate_id, gate)
+    recorded_architectures = architectures or gate["architectures"]
     started_at = timestamp()
     status, exit_code, output = execute(command, timeout_seconds)
     finished_at = timestamp()
     result_path = write_result(
         gate_id,
         gate,
+        recorded_architectures,
         output_dir,
         started_at,
         finished_at,
@@ -189,6 +192,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("gate_id")
     parser.add_argument(
+        "--architecture",
+        action="append",
+        dest="architectures",
+        help="target architecture exercised; repeat for a multi-architecture gate",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path(os.environ.get("REPROIT_GATE_OUTPUT_DIR", DEFAULT_OUTPUT_DIR)),
@@ -199,7 +208,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     arguments = parse_args()
     try:
-        return run(arguments.gate_id, arguments.output_dir.resolve())
+        architectures = arguments.architectures
+        if architectures is not None and (
+            len(architectures) > 8
+            or any(not value or len(value) > 32 for value in architectures)
+        ):
+            raise ValueError("architecture overrides must contain 1 to 8 short values")
+        return run(arguments.gate_id, architectures, arguments.output_dir.resolve())
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"native gate configuration error: {error}", file=sys.stderr)
         return 2

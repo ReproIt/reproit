@@ -12,8 +12,21 @@ on:
         required: true
         type: boolean
         default: false
+      windows_uia_commit:
+        description: Commit recorded by the private Windows UIA native gate
+        required: false
+        type: string
+      windows_uia_log_sha256:
+        description: SHA-256 from the passing private Windows UIA gate result
+        required: false
+        type: string
+      macos_ax_log_sha256:
+        description: SHA-256 from the passing permissioned macOS AX gate result
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -58,6 +71,40 @@ jobs:
             }
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Require successful CI and native evidence for publication
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          require_success() {
+            workflow=$1
+            run_id=$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=20" \
+                --jq '.workflow_runs | map(select(.conclusion == "success")) | first | .id // empty'
+            )
+            test -n "$run_id" || {
+              echo "no successful ${workflow} run exists for ${GITHUB_SHA}" >&2
+              exit 1
+            }
+            echo "${workflow}: successful run ${run_id}"
+          }
+          require_success ci.yml
+          require_success native-gates.yml
+          test "${{ inputs.windows_uia_commit }}" = "$GITHUB_SHA" || {
+            echo "Windows UIA evidence is not for ${GITHUB_SHA}" >&2
+            exit 1
+          }
+          for digest in \
+            "${{ inputs.windows_uia_log_sha256 }}" \
+            "${{ inputs.macos_ax_log_sha256 }}"
+          do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "native evidence digest is not a lowercase SHA-256: $digest" >&2
+              exit 1
+            }
+          done
 
   build:
     needs: validate
@@ -263,10 +310,21 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Verify the release payload
+        env:
+          WINDOWS_UIA_LOG_SHA256: ${{ inputs.windows_uia_log_sha256 }}
+          MACOS_AX_LOG_SHA256: ${{ inputs.macos_ax_log_sha256 }}
         run: |
           set -euo pipefail
+          cat > dist/reproit-native-evidence.json <<EOF
+          {
+            "schema": 1,
+            "commit": "${GITHUB_SHA}",
+            "windowsUiaLogSha256": "${WINDOWS_UIA_LOG_SHA256}",
+            "macosAxLogSha256": "${MACOS_AX_LOG_SHA256}"
+          }
+          EOF
           find dist -maxdepth 1 -type f -printf '%f\n' | sort
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 14
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 15
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

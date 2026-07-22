@@ -2,7 +2,7 @@
 # Live capture-diff for the WPF operability marker. Builds + runs the REAL
 # in-process WPF agent (runners/native/wpf-agent; it is a console-style emitter
 # that drives its own STA Dispatcher instead of a WPF Application, so it needs
-# no interactive window and runs on a Windows CI runner or over SSH), captures
+# no interactive window and runs on a Windows CI runner), captures
 # the EXPLORE:GROUNDTRUTH line it actually emits, and diffs it (sig dropped)
 # against tests/golden/operability/wpf.json via canonicalize-diff.mjs. Non-zero
 # exit on any drift.
