@@ -48,6 +48,11 @@ jobs:
           python3 validation/field/check-benchmark.py \
             validation/field/benchmark.json --allow-pending
           python3 -m unittest discover -s validation/field -p 'test_*.py'
+      - name: Package every platform SDK release archive
+        run: |
+          output="$RUNNER_TEMP/platform-sdks"
+          validation/release/package-platform-sdks.sh 1.0.0 "$output"
+          test "$(find "$output" -maxdepth 1 -type f | wc -l)" -eq 18
       - name: Audit Rust dependencies
         run: |
           cargo install cargo-audit --locked

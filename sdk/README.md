@@ -24,26 +24,27 @@ in the current directory. ReproIt never downloads your source.
 
 ## Choose your platform
 
-The stable 1.0 web SDK ships as checksummed JavaScript and npm-compatible
-artifacts on the matching GitHub release. Preview native SDKs remain available
-from the same immutable Git tag. Registry publication is not implied by a
-`1.0.0` package manifest.
+Every 1.0 platform SDK ships as a checksummed archive on the matching GitHub
+release. The web SDK also ships as JavaScript and an npm-compatible tarball.
+Native registry publication is separate from GitHub release availability and
+is not implied by a `1.0.0` package manifest.
 
 | Platform                      | Support | Guide                                              | Installation |
 | ----------------------------- | ------- | -------------------------------------------------- | ------------ |
-| Web                           | Stable  | [Web SDK](reproit-web.README.md)                   | Checksummed GitHub release asset |
-| Electron and Tauri frontend   | Preview | [Web SDK](reproit-web.README.md)                   | Same immutable web SDK asset |
-| iOS, iPadOS, macOS            | Preview | [Apple SDK](reproit-ios/README.md)                 | Swift package from a tagged checkout |
-| Android Views and Compose     | Preview | [Android SDK](reproit-android/README.md)           | Gradle project from a tagged checkout |
-| React Native                  | Preview | [React Native SDK](reproit-react-native/README.md) | npm file dependency from a tagged checkout |
-| Flutter                       | Preview | [Flutter SDK](reproit_flutter/README.md)           | pub git dependency with the SDK subdirectory |
-| Windows WPF and WinUI 3       | Preview | [Windows SDK](reproit-windows/README.md)           | .NET project reference from a tagged checkout |
-| Linux GTK and Qt              | Preview | [Linux SDK](reproit-linux/README.md)               | pip git dependency with the SDK subdirectory |
+| Web                           | Stable  | [Web SDK](reproit-web.README.md)                   | Checksummed JS and npm assets |
+| Electron and Tauri frontend   | Preview | [Web SDK](reproit-web.README.md)                   | Checksummed desktop-webview archive |
+| iOS, iPadOS, macOS            | Preview | [Apple SDK](reproit-ios/README.md)                 | Checksummed Swift package archive |
+| Android Views and Compose     | Preview | [Android SDK](reproit-android/README.md)           | Checksummed Gradle project archive |
+| React Native                  | Preview | [React Native SDK](reproit-react-native/README.md) | Checksummed npm-source archive |
+| Flutter                       | Preview | [Flutter SDK](reproit_flutter/README.md)           | Checksummed Flutter package archive |
+| Windows WPF and WinUI 3       | Preview | [Windows SDK](reproit-windows/README.md)           | Checksummed .NET project archive |
+| Linux GTK and Qt              | Preview | [Linux SDK](reproit-linux/README.md)               | Checksummed Python package archive |
 
-The web release job installs its generated tarball into a clean Node project
-and verifies the global API before publication. Package names reserved in the
-preview guides are not presented as registry installs until those packages
-exist and are release-smoked.
+The release job verifies every archive's package manifest and checksum. The web
+release job additionally installs its generated tarball into a clean Node
+project and verifies the global API before publication. Package names are not
+presented as registry installs until those registry packages exist and are
+release-smoked.
 
 ## Credentials
 
