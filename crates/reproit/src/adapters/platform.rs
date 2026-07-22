@@ -301,6 +301,27 @@ pub fn known_ids() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    fn workflow_invokes_gate(repo: &Path, workflow_text: &str, gate_id: &str) -> bool {
+        let invocation = format!("gate.py {gate_id}");
+        if workflow_text.contains(&invocation) {
+            return true;
+        }
+
+        workflow_text
+            .split_whitespace()
+            .map(|token| {
+                token.trim_matches(|character: char| {
+                    matches!(character, '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ':')
+                })
+            })
+            .filter(|token| token.starts_with(".github/scripts/") && token.ends_with(".sh"))
+            .any(|script| {
+                std::fs::read_to_string(repo.join(script))
+                    .is_ok_and(|script_text| script_text.contains(&invocation))
+            })
+    }
 
     #[test]
     fn registered_platforms_are_resolvable() {
@@ -504,8 +525,8 @@ mod tests {
                 "{gate_id} workflow does not define job {job}"
             );
             assert!(
-                workflow_text.contains(&format!("gate.py {gate_id}")),
-                "{gate_id} workflow job never invokes its gate"
+                workflow_invokes_gate(&repo, &workflow_text, gate_id),
+                "{gate_id} workflow or referenced script never invokes its gate"
             );
         }
     }
