@@ -2,7 +2,7 @@
 
 Reproit 1.x keeps the smallest complete bug-to-regression workflow stable.
 Compatibility applies to the documented flags, exit behavior, JSON fields, and
-persisted formats used by this surface:
+persisted formats used by this surface on the stable Chromium web target:
 
 - `init`, `doctor`, and `auth`;
 - `scan` and `fuzz` with the default authoritative oracle set;
@@ -23,6 +23,8 @@ allows them.
 The following remain available, but are outside the 1.x compatibility promise
 until their contracts have field evidence from at least two independent uses:
 
+- Firefox, WebKit, mobile, desktop, terminal, Electron, Tauri, and instrumented
+  native adapters;
 - specialist oracles selected explicitly with `--only`;
 - backend contract discovery;
 - `debug map` analysis and contract suggestions;

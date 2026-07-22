@@ -1,0 +1,20 @@
+{
+  "name": "@reproit/web",
+  "version": "1.0.0",
+  "description": "Privacy-preserving structural production capture for ReproIt web applications",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReproIt/reproit.git",
+    "directory": "sdk"
+  },
+  "main": "reproit-web.js",
+  "browser": "reproit-web.js",
+  "exports": "./reproit-web.js",
+  "sideEffects": true,
+  "files": [
+    "LICENSE",
+    "reproit-web.js",
+    "reproit-web.README.md"
+  ]
+}

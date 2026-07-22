@@ -24,25 +24,26 @@ in the current directory. ReproIt never downloads your source.
 
 ## Choose your platform
 
-The 1.0 release contract covers these source installation paths at the matching
-Git tag. Registry publication is not implied by a `1.0.0` package manifest.
-When a registry package is published, this table will name the registry,
-coordinate, and release-smoke evidence before showing that installation path.
+The stable 1.0 web SDK ships as checksummed JavaScript and npm-compatible
+artifacts on the matching GitHub release. Preview native SDKs remain available
+from the same immutable Git tag. Registry publication is not implied by a
+`1.0.0` package manifest.
 
-| Platform                      | Guide                                              | Supported installation before registry publication |
-| ----------------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| Web, Electron, Tauri frontend | [Web SDK](reproit-web.README.md)                   | Vendor one JavaScript file from this repository    |
-| iOS, iPadOS, macOS            | [Apple SDK](reproit-ios/README.md)                 | Swift package from a local checkout                |
-| Android Views and Compose     | [Android SDK](reproit-android/README.md)           | Gradle project from a local checkout               |
-| React Native                  | [React Native SDK](reproit-react-native/README.md) | npm file dependency from a local checkout          |
-| Flutter                       | [Flutter SDK](reproit_flutter/README.md)           | pub git dependency with the SDK subdirectory       |
-| Windows WPF and WinUI 3       | [Windows SDK](reproit-windows/README.md)           | .NET project reference from a local checkout       |
-| Linux GTK and Qt              | [Linux SDK](reproit-linux/README.md)               | pip git dependency with the SDK subdirectory       |
+| Platform                      | Support | Guide                                              | Installation |
+| ----------------------------- | ------- | -------------------------------------------------- | ------------ |
+| Web                           | Stable  | [Web SDK](reproit-web.README.md)                   | Checksummed GitHub release asset |
+| Electron and Tauri frontend   | Preview | [Web SDK](reproit-web.README.md)                   | Same immutable web SDK asset |
+| iOS, iPadOS, macOS            | Preview | [Apple SDK](reproit-ios/README.md)                 | Swift package from a tagged checkout |
+| Android Views and Compose     | Preview | [Android SDK](reproit-android/README.md)           | Gradle project from a tagged checkout |
+| React Native                  | Preview | [React Native SDK](reproit-react-native/README.md) | npm file dependency from a tagged checkout |
+| Flutter                       | Preview | [Flutter SDK](reproit_flutter/README.md)           | pub git dependency with the SDK subdirectory |
+| Windows WPF and WinUI 3       | Preview | [Windows SDK](reproit-windows/README.md)           | .NET project reference from a tagged checkout |
+| Linux GTK and Qt              | Preview | [Linux SDK](reproit-linux/README.md)               | pip git dependency with the SDK subdirectory |
 
-The package names reserved in the individual guides are not presented as
-registry installs until those packages exist and are release-smoked. Every
-command shown in the active quickstarts works against the public repository at
-the selected immutable release tag.
+The web release job installs its generated tarball into a clean Node project
+and verifies the global API before publication. Package names reserved in the
+preview guides are not presented as registry installs until those packages
+exist and are release-smoked.
 
 ## Credentials
 

@@ -1,35 +1,35 @@
 # ReproIt 1.x compatibility
 
-ReproIt uses three implementation support tiers:
+ReproIt uses three product support tiers:
 
-- Release-gated fixture: built, tested, and exercised against an owned native
-  fixture before a release can publish.
-- CI-gated: built and tested on every change, with native execution in the
-  dedicated native-gates workflow.
+- Stable: covered by the 1.x compatibility promise and release-gated against
+  owned fixtures plus the published independent-application field gate.
+- Preview: built, tested, and exercised against an owned native fixture, but
+  not covered by the 1.x field-compatibility promise.
 - Experimental: available for evaluation, but not covered by the 1.x stability
   promise.
 
 These tiers establish that Reproit's adapter works with a controlled application
 on the named runtime. They are not a claim that arbitrary third-party
-applications have been validated. Broad field compatibility requires clean
-evidence from at least two independent real applications per target. That field
-matrix is not complete for 1.0, so the 1.0 contract is the documented adapter
-and fixture behavior only.
+applications have been validated. Stable field compatibility requires clean
+evidence from at least two independent real applications per target. Chromium
+web is the focused 1.0 stable target. Every other adapter remains preview until
+its field gate closes without weakening its native fixture gate.
 
-| Target | 1.0 tier | Native fixture evidence | Field evidence |
+| Target | 1.0 support | Native fixture evidence | Field evidence |
 | --- | --- | --- | --- |
-| Web Chromium | release-gated fixture | Chromium gate and captured log | two-app matrix open |
-| Web Firefox and WebKit | nightly fixture | Playwright engine gates | two-app matrix open |
-| React Native Android | release-gated fixture | reset emulator, Appium, UiAutomator2 | two-app matrix open |
-| Jetpack Compose Android | nightly fixture | reset emulator, Appium, UiAutomator2 | two-app matrix open |
-| Flutter iOS | release-gated fixture | disposable simulator and Flutter drive | two-app matrix open |
-| SwiftUI iOS | nightly fixture | disposable simulator, Appium, XCUITest | two-app matrix open |
-| Windows desktop | release-gated fixture | native x86_64 UIA on WPF, Avalonia, WinUI 3 | two-app matrix open |
-| Linux desktop | nightly fixture | x86_64 containers with AT-SPI fixtures | two-app matrix open |
-| Terminal UI | change-gated fixture | real PTY and VT parser gate | clean reverification open |
-| Electron and Tauri | nightly fixture | packaged fixtures on Linux workers | two-app matrix open |
-| macOS AX | release-gated fixture | permissioned SwiftUI fixture and captured log | two-app matrix open |
-| Dear ImGui and Clay | CI-gated | instrumented native fixtures | two-app matrix open |
+| Web Chromium | stable | Chromium gate and captured log | required by release benchmark |
+| Web Firefox and WebKit | preview | Playwright engine gates | two-app matrix open |
+| React Native Android | preview | reset emulator, Appium, UiAutomator2 | two-app matrix open |
+| Jetpack Compose Android | preview | reset emulator, Appium, UiAutomator2 | two-app matrix open |
+| Flutter iOS | preview | disposable simulator and Flutter drive | two-app matrix open |
+| SwiftUI iOS | preview | disposable simulator, Appium, XCUITest | two-app matrix open |
+| Windows desktop | preview | native x86_64 UIA on WPF, Avalonia, WinUI 3 | two-app matrix open |
+| Linux desktop | preview | x86_64 containers with AT-SPI fixtures | two-app matrix open |
+| Terminal UI | preview | real PTY and VT parser gate | clean reverification open |
+| Electron and Tauri | preview | packaged fixtures on Linux workers | two-app matrix open |
+| macOS AX | preview | permissioned SwiftUI fixture and captured log | two-app matrix open |
+| Dear ImGui and Clay | preview | instrumented native fixtures | two-app matrix open |
 | Backend contract discovery | experimental | bounded opt-in fixtures only | not promised |
 | Experimental specialist oracles | experimental | explicit invocation only | not promised |
 

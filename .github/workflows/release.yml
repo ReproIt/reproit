@@ -49,6 +49,11 @@ jobs:
           }
           sh validation/release/check-version-contract.sh "$VERSION"
           if [[ "$PUBLISH" == "true" ]]; then
+            grep -Eq "^## ${VERSION} - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md || {
+              echo "CHANGELOG.md must date the ${VERSION} release before publication" >&2
+              exit 1
+            }
+            python3 validation/field/check-benchmark.py validation/field/benchmark.json
             git rev-parse "$TAG" >/dev/null 2>&1 && {
               echo "$TAG already exists" >&2
               exit 1
@@ -269,6 +274,44 @@ jobs:
             reproit-web-runner.tar.gz
             reproit-web-runner.tar.gz.sha256
 
+  web-sdk:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Package and smoke the immutable web SDK
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          JS_ASSET="reproit-web-${TAG}.js"
+          NPM_ASSET="reproit-web-${TAG}.tgz"
+          cp sdk/reproit-web.js "$JS_ASSET"
+          npm pack ./sdk --ignore-scripts --pack-destination . >/dev/null
+          mv "reproit-web-${VERSION}.tgz" "$NPM_ASSET"
+          sha256sum "$JS_ASSET" > "$JS_ASSET.sha256"
+          sha256sum "$NPM_ASSET" > "$NPM_ASSET.sha256"
+          test "$(wc -c < "$JS_ASSET")" -le 131072
+          test "$(wc -c < "$NPM_ASSET")" -le 131072
+          mkdir sdk-smoke
+          cd sdk-smoke
+          npm init --yes >/dev/null
+          npm install "../$NPM_ASSET" --ignore-scripts --no-audit --no-fund
+          node -e "const sdk = require('@reproit/web'); if (typeof sdk.init !== 'function') process.exit(1)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reproit-web-sdk
+          path: |
+            reproit-web-${{ needs.validate.outputs.tag }}.js
+            reproit-web-${{ needs.validate.outputs.tag }}.js.sha256
+            reproit-web-${{ needs.validate.outputs.tag }}.tgz
+            reproit-web-${{ needs.validate.outputs.tag }}.tgz.sha256
+          if-no-files-found: error
+
   production-loop:
     if: inputs.publish
     needs: validate
@@ -388,7 +431,8 @@ jobs:
 
   publish:
     if: inputs.publish
-    needs: [validate, build, web-runner, install-smoke, production-loop, native-evidence]
+    needs:
+      [validate, build, web-runner, web-sdk, install-smoke, production-loop, native-evidence]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -401,7 +445,7 @@ jobs:
           set -euo pipefail
           test -s dist/reproit-native-evidence.json
           find dist -maxdepth 1 -type f -printf '%f\n' | sort
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 15
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 19
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

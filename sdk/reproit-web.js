@@ -1,5 +1,5 @@
 /*!
- * reproit-web, production telemetry SDK (v0)
+ * reproit-web, production telemetry SDK (v1.0.0)
  *
  * Drop this into a production web app and it emits the SAME marker protocol the
  * ReproIt runner uses, but driven by REAL users instead of the fuzzer. Each

@@ -27,6 +27,7 @@ for path in \
   runners/package.json \
   runners/rn/package.json \
   runners/web/package.json \
+  sdk/package.json \
   sdk/reproit-react-native/package.json \
   sdk/reproit-tui-ts/package.json
 do
@@ -46,6 +47,12 @@ require_literal sdk/reproit-windows/src/ReproIt.Windows/ReproIt.Windows.csproj \
   "    <Version>$version</Version>"
 
 require_literal sdk/reproit_flutter/README.md "      ref: v$version"
+require_literal sdk/reproit-web.js \
+  " * reproit-web, production telemetry SDK (v$version)"
+require_literal sdk/reproit-web.README.md \
+  "  https://github.com/ReproIt/reproit/releases/download/v$version/reproit-web-v$version.js"
+require_literal sdk/reproit-web.README.md \
+  "  https://github.com/ReproIt/reproit/releases/download/v$version/reproit-web-v$version.tgz"
 require_literal sdk/reproit-linux/README.md \
   "  'reproit-linux @ git+https://github.com/ReproIt/reproit.git@v$version#subdirectory=sdk/reproit-linux'"
 require_literal sdk/reproit-ios/README.md \

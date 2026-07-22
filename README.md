@@ -55,22 +55,25 @@ correctly too.
 
 ## Supported platforms
 
-reproit uses the same workflow across web, mobile, desktop, terminal, and instrumented native UI.
-Each platform has a live backend, and the saved repros stay portable enough for local runs, CI, and
-production crash replay.
+Reproit 1.0 supports the complete bug-to-regression workflow for Chromium DOM applications. The
+same workflow is available through fixture-validated preview adapters for other browser engines,
+mobile, desktop, terminal, and instrumented native UI. Preview adapters fail closed and run in the
+native release matrix, but remain outside the 1.x field-compatibility promise until independent
+application evidence closes their published compatibility gate.
 
-| Platform                     | Backend                                                          |
-| ---------------------------- | ---------------------------------------------------------------- |
-| Web (DOM apps)               | Playwright Chromium, Firefox, and WebKit                         |
-| Flutter                      | flutter drive + VM service                                       |
-| React Native / native mobile | Appium                                                           |
-| macOS native                 | AX (validated with SwiftUI)                                      |
-| Windows native               | UI Automation (validated with WPF, Avalonia, WinUI 3)            |
-| Linux native                 | AT-SPI (validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets) |
-| Terminal UIs                 | PTY + VT parser                                                  |
-| Electron                     | Chromium/CDP                                                     |
-| Tauri                        | system WebKit webview through `tauri-driver`                     |
-| Dear ImGui / Clay            | in-app instrumentation header                                    |
+| Platform                     | 1.0 support | Backend                                                          |
+| ---------------------------- | ----------- | ---------------------------------------------------------------- |
+| Web (DOM apps), Chromium     | Stable      | Playwright Chromium                                              |
+| Web (DOM apps), other engines| Preview     | Playwright Firefox and WebKit                                    |
+| Flutter                      | Preview     | flutter drive + VM service                                       |
+| React Native / native mobile | Preview     | Appium                                                           |
+| macOS native                 | Preview     | AX (validated with SwiftUI)                                      |
+| Windows native               | Preview     | UI Automation (validated with WPF, Avalonia, WinUI 3)            |
+| Linux native                 | Preview     | AT-SPI (validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets) |
+| Terminal UIs                 | Preview     | PTY + VT parser                                                  |
+| Electron                     | Preview     | Chromium/CDP                                                     |
+| Tauri                        | Preview     | system WebKit webview through `tauri-driver`                     |
+| Dear ImGui / Clay            | Preview     | in-app instrumentation header                                    |
 
 `reproit platforms` prints the routing matrix. The exact native fixtures, commands, and pass
 contract are documented in [`validation/backends/README.md`](validation/backends/README.md);
