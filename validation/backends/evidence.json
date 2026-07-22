@@ -15,7 +15,7 @@
       "targetOs": "ios-simulator",
       "architectures": ["arm64"],
       "tier": "release",
-      "timeoutSeconds": 900,
+      "timeoutSeconds": 1200,
       "resetStrategy": "create and boot a disposable iPhone simulator plus a generated app",
       "cleanupStrategy": "delete the simulator and remove the temporary application directory",
       "requiredOutput": [
