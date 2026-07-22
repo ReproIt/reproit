@@ -24,7 +24,10 @@ checksum() {
 verify_member() {
   local asset=$1
   local member=$2
-  tar -tzf "$asset" | grep -Fqx "$member" || {
+  tar -tzf "$asset" | awk -v expected="$member" '
+    $0 == expected { found = 1 }
+    END { exit !found }
+  ' || {
     echo "release archive $asset is missing $member" >&2
     exit 1
   }
