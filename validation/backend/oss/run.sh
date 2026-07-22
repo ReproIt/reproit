@@ -29,30 +29,37 @@ wait_http() {
   return 1
 }
 
+PETSTORE_PORT="${REPROIT_OSS_PETSTORE_PORT:-18080}"
+if ! [[ "$PETSTORE_PORT" =~ ^[0-9]+$ ]] \
+  || ((PETSTORE_PORT < 1024 || PETSTORE_PORT > 65535)); then
+  echo "REPROIT_OSS_PETSTORE_PORT must be an integer from 1024 through 65535" >&2
+  exit 1
+fi
+PETSTORE_URL="http://127.0.0.1:$PETSTORE_PORT"
 PETSTORE_IMAGE='swaggerapi/petstore3@sha256:'
 PETSTORE_IMAGE+='7013040e865d642be5ddafd113116710acdb16addb0c4c59d29f0a6d68d2aa93'
 docker run --rm -d --platform linux/amd64 --name reproit-backend-oss-petstore \
-  -p 18080:8080 "$PETSTORE_IMAGE" >/dev/null
-wait_http http://127.0.0.1:18080/api/v3/openapi.json
-curl -fsS http://127.0.0.1:18080/api/v3/openapi.json -o "$REPROIT_OSS_TMP/petstore-openapi.json"
+  -p "127.0.0.1:$PETSTORE_PORT:8080" "$PETSTORE_IMAGE" >/dev/null
+wait_http "$PETSTORE_URL/api/v3/openapi.json"
+curl -fsS "$PETSTORE_URL/api/v3/openapi.json" -o "$REPROIT_OSS_TMP/petstore-openapi.json"
 curl -fsS -H 'content-type: application/json' \
   -d '{"id":987654321,"name":"Reproit dogfood","photoUrls":[]}' \
-  http://127.0.0.1:18080/api/v3/pet -o "$REPROIT_OSS_TMP/petstore-add.json"
+  "$PETSTORE_URL/api/v3/pet" -o "$REPROIT_OSS_TMP/petstore-add.json"
 curl -fsS -H 'content-type: application/x-www-form-urlencoded' \
   --data 'id=987654322&name=FormDog&photoUrls=https%3A%2F%2Fexample.test%2Fdog.png' \
-  http://127.0.0.1:18080/api/v3/pet -o "$REPROIT_OSS_TMP/petstore-form.json"
-curl -fsS http://127.0.0.1:18080/api/v3/pet/987654321 -o "$REPROIT_OSS_TMP/petstore-get.json"
-curl -fsS 'http://127.0.0.1:18080/api/v3/pet/findByStatus?status=available' \
+  "$PETSTORE_URL/api/v3/pet" -o "$REPROIT_OSS_TMP/petstore-form.json"
+curl -fsS "$PETSTORE_URL/api/v3/pet/987654321" -o "$REPROIT_OSS_TMP/petstore-get.json"
+curl -fsS "$PETSTORE_URL/api/v3/pet/findByStatus?status=available" \
   -o "$REPROIT_OSS_TMP/petstore-list.json"
-curl -fsS http://127.0.0.1:18080/api/v3/store/inventory \
+curl -fsS "$PETSTORE_URL/api/v3/store/inventory" \
   -o "$REPROIT_OSS_TMP/petstore-inventory.json"
 curl -fsS -D "$REPROIT_OSS_TMP/petstore-xml.headers" -H 'accept: application/xml' \
-  http://127.0.0.1:18080/api/v3/pet/987654321 -o "$REPROIT_OSS_TMP/petstore-get.xml"
+  "$PETSTORE_URL/api/v3/pet/987654321" -o "$REPROIT_OSS_TMP/petstore-get.xml"
 grep -qi '^content-type: application/xml' "$REPROIT_OSS_TMP/petstore-xml.headers"
 curl -fsS -X DELETE -H 'api_key: dogfood' \
-  http://127.0.0.1:18080/api/v3/pet/987654321 >/dev/null
+  "$PETSTORE_URL/api/v3/pet/987654321" >/dev/null
 curl -fsS -X DELETE -H 'api_key: dogfood' \
-  http://127.0.0.1:18080/api/v3/pet/987654322 >/dev/null
+  "$PETSTORE_URL/api/v3/pet/987654322" >/dev/null
 
 COUNTRIES="$WORK/countries"
 git clone -q https://github.com/trevorblades/countries.git "$COUNTRIES"
@@ -131,7 +138,7 @@ jq -e '.data.nullableNode == null' "$WORK/graphql-null.json" >/dev/null
 post_graphql http://127.0.0.1:18788/graphql 'query { explode }' "$WORK/graphql-error.json"
 jq -e '.data.explode == null and (.errors|length == 1)' "$WORK/graphql-error.json" >/dev/null
 REPROIT_BACKEND_URL=http://127.0.0.1:18788/graphql \
-  cargo run --quiet -p reproit -- --json scan \
+  cargo run --locked --quiet -p reproit -- --json scan \
   "$REPROIT_OSS_TMP/graphql-shapes-introspection.json" >"$WORK/graphql-headless-scan.json"
 jq -e '.complete == true and .exercised == 4 and (.findings | length) == 0' \
   "$WORK/graphql-headless-scan.json" >/dev/null
@@ -149,7 +156,7 @@ for _ in $(seq 1 90); do
 done
 (cd "$GRPC/examples" && go run "$ROOT/validation/backend/oss/grpc-dogfood.go")
 REPROIT_BACKEND_URL=http://127.0.0.1:50051 \
-  cargo run --quiet -p reproit -- --json fuzz \
+  cargo run --locked --quiet -p reproit -- --json fuzz \
   "$GRPC/examples/helloworld/helloworld/helloworld.proto" --runs 1 \
   >"$WORK/grpc-headless-fuzz.json"
 jq -e '.complete == true and .exercised == 1 and (.findings | length) == 0' \
@@ -158,5 +165,5 @@ echo "CLEAN grpc-go public headless fuzz operations=1"
 cp "$ROOT/validation/backend/oss/grpc-int64-descriptor.json" \
   "$REPROIT_OSS_TMP/grpc-int64-descriptor.json"
 
-cargo run --quiet --manifest-path "$ROOT/validation/backend/oss/Cargo.toml"
+cargo run --locked --quiet --manifest-path "$ROOT/validation/backend/oss/Cargo.toml"
 echo "OSS backend contract gate passed"

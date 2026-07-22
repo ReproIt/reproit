@@ -24,6 +24,14 @@ Requirements: Docker, Git, Node/npm, Go, Rust/Cargo, curl, and jq.
 ./validation/backend/oss/run.sh
 ```
 
+Petstore binds only to loopback on port 18080 by default. Use a validated alternate port when that
+port is already owned by another local service:
+
+```sh
+REPROIT_OSS_PETSTORE_PORT=28080 ./validation/backend/oss/run.sh
+```
+
 The service revisions and Docker digest are pinned in `run.sh`. Captured data is written to a
-temporary directory and removed on exit. This gate intentionally stays separate from the fast
-hermetic backend unit tests because it downloads and boots real third-party projects.
+temporary directory and removed on exit. Cargo runs with the checked-in nested lockfile and refuses
+dependency drift. This gate intentionally stays separate from the fast hermetic backend unit tests
+because it downloads and boots real third-party projects.
