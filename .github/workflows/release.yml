@@ -343,6 +343,8 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev clang
           npm ci --prefix runners/web
           npx --prefix runners/web playwright install --with-deps chromium
       - name: Build the release-candidate CLI
