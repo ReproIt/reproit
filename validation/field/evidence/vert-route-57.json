@@ -1,0 +1,20 @@
+{
+  "application": "VERT",
+  "issue": "https://github.com/VERT-sh/VERT/issues/57",
+  "chromium": "149.0.7827.55",
+  "affectedRevision": "53085ca9bc520e4cbdd18f38900a8af4c0d09e96",
+  "fixedRevision": "a8386ee3f1efc40c37828f780e75cb3a8df4b12b",
+  "identity": "route:/about:missing-text:Why VERT?",
+  "affected": [
+    {"run": 1, "cleanLaunch": true, "aboutContentPresent": false, "homeContentPresent": true, "exceptions": [], "jsHeapMiB": 55, "elapsedSeconds": 1.844},
+    {"run": 2, "cleanLaunch": true, "aboutContentPresent": false, "homeContentPresent": true, "exceptions": [], "jsHeapMiB": 55, "elapsedSeconds": 1.825},
+    {"run": 3, "cleanLaunch": true, "aboutContentPresent": false, "homeContentPresent": true, "exceptions": [], "jsHeapMiB": 55, "elapsedSeconds": 1.826}
+  ],
+  "fixed": [
+    {"run": 1, "cleanLaunch": true, "aboutContentPresent": true, "homeContentPresent": false, "exceptions": [], "jsHeapMiB": 58, "elapsedSeconds": 1.923},
+    {"run": 2, "cleanLaunch": true, "aboutContentPresent": true, "homeContentPresent": false, "exceptions": [], "jsHeapMiB": 58, "elapsedSeconds": 1.714},
+    {"run": 3, "cleanLaunch": true, "aboutContentPresent": true, "homeContentPresent": false, "exceptions": [], "jsHeapMiB": 58, "elapsedSeconds": 1.715}
+  ],
+  "neighboringLegalBehavior": "The root route rendered the expected home content at both revisions.",
+  "minimizedAction": "Open /about from a clean browser context."
+}

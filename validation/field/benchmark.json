@@ -1,6 +1,51 @@
 {
   "schemaVersion": 1,
   "target": "web-chromium",
-  "status": "pending",
-  "applications": []
+  "status": "complete",
+  "applications": [
+    {
+      "id": "vert-route-57",
+      "repository": "https://github.com/VERT-sh/VERT",
+      "issueUrl": "https://github.com/VERT-sh/VERT/issues/57",
+      "affectedRevision": "53085ca9bc520e4cbdd18f38900a8af4c0d09e96",
+      "fixedRevision": "a8386ee3f1efc40c37828f780e75cb3a8df4b12b",
+      "authority": "authored-contract",
+      "expectedIdentity": "route:/about:missing-text:Why VERT?",
+      "reproductions": [
+        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true},
+        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true},
+        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true}
+      ],
+      "minimized": true,
+      "controls": ["fixed-revision", "neighboring-legal-behavior"],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {"setupSeconds": 11, "replaySecondsP95": 1.844, "peakMemoryMiB": 58},
+      "evidence": [
+        "validation/field/evidence/vert-route-57.json",
+        "validation/field/evidence/vert-route-57.md"
+      ]
+    },
+    {
+      "id": "slidev-monaco-2297",
+      "repository": "https://github.com/slidevjs/slidev",
+      "issueUrl": "https://github.com/slidevjs/slidev/issues/2297",
+      "affectedRevision": "c87d474c5f5aed4533a1758e280988ac379cac0f",
+      "fixedRevision": "7d7aad8d2e0c3117227ed8e8840439723568c1ae",
+      "authority": "platform",
+      "expectedIdentity": "navigation:/15->/16:on-space-in-monaco",
+      "reproductions": [
+        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true},
+        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true},
+        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true}
+      ],
+      "minimized": true,
+      "controls": ["fixed-revision", "neighboring-legal-behavior"],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {"setupSeconds": 145, "replaySecondsP95": 8.094, "peakMemoryMiB": 142},
+      "evidence": [
+        "validation/field/evidence/slidev-monaco-2297.json",
+        "validation/field/evidence/slidev-monaco-2297.md"
+      ]
+    }
+  ]
 }

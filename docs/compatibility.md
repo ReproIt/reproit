@@ -12,13 +12,15 @@ ReproIt uses three product support tiers:
 These tiers establish that Reproit's adapter works with a controlled application
 on the named runtime. They are not a claim that arbitrary third-party
 applications have been validated. Stable field compatibility requires clean
-evidence from at least two independent real applications per target. Chromium
-web is the focused 1.0 stable target. Every other adapter remains preview until
-its field gate closes without weakening its native fixture gate.
+evidence from at least two independent real applications per target. Every
+target below is released in 1.0 as a checksummed artifact. Chromium web is the
+focused 1.0 stable compatibility target. Every other released adapter remains
+preview compatibility until its field gate closes without weakening its native
+fixture gate.
 
 | Target | 1.0 support | Native fixture evidence | Field evidence |
 | --- | --- | --- | --- |
-| Web Chromium | stable | Chromium gate and captured log | required by release benchmark |
+| Web Chromium | stable | Chromium gate and captured log | VERT and Slidev gate complete |
 | Web Firefox and WebKit | preview | Playwright engine gates | two-app matrix open |
 | React Native Android | preview | reset emulator, Appium, UiAutomator2 | two-app matrix open |
 | Jetpack Compose Android | preview | reset emulator, Appium, UiAutomator2 | two-app matrix open |

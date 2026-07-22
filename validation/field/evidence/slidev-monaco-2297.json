@@ -1,0 +1,20 @@
+{
+  "application": "Slidev",
+  "issue": "https://github.com/slidevjs/slidev/issues/2297",
+  "chromium": "149.0.7827.55",
+  "affectedRevision": "c87d474c5f5aed4533a1758e280988ac379cac0f",
+  "fixedRevision": "7d7aad8d2e0c3117227ed8e8840439723568c1ae",
+  "identity": "navigation:/15->/16:on-space-in-monaco",
+  "affected": [
+    {"run": 1, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/16", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 8.094},
+    {"run": 2, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/16", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 2.858},
+    {"run": 3, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/16", "exceptions": [], "jsHeapMiB": 142, "elapsedSeconds": 2.883}
+  ],
+  "fixed": [
+    {"run": 1, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/15", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 2.865},
+    {"run": 2, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/15", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 2.882},
+    {"run": 3, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/15", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 2.880}
+  ],
+  "neighboringLegalBehavior": "With BODY focused, Space advanced from /15 to /16 on all three fixed-revision attempts.",
+  "minimizedAction": "Focus the Monaco editor on slide 15 and press Space once."
+}
