@@ -31,6 +31,8 @@ mod types;
 use types::*;
 mod binding;
 use binding::ValueBank;
+mod round_trip;
+use round_trip::{probe_round_trips, record_create, CreateRecord};
 fn operation_rank(method: &str) -> u8 {
     match method {
         "POST" => 0,
@@ -213,6 +215,7 @@ async fn run_target_with_policy(
         );
     }
     let mut findings = Vec::new();
+    let mut creates: Vec<CreateRecord> = Vec::new();
     let mut candidates = Vec::new();
     let mut exercised = 0usize;
     let mut rejected = 0usize;
@@ -278,6 +281,18 @@ async fn run_target_with_policy(
             let clean = accepted && result.violations.is_empty();
             if clean {
                 values.harvest(&result.output);
+                if endpoint.method == "POST" {
+                    // Round-trip probes only ever touch resources this run
+                    // created itself; remember clean creates as candidates.
+                    record_create(
+                        &mut creates,
+                        CreateRecord {
+                            endpoint: endpoint.clone(),
+                            request: request.clone(),
+                            output: result.output.clone(),
+                        },
+                    );
+                }
             }
             for violation in result.violations {
                 let finding = backend::finding(&violation);
@@ -364,6 +379,16 @@ async fn run_target_with_policy(
         skipped.extend(lifecycle.skipped);
         exercised += lifecycle.exercised;
         rejected += lifecycle.rejected;
+    }
+    if fuzzing && !creates.is_empty() {
+        // DATA-LOSS round-trip probes: schema-inferred (GET, PATCH) pairs on
+        // resources this run created. See round_trip.rs.
+        let round = probe_round_trips(&client, &ordered, &base_url, seed, &creates).await?;
+        findings.extend(round.findings);
+        candidates.extend(round.candidates);
+        skipped.extend(round.skipped);
+        exercised += round.exercised;
+        rejected += round.rejected;
     }
 
     let findings = shrink_findings(&client, &base_url, findings).await?;

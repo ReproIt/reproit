@@ -1,5 +1,6 @@
 use super::*;
 
+mod data_loss;
 mod effects;
 mod invariants;
 mod lifecycle;
