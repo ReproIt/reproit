@@ -216,3 +216,107 @@ pub(super) fn evaluate_data_loss(
         }
     }
 }
+
+/// The id set of a list output: a top-level array (or `{data: [...]}`) whose
+/// members are objects each carrying a scalar `id`. Anything else abstains.
+fn list_ids(output: &Value) -> Option<Vec<Value>> {
+    let items = output
+        .as_array()
+        .or_else(|| output.get("data").and_then(Value::as_array))?;
+    let mut ids = Vec::with_capacity(items.len());
+    for item in items {
+        let id = item.get("id")?;
+        if !matches!(id, Value::String(_) | Value::Number(_)) {
+            return None;
+        }
+        ids.push(id.clone());
+    }
+    Some(ids)
+}
+
+/// COLLECTION NO-SHRINK: on a list-read quad (list, list, one mutation, list)
+/// where both baselines agree on the id set, an id the mutation NEVER
+/// REFERENCED vanishing from the collection is sibling deletion (the Insomnia
+/// class). Guards: a cascade delete's own target is referenced by the
+/// mutation input, so it abstains; a changing baseline (external activity,
+/// pagination churn) abstains; and the reason carries no ids and no counts,
+/// so the fingerprint is stable across replays with different neighbors.
+pub(super) fn evaluate_no_shrink(
+    contracts: &BTreeMap<&str, &OperationContract>,
+    events: &[BackendEvent],
+    violations: &mut Vec<BackendViolation>,
+) {
+    let invs = invocations(events);
+    let read_only = |inv: &Invocation| -> bool {
+        contracts
+            .get(inv.operation)
+            .is_some_and(|contract| contract.read_only)
+    };
+    for m in 0..invs.len() {
+        let mutation = &invs[m];
+        if read_only(mutation) || !mutation.success || !mutation.input.is_object() {
+            continue;
+        }
+        let Some(rb) = (0..m)
+            .rev()
+            .find(|&i| invs[i].success && read_only(&invs[i]))
+        else {
+            continue;
+        };
+        if (rb + 1..m).any(|i| !read_only(&invs[i])) {
+            continue;
+        }
+        let Some(ra) = (0..rb).rev().find(|&i| {
+            invs[i].success
+                && invs[i].operation == invs[rb].operation
+                && invs[i].input == invs[rb].input
+        }) else {
+            continue;
+        };
+        if (ra + 1..rb).any(|i| !read_only(&invs[i])) {
+            continue;
+        }
+        let Some(rc) = (m + 1..invs.len()).find(|&i| {
+            invs[i].success
+                && invs[i].operation == invs[rb].operation
+                && invs[i].input == invs[rb].input
+        }) else {
+            continue;
+        };
+        if (m + 1..rc).any(|i| !read_only(&invs[i])) {
+            continue;
+        }
+        let (Some(ids_a), Some(ids_b), Some(ids_c)) = (
+            list_ids(invs[ra].output),
+            list_ids(invs[rb].output),
+            list_ids(invs[rc].output),
+        ) else {
+            continue;
+        };
+        if ids_a != ids_b {
+            continue; // volatile collection: external churn, abstain.
+        }
+        let mut mutation_leaves = Vec::new();
+        scalar_leaves(mutation.input, &mut mutation_leaves);
+        let vanished_unreferenced = ids_b
+            .iter()
+            .any(|id| !ids_c.contains(id) && !mutation_leaves.contains(id));
+        if !vanished_unreferenced {
+            continue;
+        }
+        let contract = match contracts.get(mutation.operation) {
+            Some(contract) => *contract,
+            None => continue,
+        };
+        violations.push(violation(
+            contract,
+            mutation.event,
+            "data-loss",
+            format!(
+                "the mutation removed collection member(s) it never referenced \
+                 from `{}`: sibling records were silently deleted",
+                invs[rb].operation
+            ),
+        ));
+    }
+}

@@ -193,3 +193,98 @@ fn data_loss_abstains_on_every_legitimate_shape() {
     ));
     assert!(data_loss_reasons(&events).is_empty());
 }
+
+fn list_config() -> BackendConfig {
+    BackendConfig {
+        enabled: true,
+        operations: vec![op("listNotes", true), op("patchNote", false)],
+        ..BackendConfig::default()
+    }
+}
+
+/// The list quad: list, list (baseline), mutation, list (check).
+fn list_quad(before: Value, patch_body: Value, after: Value) -> Vec<BackendEvent> {
+    let mut events = call(1, "ra", "listNotes", Value::Null, before.clone());
+    events.extend(call(3, "rb", "listNotes", Value::Null, before));
+    events.extend(call(5, "m", "patchNote", patch_body, json!({})));
+    events.extend(call(7, "rc", "listNotes", Value::Null, after));
+    events
+}
+
+fn no_shrink_reasons(events: &[BackendEvent]) -> Vec<String> {
+    evaluate(&list_config(), events)
+        .into_iter()
+        .filter(|violation| violation.oracle == "data-loss")
+        .map(|violation| violation.reason)
+        .collect()
+}
+
+#[test]
+fn no_shrink_fires_when_an_unreferenced_member_vanishes() {
+    let reasons = no_shrink_reasons(&list_quad(
+        json!([{"id": "n1"}, {"id": "n2"}]),
+        json!({"path": {"id": "n1"}, "body": {"title": "new"}}),
+        json!([{"id": "n1"}]),
+    ));
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    assert!(reasons[0].contains("silently deleted"));
+    // Wrapped `{data: [...]}` listings work the same way.
+    let reasons = no_shrink_reasons(&list_quad(
+        json!({"data": [{"id": "n1"}, {"id": "n2"}]}),
+        json!({"path": {"id": "n1"}, "body": {"title": "new"}}),
+        json!({"data": [{"id": "n1"}]}),
+    ));
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+}
+
+#[test]
+fn no_shrink_abstains_on_every_legitimate_shape() {
+    // The mutation's own target vanishing is a delete (or cascade): abstain.
+    assert!(no_shrink_reasons(&list_quad(
+        json!([{"id": "n1"}, {"id": "n2"}]),
+        json!({"path": {"id": "n2"}, "body": {"title": "x"}}),
+        json!([{"id": "n1"}]),
+    ))
+    .is_empty());
+
+    // Nothing vanished (growth is fine): abstain.
+    assert!(no_shrink_reasons(&list_quad(
+        json!([{"id": "n1"}]),
+        json!({"path": {"id": "n1"}, "body": {"title": "x"}}),
+        json!([{"id": "n1"}, {"id": "n9"}]),
+    ))
+    .is_empty());
+
+    // A churning baseline (external activity, pagination) abstains.
+    let mut events = call(1, "ra", "listNotes", Value::Null, json!([{"id": "n1"}]));
+    events.extend(call(
+        3,
+        "rb",
+        "listNotes",
+        Value::Null,
+        json!([{"id": "n1"}, {"id": "n2"}]),
+    ));
+    events.extend(call(
+        5,
+        "m",
+        "patchNote",
+        json!({"path": {"id": "n1"}, "body": {"title": "x"}}),
+        json!({}),
+    ));
+    events.extend(call(
+        7,
+        "rc",
+        "listNotes",
+        Value::Null,
+        json!([{"id": "n1"}]),
+    ));
+    assert!(no_shrink_reasons(&events).is_empty());
+
+    // Members without scalar ids: not a recognizable collection, abstain.
+    assert!(no_shrink_reasons(&list_quad(
+        json!([{"name": "a"}, {"name": "b"}]),
+        json!({"path": {"id": "n1"}, "body": {"title": "x"}}),
+        json!([{"name": "a"}]),
+    ))
+    .is_empty());
+}

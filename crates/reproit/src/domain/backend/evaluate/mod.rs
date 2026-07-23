@@ -292,6 +292,7 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
         }
     }
     evaluate_data_loss(&contracts, events, &mut violations);
+    evaluate_no_shrink(&contracts, events, &mut violations);
     evaluate_resource_lifecycles(config, &contracts, &invocations, &mut violations);
     evaluate_query_pagination(config, &contracts, &invocations, &mut violations);
     evaluate_proof_contracts(config, &contracts, &invocations, &mut violations);
@@ -303,7 +304,7 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
 }
 
 mod data_loss;
-use data_loss::evaluate_data_loss;
+use data_loss::{evaluate_data_loss, evaluate_no_shrink};
 mod lifecycle;
 use lifecycle::{evaluate_resource_lifecycles, scalar_at};
 mod invariants;

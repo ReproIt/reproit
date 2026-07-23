@@ -117,6 +117,174 @@ pub(super) async fn probe_round_trips(
         };
         probes += 1;
 
+        // The list no-shrink probe derives its patch field straight from the
+        // PATCH schema and creates its own fresh resources, so it runs
+        // independently of the getNote round-trip below (which may bail if the
+        // target mutated its own collection during the main fuzz loop).
+        let list_field: Option<(String, Value)> = {
+            let body_domain = if patch.body_only {
+                patch.contract.input.as_ref()
+            } else {
+                match patch.contract.input.as_ref() {
+                    Some(ValueDomain::Object { properties, .. }) => properties.get("body"),
+                    _ => None,
+                }
+            };
+            match body_domain {
+                Some(ValueDomain::Object { properties, .. }) => {
+                    properties.iter().find_map(|(name, domain)| {
+                        if name == param {
+                            return None;
+                        }
+                        let sample = sample_domain(domain, seed + 61, false, 0);
+                        if sample.is_object() || sample.is_array() {
+                            None
+                        } else {
+                            Some((name.clone(), sample))
+                        }
+                    })
+                }
+                _ => None,
+            }
+        };
+        // COLLECTION NO-SHRINK: create TWO fresh resources, then run a
+        // list quad (list, list, patch one, list). An id the patch never
+        // referenced vanishing from the listing is sibling deletion (the
+        // Insomnia class). Self-contained fresh creates make the probe robust
+        // to the target mutating its own collection during the main fuzz loop.
+        let list_get = endpoints
+            .iter()
+            .find(|e| e.method == "GET" && e.path == create.endpoint.path);
+        if let (Some(list), Some((field, fresh))) = (list_get, list_field.clone()) {
+            let list_read = |sample_seed: u64| -> Result<RequestArtifact> {
+                let input = list
+                    .contract
+                    .input
+                    .as_ref()
+                    .map(|domain| sample_domain(domain, sample_seed, false, 0))
+                    .unwrap_or(Value::Null);
+                build_request(list, base_url, input)
+            };
+            let listable = |result: &InvocationResult| {
+                (200..400).contains(&result.status) && result.violations.is_empty()
+            };
+            // Two fresh resources so the collection has a known unreferenced
+            // sibling to watch. Both created from the same POST contract.
+            let c1 = invoke(client, &create.endpoint, create.request.clone()).await?;
+            let c2 = invoke(client, &create.endpoint, create.request.clone()).await?;
+            run.exercised += 2;
+            let sibling_id = create_identity(&c1.output, param)
+                .filter(|_| listable(&c1) && listable(&c2))
+                .map(|(path, id)| (path, id));
+            if let Some((sibling_id_path, sibling_identity)) = sibling_id {
+                let mut setup = vec![
+                    ReplayStep {
+                        contract: create.endpoint.contract.clone(),
+                        request: create.request.clone(),
+                        policy: create.endpoint.policy.clone(),
+                    },
+                    ReplayStep {
+                        contract: create.endpoint.contract.clone(),
+                        request: create.request.clone(),
+                        policy: create.endpoint.policy.clone(),
+                    },
+                ];
+                let mut sequence = Vec::new();
+                let mut list_step = |setup: &mut Vec<ReplayStep>, request: &RequestArtifact| {
+                    let step = setup.len();
+                    setup.push(ReplayStep {
+                        contract: list.contract.clone(),
+                        request: request.clone(),
+                        policy: list.policy.clone(),
+                    });
+                    step
+                };
+                let request_a = list_read(seed + 5)?;
+                let step_a = list_step(&mut setup, &request_a);
+                let result_a = invoke(client, list, request_a).await?;
+                let request_b = list_read(seed + 5)?;
+                let step_b = list_step(&mut setup, &request_b);
+                let result_b = invoke(client, list, request_b).await?;
+                run.exercised += 2;
+                if listable(&result_a) && listable(&result_b) {
+                    append_sequence_events(&mut sequence, result_a.events, step_a);
+                    append_sequence_events(&mut sequence, result_b.events, step_b);
+                    let mut body_map = Map::new();
+                    body_map.insert(field.clone(), fresh.clone());
+                    let mut path_map = Map::new();
+                    path_map.insert(param.to_string(), sibling_identity.clone());
+                    let mut input_map = Map::new();
+                    input_map.insert("path".into(), Value::Object(path_map));
+                    input_map.insert("body".into(), Value::Object(body_map));
+                    let mut patch_request =
+                        build_request(patch, base_url, Value::Object(input_map))?;
+                    // The patch targets the FIRST create (step 0); the second
+                    // create (step 1) is the unreferenced sibling watched.
+                    patch_request.bindings.push(RequestBinding {
+                        source_step: 0,
+                        source_output_path: sibling_id_path.clone(),
+                        input_path: format!("path.{param}"),
+                    });
+                    let patch_step = setup.len();
+                    setup.push(ReplayStep {
+                        contract: patch.contract.clone(),
+                        request: patch_request.clone(),
+                        policy: patch.policy.clone(),
+                    });
+                    let patch_result = invoke(client, patch, patch_request).await?;
+                    run.exercised += 1;
+                    if (200..400).contains(&patch_result.status)
+                        && patch_result.violations.is_empty()
+                    {
+                        append_sequence_events(&mut sequence, patch_result.events, patch_step);
+                        let check_request = list_read(seed + 5)?;
+                        let check_result = invoke(client, list, check_request.clone()).await?;
+                        run.exercised += 1;
+                        if listable(&check_result) {
+                            append_sequence_events(&mut sequence, check_result.events, setup.len());
+                            let config = BackendConfig {
+                                enabled: true,
+                                operations: vec![
+                                    create.endpoint.contract.clone(),
+                                    list.contract.clone(),
+                                    patch.contract.clone(),
+                                ],
+                                ..BackendConfig::default()
+                            };
+                            for violation in backend::evaluate(&config, &sequence)
+                                .into_iter()
+                                .filter(|violation| violation.oracle == "data-loss")
+                            {
+                                let finding = backend::finding(&violation);
+                                if replay_sequence(
+                                    client,
+                                    &setup,
+                                    list,
+                                    &check_request,
+                                    &violation.fingerprint,
+                                )
+                                .await?
+                                {
+                                    run.findings.push((
+                                        list.clone(),
+                                        check_request.clone(),
+                                        setup.clone(),
+                                        finding,
+                                    ));
+                                } else {
+                                    run.candidates.push(json!({
+                                        "operation": patch.contract.id,
+                                        "reason": violation.reason,
+                                        "confirmation": "did not reproduce on fresh resources",
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let bound_read = |sample_seed: u64| -> Result<RequestArtifact> {
             let mut input = get
                 .contract
