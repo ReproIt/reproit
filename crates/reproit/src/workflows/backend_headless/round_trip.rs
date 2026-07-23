@@ -173,9 +173,8 @@ pub(super) async fn probe_round_trips(
             let c1 = invoke(client, &create.endpoint, create.request.clone()).await?;
             let c2 = invoke(client, &create.endpoint, create.request.clone()).await?;
             run.exercised += 2;
-            let sibling_id = create_identity(&c1.output, param)
-                .filter(|_| listable(&c1) && listable(&c2))
-                .map(|(path, id)| (path, id));
+            let sibling_id =
+                create_identity(&c1.output, param).filter(|_| listable(&c1) && listable(&c2));
             if let Some((sibling_id_path, sibling_identity)) = sibling_id {
                 let mut setup = vec![
                     ReplayStep {
@@ -190,7 +189,7 @@ pub(super) async fn probe_round_trips(
                     },
                 ];
                 let mut sequence = Vec::new();
-                let mut list_step = |setup: &mut Vec<ReplayStep>, request: &RequestArtifact| {
+                let list_step = |setup: &mut Vec<ReplayStep>, request: &RequestArtifact| {
                     let step = setup.len();
                     setup.push(ReplayStep {
                         contract: list.contract.clone(),
