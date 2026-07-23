@@ -817,3 +817,47 @@ fn no_broken_route_flags_a_4xx_state() {
     };
     assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-broken-route".to_string()));
 }
+
+#[test]
+fn occlusion_findings_dedup_by_control_set_across_signatures() {
+    // A stateful single-DOM app re-presents the SAME buried controls under
+    // many state signatures. The oracle collapses identical control-sets to
+    // one finding (the mytwenda.app demo case), while a genuinely different
+    // occlusion set on another state still reports.
+    let mut o = obs_with(&[("s1", &["App"])], &[], Some("s1"));
+    let buried = vec![
+        ("Cancel".to_string(), "input".to_string()),
+        ("Pay".to_string(), "button.cta".to_string()),
+    ];
+    o.obs.occlusions.insert("s1".to_string(), buried.clone());
+    o.obs.occlusions.insert("s2".to_string(), buried.clone());
+    o.obs.occlusions.insert("s3".to_string(), buried);
+    // A distinct set on another state is its own finding.
+    o.obs.occlusions.insert(
+        "s4".to_string(),
+        vec![("Menu".to_string(), "div.sheet".to_string())],
+    );
+    let occ: Vec<_> = evaluate(&o, &InvariantsCfg::default())
+        .into_iter()
+        .filter(|x| x["invariant"] == "no-occluded-control")
+        .collect();
+    assert_eq!(
+        occ.len(),
+        2,
+        "3 identical sets collapse to 1, plus the distinct set"
+    );
+    assert!(occ.iter().any(|x| x["message"]
+        .as_str()
+        .unwrap()
+        .contains("Cancel under input")));
+    assert!(occ.iter().any(|x| x["message"]
+        .as_str()
+        .unwrap()
+        .contains("Menu under div.sheet")));
+
+    let cfg = InvariantsCfg {
+        no_occluded_control: false,
+        ..Default::default()
+    };
+    assert!(!kinds(&evaluate(&o, &cfg)).contains(&"no-occluded-control".to_string()));
+}

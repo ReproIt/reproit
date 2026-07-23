@@ -661,7 +661,21 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     // per state (background behind an open modal is excluded upstream, so a legit
     // modal is not a false positive).
     if cfg.no_occluded_control {
+        // Dedup by the occluded control-SET, not the state signature. A stateful
+        // single-DOM app (a demo mockup cycling language/steps, an SPA route)
+        // re-presents the same buried controls under many signatures; reporting
+        // one finding per signature is noise for one underlying defect. Collapse
+        // identical control-sets to the FIRST signature that showed them so the
+        // finding id stays stable, and emit once per distinct set.
+        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for (sig, items) in &obs.obs.occlusions {
+            let mut set: Vec<String> = items.iter().map(|(t, c)| format!("{t}\u{1f}{c}")).collect();
+            set.sort();
+            set.dedup();
+            let key = set.join("\u{1e}");
+            if !seen.insert(key) {
+                continue;
+            }
             let detail = items
                 .iter()
                 .take(3)

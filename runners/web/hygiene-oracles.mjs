@@ -352,6 +352,21 @@ export function occlusionScan() {
       cy = r.top + r.height / 2;
     if (cx < 0 || cy < 0 || cx > vw || cy > vh) continue;
     if (effHidden(el)) continue;
+    // Map-library attribution links (MapLibre/Mapbox/Leaflet/Google/OpenLayers)
+    // sit at the bottom of the map canvas and are routinely covered by a bottom
+    // sheet or overlay card on mobile map UIs -- a standard, intended layout, not
+    // a bug. Their occlusion is a foreign-cover artifact of that pattern, so the
+    // covered attribution is excluded (like site chrome). Verified on mytwenda.app:
+    // OpenFreeMap/OpenMapTiles/OpenStreetMap links buried under the destination
+    // sheet were a real geometric occlusion but an intentional map layout.
+    if (
+      el.closest(
+        '.maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib, .leaflet-control-attribution, ' +
+          '.ol-attribution, .gmnoprint, .gm-style-cc, [class*="ctrl-attrib" i], ' +
+          '[class*="attribution" i]',
+      )
+    )
+      continue;
     if (clippedOut(el, cx, cy)) continue;
     const hit = document.elementFromPoint(cx, cy);
     if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
