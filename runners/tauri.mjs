@@ -47,6 +47,7 @@ import {
   scrollRoundTripScan,
 } from './web/hygiene-oracles.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
+import { zeroContrastScan } from './web/zero-contrast-oracle.mjs';
 
 // Hygiene oracles NOT ported to this runner, deliberately (no probe beats a
 // wrong finding):
@@ -2641,6 +2642,24 @@ async function main() {
               sig: snap.sig,
               ...(snap.anchor ? { route: snap.anchor } : {}),
               items: occ,
+            }),
+        );
+      }
+      // ZERO-CONTRAST: text whose resolved foreground exactly equals its
+      // composited backdrop is invisible where it must be read. Pure in-webview
+      // getComputedStyle scan (WebKitGTK/WebView2 both expose it), shared
+      // verbatim from the web oracle, so it reproduces on replay.
+      let zc = null;
+      try {
+        zc = await browser.execute(zeroContrastScan);
+      } catch (_) {}
+      if (zc && zc.length) {
+        log(
+          'EXPLORE:ZEROCONTRAST ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: zc,
             }),
         );
       }

@@ -64,6 +64,8 @@ import {
   listenerLeakSample,
 } from './web/hygiene-oracles.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
+import { zeroContrastScan } from './web/zero-contrast-oracle.mjs';
+import { deadInputProbe } from './web/dead-input-oracle.mjs';
 // Shared FP-hardening helpers, imported from the web runner so the exact SAME
 // stabilization/guards apply to the Electron (Chromium) backend (fix across all
 // platforms): DOM-quiescence settle, the deep-link/metamorphic content-divergence
@@ -3007,6 +3009,21 @@ async function main() {
             }),
         );
       }
+      // ZERO-CONTRAST: text whose resolved foreground exactly equals its
+      // composited backdrop is invisible where it must be read. Pure in-page
+      // getComputedStyle scan, shared verbatim from the web oracle (identical
+      // Chromium renderer), so it reproduces on replay.
+      const zc = await page.evaluate(zeroContrastScan).catch(() => null);
+      if (zc && zc.length) {
+        log(
+          'EXPLORE:ZEROCONTRAST ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: zc,
+            }),
+        );
+      }
       // OCCLUSION + SECURITY: same pure-DOM hygiene scans as the web runner,
       // shared from web/hygiene-oracles.mjs (Chromium renderer, identical API).
       const occ1 = await page.evaluate(occlusionScan).catch(() => null);
@@ -3138,6 +3155,21 @@ async function main() {
                 sig: snap.sig,
                 ...(snap.anchor ? { route: snap.anchor } : {}),
                 items: srt,
+              }),
+          );
+        }
+        // DEAD-INPUT: a trusted wheel over a scrollable region eaten by an
+        // invisible overlay is a broken input pipeline. Playwright over the
+        // Electron renderer provides the same trusted page.mouse.wheel /
+        // keyboard the web probe uses, so the oracle ports verbatim.
+        const dead = await deadInputProbe(page).catch(() => []);
+        if (dead.length) {
+          log(
+            'EXPLORE:DEADINPUT ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: dead,
               }),
           );
         }
