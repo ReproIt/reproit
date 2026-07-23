@@ -1,19 +1,5 @@
 use super::*;
 
-pub(super) fn equivalent_findings_key(findings: &[Value]) -> String {
-    let mut signatures: Vec<String> = findings.iter().map(finding_signature).collect();
-    signatures.sort();
-    signatures.dedup();
-    signatures.join("\n")
-}
-
-pub(super) fn reserve_shrink_representative(
-    seen: &mut std::collections::BTreeSet<String>,
-    findings: &[Value],
-) -> bool {
-    seen.insert(equivalent_findings_key(findings))
-}
-
 pub(super) fn batch_completed(log: &str, plans: &[SeedPlan]) -> bool {
     if !log.lines().any(|line| line.trim() == "JOURNEY DONE") {
         return false;

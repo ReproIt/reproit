@@ -18,7 +18,11 @@ pub(super) async fn fuzz_one_locale(
     // minimized actions. This avoids paying ddmin's replay cost once per seed.
     let mut shrink_cache: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
-    let mut shrink_representatives = std::collections::BTreeSet::new();
+    // Identity -> (canonical repro id, action count) once CONFIRMED, so a later
+    // seed that reaches the same bug records an occurrence instead of minting a
+    // competing artifact/id for it.
+    let mut confirmed_identity_ids: std::collections::BTreeMap<String, (String, usize)> =
+        std::collections::BTreeMap::new();
     let cfg_path = crate::runtime::project_layout::fuzz_config_path(root);
     std::fs::create_dir_all(cfg_path.parent().unwrap())?;
     let mut defines = vec![(
@@ -308,43 +312,74 @@ pub(super) async fn fuzz_one_locale(
                     findings.len()
                 ),
             );
-            let mut shrunk = trace.clone();
-            let want = shrink_target(&findings);
-            let mut confirmation = reproit_protocol::ConfirmationStatus::NotAttempted;
-            // Confirmation is the product trust gate, not an optional polish
-            // pass: replay in a clean session and require the same oracle before
-            // a candidate can be promoted. The shrinker starts with a zero-action
-            // replay, so load-state failures are confirmed too.
-            if args.shrink {
-                if !confirm_trace(
-                    cfg,
-                    root,
-                    &args.journey,
-                    &cfg_path,
-                    &defines,
-                    &trace,
-                    args.sim,
-                    &want,
-                )
-                .await?
-                {
-                    confirmation = reproit_protocol::ConfirmationStatus::NotReproduced;
-                    say(
-                        json,
-                        format!(
-                            "  seed {seed}: candidate did NOT reproduce in a clean session; \
-                             retained with replay blocker"
-                        ),
-                    );
-                } else {
-                    confirmation = reproit_protocol::ConfirmationStatus::Reproduced;
-                    say(json, format!("  seed {seed}: CONFIRMED in a clean replay"));
-                    let equivalent = equivalent_findings_key(&findings);
-                    if args.all {
-                        if !reserve_shrink_representative(&mut shrink_representatives, &findings) {
-                            let representative = shrink_cache
-                                .get(&equivalent)
-                                .expect("reserved shrink representative must be cached");
+            // ONE finding per failure identity. A single walk can hit several
+            // distinct bugs (e.g. a cart crash early and a checkout crash
+            // later); minimizing them as one artifact lets ddmin drift to
+            // whichever identity survives the shortest subset, so the saved
+            // repro can silently stop reproducing the headlined bug. Each
+            // identity gets its own confirmation, shrink (want = exactly that
+            // signature), artifact, and bucket entry.
+            let identity_targets: Vec<String> = shrink_target(&findings).into_iter().collect();
+            for target_sig in &identity_targets {
+                // Cross-seed dedup: the same identity confirmed from an earlier
+                // seed already has a canonical artifact; a second one per seed
+                // just hands the agent competing ids for one bug.
+                if args.all {
+                    if let Some((canonical, action_count)) = confirmed_identity_ids.get(target_sig)
+                    {
+                        buckets
+                            .entry(target_sig.clone())
+                            .or_insert_with(|| (String::new(), Vec::new()))
+                            .1
+                            .push((canonical.clone(), *action_count, seed));
+                        say(
+                            json,
+                            format!(
+                                "  seed {seed}: same bug as {} (already confirmed); not \
+                                 duplicated",
+                                crate::domain::repro::display_finding_id(canonical)
+                            ),
+                        );
+                        continue;
+                    }
+                }
+                let id_findings: Vec<Value> = findings
+                    .iter()
+                    .filter(|f| &finding_signature(f) == target_sig)
+                    .cloned()
+                    .collect();
+                let want = std::collections::BTreeSet::from([target_sig.clone()]);
+                let mut shrunk = trace.clone();
+                let mut confirmation = reproit_protocol::ConfirmationStatus::NotAttempted;
+                // Confirmation is the product trust gate, not an optional polish
+                // pass: replay in a clean session and require the same oracle
+                // before a candidate can be promoted. The shrinker starts with a
+                // zero-action replay, so load-state failures are confirmed too.
+                if args.shrink {
+                    if !confirm_trace(
+                        cfg,
+                        root,
+                        &args.journey,
+                        &cfg_path,
+                        &defines,
+                        &trace,
+                        args.sim,
+                        &want,
+                    )
+                    .await?
+                    {
+                        confirmation = reproit_protocol::ConfirmationStatus::NotReproduced;
+                        say(
+                            json,
+                            format!(
+                                "  seed {seed}: candidate did NOT reproduce in a clean session; \
+                                 retained with replay blocker"
+                            ),
+                        );
+                    } else {
+                        confirmation = reproit_protocol::ConfirmationStatus::Reproduced;
+                        say(json, format!("  seed {seed}: CONFIRMED in a clean replay"));
+                        if let Some(representative) = shrink_cache.get(target_sig) {
                             shrunk = representative.clone();
                             say(
                                 json,
@@ -364,458 +399,461 @@ pub(super) async fn fuzz_one_locale(
                                 json,
                             )
                             .await?;
-                            shrink_cache.insert(equivalent, shrunk.clone());
+                            shrink_cache.insert(target_sig.clone(), shrunk.clone());
                         }
-                    } else {
-                        shrunk = shrink(
-                            cfg,
-                            root,
-                            &args.journey,
-                            &cfg_path,
-                            &defines,
-                            trace.clone(),
-                            args.sim,
-                            &want,
-                            json,
-                        )
-                        .await?;
                     }
                 }
-            }
-            // The finding's content-hash id (over seed + the minimized actions,
-            // exactly what `keep` later hashes), plus the two commands it teaches:
-            // `reproit <id>` confirms it replays NOW (before you commit it to the
-            // suite), `keep <id>` saves it as a guard.
-            let primary_sig = primary_finding(&findings)
-                .map(finding_signature)
-                .unwrap_or_else(|| "unknown".to_string());
-            let mut repro_id = crate::domain::repro::finding_id(
-                &target_identity(cfg),
-                &primary_sig,
-                seed,
-                &shrunk,
-            );
-            let mut finding_id = crate::domain::repro::display_finding_id(&repro_id);
-            // `--all` batches every seed into ONE drive run_dir, so writing each
-            // finding's report to that shared dir would overwrite the previous
-            // fuzz.md and only the last finding would be resolvable by
-            // check/keep. Give each finding its OWN report dir, keyed by id and an
-            // immediate child of the evidence out dir, so find_finding_by_id can
-            // resolve EVERY unique bug the run reports, not just the last.
-            let mut report_dir = if args.all {
-                let d = root
-                    .join(&cfg.evidence.out_dir)
-                    .join(format!("finding-{repro_id}"));
-                std::fs::create_dir_all(&d)?;
-                d
-            } else {
-                outcome.run_dir.clone()
-            };
-            write_report(
-                &report_dir,
-                &repro_id,
-                seed,
-                &findings,
-                &trace,
-                &shrunk,
-                confirmation,
-            )?;
-            let proof = write_run_evidence_graph(
-                &report_dir,
-                RunEvidence {
-                    capture_dir: &outcome.run_dir,
-                    finding_id: &repro_id,
-                    trace: &trace,
-                    findings: &findings,
-                    minimized: &shrunk,
-                    confirmation,
-                    capsule: None,
-                },
-            )?;
-            let promoted = proof.promotion == reproit_protocol::PromotionStatus::Confirmed;
-            persist_finding_report(root, &repro_id, &report_dir)?;
-            if let Some(guard) = crate::domain::contracts::FrozenContractGuard::from_findings(
-                &cfg.contracts,
-                &findings,
-            ) {
-                guard.save(&layout::finding_dir(root, &repro_id).join("contract.json"))?;
-            }
-            if let Some(guard) =
-                crate::domain::backend::FrozenBackendGuard::from_findings(&cfg.backend, &findings)
-            {
-                guard.save(&layout::finding_dir(root, &repro_id).join("backend-contract.json"))?;
-            }
-            if let Some(primary) = primary_finding(&findings).filter(|_| promoted) {
-                let Some(capsule_capture) = capture_confirmed_trace(
-                    cfg,
-                    root,
-                    &args.journey,
-                    &cfg_path,
-                    &defines,
-                    &shrunk,
-                    args.sim,
-                    &want,
-                )
-                .await?
-                else {
-                    let _ = std::fs::remove_dir_all(layout::finding_dir(root, &repro_id));
-                    say(
-                        json,
-                        format!(
-                            "  seed {seed}: minimized trace lost its exact identity during final \
-                             causal capture; quarantined"
-                        ),
-                    );
-                    continue;
-                };
-                let capsule = persist_causal_capsule(
-                    cfg,
-                    root,
-                    &capsule_capture.run_dir,
-                    primary,
-                    &shrunk,
-                    &defines,
+                // The finding's content-hash id (over seed + the minimized
+                // actions, exactly what `keep` later hashes), plus the two
+                // commands it teaches: `reproit <id>` confirms it replays NOW
+                // (before you commit it to the suite), `keep <id>` saves it as a
+                // guard.
+                let primary_sig = target_sig.clone();
+                let mut repro_id = crate::domain::repro::finding_id(
+                    &target_identity(cfg),
+                    &primary_sig,
                     seed,
-                )?;
-                let capsule = shrink_causal_capsule(
-                    cfg,
-                    root,
-                    &args.journey,
-                    &cfg_path,
-                    &defines,
-                    args.sim,
-                    &want,
-                    capsule,
-                    json,
-                )
-                .await?;
-                let mut provisional_id = None;
-                let causal_actions = capsule.replay_actions();
-                if causal_actions != shrunk {
-                    let previous_repro_id = repro_id.clone();
-                    provisional_id = Some(previous_repro_id.clone());
-                    let previous_report_dir = report_dir.clone();
-                    shrunk = causal_actions;
-                    repro_id = crate::domain::repro::finding_id(
-                        &target_identity(cfg),
-                        &primary_sig,
-                        seed,
-                        &shrunk,
-                    );
-                    finding_id = crate::domain::repro::display_finding_id(&repro_id);
-                    if args.all {
-                        report_dir = root
-                            .join(&cfg.evidence.out_dir)
-                            .join(format!("finding-{repro_id}"));
-                        std::fs::create_dir_all(&report_dir)?;
-                    }
-                    write_report(
-                        &report_dir,
-                        &repro_id,
-                        seed,
-                        &findings,
-                        &trace,
-                        &shrunk,
-                        confirmation,
-                    )?;
-                    if let Some(guard) =
-                        crate::domain::contracts::FrozenContractGuard::from_findings(
-                            &cfg.contracts,
-                            &findings,
-                        )
-                    {
-                        guard.save(&layout::finding_dir(root, &repro_id).join("contract.json"))?;
-                    }
-                    if let Some(guard) = crate::domain::backend::FrozenBackendGuard::from_findings(
-                        &cfg.backend,
-                        &findings,
-                    ) {
-                        guard.save(
-                            &layout::finding_dir(root, &repro_id).join("backend-contract.json"),
-                        )?;
-                    }
-                    if previous_repro_id != repro_id
-                        && args.all
-                        && previous_report_dir != report_dir
-                    {
-                        let _ = std::fs::remove_dir_all(previous_report_dir);
-                    }
-                }
-                let capsule_id = capsule.id.clone();
-                let guard =
-                    crate::domain::capsule::Capsule::materialize_plaintext(root, &capsule_id)?;
-                let mut capsule_defines = defines.clone();
-                capsule_defines.push((
-                    "REPROIT_CAPSULE".into(),
-                    guard.path().to_string_lossy().into_owned(),
-                ));
-                if !confirm_trace(
-                    cfg,
-                    root,
-                    &args.journey,
-                    &cfg_path,
-                    &capsule_defines,
                     &shrunk,
-                    args.sim,
-                    &want,
-                )
-                .await?
-                {
-                    let _ = std::fs::remove_dir_all(crate::runtime::project_layout::capsule_dir(
-                        root,
-                        &capsule_id,
-                    ));
-                    let _ = std::fs::remove_dir_all(layout::finding_dir(root, &repro_id));
-                    say(
-                        json,
-                        format!(
-                            "  seed {seed}: live failure confirmed, but causal capsule did not \
-                             reproduce exactly; quarantined"
-                        ),
-                    );
-                    continue;
-                }
-                let _ = write_run_evidence_graph(
+                );
+                let mut finding_id = crate::domain::repro::display_finding_id(&repro_id);
+                // `--all` batches every seed into ONE drive run_dir, so writing each
+                // finding's report to that shared dir would overwrite the previous
+                // fuzz.md and only the last finding would be resolvable by
+                // check/keep. Give each finding its OWN report dir, keyed by id and an
+                // immediate child of the evidence out dir, so find_finding_by_id can
+                // resolve EVERY unique bug the run reports, not just the last. The
+                // same applies when one walk produced several distinct identities.
+                let mut report_dir = if args.all || identity_targets.len() > 1 {
+                    let d = root
+                        .join(&cfg.evidence.out_dir)
+                        .join(format!("finding-{repro_id}"));
+                    std::fs::create_dir_all(&d)?;
+                    d
+                } else {
+                    outcome.run_dir.clone()
+                };
+                write_report(
+                    &report_dir,
+                    &repro_id,
+                    seed,
+                    &id_findings,
+                    &trace,
+                    &shrunk,
+                    confirmation,
+                )?;
+                let proof = write_run_evidence_graph(
                     &report_dir,
                     RunEvidence {
-                        capture_dir: &capsule_capture.run_dir,
+                        capture_dir: &outcome.run_dir,
                         finding_id: &repro_id,
                         trace: &trace,
-                        findings: &findings,
+                        findings: &id_findings,
                         minimized: &shrunk,
                         confirmation,
-                        capsule: Some(&capsule),
+                        capsule: None,
                     },
                 )?;
+                let promoted = proof.promotion == reproit_protocol::PromotionStatus::Confirmed;
                 persist_finding_report(root, &repro_id, &report_dir)?;
-                let finding_dir = layout::finding_dir(root, &repro_id);
-                std::fs::create_dir_all(&finding_dir)?;
-                std::fs::write(finding_dir.join("capsule-id"), &capsule_id)?;
-                let bug_id = capsule.finding.bug_id();
-                std::fs::write(
-                    finding_dir.join("identity.json"),
-                    serde_json::to_vec_pretty(&json!({
-                        "bugId": &bug_id,
-                        "identity": capsule.finding,
-                    }))?,
-                )?;
-                promote_finding(root, provisional_id.as_deref(), &repro_id, &report_dir)?;
-                confirmed_findings.push(super::ConfirmedFinding {
-                    id: finding_id.clone(),
-                    cause: capsule.cause_category(),
-                    action_count: capsule.actions.len(),
-                    seed,
-                    actions: capsule
-                        .actions
-                        .iter()
-                        .map(|action| action.action.clone())
-                        .collect(),
-                    artifact: layout::finding_dir(root, &repro_id),
-                });
-                say(json, format!("  capsule: {capsule_id}"));
-                say(json, format!("  structural bug: {bug_id}"));
-                say(json, "  Finding confirmed: yes");
-                say(
-                    json,
-                    format!("  Cause: {}", capsule.cause_category().as_str()),
-                );
-                say(
-                    json,
-                    format!("  Actions required: {}", capsule.actions.len()),
-                );
-                say(
-                    json,
-                    format!(
-                        "  Causal HTTP request: {}",
-                        if matches!(
-                            capsule.cause_category(),
-                            crate::domain::capsule::CauseCategory::HttpTransaction
-                        ) {
-                            "captured"
-                        } else {
-                            "not applicable"
-                        }
-                    ),
-                );
-                say(json, "  Finding minimized: yes");
-                say(json, "  Finding artifact saved: yes");
-                say(json, "  Regression guard kept: no");
-                say(
-                    json,
-                    format!("  Next: reproit keep {finding_id} --as <name>"),
-                );
-            }
-            // In --all the per-seed id is intermediate: the SAME bug reached by
-            // different seeds yields different ids, so teaching check/keep here
-            // hands the agent several competing ids for one bug. The deduped
-            // summary at the end is authoritative and teaches the commands on the
-            // one canonical id; here we just note the finding. Without --all this
-            // IS the single finding, so teach its commands directly.
-            if !promoted {
-                say(
-                    json,
-                    format!(
-                        "  candidate {finding_id}   blockers: {}   inspect: reproit proof \
-                         {finding_id}",
-                        proof
-                            .blockers
-                            .iter()
-                            .map(|blocker| blocker.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                );
-            } else if args.all {
-                say(
-                    json,
-                    format!("  found ({} action(s)) -> id {finding_id}", shrunk.len()),
-                );
-            } else {
-                say(
-                    json,
-                    format!(
-                        "  confirmed bug {finding_id}   reproduce: reproit {finding_id}   keep: \
-                         reproit keep {finding_id} --as <name>"
-                    ),
-                );
-            }
-            say(
-                json,
-                format!("  report: {}", report_dir.join("fuzz.md").display()),
-            );
-            // --all: file this finding under its crash signature so the same bug
-            // reached by different paths collapses to one bucket.
-            if promoted && args.all {
-                if let Some(primary) = primary_finding(&findings) {
-                    let sig = finding_signature(primary);
-                    buckets
-                        .entry(sig)
-                        .or_insert_with(|| (finding_label(primary), Vec::new()))
-                        .1
-                        .push((repro_id.clone(), shrunk.len(), seed));
+                if let Some(guard) = crate::domain::contracts::FrozenContractGuard::from_findings(
+                    &cfg.contracts,
+                    &id_findings,
+                ) {
+                    guard.save(&layout::finding_dir(root, &repro_id).join("contract.json"))?;
                 }
-            }
-
-            // Auto-escalate: when a HEADLESS finding lands, optionally replay the
-            // MINIMIZED repro ONCE on the simulator to (a) confirm it on the
-            // real runtime and (b) be the run where the annotated repro video
-            // gets recorded later. Gated behind --confirm-on-sim (default off),
-            // so the default fuzz stays pure-headless and fast.
-            // The run dir whose video the delivery pipeline records from: the
-            // sim-confirm run when we have one, else the discovering run (already
-            // a sim run when --sim was used directly).
-            let mut deliver_dir = outcome.run_dir.clone();
-            let mut confirmed = args.sim && promoted;
-            if promoted && args.confirm_on_sim && !args.sim && !shrunk.is_empty() {
-                say(
-                    json,
-                    format!(
-                        "  confirm-on-sim: replaying {} minimized action(s) on the simulator",
-                        shrunk.len()
-                    ),
-                );
-                std::fs::write(&cfg_path, json!({ "replay": shrunk }).to_string())?;
-                match run_explorer(
-                    cfg,
-                    root,
-                    &args.journey,
-                    false,
-                    &defines,
-                    args.profile_timing,
-                    true,
-                    false,
-                )
-                .await
-                {
-                    Ok(o) => {
-                        let sim_log = std::fs::read_to_string(o.run_dir.join("drive-a.log"))
-                            .unwrap_or_default();
-                        confirmed = replay_is_hermetic(&sim_log)
-                            && reproduces_original(
-                                &findings_for_tier(cfg, &o.run_dir, true),
-                                &want,
-                            );
+                if let Some(guard) = crate::domain::backend::FrozenBackendGuard::from_findings(
+                    &cfg.backend,
+                    &id_findings,
+                ) {
+                    guard.save(
+                        &layout::finding_dir(root, &repro_id).join("backend-contract.json"),
+                    )?;
+                }
+                if let Some(primary) = primary_finding(&id_findings).filter(|_| promoted) {
+                    let Some(capsule_capture) = capture_confirmed_trace(
+                        cfg,
+                        root,
+                        &args.journey,
+                        &cfg_path,
+                        &defines,
+                        &shrunk,
+                        args.sim,
+                        &want,
+                    )
+                    .await?
+                    else {
+                        let _ = std::fs::remove_dir_all(layout::finding_dir(root, &repro_id));
                         say(
                             json,
                             format!(
-                                "  confirm-on-sim: {} (sim evidence: {})",
-                                if confirmed {
-                                    "CONFIRMED on real runtime"
-                                } else {
-                                    "did NOT reproduce on the simulator (headless-only finding)"
-                                },
-                                o.run_dir.display()
-                            ),
+                            "  seed {seed}: minimized trace lost its exact identity during final \
+                             causal capture; quarantined"
+                        ),
                         );
-                        // The sim run holds the .mov; copy the finding's report
-                        // (with the minimized repro block) into it so the
-                        // delivery pipeline reads the repro + summary from there.
-                        let sim_confirmation = if confirmed {
-                            reproit_protocol::ConfirmationStatus::Reproduced
-                        } else {
-                            reproit_protocol::ConfirmationStatus::NotReproduced
-                        };
+                        continue;
+                    };
+                    let capsule = persist_causal_capsule(
+                        cfg,
+                        root,
+                        &capsule_capture.run_dir,
+                        primary,
+                        &shrunk,
+                        &defines,
+                        seed,
+                    )?;
+                    let capsule = shrink_causal_capsule(
+                        cfg,
+                        root,
+                        &args.journey,
+                        &cfg_path,
+                        &defines,
+                        args.sim,
+                        &want,
+                        capsule,
+                        json,
+                    )
+                    .await?;
+                    let mut provisional_id = None;
+                    let causal_actions = capsule.replay_actions();
+                    if causal_actions != shrunk {
+                        let previous_repro_id = repro_id.clone();
+                        provisional_id = Some(previous_repro_id.clone());
+                        let previous_report_dir = report_dir.clone();
+                        shrunk = causal_actions;
+                        repro_id = crate::domain::repro::finding_id(
+                            &target_identity(cfg),
+                            &primary_sig,
+                            seed,
+                            &shrunk,
+                        );
+                        finding_id = crate::domain::repro::display_finding_id(&repro_id);
+                        if args.all {
+                            report_dir = root
+                                .join(&cfg.evidence.out_dir)
+                                .join(format!("finding-{repro_id}"));
+                            std::fs::create_dir_all(&report_dir)?;
+                        }
                         write_report(
-                            &o.run_dir,
+                            &report_dir,
                             &repro_id,
                             seed,
-                            &findings,
+                            &id_findings,
                             &trace,
                             &shrunk,
-                            sim_confirmation,
+                            confirmation,
                         )?;
-                        let _ = write_run_evidence_graph(
-                            &o.run_dir,
-                            RunEvidence {
-                                capture_dir: &o.run_dir,
-                                finding_id: &repro_id,
-                                trace: &trace,
-                                findings: &findings,
-                                minimized: &shrunk,
-                                confirmation: sim_confirmation,
-                                capsule: None,
-                            },
-                        )?;
-                        deliver_dir = o.run_dir;
+                        if let Some(guard) =
+                            crate::domain::contracts::FrozenContractGuard::from_findings(
+                                &cfg.contracts,
+                                &id_findings,
+                            )
+                        {
+                            guard.save(
+                                &layout::finding_dir(root, &repro_id).join("contract.json"),
+                            )?;
+                        }
+                        if let Some(guard) =
+                            crate::domain::backend::FrozenBackendGuard::from_findings(
+                                &cfg.backend,
+                                &id_findings,
+                            )
+                        {
+                            guard.save(
+                                &layout::finding_dir(root, &repro_id).join("backend-contract.json"),
+                            )?;
+                        }
+                        if previous_repro_id != repro_id
+                            && args.all
+                            && previous_report_dir != report_dir
+                        {
+                            let _ = std::fs::remove_dir_all(previous_report_dir);
+                        }
                     }
-                    Err(e) => say(json, format!("  confirm-on-sim: sim run failed: {e}")),
+                    let capsule_id = capsule.id.clone();
+                    let guard =
+                        crate::domain::capsule::Capsule::materialize_plaintext(root, &capsule_id)?;
+                    let mut capsule_defines = defines.clone();
+                    capsule_defines.push((
+                        "REPROIT_CAPSULE".into(),
+                        guard.path().to_string_lossy().into_owned(),
+                    ));
+                    if !confirm_trace(
+                        cfg,
+                        root,
+                        &args.journey,
+                        &cfg_path,
+                        &capsule_defines,
+                        &shrunk,
+                        args.sim,
+                        &want,
+                    )
+                    .await?
+                    {
+                        let _ = std::fs::remove_dir_all(
+                            crate::runtime::project_layout::capsule_dir(root, &capsule_id),
+                        );
+                        let _ = std::fs::remove_dir_all(layout::finding_dir(root, &repro_id));
+                        say(
+                            json,
+                            format!(
+                            "  seed {seed}: live failure confirmed, but causal capsule did not \
+                             reproduce exactly; quarantined"
+                        ),
+                        );
+                        continue;
+                    }
+                    let _ = write_run_evidence_graph(
+                        &report_dir,
+                        RunEvidence {
+                            capture_dir: &capsule_capture.run_dir,
+                            finding_id: &repro_id,
+                            trace: &trace,
+                            findings: &id_findings,
+                            minimized: &shrunk,
+                            confirmation,
+                            capsule: Some(&capsule),
+                        },
+                    )?;
+                    persist_finding_report(root, &repro_id, &report_dir)?;
+                    let finding_dir = layout::finding_dir(root, &repro_id);
+                    std::fs::create_dir_all(&finding_dir)?;
+                    std::fs::write(finding_dir.join("capsule-id"), &capsule_id)?;
+                    let bug_id = capsule.finding.bug_id();
+                    std::fs::write(
+                        finding_dir.join("identity.json"),
+                        serde_json::to_vec_pretty(&json!({
+                            "bugId": &bug_id,
+                            "identity": capsule.finding,
+                        }))?,
+                    )?;
+                    promote_finding(root, provisional_id.as_deref(), &repro_id, &report_dir)?;
+                    confirmed_findings.push(super::ConfirmedFinding {
+                        id: finding_id.clone(),
+                        cause: capsule.cause_category(),
+                        action_count: capsule.actions.len(),
+                        seed,
+                        actions: capsule
+                            .actions
+                            .iter()
+                            .map(|action| action.action.clone())
+                            .collect(),
+                        artifact: layout::finding_dir(root, &repro_id),
+                    });
+                    say(json, format!("  capsule: {capsule_id}"));
+                    say(json, format!("  structural bug: {bug_id}"));
+                    say(json, "  Finding confirmed: yes");
+                    say(
+                        json,
+                        format!("  Cause: {}", capsule.cause_category().as_str()),
+                    );
+                    say(
+                        json,
+                        format!("  Actions required: {}", capsule.actions.len()),
+                    );
+                    say(
+                        json,
+                        format!(
+                            "  Causal HTTP request: {}",
+                            if matches!(
+                                capsule.cause_category(),
+                                crate::domain::capsule::CauseCategory::HttpTransaction
+                            ) {
+                                "captured"
+                            } else {
+                                "not applicable"
+                            }
+                        ),
+                    );
+                    say(json, "  Finding minimized: yes");
+                    say(json, "  Finding artifact saved: yes");
+                    say(json, "  Regression guard kept: no");
+                    say(
+                        json,
+                        format!("  Next: reproit keep {finding_id} --as <name>"),
+                    );
                 }
-            }
-
-            // With --cloud set, record and upload the annotated minimized-repro
-            // clip, then optionally emit the review comment. Best-effort: a
-            // delivery failure never fails fuzz.
-            if let (true, Some(cloud), Some(app), Some(bucket)) =
-                (promoted, &args.cloud, &args.app, &args.app_bucket)
-            {
-                if let Err(e) = deliver_finding(
-                    cfg,
-                    root,
-                    &deliver_dir,
-                    cloud,
-                    app,
-                    bucket,
-                    args.post_comment,
-                    confirmed,
-                    json,
-                )
-                .await
-                {
-                    say(json, format!("  deliver: {e}"));
+                // In --all the per-seed id is intermediate: the SAME bug reached by
+                // different seeds yields different ids, so teaching check/keep here
+                // hands the agent several competing ids for one bug. The deduped
+                // summary at the end is authoritative and teaches the commands on the
+                // one canonical id; here we just note the finding. Without --all this
+                // IS the single finding, so teach its commands directly.
+                if !promoted {
+                    say(
+                        json,
+                        format!(
+                            "  candidate {finding_id}   blockers: {}   inspect: reproit proof \
+                         {finding_id}",
+                            proof
+                                .blockers
+                                .iter()
+                                .map(|blocker| blocker.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    );
+                } else if args.all {
+                    say(
+                        json,
+                        format!("  found ({} action(s)) -> id {finding_id}", shrunk.len()),
+                    );
+                } else {
+                    say(
+                        json,
+                        format!(
+                        "  confirmed bug {finding_id}   reproduce: reproit {finding_id}   keep: \
+                         reproit keep {finding_id} --as <name>"
+                    ),
+                    );
                 }
-            } else if promoted
-                && (args.cloud.is_some() || args.app.is_some() || args.app_bucket.is_some())
-            {
                 say(
                     json,
-                    "  deliver: need --cloud, --app, and --bucket to deliver; skipping",
+                    format!("  report: {}", report_dir.join("fuzz.md").display()),
                 );
+                // Record the canonical id for this identity so later seeds that
+                // reach the same bug dedupe instead of minting a competing id.
+                if promoted {
+                    confirmed_identity_ids
+                        .entry(target_sig.clone())
+                        .or_insert_with(|| (repro_id.clone(), shrunk.len()));
+                }
+                // --all: file this finding under its crash signature so the same bug
+                // reached by different paths collapses to one bucket.
+                if promoted && args.all {
+                    if let Some(primary) = primary_finding(&id_findings) {
+                        let entry = buckets
+                            .entry(target_sig.clone())
+                            .or_insert_with(|| (finding_label(primary), Vec::new()));
+                        if entry.0.is_empty() {
+                            entry.0 = finding_label(primary);
+                        }
+                        entry.1.push((repro_id.clone(), shrunk.len(), seed));
+                    }
+                }
+
+                // Auto-escalate: when a HEADLESS finding lands, optionally replay the
+                // MINIMIZED repro ONCE on the simulator to (a) confirm it on the
+                // real runtime and (b) be the run where the annotated repro video
+                // gets recorded later. Gated behind --confirm-on-sim (default off),
+                // so the default fuzz stays pure-headless and fast.
+                // The run dir whose video the delivery pipeline records from: the
+                // sim-confirm run when we have one, else the discovering run (already
+                // a sim run when --sim was used directly).
+                let mut deliver_dir = outcome.run_dir.clone();
+                let mut confirmed = args.sim && promoted;
+                if promoted && args.confirm_on_sim && !args.sim && !shrunk.is_empty() {
+                    say(
+                        json,
+                        format!(
+                            "  confirm-on-sim: replaying {} minimized action(s) on the simulator",
+                            shrunk.len()
+                        ),
+                    );
+                    std::fs::write(&cfg_path, json!({ "replay": shrunk }).to_string())?;
+                    match run_explorer(
+                        cfg,
+                        root,
+                        &args.journey,
+                        false,
+                        &defines,
+                        args.profile_timing,
+                        true,
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(o) => {
+                            let sim_log = std::fs::read_to_string(o.run_dir.join("drive-a.log"))
+                                .unwrap_or_default();
+                            confirmed = replay_is_hermetic(&sim_log)
+                                && reproduces_original(
+                                    &findings_for_tier(cfg, &o.run_dir, true),
+                                    &want,
+                                );
+                            say(
+                                json,
+                                format!(
+                                    "  confirm-on-sim: {} (sim evidence: {})",
+                                    if confirmed {
+                                        "CONFIRMED on real runtime"
+                                    } else {
+                                        "did NOT reproduce on the simulator (headless-only finding)"
+                                    },
+                                    o.run_dir.display()
+                                ),
+                            );
+                            // The sim run holds the .mov; copy the finding's report
+                            // (with the minimized repro block) into it so the
+                            // delivery pipeline reads the repro + summary from there.
+                            let sim_confirmation = if confirmed {
+                                reproit_protocol::ConfirmationStatus::Reproduced
+                            } else {
+                                reproit_protocol::ConfirmationStatus::NotReproduced
+                            };
+                            write_report(
+                                &o.run_dir,
+                                &repro_id,
+                                seed,
+                                &id_findings,
+                                &trace,
+                                &shrunk,
+                                sim_confirmation,
+                            )?;
+                            let _ = write_run_evidence_graph(
+                                &o.run_dir,
+                                RunEvidence {
+                                    capture_dir: &o.run_dir,
+                                    finding_id: &repro_id,
+                                    trace: &trace,
+                                    findings: &id_findings,
+                                    minimized: &shrunk,
+                                    confirmation: sim_confirmation,
+                                    capsule: None,
+                                },
+                            )?;
+                            deliver_dir = o.run_dir;
+                        }
+                        Err(e) => say(json, format!("  confirm-on-sim: sim run failed: {e}")),
+                    }
+                }
+
+                // With --cloud set, record and upload the annotated minimized-repro
+                // clip, then optionally emit the review comment. Best-effort: a
+                // delivery failure never fails fuzz.
+                if let (true, Some(cloud), Some(app), Some(bucket)) =
+                    (promoted, &args.cloud, &args.app, &args.app_bucket)
+                {
+                    if let Err(e) = deliver_finding(
+                        cfg,
+                        root,
+                        &deliver_dir,
+                        cloud,
+                        app,
+                        bucket,
+                        args.post_comment,
+                        confirmed,
+                        json,
+                    )
+                    .await
+                    {
+                        say(json, format!("  deliver: {e}"));
+                    }
+                } else if promoted
+                    && (args.cloud.is_some() || args.app.is_some() || args.app_bucket.is_some())
+                {
+                    say(
+                        json,
+                        "  deliver: need --cloud, --app, and --bucket to deliver; skipping",
+                    );
+                }
             }
             // Neutralize: a later warm replay must not reuse this fuzz state.
             let _ = std::fs::write(&cfg_path, "{}");
             // Default: one finding per invocation (shrinking is expensive; fix it
             // before hunting more). With --all, keep going to collect every bug.
-            if !args.all {
+            // A multi-identity walk still reports EVERY identity before the
+            // non-`--all` stop.
+            if !args.all && !identity_targets.is_empty() {
                 state_present_footer(json, &state_present);
                 return Ok(FuzzSummary {
                     signatures: found_sigs,

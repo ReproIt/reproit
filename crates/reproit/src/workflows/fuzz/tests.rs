@@ -8,22 +8,22 @@ fn plan(seed: u64) -> SeedPlan {
 }
 
 #[test]
-fn equivalent_seed_findings_reserve_only_one_shrink() {
-    let a = vec![json!({
+fn same_identity_findings_share_one_signature_and_distinct_do_not() {
+    let a = json!({
         "invariant": "no-exception", "kind": "EXCEPTION", "message": "boom",
         "frames": ["render (app.js:10)"]
-    })];
-    let b = vec![json!({
+    });
+    let b = json!({
         "invariant": "no-exception", "kind": "EXCEPTION", "message": "boom",
         "frames": ["render (app.js:10)"]
-    })];
-    let distinct = vec![json!({
+    });
+    let distinct = json!({
         "invariant": "no-choice-anomaly", "kind": "CHOICEANOMALY", "message": "Go shifts layout"
-    })];
-    let mut seen = std::collections::BTreeSet::new();
-    assert!(reserve_shrink_representative(&mut seen, &a));
-    assert!(!reserve_shrink_representative(&mut seen, &b));
-    assert!(reserve_shrink_representative(&mut seen, &distinct));
+    });
+    // The per-identity campaign loop keys shrink reuse and cross-seed dedup on
+    // finding_signature: equal bugs collapse, distinct bugs never do.
+    assert_eq!(finding_signature(&a), finding_signature(&b));
+    assert_ne!(finding_signature(&a), finding_signature(&distinct));
 }
 
 #[test]

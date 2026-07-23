@@ -39,9 +39,8 @@ pub(crate) use findings::{
     app_exceptions, finding_signature, finding_signatures_for_log, normalize_message,
 };
 use findings::{
-    batch_completed, equivalent_findings_key, finding_label, findings_for_tier,
-    findings_from_parsed, map_escapable_routes, perf_findings, primary_finding,
-    reproduces_original, reserve_shrink_representative, shrink_target, target_identity,
+    batch_completed, finding_label, findings_for_tier, findings_from_parsed, map_escapable_routes,
+    perf_findings, primary_finding, reproduces_original, shrink_target, target_identity,
     NormalizedEvidence,
 };
 #[cfg(test)]
