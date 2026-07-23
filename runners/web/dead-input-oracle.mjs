@@ -31,6 +31,7 @@ export const DEAD_INPUT_MAX_SCROLLABLES = 3;
 export const DEAD_INPUT_MAX_EDITABLES = 1;
 const SETTLE_MS = 150;
 const WHEEL_DELTA = 120;
+const CONFIRM_GAP_MS = 1500;
 
 // In-page: find wheel-probe candidates. Self-contained (browser globals only).
 export function deadInputScrollCandidates() {
@@ -149,16 +150,26 @@ export function deadInputRead(arg) {
   };
 }
 
-// Pure verdict for one wheel probe; unit-testable without a browser. A
-// finding requires: the trusted wheel ARRIVED, nobody claimed it, and nothing
-// anywhere scrolled. Anything else abstains.
+// Pure verdict for one wheel probe; unit-testable without a browser. A finding
+// requires: the trusted wheel ARRIVED, nobody claimed it, and nothing anywhere
+// scrolled.
+//
+// Only the INVISIBLE-OVERLAY class is a finding. The "direct-hit dead scroll"
+// class (owner is the target itself) was retired: on a live SPA a scroll pane
+// that does not move a synthetic wheel is not reliably a bug (it can be
+// mid-mount, virtualized so a parent scrolls, or momentum-scrolled by JS), and
+// distinguishing those from a truly dead pane cannot meet the zero-FP bar. A
+// live example that forced this: mytwenda.app's phone-frame demo flagged three
+// sheets that were still initializing (maplibre had just loaded); fully settled
+// they scroll fine. The invisible-overlay case has no such ambiguity: visible
+// scrollable content with an invisible non-dialog interceptor eating the wheel
+// is never intentional.
 export function classifyWheelProbe(owner, read) {
   if (!read || !read.wheelSeen) return null;
   if (read.wheelPrevented) return null;
   if (read.scrolls > 0 || read.topDelta !== 0 || read.winDelta !== 0) return null;
-  if (owner.owner === 'target') return 'dead-scroll';
   if (owner.owner === 'blocker') return 'blocked-by-invisible-overlay';
-  return null; // dialog / visible interceptor / gone -> abstain
+  return null; // target / dialog / visible interceptor / gone -> abstain
 }
 
 // Pure verdict for one keystroke probe. A finding requires: the trusted key
@@ -177,6 +188,10 @@ export function classifyKeyProbe(read, valueBefore, valueAfter) {
 // DEAD_INPUT_MAX_EDITABLES keystroke probes per state.
 export async function deadInputProbe(page) {
   const items = [];
+  // Let a network-idle beat pass so a lazily-mounted sheet or map has a chance
+  // to attach its scroll/wheel handlers before we judge (bounded; a genuinely
+  // dead app can hold a socket open forever, so timing out still probes).
+  await page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
   const candidates = await page.evaluate(deadInputScrollCandidates);
   for (const cand of candidates.slice(0, DEAD_INPUT_MAX_SCROLLABLES)) {
     const owner = await page.evaluate(deadInputPointOwner, cand);
@@ -189,12 +204,16 @@ export async function deadInputProbe(page) {
     const read = await page.evaluate(deadInputRead, cand);
     const verdict = classifyWheelProbe(owner, read);
     if (verdict) {
-      // Confirm on a second settled sample: the same probe must fail twice.
+      // Re-confirm the invisible-overlay verdict after a real gap so a still-
+      // mounting overlay is not mistaken for a settled one.
+      await page.waitForTimeout(CONFIRM_GAP_MS);
+      const ownerAgain = await page.evaluate(deadInputPointOwner, cand);
       await page.evaluate(deadInputArm, cand);
+      await page.mouse.move(cand.x, cand.y);
       await page.mouse.wheel(0, WHEEL_DELTA);
       await page.waitForTimeout(SETTLE_MS);
       const again = await page.evaluate(deadInputRead, cand);
-      if (classifyWheelProbe(owner, again) === verdict) {
+      if (classifyWheelProbe(ownerAgain, again) === verdict) {
         items.push({
           key: cand.key,
           input: 'wheel:down',

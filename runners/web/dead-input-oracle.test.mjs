@@ -9,21 +9,24 @@ import {
 
 test('wheel verdicts require arrival, no claim, and zero movement', () => {
   const still = { wheelSeen: true, wheelPrevented: false, scrolls: 0, topDelta: 0, winDelta: 0 };
-  assert.equal(classifyWheelProbe({ owner: 'target' }, still), 'dead-scroll');
+  // Only the invisible-overlay class is a finding; a direct-hit non-scrolling
+  // target abstains (too ambiguous on live SPAs to meet the zero-FP bar).
+  assert.equal(classifyWheelProbe({ owner: 'target' }, still), null);
   assert.equal(
     classifyWheelProbe({ owner: 'blocker' }, still),
     'blocked-by-invisible-overlay',
   );
   // A prevented wheel is claimed by the app: abstain.
   assert.equal(classifyWheelProbe({ owner: 'target' }, { ...still, wheelPrevented: true }), null);
+  // A scrolling target abstains regardless.
   // Anything scrolled anywhere: abstain.
-  assert.equal(classifyWheelProbe({ owner: 'target' }, { ...still, scrolls: 1 }), null);
-  assert.equal(classifyWheelProbe({ owner: 'target' }, { ...still, topDelta: 60 }), null);
+  assert.equal(classifyWheelProbe({ owner: 'blocker' }, { ...still, scrolls: 1 }), null);
+  assert.equal(classifyWheelProbe({ owner: 'blocker' }, { ...still, topDelta: 60 }), null);
   // Modal interceptors and visible occluders are never findings here.
   assert.equal(classifyWheelProbe({ owner: 'dialog' }, still), null);
   assert.equal(classifyWheelProbe({ owner: 'visible-interceptor' }, still), null);
   // The wheel never arrived (headless quirk, detached target): abstain.
-  assert.equal(classifyWheelProbe({ owner: 'target' }, { ...still, wheelSeen: false }), null);
+  assert.equal(classifyWheelProbe({ owner: 'blocker' }, { ...still, wheelSeen: false }), null);
 });
 
 test('keystroke verdicts abstain whenever anyone claimed or used the key', () => {
