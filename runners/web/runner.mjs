@@ -38,6 +38,7 @@ import {
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
 import { deadInputProbe } from './dead-input-oracle.mjs';
+import { zeroContrastScan } from './zero-contrast-oracle.mjs';
 import { scanAccessibilityStateParity } from './accessibility-state-oracle.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './overflow-oracle.mjs';
 import {
@@ -5711,6 +5712,22 @@ async function main() {
                 sig: snap.sig,
                 ...(snap.anchor ? { route: snap.anchor } : {}),
                 items: cbug,
+              }),
+          );
+        }
+        // ZERO-CONTRAST: visible text whose resolved foreground exactly equals
+        // its composited backdrop is invisible where it must be read (the
+        // supabase light-mode class). Exact equality only; a text node behind
+        // an overlay or with a transparent color abstains. Same emission shape
+        // as the TUI oracle; the Rust core evaluates it via EXPLORE:ZEROCONTRAST.
+        const zc = await page.evaluate(zeroContrastScan).catch(() => null);
+        if (zc && zc.length) {
+          log(
+            'EXPLORE:ZEROCONTRAST ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: zc,
               }),
           );
         }
