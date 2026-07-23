@@ -41,6 +41,10 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
         include_str!("../../../../../runners/web/flicker-oracle.mjs"),
     ),
     (
+        "dead-input-oracle.mjs",
+        include_str!("../../../../../runners/web/dead-input-oracle.mjs"),
+    ),
+    (
         "choice-oracle.mjs",
         include_str!("../../../../../runners/web/choice-oracle.mjs"),
     ),

@@ -328,6 +328,15 @@ mod tests {
             Oracle::parse("invisible-content"),
             Some(Oracle::ZeroContrast)
         );
+        // Dead-input maps from its invariant AND its kind, and parses from
+        // its --only/--no names + aliases.
+        assert_eq!(
+            classify(&json!({ "invariant": "no-dead-input" })),
+            Oracle::DeadInput
+        );
+        assert_eq!(classify(&json!({ "kind": "DEADINPUT" })), Oracle::DeadInput);
+        assert_eq!(Oracle::parse("dead-input"), Some(Oracle::DeadInput));
+        assert_eq!(Oracle::parse("input-liveness"), Some(Oracle::DeadInput));
         // Raw exception block: falls back to crash.
         assert_eq!(
             classify(&json!({ "kind": "EXCEPTION CAUGHT BY WIDGETS LIBRARY" })),

@@ -37,6 +37,7 @@ import {
   DEFAULT_GRID,
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
+import { deadInputProbe } from './dead-input-oracle.mjs';
 import { scanAccessibilityStateParity } from './accessibility-state-oracle.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './overflow-oracle.mjs';
 import {
@@ -5961,6 +5962,23 @@ async function main() {
                   sig: snap.sig,
                   ...(snap.anchor ? { route: snap.anchor } : {}),
                   items: srt,
+                }),
+            );
+          }
+          // DEAD-INPUT: dispatch a trusted wheel (and a strict-safety-net
+          // keystroke) and prove the input vanished: no event anywhere, no
+          // delta, and no handler claimed it with preventDefault. Modal
+          // interceptors and prevented inputs abstain; a confirmed finding
+          // survived two probes. Self-restoring (offsets, probe char,
+          // pointer). See dead-input-oracle.mjs for the zero-FP guards.
+          const dead = await deadInputProbe(page).catch(() => []);
+          if (dead.length) {
+            log(
+              'EXPLORE:DEADINPUT ' +
+                JSON.stringify({
+                  sig: snap.sig,
+                  ...(snap.anchor ? { route: snap.anchor } : {}),
+                  items: dead,
                 }),
             );
           }

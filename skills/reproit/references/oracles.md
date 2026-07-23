@@ -39,9 +39,12 @@ confidence:
   `permission-walk`.
 - Heuristic or policy-dependent: `content-bug`, `occlusion`, `choice-anomaly`, `broken-route`,
   `security`, `duplicate-submit`, `focus-loss`, corroborated `blank-screen`, `broken-asset`,
-  `zoom-reflow`, and `zero-contrast` (an emphasized glyph run whose resolved foreground exactly
+  `zoom-reflow`, `zero-contrast` (an emphasized glyph run whose resolved foreground exactly
   equals its resolved background, so selected or highlighted content renders invisible; exact
-  colorimetric equality only, TUI first). Visual emptiness alone is diagnostic and abstains.
+  colorimetric equality only, TUI first), and `dead-input` (a runner-injected keystroke or
+  wheel that provably vanished: no event, no value or scroll delta, and no handler claimed it
+  with preventDefault; intentional filters, masks, and custom editors abstain; web first).
+  Visual emptiness alone is diagnostic and abstains.
 - Experimental semantic parity: `accessibility-state`. It remains defaults-off until historical
   red/green cases establish the proof boundary; explicit ARIA overrides and disabled-state
   differences currently abstain.

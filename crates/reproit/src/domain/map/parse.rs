@@ -120,6 +120,12 @@ pub(crate) struct RunObs {
     /// resolved RGB both colors collapsed to. Pure attribute equality on the
     /// settled cell grid, so it re-confirms on replay.
     pub zero_contrast: BTreeMap<String, Vec<(String, String, String)>>,
+    /// sig -> dead-input probes in that state, from `EXPLORE:DEADINPUT`
+    /// records. Each entry is `(key, input, context)`: the probed element's
+    /// stable key, the injected input (`key:a` / `wheel:down`), and the
+    /// element description. The runner controls the input and observed the
+    /// whole event pipeline, so the probe re-confirms on replay.
+    pub dead_inputs: BTreeMap<String, Vec<(String, String, String)>>,
     /// sig -> bounded layout containment checks. VIOLATION and SATISFIED are
     /// retained for exact replay; ABSTAIN is retained so unavailable evidence
     /// can never be mistaken for a fix.
@@ -391,6 +397,7 @@ pub(crate) fn parse_runner_events(events: &[crate::domain::runner::RunnerEvent<'
         paint_flickers: BTreeMap::new(),
         content_bugs: BTreeMap::new(),
         zero_contrast: BTreeMap::new(),
+        dead_inputs: BTreeMap::new(),
         overflow_checks: BTreeMap::new(),
         relations: BTreeMap::new(),
         relation_checks: BTreeMap::new(),
@@ -494,6 +501,30 @@ pub(crate) fn parse_runner_events(events: &[crate::domain::runner::RunnerEvent<'
                     .collect();
                 if !parsed.is_empty() {
                     obs.zero_contrast.insert(sig.to_string(), parsed);
+                }
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:DEADINPUT ") {
+            // Dead-input probes for a state. Keyed by signature (last write
+            // wins); each item is (key, input, context).
+            if let (Some(sig), Some(items)) = (
+                json.get("sig").and_then(Value::as_str),
+                json.get("items").and_then(Value::as_array),
+            ) {
+                let parsed: Vec<(String, String, String)> = items
+                    .iter()
+                    .filter_map(|it| {
+                        let key = it.get("key").and_then(Value::as_str)?.to_string();
+                        let input = it.get("input").and_then(Value::as_str)?.to_string();
+                        let context = it
+                            .get("context")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        Some((key, input, context))
+                    })
+                    .collect();
+                if !parsed.is_empty() {
+                    obs.dead_inputs.insert(sig.to_string(), parsed);
                 }
             }
         } else if let Some(json) = extract(line, "EXPLORE:SECURITY ") {

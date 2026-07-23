@@ -135,6 +135,7 @@ fn obs_with(
             paint_flickers: Default::default(),
             content_bugs: Default::default(),
             zero_contrast: Default::default(),
+            dead_inputs: Default::default(),
             overflow_checks: Default::default(),
             relations: Default::default(),
             relation_checks: Default::default(),

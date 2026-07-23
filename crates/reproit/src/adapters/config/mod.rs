@@ -232,6 +232,13 @@ pub struct InvariantsCfg {
     /// as `EXPLORE:ZEROCONTRAST`.
     #[serde(default = "default_true")]
     pub no_zero_contrast: bool,
+    /// Dead input: a runner-injected input (trusted printable keystroke into
+    /// a focused editable, wheel over a scrollable region with room) that
+    /// provably vanished: no event fired, nothing moved, and no handler
+    /// claimed it with preventDefault. Intentional filters/masks/custom
+    /// editors abstain. Emitted by the web runner as `EXPLORE:DEADINPUT`.
+    #[serde(default = "default_true")]
+    pub no_dead_input: bool,
     /// Blank screen: a settled empty state corroborated by independent
     /// authority such as a first-party exception or renderer crash. Structural
     /// visual emptiness alone is diagnostic and always abstains.
@@ -393,6 +400,7 @@ impl Default for InvariantsCfg {
             no_broken_render: true,
             no_overflow: true,
             no_zero_contrast: true,
+            no_dead_input: true,
             no_blank_screen: true,
             no_broken_asset: true,
             no_zoom_reflow: true,

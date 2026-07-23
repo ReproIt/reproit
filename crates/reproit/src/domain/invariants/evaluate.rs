@@ -140,6 +140,35 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // Dead input: a runner-injected input provably vanished where an effect
+    // is structurally required. The runner observed the whole event pipeline
+    // (no event, no delta, no preventDefault), so the probe is an equality
+    // check and re-confirms on replay.
+    if cfg.no_dead_input {
+        for (sig, items) in &obs.obs.dead_inputs {
+            if items.is_empty() {
+                continue;
+            }
+            let detail = items
+                .iter()
+                .take(3)
+                .map(|(key, input, context)| format!("{key} ({context}): {input}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push(finding(
+                "no-dead-input",
+                "DEADINPUT",
+                format!(
+                    "state {sig} swallows {} injected input(s): {detail} (the input \
+                     produced no event, no value or scroll delta, and no handler \
+                     claimed it, so the input pipeline is broken)",
+                    items.len()
+                ),
+                Some(sig),
+            ));
+        }
+    }
+
     if cfg.no_overflow {
         for (sig, checks) in &obs.obs.overflow_checks {
             for check in checks.iter().filter(|check| {

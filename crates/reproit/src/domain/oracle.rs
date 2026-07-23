@@ -187,6 +187,18 @@ pub enum Oracle {
     /// hide-by-matching tricks on the terminal default never fire. TUI
     /// first; web/desktop variants require the same equality bar.
     ZeroContrast,
+    /// Dead input: a synthetic input the runner itself injected provably
+    /// vanished where an effect is structurally required. Web keystroke
+    /// subset: a trusted printable key into a focused, enabled, non-full
+    /// editable produces no beforeinput/input event, no value or DOM delta,
+    /// no selection move, AND no handler called preventDefault (an
+    /// intentional filter/mask/custom editor abstains). Web scroll subset:
+    /// a wheel over a scrollable region with room in that direction fires
+    /// no scroll event anywhere and moves nothing, with no wheel handler
+    /// preventing default. The runner controls the input and observes the
+    /// whole event pipeline, so "known input, zero effect, nobody consumed
+    /// it" is an equality check, not a judgment.
+    DeadInput,
 }
 
 impl Oracle {
@@ -227,6 +239,7 @@ impl Oracle {
         Oracle::SafeArea,
         Oracle::PermissionWalk,
         Oracle::ZeroContrast,
+        Oracle::DeadInput,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -262,6 +275,7 @@ impl Oracle {
             Oracle::SafeArea => "safe-area",
             Oracle::PermissionWalk => "permission-walk",
             Oracle::ZeroContrast => "zero-contrast",
+            Oracle::DeadInput => "dead-input",
         }
     }
 
@@ -317,6 +331,9 @@ impl Oracle {
             "zero-contrast" | "zerocontrast" | "invisible-content" | "invisible-text" => {
                 Some(Oracle::ZeroContrast)
             }
+            "dead-input" | "deadinput" | "input-liveness" | "swallowed-input" => {
+                Some(Oracle::DeadInput)
+            }
             _ => None,
         }
     }
@@ -367,6 +384,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-safe-area-collision" => return Oracle::SafeArea,
         "no-permission-dead-end" => return Oracle::PermissionWalk,
         "no-zero-contrast" => return Oracle::ZeroContrast,
+        "no-dead-input" => return Oracle::DeadInput,
         _ => {}
     }
     let kind = finding.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -401,6 +419,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "SAFEAREA" => Oracle::SafeArea,
         "PERMISSIONWALK" => Oracle::PermissionWalk,
         "ZEROCONTRAST" => Oracle::ZeroContrast,
+        "DEADINPUT" => Oracle::DeadInput,
         "HANG" => Oracle::Hang,
         // Raw framework exception blocks predate the named no-exception
         // invariant. They are still objective crashes. Everything else stays
