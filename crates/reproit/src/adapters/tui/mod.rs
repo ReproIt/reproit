@@ -447,9 +447,7 @@ pub fn run() -> Result<()> {
             if !invisible.is_empty() {
                 let items: Vec<serde_json::Value> = invisible
                     .iter()
-                    .map(|z| {
-                        serde_json::json!({ "key": z.key, "text": z.text, "color": z.color })
-                    })
+                    .map(|z| serde_json::json!({ "key": z.key, "text": z.text, "color": z.color }))
                     .collect();
                 let payload = serde_json::json!({ "sig": sig, "items": items });
                 emit(&format!("EXPLORE:ZEROCONTRAST {payload}"));

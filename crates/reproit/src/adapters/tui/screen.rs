@@ -258,9 +258,8 @@ pub(super) fn detect_zero_contrast(grid: &[Vec<ColorCell>]) -> Vec<ZeroContrastR
     for (r, row) in grid.iter().enumerate() {
         let mut c = 0;
         while c < row.len() && out.len() < ZERO_CONTRAST_MAX_ITEMS {
-            let invisible = |cell: &ColorCell| {
-                cell.ch != ' ' && cell.emphasized && cell.fg == cell.bg
-            };
+            let invisible =
+                |cell: &ColorCell| cell.ch != ' ' && cell.emphasized && cell.fg == cell.bg;
             if !invisible(&row[c]) {
                 c += 1;
                 continue;
