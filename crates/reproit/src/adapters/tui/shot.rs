@@ -461,10 +461,10 @@ fn idx_rgb(i: u8) -> [u8; 3] {
 /// The default foreground (light gray on a dark terminal) and background (near
 /// black). Matches the look of a typical terminal so a `Default`-colored screen
 /// reads as white-on-black rather than a flat block.
-const DEFAULT_FG: [u8; 3] = [0xc0, 0xc0, 0xc0];
-const DEFAULT_BG: [u8; 3] = [0x0c, 0x0c, 0x0c];
+pub(super) const DEFAULT_FG: [u8; 3] = [0xc0, 0xc0, 0xc0];
+pub(super) const DEFAULT_BG: [u8; 3] = [0x0c, 0x0c, 0x0c];
 
-fn resolve(color: Color, default: [u8; 3]) -> [u8; 3] {
+pub(super) fn resolve(color: Color, default: [u8; 3]) -> [u8; 3] {
     match color {
         Color::Default => default,
         Color::Idx(i) => idx_rgb(i),

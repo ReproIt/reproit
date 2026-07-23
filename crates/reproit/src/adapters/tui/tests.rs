@@ -463,3 +463,102 @@ fn invariant_scrape_dedups_per_state_and_matches_sig() {
     );
     let _ = std::fs::remove_file(&path);
 }
+
+/// Build a color grid where every cell is default-colored except runs painted
+/// via `paint(row, col_range, fg, bg, emphasized)` closures in the test body.
+fn color_grid(rows: &[&str]) -> Vec<Vec<ColorCell>> {
+    rows.iter()
+        .map(|row| {
+            row.chars()
+                .map(|ch| ColorCell {
+                    ch,
+                    fg: shot::DEFAULT_FG,
+                    bg: shot::DEFAULT_BG,
+                    emphasized: false,
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn zero_contrast_fires_on_invisible_emphasized_run() {
+    // The lazygit #831 family: a selected row whose theme sets the selection
+    // background to the same color as the foreground, so the selected entry
+    // is invisible. Exact resolved equality in an emphasis context fires.
+    let mut g = color_grid(&["  feature/login-fix  ", "  main               "]);
+    for cell in &mut g[0][2..19] {
+        cell.fg = [30, 30, 40];
+        cell.bg = [30, 30, 40];
+        cell.emphasized = true;
+    }
+    let runs = detect_zero_contrast(&g);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].key, "pos:0,2");
+    assert_eq!(runs[0].text, "feature/login-fix");
+    assert_eq!(runs[0].color, "rgb(30,30,40)");
+    // Deterministic: same grid -> identical findings (run-to-run / replay).
+    let again = detect_zero_contrast(&g);
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].key, runs[0].key);
+}
+
+#[test]
+fn zero_contrast_stays_silent_on_legitimate_screens() {
+    // A visible selected row (differing fg/bg) never fires.
+    let mut g = color_grid(&["  feature/login-fix  "]);
+    for cell in &mut g[0][2..18] {
+        cell.fg = [255, 255, 255];
+        cell.bg = [30, 30, 40];
+        cell.emphasized = true;
+    }
+    assert!(detect_zero_contrast(&g).is_empty());
+
+    // Hide-by-matching the DEFAULT background (hidden password echo): the
+    // run is not emphasized (default bg), so it never fires even though the
+    // resolved colors are equal.
+    let mut g = color_grid(&["password: hunter42   "]);
+    for cell in &mut g[0][10..18] {
+        cell.fg = shot::DEFAULT_BG;
+        cell.bg = shot::DEFAULT_BG;
+        cell.emphasized = false;
+    }
+    assert!(detect_zero_contrast(&g).is_empty());
+
+    // A short (< 3 cell) invisible artifact never fires.
+    let mut g = color_grid(&["ab cd"]);
+    for cell in &mut g[0][0..2] {
+        cell.fg = [10, 10, 10];
+        cell.bg = [10, 10, 10];
+        cell.emphasized = true;
+    }
+    assert!(detect_zero_contrast(&g).is_empty());
+
+    // A decorative glyph run with no alphanumeric content never fires.
+    let mut g = color_grid(&["────────"]);
+    for cell in &mut g[0][0..8] {
+        cell.fg = [10, 10, 10];
+        cell.bg = [10, 10, 10];
+        cell.emphasized = true;
+    }
+    assert!(detect_zero_contrast(&g).is_empty());
+}
+
+#[test]
+fn zero_contrast_is_bounded_and_stable() {
+    // A whole broken theme cannot flood the marker: capped at 5 items,
+    // sorted by key.
+    let rows: Vec<String> = (0..10).map(|i| format!("entry-number-{i:02} ")).collect();
+    let refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+    let mut g = color_grid(&refs);
+    for row in &mut g {
+        for cell in row.iter_mut() {
+            cell.fg = [20, 20, 20];
+            cell.bg = [20, 20, 20];
+            cell.emphasized = true;
+        }
+    }
+    let runs = detect_zero_contrast(&g);
+    assert_eq!(runs.len(), 5);
+    assert!(runs.windows(2).all(|w| w[0].key <= w[1].key));
+}

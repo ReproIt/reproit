@@ -177,6 +177,16 @@ pub enum Oracle {
     /// permission platform channel; a backend that cannot deny a permission
     /// (web / desktop / TUI) is excluded.
     PermissionWalk,
+    /// Zero-contrast invisible content: a run of rendered glyphs whose
+    /// resolved foreground color exactly equals its resolved background
+    /// color, in a selection/emphasis context (inverse video or an
+    /// explicitly styled background), so the content is invisible where
+    /// visibility is structurally required. Pure colorimetric equality on
+    /// the attributes the app itself emitted; no luminance thresholds and
+    /// no aesthetics. Default-background runs are excluded so deliberate
+    /// hide-by-matching tricks on the terminal default never fire. TUI
+    /// first; web/desktop variants require the same equality bar.
+    ZeroContrast,
 }
 
 impl Oracle {
@@ -216,6 +226,7 @@ impl Oracle {
         Oracle::WakeLock,
         Oracle::SafeArea,
         Oracle::PermissionWalk,
+        Oracle::ZeroContrast,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -250,6 +261,7 @@ impl Oracle {
             Oracle::WakeLock => "wakelock",
             Oracle::SafeArea => "safe-area",
             Oracle::PermissionWalk => "permission-walk",
+            Oracle::ZeroContrast => "zero-contrast",
         }
     }
 
@@ -302,6 +314,9 @@ impl Oracle {
             "permission-walk" | "permissionwalk" | "permission-dead-end" | "permission" => {
                 Some(Oracle::PermissionWalk)
             }
+            "zero-contrast" | "zerocontrast" | "invisible-content" | "invisible-text" => {
+                Some(Oracle::ZeroContrast)
+            }
             _ => None,
         }
     }
@@ -351,6 +366,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "no-wakelock-leak" => return Oracle::WakeLock,
         "no-safe-area-collision" => return Oracle::SafeArea,
         "no-permission-dead-end" => return Oracle::PermissionWalk,
+        "no-zero-contrast" => return Oracle::ZeroContrast,
         _ => {}
     }
     let kind = finding.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -384,6 +400,7 @@ pub fn classify(finding: &Value) -> Oracle {
         "WAKELOCK" => Oracle::WakeLock,
         "SAFEAREA" => Oracle::SafeArea,
         "PERMISSIONWALK" => Oracle::PermissionWalk,
+        "ZEROCONTRAST" => Oracle::ZeroContrast,
         "HANG" => Oracle::Hang,
         // Raw framework exception blocks predate the named no-exception
         // invariant. They are still objective crashes. Everything else stays

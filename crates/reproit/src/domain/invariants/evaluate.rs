@@ -111,6 +111,35 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    // Zero-contrast invisible content: glyph runs whose resolved foreground
+    // equals their resolved background in a selection/emphasis context, so
+    // required content renders invisible. Colorimetric equality on the
+    // attributes the app emitted; deterministic, re-confirms on replay.
+    if cfg.no_zero_contrast {
+        for (sig, items) in &obs.obs.zero_contrast {
+            if items.is_empty() {
+                continue;
+            }
+            let detail = items
+                .iter()
+                .take(3)
+                .map(|(key, text, color)| format!("{key}: {text:?} in {color}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push(finding(
+                "no-zero-contrast",
+                "ZEROCONTRAST",
+                format!(
+                    "state {sig} renders {} invisible zero-contrast run(s): {detail} \
+                     (foreground exactly equals the styled background, so selected or \
+                     emphasized content is unreadable)",
+                    items.len()
+                ),
+                Some(sig),
+            ));
+        }
+    }
+
     if cfg.no_overflow {
         for (sig, checks) in &obs.obs.overflow_checks {
             for check in checks.iter().filter(|check| {

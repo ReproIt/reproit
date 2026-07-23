@@ -224,6 +224,14 @@ pub struct InvariantsCfg {
     /// incomplete samples abstain.
     #[serde(default = "default_true")]
     pub no_overflow: bool,
+    /// Zero-contrast invisible content: a run of rendered glyphs whose
+    /// resolved foreground exactly equals its resolved background in a
+    /// selection/emphasis context (inverse video or an explicitly styled
+    /// background). Colorimetric equality on app-emitted attributes; the
+    /// terminal-default background is excluded. Emitted by the TUI runner
+    /// as `EXPLORE:ZEROCONTRAST`.
+    #[serde(default = "default_true")]
+    pub no_zero_contrast: bool,
     /// Blank screen: a settled empty state corroborated by independent
     /// authority such as a first-party exception or renderer crash. Structural
     /// visual emptiness alone is diagnostic and always abstains.
@@ -384,6 +392,7 @@ impl Default for InvariantsCfg {
             rerender_flicker: true,
             no_broken_render: true,
             no_overflow: true,
+            no_zero_contrast: true,
             no_blank_screen: true,
             no_broken_asset: true,
             no_zoom_reflow: true,

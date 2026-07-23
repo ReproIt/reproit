@@ -174,6 +174,123 @@ pub(super) fn detect_tofu(grid: &[Vec<char>]) -> Vec<(String, String)> {
     out
 }
 
+/// One cell of the color-aware settled-screen snapshot: the glyph, the
+/// RESOLVED foreground and background RGB (inverse video already swapped, so
+/// this is what the viewer sees), and whether the cell is in an emphasis
+/// context (inverse video, or an explicitly styled non-default background).
+/// The resolution reuses `shot.rs::resolve` byte for byte, so oracle equality
+/// is exactly render equality.
+pub(super) struct ColorCell {
+    pub(super) ch: char,
+    pub(super) fg: [u8; 3],
+    pub(super) bg: [u8; 3],
+    pub(super) emphasized: bool,
+}
+
+/// Color-aware sibling of `grid_of`: the settled cell grid with resolved
+/// per-cell colors. Only the zero-contrast oracle pays for this extraction.
+pub(super) fn color_grid_of(parser: &Arc<Mutex<vt100::Parser>>) -> Vec<Vec<ColorCell>> {
+    let p = parser.lock().unwrap();
+    let screen = p.screen();
+    let (rows, cols) = screen.size();
+    let blank = || ColorCell {
+        ch: ' ',
+        fg: shot::DEFAULT_FG,
+        bg: shot::DEFAULT_BG,
+        emphasized: false,
+    };
+    let mut grid: Vec<Vec<ColorCell>> = (0..rows)
+        .map(|_| (0..cols).map(|_| blank()).collect())
+        .collect();
+    for r in 0..rows {
+        for c in 0..cols {
+            if let Some(cell) = screen.cell(r, c) {
+                let ch = cell.contents().chars().next().unwrap_or(' ');
+                let fg = shot::resolve(cell.fgcolor(), shot::DEFAULT_FG);
+                let bg = shot::resolve(cell.bgcolor(), shot::DEFAULT_BG);
+                let styled_bg = !matches!(cell.bgcolor(), vt100::Color::Default);
+                let (fg, bg) = if cell.inverse() { (bg, fg) } else { (fg, bg) };
+                grid[r as usize][c as usize] = ColorCell {
+                    ch,
+                    fg,
+                    bg,
+                    emphasized: cell.inverse() || styled_bg,
+                };
+            }
+        }
+    }
+    grid
+}
+
+/// ZERO-CONTRAST oracle (deterministic, settled-screen attribute scan). A run
+/// of rendered glyphs whose RESOLVED foreground exactly equals its RESOLVED
+/// background is invisible; in an emphasis context (a selected/highlighted row
+/// or any explicitly styled background) invisibility is never intentional --
+/// that is the lazygit/gitui theme-bug family. Guards that keep the zero-FP
+/// bar:
+///   - EXACT RGB equality only, no luminance thresholds (the WCAG-ratio
+///     variant is a judgment call and stays out);
+///   - the run must be EMPHASIZED (inverse video or explicit non-default
+///     background). Hide-by-matching-the-terminal-default (e.g. a hidden
+///     password echoed in the default background color) never fires because
+///     the default background is excluded;
+///   - >= ZERO_CONTRAST_MIN_RUN consecutive such cells with at least one
+///     alphanumeric, so a decorative glyph or single artifact cell cannot
+///     fire.
+/// Pure function of the color grid: the same settled screen yields the same
+/// findings on every run and on replay. Capped so one bad theme cannot flood
+/// the marker.
+const ZERO_CONTRAST_MIN_RUN: usize = 3;
+const ZERO_CONTRAST_MAX_ITEMS: usize = 5;
+
+pub(super) struct ZeroContrastRun {
+    /// `pos:R,C` of the run start (0-based row, col). Stable for a fixed
+    /// settled screen, so the finding id is the same across runs and replays.
+    pub(super) key: String,
+    /// The invisible text (clipped; human detail, key is the identity).
+    pub(super) text: String,
+    /// The shared resolved color both sides collapsed to, `rgb(r,g,b)`.
+    pub(super) color: String,
+}
+
+pub(super) fn detect_zero_contrast(grid: &[Vec<ColorCell>]) -> Vec<ZeroContrastRun> {
+    let mut out: Vec<ZeroContrastRun> = Vec::new();
+    for (r, row) in grid.iter().enumerate() {
+        let mut c = 0;
+        while c < row.len() && out.len() < ZERO_CONTRAST_MAX_ITEMS {
+            let invisible = |cell: &ColorCell| {
+                cell.ch != ' ' && cell.emphasized && cell.fg == cell.bg
+            };
+            if !invisible(&row[c]) {
+                c += 1;
+                continue;
+            }
+            let start = c;
+            while c < row.len() && invisible(&row[c]) {
+                c += 1;
+            }
+            let run = &row[start..c];
+            if run.len() >= ZERO_CONTRAST_MIN_RUN
+                && run.iter().any(|cell| cell.ch.is_alphanumeric())
+            {
+                let text: String = run.iter().map(|cell| cell.ch).take(40).collect();
+                let [red, green, blue] = run[0].fg;
+                out.push(ZeroContrastRun {
+                    key: format!("pos:{r},{start}"),
+                    text,
+                    color: format!("rgb({red},{green},{blue})"),
+                });
+            }
+        }
+        if out.len() >= ZERO_CONTRAST_MAX_ITEMS {
+            break;
+        }
+    }
+    // Stable order: by key, so the marker is byte-identical run to run.
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
+}
+
 // DYNAMIC-TYPE and SCROLL-ROUND-TRIP are excluded on the TUI tier, no ground
 // truth. dynamic-type: a terminal has a FIXED character-cell grid and no OS
 // text scale to bump -- "larger text" is the user's terminal font, outside the

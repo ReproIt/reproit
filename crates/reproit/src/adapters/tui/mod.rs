@@ -437,6 +437,23 @@ pub fn run() -> Result<()> {
                 let payload = serde_json::json!({ "sig": sig, "items": items });
                 emit(&format!("EXPLORE:CONTENTBUG {payload}"));
             }
+            // ZERO-CONTRAST oracle (EXPLORE:ZEROCONTRAST): an emphasized glyph
+            // run whose resolved foreground exactly equals its resolved
+            // background renders invisible where visibility is structurally
+            // required (a selected row, an explicitly styled region). Same
+            // emission rules as CONTENTBUG: once per newly-seen state, keyed
+            // by the same sig, silent when the screen is clean.
+            let invisible = detect_zero_contrast(&color_grid_of(parser));
+            if !invisible.is_empty() {
+                let items: Vec<serde_json::Value> = invisible
+                    .iter()
+                    .map(|z| {
+                        serde_json::json!({ "key": z.key, "text": z.text, "color": z.color })
+                    })
+                    .collect();
+                let payload = serde_json::json!({ "sig": sig, "items": items });
+                emit(&format!("EXPLORE:ZEROCONTRAST {payload}"));
+            }
             // BROKEN-ASSET (tofu) oracle (EXPLORE:BROKENASSET): a cell rendering
             // the U+FFFD replacement character is broken text encoding reaching
             // the screen. Same emission rules as CONTENTBUG: once per newly-seen

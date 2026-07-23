@@ -114,6 +114,12 @@ pub(crate) struct RunObs {
     /// scan, so it re-confirms on replay; empty for runners/states that
     /// render no broken content.
     pub content_bugs: BTreeMap<String, Vec<(String, String, String)>>,
+    /// sig -> zero-contrast invisible runs in that state, from
+    /// `EXPLORE:ZEROCONTRAST` records. Each entry is `(key, text, color)`:
+    /// the run's stable `pos:R,C` key, the invisible text, and the shared
+    /// resolved RGB both colors collapsed to. Pure attribute equality on the
+    /// settled cell grid, so it re-confirms on replay.
+    pub zero_contrast: BTreeMap<String, Vec<(String, String, String)>>,
     /// sig -> bounded layout containment checks. VIOLATION and SATISFIED are
     /// retained for exact replay; ABSTAIN is retained so unavailable evidence
     /// can never be mistaken for a fix.
@@ -384,6 +390,7 @@ pub(crate) fn parse_runner_events(events: &[crate::domain::runner::RunnerEvent<'
         rerenders: BTreeMap::new(),
         paint_flickers: BTreeMap::new(),
         content_bugs: BTreeMap::new(),
+        zero_contrast: BTreeMap::new(),
         overflow_checks: BTreeMap::new(),
         relations: BTreeMap::new(),
         relation_checks: BTreeMap::new(),
@@ -463,6 +470,30 @@ pub(crate) fn parse_runner_events(events: &[crate::domain::runner::RunnerEvent<'
                     .collect();
                 if !parsed.is_empty() {
                     obs.content_bugs.insert(sig.to_string(), parsed);
+                }
+            }
+        } else if let Some(json) = extract(line, "EXPLORE:ZEROCONTRAST ") {
+            // Zero-contrast invisible runs for a state. Keyed by signature
+            // (last write wins); each item is (key, text, color).
+            if let (Some(sig), Some(items)) = (
+                json.get("sig").and_then(Value::as_str),
+                json.get("items").and_then(Value::as_array),
+            ) {
+                let parsed: Vec<(String, String, String)> = items
+                    .iter()
+                    .filter_map(|it| {
+                        let key = it.get("key").and_then(Value::as_str)?.to_string();
+                        let text = it.get("text").and_then(Value::as_str)?.to_string();
+                        let color = it
+                            .get("color")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        Some((key, text, color))
+                    })
+                    .collect();
+                if !parsed.is_empty() {
+                    obs.zero_contrast.insert(sig.to_string(), parsed);
                 }
             }
         } else if let Some(json) = extract(line, "EXPLORE:SECURITY ") {

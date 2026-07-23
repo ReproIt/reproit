@@ -441,6 +441,9 @@ fn is_state_present(oracle: &crate::domain::oracle::Oracle) -> bool {
             // Safe-area is a single-screen geometry check (a control in a device
             // inset is visible on the one screen), so the scan crawl reports it.
             | Oracle::SafeArea
+            // Zero-contrast is a single-screen attribute equality check (the
+            // invisible run is present on the one settled screen).
+            | Oracle::ZeroContrast
     )
     // NB: PermissionWalk is deliberately NOT here. It only exists under a
     // permission-denial ENVIRONMENT sweep and is sequence-dependent (the trap

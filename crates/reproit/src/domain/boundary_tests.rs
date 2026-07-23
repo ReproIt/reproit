@@ -313,6 +313,21 @@ mod tests {
             Some(Oracle::PermissionWalk)
         );
         assert_eq!(Oracle::parse("permission"), Some(Oracle::PermissionWalk));
+        // Zero-contrast maps from its invariant AND its kind, and parses from
+        // its --only/--no names + aliases.
+        assert_eq!(
+            classify(&json!({ "invariant": "no-zero-contrast" })),
+            Oracle::ZeroContrast
+        );
+        assert_eq!(
+            classify(&json!({ "kind": "ZEROCONTRAST" })),
+            Oracle::ZeroContrast
+        );
+        assert_eq!(Oracle::parse("zero-contrast"), Some(Oracle::ZeroContrast));
+        assert_eq!(
+            Oracle::parse("invisible-content"),
+            Some(Oracle::ZeroContrast)
+        );
         // Raw exception block: falls back to crash.
         assert_eq!(
             classify(&json!({ "kind": "EXCEPTION CAUGHT BY WIDGETS LIBRARY" })),
