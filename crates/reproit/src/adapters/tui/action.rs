@@ -1,5 +1,73 @@
 use super::*;
 
+/// The action alphabet: the keys a fuzzer presses, and the bytes they send.
+/// Covers navigation + confirm + the common vim/less/q vocabulary.
+pub(super) const KEYS: &[(&str, &str)] = &[
+    ("Down", "\x1b[B"),
+    ("Up", "\x1b[A"),
+    ("Right", "\x1b[C"),
+    ("Left", "\x1b[D"),
+    ("Enter", "\r"),
+    ("Tab", "\t"),
+    ("Esc", "\x1b"),
+    ("Space", " "),
+    ("slash", "/"),
+    ("star", "*"),
+    ("colon", ":"),
+    // control keys: the classic TUI crash triggers (cancel a prompt, EOF).
+    ("CtrlC", "\x03"),
+    ("CtrlD", "\x04"),
+    // letters: enable text entry (insert mode) and the wide vocabulary of
+    // single-key commands real TUIs bind (vim/helix/gitui/etc.). Each letter's
+    // byte is itself; in an input/insert mode they type text, in normal mode
+    // they fire commands, both are how real crashes get reached.
+    ("a", "a"),
+    ("b", "b"),
+    ("c", "c"),
+    ("d", "d"),
+    ("e", "e"),
+    ("f", "f"),
+    ("g", "g"),
+    ("h", "h"),
+    ("i", "i"),
+    ("j", "j"),
+    ("k", "k"),
+    ("l", "l"),
+    ("m", "m"),
+    ("n", "n"),
+    ("o", "o"),
+    ("p", "p"),
+    ("q", "q"),
+    ("r", "r"),
+    ("s", "s"),
+    ("t", "t"),
+    ("u", "u"),
+    ("v", "v"),
+    ("w", "w"),
+    ("x", "x"),
+    ("y", "y"),
+    ("z", "z"),
+    ("0", "0"),
+    ("1", "1"),
+    ("2", "2"),
+    ("3", "3"),
+    ("4", "4"),
+    ("5", "5"),
+    ("6", "6"),
+    ("7", "7"),
+    ("8", "8"),
+    ("9", "9"),
+    ("dollar", "$"),
+];
+
+/// Keys that are worth pressing in essentially any TUI, regardless of app:
+/// navigation, confirm/cancel, and the classic crash triggers (cancel a prompt,
+/// EOF). These are unioned into every command-aware action space so we never
+/// lose the universal crash paths even when an app advertises a tiny keymap.
+pub(super) const UNIVERSAL: &[&str] = &[
+    "Down", "Up", "Right", "Left", "Enter", "Tab", "Esc", "Space", "slash", "CtrlC", "CtrlD",
+];
+
 pub(super) fn char_to_keyname(c: char) -> Option<String> {
     match c {
         'a'..='z' => Some(c.to_string()),

@@ -55,74 +55,8 @@ const MAP_ACTION_BUDGET: u32 = 72;
 /// share one floor and the emitted bucket is deterministic.
 const STUCK_FLOOR: u32 = 14;
 
-/// The action alphabet: the keys a fuzzer presses, and the bytes they send.
-/// Covers navigation + confirm + the common vim/less/q vocabulary.
-const KEYS: &[(&str, &str)] = &[
-    ("Down", "\x1b[B"),
-    ("Up", "\x1b[A"),
-    ("Right", "\x1b[C"),
-    ("Left", "\x1b[D"),
-    ("Enter", "\r"),
-    ("Tab", "\t"),
-    ("Esc", "\x1b"),
-    ("Space", " "),
-    ("slash", "/"),
-    ("star", "*"),
-    ("colon", ":"),
-    // control keys: the classic TUI crash triggers (cancel a prompt, EOF).
-    ("CtrlC", "\x03"),
-    ("CtrlD", "\x04"),
-    // letters: enable text entry (insert mode) and the wide vocabulary of
-    // single-key commands real TUIs bind (vim/helix/gitui/etc.). Each letter's
-    // byte is itself; in an input/insert mode they type text, in normal mode
-    // they fire commands, both are how real crashes get reached.
-    ("a", "a"),
-    ("b", "b"),
-    ("c", "c"),
-    ("d", "d"),
-    ("e", "e"),
-    ("f", "f"),
-    ("g", "g"),
-    ("h", "h"),
-    ("i", "i"),
-    ("j", "j"),
-    ("k", "k"),
-    ("l", "l"),
-    ("m", "m"),
-    ("n", "n"),
-    ("o", "o"),
-    ("p", "p"),
-    ("q", "q"),
-    ("r", "r"),
-    ("s", "s"),
-    ("t", "t"),
-    ("u", "u"),
-    ("v", "v"),
-    ("w", "w"),
-    ("x", "x"),
-    ("y", "y"),
-    ("z", "z"),
-    ("0", "0"),
-    ("1", "1"),
-    ("2", "2"),
-    ("3", "3"),
-    ("4", "4"),
-    ("5", "5"),
-    ("6", "6"),
-    ("7", "7"),
-    ("8", "8"),
-    ("9", "9"),
-    ("dollar", "$"),
-];
-
-/// Keys that are worth pressing in essentially any TUI, regardless of app:
-/// navigation, confirm/cancel, and the classic crash triggers (cancel a prompt,
-/// EOF). These are unioned into every command-aware action space so we never
-/// lose the universal crash paths even when an app advertises a tiny keymap.
-const UNIVERSAL: &[&str] = &[
-    "Down", "Up", "Right", "Left", "Enter", "Tab", "Esc", "Space", "slash", "CtrlC", "CtrlD",
-];
-
+// The action alphabet (KEYS/UNIVERSAL) lives in action.rs with the rest of
+// the action-space logic.
 /// Map a single advertised character to one of our KEYS names (or None if we
 /// don't model that key). Used by the footer-hint scraper and could be reused
 /// by any "the app told us this key exists" source.
@@ -185,8 +119,22 @@ fn input_file_path() -> &'static str {
     })
 }
 
+mod dead_input;
+use dead_input::{printable_char, DeadInputTracker};
 mod invariants;
 use invariants::*;
+
+/// The visible-cursor position, or None when the app hid it (a hidden cursor
+/// is never a text-entry context for the dead-input oracle).
+fn cursor_of(parser: &Arc<Mutex<vt100::Parser>>) -> Option<(u16, u16)> {
+    let p = parser.lock().unwrap();
+    let s = p.screen();
+    if s.hide_cursor() {
+        None
+    } else {
+        Some(s.cursor_position())
+    }
+}
 /// The target child's resident set size (RSS) in BYTES, or None on failure. RSS
 /// is the OS process analogue of the web runner's v8 `heap_used`: the soak
 /// oracle (modes/soak.rs) reads first-vs-last to compute the per-cycle slope.
@@ -367,6 +315,14 @@ pub fn run() -> Result<()> {
     let mut sessions = 0u32;
     let mut actions_attempted = 0usize;
     let mut actions_effective = 0usize;
+    // DEAD-INPUT (keystroke subset): the append-context state machine and the
+    // per-run dedup of confirmed swallows. See dead_input.rs.
+    let mut dead_tracker = DeadInputTracker::default();
+    let mut dead_seen: BTreeSet<(String, String, char)> = BTreeSet::new();
+    // The steered probe queue (candidate char, proof letter pairs) and the
+    // states already probed, so each text-entry state pays the probe once.
+    let mut dead_probe: std::collections::VecDeque<String> = Default::default();
+    let mut dead_probed: BTreeSet<String> = BTreeSet::new();
     let mut nonzero_exits = 0u32;
     let mut launch_failures = 0u32;
     // Optional frame capture: REPROIT_TUI_FRAMES=path makes us record the real
@@ -633,9 +589,15 @@ pub fn run() -> Result<()> {
                 }
                 None
             };
-            // replay > session seed path (branch-from) > UCB bandit > systematic
+            // replay > dead-input probe > session seed path (branch-from) >
+            // UCB bandit > systematic. The probe queue steers the NEXT normal
+            // actions (recorded in the trace like any other, so a repro path
+            // replays them exactly); it never injects out-of-band input. It is
+            // filled once per state when the tracker proves text entry.
             let act: Option<String> = if let Some(r) = &fuzz.replay {
                 r.get(i).cloned()
+            } else if let Some(probe) = dead_probe.pop_front() {
+                Some(probe)
             } else if let Some(path) = session_seed {
                 if sp < path.len() {
                     let a = path[sp].clone();
@@ -709,6 +671,7 @@ pub fn run() -> Result<()> {
             // and snapshot the full-erase count so the re-render oracle can tell
             // whether this action triggered a full clear+redraw.
             let pre_grid = grid_of(&parser);
+            let pre_cursor = cursor_of(&parser);
             let erases_before = erases.load(Ordering::Relaxed);
             if !bytes.is_empty() {
                 if let Ok(mut w) = writer.lock() {
@@ -780,6 +743,50 @@ pub fn run() -> Result<()> {
 
             let (next_sig, next_fp, is_new) = emit_state(&parser, &mut seen, &mut seen_content);
             inv.flush_for(&next_sig);
+            // DEAD-INPUT (keystroke subset): feed printable keys through the
+            // append-context machine; anything else resets it. A confirmed
+            // swallow (context + zero delta + proof append) emits once per
+            // (state, position, key). See dead_input.rs for the guards.
+            if let Some(ch) = printable_char(key_name) {
+                let post_grid = grid_of(&parser);
+                let post_cursor = cursor_of(&parser);
+                if let Some(hit) =
+                    dead_tracker.observe(ch, &pre_grid, pre_cursor, &post_grid, post_cursor)
+                {
+                    if dead_seen.insert((cur_sig.clone(), hit.key.clone(), hit.ch)) {
+                        let items = vec![serde_json::json!({
+                            "key": hit.key,
+                            "input": format!("key:{}", hit.ch),
+                            "context": "text-entry",
+                        })];
+                        let payload = serde_json::json!({ "sig": cur_sig, "items": items });
+                        emit(&format!("EXPLORE:DEADINPUT {payload}"));
+                    }
+                }
+            } else {
+                dead_tracker.reset();
+                dead_probe.clear();
+            }
+            // Text entry proven for this state: steer the next actions into
+            // the swallow probe (common-victim chars, each followed by a
+            // proof letter) exactly once per state. The tracker itself does
+            // the verdicts as the steered keys flow through the loop above.
+            if dead_tracker.appends() >= dead_input::APPEND_CONTEXT
+                && dead_probe.is_empty()
+                && dead_probed.insert(cur_sig.clone())
+            {
+                for (candidate, proof) in [
+                    ("Space", "e"),
+                    ("slash", "f"),
+                    ("colon", "g"),
+                    ("star", "h"),
+                    ("dollar", "i"),
+                    ("1", "j"),
+                ] {
+                    dead_probe.push_back(format!("key:{candidate}"));
+                    dead_probe.push_back(format!("key:{proof}"));
+                }
+            }
             // Layer-1 effect detection (TUI analogue): an action is EFFECTIVE iff
             // the skeleton signature changed OR the runner-local content
             // fingerprint changed. The fingerprint catches value-only updates (a

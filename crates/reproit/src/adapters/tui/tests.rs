@@ -562,3 +562,119 @@ fn zero_contrast_is_bounded_and_stable() {
     assert_eq!(runs.len(), 5);
     assert!(runs.windows(2).all(|w| w[0].key <= w[1].key));
 }
+
+/// Build (pre, post, cursors) for one keystroke on a 3x20 screen with `line`
+/// as row 1 and the cursor at (1, col).
+fn typed_step(line_before: &str, line_after: &str, col: u16, col_after: u16) -> TypedStep {
+    let pad = |s: &str| -> Vec<char> {
+        let mut v: Vec<char> = s.chars().collect();
+        v.resize(20, ' ');
+        v
+    };
+    let frame = |line: &str| -> Vec<Vec<char>> { vec![pad("header"), pad(line), pad("footer")] };
+    TypedStep {
+        pre: frame(line_before),
+        post: frame(line_after),
+        pre_cursor: Some((1, col)),
+        post_cursor: Some((1, col_after)),
+    }
+}
+
+struct TypedStep {
+    pre: Vec<Vec<char>>,
+    post: Vec<Vec<char>>,
+    pre_cursor: Option<(u16, u16)>,
+    post_cursor: Option<(u16, u16)>,
+}
+
+#[test]
+fn dead_input_fires_on_the_swallow_sandwich() {
+    // Type "ab", swallow 'x' (zero delta), then 'c' appends: the AppFlowy
+    // pattern. The swallow is confirmed by the proof key, one step later.
+    let mut t = dead_input::DeadInputTracker::default();
+    let steps = [
+        ('a', typed_step("> ", "> a", 2, 3)),
+        ('b', typed_step("> a", "> ab", 3, 4)),
+        ('x', typed_step("> ab", "> ab", 4, 4)),
+        ('c', typed_step("> ab", "> abc", 4, 5)),
+    ];
+    let mut hits = Vec::new();
+    for (ch, s) in steps {
+        if let Some(hit) = t.observe(ch, &s.pre, s.pre_cursor, &s.post, s.post_cursor) {
+            hits.push(hit);
+        }
+    }
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].ch, 'x');
+    assert_eq!(hits[0].key, "pos:1,4");
+}
+
+#[test]
+fn dead_input_never_fires_without_the_full_sandwich() {
+    // vim normal mode: no-op keys with zero delta, but NO append context was
+    // ever established, so nothing can arm.
+    let mut t = dead_input::DeadInputTracker::default();
+    for ch in ['g', 'g', 'q'] {
+        let s = typed_step("~", "~", 0, 0);
+        assert!(t
+            .observe(ch, &s.pre, s.pre_cursor, &s.post, s.post_cursor)
+            .is_none());
+    }
+
+    // Full field: 'x' is swallowed AND the next key is also swallowed, so the
+    // proof append never comes and nothing fires.
+    let mut t = dead_input::DeadInputTracker::default();
+    let steps = [
+        ('a', typed_step("[ ", "[ a", 2, 3)),
+        ('b', typed_step("[ a", "[ ab", 3, 4)),
+        ('x', typed_step("[ ab", "[ ab", 4, 4)),
+        ('y', typed_step("[ ab", "[ ab", 4, 4)),
+    ];
+    for (ch, s) in steps {
+        assert!(t
+            .observe(ch, &s.pre, s.pre_cursor, &s.post, s.post_cursor)
+            .is_none());
+    }
+
+    // Dead-key composition: the follow-up appends a COMBINED glyph ('e' types
+    // an 'é'), not its own, so the proof fails and nothing fires.
+    let mut t = dead_input::DeadInputTracker::default();
+    let steps = [
+        ('a', typed_step("> ", "> a", 2, 3)),
+        ('b', typed_step("> a", "> ab", 3, 4)),
+        ('x', typed_step("> ab", "> ab", 4, 4)),
+        ('e', typed_step("> ab", "> ab\u{e9}", 4, 5)),
+    ];
+    for (ch, s) in steps {
+        assert!(t
+            .observe(ch, &s.pre, s.pre_cursor, &s.post, s.post_cursor)
+            .is_none());
+    }
+
+    // A hidden cursor is never text entry: context resets.
+    let mut t = dead_input::DeadInputTracker::default();
+    let s = typed_step("> ", "> a", 2, 3);
+    assert!(t.observe('a', &s.pre, None, &s.post, None).is_none());
+}
+
+#[test]
+fn dead_input_appends_track_insert_and_overwrite_semantics() {
+    // Mid-line INSERT shifts the suffix right: still an exact append.
+    let s = typed_step("> ad", "> abd", 3, 4);
+    assert!(dead_input::appended_exactly(
+        &s.pre,
+        &s.post,
+        (1, 3),
+        (1, 4),
+        'b'
+    ));
+    // A key that moved the cursor without its glyph is NOT an append.
+    let s = typed_step("> ab", "> ab", 4, 5);
+    assert!(!dead_input::appended_exactly(
+        &s.pre,
+        &s.post,
+        (1, 4),
+        (1, 5),
+        'x'
+    ));
+}
