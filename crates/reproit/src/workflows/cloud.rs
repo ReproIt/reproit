@@ -322,7 +322,9 @@ pub(super) async fn cloud_cmd(
                 }
                 (Some(_), true) => unreachable!("clap conflicts_with prevents --bucket + --top"),
             };
-            triage::pull(&loaded.root, &app, &bucket, &as_name, json, cloud, key).await
+            triage::pull(&loaded.root, &app, &bucket, &as_name, json, cloud, key).await?;
+            triage::print_pull_next_step(&as_name, json, triage::PullContinuation::SavedOnly);
+            Ok(())
         }
         CloudAction::Triage {
             app,

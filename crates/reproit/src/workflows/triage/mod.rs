@@ -38,6 +38,7 @@ pub use reproduction::{
 };
 #[allow(unused_imports)] // Preserve the existing crate-level verdict façade.
 pub(crate) use reproduction::{classify_repro, ReproVerdict};
+pub(crate) use reproduction::{print_pull_next_step, PullContinuation};
 pub use setup::{git_toplevel, setup};
 use transport::Cloud;
 #[allow(unused_imports)] // Preserve the device-login response type façade.

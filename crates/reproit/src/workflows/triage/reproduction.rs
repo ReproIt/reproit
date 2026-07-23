@@ -15,6 +15,34 @@ pub(crate) enum ReproVerdict {
     CouldNotReplay,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PullContinuation {
+    ReplayFollows,
+    SavedOnly,
+}
+
+fn pull_next_step(as_name: &str, continuation: PullContinuation) -> Option<String> {
+    match continuation {
+        PullContinuation::ReplayFollows => None,
+        PullContinuation::SavedOnly => Some(format!(
+            "Next: run `reproit @{as_name}` to execute the saved replay against this target."
+        )),
+    }
+}
+
+pub(crate) fn print_pull_next_step(as_name: &str, json: bool, continuation: PullContinuation) {
+    if json {
+        return;
+    }
+    if let Some(message) = pull_next_step(as_name, continuation) {
+        println!("\n{message}");
+    }
+}
+
+fn candidate_fix_next_step(as_name: &str) -> String {
+    format!("Next: test a candidate fix by running `reproit @{as_name}` against the fixed target.")
+}
+
 /// Classify a reproduce run from `reproit check`'s deterministic verdict (its
 /// `--json` `outcome`), falling back to its exit code (1 fail / 2 flaky / 3
 /// stale / 0 pass) if the JSON is unreadable.
@@ -148,8 +176,14 @@ pub async fn reproduce_bucket(
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
-    // (fixture folded in) and prints the save summary + the `check` hint.
+    // (fixture folded in) and prints the save summary.
     pull(root, app, bucket, as_name, json, cloud.clone(), key.clone()).await?;
+    let continuation = if run {
+        PullContinuation::ReplayFollows
+    } else {
+        PullContinuation::SavedOnly
+    };
+    print_pull_next_step(as_name, json, continuation);
     report_reproduction(
         root, app, bucket, as_name, run, run_id, false, false, cloud, key,
     )
@@ -170,6 +204,7 @@ pub async fn verify_tester_capture(
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     pull(root, app, bucket, as_name, json, cloud, key).await?;
+    print_pull_next_step(as_name, json, PullContinuation::ReplayFollows);
     run_check_and_classify(root, as_name, None, false, false)
 }
 
@@ -222,6 +257,12 @@ pub async fn reproduce_bucket_global(
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     let app = pull_global(root, bucket, as_name, json, cloud.clone(), key.clone()).await?;
+    let continuation = if run {
+        PullContinuation::ReplayFollows
+    } else {
+        PullContinuation::SavedOnly
+    };
+    print_pull_next_step(as_name, json, continuation);
     report_reproduction(
         root,
         &app,
@@ -284,6 +325,9 @@ async fn report_reproduction(
         Ok(_) => println!("Reported the verdict to the cloud: {status} (bucket {bucket})."),
         // Best-effort: the local reproduction stands even if the report fails.
         Err(e) => println!("Could not report the verdict to the cloud: {e}"),
+    }
+    if matches!(&verdict, ReproVerdict::Reproduced) {
+        println!("\n{}", candidate_fix_next_step(as_name));
     }
     Ok(verdict)
 }
@@ -597,9 +641,39 @@ fn persist_pulled_package(
         as_name
     );
     println!("  files:     {}", dir.join("meta.json").display());
-    println!(
-        "\nnow run: reproit @{as_name}\ncommit {} with the fix so CI can verify it",
-        dir.display()
-    );
     Ok(())
+}
+
+#[cfg(test)]
+mod messaging_tests {
+    use super::*;
+
+    #[test]
+    fn combined_bucket_run_does_not_tell_the_user_to_run_again() {
+        assert_eq!(
+            pull_next_step("bkt_checkout", PullContinuation::ReplayFollows),
+            None
+        );
+    }
+
+    #[test]
+    fn pull_only_guidance_runs_the_saved_replay_without_assuming_source_access() {
+        let message = pull_next_step("bkt_checkout", PullContinuation::SavedOnly).unwrap();
+        assert_eq!(
+            message,
+            "Next: run `reproit @bkt_checkout` to execute the saved replay against this target."
+        );
+        assert!(!message.contains("commit"));
+        assert!(!message.contains("with the fix"));
+    }
+
+    #[test]
+    fn reproduced_guidance_points_to_a_future_fixed_target() {
+        let message = candidate_fix_next_step("bkt_checkout");
+        assert_eq!(
+            message,
+            "Next: test a candidate fix by running `reproit @bkt_checkout` against the fixed target."
+        );
+        assert!(!message.contains("commit"));
+    }
 }
