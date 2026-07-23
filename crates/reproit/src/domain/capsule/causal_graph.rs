@@ -180,14 +180,40 @@ impl Capsule {
                 index: action.index,
             })
         });
-        candidate.exchanges.retain(|exchange| {
-            !targets.contains(&CausalTarget::Exchange {
-                actor: exchange.actor.clone(),
-                action_index: exchange.action_index,
-                ordinal: exchange.ordinal,
-                exchange_id: exchange.id.clone(),
+        // An exchange whose ACTION is also removed can be deleted outright: the
+        // request will never fire on replay. An exchange removed on its own is
+        // DEMOTED instead (required:false, response stripped): the surviving
+        // action still fires the request at replay, and the runner must be able
+        // to match and abort it, not fail-close on an unknown request.
+        let removed_actions = targets
+            .iter()
+            .filter_map(|target| match target {
+                CausalTarget::Action { actor, index } => Some((actor.clone(), *index)),
+                _ => None,
             })
-        });
+            .collect::<BTreeSet<_>>();
+        candidate.exchanges = candidate
+            .exchanges
+            .drain(..)
+            .filter_map(|mut exchange| {
+                let target = CausalTarget::Exchange {
+                    actor: exchange.actor.clone(),
+                    action_index: exchange.action_index,
+                    ordinal: exchange.ordinal,
+                    exchange_id: exchange.id.clone(),
+                };
+                if !targets.contains(&target) {
+                    return Some(exchange);
+                }
+                if removed_actions.contains(&(exchange.actor.clone(), exchange.action_index)) {
+                    return None;
+                }
+                exchange.required = false;
+                exchange.response_body = None;
+                exchange.response_headers = Default::default();
+                Some(exchange)
+            })
+            .collect();
         candidate.backend_events.retain(|event| {
             !targets.contains(&CausalTarget::BackendEvent {
                 sequence: event.sequence,
@@ -507,6 +533,39 @@ mod tests {
         assert_eq!(reduced.exchanges.len(), 1);
         assert_eq!(reduced.exchanges[0].id, "save");
         assert_eq!(reduced.exchanges[0].action_index, 1);
+        reduced.causal_graph.validate().unwrap();
+    }
+
+    #[test]
+    fn exchange_reduction_demotes_when_its_action_survives() {
+        let capsule = capsule();
+        let open_exchange = capsule
+            .causal_graph
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(
+                    &node.target,
+                    Some(CausalTarget::Exchange { exchange_id, .. }) if exchange_id == "open"
+                )
+            })
+            .unwrap()
+            .id
+            .clone();
+        let reduced = capsule
+            .reduced_without_nodes(&BTreeSet::from([open_exchange]))
+            .unwrap();
+
+        // The surviving action still fires this request at replay, so the
+        // exchange must remain matchable (demoted), never disappear.
+        assert_eq!(reduced.actions.len(), capsule.actions.len());
+        assert_eq!(reduced.exchanges.len(), 2);
+        let open = reduced.exchanges.iter().find(|e| e.id == "open").unwrap();
+        assert!(!open.required);
+        assert!(open.response_body.is_none());
+        assert!(open.response_headers.is_empty());
+        let save = reduced.exchanges.iter().find(|e| e.id == "save").unwrap();
+        assert!(save.required);
         reduced.causal_graph.validate().unwrap();
     }
 

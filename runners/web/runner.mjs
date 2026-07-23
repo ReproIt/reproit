@@ -129,6 +129,9 @@ const BACKEND_ORIGINS = (() => {
 // initial API/config traffic hermetic without conflating it with the first tap.
 let causalActionIndex = 0;
 let causalOrdinal = 0;
+// Set by installCapsuleReplay; called at each batch-run boundary so hermetic
+// exchange matching starts every run with the full exchange budget.
+let capsuleReplayReset = null;
 let backendRequestOrdinal = 0;
 
 // First-party check for the exception oracle: an uncaught error is the app's
@@ -1331,24 +1334,41 @@ function canonicalNetworkUrl(raw) {
 export async function installCapsuleReplay(context, path = process.env.REPROIT_CAPSULE) {
   if (!path) return;
   const capsule = JSON.parse(readFileSync(path, 'utf8'));
-  const exchanges = (capsule.exchanges || []).filter(
-    (e) => e.required && /^(https?|sse)$/.test(e.protocol),
-  );
+  const all = (capsule.exchanges || []).filter((e) => /^(https?|sse)$/.test(e.protocol));
+  // Served: causally required with a captured response -- fulfilled verbatim.
+  // Known-but-unserved: unresolved at capture (status 0: the original run
+  // ended before the response landed) or demoted by causal reduction
+  // (required:false). The capsule KNOWS these requests; the faithful hermetic
+  // replay is to abort them (the failure never saw their responses), never to
+  // fail-close as an unknown request.
+  const exchanges = all.filter((e) => e.required && e.status > 0);
+  const dropped = all.filter((e) => !(e.required && e.status > 0));
   const used = new Set();
+  const usedDropped = new Set();
+  // Batch replays share this process but each run replays the same action
+  // clock from zero, so each run gets the full exchange budget again.
+  capsuleReplayReset = () => {
+    used.clear();
+    usedDropped.clear();
+  };
   await context.route('**/*', async (route) => {
     const req = route.request();
     if (!['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) return route.continue();
     const actionIndex = Math.max(causalActionIndex, 0);
     const wantedUrl = canonicalNetworkUrl(req.url());
-    const idx = exchanges.findIndex(
-      (e, i) =>
-        !used.has(i) &&
-        e.actor === NETWORK_ACTOR &&
-        e.actionIndex === actionIndex &&
-        String(e.method).toUpperCase() === req.method().toUpperCase() &&
-        canonicalNetworkUrl(e.url) === wantedUrl,
-    );
+    const matches = (e) =>
+      e.actor === NETWORK_ACTOR &&
+      e.actionIndex === actionIndex &&
+      String(e.method).toUpperCase() === req.method().toUpperCase() &&
+      canonicalNetworkUrl(e.url) === wantedUrl;
+    const idx = exchanges.findIndex((e, i) => !used.has(i) && matches(e));
     if (idx < 0) {
+      const dropIdx = dropped.findIndex((e, i) => !usedDropped.has(i) && matches(e));
+      if (dropIdx >= 0) {
+        usedDropped.add(dropIdx);
+        log(`CAPSULE:DROP ${dropped[dropIdx].id}`);
+        return route.abort('blockedbyclient');
+      }
       log(`CAPSULE:MISS ${req.method()} ${req.url()} action=${actionIndex}`);
       return route.abort('blockedbyclient');
     }
@@ -5360,6 +5380,7 @@ async function main() {
           responseBody: body,
           required: true,
         });
+        pendingCausal.delete(causal.id);
         if (/json/i.test(contentType)) {
           log(
             'FUZZ:NETWORK ' +
@@ -5380,6 +5401,10 @@ async function main() {
     }
   });
   page.on('requestfailed', (req) => {
+    try {
+      const failedCausal = causalRequests.get(req);
+      if (failedCausal) flushUnresolvedCausal(failedCausal.id);
+    } catch (_) {}
     try {
       const resourceType = req.resourceType();
       if (resourceType !== 'stylesheet' && resourceType !== 'script') return;
@@ -5419,18 +5444,52 @@ async function main() {
   // available for the revisit samples.
   const LISTENERLEAK = process.env.REPROIT_LISTENERLEAK === '1';
   let dupReqLog = null;
+  // Causal requests still awaiting a response. A request in flight at run end
+  // (a crash tears the page down before its response lands) must STILL become
+  // a capsule exchange -- required:false, status:0, no response -- or the
+  // hermetic replay re-fires a request the capsule has never heard of and
+  // fail-closes with CAPSULE:MISS. Keyed by exchange id; entries are removed
+  // when the response fact is appended, flushed as unresolved at teardown and
+  // on requestfailed.
+  const pendingCausal = new Map();
+  const flushUnresolvedCausal = (only) => {
+    for (const [id, stub] of [...pendingCausal]) {
+      if (only && id !== only) continue;
+      appendNetworkFact({
+        version: 1,
+        type: 'exchange',
+        ...stub,
+        status: 0,
+        responseHeaders: {},
+        required: false,
+      });
+      pendingCausal.delete(id);
+    }
+  };
   page.on('request', (req) => {
     if (NETWORK_FILE) {
       try {
         if (['xhr', 'fetch', 'eventsource'].includes(req.resourceType())) {
           const headers = req.headers();
           const ordinal = causalOrdinal++;
-          causalRequests.set(req, {
+          const causal = {
             id: `${NETWORK_ACTOR}-${causalActionIndex}-${ordinal}`,
             actionIndex: causalActionIndex,
             ordinal,
             headers: redactNetworkHeaders(headers),
             body: parseNetworkBody(req.postData(), headers['content-type'] || ''),
+          };
+          causalRequests.set(req, causal);
+          pendingCausal.set(causal.id, {
+            id: causal.id,
+            actor: NETWORK_ACTOR,
+            actionIndex: Math.max(causal.actionIndex, 0),
+            ordinal: causal.ordinal,
+            protocol: new URL(req.url()).protocol.replace(':', ''),
+            method: req.method(),
+            url: req.url(),
+            requestHeaders: causal.headers,
+            requestBody: causal.body,
           });
         }
       } catch (_) {}
@@ -6727,9 +6786,15 @@ async function main() {
       // (method, url) twice. Armed BEFORE the first click so its request counts;
       // the in-page eligibility check between the clicks confirms the control is
       // actually submit-like. Once per (from, action); never on a recorded clip.
-      const dupTapTarget = DUPSUBMIT ? current.tappables.find((e) => e.sel === sel) : null;
+      // Never armed on a replay: a replay must reproduce from the RECORDED
+      // action sequence alone (the probe's own second dispatch was recorded as
+      // a FUZZ:ACT when it fired), or minimization under REPROIT_DUPSUBMIT=1
+      // shrinks the double tap to one and the saved repro silently depends on
+      // the probe env at replay time.
+      const dupTapTarget = DUPSUBMIT && !replay ? current.tappables.find((e) => e.sel === sel) : null;
       const dupProbe =
         DUPSUBMIT &&
+        !replay &&
         !recording &&
         !!dupTapTarget &&
         dupTapTarget.role === 'button' &&
@@ -7094,6 +7159,14 @@ async function main() {
     const fuzz = seeds[i];
     if (isBatch) {
       if (i > 0) await resetToRoot();
+      // Batch runs share this process, but capsule exchange matching and the
+      // causal ids are per-run action clocks: flush any in-flight requests
+      // from the previous run and restart the clock, or hermetic replay can
+      // only ever match exchanges in the first run of a batch.
+      flushUnresolvedCausal();
+      causalActionIndex = 0;
+      causalOrdinal = 0;
+      if (capsuleReplayReset) capsuleReplayReset();
       log(`SEED:BEGIN ${Number(fuzz.seed || 0)}`);
     }
     await runSeed(fuzz);
@@ -7105,6 +7178,10 @@ async function main() {
   // the page down. Without this, a crash on the very last replay step can race
   // the close and be lost under load.
   await page.waitForTimeout(500);
+  // Requests still in flight (a crash ended the run before their responses
+  // landed) become unresolved capsule exchanges so hermetic replay can match
+  // and abort them instead of fail-closing on an unknown request.
+  flushUnresolvedCausal();
   log('JOURNEY DONE');
   log('All tests passed');
   await context.close();

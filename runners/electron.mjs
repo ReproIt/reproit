@@ -3561,9 +3561,12 @@ async function main() {
     // (method, url) twice. Armed BEFORE the first click so its request counts;
     // the in-page eligibility check between the clicks confirms the control is
     // actually submit-like. Once per (from, action); never on a recorded clip.
-    const dupTapTarget = DUPSUBMIT ? current.tappables.find((e) => e.sel === sel) : null;
+    // Never armed on a replay: a replay must reproduce from the RECORDED
+    // action sequence alone (see the web runner's dupProbe note).
+    const dupTapTarget = DUPSUBMIT && !replay ? current.tappables.find((e) => e.sel === sel) : null;
     const dupProbe =
       DUPSUBMIT &&
+      !replay &&
       !recording &&
       !!dupTapTarget &&
       dupTapTarget.role === 'button' &&
@@ -3594,6 +3597,10 @@ async function main() {
       const eligible = await page.evaluate(dupSubmitEligible).catch(() => false);
       if (eligible && page.url() === dupUrlBefore) {
         dupDispatched = await tap(page, sel).catch(() => false);
+        // RECORD the second dispatch into the action sequence (FUZZ:ACT) only
+        // when it actually fired: the walk continues from the post-double-click
+        // state, so a kept repro must replay both clicks or it diverges.
+        if (dupDispatched) log('FUZZ:ACT tap:' + sel);
       }
       if (!dupDispatched) dupReqLog = null;
     }

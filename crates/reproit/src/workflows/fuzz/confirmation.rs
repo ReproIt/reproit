@@ -196,8 +196,14 @@ async fn shrink_causal_nodes(
             }
             let requested = chunk.iter().cloned().collect();
             let candidate = best.reduced_without_nodes(&requested)?;
+            // Exchange reduction can DEMOTE (required:false) instead of
+            // deleting, so compare the served count too, not just lengths.
+            let served = |capsule: &crate::domain::capsule::Capsule| {
+                capsule.exchanges.iter().filter(|e| e.required).count()
+            };
             if candidate.actions.len() == best.actions.len()
                 && candidate.exchanges.len() == best.exchanges.len()
+                && served(&candidate) == served(&best)
                 && candidate.backend_events.len() == best.backend_events.len()
             {
                 continue;
