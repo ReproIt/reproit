@@ -9,6 +9,10 @@ description = "Experimental trace-bound service instrumentation for Reproit"
 
 [dependencies]
 base64 = "0.22"
+reqwest = { workspace = true, features = ["blocking"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
+
+[dev-dependencies]
+reproit-protocol.workspace = true

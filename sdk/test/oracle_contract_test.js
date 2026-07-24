@@ -52,3 +52,18 @@ for (var i = 0; i < sources.length; i++) {
 }
 
 console.log('PASS: every production SDK tags its error event with the `crash` ' + 'oracle');
+
+// The Rust backend SDK's production capture mode is the backend counterpart of
+// the same contract: its 5xx finding frame must carry the first-class
+// `backend-server-error` registry id so ingest's oracle gate accepts it.
+var backendSrc = fs.readFileSync(path.join(root, 'reproit-backend-rs/src/capture.rs'), 'utf8');
+assert.ok(
+  /SERVER_ERROR_ORACLE:\s*&str\s*=\s*"backend-server-error"/.test(backendSrc),
+  'backend-rs capture: expected the backend-server-error oracle id constant',
+);
+assert.ok(
+  /"kind":\s*"finding"[\s\S]{0,400}?"oracle":\s*SERVER_ERROR_ORACLE/.test(backendSrc),
+  'backend-rs capture: finding identity is missing the `backend-server-error` oracle tag',
+);
+
+console.log('PASS: the Rust backend SDK tags its capture finding with `backend-server-error`');

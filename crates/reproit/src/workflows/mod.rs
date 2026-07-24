@@ -207,6 +207,10 @@ where
         Cmd::Debug {
             action: DebugAction::Map { action },
         } => debug_map(cli.config.as_deref(), action, &ctx).await,
+        // Deterministic local re-evaluation of a production backend capture.
+        Cmd::Debug {
+            action: DebugAction::ReplayCapture { file },
+        } => backend_headless::replay_capture(&ctx, &file),
         Cmd::VitestContract {
             cwd,
             test_path,

@@ -1,9 +1,12 @@
 //! Experimental, framework-neutral backend instrumentation.
 //!
-//! Services activate this adapter only when a trusted request carries
-//! `x-reproit-trace`. The resulting response header contains bounded,
-//! trace-bound, structurally redacted events. It is not a public compatibility
-//! surface while backend contracts remain experimental.
+//! Scan-time: services activate this adapter only when a trusted request
+//! carries `x-reproit-trace`. The resulting response header contains bounded,
+//! trace-bound, structurally redacted events. Production: the optional,
+//! config-gated `capture` mode self-samples finished traces (always on 5xx /
+//! failure, optional healthy baseline) and posts them to Cloud ingest; see
+//! `capture.rs`. It is not a public compatibility surface while backend
+//! contracts remain experimental.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Serialize;
@@ -11,6 +14,11 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod capture;
+pub use capture::{
+    Capture, CaptureConfig, CaptureStats, CAPTURE_FORMAT, CAPTURE_VERSION, SERVER_ERROR_ORACLE,
+};
 
 const MAX_EVENTS: usize = 256;
 const MAX_HEADER_BYTES: usize = 60_000;

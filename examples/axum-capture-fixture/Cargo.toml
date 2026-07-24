@@ -1,0 +1,15 @@
+# Standalone fixture crate (not a workspace member): a tiny axum service with
+# a planted 500 that exercises the reproit-backend production capture mode.
+[package]
+name = "axum-capture-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+axum = "0.8"
+reproit-backend = { path = "../../sdk/reproit-backend-rs" }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[workspace]

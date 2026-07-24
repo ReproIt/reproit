@@ -10,6 +10,13 @@ pub(crate) enum DebugAction {
         #[command(subcommand)]
         action: Option<MapAction>,
     },
+    /// Re-evaluate a production backend capture payload (the
+    /// `context.reproitCapture` object on `/v1/errors/:app`) and report
+    /// whether the captured violation still reproduces deterministically.
+    ReplayCapture {
+        /// Path to the capture JSON file.
+        file: PathBuf,
+    },
 }
 
 /// `repro` subcommands: advanced operations that act on an existing repro.

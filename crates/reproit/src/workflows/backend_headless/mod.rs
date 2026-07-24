@@ -809,6 +809,8 @@ mod artifacts;
 use artifacts::{emit_report, persist_findings, persist_run_report, persist_schema_findings};
 mod replay_command;
 pub use replay_command::try_replay;
+mod capture_replay;
+pub use capture_replay::replay_capture;
 use replay_command::{escape_pointer, maybe_reset_target, replay_endpoint, value_as_text};
 fn percent_encode(value: &str) -> String {
     let mut encoded = String::new();
