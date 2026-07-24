@@ -5131,7 +5131,17 @@ async function main() {
   console.log(`JOURNEY[a] step: engine=${ENGINE}`);
   const launchOptions = { headless: HEADLESS };
   if (INSPECT && ENGINE === 'chromium') {
-    launchOptions.args = ['--force-renderer-accessibility'];
+    // Size the visible window to the render viewport so the replayed page fills
+    // the window instead of leaving a black gap. The extra height is the tab and
+    // address-bar chrome, so the page's own 1280x720 content area still matches
+    // the recording; only the OS window is resized to fit it.
+    const vw = Number(process.env.REPROIT_VIEWPORT_W) || 1280;
+    const vh = Number(process.env.REPROIT_VIEWPORT_H) || 720;
+    launchOptions.args = [
+      '--force-renderer-accessibility',
+      `--window-size=${vw},${vh + 88}`,
+      '--window-position=0,0',
+    ];
   }
   const browser = await launchBrowser(launchOptions);
   // Multi-actor scenario: this process plays one actor, pulling from the conductor.
