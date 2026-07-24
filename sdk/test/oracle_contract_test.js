@@ -104,7 +104,49 @@ assert.ok(
     '`backend-server-error` oracle tag',
 );
 
+// The remaining ports each carry the same constant in their language's idiom;
+// the tagged-finding window is tailored to how each builds the finding frame.
+var otherPorts = [
+  [
+    'reproit-backend-rb/lib/reproit_backend_rb/capture.rb',
+    'Ruby backend',
+    /SERVER_ERROR_ORACLE\s*=\s*"backend-server-error"/,
+    /"kind" => "finding"[\s\S]{0,400}?"oracle" => SERVER_ERROR_ORACLE/,
+  ],
+  [
+    'reproit-backend-php/capture.php',
+    'PHP backend',
+    /const SERVER_ERROR_ORACLE\s*=\s*'backend-server-error'/,
+    /'kind' => 'finding'[\s\S]{0,400}?'oracle' => SERVER_ERROR_ORACLE/,
+  ],
+  [
+    'reproit-backend-java/src/main/java/dev/reproit/backend/Capture.java',
+    'Java backend',
+    /SERVER_ERROR_ORACLE\s*=\s*"backend-server-error"/,
+    /identity\.put\("oracle", SERVER_ERROR_ORACLE\)[\s\S]{0,400}?finding\.put\("kind", "finding"\)/,
+  ],
+  [
+    'reproit-backend-dotnet/ReproitBackend/Capture.cs',
+    '.NET backend',
+    /ServerErrorOracle\s*=\s*"backend-server-error"/,
+    /\["kind"\] = "finding"[\s\S]{0,500}?\["oracle"\] = ServerErrorOracle/,
+  ],
+];
+for (var k = 0; k < otherPorts.length; k++) {
+  var oRel = otherPorts[k][0];
+  var oLabel = otherPorts[k][1];
+  var oSrc = fs.readFileSync(path.join(root, oRel), 'utf8');
+  assert.ok(
+    otherPorts[k][2].test(oSrc),
+    oLabel + ' (' + oRel + '): expected the backend-server-error oracle id constant',
+  );
+  assert.ok(
+    otherPorts[k][3].test(oSrc),
+    oLabel + ' (' + oRel + '): finding identity is missing the `backend-server-error` oracle tag',
+  );
+}
+
 console.log(
-  'PASS: every backend SDK (Rust, Node, Python, Go) tags its capture finding with ' +
-    '`backend-server-error`',
+  'PASS: every backend SDK (Rust, Node, Python, Go, Ruby, PHP, Java, .NET) tags its ' +
+    'capture finding with `backend-server-error`',
 );

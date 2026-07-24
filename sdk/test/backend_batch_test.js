@@ -126,8 +126,59 @@ function goSample() {
   return JSON.parse(lines[lines.length - 1]);
 }
 
+function rubySample() {
+  var script = [
+    'require "json"',
+    '$LOAD_PATH.unshift(File.join(%q{' + root + '}, "reproit-backend-rb/lib"))',
+    'require "reproit_backend_rb"',
+    'context = { "trace_id" => "trace-a", "actor" => nil, "action_index" => 0,',
+    '            "build" => nil, "config_contract" => nil }',
+    'trace = ReproitBackendRb::BackendTrace.begin(context, "createOrder",',
+    '  input: { "item" => "widget", "password" => "hunter22", "apiKey" => "sk_live_leak" })',
+    'trace.effect("write", resource: "orders", key: "1")',
+    'trace.finish({ "error" => "boom" }, 500, false, true)',
+    'capture = ReproitBackendRb::Capture.create(endpoint: "http://c/v1/events",',
+    '  api_key: "sk", app_id: "app-demo", build: "1.2.3")',
+    'batch = capture.build_batch([',
+    '  { "operation" => "createOrder", "status" => 500, "events" => trace.events.dup }])',
+    'puts JSON.generate({ batch: batch, header: trace.header,',
+    '                     headerName: "x-reproit-events" })',
+  ].join('\n');
+  var result = child_process.spawnSync('ruby', ['-e', script], { encoding: 'utf8' });
+  assert.strictEqual(result.status, 0, 'ruby sample failed: ' + result.stderr);
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
+function phpSample() {
+  var script = [
+    'require %q@' + path.join(root, 'reproit-backend-php/reproit.php') + '@;',
+    'use ReproitBackend\\BackendTrace; use ReproitBackend\\Capture;',
+    '$context = ["traceId" => "trace-a", "actor" => null, "actionIndex" => 0,',
+    '            "build" => null, "configContract" => null];',
+    '$trace = BackendTrace::begin($context, "createOrder", ["input" =>',
+    '  ["item" => "widget", "password" => "hunter22", "apiKey" => "sk_live_leak"]]);',
+    '$trace->effect("write", ["resource" => "orders", "key" => "1"]);',
+    '$trace->finish(["error" => "boom"], 500, false, true);',
+    '$capture = Capture::create(["endpoint" => "http://c/v1/events",',
+    '  "apiKey" => "sk", "appId" => "app-demo", "build" => "1.2.3"]);',
+    '$batch = $capture->buildBatch([["operation" => "createOrder",',
+    '  "status" => 500, "events" => $trace->events()]]);',
+    'echo json_encode(["batch" => $batch, "header" => $trace->header(),',
+    '  "headerName" => "x-reproit-events"]);',
+  ]
+    .join('\n')
+    .replace(/%q@([^@]*)@/, "'$1'");
+  var result = child_process.spawnSync('php', ['-r', script], { encoding: 'utf8' });
+  assert.strictEqual(result.status, 0, 'php sample failed: ' + result.stderr);
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
 checkSdk('Node backend SDK', nodeSample());
 checkSdk('Python backend SDK', pythonSample());
 checkSdk('Go backend SDK', goSample());
+checkSdk('Ruby backend SDK', rubySample());
+checkSdk('PHP backend SDK', phpSample());
 
 console.log('PASS: backend SDK batches match event-batch-v1 and the oracle/redaction contract');

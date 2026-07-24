@@ -28,6 +28,12 @@ versioned SDK source APIs documented in `docs/stability.md`.
 - Go backend SDK (`reproit-backend-go`, net/http middleware and a Fiber v2
   adapter module) held to the same shared contract tests, and first-class
   feature-gated axum and actix-web middleware in the Rust backend adapter.
+- Ruby (`reproit-backend-rb`, Rack middleware for Rails and Sinatra), PHP
+  (`reproit-backend-php`, PSR-15 middleware and a vanilla adapter), Java
+  (`reproit-backend-java`, jakarta servlet filter covering Spring Boot), and
+  .NET (`reproit-backend-dotnet`, ASP.NET Core middleware) backend SDKs, all
+  wire-compatible with the reference adapter and held to the shared
+  event-batch and oracle-tagging contract tests.
 - One CLI workflow across web, mobile, desktop, terminal, Electron, and Tauri
   targets.
 - Confirmed finding replay, minimization, saved regression suites, evidence
