@@ -11,7 +11,9 @@ persisted formats used by this surface on the stable Chromium web target:
 - `login`, `bugs`, `triage`, `timeline`, and `resolution-events`;
 - `reproit.yaml`, saved repros, event protocol version 1, and published release
   archives; and
-- the SDK source APIs and wire behavior documented under `sdk/` for the 1.0 tag.
+- the SDK source APIs and wire behavior documented under `sdk/` for the 1.0 tag,
+  including the backend trace adapters, backend contract oracles, and capture
+  mode.
 
 Patch releases may add optional JSON fields. They do not remove fields, change a
 field's meaning, reinterpret an exit code, or broaden a finding predicate.
@@ -25,7 +27,6 @@ until their contracts have field evidence from at least two independent uses:
 
 - Firefox, WebKit, mobile, desktop, terminal, Electron, and Tauri adapters;
 - specialist oracles selected explicitly with `--only`;
-- backend contract discovery;
 - `debug map` analysis and contract suggestions;
 - `baseline`, `screenshots`, and `import maestro`;
 - multi-actor coordination and advanced causal environment reduction; and
