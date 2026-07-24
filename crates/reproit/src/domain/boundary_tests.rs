@@ -48,7 +48,7 @@ mod tests {
             .iter()
             .map(|v| v.as_str().expect("each oracle id is a string").to_string())
             .collect();
-        let actual: BTreeSet<String> = Oracle::ALL.iter().map(|o| o.as_str().to_string()).collect();
+        let actual: BTreeSet<String> = ORACLES.iter().map(|m| m.id.to_string()).collect();
         assert_eq!(
             listed, actual,
             "oracle-registry.json is out of sync with Oracle::ALL. Update the JSON to match, then \
@@ -84,6 +84,64 @@ mod tests {
         assert_eq!(code, authoritative);
     }
 
+    // The ORACLES metadata table is the code source of truth for oracle
+    // identity. Every enum variant must have exactly one row, and no id,
+    // alias, invariant id, or kind token may resolve to two rows, or parse
+    // and classify become order-dependent.
+    #[test]
+    fn oracle_table_has_one_unambiguous_row_per_variant() {
+        assert_eq!(ORACLES.len(), 32, "row count tracks the Oracle enum");
+        let mut ids = BTreeSet::new();
+        let mut names = BTreeSet::new();
+        let mut invariants = BTreeSet::new();
+        let mut kinds = BTreeSet::new();
+        for m in ORACLES {
+            assert_eq!(Oracle::parse(m.id), Some(m.oracle), "{} parses", m.id);
+            assert_eq!(m.oracle.as_str(), m.id);
+            assert!(ids.insert(m.id), "duplicate row for {}", m.id);
+            assert!(names.insert(m.id), "id {} collides", m.id);
+            for a in m.aliases {
+                assert!(names.insert(a), "alias {a} of {} collides", m.id);
+            }
+            for i in m.invariants {
+                assert!(invariants.insert(i), "invariant {i} maps to two rows");
+            }
+            for k in m.kinds {
+                assert!(kinds.insert(k), "kind {k} maps to two rows");
+            }
+        }
+    }
+
+    // CROSS-REPO DRIFT GUARD. The registry's `severity` map is the cloud's
+    // ranking policy for structured oracle ids (ingest/impact.rs derives its
+    // Severity table from it). Failing HERE, before the fixture is repinned,
+    // keeps "add an oracle" a one-repo change: id + tier + severity all land
+    // in oracle-registry.json together.
+    #[test]
+    fn severity_map_classifies_every_oracle_exactly_once() {
+        const REGISTRY: &str = include_str!("../../oracle-registry.json");
+        let doc: Value = serde_json::from_str(REGISTRY).unwrap();
+        let severity = doc["severity"].as_object().unwrap();
+        let expected_classes: BTreeSet<&str> =
+            ["crash", "leak", "operability", "jank", "unclassified"]
+                .into_iter()
+                .collect();
+        assert_eq!(
+            severity.keys().map(String::as_str).collect::<BTreeSet<_>>(),
+            expected_classes
+        );
+
+        let mut assigned = BTreeSet::new();
+        for ids in severity.values() {
+            for id in ids.as_array().unwrap() {
+                let id = id.as_str().unwrap();
+                assert!(assigned.insert(id), "oracle {id} has two severities");
+            }
+        }
+        let all = ORACLES.iter().map(|m| m.id).collect();
+        assert_eq!(assigned, all, "every oracle must have one severity class");
+    }
+
     #[test]
     fn confidence_audit_classifies_every_oracle_exactly_once() {
         const REGISTRY: &str = include_str!("../../oracle-registry.json");
@@ -112,7 +170,7 @@ mod tests {
                 assert!(audited.insert(id), "oracle {id} appears in multiple tiers");
             }
         }
-        let all = Oracle::ALL.iter().map(|oracle| oracle.as_str()).collect();
+        let all = ORACLES.iter().map(|m| m.id).collect();
         assert_eq!(audited, all, "every oracle must have one confidence tier");
     }
 
@@ -347,8 +405,8 @@ mod tests {
     #[test]
     fn oracle_filter_default_allows_everything() {
         let f = OracleFilter::all();
-        for &o in Oracle::ALL {
-            assert_eq!(f.allows(o), o != Oracle::Unclassified);
+        for m in ORACLES {
+            assert_eq!(f.allows(m.oracle), m.oracle != Oracle::Unclassified);
         }
     }
 

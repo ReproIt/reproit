@@ -201,141 +201,317 @@ pub enum Oracle {
     DeadInput,
 }
 
+/// One row of oracle metadata: everything the CLI knows about a category
+/// besides its evaluation logic. `as_str`, `parse`, `classify`, and the
+/// stable default set all derive from `ORACLES`, and the drift tests pin the
+/// table to `oracle-registry.json`, so adding an oracle is one row here plus
+/// its registry entry (id, confidence tier, severity class).
+pub struct OracleMeta {
+    pub oracle: Oracle,
+    /// Canonical lowercase tag stamped on findings; the registry id.
+    pub id: &'static str,
+    /// Extra `--only`/`--no` spellings accepted by `parse`.
+    pub aliases: &'static [&'static str],
+    /// Finding `invariant` ids that classify into this category.
+    pub invariants: &'static [&'static str],
+    /// Finding `kind` tokens (uppercase) that classify into this category.
+    pub kinds: &'static [&'static str],
+    /// Member of the stable default surface (registry `stable_defaults`);
+    /// every stable oracle has an authoritative predicate and an exact
+    /// replay branch.
+    pub stable: bool,
+}
+
+/// The single oracle metadata table. Order matches the `Oracle` enum.
+pub const ORACLES: &[OracleMeta] = &[
+    OracleMeta {
+        oracle: Oracle::Unclassified,
+        id: "unclassified",
+        aliases: &[],
+        invariants: &[],
+        kinds: &[],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Crash,
+        id: "crash",
+        aliases: &["exception", "exceptions"],
+        invariants: &["no-exception"],
+        kinds: &["EXCEPTION", "CRASH", "SIGNAL"],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::Jank,
+        id: "jank",
+        aliases: &["perf", "performance"],
+        invariants: &["no-jank"],
+        kinds: &["PERF"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Leak,
+        id: "leak",
+        aliases: &["memory"],
+        // Listener/DOM-node leak across repeated route visits: the same Leak
+        // oracle class as the soak/memory signal, just detected structurally.
+        invariants: &["no-leak", "no-listener-leak"],
+        kinds: &["LEAK", "LISTENERLEAK"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Visual,
+        id: "visual",
+        aliases: &[],
+        invariants: &[],
+        kinds: &["VISUAL"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Flicker,
+        id: "flicker",
+        aliases: &["flash"],
+        invariants: &["rerender-flicker", "paint-flicker"],
+        kinds: &["FLICKER"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Divergence,
+        id: "divergence",
+        aliases: &["diverge", "diff"],
+        invariants: &[],
+        kinds: &["DIVERGENCE"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::ContentBug,
+        id: "content-bug",
+        aliases: &["content", "contentbug", "broken-render"],
+        invariants: &["no-broken-render"],
+        kinds: &["CONTENTBUG"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Overflow,
+        id: "overflow",
+        aliases: &["layout-overflow", "clipping"],
+        invariants: &["no-layout-overflow"],
+        kinds: &["OVERFLOW"],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::Hang,
+        id: "hang",
+        aliases: &["freeze", "frozen", "no-progress"],
+        invariants: &["no-hang"],
+        kinds: &["HANG"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Occlusion,
+        id: "occlusion",
+        aliases: &["occluded", "blocked-control"],
+        invariants: &["no-occluded-control"],
+        kinds: &["OCCLUSION"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::DetachedIndicator,
+        id: "detached-indicator",
+        aliases: &["detachedindicator", "indicator", "badge"],
+        invariants: &["no-detached-indicator"],
+        kinds: &["DETACHEDINDICATOR"],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::AccessibilityState,
+        id: "accessibility-state",
+        aliases: &["a11y-state", "semantic-state"],
+        invariants: &["no-accessibility-state-mismatch"],
+        kinds: &["A11YSTATE"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::ChoiceAnomaly,
+        id: "choice-anomaly",
+        aliases: &["choice", "choicebug", "anomaly"],
+        invariants: &["no-choice-anomaly"],
+        kinds: &[],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::BrokenRoute,
+        id: "broken-route",
+        aliases: &["broken-link", "not-found", "404", "deadlink"],
+        invariants: &["no-broken-route"],
+        kinds: &[],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Security,
+        id: "security",
+        aliases: &["sec", "mixed-content", "tabnabbing"],
+        invariants: &[],
+        kinds: &["SECURITY"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::StuckKeyboard,
+        id: "stuck-keyboard",
+        aliases: &["keyboard", "ime", "soft-keyboard"],
+        invariants: &["no-stuck-keyboard"],
+        kinds: &["STUCKKEYBOARD"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::DuplicateSubmit,
+        id: "duplicate-submit",
+        aliases: &["dupsubmit", "double-submit"],
+        invariants: &["no-duplicate-submit"],
+        kinds: &["DUPSUBMIT"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::FocusLoss,
+        id: "focus-loss",
+        aliases: &["focusloss"],
+        invariants: &["no-focus-loss"],
+        kinds: &["FOCUSLOSS"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::BlankScreen,
+        id: "blank-screen",
+        aliases: &["blankscreen", "white-screen"],
+        invariants: &["no-blank-screen"],
+        kinds: &["BLANKSCREEN"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::BrokenAsset,
+        id: "broken-asset",
+        aliases: &["brokenasset", "dead-asset", "tofu"],
+        invariants: &["no-broken-asset"],
+        kinds: &["BROKENASSET"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::ZoomReflow,
+        id: "zoom-reflow",
+        aliases: &["zoomreflow", "reflow", "zoom"],
+        invariants: &["no-reflow-break"],
+        kinds: &["ZOOMREFLOW"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Invariant,
+        id: "invariant",
+        aliases: &["assertion", "app-invariant", "custom-invariant"],
+        // Both the app-registered invariant path and the CLI-config `custom`
+        // regex rules emit kind INVARIANT; bucket both here (previously they
+        // fell through to Crash).
+        invariants: &["app-invariant"],
+        kinds: &["INVARIANT"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::Contract,
+        id: "contract",
+        aliases: &["temporal-contract", "property"],
+        invariants: &[],
+        kinds: &["TEMPORAL-CONTRACT"],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::Rotation,
+        id: "rotation",
+        aliases: &["rotate", "orientation", "split-screen"],
+        invariants: &["no-rotation-loss"],
+        kinds: &["ROTATION"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::BackgroundRestore,
+        id: "background-restore",
+        aliases: &["background", "bg-restore", "lifecycle", "backgrounded"],
+        invariants: &["no-background-loss"],
+        kinds: &["BGRESTORE"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::ScrollRoundTrip,
+        id: "scroll-round-trip",
+        aliases: &[
+            "scrollroundtrip",
+            "scroll-recycle",
+            "list-recycle",
+            "recycle",
+        ],
+        invariants: &["no-scroll-recycle"],
+        kinds: &["SCROLLROUNDTRIP"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::WakeLock,
+        id: "wakelock",
+        aliases: &["wake-lock", "wakelocks", "keep-screen-on", "battery"],
+        invariants: &["no-wakelock-leak"],
+        kinds: &["WAKELOCK"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::SafeArea,
+        id: "safe-area",
+        aliases: &["safearea", "safe-area-inset", "notch"],
+        invariants: &["no-safe-area-collision"],
+        kinds: &["SAFEAREA"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::PermissionWalk,
+        id: "permission-walk",
+        aliases: &["permissionwalk", "permission-dead-end", "permission"],
+        invariants: &["no-permission-dead-end"],
+        kinds: &["PERMISSIONWALK"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::ZeroContrast,
+        id: "zero-contrast",
+        aliases: &["zerocontrast", "invisible-content", "invisible-text"],
+        invariants: &["no-zero-contrast"],
+        kinds: &["ZEROCONTRAST"],
+        stable: false,
+    },
+    OracleMeta {
+        oracle: Oracle::DeadInput,
+        id: "dead-input",
+        aliases: &["deadinput", "input-liveness", "swallowed-input"],
+        invariants: &["no-dead-input"],
+        kinds: &["DEADINPUT"],
+        stable: false,
+    },
+];
+
 impl Oracle {
-    /// Every oracle category, the single list to iterate. Used by the drift
-    /// tests (skills coverage, default-filter) as the source of truth; add a
-    /// variant here when you add one above. Test-only today, so gated to avoid
-    /// a dead-code warning in the binary build.
-    #[cfg(test)]
-    pub const ALL: &'static [Oracle] = &[
-        Oracle::Unclassified,
-        Oracle::Crash,
-        Oracle::Jank,
-        Oracle::Leak,
-        Oracle::Visual,
-        Oracle::Flicker,
-        Oracle::Divergence,
-        Oracle::ContentBug,
-        Oracle::Overflow,
-        Oracle::Hang,
-        Oracle::Occlusion,
-        Oracle::DetachedIndicator,
-        Oracle::AccessibilityState,
-        Oracle::ChoiceAnomaly,
-        Oracle::BrokenRoute,
-        Oracle::Security,
-        Oracle::StuckKeyboard,
-        Oracle::DuplicateSubmit,
-        Oracle::FocusLoss,
-        Oracle::BlankScreen,
-        Oracle::BrokenAsset,
-        Oracle::ZoomReflow,
-        Oracle::Invariant,
-        Oracle::Contract,
-        Oracle::Rotation,
-        Oracle::BackgroundRestore,
-        Oracle::ScrollRoundTrip,
-        Oracle::WakeLock,
-        Oracle::SafeArea,
-        Oracle::PermissionWalk,
-        Oracle::ZeroContrast,
-        Oracle::DeadInput,
-    ];
+    fn meta(self) -> &'static OracleMeta {
+        ORACLES
+            .iter()
+            .find(|m| m.oracle == self)
+            .expect("every Oracle variant has an ORACLES row")
+    }
 
     pub fn as_str(self) -> &'static str {
-        match self {
-            Oracle::Unclassified => "unclassified",
-            Oracle::Crash => "crash",
-            Oracle::Jank => "jank",
-            Oracle::Leak => "leak",
-            Oracle::Visual => "visual",
-            Oracle::Flicker => "flicker",
-            Oracle::Divergence => "divergence",
-            Oracle::ContentBug => "content-bug",
-            Oracle::Overflow => "overflow",
-            Oracle::Hang => "hang",
-            Oracle::Occlusion => "occlusion",
-            Oracle::DetachedIndicator => "detached-indicator",
-            Oracle::AccessibilityState => "accessibility-state",
-            Oracle::ChoiceAnomaly => "choice-anomaly",
-            Oracle::BrokenRoute => "broken-route",
-            Oracle::Security => "security",
-            Oracle::StuckKeyboard => "stuck-keyboard",
-            Oracle::DuplicateSubmit => "duplicate-submit",
-            Oracle::FocusLoss => "focus-loss",
-            Oracle::BlankScreen => "blank-screen",
-            Oracle::BrokenAsset => "broken-asset",
-            Oracle::ZoomReflow => "zoom-reflow",
-            Oracle::Invariant => "invariant",
-            Oracle::Contract => "contract",
-            Oracle::Rotation => "rotation",
-            Oracle::BackgroundRestore => "background-restore",
-            Oracle::ScrollRoundTrip => "scroll-round-trip",
-            Oracle::WakeLock => "wakelock",
-            Oracle::SafeArea => "safe-area",
-            Oracle::PermissionWalk => "permission-walk",
-            Oracle::ZeroContrast => "zero-contrast",
-            Oracle::DeadInput => "dead-input",
-        }
+        self.meta().id
     }
 
     /// Parse a category name (case-insensitive, with a few aliases) into an
     /// `Oracle`. Unrecognized names return None so the caller can warn.
     pub fn parse(name: &str) -> Option<Oracle> {
-        match name.trim().to_ascii_lowercase().as_str() {
-            "unclassified" => Some(Oracle::Unclassified),
-            "crash" | "exception" | "exceptions" => Some(Oracle::Crash),
-            "jank" | "perf" | "performance" => Some(Oracle::Jank),
-            "leak" | "memory" => Some(Oracle::Leak),
-            "visual" => Some(Oracle::Visual),
-            "flicker" | "flash" => Some(Oracle::Flicker),
-            "divergence" | "diverge" | "diff" => Some(Oracle::Divergence),
-            "content-bug" | "content" | "contentbug" | "broken-render" => Some(Oracle::ContentBug),
-            "overflow" | "layout-overflow" | "clipping" => Some(Oracle::Overflow),
-            "hang" | "freeze" | "frozen" | "no-progress" => Some(Oracle::Hang),
-            "occlusion" | "occluded" | "blocked-control" => Some(Oracle::Occlusion),
-            "detached-indicator" | "detachedindicator" | "indicator" | "badge" => {
-                Some(Oracle::DetachedIndicator)
-            }
-            "accessibility-state" | "a11y-state" | "semantic-state" => {
-                Some(Oracle::AccessibilityState)
-            }
-            "choice-anomaly" | "choice" | "choicebug" | "anomaly" => Some(Oracle::ChoiceAnomaly),
-            "broken-route" | "broken-link" | "not-found" | "404" | "deadlink" => {
-                Some(Oracle::BrokenRoute)
-            }
-            "security" | "sec" | "mixed-content" | "tabnabbing" => Some(Oracle::Security),
-            "stuck-keyboard" | "keyboard" | "ime" | "soft-keyboard" => Some(Oracle::StuckKeyboard),
-            "duplicate-submit" | "dupsubmit" | "double-submit" => Some(Oracle::DuplicateSubmit),
-            "focus-loss" | "focusloss" => Some(Oracle::FocusLoss),
-            "blank-screen" | "blankscreen" | "white-screen" => Some(Oracle::BlankScreen),
-            "broken-asset" | "brokenasset" | "dead-asset" | "tofu" => Some(Oracle::BrokenAsset),
-            "zoom-reflow" | "zoomreflow" | "reflow" | "zoom" => Some(Oracle::ZoomReflow),
-            "invariant" | "assertion" | "app-invariant" | "custom-invariant" => {
-                Some(Oracle::Invariant)
-            }
-            "contract" | "temporal-contract" | "property" => Some(Oracle::Contract),
-            "rotation" | "rotate" | "orientation" | "split-screen" => Some(Oracle::Rotation),
-            "background-restore" | "background" | "bg-restore" | "lifecycle" | "backgrounded" => {
-                Some(Oracle::BackgroundRestore)
-            }
-            "scroll-round-trip" | "scrollroundtrip" | "scroll-recycle" | "list-recycle"
-            | "recycle" => Some(Oracle::ScrollRoundTrip),
-            "wakelock" | "wake-lock" | "wakelocks" | "keep-screen-on" | "battery" => {
-                Some(Oracle::WakeLock)
-            }
-            "safe-area" | "safearea" | "safe-area-inset" | "notch" => Some(Oracle::SafeArea),
-            "permission-walk" | "permissionwalk" | "permission-dead-end" | "permission" => {
-                Some(Oracle::PermissionWalk)
-            }
-            "zero-contrast" | "zerocontrast" | "invisible-content" | "invisible-text" => {
-                Some(Oracle::ZeroContrast)
-            }
-            "dead-input" | "deadinput" | "input-liveness" | "swallowed-input" => {
-                Some(Oracle::DeadInput)
-            }
-            _ => None,
-        }
+        let name = name.trim().to_ascii_lowercase();
+        ORACLES
+            .iter()
+            .find(|m| m.id == name || m.aliases.contains(&name.as_str()))
+            .map(|m| m.oracle)
     }
 }
 
@@ -354,86 +530,28 @@ pub fn classify(finding: &Value) -> Oracle {
         .get("invariant")
         .and_then(Value::as_str)
         .unwrap_or("");
-    match invariant {
-        "no-exception" => return Oracle::Crash,
-        "no-jank" => return Oracle::Jank,
-        "no-leak" => return Oracle::Leak,
-        // Listener/DOM-node leak across repeated route visits: the same Leak
-        // oracle class as the soak/memory signal, just detected structurally.
-        "no-listener-leak" => return Oracle::Leak,
-        "rerender-flicker" | "paint-flicker" => return Oracle::Flicker,
-        "no-broken-render" => return Oracle::ContentBug,
-        "no-layout-overflow" => return Oracle::Overflow,
-        "no-hang" => return Oracle::Hang,
-        "no-occluded-control" => return Oracle::Occlusion,
-        "no-detached-indicator" => return Oracle::DetachedIndicator,
-        "no-accessibility-state-mismatch" => return Oracle::AccessibilityState,
-        "no-choice-anomaly" => return Oracle::ChoiceAnomaly,
-        "no-broken-route" => return Oracle::BrokenRoute,
-        "no-stuck-keyboard" => return Oracle::StuckKeyboard,
-        "no-duplicate-submit" => return Oracle::DuplicateSubmit,
-        "no-focus-loss" => return Oracle::FocusLoss,
-        "no-blank-screen" => return Oracle::BlankScreen,
-        "no-broken-asset" => return Oracle::BrokenAsset,
-        "no-reflow-break" => return Oracle::ZoomReflow,
-        "app-invariant" => return Oracle::Invariant,
-        "no-rotation-loss" => return Oracle::Rotation,
-        "no-background-loss" => return Oracle::BackgroundRestore,
-        "no-scroll-recycle" => return Oracle::ScrollRoundTrip,
-        "no-wakelock-leak" => return Oracle::WakeLock,
-        "no-safe-area-collision" => return Oracle::SafeArea,
-        "no-permission-dead-end" => return Oracle::PermissionWalk,
-        "no-zero-contrast" => return Oracle::ZeroContrast,
-        "no-dead-input" => return Oracle::DeadInput,
-        _ => {}
-    }
-    let kind = finding.get("kind").and_then(Value::as_str).unwrap_or("");
-    match kind.to_ascii_uppercase().as_str() {
-        "PERF" => Oracle::Jank,
-        "LEAK" => Oracle::Leak,
-        "LISTENERLEAK" => Oracle::Leak,
-        "OCCLUSION" => Oracle::Occlusion,
-        "DETACHEDINDICATOR" => Oracle::DetachedIndicator,
-        "A11YSTATE" => Oracle::AccessibilityState,
-        "VISUAL" => Oracle::Visual,
-        "FLICKER" => Oracle::Flicker,
-        "DIVERGENCE" => Oracle::Divergence,
-        "CONTENTBUG" => Oracle::ContentBug,
-        "OVERFLOW" => Oracle::Overflow,
-        "SECURITY" => Oracle::Security,
-        "STUCKKEYBOARD" => Oracle::StuckKeyboard,
-        "DUPSUBMIT" => Oracle::DuplicateSubmit,
-        "FOCUSLOSS" => Oracle::FocusLoss,
-        "BLANKSCREEN" => Oracle::BlankScreen,
-        "BROKENASSET" => Oracle::BrokenAsset,
-        "ZOOMREFLOW" => Oracle::ZoomReflow,
-        // Both the app-registered invariant path and the CLI-config `custom`
-        // regex rules emit kind INVARIANT; bucket both here (previously they
-        // fell through to Crash).
-        "INVARIANT" => Oracle::Invariant,
-        "TEMPORAL-CONTRACT" => Oracle::Contract,
-        "ROTATION" => Oracle::Rotation,
-        "BGRESTORE" => Oracle::BackgroundRestore,
-        "SCROLLROUNDTRIP" => Oracle::ScrollRoundTrip,
-        "WAKELOCK" => Oracle::WakeLock,
-        "SAFEAREA" => Oracle::SafeArea,
-        "PERMISSIONWALK" => Oracle::PermissionWalk,
-        "ZEROCONTRAST" => Oracle::ZeroContrast,
-        "DEADINPUT" => Oracle::DeadInput,
-        "HANG" => Oracle::Hang,
-        // Raw framework exception blocks predate the named no-exception
-        // invariant. They are still objective crashes. Everything else stays
-        // ABSTAIN so registry drift cannot masquerade as a confirmed crash.
-        value
-            if value == "EXCEPTION"
-                || value == "CRASH"
-                || value == "SIGNAL"
-                || value.starts_with("EXCEPTION CAUGHT BY") =>
-        {
-            Oracle::Crash
+    if !invariant.is_empty() {
+        if let Some(m) = ORACLES.iter().find(|m| m.invariants.contains(&invariant)) {
+            return m.oracle;
         }
-        _ => Oracle::Unclassified,
     }
+    let kind = finding
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    // Raw framework exception blocks predate the named no-exception invariant
+    // (kinds EXCEPTION/CRASH/SIGNAL plus the "EXCEPTION CAUGHT BY ..." prose
+    // prefix). They are still objective crashes. Everything else stays ABSTAIN
+    // so registry drift cannot masquerade as a confirmed crash.
+    if kind.starts_with("EXCEPTION CAUGHT BY") {
+        return Oracle::Crash;
+    }
+    ORACLES
+        .iter()
+        .find(|m| m.kinds.contains(&kind.as_str()))
+        .map(|m| m.oracle)
+        .unwrap_or(Oracle::Unclassified)
 }
 
 /// An oracle include/exclude filter built from `--only` / `--no`. Default
@@ -503,15 +621,7 @@ impl OracleFilter {
     }
 
     pub(super) fn stable_set() -> BTreeSet<&'static str> {
-        [
-            Oracle::Crash,
-            Oracle::Overflow,
-            Oracle::DetachedIndicator,
-            Oracle::Contract,
-        ]
-        .into_iter()
-        .map(Oracle::as_str)
-        .collect()
+        ORACLES.iter().filter(|m| m.stable).map(|m| m.id).collect()
     }
 
     /// Whether a given oracle category passes the filter.

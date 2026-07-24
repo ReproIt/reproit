@@ -174,7 +174,7 @@ fn upsert_section(doc: &str, section: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::oracle::Oracle;
+    use crate::domain::oracle::ORACLES;
     use clap::CommandFactory;
 
     fn all_skill_text() -> String {
@@ -226,8 +226,8 @@ mod tests {
     #[test]
     fn skills_document_every_oracle() {
         let oracles = skill_file("reproit/references/oracles.md");
-        for &o in Oracle::ALL {
-            let tag = o.as_str();
+        for m in ORACLES {
+            let tag = m.id;
             assert!(
                 oracles.contains(&format!("`{tag}`")),
                 "the `{tag}` oracle is not documented in skills/reproit/references/oracles.md \
