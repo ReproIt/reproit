@@ -32,6 +32,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 reproit-protocol = { workspace = true }
 serde_yaml = "0.9"
+# decode the `x-reproit-events` adapter response header (base64url no-pad JSON),
+# same crate family the backend SDK uses to encode it.
+base64 = "0.22"
 graphql-parser = "0.4.1"
 flate2 = "1"
 fs2 = "0.4.3"

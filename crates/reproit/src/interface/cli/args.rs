@@ -308,8 +308,14 @@ pub(crate) enum Cmd {
     /// promotes or updates the saved guard.
     Inspect {
         /// Saved repro id or alias, or a production bucket id to pull first.
+        /// Backend projects also accept a finding id or a captured-production
+        /// payload file (the `debug replay-capture` artifact).
         #[arg(value_name = "REPRO")]
         reference: String,
+        /// Backend only: step through the recorded event trail without
+        /// re-sending any request to a live target.
+        #[arg(long)]
+        offline: bool,
     },
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified

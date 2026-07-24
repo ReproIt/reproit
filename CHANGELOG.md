@@ -4,6 +4,20 @@ All notable user-facing changes are recorded here. ReproIt follows semantic
 versioning for the stable CLI surface, saved repro contract, wire protocol, and
 versioned SDK source APIs documented in `docs/stability.md`.
 
+## Unreleased
+
+### Added
+
+- `reproit inspect` now covers the backend platform: it steps through a backend
+  finding, a capture-bearing production bucket, or a captured-production
+  payload file one operation at a time, live against the configured target by
+  default (with the adapter effect trail and a recorded-vs-live effect diff)
+  or offline over the recorded events (`--offline`, or automatically when no
+  target is reachable). The verdict comes from the unchanged backend check
+  engine over event-sequence prefixes, and the session writes bounded
+  `inspect-transcript.md` / `inspect-transcript.json` evidence without ever
+  touching saved guards.
+
 ## 1.0.0 - 2026-07-24
 
 ### Added

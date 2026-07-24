@@ -306,7 +306,9 @@ where
             )
             .await
         }
-        Cmd::Inspect { reference } => inspect::run(&ctx, cli.config.as_deref(), &reference).await,
+        Cmd::Inspect { reference, offline } => {
+            inspect::run(&ctx, cli.config.as_deref(), &reference, offline).await
+        }
         Cmd::Proof { reference } => {
             let loaded = config::load(cli.config.as_deref())?;
             show_proof(&ctx, &loaded, &reference)?;

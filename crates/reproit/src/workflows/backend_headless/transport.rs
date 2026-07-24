@@ -1,13 +1,45 @@
 use super::*;
 
+/// Scan-time trace identity attached to one inspected request so an
+/// instrumented target returns its effect trail as `x-reproit-events`.
+pub(super) struct InspectTrace {
+    pub(super) trace_id: String,
+    pub(super) action_index: u32,
+}
+
+/// The adapter effect trail of one live invocation. `Absent` and `Malformed`
+/// are distinguished so inspection can say why no trail is shown instead of
+/// treating a broken header as an empty one.
+pub(super) enum AdapterTrail {
+    Absent,
+    Events(Vec<BackendEvent>),
+    Malformed,
+}
+
 pub(super) async fn invoke(
     client: &reqwest::Client,
     endpoint: &Endpoint,
     artifact: RequestArtifact,
 ) -> Result<InvocationResult> {
+    Ok(invoke_traced(client, endpoint, artifact, None).await?.0)
+}
+
+/// `invoke`, plus (when `trace` is set) the scan-time correlation headers on
+/// the request and the decoded `x-reproit-events` trail from the response.
+/// With `trace == None` the request and result are byte-identical to the
+/// pre-existing `invoke` behavior.
+pub(super) async fn invoke_traced(
+    client: &reqwest::Client,
+    endpoint: &Endpoint,
+    artifact: RequestArtifact,
+    trace: Option<InspectTrace>,
+) -> Result<(InvocationResult, AdapterTrail)> {
     if endpoint.transport == Transport::Grpc {
         let output = invoke_grpc(&artifact).await?;
-        return Ok(evaluate_invocation(endpoint, &artifact, 200, output));
+        return Ok((
+            evaluate_invocation(endpoint, &artifact, 200, output),
+            AdapterTrail::Absent,
+        ));
     }
     let method = artifact.method.parse::<reqwest::Method>()?;
     let mut request = client.request(method, &artifact.url);
@@ -20,6 +52,16 @@ pub(super) async fn invoke(
     }
     for (name, value) in extra_headers()?.iter() {
         headers.insert(name.clone(), value.clone());
+    }
+    if let Some(trace) = &trace {
+        headers.insert(
+            HeaderName::from_static("x-reproit-trace"),
+            HeaderValue::from_str(&trace.trace_id)?,
+        );
+        headers.insert(
+            HeaderName::from_static("x-reproit-action"),
+            HeaderValue::from_str(&trace.action_index.to_string())?,
+        );
     }
     request = request.headers(headers);
     if let Some(body) = &artifact.body {
@@ -53,6 +95,11 @@ pub(super) async fn invoke(
         .await
         .with_context(|| format!("calling {} {}", artifact.method, artifact.url))?;
     let status = response.status().as_u16();
+    let adapter = if trace.is_some() {
+        decode_adapter_trail(response.headers().get("x-reproit-events"))
+    } else {
+        AdapterTrail::Absent
+    };
     if response
         .content_length()
         .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
@@ -87,7 +134,37 @@ pub(super) async fn invoke(
         .and_then(|field| raw_output.pointer(&format!("/data/{}", escape_pointer(field))))
         .cloned()
         .unwrap_or(raw_output);
-    Ok(evaluate_invocation(endpoint, &artifact, status, output))
+    Ok((
+        evaluate_invocation(endpoint, &artifact, status, output),
+        adapter,
+    ))
+}
+
+/// SDK adapters encode the finished trace as base64url (no padding) over the
+/// JSON event array, capped at 60 KB by the SDK. Decoding is bounded and a
+/// broken header is reported as `Malformed`, never silently emptied.
+fn decode_adapter_trail(header: Option<&HeaderValue>) -> AdapterTrail {
+    const MAX_TRAIL_HEADER_BYTES: usize = 64 * 1024;
+    let Some(header) = header else {
+        return AdapterTrail::Absent;
+    };
+    let Ok(encoded) = header.to_str() else {
+        return AdapterTrail::Malformed;
+    };
+    if encoded.len() > MAX_TRAIL_HEADER_BYTES {
+        return AdapterTrail::Malformed;
+    }
+    use base64::Engine as _;
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded) else {
+        return AdapterTrail::Malformed;
+    };
+    match serde_json::from_slice::<Vec<BackendEvent>>(&bytes) {
+        Ok(mut events) => {
+            events.sort_by_key(|event| event.sequence);
+            AdapterTrail::Events(events)
+        }
+        Err(_) => AdapterTrail::Malformed,
+    }
 }
 
 pub(super) fn evaluate_invocation(

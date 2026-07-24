@@ -33,8 +33,9 @@ pub use presentation::{buckets, explain, filter_buckets, filter_errors, find, to
 #[allow(unused_imports)]
 // Preserve pure materialization helpers on `crate::workflows::triage`.
 pub use reproduction::{
-    build_replay_json, materialize_pull, pull, pull_global, report_tester_capture,
-    reproduce_bucket, reproduce_bucket_global, verify_tester_capture, PulledRepro,
+    build_replay_json, fetch_bucket_package, materialize_pull, pull, pull_global,
+    report_tester_capture, reproduce_bucket, reproduce_bucket_global, verify_tester_capture,
+    PulledRepro,
 };
 #[allow(unused_imports)] // Preserve the existing crate-level verdict façade.
 pub(crate) use reproduction::{classify_repro, ReproVerdict};

@@ -193,6 +193,24 @@ Flutter projects initialized by an older CLI must first refresh the generated ex
 `reproit init --platform flutter --force`; ReproIt reports this before launching and does not
 silently run an inspection without action pauses.
 
+On a backend project, `reproit inspect` steps through one operation sequence instead of one UI
+action sequence. It accepts a backend finding id (`fnd_...`), a production bucket id (`bkt_...`,
+pulled first when its package carries a `context.reproitCapture` payload), or a
+captured-production payload file (the same artifact `reproit debug replay-capture` accepts). Live
+re-execution is the default: ReproIt attaches to the configured target exactly like backend replay
+does and re-sends the recorded requests one step at a time (Enter runs the next step, C continues
+to failure, Q stops). After each step it shows the request, the response, the live effect trail
+from the SDK adapter's `x-reproit-events` header, a diff of live effects against the recorded
+sequence (matched, missing, unexpected), and which oracle predicates are mid-accumulation (a write
+awaiting its read-back, an idempotency pair half-matched). Overlapping calls covered by a
+`concurrent-update` proof advance together as one grouped multi-actor step. `--offline`, or the
+automatic fallback when no live target is configured or reachable, steps through the recorded
+events only. The verdict comes from the unchanged backend check engine over event-sequence
+prefixes and stops at the first step where the expected violation fires. The session writes
+`inspect-transcript.md` and a bounded `inspect-transcript.json` into
+`.reproit/runs/backend-inspect-*/`; re-sending recorded mutating requests is a replay, and the
+inspection never fuzzes, generates new inputs, or touches saved guards.
+
 `create` captures what the tester actually experienced. It launches the configured app
 by default; `--attach` begins from the current state of an app that is already running. The tester
 uses the app normally and returns to the terminal to stop. Repro It stores an immutable original in

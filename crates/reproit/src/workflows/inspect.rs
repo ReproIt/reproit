@@ -29,9 +29,20 @@ pub(super) async fn run(
     ctx: &Ctx,
     config_path: Option<&Path>,
     raw_reference: &str,
+    offline: bool,
 ) -> Result<ExitCode> {
     if ctx.json || ctx.quiet {
         anyhow::bail!("`reproit inspect` is interactive and does not support --json or --quiet");
+    }
+    if let Some(code) =
+        super::backend_headless::try_inspect(ctx, config_path, raw_reference, offline).await?
+    {
+        return Ok(code);
+    }
+    if offline {
+        anyhow::bail!(
+            "--offline applies to backend inspection; this reference resolves to a UI repro"
+        );
     }
     let loaded = config::load(config_path)?;
     if loaded.config.app.platform == "flutter" {

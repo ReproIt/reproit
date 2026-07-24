@@ -1,29 +1,25 @@
 use super::*;
 use crate::domain::backend::{Authority, IdempotencyResponseReplay};
 
-/// The replayable payload the Rust backend SDK's production capture mode
-/// attaches to a `backend-server-error` finding (`context.reproitCapture`
-/// on `/v1/errors/:app`).
+/// The replayable payload the backend SDKs' production capture mode attaches
+/// to a `backend-server-error` finding (`context.reproitCapture` on
+/// `/v1/errors/:app`).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CaptureArtifact {
+pub(super) struct CaptureArtifact {
     format: String,
     version: u16,
-    operation: String,
-    oracle: String,
-    events: Vec<BackendEvent>,
+    pub(super) operation: String,
+    pub(super) oracle: String,
+    pub(super) events: Vec<BackendEvent>,
 }
 
-/// `reproit debug replay-capture <file>`: deterministically re-evaluate a
-/// captured production event sequence against the backend oracles and report
-/// whether the captured violation reproduces. The capture is the witness, so
-/// each operation gets a synthesized declared contract with an open input
-/// domain; the oracle predicates themselves are unchanged.
-pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
-    let artifact: CaptureArtifact = serde_json::from_slice(
-        &std::fs::read(file).with_context(|| format!("read {}", file.display()))?,
-    )
-    .context("capture file is not a reproit-backend-capture payload")?;
+/// Parse and validate a captured-production payload. Shared by
+/// `debug replay-capture` and backend inspection so both accept exactly the
+/// same artifact.
+pub(super) fn parse_capture(bytes: &[u8]) -> Result<CaptureArtifact> {
+    let artifact: CaptureArtifact = serde_json::from_slice(bytes)
+        .context("capture file is not a reproit-backend-capture payload")?;
     if artifact.format != "reproit-backend-capture" {
         bail!("unsupported capture format {:?}", artifact.format);
     }
@@ -33,6 +29,17 @@ pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
     if artifact.events.is_empty() {
         bail!("capture has no events to replay");
     }
+    Ok(artifact)
+}
+
+/// `reproit debug replay-capture <file>`: deterministically re-evaluate a
+/// captured production event sequence against the backend oracles and report
+/// whether the captured violation reproduces. The capture is the witness, so
+/// each operation gets a synthesized declared contract with an open input
+/// domain; the oracle predicates themselves are unchanged.
+pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
+    let artifact =
+        parse_capture(&std::fs::read(file).with_context(|| format!("read {}", file.display()))?)?;
     let operations = artifact
         .events
         .iter()
@@ -83,7 +90,11 @@ pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
     })
 }
 
-fn capture_contract(id: String) -> OperationContract {
+/// The synthesized declared contract a capture is evaluated under: the capture
+/// itself is the witness, so the input domain is open and the oracle
+/// predicates are unchanged. Inspection uses the same contract so its verdict
+/// matches `debug replay-capture` exactly.
+pub(super) fn capture_contract(id: String) -> OperationContract {
     OperationContract {
         id,
         authority: Authority::Declared,

@@ -86,13 +86,19 @@ fn inspect_accepts_a_saved_alias_or_production_bucket() {
     let alias = Cli::parse_args(["reproit", "inspect", "@checkout-crash"]);
     assert!(matches!(
         alias.command,
-        Cmd::Inspect { ref reference } if reference == "@checkout-crash"
+        Cmd::Inspect { ref reference, offline: false } if reference == "@checkout-crash"
     ));
 
     let bucket = Cli::parse_args(["reproit", "inspect", "bkt_deadbeef0001"]);
     assert!(matches!(
         bucket.command,
-        Cmd::Inspect { ref reference } if reference == "bkt_deadbeef0001"
+        Cmd::Inspect { ref reference, offline: false } if reference == "bkt_deadbeef0001"
+    ));
+
+    let capture = Cli::parse_args(["reproit", "inspect", "capture.json", "--offline"]);
+    assert!(matches!(
+        capture.command,
+        Cmd::Inspect { ref reference, offline: true } if reference == "capture.json"
     ));
 }
 

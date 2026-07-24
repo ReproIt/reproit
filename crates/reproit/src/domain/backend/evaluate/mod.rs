@@ -85,25 +85,7 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
         }
     }
 
-    let mut contracts = BTreeMap::new();
-    for contract in config
-        .operations
-        .iter()
-        .filter(|contract| contract.authority != Authority::Inferred)
-    {
-        match contracts.entry(contract.id.as_str()) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(contract);
-            }
-            std::collections::btree_map::Entry::Occupied(mut entry)
-                if contract.authority == Authority::Declared
-                    && entry.get().authority != Authority::Declared =>
-            {
-                entry.insert(contract);
-            }
-            _ => {}
-        }
-    }
+    let contracts = select_contracts(config);
     let mut violations = Vec::new();
     for invocation in invocations.values() {
         let Some(start) = invocation.start else {
@@ -303,8 +285,35 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
     violations
 }
 
+/// The authoritative contract per operation id: inferred contracts never
+/// participate, and a declared contract shadows a schema-owned one.
+fn select_contracts(config: &BackendConfig) -> BTreeMap<&str, &OperationContract> {
+    let mut contracts = BTreeMap::new();
+    for contract in config
+        .operations
+        .iter()
+        .filter(|contract| contract.authority != Authority::Inferred)
+    {
+        match contracts.entry(contract.id.as_str()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(contract);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry)
+                if contract.authority == Authority::Declared
+                    && entry.get().authority != Authority::Declared =>
+            {
+                entry.insert(contract);
+            }
+            _ => {}
+        }
+    }
+    contracts
+}
+
 mod data_loss;
 use data_loss::{evaluate_data_loss, evaluate_no_shrink};
+mod pending;
+pub use pending::{pending_obligations, PendingObligation};
 mod lifecycle;
 use lifecycle::{evaluate_resource_lifecycles, scalar_at};
 mod invariants;

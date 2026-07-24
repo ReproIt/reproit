@@ -238,6 +238,7 @@ use evaluate::{
     failed_atomicity_effect_outcome, selection_mismatch, AtomicityEffectOutcome, EffectEvent,
     Invocation,
 };
+pub use evaluate::{pending_obligations, PendingObligation};
 
 /// Whether a finding-level oracle id belongs to the backend contract family:
 /// a first-class per-check id ("backend-data-loss", ...) or the legacy

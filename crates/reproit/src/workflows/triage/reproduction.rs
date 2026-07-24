@@ -526,32 +526,35 @@ pub async fn pull_global(
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<String> {
+    let (app, pkg) = fetch_bucket_package(bucket, cloud, key).await?;
+    persist_pulled_package(root, &app, bucket, as_name, json, &pkg)?;
+    Ok(app)
+}
+
+/// Fetch one production bucket package (selected-project route first, global
+/// fallback) without persisting it. Backend inspection uses this to look for a
+/// `context.reproitCapture` payload before the UI pull path materializes a
+/// repro.
+pub async fn fetch_bucket_package(
+    bucket: &str,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<(String, Value)> {
     let c = Cloud::new(cloud, key);
     let selected = crate::adapters::cloud_profile::load_cloud_app(
         &crate::adapters::cloud_profile::token_path(),
     );
-    let (app, pkg) = if let Some(app) = selected {
-        match c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await {
-            Ok(pkg) => (app, pkg),
-            Err(_) => {
-                let pkg = c.get(&format!("/v1/buckets/{bucket}")).await?;
-                let app = pkg["appId"]
-                    .as_str()
-                    .context("cloud bucket package omitted appId")?
-                    .to_string();
-                (app, pkg)
-            }
+    if let Some(app) = selected {
+        if let Ok(pkg) = c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await {
+            return Ok((app, pkg));
         }
-    } else {
-        let pkg = c.get(&format!("/v1/buckets/{bucket}")).await?;
-        let app = pkg["appId"]
-            .as_str()
-            .context("cloud bucket package omitted appId")?
-            .to_string();
-        (app, pkg)
-    };
-    persist_pulled_package(root, &app, bucket, as_name, json, &pkg)?;
-    Ok(app)
+    }
+    let pkg = c.get(&format!("/v1/buckets/{bucket}")).await?;
+    let app = pkg["appId"]
+        .as_str()
+        .context("cloud bucket package omitted appId")?
+        .to_string();
+    Ok((app, pkg))
 }
 
 fn persist_pulled_package(
