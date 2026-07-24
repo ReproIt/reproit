@@ -582,6 +582,7 @@ reproit journey list|save     manage scripted journeys
 reproit screenshots [tour]    store/marketing shots across locales + devices
 reproit import maestro <f>    convert a Maestro flow into a journey
 reproit auth <account>        configure, discover, and verify a test login
+reproit devices               list the simulators reproit manages (by configured name prefix)
 reproit mcp                   serve reproit to your coding agent (stdio)
 reproit skills install        install the configuration and debugging playbook
 reproit login                 connect production telemetry to this account
@@ -700,12 +701,16 @@ reproit_journey_save(name, journey)   author a journey (incl. multi-user actors)
 reproit_why(repro?)                   rank suspect code (Ochiai)
 reproit_cloud_buckets(app?, query?)              impact-ranked finding buckets
 reproit_cloud_blast_radius(bucket, app?)         who's affected (cohorts, %, versions)
-reproit_cloud_reproduce(bucket, as, run?, app?)  pull a real session + optionally replay it
+reproit_cloud_reproduce(bucket, as, run?, app?)  MCP tool: pull a real session + optionally replay
 reproit_cloud_pull(bucket?, top?, as, app?)      pull a bug as a first-class LOCAL repro
 reproit_cloud_triage(bucket, status?, fixed_in_build?, assignee?, app?)  read/set triage state
 reproit_cloud_resolution_events(app?)            recent prod-truth transitions (monitor regressions)
 reproit_cloud_timeline(bucket, app?)             per-bucket occurrence series + resolution
 ```
+
+These `reproit_*` names are MCP tools served by `reproit mcp`, not CLI subcommands. In a
+terminal, the equivalent of `reproit_cloud_reproduce` is `reproit <bkt_...>` (pull a production
+bug and confirm it locally).
 
 `reproit login` persists the account credential and selected project. Bucket ids resolve across
 every project that account may access, so reproduction, recording, triage, and timelines never need
