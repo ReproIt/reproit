@@ -5,14 +5,12 @@
 //! the model fresh, while `reproit debug map` exposes diagnostics.
 
 use crate::adapters::config::Config;
-use crate::adapters::orchestrator;
 use crate::domain::appmap::AppMap;
 #[cfg(test)]
 use crate::domain::appmap::{
     Action, OperabilityGaps, Reversibility, State, StateSignature, Transition,
     APP_MAP_SCHEMA_VERSION,
 };
-use crate::runtime::project_layout as layout;
 use anyhow::{Context, Result};
 #[cfg(test)]
 use serde_json::Value;
@@ -252,56 +250,18 @@ pub(crate) fn commit_run(
     Ok(true)
 }
 
-pub async fn build_map(
+pub(crate) async fn commit_map_run(
     cfg: &Config,
     root: &Path,
-    journey: &str,
-    budget: Option<u32>,
+    run_dir: &Path,
     label: bool,
-    from_run: Option<&Path>,
     replace: bool,
 ) -> Result<()> {
-    let run_dir = match from_run {
-        Some(p) if p.is_absolute() => p.to_path_buf(),
-        Some(p) => root.join(p),
-        None => {
-            let mut extra_defines: Vec<(String, String)> = Vec::new();
-            if let Some(budget) = budget {
-                let cfg_path = layout::fuzz_config_path(root);
-                std::fs::create_dir_all(cfg_path.parent().unwrap())?;
-                std::fs::write(
-                    &cfg_path,
-                    serde_json::json!({ "seed": 0, "budget": budget }).to_string(),
-                )?;
-                extra_defines.push((
-                    "REPROIT_FUZZ_CONFIG".to_string(),
-                    cfg_path.to_string_lossy().into_owned(),
-                ));
-            }
-            let outcome = orchestrator::run_journey(
-                cfg,
-                root,
-                journey,
-                &orchestrator::RunOpts {
-                    devices: 1,
-                    extra_defines: &extra_defines,
-                    ..Default::default()
-                },
-            )
-            .await?;
-            if !outcome.passed {
-                eprintln!(
-                    "  note: exploration run did not pass cleanly; mapping what was observed"
-                );
-            }
-            outcome.run_dir
-        }
-    };
     // Fold in EVERY device's log, not just device a: a multi-actor scenario run
     // has each actor traverse different (often deeper) screens, and a scenario
     // now emits the same EXPLORE records the crawl does, so the dual-user
     // journeys double as the mapper for screens a single actor can't reach.
-    let log = read_all_device_logs(&run_dir)?;
+    let log = read_all_device_logs(run_dir)?;
     if let Some(reason) = explicit_coverage_failure(&log) {
         anyhow::bail!("app-map exploration coverage incomplete: {reason}");
     }

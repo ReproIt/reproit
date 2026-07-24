@@ -46,22 +46,62 @@ pub(super) async fn rebuild_app_map(
     from: Option<&Path>,
     replace: bool,
 ) -> Result<()> {
-    let result = map::build_map(
-        &loaded.config,
-        &loaded.root,
-        journey,
-        budget,
-        label,
-        from,
-        replace,
-    )
-    .await;
+    let run_dir = acquire_map_run(loaded, journey, budget, from).await?;
+    let result = map::commit_map_run(&loaded.config, &loaded.root, &run_dir, label, replace).await;
     if result.is_ok() && replace && !map::appmap_path(&loaded.root).is_file() {
         return Err(anyhow::anyhow!(
             "could not refresh the internal app model; the app was not reachable"
         ));
     }
     result
+}
+
+async fn acquire_map_run(
+    loaded: &config::Loaded,
+    journey: &str,
+    budget: Option<u32>,
+    from: Option<&Path>,
+) -> Result<std::path::PathBuf> {
+    if let Some(path) = from {
+        return Ok(if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            loaded.root.join(path)
+        });
+    }
+
+    let mut extra_defines = Vec::new();
+    if let Some(budget) = budget {
+        let config_path = layout::fuzz_config_path(&loaded.root);
+        let parent = config_path
+            .parent()
+            .context("fuzz configuration path has no parent")?;
+        std::fs::create_dir_all(parent)?;
+        std::fs::write(
+            &config_path,
+            serde_json::json!({ "seed": 0, "budget": budget }).to_string(),
+        )?;
+        extra_defines.push((
+            "REPROIT_FUZZ_CONFIG".to_string(),
+            config_path.to_string_lossy().into_owned(),
+        ));
+    }
+
+    let outcome = orchestrator::run_journey(
+        &loaded.config,
+        &loaded.root,
+        journey,
+        &orchestrator::RunOpts {
+            devices: 1,
+            extra_defines: &extra_defines,
+            ..Default::default()
+        },
+    )
+    .await?;
+    if !outcome.passed {
+        eprintln!("  note: exploration run did not pass cleanly; mapping what was observed");
+    }
+    Ok(outcome.run_dir)
 }
 
 /// Execute the advanced map diagnostics exposed under debug map.

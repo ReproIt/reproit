@@ -22,9 +22,21 @@ fn metric(bucket: i64, unit: &str) -> String {
 /// Evaluate the full invariant set (built-ins gated by config + any custom
 /// invariants) over one run's observations. Returns all violations.
 pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
+    let mut out = evaluate_edge_invariants(obs, cfg);
+    out.extend(evaluate_render_state_invariants(obs, cfg));
+    out.extend(evaluate_operability_state_invariants(obs, cfg));
+    out.extend(evaluate_transition_invariants(obs, cfg));
+    out.extend(evaluate_graph_invariants(obs, cfg));
+    out.extend(evaluate_lifecycle_invariants(obs, cfg));
+    for custom in &cfg.custom {
+        out.extend(eval_custom(obs, custom));
+    }
+    out
+}
+
+fn evaluate_edge_invariants(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
     let mut out = Vec::new();
 
-    // ---- Edge invariants -------------------------------------------------
     // no-exception: the existing exception oracle, now a named edge invariant.
     if cfg.no_exception {
         for ex in &obs.exceptions {
@@ -77,7 +89,12 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // ---- State invariants ------------------------------------------------
+    out
+}
+
+fn evaluate_render_state_invariants(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
+    let mut out = Vec::new();
+
     // no-broken-render: every observed state must render NO broken-content
     // artifact (a label coerced from an object/undefined/null/NaN, or an
     // unrendered template). The web runner detects this from the DOM/labels and
@@ -274,6 +291,12 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    out
+}
+
+fn evaluate_operability_state_invariants(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
+    let mut out = Vec::new();
+
     // no-safe-area-collision: an interactive control whose hit rect intersects a
     // device safe-area inset -- the status bar / notch / Dynamic Island (top),
     // the home indicator (bottom), or a landscape notch / rounded corner (left or
@@ -444,6 +467,12 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    out
+}
+
+fn evaluate_transition_invariants(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
+    let mut out = Vec::new();
+
     // no-jank: a main-thread JANK stall on a transition. Two independent sources,
     // both gated by this one toggle so `--only jank` / `--no jank` cover them:
     //   - SIM tier: per-state frame-timing jank over budget (jank_by_sig). Headless
@@ -600,7 +629,12 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
-    // ---- Graph invariants ------------------------------------------------
+    out
+}
+
+fn evaluate_graph_invariants(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
+    let mut out = Vec::new();
+
     // The general dead-end oracle (a non-terminal sink with no outgoing edge)
     // was removed: it depended on the crawler having exhausted every action on a
     // screen, so a budget-limited crawl produced false dead ends. The FP-safe,
@@ -804,6 +838,12 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
         }
     }
 
+    out
+}
+
+fn evaluate_lifecycle_invariants(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
+    let mut out = Vec::new();
+
     // no-rotation-loss: a lifecycle-metamorphic violation across a device
     // rotation. The explorer rotated the surface (portrait <-> landscape /
     // split-screen), reflowed, then rotated BACK to the original orientation,
@@ -902,11 +942,6 @@ pub fn evaluate(obs: &Observations, cfg: &InvariantsCfg) -> Vec<Value> {
                 Some(sig),
             ));
         }
-    }
-
-    // ---- Custom invariants ----------------------------------------------
-    for c in &cfg.custom {
-        out.extend(eval_custom(obs, c));
     }
 
     out

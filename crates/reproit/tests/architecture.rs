@@ -125,6 +125,17 @@ fn inner_layers_do_not_depend_on_outer_layers() {
 }
 
 #[test]
+fn domain_map_does_not_acquire_platform_runs() {
+    let map = source("src/domain/map/mod.rs");
+    for forbidden in ["adapters::orchestrator", "run_journey(", "RunOpts"] {
+        assert!(
+            !map.contains(forbidden),
+            "domain/map acquires a platform run through {forbidden}; keep acquisition in workflows"
+        );
+    }
+}
+
+#[test]
 fn source_tree_uses_real_module_hierarchy() {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut pending = vec![src];
