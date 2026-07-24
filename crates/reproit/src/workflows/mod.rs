@@ -273,6 +273,7 @@ where
         // baseline diff remains its own operation.
         Cmd::Check {
             repro,
+            reference,
             devices,
             kind,
             runs,
@@ -289,7 +290,9 @@ where
                 &ctx,
                 cli.config.as_deref(),
                 CheckArgs {
-                    repro,
+                    // The positional form exists for capture files; both spell
+                    // the same reference and route through the same resolution.
+                    repro: repro.or(reference),
                     devices,
                     kind,
                     runs,

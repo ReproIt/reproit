@@ -256,6 +256,12 @@ pub(crate) enum Cmd {
         /// `reproit @saved-name`.
         #[arg(long = "repro-id", hide = true)]
         repro: Option<String>,
+        /// A captured-production backend payload file (the
+        /// `reproit-backend-capture` JSON that `debug replay-capture` takes)
+        /// to re-evaluate under check's verdict contract. A saved repro or
+        /// finding with the same name still resolves as the saved artifact.
+        #[arg(value_name = "CAPTURE", conflicts_with = "repro")]
+        reference: Option<String>,
         /// Number of concurrent devices (multi-actor)
         #[arg(long, default_value_t = 1)]
         devices: usize,

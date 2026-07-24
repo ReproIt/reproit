@@ -53,6 +53,14 @@ pub(super) async fn run(
         }
     }
     let loaded = config::load(config_path)?;
+    if let Some(reference) = args.repro.as_deref() {
+        if routes_to_capture_file(&loaded, reference) {
+            if args.record_video {
+                anyhow::bail!("backend captures do not produce screen video evidence");
+            }
+            return backend_headless::check_capture(ctx, Path::new(reference));
+        }
+    }
     ensure_app_map(ctx, &loaded, "explore").await?;
     let _inspect_env = if args.inspect {
         Some(crate::adapters::scoped_env::ScopedEnv::set(vec![
@@ -79,6 +87,17 @@ pub(super) async fn run(
         metas = super::change_selection::prioritize(ctx, &loaded.root, metas, base);
     }
     run_repro_matrix(ctx, &loaded, &args, times, &metas).await
+}
+
+/// Whether a check reference routes to the backend capture-file re-evaluation.
+/// Pinned precedence (see the disambiguation test): a saved repro or pending
+/// finding ALWAYS wins over a same-named file, so a repro whose alias looks
+/// like a path still resolves as a repro; the file is routed only when nothing
+/// local matches.
+fn routes_to_capture_file(loaded: &config::Loaded, reference: &str) -> bool {
+    backend_headless::is_capture_file(Path::new(reference))
+        && repro::resolve(&loaded.root, reference).is_none()
+        && find_finding_by_id(loaded, reference).is_none()
 }
 
 async fn try_multi_target(
@@ -413,5 +432,87 @@ fn write_junit(ctx: &Ctx, path: Option<&Path>, cases: &[junit::Case]) {
         ));
     } else {
         ctx.say(format!("  junit: {}", path.display()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn loaded_at(root: PathBuf) -> config::Loaded {
+        config::parse_str(
+            "app:\n  platform: web\n  webRunnerDir: ./runners/web\n  url: http://localhost:3000\n\
+             devices:\n  namePrefix: reproit\n\
+             journeys:\n  dir: journeys\n  driver: explore\n  doneMarkers: [DONE]\n\
+             evidence:\n  outDir: .reproit/runs\n  video: false\n",
+            root,
+        )
+        .unwrap()
+    }
+
+    fn write_capture(path: &Path) {
+        std::fs::write(
+            path,
+            json!({
+                "format": "reproit-backend-capture",
+                "version": 1,
+                "operation": "createOrder",
+                "oracle": "backend-server-error",
+                "events": [{
+                    "traceId": "t", "spanId": "t:createOrder", "actionIndex": 0,
+                    "operation": "createOrder", "sequence": 1, "kind": "start",
+                    "input": {}
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn capture_file_reference_routes_to_the_capture_re_evaluation() {
+        let root = std::env::temp_dir().join(format!("reproit-check-cap-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("capture.json");
+        write_capture(&file);
+        let loaded = loaded_at(root.clone());
+        assert!(routes_to_capture_file(&loaded, file.to_str().unwrap()));
+        // A reference that is not a capture file never routes.
+        assert!(!routes_to_capture_file(&loaded, "@login-crash"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The pinned disambiguation: a saved repro whose alias names an existing
+    /// capture file still resolves as the repro; the file is only routed when
+    /// nothing local matches.
+    #[test]
+    fn saved_repro_wins_over_a_same_named_capture_file() {
+        let root = std::env::temp_dir().join(format!("reproit-check-amb-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("capture.json");
+        write_capture(&file);
+        let reference = file.to_str().unwrap().to_string();
+        let loaded = loaded_at(root.clone());
+        assert!(routes_to_capture_file(&loaded, &reference));
+        let meta = repro::Meta {
+            id: repro::repro_id(0, &["tap:key:save"]),
+            alias: Some(reference.clone()),
+            status: repro::Status::Quarantined,
+            seed: 0,
+            created: "2026-07-24T00:00:00+00:00".into(),
+            last_checked: None,
+            last_result: None,
+            trigger_index: Some(1),
+            trigger_sig: None,
+            trigger_selector: None,
+            trigger_fingerprint: None,
+            oracle: Some("crash".into()),
+            record_url: None,
+            record_action: None,
+        };
+        repro::save_meta(&root, &meta).unwrap();
+        assert!(!routes_to_capture_file(&loaded, &reference));
+        let _ = std::fs::remove_dir_all(root);
     }
 }

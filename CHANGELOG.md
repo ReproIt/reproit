@@ -17,6 +17,14 @@ versioned SDK source APIs documented in `docs/stability.md`.
   engine over event-sequence prefixes, and the session writes bounded
   `inspect-transcript.md` / `inspect-transcript.json` evidence without ever
   touching saved guards.
+- `reproit check <capture.json>` accepts a captured-production backend payload
+  file (the `reproit-backend-capture` JSON that `debug replay-capture` takes)
+  and re-evaluates it under check's verdict contract: still reproduces is a
+  real regression (outcome `fail`, exit 1), no longer reproduces is `pass`
+  (exit 0), with the matching `--json` outcome object. A saved repro or
+  finding whose name matches the file path still resolves as the saved
+  artifact. `debug replay-capture` is unchanged and shares the same
+  re-evaluation.
 
 ## 1.0.0 - 2026-07-24
 

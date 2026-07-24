@@ -810,7 +810,7 @@ use artifacts::{emit_report, persist_findings, persist_run_report, persist_schem
 mod replay_command;
 pub use replay_command::try_replay;
 mod capture_replay;
-pub use capture_replay::replay_capture;
+pub use capture_replay::{check_capture, is_capture_file, replay_capture};
 mod inspect;
 mod inspect_plan;
 mod inspect_report;

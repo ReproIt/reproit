@@ -172,6 +172,30 @@ fn parser_boundary_applies_direct_bug_id_rewriting() {
     ));
 }
 
+/// `check <reference>` takes a positional so a captured-production payload
+/// file routes through the same resolution as `--repro-id`; the two forms are
+/// mutually exclusive.
+#[test]
+fn check_accepts_a_positional_capture_reference() {
+    let cli = Cli::try_parse_from(["reproit", "check", "capture.json"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Cmd::Check {
+            ref reference,
+            repro: None,
+            ..
+        } if reference.as_deref() == Some("capture.json")
+    ));
+    assert!(Cli::try_parse_from([
+        "reproit",
+        "check",
+        "--repro-id",
+        "fnd_deadbeef0001",
+        "capture.json"
+    ])
+    .is_err());
+}
+
 #[test]
 fn removed_compatibility_commands_are_not_parseable() {
     for args in [
@@ -179,8 +203,6 @@ fn removed_compatibility_commands_are_not_parseable() {
         vec!["reproit", "guard"],
         vec!["reproit", "save"],
         vec!["reproit", "pull", "bkt_deadbeef0001"],
-        vec!["reproit", "check", "fnd_deadbeef0001"],
-        vec!["reproit", "check", "checkout"],
         vec!["reproit", "verify", "fnd_deadbeef0001"],
         vec!["reproit", "replay", "fnd_deadbeef0001"],
         vec!["reproit", "record"],

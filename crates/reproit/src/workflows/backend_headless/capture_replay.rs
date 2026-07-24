@@ -32,12 +32,17 @@ pub(super) fn parse_capture(bytes: &[u8]) -> Result<CaptureArtifact> {
     Ok(artifact)
 }
 
-/// `reproit debug replay-capture <file>`: deterministically re-evaluate a
-/// captured production event sequence against the backend oracles and report
-/// whether the captured violation reproduces. The capture is the witness, so
-/// each operation gets a synthesized declared contract with an open input
-/// domain; the oracle predicates themselves are unchanged.
-pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
+/// The deterministic re-evaluation shared by `debug replay-capture` and
+/// `check <capture.json>`: parse the file, evaluate its events under the
+/// synthesized capture contracts, and report whether the captured violation
+/// still fires.
+struct CaptureEvaluation {
+    artifact: CaptureArtifact,
+    findings: Vec<Value>,
+    reproduced: bool,
+}
+
+fn evaluate_capture_file(file: &Path) -> Result<CaptureEvaluation> {
     let artifact =
         parse_capture(&std::fs::read(file).with_context(|| format!("read {}", file.display()))?)?;
     let operations = artifact
@@ -62,18 +67,53 @@ pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
             violation.operation == artifact.operation
                 && finding.get("oracle").and_then(Value::as_str) == Some(artifact.oracle.as_str())
         });
+    Ok(CaptureEvaluation {
+        artifact,
+        findings,
+        reproduced,
+    })
+}
+
+/// Sniff whether `path` holds a `reproit-backend-capture` payload. Routing
+/// only: an unreadable or non-capture file is simply "not a capture" here;
+/// version/shape validation errors surface once the file is actually routed.
+pub fn is_capture_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("format")
+                .map(|format| format == "reproit-backend-capture")
+        })
+        .unwrap_or(false)
+}
+
+/// `reproit debug replay-capture <file>`: deterministically re-evaluate a
+/// captured production event sequence against the backend oracles and report
+/// whether the captured violation reproduces. The capture is the witness, so
+/// each operation gets a synthesized declared contract with an open input
+/// domain; the oracle predicates themselves are unchanged.
+pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
+    let evaluation = evaluate_capture_file(file)?;
+    let artifact = &evaluation.artifact;
     let report = json!({
         "command": "backend capture replay",
         "file": file.display().to_string(),
         "operation": artifact.operation,
         "oracle": artifact.oracle,
         "events": artifact.events.len(),
-        "reproduced": reproduced,
-        "findings": findings,
+        "reproduced": evaluation.reproduced,
+        "findings": evaluation.findings,
     });
     if ctx.json {
         ctx.emit(&report);
-    } else if reproduced {
+    } else if evaluation.reproduced {
         ctx.say(format!(
             "{}: reproduced exactly ({} on {})",
             file.display(),
@@ -83,7 +123,51 @@ pub fn replay_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
     } else {
         ctx.say(format!("{}: no longer reproduces", file.display()));
     }
-    Ok(if reproduced {
+    Ok(if evaluation.reproduced {
+        Exit::Regression.code()
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+/// `reproit check <capture.json>`: the same deterministic re-evaluation, under
+/// `check`'s verdict contract. A capture that still reproduces is a real
+/// regression (outcome `fail`, exit 1); one that no longer fires is `pass`.
+pub fn check_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
+    let evaluation = evaluate_capture_file(file)?;
+    let artifact = &evaluation.artifact;
+    let outcome = if evaluation.reproduced {
+        repro::Outcome::Fail
+    } else {
+        repro::Outcome::Pass
+    };
+    ctx.emit(&json!({
+        "command": "check",
+        "capture": {
+            "file": file.display().to_string(),
+            "operation": artifact.operation,
+            "oracle": artifact.oracle,
+            "events": artifact.events.len(),
+            "reproduced": evaluation.reproduced,
+            "findings": evaluation.findings,
+        },
+        "outcome": outcome.as_str(),
+        "exit": outcome.exit_code(),
+    }));
+    ctx.say(format!("check capture {}", file.display()));
+    if evaluation.reproduced {
+        ctx.say(format!(
+            "  FAIL reproduced exactly ({} on {})",
+            artifact.oracle, artifact.operation
+        ));
+    } else {
+        ctx.say("  PASS no longer reproduces");
+    }
+    ctx.say(format!(
+        "\ncheck: {} (1 capture)",
+        outcome.as_str().to_uppercase()
+    ));
+    Ok(if evaluation.reproduced {
         Exit::Regression.code()
     } else {
         ExitCode::SUCCESS
@@ -113,6 +197,63 @@ pub(super) fn capture_contract(id: String) -> OperationContract {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sdk_wire_capture() -> Value {
+        json!({
+            "format": "reproit-backend-capture",
+            "version": 1,
+            "operation": "createOrder",
+            "oracle": "backend-server-error",
+            "events": [
+                {
+                    "traceId": "cap-1-1", "spanId": "cap-1-1:createOrder",
+                    "actionIndex": 0, "operation": "createOrder", "sequence": 1,
+                    "kind": "start",
+                    "input": {"body": {"item": "widget", "discount": 5}}
+                },
+                {
+                    "traceId": "cap-1-1", "spanId": "cap-1-1:createOrder",
+                    "actionIndex": 0, "operation": "createOrder", "sequence": 2,
+                    "kind": "return", "output": {"error": "internal"},
+                    "status": 500, "success": false, "effectsComplete": true
+                }
+            ]
+        })
+    }
+
+    /// The shared file evaluation behind both `debug replay-capture` and
+    /// `check <capture.json>`: one parse, one verdict.
+    #[test]
+    fn capture_file_evaluation_reproduces_the_captured_violation() {
+        let dir = std::env::temp_dir().join(format!("reproit-cap-eval-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("capture.json");
+        std::fs::write(&file, sdk_wire_capture().to_string()).unwrap();
+        let evaluation = evaluate_capture_file(&file).unwrap();
+        assert!(evaluation.reproduced);
+        assert_eq!(evaluation.artifact.oracle, "backend-server-error");
+        assert!(!evaluation.findings.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The routing sniff accepts only the capture format marker; other JSON
+    /// files (and missing files) are "not a capture", never an error.
+    #[test]
+    fn is_capture_file_sniffs_the_format_marker_only() {
+        let dir = std::env::temp_dir().join(format!("reproit-cap-sniff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let capture = dir.join("capture.json");
+        std::fs::write(&capture, sdk_wire_capture().to_string()).unwrap();
+        assert!(is_capture_file(&capture));
+        let other = dir.join("other.json");
+        std::fs::write(&other, "{\"format\":\"something-else\"}").unwrap();
+        assert!(!is_capture_file(&other));
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, "not json").unwrap();
+        assert!(!is_capture_file(&text));
+        assert!(!is_capture_file(&dir.join("missing.json")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     /// Pin the SDK wire shape end to end: events exactly as the Rust backend
     /// SDK serializes them (camelCase, flattened kind) must parse into

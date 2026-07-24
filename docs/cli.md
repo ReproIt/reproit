@@ -175,6 +175,14 @@ reproit <id> --record-video   # run the bug and produce annotated video evidence
 reproit inspect @login-crash  # step through a repro on its configured platform
 ```
 
+On a backend project, `reproit check <capture.json>` also accepts a captured-production payload
+file (the `reproit-backend-capture` JSON a backend SDK attaches to a production finding, the same
+artifact `reproit debug replay-capture` takes). The capture is re-evaluated deterministically
+against the backend oracles under check's verdict contract: still reproduces is a real regression
+(**fail**, exit 1); no longer reproduces is **pass** (exit 0). `reproit debug replay-capture
+<file>` is the same re-evaluation with a diagnostic report. If a saved repro or finding shares the
+file's name, the saved artifact wins and the file is not read.
+
 The repro video is paced and annotated: a caption names each action (the trigger step in red),
 and the clip ends with a red box around what broke - the crashing control, the overflowing element,
 the `[object Object]` text, the choice that shifts the layout. (Leak has no on-screen element, so no
@@ -552,6 +560,7 @@ reproit proof <id>             explain its immutable proof ledger
 reproit candidates             list candidates with exact promotion blockers
 reproit check                  verify the whole saved suite
 reproit check --changed [BASE] run mapped repros first, then the complete saved suite
+reproit check <capture.json>   re-evaluate a captured-production backend payload (fail 1 / pass 0)
 reproit reset                 remove only regenerable local project state
 reproit reset --all           remove all local Reproit state after confirmation
 reproit reset --all --init    remove all state and initialize the project again
