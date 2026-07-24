@@ -67,21 +67,26 @@ missing signal with a screenshot or language-dependent text guess.
 ## Backend categories
 
 Backend support is experimental. A result needs a schema-owned or authored contract and a runtime
-event correlated to the exact operation.
+event correlated to the exact operation. Each backend check is a first-class oracle category whose
+finding carries the per-check `backend-*` id below; legacy artifacts stamped with the umbrella id
+`backend-contract` remain readable.
 
-- Request and response: `server-error`, `response-status`, `accepted-invalid-input`,
-  `response-shape`, `response-selection`, `http-byte-range`, `http-redirect-transition`,
-  `http-response-media-type`, and `http-conditional-cache`.
-- Effects and tenancy: `read-only-mutation`, `missing-effect`, `excess-effect`, and
-  `tenant-isolation`.
-- Resource lifecycle: `resource-create-missing`, `resource-delete-visible`, `resource-identity`,
-  `resource-state`, `resource-round-trip`, and `codec-round-trip`.
-- Scoped protocol lifecycle: `lifecycle-precedence`, `lifecycle-forbid-after`, and
+- Request and response: `backend-server-error`, `backend-response-status`,
+  `backend-accepted-invalid-input`, `backend-response-shape`, and `backend-response-selection`.
+- Effects and tenancy: `backend-read-only-mutation`, `backend-missing-effect`,
+  `backend-excess-effect`, and `backend-tenant-isolation`.
+- Data loss and resource lifecycle: `backend-data-loss`, `backend-resource-create-missing`,
+  `backend-resource-delete-visible`, `backend-resource-identity`, `backend-resource-state`,
+  `backend-resource-round-trip`, and `backend-codec-round-trip`.
+- Query and application rules: `backend-authored-invariant`, `backend-query-pagination`,
+  `backend-query-pagination-reference`, and `backend-idempotency`.
+- Deployment and multi-actor proofs: `backend-fleet-consistency`, `backend-authorization-matrix`,
+  `backend-transaction-atomicity`, `backend-concurrent-update`, and
+  `backend-concurrent-conservation`.
+- Scoped protocol evidence still reports under the `backend-contract` umbrella id:
+  `http-byte-range`, `http-redirect-transition`, `http-response-media-type`,
+  `http-conditional-cache`, `lifecycle-precedence`, `lifecycle-forbid-after`, and
   `lifecycle-cardinality`.
-- Query and application rules: `authored-invariant`, `query-pagination`,
-  `query-pagination-reference`, and `idempotency`.
-- Deployment and multi-actor proofs: `fleet-consistency`, `authorization-matrix`,
-  `transaction-atomicity`, `concurrent-update`, and `concurrent-conservation`.
 
 Backend semantics must not be inferred from operation, field, route, framework, or function names.
 Missing strong consistency, snapshot identity, complete effects, or an explicit behavioral contract

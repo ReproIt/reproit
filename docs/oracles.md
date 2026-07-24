@@ -161,6 +161,12 @@ of intent.
 OpenAPI, GraphQL, and protobuf describe shapes. Stronger behavior such as idempotency,
 authorization, transactionality, ordering, or consistency must be declared explicitly.
 
+Each check below is a first-class oracle category: its finding carries the registry id
+`backend-<check>` (for example `backend-data-loss`), listed in `oracle-registry.json` with a
+confidence tier and severity class. Scoped protocol evidence (`http-*`, `lifecycle-*`,
+`websocket-*`) and schema validation (`openapi-parameter-uniqueness`) still surface under the
+legacy umbrella id `backend-contract`, which downstream consumers continue to accept.
+
 ### Request and response
 
 | Finding                        | Proves                                                                                                                               |

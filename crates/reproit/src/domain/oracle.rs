@@ -199,6 +199,63 @@ pub enum Oracle {
     /// whole event pipeline, so "known input, zero effect, nobody consumed
     /// it" is an equality check, not a judgment.
     DeadInput,
+    /// Backend contract family: one category per backend evaluate/ check.
+    /// Every one requires a declared or schema-owned contract plus a runtime
+    /// witness correlated to the exact operation, and replays exactly (the
+    /// backend replay harness re-evaluates the accumulated event sequence
+    /// through the same pure check). Findings carry the per-check id below;
+    /// legacy artifacts stamped with the umbrella id `backend-contract`
+    /// still read back and classify as `Contract`.
+    /// Repeatable 5xx for a request satisfying the schema-owned contract.
+    BackendServerError,
+    /// Successful status outside the declared success statuses.
+    BackendResponseStatus,
+    /// Operation accepted input outside its declared input domain.
+    BackendAcceptedInvalidInput,
+    /// Successful output outside the declared output domain.
+    BackendResponseShape,
+    /// GraphQL selection contradicted by the returned payload.
+    BackendResponseSelection,
+    /// Read-only operation produced a persistent write or delete effect.
+    BackendReadOnlyMutation,
+    /// Promised effect missing from a successful, effects-complete call.
+    BackendMissingEffect,
+    /// More effects than the contract's declared maximum.
+    BackendExcessEffect,
+    /// Effect crossed the operation's declared tenant boundary.
+    BackendTenantIsolation,
+    /// Authored application invariant contradicted by a response.
+    BackendAuthoredInvariant,
+    /// Paginated query violated its authored page semantics.
+    BackendQueryPagination,
+    /// Concatenated pinned pages differ from the reference operation.
+    BackendQueryPaginationReference,
+    /// Silent write loss or sibling corruption over the event sequence.
+    BackendDataLoss,
+    /// Acknowledged create not visible on the declared read operation.
+    BackendResourceCreateMissing,
+    /// Deleted resource still visible on the declared read operation.
+    BackendResourceDeleteVisible,
+    /// Resource read returned an entity with the wrong identity.
+    BackendResourceIdentity,
+    /// Resource read contradicted the declared field state.
+    BackendResourceState,
+    /// Declared codec projection failed its round trip.
+    BackendCodecRoundTrip,
+    /// Declared authorization matrix contradicted by a decision.
+    BackendAuthorizationMatrix,
+    /// Declared transaction committed only part of its effects.
+    BackendTransactionAtomicity,
+    /// Lost update under declared concurrent access.
+    BackendConcurrentUpdate,
+    /// Conserved quantity broken under declared concurrent access.
+    BackendConcurrentConservation,
+    /// Declared resource write/read round trip failed.
+    BackendResourceRoundTrip,
+    /// Repeating an idempotency key changed the persistent final effect.
+    BackendIdempotency,
+    /// Fleet invariant broken: mixed builds or config across the fleet.
+    BackendFleetConsistency,
 }
 
 /// One row of oracle metadata: everything the CLI knows about a category
@@ -489,6 +546,211 @@ pub const ORACLES: &[OracleMeta] = &[
         invariants: &["no-dead-input"],
         kinds: &["DEADINPUT"],
         stable: false,
+    },
+    // Backend contract family. Ids are "backend-" + the per-check oracle
+    // string stamped on BackendViolation, and every finding also carries
+    // invariant "backend:<check>", which is the classification key here.
+    // All are stable: each check is an authoritative contract predicate
+    // with an exact replay branch (the backend replay harness).
+    OracleMeta {
+        oracle: Oracle::BackendServerError,
+        id: "backend-server-error",
+        aliases: &[],
+        invariants: &["backend:server-error"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResponseStatus,
+        id: "backend-response-status",
+        aliases: &[],
+        invariants: &["backend:response-status"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendAcceptedInvalidInput,
+        id: "backend-accepted-invalid-input",
+        aliases: &[],
+        invariants: &["backend:accepted-invalid-input"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResponseShape,
+        id: "backend-response-shape",
+        aliases: &[],
+        invariants: &["backend:response-shape"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResponseSelection,
+        id: "backend-response-selection",
+        aliases: &[],
+        invariants: &["backend:response-selection"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendReadOnlyMutation,
+        id: "backend-read-only-mutation",
+        aliases: &[],
+        invariants: &["backend:read-only-mutation"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendMissingEffect,
+        id: "backend-missing-effect",
+        aliases: &[],
+        invariants: &["backend:missing-effect"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendExcessEffect,
+        id: "backend-excess-effect",
+        aliases: &[],
+        invariants: &["backend:excess-effect"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendTenantIsolation,
+        id: "backend-tenant-isolation",
+        aliases: &[],
+        invariants: &["backend:tenant-isolation"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendAuthoredInvariant,
+        id: "backend-authored-invariant",
+        aliases: &[],
+        invariants: &["backend:authored-invariant"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendQueryPagination,
+        id: "backend-query-pagination",
+        aliases: &[],
+        invariants: &["backend:query-pagination"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendQueryPaginationReference,
+        id: "backend-query-pagination-reference",
+        aliases: &[],
+        invariants: &["backend:query-pagination-reference"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendDataLoss,
+        id: "backend-data-loss",
+        aliases: &[],
+        invariants: &["backend:data-loss"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResourceCreateMissing,
+        id: "backend-resource-create-missing",
+        aliases: &[],
+        invariants: &["backend:resource-create-missing"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResourceDeleteVisible,
+        id: "backend-resource-delete-visible",
+        aliases: &[],
+        invariants: &["backend:resource-delete-visible"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResourceIdentity,
+        id: "backend-resource-identity",
+        aliases: &[],
+        invariants: &["backend:resource-identity"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResourceState,
+        id: "backend-resource-state",
+        aliases: &[],
+        invariants: &["backend:resource-state"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendCodecRoundTrip,
+        id: "backend-codec-round-trip",
+        aliases: &[],
+        invariants: &["backend:codec-round-trip"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendAuthorizationMatrix,
+        id: "backend-authorization-matrix",
+        aliases: &[],
+        invariants: &["backend:authorization-matrix"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendTransactionAtomicity,
+        id: "backend-transaction-atomicity",
+        aliases: &[],
+        invariants: &["backend:transaction-atomicity"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendConcurrentUpdate,
+        id: "backend-concurrent-update",
+        aliases: &[],
+        invariants: &["backend:concurrent-update"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendConcurrentConservation,
+        id: "backend-concurrent-conservation",
+        aliases: &[],
+        invariants: &["backend:concurrent-conservation"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendResourceRoundTrip,
+        id: "backend-resource-round-trip",
+        aliases: &[],
+        invariants: &["backend:resource-round-trip"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendIdempotency,
+        id: "backend-idempotency",
+        aliases: &[],
+        invariants: &["backend:idempotency"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::BackendFleetConsistency,
+        id: "backend-fleet-consistency",
+        aliases: &[],
+        invariants: &["backend:fleet-consistency"],
+        kinds: &[],
+        stable: true,
     },
 ];
 

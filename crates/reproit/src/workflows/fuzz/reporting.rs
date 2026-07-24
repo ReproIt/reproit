@@ -26,8 +26,9 @@ pub(super) fn persist_causal_capsule(
         .iter()
         .find_map(|key| finding.get(*key).and_then(Value::as_str))
         .map(str::to_string);
-    let oracle = if finding.get("oracle").and_then(Value::as_str) == Some("backend-contract") {
-        "backend-contract".into()
+    let raw_oracle = finding.get("oracle").and_then(Value::as_str).unwrap_or("");
+    let oracle = if crate::domain::backend::is_backend_oracle(raw_oracle) {
+        raw_oracle.to_string()
     } else {
         crate::domain::oracle::classify(finding)
             .as_str()
@@ -493,7 +494,10 @@ fn authority_for_oracle(oracle: &str) -> Option<reproit_protocol::AuthoritySourc
     use reproit_protocol::AuthoritySource;
     match oracle {
         "crash" => Some(AuthoritySource::RuntimeDiagnosis),
-        "contract" | "invariant" | "detached-indicator" | "backend-contract" => {
+        "contract" | "invariant" | "detached-indicator" => Some(AuthoritySource::AuthoredContract),
+        // The backend contract family (per-check "backend-*" ids and the
+        // legacy "backend-contract" umbrella) is authored-contract evidence.
+        oracle if crate::domain::backend::is_backend_oracle(oracle) => {
             Some(AuthoritySource::AuthoredContract)
         }
         _ => None,

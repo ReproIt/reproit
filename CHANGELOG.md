@@ -6,6 +6,15 @@ versioned SDK source APIs documented in `docs/stability.md`.
 
 ## Unreleased
 
+### Added
+
+- Backend contract checks are first-class oracle categories: findings from the
+  backend evaluate family carry a per-check `backend-*` oracle id (for example
+  `backend-data-loss`), registered in `oracle-registry.json` with a confidence
+  tier and severity class. Existing artifacts stamped with the legacy umbrella
+  id `backend-contract` remain readable; scoped protocol and schema checks
+  still report under it.
+
 ### Removed
 
 - Dear ImGui and Clay preview support, including the `imgui` and `clay` platform ids,

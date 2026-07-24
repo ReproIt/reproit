@@ -159,8 +159,9 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     };
     for f in &findings {
         let raw_oracle = f.get("oracle").and_then(Value::as_str);
-        let oracle = if raw_oracle == Some("backend-contract") {
-            "backend-contract".to_string()
+        let backend = raw_oracle.is_some_and(crate::domain::backend::is_backend_oracle);
+        let oracle = if backend {
+            raw_oracle.unwrap_or_default().to_string()
         } else {
             crate::domain::oracle::classify(f).as_str().to_string()
         };
@@ -168,7 +169,7 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
         let route = f
             .get("operation")
             .and_then(Value::as_str)
-            .filter(|_| raw_oracle == Some("backend-contract"))
+            .filter(|_| backend)
             .map(|operation| format!("backend:{operation}"))
             .unwrap_or_else(|| route_of(sig));
         let detail = scan_detail(f.get("message").and_then(Value::as_str).unwrap_or(""));
@@ -301,26 +302,31 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
 fn scan_finding(mut finding: Value) -> Option<Value> {
     use crate::domain::oracle::OracleFilter;
 
-    let raw_oracle = finding.get("oracle").and_then(Value::as_str);
-    let (oracle, classification) = if raw_oracle == Some("backend-contract") {
-        ("backend-contract", "authoritative")
-    } else if raw_oracle == Some("contract") {
-        if finding.get("scope").and_then(Value::as_str) != Some("state") {
-            return None;
-        }
-        ("contract", "authoritative")
-    } else {
-        let classified = crate::domain::oracle::classify(&finding);
-        if !is_state_present(&classified) {
-            return None;
-        }
-        let classification = if OracleFilter::stable().allows(classified) {
-            "authoritative"
+    let raw_oracle = finding
+        .get("oracle")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let raw_oracle = raw_oracle.as_deref();
+    let (oracle, classification) =
+        if raw_oracle.is_some_and(crate::domain::backend::is_backend_oracle) {
+            (raw_oracle.unwrap_or_default(), "authoritative")
+        } else if raw_oracle == Some("contract") {
+            if finding.get("scope").and_then(Value::as_str) != Some("state") {
+                return None;
+            }
+            ("contract", "authoritative")
         } else {
-            "specialist"
+            let classified = crate::domain::oracle::classify(&finding);
+            if !is_state_present(&classified) {
+                return None;
+            }
+            let classification = if OracleFilter::stable().allows(classified) {
+                "authoritative"
+            } else {
+                "specialist"
+            };
+            (classified.as_str(), classification)
         };
-        (classified.as_str(), classification)
-    };
 
     let object = finding.as_object_mut()?;
     object.insert("oracle".into(), Value::String(oracle.into()));

@@ -90,7 +90,7 @@ mod tests {
     // and classify become order-dependent.
     #[test]
     fn oracle_table_has_one_unambiguous_row_per_variant() {
-        assert_eq!(ORACLES.len(), 32, "row count tracks the Oracle enum");
+        assert_eq!(ORACLES.len(), 57, "row count tracks the Oracle enum");
         let mut ids = BTreeSet::new();
         let mut names = BTreeSet::new();
         let mut invariants = BTreeSet::new();
@@ -395,6 +395,26 @@ mod tests {
         assert_eq!(classify(&json!({ "kind": "DEADINPUT" })), Oracle::DeadInput);
         assert_eq!(Oracle::parse("dead-input"), Some(Oracle::DeadInput));
         assert_eq!(Oracle::parse("input-liveness"), Some(Oracle::DeadInput));
+        // Backend contract family: per-check findings classify from their
+        // "backend:<check>" invariant into their first-class category, while
+        // legacy artifacts stamped with the umbrella oracle keep classifying
+        // as Contract (the oracle special-case wins over the invariant).
+        assert_eq!(
+            classify(&json!({ "invariant": "backend:data-loss" })),
+            Oracle::BackendDataLoss
+        );
+        assert_eq!(
+            classify(&json!({ "invariant": "backend:idempotency" })),
+            Oracle::BackendIdempotency
+        );
+        assert_eq!(
+            classify(&json!({ "oracle": "backend-contract", "invariant": "backend:data-loss" })),
+            Oracle::Contract
+        );
+        assert_eq!(
+            Oracle::parse("backend-data-loss"),
+            Some(Oracle::BackendDataLoss)
+        );
         // Raw exception block: falls back to crash.
         assert_eq!(
             classify(&json!({ "kind": "EXCEPTION CAUGHT BY WIDGETS LIBRARY" })),
