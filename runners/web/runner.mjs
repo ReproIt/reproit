@@ -5131,17 +5131,10 @@ async function main() {
   console.log(`JOURNEY[a] step: engine=${ENGINE}`);
   const launchOptions = { headless: HEADLESS };
   if (INSPECT && ENGINE === 'chromium') {
-    // Size the visible window to the render viewport so the replayed page fills
-    // the window instead of leaving a black gap. The extra height is the tab and
-    // address-bar chrome, so the page's own 1280x720 content area still matches
-    // the recording; only the OS window is resized to fit it.
-    const vw = Number(process.env.REPROIT_VIEWPORT_W) || 1280;
-    const vh = Number(process.env.REPROIT_VIEWPORT_H) || 720;
-    launchOptions.args = [
-      '--force-renderer-accessibility',
-      `--window-size=${vw},${vh + 88}`,
-      '--window-position=0,0',
-    ];
+    // A human watches this replay, so open the window maximized. The viewport
+    // follows the window (see `inspectFullWindow` below), so there is no black
+    // gap whatever size the desktop gives the frame.
+    launchOptions.args = ['--force-renderer-accessibility', '--start-maximized'];
   }
   const browser = await launchBrowser(launchOptions);
   // Multi-actor scenario: this process plays one actor, pulling from the conductor.
@@ -5180,9 +5173,19 @@ async function main() {
       if (baseUA) scannerUA = baseUA + ' ' + REPROIT_UA_TOKEN;
     } catch (_) {}
   }
+  // INSPECTION is watched by a person, not by an oracle golden. Playwright
+  // applies the pinned viewport through CDP device-metrics emulation, which is
+  // DECOUPLED from the OS window: the page then renders 1280x720 in the corner
+  // of whatever window the desktop actually gave us and leaves the rest black.
+  // `viewport: null` makes the page use the real window instead, so a maximized
+  // (or user-resized) window is filled edge to edge for the whole session. Only
+  // when a human is driving and nothing is being filmed: a recorded clip must
+  // stay at the pinned capture size.
+  // `deviceScaleFactor` is pinned with the viewport and rejected without one.
+  const inspectFullWindow = INSPECT && !HEADLESS && !VIDEO_DIR;
   const contextOpts = {
-    viewport: { width: VW, height: VH },
-    deviceScaleFactor: 1,
+    viewport: inspectFullWindow ? null : { width: VW, height: VH },
+    ...(inspectFullWindow ? {} : { deviceScaleFactor: 1 }),
     locale: effectiveLocale,
     // Accept-Language first, then any --header passthrough (which may override it
     // or add clearance/auth headers). Header names are sent as given.
@@ -5708,6 +5711,14 @@ async function main() {
     // Finding-highlight hints for a recorded replay: the most recent action's
     // transition-level signals, so the end-of-replay box can point at what broke.
     const recording = !!(replay && VIDEO_DIR);
+    // A human is stepping this replay action by action (`reproit inspect` /
+    // `check --inspect`). The probes that physically DRIVE the page -- the
+    // 60-press Tab traversal, the scroll round-trip, the wheel probe -- then
+    // become a burst of scrolling between one action and the next, which reads
+    // as the app misbehaving rather than as an audit. They are suppressed here
+    // (see the call sites); every pure-DOM scan still runs, so the verdict
+    // surface the inspection reuses is otherwise unchanged.
+    const humanPaced = !!(replay && INSPECT);
     const crashAtStart = replayErrorCount;
     let lastTriggerLabel = null; // 'jank' / 'froze' from the latest action (crash overrides)
     let lastFlickerKeys = null; // churned persistent-chrome anchor keys, latest action
@@ -6046,7 +6057,9 @@ async function main() {
               }),
           );
         }
-        if (!PROBE) {
+        // Both probes below drive the scroller, so they are skipped while a human
+        // paces the replay (humanPaced): they are the visible up/down churn.
+        if (!PROBE && !humanPaced) {
           // SCROLL ROUND-TRIP: scroll the primary list away and back and flag
           // content that differs at a pinned offset (a list-recycling /
           // virtualization bug rebinds a different row to the same position).
@@ -6115,7 +6128,14 @@ async function main() {
         // probe mutates the DOM and its framebuffer probe reloads the page, so it
         // must run after the snapshot, the state record, AND the scans above. The
         // next action then drives the live (possibly mutated/reloaded) DOM.
-        await emitGroundtruth(page, gtCdp, snap.sig);
+        //
+        // Skipped WHOLE while a human paces the replay. Its Tab traversal walks
+        // focus through up to 60 elements, which scrolls the page end to end
+        // between two inspected actions. Dropping only the traversal is not an
+        // option: keyboard reachability would then read as empty and the record
+        // would claim every control is unreachable, so no ground truth is
+        // emitted for this state at all rather than false ground truth.
+        if (!humanPaced) await emitGroundtruth(page, gtCdp, snap.sig);
       }
       // Record same-origin APP link targets on this page (dedup by pathname, first
       // source state wins) for the end-of-crawl broken-route link check. Exclude
