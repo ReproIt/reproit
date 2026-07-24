@@ -28,6 +28,36 @@ versioned SDK source APIs documented in `docs/stability.md`.
 - `reproit repro list`, an alias of the top-level `reproit repros` (which
   remains the primary form), so the `repro` subcommand family can also list
   the saved repros it operates on.
+- `reproit init` in a backend repo without a schema now detects the framework
+  from the project manifests (Cargo.toml, package.json, pyproject/requirements,
+  pom.xml/build.gradle, Gemfile, composer.json, go.mod) and prints the
+  framework-specific way to produce a schema instead of a dead-end error. It
+  still exits nonzero and writes no configuration until a schema exists.
+- `reproit init <schema-url>` initializes a backend project from a served
+  schema: the URL is fetched (bounded size and time), validated as OpenAPI,
+  GraphQL introspection, or a protobuf descriptor, snapshotted into the
+  project, and the URL's origin is recorded as `backend.target`. An HTML
+  response keeps the existing web zero-config init; an ambiguous response
+  fails closed and asks for `--platform web` or `--platform backend`.
+- Backend scan/fuzz have a first-class target: `--target <url>` (on fuzz, a
+  URL-valued `--target`), with precedence `--target` > `REPROIT_BACKEND_URL` >
+  the new optional `backend.target` config field > the schema `servers`
+  entry. A positional URL inside a backend project now routes to the backend
+  path as the target instead of a zero-config browser run; `--platform web`
+  is the explicit escape hatch (see docs/backend-quickstart.md).
+- `reproit doctor` covers backend projects: schema parses (with operation
+  count), the target resolves (same precedence as scan/fuzz) and answers a
+  bounded probe, and the adapter tier is reported (effect-level verdicts vs
+  black-box) with the one-line adapter mount for the detected framework.
+- Backend scan/fuzz state their verdict tier once in the run summary:
+  `effect-grounded (adapter detected)` when any `x-reproit-events` trail came
+  back during the run, else `black-box (no adapter; response-level checks
+  only)`. Every live request now carries the scan-time trace headers.
+- docs/backend-quickstart.md: the four-command backend walkthrough, per
+  framework schema notes, the tier explanation, and capture replay.
+- `reproit check <capture.json>` now works from a schema-only backend project:
+  the capture-file re-evaluation no longer requires an app-platform
+  configuration to load first.
 - Backend fuzz now sends wrong-typed input probes: each declared body field of
   an HTTP operation is sent once with a wrong JSON type (present-but-wrong
   optional fields included), deterministic per seed and capped at 8 probes per

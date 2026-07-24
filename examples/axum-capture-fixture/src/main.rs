@@ -15,7 +15,7 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Json;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Extension, Router};
 use reproit_backend::axum::{MiddlewareConfig, ReproitLayer};
 use reproit_backend::{Capture, CaptureConfig, EffectKind, Recorder};
@@ -85,7 +85,13 @@ async fn main() {
     }
     let layer = ReproitLayer::new(MiddlewareConfig {
         capture,
-        operation: Some(Box::new(|_| "createOrder".to_string())),
+        operation: Some(Box::new(|parts| {
+            match parts.uri.path() {
+                "/health" => "health",
+                _ => "createOrder",
+            }
+            .to_string()
+        })),
         ..MiddlewareConfig::default()
     });
     let state = Arc::new(AppState {
@@ -93,6 +99,9 @@ async fn main() {
     });
     let app = Router::new()
         .route("/orders", post(create_order))
+        // Read-only probe endpoint: gives `reproit scan` and `reproit doctor`
+        // a safe GET through the adapter middleware.
+        .route("/health", get(|| async { Json(json!({ "ok": true })) }))
         .layer(layer)
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4477")

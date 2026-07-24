@@ -554,6 +554,8 @@ cloud view is backed by exportable raw data.
 reproit                       help: the scan -> fuzz -> check -> keep story
 reproit scan [target]         scan every screen for visible bugs (--record-video for clips)
 reproit fuzz [target]         find deeper interaction bugs
+reproit init <schema-url>     backend projects: snapshot a served schema and set the target
+                              (see docs/backend-quickstart.md, incl. target precedence)
 reproit <fnd_|rep_|bkt_...>    reproduce one bug
 reproit @saved-name            reproduce one saved repro or journey by name
 reproit proof <id>             explain its immutable proof ledger
