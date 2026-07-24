@@ -4,7 +4,10 @@ All notable user-facing changes are recorded here. ReproIt follows semantic
 versioning for the stable CLI surface, saved repro contract, wire protocol, and
 versioned SDK source APIs documented in `docs/stability.md`.
 
-## Unreleased
+## 1.0.0 - 2026-07-24
+
+This entry supersedes the 2026-07-22 cut of 1.0.0, which was withdrawn before
+any downloads and re-released with the backend surface promoted to stable.
 
 ### Added
 
@@ -14,18 +17,19 @@ versioned SDK source APIs documented in `docs/stability.md`.
   tier and severity class. Existing artifacts stamped with the legacy umbrella
   id `backend-contract` remain readable; scoped protocol and schema checks
   still report under it.
-
-### Removed
-
-- Dear ImGui and Clay preview support, including the `imgui` and `clay` platform ids,
-  instrumentation headers, examples, native validation gate, and native UI SDK archive.
-
-## 1.0.0 - 2026-07-22
-
-### Added
-
-- One CLI workflow across web, mobile, desktop, terminal, Electron, Tauri,
-  Dear ImGui, and Clay targets.
+- Production capture mode in the backend SDKs: error-triggered (and optionally
+  sampled) capture of the full start/effects/return operation sequence, shipped
+  as version 1 event batches tagged `backend-server-error`, with hard bounds on
+  queue depth, batch size, payload size, and retries. Capture never blocks or
+  fails the host application.
+- `reproit debug replay-capture` deterministically re-evaluates a captured
+  production sequence locally with the backend oracles.
+- Node backend SDK (`reproit-backend-node`, Express middleware and Fastify
+  plugin) and Python backend SDK (`reproit-backend-py`, ASGI middleware for
+  FastAPI/Starlette), wire-compatible with the Rust reference adapter and
+  pinned by shared event-batch and oracle-tagging contract tests.
+- One CLI workflow across web, mobile, desktop, terminal, Electron, and Tauri
+  targets.
 - Confirmed finding replay, minimization, saved regression suites, evidence
   recording, and production bug replay.
 - Version 1 event batches shared by the CLI, runners, Cloud, and production SDKs.
@@ -36,10 +40,16 @@ versioned SDK source APIs documented in `docs/stability.md`.
 - Independent Chromium application evidence against fixed public VERT and
   Slidev issues.
 
+### Removed
+
+- Dear ImGui and Clay preview support, including the `imgui` and `clay` platform ids,
+  instrumentation headers, examples, native validation gate, and native UI SDK archive.
+
 ### Stability contract
 
 - Existing 1.x `reproit.yaml` files, saved repros, event batches, and the command
   behavior named in `docs/stability.md` remain compatible throughout 1.x unless
   a security fix requires a narrowly documented exception.
-- Experimental specialist or backend-contract features are outside the stable
-  API and are identified as experimental where documented.
+- Backend contract oracles, the backend trace adapters, and capture mode are
+  part of the stable surface. Experimental specialist features remain outside
+  the stable API and are identified as experimental where documented.
