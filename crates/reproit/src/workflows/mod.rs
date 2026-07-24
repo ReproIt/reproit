@@ -399,8 +399,9 @@ where
                  https://app.example.com` in a workspace; from elsewhere pass \
                  `--config /path/to/reproit.yaml`"
             })?;
-            triage::reproduce_bucket_global(
+            triage::reproduce_bucket(
                 &loaded.root,
+                None,
                 &issue,
                 &alias,
                 !no_run,

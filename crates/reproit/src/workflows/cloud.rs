@@ -290,11 +290,13 @@ pub(super) async fn cloud_cmd(
             let loaded = config::load(config_path)?;
             triage::reproduce_bucket(
                 &loaded.root,
-                &app,
+                Some(&app),
                 &bucket,
                 &as_name,
                 run,
                 run_id,
+                false,
+                false,
                 json,
                 cloud,
                 key,
@@ -322,9 +324,23 @@ pub(super) async fn cloud_cmd(
                 }
                 (Some(_), true) => unreachable!("clap conflicts_with prevents --bucket + --top"),
             };
-            triage::pull(&loaded.root, &app, &bucket, &as_name, json, cloud, key).await?;
-            triage::print_pull_next_step(&as_name, json, triage::PullContinuation::SavedOnly);
-            Ok(())
+            // The shared pull -> save -> confirm path with `run` false: save
+            // only, print the saved-only next step, no confirmation replay.
+            triage::reproduce_bucket(
+                &loaded.root,
+                Some(&app),
+                &bucket,
+                &as_name,
+                false,
+                None,
+                false,
+                false,
+                json,
+                cloud,
+                key,
+            )
+            .await
+            .map(|_| ())
         }
         CloudAction::Triage {
             app,

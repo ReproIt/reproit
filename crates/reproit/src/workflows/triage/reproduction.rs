@@ -150,13 +150,14 @@ fn run_check_and_classify(
     Ok(verdict)
 }
 
-/// Bucket-first production reproduction: materialize the content-addressed
+/// Bucket-first production reproduction, the ONE pull -> save -> confirm
+/// spelling shared by `reproit bkt_...` (`app` None: account-global bucket
+/// resolution), the MCP reproduce dispatch (`__cloud-internal
+/// __replay-dispatch --run`, `app` known), and `cloud pull` (`run` false:
+/// save only, no confirmation replay). It materializes the content-addressed
 /// bucket as a first-class LOCAL repro named `as_name`, then (with `run`)
-/// `check` it. This is the one-step "show me this prod bug locally" verb; it
-/// REUSES the existing pull
-/// + check code paths (no duplicated materialize/replay logic), so the pulled
-/// repro carries its property-matched fixture and replays exactly as a kept
-/// one.
+/// `check`s it, so the pulled repro carries its property-matched fixture and
+/// replays exactly as a kept one.
 ///
 /// A `run` verdict is reported back to the cloud (POST .../replay-results):
 /// that is the trust loop the bucket package's `howto` promises, and it is what
@@ -166,18 +167,20 @@ fn run_check_and_classify(
 #[allow(clippy::too_many_arguments)]
 pub async fn reproduce_bucket(
     root: &std::path::Path,
-    app: &str,
+    app: Option<&str>,
     bucket: &str,
     as_name: &str,
     run: bool,
     run_id: Option<i64>,
+    record_video: bool,
+    flicker: bool,
     json: bool,
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<ReproVerdict> {
     // Pull is the ONE cloud boundary: it writes .reproit/repros/<id>/{meta,replay}
     // (fixture folded in) and prints the save summary.
-    pull(root, app, bucket, as_name, json, cloud.clone(), key.clone()).await?;
+    let app = pull_and_save(root, app, bucket, as_name, json, cloud.clone(), key.clone()).await?;
     let continuation = if run {
         PullContinuation::ReplayFollows
     } else {
@@ -185,7 +188,16 @@ pub async fn reproduce_bucket(
     };
     print_pull_next_step(as_name, json, continuation);
     report_reproduction(
-        root, app, bucket, as_name, run, run_id, false, false, cloud, key,
+        root,
+        &app,
+        bucket,
+        as_name,
+        run,
+        run_id,
+        record_video,
+        flicker,
+        cloud,
+        key,
     )
     .await
 }
@@ -203,7 +215,7 @@ pub async fn verify_tester_capture(
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<ReproVerdict> {
-    pull(root, app, bucket, as_name, json, cloud, key).await?;
+    pull_and_save(root, Some(app), bucket, as_name, json, cloud, key).await?;
     print_pull_next_step(as_name, json, PullContinuation::ReplayFollows);
     run_check_and_classify(root, as_name, None, false, false)
 }
@@ -238,44 +250,6 @@ pub async fn report_tester_capture(
         )
         .await?;
     Ok(())
-}
-
-/// Resolve a production bucket across the projects visible to the signed-in
-/// account, materialize it locally, and report the replay verdict to its owning
-/// project. This is the normal human path behind `reproit bkt_...`.
-#[allow(clippy::too_many_arguments)]
-pub async fn reproduce_bucket_global(
-    root: &std::path::Path,
-    bucket: &str,
-    as_name: &str,
-    run: bool,
-    run_id: Option<i64>,
-    record_video: bool,
-    flicker: bool,
-    json: bool,
-    cloud: Option<String>,
-    key: Option<String>,
-) -> Result<ReproVerdict> {
-    let app = pull_global(root, bucket, as_name, json, cloud.clone(), key.clone()).await?;
-    let continuation = if run {
-        PullContinuation::ReplayFollows
-    } else {
-        PullContinuation::SavedOnly
-    };
-    print_pull_next_step(as_name, json, continuation);
-    report_reproduction(
-        root,
-        &app,
-        bucket,
-        as_name,
-        run,
-        run_id,
-        record_video,
-        flicker,
-        cloud,
-        key,
-    )
-    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -493,27 +467,28 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
     })
 }
 
-/// Download a cloud bucket as a first-class local repro.
+/// Download a cloud bucket as a first-class local repro; the ONE pull -> save
+/// spelling behind every reproduce path.
 ///
 /// This is the ONE cloud boundary in the check loop: it fetches the bucket's
-/// replay package (the content-addressed `GET /v1/apps/:app/buckets/:bucket`),
-/// materializes it the way `keep` does, and writes
+/// replay package (app-scoped when the caller knows the app, account-global
+/// resolution otherwise), materializes it the way `keep` does, and writes
 /// `.reproit/repros/<id>/{meta,replay}.json`. After this, `reproit check
 /// <name>` runs the STANDARD local, network-free verification and `reproit
-/// repros` lists it -- indistinguishable from a locally found repro.
-pub async fn pull(
+/// repros` lists it -- indistinguishable from a locally found repro. Returns
+/// the owning app id.
+async fn pull_and_save(
     root: &std::path::Path,
-    app: &str,
+    app: Option<&str>,
     bucket: &str,
     as_name: &str,
     json: bool,
     cloud: Option<String>,
     key: Option<String>,
-) -> Result<()> {
-    let c = Cloud::new(cloud, key);
-    // The content-addressed bucket endpoint (matches the content-hash model).
-    let pkg = c.get(&format!("/v1/apps/{app}/buckets/{bucket}")).await?;
-    persist_pulled_package(root, app, bucket, as_name, json, &pkg)
+) -> Result<String> {
+    let (app, pkg) = fetch_package(app, bucket, cloud, key).await?;
+    persist_pulled_package(root, &app, bucket, as_name, json, &pkg)?;
+    Ok(app)
 }
 
 /// Pull a bucket without asking the user for its app id. The authenticated
@@ -526,9 +501,25 @@ pub async fn pull_global(
     cloud: Option<String>,
     key: Option<String>,
 ) -> Result<String> {
-    let (app, pkg) = fetch_bucket_package(bucket, cloud, key).await?;
-    persist_pulled_package(root, &app, bucket, as_name, json, &pkg)?;
-    Ok(app)
+    pull_and_save(root, None, bucket, as_name, json, cloud, key).await
+}
+
+/// Fetch one bucket package without persisting it. With a known `app`, the
+/// content-addressed app route is authoritative (its error propagates);
+/// otherwise resolve globally via `fetch_bucket_package`.
+async fn fetch_package(
+    app: Option<&str>,
+    bucket: &str,
+    cloud: Option<String>,
+    key: Option<String>,
+) -> Result<(String, Value)> {
+    let Some(app) = app else {
+        return fetch_bucket_package(bucket, cloud, key).await;
+    };
+    let pkg = Cloud::new(cloud, key)
+        .get(&format!("/v1/apps/{app}/buckets/{bucket}"))
+        .await?;
+    Ok((app.to_string(), pkg))
 }
 
 /// Fetch one production bucket package (selected-project route first, global
