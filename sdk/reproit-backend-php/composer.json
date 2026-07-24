@@ -1,0 +1,25 @@
+{
+  "name": "reproit/reproit-backend-php",
+  "version": "0.0.0",
+  "description": "Experimental trace-bound service instrumentation for Reproit (PHP, PSR-15)",
+  "type": "library",
+  "license": "Apache-2.0",
+  "homepage": "https://reproit.com",
+  "require": {
+    "php": ">=8.1"
+  },
+  "suggest": {
+    "ext-curl": "Preferred transport for capture-mode uploads (stream contexts otherwise)"
+  },
+  "autoload": {
+    "files": [
+      "reproit.php",
+      "psr15.php",
+      "vanilla.php"
+    ]
+  },
+  "scripts": {
+    "test": "php test/trace_test.php && php test/capture_test.php && php test/psr15_test.php",
+    "test-e2e": "php test/e2e_test.php"
+  }
+}
