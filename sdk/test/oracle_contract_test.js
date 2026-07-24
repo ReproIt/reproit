@@ -91,7 +91,20 @@ for (var j = 0; j < backendPorts.length; j++) {
   );
 }
 
+// The Go port names the constant idiomatically (ServerErrorOracle), so it is
+// pinned with its own patterns against the same registry id.
+var goSrc = fs.readFileSync(path.join(root, 'reproit-backend-go/capture.go'), 'utf8');
+assert.ok(
+  /ServerErrorOracle\s*=\s*"backend-server-error"/.test(goSrc),
+  'Go backend (reproit-backend-go/capture.go): expected the backend-server-error oracle id',
+);
+assert.ok(
+  /"kind":\s*"finding"[\s\S]{0,500}?"oracle":\s*ServerErrorOracle/.test(goSrc),
+  'Go backend (reproit-backend-go/capture.go): finding identity is missing the ' +
+    '`backend-server-error` oracle tag',
+);
+
 console.log(
-  'PASS: every backend SDK (Rust, Node, Python) tags its capture finding with ' +
+  'PASS: every backend SDK (Rust, Node, Python, Go) tags its capture finding with ' +
     '`backend-server-error`',
 );

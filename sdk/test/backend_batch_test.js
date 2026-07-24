@@ -1,6 +1,6 @@
 /*
- * Functional cross-SDK contract test for the backend SDK family (Node + Python;
- * the Rust reference pins the same contract in-crate through
+ * Functional cross-SDK contract test for the backend SDK family (Node, Python,
+ * and Go; the Rust reference pins the same contract in-crate through
  * reproit_protocol::EventBatch::validate). For each SDK this builds a real 5xx
  * capture batch and asserts:
  *   1. the batch is valid event-batch-v1 (event_batch_v1.js protocol mirror);
@@ -8,7 +8,8 @@
  *   3. the scan-time response header name is `x-reproit-events` and decodes;
  *   4. obvious secret-shaped fields are structurally redacted before upload.
  *
- * Run: node sdk/test/backend_batch_test.js  (Python half needs `uv` on PATH.)
+ * Run: node sdk/test/backend_batch_test.js
+ * (The Python sample needs `uv` on PATH; the Go sample needs `go`.)
  */
 'use strict';
 
@@ -115,7 +116,18 @@ function pythonSample() {
   return JSON.parse(lines[lines.length - 1]);
 }
 
+function goSample() {
+  var result = child_process.spawnSync('go', ['run', './contractsample'], {
+    cwd: path.join(root, 'reproit-backend-go'),
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, 'go sample failed: ' + result.stderr);
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
 checkSdk('Node backend SDK', nodeSample());
 checkSdk('Python backend SDK', pythonSample());
+checkSdk('Go backend SDK', goSample());
 
 console.log('PASS: backend SDK batches match event-batch-v1 and the oracle/redaction contract');
