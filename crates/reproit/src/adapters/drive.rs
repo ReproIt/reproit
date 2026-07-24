@@ -480,7 +480,9 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
 }
 
 /// Resolve a runner script: config `runnerDir`, then `REPROIT_RUNNERS`, then a
-/// `runners/` dir beside the config.
+/// `runners/` dir beside the config (all dev overrides, used verbatim), else
+/// the managed data dir, refreshed from the binary's embedded scripts on every
+/// resolve so an installed binary never runs a stale native runner.
 fn runner_script(ctx: &RunCtx, file: &str) -> Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(d) = &ctx.runner_dir {
@@ -490,9 +492,16 @@ fn runner_script(ctx: &RunCtx, file: &str) -> Result<PathBuf> {
         candidates.push(PathBuf::from(d).join(file));
     }
     candidates.push(ctx.root.join("runners").join(file));
-    candidates.into_iter().find(|p| p.exists()).ok_or_else(|| {
-        anyhow::anyhow!("runner {file} not found (set app.runnerDir or REPROIT_RUNNERS)")
-    })
+    if let Some(hit) = candidates.into_iter().find(|p| p.exists()) {
+        return Ok(hit);
+    }
+    let managed = crate::adapters::config::native_runner_data_dir();
+    crate::adapters::config::write_embedded_native_runner(&managed)?;
+    let path = managed.join(file);
+    if !path.is_file() {
+        anyhow::bail!("runner {file} not found (set app.runnerDir or REPROIT_RUNNERS)");
+    }
+    Ok(path)
 }
 
 /// The app to drive: explicit executable, else the bundle id (macOS AX).

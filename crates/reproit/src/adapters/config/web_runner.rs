@@ -133,6 +133,56 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The single-file NATIVE runner scripts (Electron / Tauri / macOS AX),
+/// embedded like the web set so an installed binary never depends on a source
+/// checkout for runner logic and never runs a stale script after an upgrade.
+/// They import the web oracle modules as `./web/<name>.mjs`, so
+/// `write_embedded_native_runner` materializes the web set beneath them.
+const NATIVE_RUNNER_FILES: &[(&str, &str)] = &[
+    (
+        "electron.mjs",
+        include_str!("../../../../../runners/electron.mjs"),
+    ),
+    (
+        "tauri.mjs",
+        include_str!("../../../../../runners/tauri.mjs"),
+    ),
+    (
+        "inspect-control.mjs",
+        include_str!("../../../../../runners/inspect-control.mjs"),
+    ),
+    (
+        "macos-ax.swift",
+        include_str!("../../../../../runners/macos-ax.swift"),
+    ),
+];
+
+/// Where the managed native runner scripts live. Deliberately INSIDE the web
+/// runner data dir: ESM bare-specifier resolution walks up from the importing
+/// file, so `<data>/reproit/web/native/electron.mjs` resolves `playwright` and
+/// `pngjs` from the web runner's already-provisioned `node_modules` without
+/// any resolver configuration.
+pub fn native_runner_data_dir() -> PathBuf {
+    web_runner_data_dir().join("native")
+}
+
+/// Write the binary's embedded native runner scripts (plus the web modules
+/// they import) into `dir`, overwriting any stale copies, so the scripts
+/// match this binary exactly. Mirrors `write_embedded_runner` for the web.
+pub fn write_embedded_native_runner(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir.join("web"))
+        .with_context(|| format!("creating native runner dir {}", dir.display()))?;
+    for (name, contents) in NATIVE_RUNNER_FILES {
+        std::fs::write(dir.join(name), contents)
+            .with_context(|| format!("writing embedded native runner {name}"))?;
+    }
+    for (name, contents) in WEB_RUNNER_FILES {
+        std::fs::write(dir.join("web").join(name), contents)
+            .with_context(|| format!("writing embedded native runner web/{name}"))?;
+    }
+    Ok(())
+}
+
 /// Write the binary's embedded runner scripts into `dir`, overwriting any stale
 /// copies, so the runner logic matches this binary exactly.
 fn write_embedded_runner(dir: &Path) -> Result<()> {
@@ -483,7 +533,7 @@ fn ensure_web_browser(dir: &Path, log: &dyn Fn(&str)) -> Result<()> {
 mod tests {
     use super::{
         is_managed_web_runner_dir, parse_sha256_hex, runner_checksum_is_required, sha256_file_hex,
-        web_runner_data_dir, WEB_RUNNER_FILES,
+        web_runner_data_dir, NATIVE_RUNNER_FILES, WEB_RUNNER_FILES,
     };
 
     #[test]
@@ -568,6 +618,47 @@ mod tests {
                     shipped.contains(import.as_str()),
                     "{name} imports './{import}' but it is missing from WEB_RUNNER_FILES (the \
                      embedded sync won't write it, breaking installs on upgrade)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_runner_materializes_scripts_and_their_web_imports() {
+        let dir = std::env::temp_dir().join(format!("reproit_native_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        super::write_embedded_native_runner(&dir).unwrap();
+        assert!(dir.join("electron.mjs").is_file());
+        assert!(dir.join("tauri.mjs").is_file());
+        assert!(dir.join("macos-ax.swift").is_file());
+        assert!(dir.join("web/overflow-oracle.mjs").is_file());
+        assert!(dir.join("web/probe.mjs").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The native runners import web oracle modules as `./web/<name>.mjs`.
+    // Renaming a web oracle without updating them used to break Electron and
+    // Tauri only at runtime, from disk, on someone else's machine; now it
+    // fails here.
+    #[test]
+    fn native_runner_files_are_import_closed() {
+        let native: std::collections::HashSet<&str> =
+            NATIVE_RUNNER_FILES.iter().map(|(name, _)| *name).collect();
+        let web: std::collections::HashSet<&str> =
+            WEB_RUNNER_FILES.iter().map(|(name, _)| *name).collect();
+        for (name, contents) in NATIVE_RUNNER_FILES {
+            if !name.ends_with(".mjs") {
+                continue;
+            }
+            for import in local_mjs_imports(contents) {
+                let ok = match import.strip_prefix("web/") {
+                    Some(web_module) => web.contains(web_module),
+                    None => native.contains(import.as_str()),
+                };
+                assert!(
+                    ok,
+                    "{name} imports './{import}' but it is not embedded (see \
+                     NATIVE_RUNNER_FILES / WEB_RUNNER_FILES)"
                 );
             }
         }

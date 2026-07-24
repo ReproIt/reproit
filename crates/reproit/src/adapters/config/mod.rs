@@ -770,7 +770,10 @@ mod web_runner;
 
 pub use loader::{load, parse_str, Loaded};
 pub use synthesis::{synthesize_tui, synthesize_web};
-pub use web_runner::{ensure_web_runner_dir, is_managed_web_runner_dir};
+pub use web_runner::{
+    ensure_web_runner_dir, is_managed_web_runner_dir, native_runner_data_dir,
+    write_embedded_native_runner,
+};
 // Retain the pre-refactor façade even though the current crate has no caller.
 #[allow(unused_imports)]
 pub use web_runner::web_runner_data_dir;
