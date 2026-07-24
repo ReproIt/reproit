@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Scan-time trace identity attached to one inspected request so an
 /// instrumented target returns its effect trail as `x-reproit-events`.
@@ -16,12 +17,44 @@ pub(super) enum AdapterTrail {
     Malformed,
 }
 
+/// Run-level adapter-tier evidence. Every live HTTP invocation is traced, so
+/// an instrumented target answers with its `x-reproit-events` trail; the run
+/// summary states the resulting verdict tier once. A CLI process executes one
+/// scan/fuzz command, so process-global flags are the run scope.
+static TRACED_REQUESTS: AtomicBool = AtomicBool::new(false);
+static ADAPTER_EVENTS: AtomicBool = AtomicBool::new(false);
+static TRACE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// The one-line verdict-fidelity statement for the run summary. None when the
+/// run sent no traced HTTP request (nothing honest to claim).
+pub(super) fn adapter_tier_line() -> Option<&'static str> {
+    if ADAPTER_EVENTS.load(Ordering::Relaxed) {
+        Some("tier: effect-grounded (adapter detected)")
+    } else if TRACED_REQUESTS.load(Ordering::Relaxed) {
+        Some("tier: black-box (no adapter; response-level checks only)")
+    } else {
+        None
+    }
+}
+
 pub(super) async fn invoke(
     client: &reqwest::Client,
     endpoint: &Endpoint,
     artifact: RequestArtifact,
 ) -> Result<InvocationResult> {
-    Ok(invoke_traced(client, endpoint, artifact, None).await?.0)
+    let trace = InspectTrace {
+        trace_id: format!("run{:012x}", TRACE_COUNTER.fetch_add(1, Ordering::Relaxed)),
+        action_index: 1,
+    };
+    let http = endpoint.transport == Transport::Http;
+    let (result, trail) = invoke_traced(client, endpoint, artifact, Some(trace)).await?;
+    if http {
+        TRACED_REQUESTS.store(true, Ordering::Relaxed);
+        if matches!(trail, AdapterTrail::Events(_)) {
+            ADAPTER_EVENTS.store(true, Ordering::Relaxed);
+        }
+    }
+    Ok(result)
 }
 
 /// `invoke`, plus (when `trace` is set) the scan-time correlation headers on

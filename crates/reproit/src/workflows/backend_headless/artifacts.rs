@@ -141,6 +141,9 @@ pub(super) fn emit_report(ctx: &Ctx, command: &str, report: &Value) {
          {candidates} candidate(s), {errors} execution error(s)",
         report["exercised"].as_u64().unwrap_or(0)
     ));
+    if let Some(tier) = super::transport::adapter_tier_line() {
+        ctx.say(format!("  {tier}"));
+    }
     if let Some(values) = report["findings"].as_array() {
         for finding in values {
             ctx.say(format!(
