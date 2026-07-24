@@ -574,7 +574,7 @@ reproit cap_... --open        open its completed Cloud page
 reproit create --cloud-tester verify/shrink an SDK-marked Cloud capture
 reproit <id> --record-video   annotated video of a repro (--flicker also scans it)
 reproit baseline [--update]   visual-regression diff vs the committed baseline
-reproit repros                list saved repros + last status
+reproit repros                list saved repros + last status (`repro list` is an alias)
 reproit repro simplify <id> --to ..  swap in a shorter, verified-equivalent sequence
 reproit repro why [repro]     rank suspect code for a failure (Ochiai)
 reproit watch <id>            open a repro's recorded video

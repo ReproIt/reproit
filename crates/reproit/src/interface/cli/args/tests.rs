@@ -196,6 +196,22 @@ fn check_accepts_a_positional_capture_reference() {
     .is_err());
 }
 
+/// `repro list` is an alias of the top-level `repros` (the primary form).
+#[test]
+fn repro_list_parses_as_the_repros_alias() {
+    let cli = Cli::try_parse_from(["reproit", "repro", "list"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Cmd::Repro {
+            action: ReproAction::List
+        }
+    ));
+    assert!(matches!(
+        Cli::try_parse_from(["reproit", "repros"]).unwrap().command,
+        Cmd::Repros
+    ));
+}
+
 #[test]
 fn removed_compatibility_commands_are_not_parseable() {
     for args in [

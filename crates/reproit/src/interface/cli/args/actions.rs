@@ -22,6 +22,8 @@ pub(crate) enum DebugAction {
 /// `repro` subcommands: advanced operations that act on an existing repro.
 #[derive(Subcommand)]
 pub(crate) enum ReproAction {
+    /// List saved local repros (an alias of the top-level `repros`).
+    List,
     /// Verify an alternate action sequence still reproduces a repro's finding,
     /// and adopt it if it does and is no longer than the current one. The
     /// engine VERIFIES the candidate deterministically, so a simplification

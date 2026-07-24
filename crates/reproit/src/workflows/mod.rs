@@ -334,7 +334,12 @@ where
         Cmd::Repro {
             action: ReproAction::Simplify { repro, to },
         } => simplify_repro(&ctx, cli.config.as_deref(), &repro, &to).await,
-        Cmd::Repros => {
+        // `repro list` is an alias of the top-level `repros`: one match arm,
+        // one implementation, identical output.
+        Cmd::Repros
+        | Cmd::Repro {
+            action: ReproAction::List,
+        } => {
             let loaded = config::load(cli.config.as_deref())?;
             let metas = repro::list(&loaded.root);
             if ctx.json {

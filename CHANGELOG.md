@@ -25,6 +25,9 @@ versioned SDK source APIs documented in `docs/stability.md`.
   finding whose name matches the file path still resolves as the saved
   artifact. `debug replay-capture` is unchanged and shares the same
   re-evaluation.
+- `reproit repro list`, an alias of the top-level `reproit repros` (which
+  remains the primary form), so the `repro` subcommand family can also list
+  the saved repros it operates on.
 
 ## 1.0.0 - 2026-07-24
 
