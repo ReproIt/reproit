@@ -6,9 +6,6 @@ versioned SDK source APIs documented in `docs/stability.md`.
 
 ## 1.0.0 - 2026-07-24
 
-This entry supersedes the 2026-07-22 cut of 1.0.0, which was withdrawn before
-any downloads and re-released with the backend surface promoted to stable.
-
 ### Added
 
 - Backend contract checks are first-class oracle categories: findings from the
@@ -39,11 +36,6 @@ any downloads and re-released with the backend surface promoted to stable.
   production-loop validation.
 - Independent Chromium application evidence against fixed public VERT and
   Slidev issues.
-
-### Removed
-
-- Dear ImGui and Clay preview support, including the `imgui` and `clay` platform ids,
-  instrumentation headers, examples, native validation gate, and native UI SDK archive.
 
 ### Stability contract
 
