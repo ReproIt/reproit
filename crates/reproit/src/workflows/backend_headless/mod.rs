@@ -204,9 +204,19 @@ async fn run_target_with_policy(
              {MAX_ATTEMPTS_PER_OPERATION}"
         );
     }
+    let probe_attempts = if fuzzing {
+        // Wrong-typed input probes plus their one-shot confirmations.
+        endpoints
+            .len()
+            .checked_mul(MAX_INVALID_PROBES_PER_OPERATION * 2)
+            .context("backend probe budget overflow")?
+    } else {
+        0
+    };
     let total_attempts = endpoints
         .len()
         .checked_mul(attempts as usize)
+        .and_then(|total| total.checked_add(probe_attempts))
         .context("backend attempt budget overflow")?;
     if total_attempts > MAX_TOTAL_ATTEMPTS {
         bail!(
@@ -390,6 +400,17 @@ async fn run_target_with_policy(
         exercised += round.exercised;
         rejected += round.rejected;
     }
+    if fuzzing {
+        // Wrong-typed input probes: crash-instead-of-reject and
+        // accept-instead-of-reject both surface here.
+        let probes = probe_invalid_inputs(&client, &ordered, &base_url, seed).await;
+        findings.extend(probes.findings);
+        candidates.extend(probes.candidates);
+        skipped.extend(probes.skipped);
+        execution_errors.extend(probes.execution_errors);
+        exercised += probes.exercised;
+        rejected += probes.rejected;
+    }
 
     let findings = shrink_findings(&client, &base_url, findings).await?;
     let mut public_findings =
@@ -435,12 +456,86 @@ async fn run_target_with_policy(
 }
 
 #[derive(Default)]
-struct LifecycleRun {
+struct PassRun {
     findings: Vec<FindingCase>,
     candidates: Vec<Value>,
     skipped: Vec<Value>,
+    execution_errors: Vec<Value>,
     exercised: usize,
     rejected: usize,
+}
+
+/// Wrong-typed input probes: each declared body field of an HTTP operation is
+/// sent once with a wrong JSON type. A 4xx rejection is the contract's
+/// required outcome and stays silent; a 5xx (crashed instead of rejecting) or
+/// a 2xx (accepted invalid input) surfaces through the same oracle evaluation
+/// as every other invocation. Probes carry no setup, so the one-shot
+/// confirmation here is exactly the artifact replay: re-send one request and
+/// require the same violation fingerprint.
+async fn probe_invalid_inputs(
+    client: &reqwest::Client,
+    endpoints: &[Endpoint],
+    base_url: &str,
+    seed: u64,
+) -> PassRun {
+    let mut run = PassRun::default();
+    for endpoint in endpoints {
+        // GraphQL rejects invalid variables inside a 200 envelope and gRPC
+        // rejections abort transport-side, so neither carries the HTTP
+        // accept/reject verdict these probes measure.
+        if endpoint.transport != Transport::Http || endpoint.response_field.is_some() {
+            continue;
+        }
+        let Some(domain) = endpoint.contract.input.as_ref() else {
+            continue;
+        };
+        for input in invalid_probes(domain, seed, endpoint.body_only) {
+            let request = match build_request(endpoint, base_url, input) {
+                Ok(request) => request,
+                Err(error) => {
+                    run.skipped.push(json!({
+                        "operation": endpoint.contract.id,
+                        "reason": error.to_string(),
+                    }));
+                    continue;
+                }
+            };
+            let result = match invoke(client, endpoint, request.clone()).await {
+                Ok(result) => result,
+                Err(error) => {
+                    run.execution_errors.push(json!({
+                        "operation": endpoint.contract.id,
+                        "error": error.to_string(),
+                    }));
+                    continue;
+                }
+            };
+            run.exercised += 1;
+            if !(200..400).contains(&result.status) {
+                run.rejected += 1;
+            }
+            for violation in result.violations {
+                let finding = backend::finding(&violation);
+                match invoke(client, endpoint, request.clone()).await {
+                    Ok(confirmation) if has_fingerprint(&confirmation, &violation.fingerprint) => {
+                        run.findings
+                            .push((endpoint.clone(), request.clone(), Vec::new(), finding));
+                    }
+                    Ok(_) => run.candidates.push(json!({
+                        "operation": endpoint.contract.id,
+                        "reason": violation.reason,
+                        "confirmation": "did not reproduce exactly",
+                    })),
+                    Err(error) => run.candidates.push(json!({
+                        "operation": endpoint.contract.id,
+                        "reason": violation.reason,
+                        "confirmation": format!("confirmation failed: {error}"),
+                    })),
+                }
+            }
+        }
+    }
+    run
 }
 
 #[derive(Clone, Copy)]
@@ -456,8 +551,8 @@ async fn exercise_resource_lifecycles(
     base_url: &str,
     seed: u64,
     policy: &BackendPolicy,
-) -> Result<LifecycleRun> {
-    let mut run = LifecycleRun::default();
+) -> Result<PassRun> {
+    let mut run = PassRun::default();
     for resource in &policy.resources {
         if resource.consistency != backend::ResourceConsistency::Strong {
             run.skipped.push(json!({
@@ -792,7 +887,7 @@ fn apply_operation_override(imported: &mut OperationContract, declared: &Operati
 mod schema;
 use schema::*;
 mod generation;
-use generation::sample_domain;
+use generation::{invalid_probes, sample_domain, MAX_INVALID_PROBES_PER_OPERATION};
 mod request;
 use request::build_request;
 mod transport;

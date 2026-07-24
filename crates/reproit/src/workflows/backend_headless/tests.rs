@@ -35,18 +35,150 @@ fn detects_and_builds_a_structural_openapi_request() {
 }
 
 #[test]
-fn reports_server_errors_only_for_contract_valid_requests() {
+fn reports_server_errors_for_valid_and_invalid_documented_requests() {
     let endpoint = openapi_endpoints(&document()).pop().unwrap();
     let valid = json!({"path":{"id":1}});
     let request = build_request(&endpoint, "http://127.0.0.1:9999", valid).unwrap();
     let result = evaluate_invocation(&endpoint, &request, 500, json!({"error":"boom"}));
     assert_eq!(result.violations.len(), 1);
     assert_eq!(result.violations[0].oracle, "server-error");
+    assert!(result.violations[0].reason.contains("contract-valid"));
 
-    let mut invalid = request;
+    // A 5xx on a contract-invalid input is a crash where the contract
+    // requires a 4xx rejection; the finding records the probed mismatch.
+    let mut invalid = request.clone();
     invalid.input = json!({"path":{"id":"not-an-integer"}});
     let result = evaluate_invocation(&endpoint, &invalid, 500, json!({"error":"boom"}));
+    assert_eq!(result.violations.len(), 1);
+    assert_eq!(result.violations[0].oracle, "server-error");
+    assert!(result.violations[0].reason.contains("contract-invalid"));
+    assert!(result.violations[0]
+        .reason
+        .contains("$input.path.id must be an integer"));
+
+    // A 4xx rejection of the same invalid input is contract-conformant.
+    let mut rejected = request;
+    rejected.input = json!({"path":{"id":"not-an-integer"}});
+    let result = evaluate_invocation(&endpoint, &rejected, 400, json!({"error":"bad id"}));
     assert!(result.violations.is_empty());
+}
+
+fn order_body_domain() -> ValueDomain {
+    let mut properties = BTreeMap::new();
+    properties.insert(
+        "item".into(),
+        ValueDomain::String {
+            min_length: None,
+            max_length: None,
+            pattern: None,
+            format: None,
+            variants: Vec::new(),
+        },
+    );
+    properties.insert(
+        "qty".into(),
+        ValueDomain::Integer {
+            min: Some(1),
+            max: None,
+        },
+    );
+    properties.insert(
+        "discount".into(),
+        ValueDomain::String {
+            min_length: None,
+            max_length: None,
+            pattern: None,
+            format: None,
+            variants: Vec::new(),
+        },
+    );
+    ValueDomain::Object {
+        required: ["item".into(), "qty".into()].into_iter().collect(),
+        properties,
+        additional: true,
+    }
+}
+
+#[test]
+fn invalid_probes_mutate_each_body_field_including_present_optionals() {
+    let domain = order_body_domain();
+    let probes = invalid_probes(&domain, 5, true);
+    assert_eq!(probes.len(), 3);
+    let mismatches = probes
+        .iter()
+        .map(|probe| domain.mismatch(probe, "$input").expect("out of domain"))
+        .collect::<Vec<_>>();
+    assert!(mismatches.iter().any(|m| m.contains("$input.item")));
+    assert!(mismatches.iter().any(|m| m.contains("$input.qty")));
+    assert!(mismatches.iter().any(|m| m.contains("$input.discount")));
+    // The optional field is present with the wrong type, not merely absent.
+    let discount = probes
+        .iter()
+        .find(|probe| {
+            domain
+                .mismatch(probe, "$input")
+                .unwrap()
+                .contains("discount")
+        })
+        .unwrap();
+    assert!(discount["discount"].is_number());
+}
+
+#[test]
+fn invalid_probes_only_mutate_the_body_group_of_grouped_inputs() {
+    let mut groups = BTreeMap::new();
+    let mut path = BTreeMap::new();
+    path.insert(
+        "id".into(),
+        ValueDomain::Integer {
+            min: Some(1),
+            max: None,
+        },
+    );
+    groups.insert(
+        "path".into(),
+        ValueDomain::Object {
+            required: ["id".into()].into_iter().collect(),
+            properties: path,
+            additional: true,
+        },
+    );
+    groups.insert("body".into(), order_body_domain());
+    let domain = ValueDomain::Object {
+        required: ["path".into(), "body".into()].into_iter().collect(),
+        properties: groups,
+        additional: false,
+    };
+    let probes = invalid_probes(&domain, 5, false);
+    assert_eq!(probes.len(), 3);
+    for probe in &probes {
+        assert_eq!(probe["path"]["id"], 1, "path group must stay valid");
+        let reason = domain.mismatch(probe, "$input").expect("out of domain");
+        assert!(reason.contains("$input.body."), "{reason}");
+    }
+}
+
+#[test]
+fn invalid_probes_are_deterministic_and_capped() {
+    let domain = order_body_domain();
+    assert_eq!(
+        invalid_probes(&domain, 9, true),
+        invalid_probes(&domain, 9, true)
+    );
+
+    let mut properties = BTreeMap::new();
+    for index in 0..(MAX_INVALID_PROBES_PER_OPERATION + 5) {
+        properties.insert(format!("field{index:02}"), ValueDomain::Boolean);
+    }
+    let wide = ValueDomain::Object {
+        required: BTreeSet::new(),
+        properties,
+        additional: true,
+    };
+    assert_eq!(
+        invalid_probes(&wide, 1, true).len(),
+        MAX_INVALID_PROBES_PER_OPERATION
+    );
 }
 
 #[test]

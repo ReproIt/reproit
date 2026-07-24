@@ -97,31 +97,34 @@ pub fn evaluate(config: &BackendConfig, events: &[BackendEvent]) -> Vec<BackendV
         let Some(returned) = &invocation.returned else {
             continue;
         };
-        // A repeatable 5xx for an input that satisfies a schema-owned request
-        // contract is a concrete server failure, not merely rejected fuzz
-        // traffic. Keep this boundary narrow: undocumented or structurally
-        // invalid inputs cannot create this finding, and the headless runner
-        // still requires exact replay before publishing it.
-        if !returned.success
-            && returned.status.is_some_and(|status| status >= 500)
-            && match (&contract.input, &start.event) {
+        // A repeatable 5xx is a concrete server failure for every input the
+        // contract can pass a verdict on: a contract-valid request must
+        // succeed, and a contract-invalid request must be rejected with a
+        // 4xx, so crashing is conformant for neither. A 4xx on an invalid
+        // input is the correct rejection and stays silent. Keep the boundary
+        // narrow: inputs the contract does not document at all (a non-null
+        // input on an input-free contract) cannot create this finding, and
+        // the headless runner still requires exact replay before publishing.
+        if !returned.success && returned.status.is_some_and(|status| status >= 500) {
+            let verdict = match (&contract.input, &start.event) {
                 (Some(domain), BackendEventKind::Start { input }) => {
-                    domain.mismatch(input, "$input").is_none()
+                    Some(domain.mismatch(input, "$input"))
                 }
-                (None, BackendEventKind::Start { input }) => input.is_null(),
-                _ => false,
+                (None, BackendEventKind::Start { input }) if input.is_null() => Some(None),
+                _ => None,
+            };
+            if let Some(mismatch) = verdict {
+                let status = returned.status.unwrap_or_default();
+                let reason = match mismatch {
+                    None => format!("contract-valid request returned HTTP {status}"),
+                    Some(reason) => format!(
+                        "contract-invalid request returned HTTP {status} instead of a 4xx \
+                         rejection: {reason}"
+                    ),
+                };
+                violations.push(violation(contract, returned.event, "server-error", reason));
+                continue;
             }
-        {
-            violations.push(violation(
-                contract,
-                returned.event,
-                "server-error",
-                format!(
-                    "contract-valid request returned HTTP {}",
-                    returned.status.unwrap_or_default()
-                ),
-            ));
-            continue;
         }
         if returned.success
             && !contract.success_statuses.is_empty()

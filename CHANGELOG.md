@@ -28,6 +28,14 @@ versioned SDK source APIs documented in `docs/stability.md`.
 - `reproit repro list`, an alias of the top-level `reproit repros` (which
   remains the primary form), so the `repro` subcommand family can also list
   the saved repros it operates on.
+- Backend fuzz now sends wrong-typed input probes: each declared body field of
+  an HTTP operation is sent once with a wrong JSON type (present-but-wrong
+  optional fields included), deterministic per seed and capped at 8 probes per
+  operation. A 4xx rejection stays silent; a repeatable 5xx surfaces as
+  `backend-server-error` (the contract requires a 4xx rejection, and the
+  finding records the probed mismatch), and a 2xx acceptance surfaces as
+  `backend-accepted-invalid-input`. Probe findings replay as a single
+  request, so discovery confirmation and `reproit check` are the same check.
 
 ## 1.0.0 - 2026-07-24
 

@@ -1,5 +1,72 @@
 use super::*;
 
+pub(super) const MAX_INVALID_PROBES_PER_OPERATION: usize = 8;
+
+/// Contract-invalid inputs for one operation: each probe is a full valid
+/// sample with exactly one declared body field replaced by a wrong JSON type
+/// (present-but-wrong optional fields included). Only body-carried fields are
+/// mutated; path, query, and header values serialize as text, so a wrong JSON
+/// type is not observable at the transport. Every returned input is proven
+/// out-of-domain, deterministic for a given `seed`, and capped at
+/// `MAX_INVALID_PROBES_PER_OPERATION`.
+pub(super) fn invalid_probes(domain: &ValueDomain, seed: u64, body_only: bool) -> Vec<Value> {
+    let target = if body_only {
+        Some(domain)
+    } else if let ValueDomain::Object { properties, .. } = domain {
+        properties.get("body")
+    } else {
+        None
+    };
+    let Some(ValueDomain::Object { properties, .. }) = target else {
+        return Vec::new();
+    };
+    let mut probes = Vec::new();
+    for (name, property) in properties {
+        if probes.len() >= MAX_INVALID_PROBES_PER_OPERATION {
+            break;
+        }
+        let Some(wrong) = wrong_typed_value(property, seed) else {
+            continue;
+        };
+        let mut input = sample_domain(domain, seed, true, 0);
+        let slot = if body_only {
+            Some(&mut input)
+        } else {
+            input.get_mut("body")
+        };
+        let Some(object) = slot.and_then(Value::as_object_mut) else {
+            break;
+        };
+        object.insert(name.clone(), wrong);
+        // Send only inputs the contract provably rejects; anything else would
+        // be ordinary valid traffic mislabeled as a probe.
+        if domain.mismatch(&input, "$input").is_some() {
+            probes.push(input);
+        }
+    }
+    probes
+}
+
+/// A value guaranteed to fall outside `domain`, or `None` when the domain has
+/// no definite type to violate (`Any`, compositions, and literals).
+fn wrong_typed_value(domain: &ValueDomain, seed: u64) -> Option<Value> {
+    Some(match domain {
+        ValueDomain::String { .. } => Value::from(seed.max(1)),
+        ValueDomain::Null
+        | ValueDomain::Boolean
+        | ValueDomain::Integer { .. }
+        | ValueDomain::Number
+        | ValueDomain::Array { .. }
+        | ValueDomain::Object { .. } => Value::String(format!("reproit-wrong-type-{seed}")),
+        ValueDomain::ProtoInteger64 { .. } | ValueDomain::Resource { .. } => Value::Bool(true),
+        ValueDomain::Any
+        | ValueDomain::OneOf { .. }
+        | ValueDomain::AllOf { .. }
+        | ValueDomain::GraphqlAbstract { .. }
+        | ValueDomain::Literal { .. } => return None,
+    })
+}
+
 pub(super) fn sample_domain(
     domain: &ValueDomain,
     seed: u64,
