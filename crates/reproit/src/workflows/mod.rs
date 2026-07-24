@@ -31,6 +31,7 @@ mod create_command;
 mod device;
 mod doctor;
 mod fuzz_command;
+mod init_command;
 mod inspect;
 mod map;
 mod proof;
@@ -54,7 +55,6 @@ use crate::interface::cli::args::{
     ReproAction, SkillsAction,
 };
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
-use crate::interface::cli::target::target_as_url;
 use crate::interface::mcp;
 use crate::runtime::{process as exec, project_layout as layout};
 use crate::VERSION;
@@ -132,25 +132,7 @@ where
             target,
             platform,
             force,
-        } => {
-            let root = std::env::current_dir()?;
-            if let Some(target) = target {
-                if platform.as_deref().is_some_and(|value| value != "web") {
-                    anyhow::bail!(
-                        "a URL initializes the web UI workflow; remove --platform or use \
-                         --platform web"
-                    );
-                }
-                let url = target_as_url(&target).ok_or_else(|| {
-                    anyhow::anyhow!("init target must be a web URL, got {target:?}")
-                })?;
-                let runner = config::ensure_web_runner_dir(VERSION, &|message| ctx.say(message))?;
-                project_scaffold::init_web_url(&root, &url, &runner, force)?;
-            } else {
-                project_scaffold::init(&root, platform.as_deref(), force)?;
-            }
-            Ok(ExitCode::SUCCESS)
-        }
+        } => init_command::run(&ctx, target, platform, force).await,
         Cmd::Reset {
             all,
             init: initialize,

@@ -7,6 +7,8 @@ use anyhow::{bail, Result};
 use regex::Regex;
 use std::path::Path;
 
+pub mod backend_detect;
+
 #[cfg(test)]
 mod tests;
 
@@ -123,12 +125,10 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         Some(other) => {
             bail!("unknown platform {other:?} (expected flutter, web, rn, android, or backend)")
         }
-        None => detect(dir).ok_or_else(|| {
-            anyhow::anyhow!(
-                "could not detect a supported UI project or backend schema; pass --platform \
-                 explicitly"
-            )
-        })?,
+        None => match detect(dir) {
+            Some(platform) => platform,
+            None => bail!("{}", detection_failure_guide(dir)),
+        },
     };
     let cfg_path = dir.join("reproit.yaml");
     if cfg_path.exists() && !force {
@@ -193,6 +193,11 @@ fn detect(dir: &Path) -> Option<Platform> {
         let pkg = std::fs::read_to_string(dir.join("package.json")).unwrap_or_default();
         if pkg.contains("\"react-native\"") {
             Some(Platform::Rn)
+        } else if backend_detect::detect_backend_framework(dir).is_some() {
+            // A Node server without a frontend framework is a backend project
+            // with no schema yet: fall through to the guided error instead of
+            // silently writing a web config that would drive a browser at it.
+            None
         } else {
             Some(Platform::Web)
         }
@@ -204,21 +209,95 @@ fn detect(dir: &Path) -> Option<Platform> {
 }
 
 fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<()> {
-    let schema = detect_backend_schema(dir).ok_or_else(|| {
-        anyhow::anyhow!(
-            "could not find an OpenAPI, GraphQL introspection, or protobuf descriptor schema"
-        )
-    })?;
+    let Some(schema) = detect_backend_schema(dir) else {
+        bail!(
+            "could not find an OpenAPI, GraphQL introspection, or protobuf descriptor \
+             schema.\n{}",
+            backend_schema_guide(dir)
+        );
+    };
     let relative = schema
         .strip_prefix(dir)
         .unwrap_or(&schema)
-        .to_string_lossy();
-    let relative = serde_json::to_string(relative.as_ref())?;
-    let content = format!(
+        .to_string_lossy()
+        .into_owned();
+    write(config, &backend_config(&relative, None)?, force)
+}
+
+/// The `init` dead end, turned into a guide: say what backend framework the
+/// manifests reveal and the framework-specific way to get a schema. Falls back
+/// to the generic message for projects reproit cannot classify at all.
+fn detection_failure_guide(dir: &Path) -> String {
+    match backend_detect::detect_backend_framework(dir) {
+        Some(found) => format!(
+            "detected a backend project using {} (from {}) but no schema to drive it \
+             with.\n  {}\n  A running service's schema URL also works: reproit init \
+             http://localhost:<port>/<schema-path>",
+            found.name, found.manifest, found.schema_hint
+        ),
+        None => "could not detect a supported UI project or backend schema; pass --platform \
+                 explicitly"
+            .into(),
+    }
+}
+
+/// The schema part of the guide, for `--platform backend` in a schemaless repo.
+fn backend_schema_guide(dir: &Path) -> String {
+    match backend_detect::detect_backend_framework(dir) {
+        Some(found) => format!(
+            "  detected {} (from {}): {}\n  A running service's schema URL also works: reproit \
+             init http://localhost:<port>/<schema-path>",
+            found.name, found.manifest, found.schema_hint
+        ),
+        None => "  Serve or export one, then run `reproit init <schema url or file path>` \
+                 (fetched schemas are snapshotted into the project)."
+            .into(),
+    }
+}
+
+fn backend_config(schema_relative: &str, target: Option<&str>) -> Result<String> {
+    let relative = serde_json::to_string(schema_relative)?;
+    let target = match target {
+        Some(target) => format!("  target: {}\n", serde_json::to_string(target)?),
+        None => String::new(),
+    };
+    Ok(format!(
         "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: \
-         true\n  schemas:\n    - {relative}\n"
-    );
-    write(config, &content, force)
+         true\n  schemas:\n    - {relative}\n{target}"
+    ))
+}
+
+/// Persist a schema fetched from a URL (`reproit init <schema-url>`): snapshot
+/// the schema bytes into the project and write a reproit.yaml that references
+/// the snapshot, with the URL's origin as the default scan/fuzz target.
+pub fn init_backend_url(
+    dir: &Path,
+    snapshot_name: &str,
+    schema_bytes: &[u8],
+    target_origin: &str,
+    force: bool,
+) -> Result<()> {
+    let config = dir.join("reproit.yaml");
+    if config.exists() && !force {
+        bail!("reproit.yaml already exists (use --force to overwrite)");
+    }
+    let snapshot = dir.join(snapshot_name);
+    if snapshot.exists() && !force {
+        bail!("{snapshot_name} already exists (use --force to overwrite)");
+    }
+    std::fs::write(&snapshot, schema_bytes)?;
+    println!("  write {}", snapshot.display());
+    write(
+        &config,
+        &backend_config(snapshot_name, Some(target_origin))?,
+        force,
+    )?;
+    ensure_gitignore(dir)?;
+    println!("\n  reproit initialized for the backend at {target_origin}.");
+    println!("  1. reproit doctor         # schema, target, and adapter tier");
+    println!("  2. reproit scan           # read-only contract checks");
+    println!("     reproit fuzz           # stateful interaction bugs");
+    Ok(())
 }
 
 fn detect_backend_schema(dir: &Path) -> Option<std::path::PathBuf> {

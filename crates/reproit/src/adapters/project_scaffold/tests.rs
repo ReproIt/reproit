@@ -87,6 +87,55 @@ fn web_url_init_persists_the_exact_target_for_bare_commands() {
 }
 
 #[test]
+fn schemaless_backend_repo_init_errors_with_a_framework_guide() {
+    let project = temporary_project("guided-backend");
+    std::fs::write(
+        project.join("Cargo.toml"),
+        "[dependencies]\naxum = \"0.8\"\n",
+    )
+    .unwrap();
+    let generic = init(&project, None, false).unwrap_err().to_string();
+    assert!(generic.contains("axum"), "{generic}");
+    assert!(generic.contains("Cargo.toml"), "{generic}");
+    assert!(generic.contains("utoipa"), "{generic}");
+    assert!(generic.contains("reproit init http"), "{generic}");
+    let explicit = init(&project, Some("backend"), false)
+        .unwrap_err()
+        .to_string();
+    assert!(explicit.contains("axum"), "{explicit}");
+    assert!(!project.join("reproit.yaml").exists());
+    std::fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn backend_url_init_snapshots_the_schema_and_records_the_origin_target() {
+    let project = temporary_project("backend-url");
+    init_backend_url(
+        &project,
+        "openapi.yaml",
+        b"openapi: 3.1.0\npaths: {}\n",
+        "http://127.0.0.1:4477",
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read(project.join("openapi.yaml")).unwrap(),
+        b"openapi: 3.1.0\npaths: {}\n"
+    );
+    let config = std::fs::read_to_string(project.join("reproit.yaml")).unwrap();
+    assert!(config.contains("backend:\n  enabled: true"), "{config}");
+    assert!(config.contains("- \"openapi.yaml\""), "{config}");
+    assert!(
+        config.contains("target: \"http://127.0.0.1:4477\""),
+        "{config}"
+    );
+    assert!(project.join(".reproit/.gitignore").is_file());
+    // Without --force an existing config is never clobbered.
+    assert!(init_backend_url(&project, "openapi.yaml", b"x", "http://x", false).is_err());
+    std::fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
 fn generated_reproit_gitignore_keeps_project_state_reviewable() {
     assert!(REPROIT_GITIGNORE.contains("/runs/"));
     assert!(REPROIT_GITIGNORE.contains("/recordings/"));
