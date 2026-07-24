@@ -31,7 +31,7 @@ fixture gate.
 | Terminal UI | preview | real PTY and VT parser gate | clean reverification open |
 | Electron and Tauri | preview | packaged fixtures on Linux workers | two-app matrix open |
 | macOS AX | preview | permissioned SwiftUI fixture and captured log | two-app matrix open |
-| Backend contract discovery | experimental | bounded opt-in fixtures only | not promised |
+| Backend oracles, capture, and SDKs | preview | owned-fixture capture and replay proven | no third-party production case yet |
 | Experimental specialist oracles | experimental | explicit invocation only | not promised |
 
 The public-issue ledger in `docs/issue-reproduction-audit.md` is deliberately

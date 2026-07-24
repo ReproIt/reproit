@@ -154,7 +154,8 @@ screenshot.
 
 ## Backend oracles
 
-Backend support is experimental. A finding requires a schema-owned or authored contract plus a
+Backend support is a 1.0 preview: opt-in and outside the 1.x compatibility
+promise (see `docs/stability.md`). A finding requires a schema-owned or authored contract plus a
 runtime event correlated to the exact operation. Framework names and function names are not evidence
 of intent.
 
