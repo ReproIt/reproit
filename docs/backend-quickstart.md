@@ -31,6 +31,8 @@ If `reproit init` (no arguments) runs in a backend repo without a schema, it det
 framework from the manifests (Cargo.toml, package.json, pyproject/requirements, pom/gradle,
 Gemfile, composer.json, go.mod) and prints the framework-specific way to produce one. No config
 is written until a schema exists: the schema is the contract everything else derives from.
+When no generator is practical, `reproit init --learn` can derive a draft schema straight
+from the source (see below).
 
 ## Getting a schema, per framework
 
@@ -45,6 +47,35 @@ is written until a schema exists: the schema is the contract everything else der
 - Go (gin/echo/fiber/chi/net-http): swaggo/swag writes `docs/swagger.json`.
 
 GraphQL introspection JSON and protobuf descriptors work the same way as OpenAPI documents.
+
+## No schema at all: `reproit init --learn`
+
+If your framework has no schema generator wired up (a bare Express app, plain axum, Flask
+without extensions), `reproit init --learn` derives a **draft** schema from the route
+definitions in your source:
+
+```
+reproit init --learn                              # static derivation only
+reproit init --learn --target http://localhost:3000   # plus one observed GET per route
+```
+
+It detects the framework from the manifests, extracts route paths and methods with
+per-framework source patterns (`app.get('/x')`, `@app.get("/x")`, `.route("/x", get(...))`,
+`r.GET("/x")`, `#[get("/x")]`, `Route::get('/x')`, `resources :x`, `@GetMapping`, ...),
+normalizes path params (`:id`, `<int:id>`, `{id:regex}`) to OpenAPI `{id}`, and writes
+`openapi.yaml` plus the standard backend `reproit.yaml`. With a resolvable target (`--target`
+or `REPROIT_BACKEND_URL`) it additionally sends one bounded GET per derived parameterless GET
+route (never any other method; at most 32 routes in a 10 second budget) and records the
+observed status and JSON shape, with the adapter's effect kinds as comments when the trail
+answers.
+
+Be clear about what the draft is: routes read from source with loose placeholder types, marked
+`x-reproit-derived: true` and headed by a comment saying so. Anything the patterns cannot
+extract confidently is skipped and counted, never guessed, and a project where nothing can be
+derived fails with the schema guide instead of writing an empty schema. A loose draft means
+fewer contract claims and therefore fewer checks than a real schema; that is the
+zero-false-positive discipline, not a bug. Review the draft, tighten the types and statuses your service
+actually promises, then `reproit doctor`.
 
 ## Where requests go: target precedence
 

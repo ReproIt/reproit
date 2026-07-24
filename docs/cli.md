@@ -556,6 +556,11 @@ reproit scan [target]         scan every screen for visible bugs (--record-video
 reproit fuzz [target]         find deeper interaction bugs
 reproit init <schema-url>     backend projects: snapshot a served schema and set the target
                               (see docs/backend-quickstart.md, incl. target precedence)
+reproit init --learn          backend projects without a schema: derive a DRAFT openapi.yaml
+                              from the framework's route definitions in source; add
+                              --target <url> to also record one observed response per
+                              parameterless GET route. The draft is a starting point to
+                              review, not a verified contract.
 reproit <fnd_|rep_|bkt_...>    reproduce one bug
 reproit @saved-name            reproduce one saved repro or journey by name
 reproit proof <id>             explain its immutable proof ledger

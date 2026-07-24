@@ -227,11 +227,19 @@ pub(crate) enum Cmd {
     Init {
         /// Running web app to initialize. A URL always selects the web UI
         /// workflow.
-        #[arg(value_name = "URL")]
+        #[arg(value_name = "URL", conflicts_with = "learn")]
         target: Option<String>,
         /// Platform override: flutter | web | rn | android | backend.
         #[arg(long)]
         platform: Option<String>,
+        /// Derive a DRAFT schema from the backend source when the project has
+        /// none (implies --platform backend).
+        #[arg(long)]
+        learn: bool,
+        /// Running service base URL: --learn sends one bounded GET per derived
+        /// parameterless GET route and records the observed response.
+        #[arg(long = "target", value_name = "SERVICE_URL", requires = "learn")]
+        learn_target: Option<String>,
         /// Replace existing generated scaffold files.
         #[arg(long)]
         force: bool,

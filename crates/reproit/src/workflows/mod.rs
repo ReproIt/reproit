@@ -22,6 +22,7 @@ pub(crate) mod visual;
 
 mod auth;
 mod authored_contract;
+mod backend_learn;
 mod backend_target;
 mod capture;
 mod change_selection;
@@ -131,8 +132,10 @@ where
         Cmd::Init {
             target,
             platform,
+            learn,
+            learn_target,
             force,
-        } => init_command::run(&ctx, target, platform, force).await,
+        } => init_command::run(&ctx, target, platform, learn, learn_target, force).await,
         Cmd::Reset {
             all,
             init: initialize,

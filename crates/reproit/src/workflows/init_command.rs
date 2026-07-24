@@ -19,9 +19,23 @@ pub(super) async fn run(
     ctx: &Ctx,
     target: Option<String>,
     platform: Option<String>,
+    learn: bool,
+    learn_target: Option<String>,
     force: bool,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
+    if learn {
+        // --learn is the backend schema-derivation workflow; a non-backend
+        // platform contradicts it (the positional URL conflict is clap's).
+        if !matches!(platform.as_deref(), None | Some("backend")) {
+            bail!(
+                "--learn derives a backend schema and implies --platform backend (got \
+                 --platform {})",
+                platform.as_deref().unwrap_or_default()
+            );
+        }
+        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
+    }
     let Some(target) = target else {
         project_scaffold::init(&root, platform.as_deref(), force)?;
         return Ok(ExitCode::SUCCESS);

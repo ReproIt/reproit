@@ -241,8 +241,9 @@ fn detection_failure_guide(dir: &Path) -> String {
     }
 }
 
-/// The schema part of the guide, for `--platform backend` in a schemaless repo.
-fn backend_schema_guide(dir: &Path) -> String {
+/// The schema part of the guide, for `--platform backend` in a schemaless
+/// repo; `init --learn` reuses it when derivation finds no routes.
+pub fn backend_schema_guide(dir: &Path) -> String {
     match backend_detect::detect_backend_framework(dir) {
         Some(found) => format!(
             "  detected {} (from {}): {}\n  A running service's schema URL also works: reproit \
@@ -300,7 +301,32 @@ pub fn init_backend_url(
     Ok(())
 }
 
-fn detect_backend_schema(dir: &Path) -> Option<std::path::PathBuf> {
+/// Persist a schema derived by `reproit init --learn`: write the draft next to
+/// the project root and a reproit.yaml referencing it (with the enrichment
+/// target as `backend.target` when one was used). The caller prints the
+/// learn-specific summary and next steps.
+pub fn init_backend_learned(
+    dir: &Path,
+    schema_name: &str,
+    schema_yaml: &str,
+    target: Option<&str>,
+    force: bool,
+) -> Result<()> {
+    let config = dir.join("reproit.yaml");
+    if config.exists() && !force {
+        bail!("reproit.yaml already exists (use --force to overwrite)");
+    }
+    let schema = dir.join(schema_name);
+    if schema.exists() && !force {
+        bail!("{schema_name} already exists (use --force to overwrite)");
+    }
+    std::fs::write(&schema, schema_yaml)?;
+    println!("  write {} (derived draft)", schema.display());
+    write(&config, &backend_config(schema_name, target)?, force)?;
+    ensure_gitignore(dir)
+}
+
+pub fn detect_backend_schema(dir: &Path) -> Option<std::path::PathBuf> {
     const NAMES: &[&str] = &[
         "openapi.yaml",
         "openapi.yml",

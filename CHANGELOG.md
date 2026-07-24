@@ -8,6 +8,20 @@ versioned SDK source APIs documented in `docs/stability.md`.
 
 ### Added
 
+- `reproit init --learn` derives a draft schema for backend projects that have
+  none: it detects the framework from the manifests, statically extracts route
+  paths and methods from the framework's source patterns (Express/Koa/Fastify,
+  FastAPI/Flask/Django, axum/actix/rocket, gin/echo/chi/fiber/net-http, Rails,
+  Spring, Laravel), normalizes path params to OpenAPI `{id}` templates, and
+  writes `openapi.yaml` plus the backend `reproit.yaml`. With `--target <url>`
+  (or `REPROIT_BACKEND_URL`) it also sends one bounded GET per derived
+  parameterless GET route (never any other method; at most 32 routes, 10 s
+  budget) and records the observed status, JSON shape, and adapter effect
+  kinds. The draft is honestly marked (`x-reproit-derived: true` plus a header
+  comment): loose placeholder types, no invented statuses, unconfident matches
+  skipped and counted, and zero derivable routes fails closed with the schema
+  guide instead of writing an empty schema.
+
 - `reproit inspect` now covers the backend platform: it steps through a backend
   finding, a capture-bearing production bucket, or a captured-production
   payload file one operation at a time, live against the configured target by
