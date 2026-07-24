@@ -340,6 +340,7 @@ pub fn run() -> Result<()> {
     // same MEMORY:SAMPLE signal the AppKit/AT-SPI desktop runners emit. No-op
     // outside replay (a plain fuzz walk is not a soak), matching every runner.
     let is_soak = fuzz.replay.is_some();
+    let mut inspect_auto_continue = false;
     let soak_start = Instant::now();
     // --record-video clip capture: only in replay mode (a clip reproduces one finding)
     // and only when REPROIT_VIDEO_DIR is set. We film the frames render_screen
@@ -641,6 +642,16 @@ pub fn run() -> Result<()> {
                 }
                 break 'fuzz;
             };
+            if fuzz.replay.is_some() && !inspect_auto_continue {
+                let screen = parser.lock().unwrap().screen().contents();
+                inspect_auto_continue = crate::adapters::inspect_control::pause_or_context(
+                    &act,
+                    i + 1,
+                    fuzz.replay.as_ref().map_or(0, Vec::len),
+                    None,
+                    Some(&screen),
+                )?;
+            }
             // A "shoot:<name>" action is a screenshot point, not a keystroke:
             // render the CURRENT screen to a PNG and print the SHOOT marker, then
             // move on without sending any bytes or running the crash/effect

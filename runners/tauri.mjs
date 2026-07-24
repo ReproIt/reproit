@@ -48,6 +48,7 @@ import {
 } from './web/hygiene-oracles.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
 import { zeroContrastScan } from './web/zero-contrast-oracle.mjs';
+import { inspectPlatformStep } from './inspect-control.mjs';
 
 // Hygiene oracles NOT ported to this runner, deliberately (no probe beats a
 // wrong finding):
@@ -2808,6 +2809,7 @@ async function main() {
     stuck = 0;
   const prefix = fuzz.prefix || null,
     replay = fuzz.replay || null;
+  let inspectAutoContinue = false;
   const prefixLen = prefix ? prefix.length : 0;
   const budget = replay ? replay.length : (fuzz.budget || ACTION_BUDGET) + prefixLen;
   const exercisedChoiceStates = new Set(); // sigs whose choice components were exercised
@@ -3073,6 +3075,16 @@ async function main() {
         }
       }
       act = act || 'back';
+    }
+    if (replay && !inspectAutoContinue && process.env.REPROIT_INSPECT === '1') {
+      const target = current.tappables.find((element) => `tap:${element.sel}` === act);
+      const decision = await inspectPlatformStep({
+        action: act,
+        step: a + 1,
+        total: replay.length,
+        target: target?.label || target?.sel || null,
+      });
+      inspectAutoContinue = decision === 'continue';
     }
     log('FUZZ:ACT ' + act);
     if (act.startsWith('shoot:')) {

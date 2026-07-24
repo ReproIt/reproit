@@ -563,6 +563,11 @@ fn persist_pulled_package(
     pkg: &Value,
 ) -> Result<()> {
     let source = format!("bucket {bucket}");
+    let expected = pkg["expectedError"]
+        .as_str()
+        .or_else(|| pkg["message"].as_str())
+        .map(first_line)
+        .unwrap_or("(unknown)");
 
     let pulled = materialize_pull(pkg, as_name, &chrono::Local::now().to_rfc3339())?;
     let meta = &pulled.meta;
@@ -585,6 +590,9 @@ fn persist_pulled_package(
         serde_json::to_string_pretty(&serde_json::json!({
             "appId": app,
             "bucketId": bucket,
+            "bugId": pkg.get("bugId"),
+            "expectedError": expected,
+            "crashSig": pkg.get("crashSig"),
         }))?,
     )
     .with_context(|| format!("writing {}", dir.join("cloud.json").display()))?;
@@ -596,11 +604,6 @@ fn persist_pulled_package(
         }
     }
 
-    let expected = pkg["expectedError"]
-        .as_str()
-        .or_else(|| pkg["message"].as_str())
-        .map(first_line)
-        .unwrap_or("(unknown)");
     if json {
         println!(
             "{}",

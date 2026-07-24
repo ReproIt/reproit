@@ -753,6 +753,7 @@ pub fn run() -> Result<()> {
     };
 
     let is_soak = fuzz.replay.is_some();
+    let mut inspect_auto_continue = false;
     let target_pid = unsafe { window.CurrentProcessId() }
         .map(|p| p as u32)
         .unwrap_or(0);
@@ -839,6 +840,15 @@ pub fn run() -> Result<()> {
         };
 
         let Some(act) = act else { break };
+        if fuzz.replay.is_some() && !inspect_auto_continue {
+            inspect_auto_continue = crate::adapters::inspect_control::pause_or_context(
+                &act,
+                i + 1,
+                fuzz.replay.as_ref().map_or(0, Vec::len),
+                Some(&act),
+                None,
+            )?;
+        }
         emit(&crate::domain::runner::action_frame_line(None, &act));
 
         if let Some(name) = act.strip_prefix("shoot:") {

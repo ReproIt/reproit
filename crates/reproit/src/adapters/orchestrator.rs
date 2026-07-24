@@ -337,9 +337,15 @@ pub async fn run_journey(
         profile,
         platform: cfg.app.platform.clone(),
         // A web config without webRunnerDir uses the self-provisioned embedded
-        // runner (same path `reproit fuzz <url>` takes); the field stays an
-        // override for dev/source checkouts, not a requirement.
+        // runner. URL scaffolds from older versions explicitly name that same
+        // managed path, so refresh it too. Other configured paths remain
+        // developer overrides and are used verbatim.
         web_runner_dir: match cfg.app.web_runner_dir.as_ref() {
+            Some(d) if crate::adapters::config::is_managed_web_runner_dir(&root.join(d)) => Some(
+                crate::adapters::config::ensure_web_runner_dir(crate::VERSION, &|m| {
+                    eprintln!("  {m}")
+                })?,
+            ),
             Some(d) => Some(root.join(d)),
             None if cfg.app.platform == "web" => Some(
                 crate::adapters::config::ensure_web_runner_dir(crate::VERSION, &|m| {

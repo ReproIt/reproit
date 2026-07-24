@@ -82,6 +82,21 @@ fn changed_check_defaults_the_base_and_stays_suite_only() {
 }
 
 #[test]
+fn inspect_accepts_a_saved_alias_or_production_bucket() {
+    let alias = Cli::parse_args(["reproit", "inspect", "@checkout-crash"]);
+    assert!(matches!(
+        alias.command,
+        Cmd::Inspect { ref reference } if reference == "@checkout-crash"
+    ));
+
+    let bucket = Cli::parse_args(["reproit", "inspect", "bkt_deadbeef0001"]);
+    assert!(matches!(
+        bucket.command,
+        Cmd::Inspect { ref reference } if reference == "bkt_deadbeef0001"
+    ));
+}
+
+#[test]
 fn reset_modes_parse_with_explicit_destructive_dependencies() {
     let cli = Cli::parse_args(["reproit", "reset"]);
     assert!(matches!(

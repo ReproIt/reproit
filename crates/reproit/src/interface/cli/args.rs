@@ -303,6 +303,14 @@ pub(crate) enum Cmd {
         )]
         changed: Option<String>,
     },
+    /// Open one repro on its configured platform, step through its actions, and
+    /// write a structured fix packet. Inspection is diagnostic and never
+    /// promotes or updates the saved guard.
+    Inspect {
+        /// Saved repro id or alias, or a production bucket id to pull first.
+        #[arg(value_name = "REPRO")]
+        reference: String,
+    },
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified
     /// detector result.

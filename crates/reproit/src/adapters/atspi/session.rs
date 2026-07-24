@@ -430,6 +430,7 @@ pub(super) fn run_seed(
         .unwrap_or_default();
 
     let is_soak = replay.is_some();
+    let mut inspect_auto_continue = false;
     let soak_start = Instant::now();
     if is_soak {
         sample_rss(target_pid, 0);
@@ -483,6 +484,21 @@ pub(super) fn run_seed(
         };
 
         let Some(act) = act else { break };
+        if replay.is_some() && !inspect_auto_continue {
+            match crate::adapters::inspect_control::pause_or_context(
+                &act,
+                i + 1,
+                replay.as_ref().map_or(0, Vec::len),
+                Some(&act),
+                None,
+            ) {
+                Ok(continue_replay) => inspect_auto_continue = continue_replay,
+                Err(error) => {
+                    crash("inspection stopped", &error.to_string());
+                    return true;
+                }
+            }
+        }
         emit(&crate::domain::runner::action_frame_line(None, &act));
 
         if let Some(name) = act.strip_prefix("shoot:") {

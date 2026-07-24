@@ -172,12 +172,26 @@ reproit create --attach       # start from an already-running app
 reproit create --push         # create, review in browser, then push the original
 reproit create --cloud-tester # verify and shrink an SDK-marked Cloud capture
 reproit <id> --record-video   # run the bug and produce annotated video evidence
+reproit inspect @login-crash  # step through a repro on its configured platform
 ```
 
 The repro video is paced and annotated: a caption names each action (the trigger step in red),
 and the clip ends with a red box around what broke - the crashing control, the overflowing element,
 the `[object Object]` text, the choice that shifts the layout. (Leak has no on-screen element, so no
 box.)
+
+`reproit inspect <repro>` is the interactive complement to a normal deterministic replay. It uses
+the configured execution surface: a browser for web, simulator or device for mobile, the native
+application window for desktop, and the rendered terminal session for TUI targets. Web displays
+the action controls in the page; other targets use the host prompt while the target remains visible.
+Every adapter pauses before the action, so the controller cannot change state signatures or oracle
+evidence. Human pacing makes the run diagnostic: inspection never updates or promotes the saved
+guard. When the replay finishes, ReproIt writes `fix-packet.md` for a person and
+`fix-packet.json` for an agent into the evidence run directory. A production `bkt_...` can be
+passed directly and is pulled first when it is not already saved locally.
+Flutter projects initialized by an older CLI must first refresh the generated explorer with
+`reproit init --platform flutter --force`; ReproIt reports this before launching and does not
+silently run an inspection without action pauses.
 
 `create` captures what the tester actually experienced. It launches the configured app
 by default; `--attach` begins from the current state of an app that is already running. The tester

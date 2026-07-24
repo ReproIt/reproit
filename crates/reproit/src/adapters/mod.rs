@@ -7,6 +7,7 @@ pub(crate) mod credentials;
 pub(crate) mod device;
 pub(crate) mod drive;
 pub(crate) mod frames;
+pub(crate) mod inspect_control;
 pub(crate) mod orchestrator;
 pub(crate) mod platform;
 pub(crate) mod project_scaffold;

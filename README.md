@@ -168,6 +168,7 @@ reproit <fnd_|rep_|bkt_...>           # reproduce one bug
 reproit @saved-name                   # reproduce one saved repro or journey by name
 reproit <cap_...>                     # show one immutable original capture
 reproit proof <id>                    # explain authority, replay, minimization, and promotion
+reproit inspect @saved-name           # step through one repro on its configured platform
 reproit candidates                    # list candidates with exact promotion blockers
 reproit check                         # verify the whole saved suite
 reproit check --changed [BASE]        # run mapped repros first, then the full suite
@@ -208,6 +209,7 @@ reproit login                                       # once: browser sign-in and 
 reproit bugs
 reproit bkt_...
 reproit bkt_... --record-video
+reproit inspect bkt_...                            # platform-native action review + fix packet
 reproit triage bkt_... fixed --fixed-in-build 1.2.3
 reproit resolution-events
 ```

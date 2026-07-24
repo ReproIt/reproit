@@ -37,6 +37,11 @@ import {
   DEFAULT_GRID,
 } from './probe.mjs';
 import { transientDivergence } from './flicker-oracle.mjs';
+import {
+  inspectReplayFinished,
+  inspectReplayStep,
+  inspectStepModel,
+} from './inspect.mjs';
 import { deadInputProbe } from './dead-input-oracle.mjs';
 import { zeroContrastScan } from './zero-contrast-oracle.mjs';
 import { scanAccessibilityStateParity } from './accessibility-state-oracle.mjs';
@@ -241,6 +246,8 @@ export function blankScreenAuthority(lastFailure, failureFloor, currentUrl) {
   return lastFailure.kind;
 }
 const HEADLESS = process.env.REPROIT_HEADLESS !== '0';
+const INSPECT = process.env.REPROIT_INSPECT === '1';
+const INSPECT_WAIT_MS = process.env.REPROIT_INSPECT_WAIT_MS;
 // Desired UI locale for the run, a BCP47 tag (e.g. "de", "ar", "pt-BR"). When
 // set, the browser context is created with this locale so the page renders in
 // that language (navigator.language/languages + Accept-Language), letting
@@ -5122,7 +5129,11 @@ async function exerciseChoiceGroup(page, group, fromSig, keepBox = false) {
 
 async function main() {
   console.log(`JOURNEY[a] step: engine=${ENGINE}`);
-  const browser = await launchBrowser({ headless: HEADLESS });
+  const launchOptions = { headless: HEADLESS };
+  if (INSPECT && ENGINE === 'chromium') {
+    launchOptions.args = ['--force-renderer-accessibility'];
+  }
+  const browser = await launchBrowser(launchOptions);
   // Multi-actor scenario: this process plays one actor, pulling from the conductor.
   if (process.env.REPROIT_SCENARIO_BARRIER) {
     log('JOURNEY[a] step: scenario actor=' + (process.env.REPROIT_DEVICE || 'a'));
@@ -5683,6 +5694,7 @@ async function main() {
     const exercisedGroups = new Set(); // choice-groups already differential-tested this seed
     const pick = rng(fuzz.seed || 0);
     const replay = fuzz.replay || null;
+    let inspectAutoContinue = false;
     // Finding-highlight hints for a recorded replay: the most recent action's
     // transition-level signals, so the end-of-replay box can point at what broke.
     const recording = !!(replay && VIDEO_DIR);
@@ -6451,6 +6463,13 @@ async function main() {
         if (!act) break;
       }
 
+      if (replay && INSPECT && !inspectAutoContinue) {
+        const model = inspectStepModel(act, actions + 1, replay.length, current);
+        log(`INSPECT:PAUSE step=${model.stepIndex}/${model.totalSteps} action=${act}`);
+        const decision = await inspectReplayStep(page, model, INSPECT_WAIT_MS);
+        log(`INSPECT:DECISION step=${model.stepIndex} decision=${decision}`);
+        inspectAutoContinue = decision === 'continue';
+      }
       log('FUZZ:ACT ' + act);
       // Record/review HUD: when recording a REPLAY (`check --record`), draw a
       // paced on-screen caption of each action so a human can actually follow the
@@ -7171,6 +7190,10 @@ async function main() {
     }
     await runSeed(fuzz);
     if (isBatch) log(`SEED:END ${Number(fuzz.seed || 0)}`);
+  }
+  if (INSPECT) {
+    log('INSPECT:FINISHED');
+    await inspectReplayFinished(page, INSPECT_WAIT_MS);
   }
 
   // Flush: a `pageerror` from the final action is delivered asynchronously, so

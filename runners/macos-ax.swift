@@ -1412,6 +1412,42 @@ func moveOnscreen(_ app: AXUIElement) {
   }
 }
 
+enum InspectionControlError: Error {
+  case stopped
+  case timedOut
+}
+
+func inspectPlatformStep(_ action: String, _ step: Int, _ total: Int) throws -> Bool {
+  let env = ProcessInfo.processInfo.environment
+  guard let control = env["REPROIT_INSPECT_CONTROL"], !control.isEmpty else { return true }
+  try FileManager.default.createDirectory(
+    atPath: control, withIntermediateDirectories: true)
+  let request = URL(fileURLWithPath: control).appendingPathComponent("request.json")
+  let temp = URL(fileURLWithPath: control)
+    .appendingPathComponent("request-\(ProcessInfo.processInfo.processIdentifier).tmp")
+  let body: [String: Any] = [
+    "sequence": step, "step": step, "total": total, "action": action, "target": action,
+  ]
+  let data = try JSONSerialization.data(withJSONObject: body)
+  try data.write(to: temp, options: .atomic)
+  _ = try? FileManager.default.removeItem(at: request)
+  try FileManager.default.moveItem(at: temp, to: request)
+  let response = URL(fileURLWithPath: control).appendingPathComponent("response.json")
+  let deadline = Date().addingTimeInterval(240)
+  while Date() < deadline {
+    if let data = try? Data(contentsOf: response),
+      let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      value["sequence"] as? Int == step
+    {
+      let decision = value["decision"] as? String
+      if decision == "abort" { throw InspectionControlError.stopped }
+      return decision == "continue"
+    }
+    Thread.sleep(forTimeInterval: 0.05)
+  }
+  throw InspectionControlError.timedOut
+}
+
 // ---- multi-actor scenario client (the conductor protocol) ----------------
 //
 // The host conductor (modes/barrier.rs) owns identity and ordering for an
@@ -1766,7 +1802,11 @@ guard let nsApp = (scenarioBase != nil ? launchNewInstance(target) : launch(targ
 if env["REPROIT_MAC_ACTIVATE"] != "0" { nsApp.activate() }
 let appEl = AXUIElementCreateApplication(nsApp.processIdentifier)
 Thread.sleep(forTimeInterval: 1.2)
-moveOffscreen(appEl)
+if env["REPROIT_INSPECT"] == "1" {
+  moveOnscreen(appEl)
+} else {
+  moveOffscreen(appEl)
+}
 Thread.sleep(forTimeInterval: 0.8)
 
 if let base = scenarioBase {
@@ -2006,6 +2046,7 @@ if clipArmed {
   Thread.sleep(forTimeInterval: 0.4)
 }
 var i = 0
+var inspectAutoContinue = false
 while i < budget && stuck < 3 {
   // In replay/soak, sample the heap once per cycle (BEFORE acting, so cycle k's
   // sample reflects RSS after the previous action settled), matching the web
@@ -2047,6 +2088,14 @@ while i < budget && stuck < 3 {
     }
   }
   guard let a = act else { break }
+  if fuzz.replay != nil && !inspectAutoContinue {
+    do {
+      inspectAutoContinue = try inspectPlatformStep(a, i + 1, fuzz.replay?.count ?? 0)
+    } catch {
+      crashBlock("inspection stopped", "\(error)")
+      break
+    }
+  }
   emit("FUZZ:ACT \(a)")
   // Named screenshot point (from a replay/prefix script): capture the target
   // window to REPROIT_SHOTS_DIR and print SHOOT:<name>. Sanitize <name> to the

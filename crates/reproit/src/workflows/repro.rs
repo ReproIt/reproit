@@ -799,6 +799,16 @@ pub(super) async fn check_repro(
             loc.to_string(),
         ));
     }
+    for name in [
+        "REPROIT_INSPECT",
+        "REPROIT_INSPECT_CONTROL",
+        "REPROIT_INSPECT_WAIT_MS",
+        "REPROIT_HEADLESS",
+    ] {
+        if let Ok(value) = std::env::var(name) {
+            defines.push((name.to_string(), value));
+        }
+    }
     let finding_capsule_link = layout::finding_dir(&loaded.root, id).join("capsule-id");
     let kept_capsule_link = dir.join("capsule-id");
     let capsule_id = std::fs::read_to_string(&finding_capsule_link)
@@ -850,6 +860,7 @@ pub(super) async fn check_repro(
         // Select the execution tier the same way `fuzz` does: Flutter replays
         // on the headless tier; every other backend routes through the real
         // tier. `warm: false` is essential for independent startup attempts.
+        let inspect = std::env::var("REPROIT_INSPECT").as_deref() == Ok("1");
         let outcome = orchestrator::run_journey_tier(
             &loaded.config,
             &loaded.root,
@@ -863,7 +874,7 @@ pub(super) async fn check_repro(
                 record_video,
                 ..Default::default()
             },
-            false,
+            inspect,
         )
         .await?;
         let full_log =

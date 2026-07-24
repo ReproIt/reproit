@@ -13,6 +13,55 @@ const int maxLabelsPerState = 24;
 ///       is re-pumped between seeds so each seed starts from a fresh state).
 const String fuzzConfigPath = String.fromEnvironment('REPROIT_FUZZ_CONFIG');
 
+/// Host-side inspection control directory. Simulator integration tests can read
+/// host paths, so the platform-neutral CLI controller can pause the real
+/// simulator replay without putting browser-specific controls into the app.
+const String inspectControlPath = String.fromEnvironment(
+  'REPROIT_INSPECT_CONTROL',
+);
+
+Future<bool> inspectPlatformStep({
+  required String action,
+  required int step,
+  required int total,
+  String? target,
+}) async {
+  if (inspectControlPath.isEmpty) return true;
+  final dir = Directory(inspectControlPath)..createSync(recursive: true);
+  final request = File('${dir.path}/request.json');
+  final temp = File('${dir.path}/request-${pid}.tmp');
+  temp.writeAsStringSync(
+    jsonEncode({
+      'sequence': step,
+      'step': step,
+      'total': total,
+      'action': action,
+      'target': target,
+    }),
+    flush: true,
+  );
+  if (request.existsSync()) request.deleteSync();
+  temp.renameSync(request.path);
+  final response = File('${dir.path}/response.json');
+  final deadline = DateTime.now().add(const Duration(minutes: 4));
+  while (DateTime.now().isBefore(deadline)) {
+    try {
+      final value = jsonDecode(response.readAsStringSync());
+      if (value is Map && value['sequence'] == step) {
+        final decision = value['decision']?.toString();
+        if (decision == 'abort') {
+          throw StateError('inspection stopped by user');
+        }
+        return decision == 'continue';
+      }
+    } catch (error) {
+      if (error is StateError) rethrow;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+  throw StateError('inspection timed out while waiting at step $step');
+}
+
 /// The desired UI locale for the whole run, as a BCP47 tag (e.g. "de", "ar",
 /// "pt-BR"), baked in via `--dart-define=REPROIT_LOCALE=de`. When empty the app
 /// renders in its own default locale (today's behavior). When set, the app under

@@ -25,6 +25,21 @@ pub fn web_runner_data_dir() -> PathBuf {
         .join("reproit/web")
 }
 
+/// Whether `path` names reproit's managed runner directory.
+///
+/// URL-based project scaffolds persist this absolute path in `reproit.yaml`.
+/// It is not a developer override: the scripts there must still be refreshed
+/// from the current binary on every run.
+pub fn is_managed_web_runner_dir(path: &Path) -> bool {
+    let managed = web_runner_data_dir();
+    path == managed
+        || path
+            .canonicalize()
+            .ok()
+            .zip(managed.canonicalize().ok())
+            .is_some_and(|(path, managed)| path == managed)
+}
+
 /// The web runner's JS logic, EMBEDDED in the binary at compile time. This is
 /// the fix for runner/binary skew: the heavy `node_modules` (Playwright) is
 /// downloaded once, but the runner SCRIPTS always come from the binary, so the
@@ -39,6 +54,10 @@ const WEB_RUNNER_FILES: &[(&str, &str)] = &[
     (
         "flicker-oracle.mjs",
         include_str!("../../../../../runners/web/flicker-oracle.mjs"),
+    ),
+    (
+        "inspect.mjs",
+        include_str!("../../../../../runners/web/inspect.mjs"),
     ),
     (
         "dead-input-oracle.mjs",
@@ -462,7 +481,19 @@ fn ensure_web_browser(dir: &Path, log: &dyn Fn(&str)) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sha256_hex, runner_checksum_is_required, sha256_file_hex, WEB_RUNNER_FILES};
+    use super::{
+        is_managed_web_runner_dir, parse_sha256_hex, runner_checksum_is_required, sha256_file_hex,
+        web_runner_data_dir, WEB_RUNNER_FILES,
+    };
+
+    #[test]
+    fn distinguishes_managed_runner_from_custom_override() {
+        let managed = web_runner_data_dir();
+        assert!(is_managed_web_runner_dir(&managed));
+        assert!(!is_managed_web_runner_dir(
+            &managed.with_file_name("custom-web-runner")
+        ));
+    }
 
     #[test]
     fn runner_checksum_is_mandatory_from_1_0() {

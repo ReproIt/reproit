@@ -361,6 +361,7 @@ void registerExplorer({
       var stuck = 0;
       final prefixLen = fuzz.prefix?.length ?? 0;
       final budget = fuzz.replay?.length ?? (fuzz.budget + prefixLen);
+      var inspectAutoContinue = false;
       for (var actions = 0; actions < budget && stuck < 3; actions++) {
         await applyInputs();
         // LIFECYCLE-metamorphic oracles (rotation, background-restore): once per
@@ -419,6 +420,21 @@ void registerExplorer({
           act ??= 'back';
         }
 
+        final selectedAction = act;
+        if (selectedAction == null) {
+          throw StateError('explorer selected no action');
+        }
+        if (fuzz.replay != null && !inspectAutoContinue) {
+          final selector = selectedAction.startsWith('tap:')
+              ? selectedAction.substring(4)
+              : null;
+          inspectAutoContinue = await inspectPlatformStep(
+            action: selectedAction,
+            step: actions + 1,
+            total: fuzz.replay!.length,
+            target: selector,
+          );
+        }
         runtime.emit('FUZZ:ACT $act');
         if (act == 'back') {
           final popped = await goBack();

@@ -53,6 +53,7 @@ import { remote } from 'webdriverio';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
+import { inspectPlatformStep } from './inspect-control.mjs';
 
 const APPIUM = process.env.REPROIT_APPIUM_URL || 'http://127.0.0.1:4723';
 const CAPS = JSON.parse(process.env.REPROIT_APPIUM_CAPS || '{}');
@@ -3625,6 +3626,7 @@ async function main() {
     let crashed = false;
     const prefix = fuzz.prefix || null;
     const replay = fuzz.replay || null;
+    let inspectAutoContinue = false;
     const prefixLen = prefix ? prefix.length : 0;
     const mapMode = !replay && !prefix && !fuzz.seed;
     const budget = replay
@@ -3815,6 +3817,16 @@ async function main() {
         if (!act) break;
       }
 
+      if (replay && !inspectAutoContinue && process.env.REPROIT_INSPECT === '1') {
+        const target = current.elements.find((element) => `tap:${element.sel}` === act);
+        const decision = await inspectPlatformStep({
+          action: act,
+          step: actions + 1,
+          total: replay.length,
+          target: target?.label || target?.sel || null,
+        });
+        inspectAutoContinue = decision === 'continue';
+      }
       log('FUZZ:ACT ' + act);
       await advanceCausalAction(driver);
       if (act === 'back') {

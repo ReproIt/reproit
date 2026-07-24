@@ -31,6 +31,7 @@ mod create_command;
 mod device;
 mod doctor;
 mod fuzz_command;
+mod inspect;
 mod map;
 mod proof;
 mod record;
@@ -296,10 +297,12 @@ where
                     record_video,
                     flicker,
                     changed,
+                    inspect: false,
                 },
             )
             .await
         }
+        Cmd::Inspect { reference } => inspect::run(&ctx, cli.config.as_deref(), &reference).await,
         Cmd::Proof { reference } => {
             let loaded = config::load(cli.config.as_deref())?;
             show_proof(&ctx, &loaded, &reference)?;

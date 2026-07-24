@@ -27,6 +27,7 @@ pub(super) struct CheckArgs {
     pub(super) record_video: bool,
     pub(super) flicker: bool,
     pub(super) changed: Option<String>,
+    pub(super) inspect: bool,
 }
 
 pub(super) async fn run(
@@ -34,6 +35,9 @@ pub(super) async fn run(
     config_path: Option<&Path>,
     args: CheckArgs,
 ) -> Result<ExitCode> {
+    if args.inspect && args.repro.is_none() {
+        anyhow::bail!("inspection needs exactly one saved repro");
+    }
     if let Some(id) = args.repro.as_deref() {
         if let Some(code) = backend_headless::try_replay(ctx, id).await? {
             if args.record_video {
@@ -50,11 +54,23 @@ pub(super) async fn run(
     }
     let loaded = config::load(config_path)?;
     ensure_app_map(ctx, &loaded, "explore").await?;
+    let _inspect_env = if args.inspect {
+        Some(crate::adapters::scoped_env::ScopedEnv::set(vec![
+            ("REPROIT_HEADLESS".to_string(), "0".to_string()),
+            ("REPROIT_INSPECT".to_string(), "1".to_string()),
+        ]))
+    } else {
+        None
+    };
     if let Some(code) = try_multi_target(ctx, &loaded, &args).await? {
         return Ok(code);
     }
     select_device(ctx, &loaded, &args).await;
-    let times = args.runs.unwrap_or(loaded.config.gate.runs).max(1);
+    let times = if args.inspect {
+        1
+    } else {
+        args.runs.unwrap_or(loaded.config.gate.runs).max(1)
+    };
     if let Some(code) = try_journey(ctx, &loaded, &args, times).await? {
         return Ok(code);
     }
@@ -237,8 +253,9 @@ async fn run_repro_matrix(
         "outcome": worst.as_str(),
         "exit": worst.exit_code(),
     }));
+    let verb = if args.inspect { "inspect" } else { "check" };
     ctx.say(format!(
-        "\ncheck: {} ({} repro(s))",
+        "\n{verb}: {} ({} repro(s))",
         worst.as_str().to_uppercase(),
         metas.len()
     ));
@@ -264,7 +281,8 @@ async fn execute_case(
         || check_label(meta),
         |locale| format!("{} @{locale}", check_label(meta)),
     );
-    ctx.say(format!("check {label}"));
+    let verb = if args.inspect { "inspect" } else { "check" };
+    ctx.say(format!("{verb} {label}"));
     let (result, run_dir) = check_repro(
         loaded,
         &meta.id,
@@ -293,13 +311,17 @@ async fn execute_case(
         repro::Outcome::Pass
     };
     let mut updated = meta.clone();
-    updated.last_checked = Some(chrono::Local::now().to_rfc3339());
-    updated.last_result = Some(outcome.as_str().to_string());
-    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
-    if promoted {
-        updated.status = repro::Status::Required;
+    let promoted = !args.inspect
+        && outcome == repro::Outcome::Pass
+        && meta.status == repro::Status::Quarantined;
+    if !args.inspect {
+        updated.last_checked = Some(chrono::Local::now().to_rfc3339());
+        updated.last_result = Some(outcome.as_str().to_string());
+        if promoted {
+            updated.status = repro::Status::Required;
+        }
+        repro::save_meta(&loaded.root, &updated)?;
     }
-    repro::save_meta(&loaded.root, &updated)?;
     ctx.say(format!(
         "  {} {} ({}){}",
         outcome.as_str().to_uppercase(),
@@ -311,8 +333,11 @@ async fn execute_case(
             ""
         }
     ));
+    if args.inspect {
+        super::inspect::write_fix_packet(loaded, meta, &result, &run_dir)?;
+    }
     let case = junit::Case {
-        name: format!("check {label}"),
+        name: format!("{verb} {label}"),
         passed: outcome == repro::Outcome::Pass,
         time_s: 0.0,
         message: format!(
