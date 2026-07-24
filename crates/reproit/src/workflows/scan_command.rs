@@ -16,10 +16,9 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
     if let Some(service) = &args.service {
         std::env::set_var("REPROIT_BACKEND_URL", service);
     }
-    let configured_backend = if args.target.is_none() {
-        backend_target::resolve(config_path)?
-    } else {
-        None
+    let force_web = match args.platform.as_deref() {
+        None | Some("web") | Some("backend") => args.platform.as_deref() == Some("web"),
+        Some(other) => anyhow::bail!("--platform for scan is web or backend, got {other:?}"),
     };
     if let Some(path) = args.target.as_deref().map(PathBuf::from) {
         if path.is_file() && a2ui::looks_like_target(&path) {
@@ -41,16 +40,44 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
                      `scan --record-video` does not apply"
                 );
             }
+            backend_target::apply_target_precedence(args.target_url.as_deref(), None)?;
             return backend_headless::run_target(ctx, &path, "scan", 1, 1).await;
         }
-    } else if let Some((path, config)) = configured_backend {
+    }
+    let configured_backend = if force_web {
+        None
+    } else {
+        backend_target::resolve(config_path)?
+    };
+    let route = backend_target::route_positional(
+        configured_backend.is_some(),
+        force_web,
+        args.target.as_deref(),
+    );
+    if let backend_target::BackendRoute::Backend(positional_url) = route {
+        let (path, config) = configured_backend.expect("backend route implies a backend config");
         if args.record_video {
             anyhow::bail!(
                 "backend streams produce a structural reproduction, so `scan --record-video` \
                  does not apply"
             );
         }
+        // A positional URL is equivalent to --target; the flag wins if both.
+        let flag = args.target_url.clone().or(positional_url);
+        backend_target::apply_target_precedence(flag.as_deref(), config.target.as_deref())?;
         return backend_headless::run_configured_target(ctx, &path, "scan", 1, 1, config).await;
+    }
+    if args.platform.as_deref() == Some("backend") {
+        anyhow::bail!(
+            "--platform backend needs a backend reproit.yaml (backend.enabled with a schema); \
+             create one with `reproit init <schema url or file>`"
+        );
+    }
+    if args.target_url.is_some() {
+        anyhow::bail!(
+            "--target sets the backend service base URL and needs a backend schema (a backend \
+             reproit.yaml or a schema file positional); for a web URL pass it positionally"
+        );
     }
     run_app_scan(ctx, config_path, args).await
 }

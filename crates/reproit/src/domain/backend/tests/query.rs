@@ -43,6 +43,7 @@ fn query_config(consistency: ResourceConsistency) -> BackendConfig {
         enabled: true,
         origins: vec![],
         schemas: vec![],
+        target: None,
         operations: vec![
             query_operation("listItems"),
             query_operation("listAllItems"),

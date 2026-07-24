@@ -78,6 +78,7 @@ fn frozen_guard_preserves_exact_backend_violation_across_trace_positions() {
         enabled: true,
         origins: vec![],
         schemas: vec![],
+        target: None,
         operations: vec![contract()],
         programs: vec![],
         invariants: vec![],

@@ -14,6 +14,11 @@ pub struct BackendConfig {
     pub origins: Vec<String>,
     #[serde(default)]
     pub schemas: Vec<String>,
+    /// Default service base URL for schema-driven scan/fuzz. Overridden by
+    /// `--target` and `REPROIT_BACKEND_URL`; overrides the schema `servers`
+    /// entry. `reproit init <schema-url>` records the schema URL's origin.
+    #[serde(default)]
+    pub target: Option<String>,
     #[serde(default)]
     pub operations: Vec<OperationContract>,
     /// Compiler and language adapters write normalized function summaries

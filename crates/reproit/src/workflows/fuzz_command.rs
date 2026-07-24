@@ -47,6 +47,7 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
         only,
         no_oracles,
         device,
+        platform,
     } = args;
     if let Some(service) = service {
         std::env::set_var("REPROIT_BACKEND_URL", service);
@@ -54,21 +55,44 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
     if let Some(reset) = reset {
         std::env::set_var("REPROIT_BACKEND_RESET_URL", reset);
     }
-    let configured_backend = if target_arg.is_none() {
-        backend_target::resolve(config_path)?
-    } else {
-        None
+    let force_web = match platform.as_deref() {
+        None | Some("web") | Some("backend") => platform.as_deref() == Some("web"),
+        Some(other) => anyhow::bail!("--platform for fuzz is web or backend, got {other:?}"),
     };
+    // On the backend path, a URL-valued --target is the backend service base
+    // URL (for app platforms it stays the engine/platform list).
+    let target_flag_url = target.as_deref().and_then(target_as_url);
     if let Some(path) = target_arg.as_deref().map(PathBuf::from) {
         if path.is_file() && a2ui::looks_like_target(&path) {
             return a2ui::run_target(ctx, &path, "fuzz", seed, runs);
         }
         if path.is_file() && backend_headless::looks_like_schema(&path) {
+            backend_target::apply_target_precedence(target_flag_url.as_deref(), None)?;
             return backend_headless::run_target(ctx, &path, "fuzz", seed, runs).await;
         }
-    } else if let Some((path, config)) = configured_backend {
+    }
+    let configured_backend = if force_web {
+        None
+    } else {
+        backend_target::resolve(config_path)?
+    };
+    let route = backend_target::route_positional(
+        configured_backend.is_some(),
+        force_web,
+        target_arg.as_deref(),
+    );
+    if let backend_target::BackendRoute::Backend(positional_url) = route {
+        let (path, config) = configured_backend.expect("backend route implies a backend config");
+        let flag = target_flag_url.or(positional_url);
+        backend_target::apply_target_precedence(flag.as_deref(), config.target.as_deref())?;
         return backend_headless::run_configured_target(ctx, &path, "fuzz", seed, runs, config)
             .await;
+    }
+    if platform.as_deref() == Some("backend") {
+        anyhow::bail!(
+            "--platform backend needs a backend reproit.yaml (backend.enabled with a schema); \
+             create one with `reproit init <schema url or file>`"
+        );
     }
     // The positional TARGET is auto-classified. A URL (https://app.com,
     // or a bare google.com / localhost:3000) points reproit at a deployed

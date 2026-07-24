@@ -210,6 +210,7 @@ impl FrozenBackendGuard {
             enabled: true,
             origins: Vec::new(),
             schemas: Vec::new(),
+            target: None,
             operations: self.operations.clone(),
             programs: Vec::new(),
             invariants: self.invariants.clone(),

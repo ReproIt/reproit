@@ -74,6 +74,15 @@ pub(crate) struct ScanArgs {
     /// target. Overrides the schema server URL.
     #[arg(long, value_name = "URL")]
     pub(crate) service: Option<String>,
+    /// Backend service base URL. Precedence: --target > REPROIT_BACKEND_URL >
+    /// backend.target in reproit.yaml > the schema servers entry.
+    #[arg(long = "target", value_name = "URL")]
+    pub(crate) target_url: Option<String>,
+    /// Workflow override for a URL target: `web` forces the zero-config
+    /// browser scan even inside a backend project; `backend` requires the
+    /// backend configuration.
+    #[arg(long, value_name = "PLATFORM")]
+    pub(crate) platform: Option<String>,
     /// Coverage budget: how many actions the crawl may take to reach screens.
     #[arg(long, default_value_t = 60)]
     pub(crate) budget: u32,
@@ -177,9 +186,16 @@ pub(crate) struct FuzzArgs {
     /// Reuse the previous build for a soak run.
     #[arg(long)]
     pub(crate) warm: bool,
-    /// Comma-separated engines or platforms.
+    /// Comma-separated engines or platforms; on a backend project a URL value
+    /// is the backend service base URL (precedence: --target >
+    /// REPROIT_BACKEND_URL > backend.target > the schema servers entry).
     #[arg(long)]
     pub(crate) target: Option<String>,
+    /// Workflow override for a URL target: `web` forces the zero-config
+    /// browser fuzz even inside a backend project; `backend` requires the
+    /// backend configuration.
+    #[arg(long, value_name = "PLATFORM")]
+    pub(crate) platform: Option<String>,
     /// URL for a web-engine target, defaulting to app.url.
     #[arg(long)]
     pub(crate) url: Option<String>,
