@@ -25,6 +25,9 @@ versioned SDK source APIs documented in `docs/stability.md`.
   plugin) and Python backend SDK (`reproit-backend-py`, ASGI middleware for
   FastAPI/Starlette), wire-compatible with the Rust reference adapter and
   pinned by shared event-batch and oracle-tagging contract tests.
+- Go backend SDK (`reproit-backend-go`, net/http middleware and a Fiber v2
+  adapter module) held to the same shared contract tests, and first-class
+  feature-gated axum and actix-web middleware in the Rust backend adapter.
 - One CLI workflow across web, mobile, desktop, terminal, Electron, and Tauri
   targets.
 - Confirmed finding replay, minimization, saved regression suites, evidence

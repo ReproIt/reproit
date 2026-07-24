@@ -7,6 +7,12 @@ repository.workspace = true
 publish = false
 description = "Experimental trace-bound service instrumentation for Reproit"
 
+[features]
+# First-class framework middleware, feature-gated so the core adapter stays
+# dependency-light.
+axum = ["dep:axum", "dep:http-body", "dep:tower-layer", "dep:tower-service"]
+actix = ["dep:actix-web", "dep:futures-core"]
+
 [dependencies]
 base64 = "0.22"
 reqwest = { workspace = true, features = ["blocking"] }
@@ -14,5 +20,15 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 
+actix-web = { version = "4", optional = true, default-features = false, features = ["macros"] }
+axum = { version = "0.8", optional = true, default-features = false }
+futures-core = { version = "0.3", optional = true }
+http-body = { version = "1", optional = true }
+tower-layer = { version = "0.3", optional = true }
+tower-service = { version = "0.3", optional = true }
+
 [dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["json"] }
 reproit-protocol.workspace = true
+tokio.workspace = true
+tower = { version = "0.5", features = ["util"] }

@@ -15,10 +15,18 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(feature = "actix")]
+pub mod actix;
+#[cfg(feature = "axum")]
+pub mod axum;
 mod capture;
+#[cfg(any(feature = "axum", feature = "actix"))]
+mod framework;
 pub use capture::{
     Capture, CaptureConfig, CaptureStats, CAPTURE_FORMAT, CAPTURE_VERSION, SERVER_ERROR_ORACLE,
 };
+#[cfg(any(feature = "axum", feature = "actix"))]
+pub use framework::Recorder;
 
 const MAX_EVENTS: usize = 256;
 const MAX_HEADER_BYTES: usize = 60_000;

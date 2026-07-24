@@ -14,6 +14,37 @@ return, no effects after return, hashed idempotency identity, and recursive stru
 GraphQL callers may attach parser-produced `Selection` mappings; never infer selections from
 response content.
 
+## Framework middleware (feature-gated)
+
+First-class middleware for axum 0.8 (`axum` feature, a tower `Layer`) and actix-web 4 (`actix`
+feature, a middleware `Transform`) keeps the core crate dependency-light. Both begin the trace
+from the decoded request (bounded JSON body, decoded query values, lowercased headers), finish
+it when the response is complete, and attach `x-reproit-events` on scan-time requests. Handlers
+record observed effects through the `Recorder` stored in the request extensions:
+
+```rust
+// axum (feature = "axum"):
+use reproit_backend::axum::{MiddlewareConfig, ReproitLayer};
+let app = Router::new()
+    .route("/orders", post(create_order))
+    .layer(ReproitLayer::new(MiddlewareConfig { capture, ..MiddlewareConfig::default() }));
+// handler: Option<Extension<Recorder>>, then recorder.effect(EffectKind::Write, ..)
+
+// actix-web (feature = "actix"):
+use reproit_backend::actix::{MiddlewareConfig, Reproit};
+let app = App::new()
+    .wrap(Reproit::new(MiddlewareConfig { capture, ..MiddlewareConfig::default() }))
+    .route("/orders", web::post().to(create_order));
+// handler: req.extensions().get::<Recorder>(), then recorder.effect(..)
+```
+
+The default operation name is `METHOD /path`; `MiddlewareConfig.operation` overrides it and
+`MiddlewareConfig.tenant` supplies a non-secret tenant identifier. Bodies are buffered only when
+their exact size is known and within a 64 KB cap, so streaming or oversized bodies are traced
+without content and never held unboundedly. Every adapter path fails closed: an instrumentation
+defect never breaks the request. `examples/axum-capture-fixture` runs the axum layer against a
+planted 500.
+
 ## Production capture mode (off by default)
 
 Capture mode uploads finished traces to Cloud ingest without requiring `x-reproit-trace`. It is
