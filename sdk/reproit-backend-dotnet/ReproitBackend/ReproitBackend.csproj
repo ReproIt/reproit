@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ReproitBackend</RootNamespace>
+    <Version>0.0.0</Version>
+    <Description>Experimental trace-bound instrumentation for Reproit (ASP.NET Core)</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The ASP.NET Core adapter (AspNetCore.cs) lives behind the shared framework; the
+         trace core and capture mode use only the base class library. No NuGet dependency. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <InternalsVisibleTo Include="ReproitBackend.Tests" />
+  </ItemGroup>
+
+</Project>
