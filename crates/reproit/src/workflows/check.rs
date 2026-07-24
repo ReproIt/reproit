@@ -52,7 +52,28 @@ pub(super) async fn run(
             return Ok(code);
         }
     }
-    let loaded = config::load(config_path)?;
+    let loaded = match config::load(config_path) {
+        Ok(loaded) => loaded,
+        // A backend-only project has no app config, and the capture-file
+        // re-evaluation needs none: route the file (unless a saved repro of
+        // the same name exists) instead of failing on the missing app section.
+        Err(error) => {
+            if let (Some(reference), Some(project)) = (
+                args.repro.as_deref(),
+                super::backend_target::find(config_path)?,
+            ) {
+                if backend_headless::is_capture_file(Path::new(reference))
+                    && repro::resolve(&project.root, reference).is_none()
+                {
+                    if args.record_video {
+                        anyhow::bail!("backend captures do not produce screen video evidence");
+                    }
+                    return backend_headless::check_capture(ctx, Path::new(reference));
+                }
+            }
+            return Err(error);
+        }
+    };
     if let Some(reference) = args.repro.as_deref() {
         if routes_to_capture_file(&loaded, reference) {
             if args.record_video {
