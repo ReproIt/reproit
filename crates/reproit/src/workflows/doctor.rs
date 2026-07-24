@@ -115,6 +115,9 @@ fn doctor_optional_path(
 }
 
 pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> Result<()> {
+    if let Some(project) = super::backend_target::find(config_path)? {
+        return doctor_backend(ctx, &project).await;
+    }
     let mut checks = Vec::new();
     let loaded = match config::load(config_path) {
         Ok(loaded) => {
@@ -433,46 +436,10 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
         }
     }
 
-    let persisted =
-        crate::adapters::cloud_profile::load_token(&crate::adapters::cloud_profile::token_path());
-    let cloud_url = std::env::var("REPROIT_CLOUD_URL")
-        .ok()
-        .or_else(|| persisted.as_ref().and_then(|(_, u)| u.clone()));
-    let cloud_key = std::env::var("REPROIT_CLOUD_KEY")
-        .ok()
-        .or_else(|| persisted.as_ref().map(|(t, _)| t.clone()));
-    doctor_push(
+    cloud_checks(
         &mut checks,
-        "cloud url",
-        cloud_url.is_some(),
-        false,
-        cloud_url.unwrap_or_else(|| "not configured".into()),
-        Some("set REPROIT_CLOUD_URL or run `reproit login --key <sk_live_...>`".into()),
+        loaded.as_ref().map(|l| l.config.app.platform.as_str()),
     );
-    doctor_push(
-        &mut checks,
-        "cloud key",
-        cloud_key.is_some(),
-        false,
-        cloud_key
-            .as_ref()
-            .map(|k| format!("configured ({} chars), not printed", k.len()))
-            .unwrap_or_else(|| "not configured".into()),
-        Some("set REPROIT_CLOUD_KEY or run `reproit login --key <sk_live_...>`".into()),
-    );
-    if let Some(l) = &loaded {
-        let app_id = std::env::var("REPROIT_CLOUD_APP").ok();
-        doctor_push(
-            &mut checks,
-            "cloud app",
-            app_id.is_some(),
-            false,
-            app_id.unwrap_or_else(|| {
-                format!("not set; local app platform is {}", l.config.app.platform)
-            }),
-            Some("run `reproit login` and select a project".into()),
-        );
-    }
 
     match &loaded {
         Some(loaded) => match llm::from_spec(&loaded.config.llm.to_spec()) {
@@ -513,6 +480,51 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
         ),
     }
 
+    finish(ctx, checks)
+}
+
+fn cloud_checks(checks: &mut Vec<DoctorCheck>, platform: Option<&str>) {
+    let persisted =
+        crate::adapters::cloud_profile::load_token(&crate::adapters::cloud_profile::token_path());
+    let cloud_url = std::env::var("REPROIT_CLOUD_URL")
+        .ok()
+        .or_else(|| persisted.as_ref().and_then(|(_, u)| u.clone()));
+    let cloud_key = std::env::var("REPROIT_CLOUD_KEY")
+        .ok()
+        .or_else(|| persisted.as_ref().map(|(t, _)| t.clone()));
+    doctor_push(
+        checks,
+        "cloud url",
+        cloud_url.is_some(),
+        false,
+        cloud_url.unwrap_or_else(|| "not configured".into()),
+        Some("set REPROIT_CLOUD_URL or run `reproit login --key <sk_live_...>`".into()),
+    );
+    doctor_push(
+        checks,
+        "cloud key",
+        cloud_key.is_some(),
+        false,
+        cloud_key
+            .as_ref()
+            .map(|k| format!("configured ({} chars), not printed", k.len()))
+            .unwrap_or_else(|| "not configured".into()),
+        Some("set REPROIT_CLOUD_KEY or run `reproit login --key <sk_live_...>`".into()),
+    );
+    if let Some(platform) = platform {
+        let app_id = std::env::var("REPROIT_CLOUD_APP").ok();
+        doctor_push(
+            checks,
+            "cloud app",
+            app_id.is_some(),
+            false,
+            app_id.unwrap_or_else(|| format!("not set; local app platform is {platform}")),
+            Some("run `reproit login` and select a project".into()),
+        );
+    }
+}
+
+fn finish(ctx: &Ctx, checks: Vec<DoctorCheck>) -> Result<()> {
     let ok = checks.iter().all(|c| c.ok || !c.required);
     if ctx.json {
         ctx.emit(&serde_json::json!({
@@ -535,4 +547,209 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Backend-project doctor: schema parses (operation count), target resolves
+/// (same precedence as scan/fuzz, minus the flag) and answers, and the
+/// adapter tier: one read-only traced request decides effect-level vs
+/// black-box verdicts, with the one-line adapter mount for the detected
+/// framework when the trail is absent.
+async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProject) -> Result<()> {
+    use crate::domain::backend;
+    let mut checks = Vec::new();
+    doctor_push(
+        &mut checks,
+        "config",
+        true,
+        true,
+        format!("backend project root {}", project.root.display()),
+        None,
+    );
+    let mut document = None;
+    match project.schema_path() {
+        Ok(path) => match backend::load_service_document(&path) {
+            Ok(parsed) => {
+                let operations = backend::import_service_schema(&parsed).len();
+                doctor_push(
+                    &mut checks,
+                    "schema",
+                    operations > 0,
+                    true,
+                    format!("{} ({operations} operation(s))", path.display()),
+                    Some("the schema parses but declares no executable operations".into()),
+                );
+                document = Some(parsed);
+            }
+            Err(e) => doctor_push(
+                &mut checks,
+                "schema",
+                false,
+                true,
+                format!("{}: {e:#}", path.display()),
+                Some(
+                    "the schema must parse as OpenAPI, GraphQL introspection, or a protobuf \
+                     descriptor"
+                        .into(),
+                ),
+            ),
+        },
+        Err(e) => doctor_push(
+            &mut checks,
+            "schema",
+            false,
+            true,
+            e.to_string(),
+            Some(
+                "point backend.schemas at a schema file, or run `reproit init <schema url>`".into(),
+            ),
+        ),
+    }
+
+    let env = std::env::var("REPROIT_BACKEND_URL").ok();
+    let picked =
+        super::backend_target::pick_target(None, env.as_deref(), project.config.target.as_deref())
+            .map(|(url, source)| (url.to_string(), source))
+            .or_else(|| {
+                document
+                    .as_ref()
+                    .and_then(schema_servers_url)
+                    .map(|url| (url, "schema servers entry"))
+            });
+    match picked {
+        Some((url, source)) => {
+            let valid = super::backend_target::validate_target_url(&url);
+            let ok = valid.is_ok();
+            doctor_push(
+                &mut checks,
+                "target",
+                ok,
+                true,
+                format!("{url} (from {source})"),
+                valid
+                    .err()
+                    .map(|e| format!("{e:#}; targets are absolute http(s) URLs")),
+            );
+            if ok {
+                adapter_checks(&mut checks, &url, document.as_ref(), &project.root).await;
+            }
+        }
+        None => doctor_push(
+            &mut checks,
+            "target",
+            false,
+            true,
+            "no target: the schema has no servers entry",
+            Some(
+                "pass `--target <url>` to scan/fuzz, set REPROIT_BACKEND_URL, or set \
+                 backend.target in reproit.yaml"
+                    .into(),
+            ),
+        ),
+    }
+    cloud_checks(&mut checks, Some("backend"));
+    finish(ctx, checks)
+}
+
+/// One bounded read-only GET with the scan-time trace headers: reachability,
+/// and the adapter tier from the `x-reproit-events` response header.
+async fn adapter_checks(
+    checks: &mut Vec<DoctorCheck>,
+    base_url: &str,
+    document: Option<&serde_json::Value>,
+    project_root: &std::path::Path,
+) {
+    let path = document
+        .and_then(parameterless_get_path)
+        .unwrap_or_default();
+    let url = format!("{}{path}", base_url.trim_end_matches('/'));
+    let response = probe_traced(&url).await;
+    match response {
+        Err(e) => doctor_push(
+            checks,
+            "target reachable",
+            false,
+            false,
+            format!("GET {url}: {e:#}"),
+            Some("start the service, or point --target / REPROIT_BACKEND_URL at it".into()),
+        ),
+        Ok((status, adapter)) => {
+            doctor_push(
+                checks,
+                "target reachable",
+                true,
+                false,
+                format!("GET {url} -> {status}"),
+                None,
+            );
+            if adapter {
+                doctor_push(
+                    checks,
+                    "adapter",
+                    true,
+                    false,
+                    "adapter detected: effect-level verdicts enabled",
+                    None,
+                );
+            } else {
+                let snippet =
+                    crate::adapters::project_scaffold::backend_detect::detect_backend_framework(
+                        project_root,
+                    )
+                    .map(|found| format!("{} ({})", found.adapter_snippet, found.name))
+                    .unwrap_or_else(|| {
+                        "mount the ReproIt backend adapter for your framework (see the sdk/ \
+                         READMEs)"
+                            .into()
+                    });
+                doctor_push(
+                    checks,
+                    "adapter",
+                    false,
+                    false,
+                    "no adapter response: black-box tier (response-level checks only)",
+                    Some(snippet),
+                );
+            }
+        }
+    }
+}
+
+/// Send one GET with `x-reproit-trace` and report (status, adapter present).
+/// The body is never read; only the response head matters here.
+async fn probe_traced(url: &str) -> Result<(u16, bool)> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()?;
+    let response = client
+        .get(url)
+        .header("x-reproit-trace", "doctor")
+        .header("x-reproit-action", "1")
+        .send()
+        .await?;
+    let adapter = response.headers().contains_key("x-reproit-events");
+    Ok((response.status().as_u16(), adapter))
+}
+
+/// The schema `servers` fallback (first entry, as written; scan/fuzz resolve
+/// variables at run time, doctor only reports the address).
+fn schema_servers_url(document: &serde_json::Value) -> Option<String> {
+    document
+        .pointer("/servers/0/url")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+/// The least intrusive probe: the first OpenAPI GET path with no template
+/// parameters, else the service root.
+fn parameterless_get_path(document: &serde_json::Value) -> Option<String> {
+    document
+        .get("paths")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|paths| {
+            paths
+                .iter()
+                .find(|(path, item)| !path.contains('{') && item.get("get").is_some())
+                .map(|(path, _)| path.clone())
+        })
 }
