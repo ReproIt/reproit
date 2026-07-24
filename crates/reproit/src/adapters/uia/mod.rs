@@ -27,6 +27,7 @@
 //! where a `shoot:` step writes <name>.png   REPROIT_DEVICE             this
 //! actor's role label (scenario mode)
 
+use crate::adapters::inspect_control::gate_replay_action;
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{Read, Write};
@@ -840,15 +841,7 @@ pub fn run() -> Result<()> {
         };
 
         let Some(act) = act else { break };
-        if fuzz.replay.is_some() && !inspect_auto_continue {
-            inspect_auto_continue = crate::adapters::inspect_control::pause_or_context(
-                &act,
-                i + 1,
-                fuzz.replay.as_ref().map_or(0, Vec::len),
-                Some(&act),
-                None,
-            )?;
-        }
+        gate_replay_action(&act, i, fuzz.replay.as_deref(), &mut inspect_auto_continue)?;
         emit(&crate::domain::runner::action_frame_line(None, &act));
 
         if let Some(name) = act.strip_prefix("shoot:") {

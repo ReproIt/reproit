@@ -29,7 +29,7 @@ Future<bool> inspectPlatformStep({
   if (inspectControlPath.isEmpty) return true;
   final dir = Directory(inspectControlPath)..createSync(recursive: true);
   final request = File('${dir.path}/request.json');
-  final temp = File('${dir.path}/request-${pid}.tmp');
+  final temp = File('${dir.path}/request-$pid.tmp');
   temp.writeAsStringSync(
     jsonEncode({
       'sequence': step,

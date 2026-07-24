@@ -88,6 +88,20 @@ pub(crate) fn pause_or_context(
         .with_context(|| format!("waiting to inspect action {step}/{total}"))
 }
 
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn gate_replay_action(
+    action: &str,
+    index: usize,
+    replay: Option<&[String]>,
+    auto_continue: &mut bool,
+) -> Result<()> {
+    let Some(replay) = replay.filter(|_| !*auto_continue) else {
+        return Ok(());
+    };
+    *auto_continue = pause_or_context(action, index + 1, replay.len(), Some(action), None)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +143,22 @@ mod tests {
         assert_eq!(request["action"], "tap:key:checkout");
         assert_eq!(request["target"], "Checkout");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn replay_gate_skips_non_replay_and_auto_continue_actions() {
+        let mut auto_continue = false;
+        gate_replay_action("tap:key:checkout", 0, None, &mut auto_continue).unwrap();
+        assert!(!auto_continue);
+
+        auto_continue = true;
+        gate_replay_action(
+            "tap:key:checkout",
+            0,
+            Some(&["tap:key:checkout".to_string()]),
+            &mut auto_continue,
+        )
+        .unwrap();
+        assert!(auto_continue);
     }
 }
