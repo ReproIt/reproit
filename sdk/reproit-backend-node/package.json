@@ -1,0 +1,31 @@
+{
+  "name": "reproit-backend-node",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Experimental trace-bound service instrumentation for Reproit (Node, Express, Fastify)",
+  "license": "Apache-2.0",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./express": "./express.js",
+    "./fastify": "./fastify.js"
+  },
+  "files": [
+    "index.js",
+    "capture.js",
+    "express.js",
+    "fastify.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/trace.test.js test/capture.test.js",
+    "test:e2e": "node --test test/e2e.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "express": "^4.21.0",
+    "fastify": "^5.0.0"
+  }
+}

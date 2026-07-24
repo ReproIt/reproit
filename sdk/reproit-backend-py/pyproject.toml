@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "reproit-backend-py"
+version = "0.0.0"
+description = "Experimental trace-bound service instrumentation for Reproit (FastAPI, Starlette, ASGI)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "ReproIt, Inc." }]
+keywords = [
+  "fastapi",
+  "starlette",
+  "asgi",
+  "backend",
+  "tracing",
+  "telemetry",
+  "observability",
+  "reproit",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Quality Assurance",
+]
+# Pure stdlib: the trace core, redaction, and the capture uploader (urllib on a
+# daemon thread) have NO third-party dependency.
+dependencies = []
+
+[project.urls]
+Homepage = "https://reproit.com"
+Repository = "https://github.com/reproit/reproit-cli"
+
+[dependency-groups]
+test = ["pytest>=8"]
+e2e = ["pytest>=8", "fastapi>=0.115", "uvicorn>=0.30"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["reproit_backend_py"]

@@ -53,9 +53,10 @@ for (var i = 0; i < sources.length; i++) {
 
 console.log('PASS: every production SDK tags its error event with the `crash` ' + 'oracle');
 
-// The Rust backend SDK's production capture mode is the backend counterpart of
-// the same contract: its 5xx finding frame must carry the first-class
-// `backend-server-error` registry id so ingest's oracle gate accepts it.
+// The backend SDKs' production capture mode is the backend counterpart of the
+// same contract: their 5xx finding frame must carry the first-class
+// `backend-server-error` registry id so ingest's oracle gate accepts it. All
+// three ports (Rust reference, Node, Python) are pinned identically.
 var backendSrc = fs.readFileSync(path.join(root, 'reproit-backend-rs/src/capture.rs'), 'utf8');
 assert.ok(
   /SERVER_ERROR_ORACLE:\s*&str\s*=\s*"backend-server-error"/.test(backendSrc),
@@ -66,4 +67,31 @@ assert.ok(
   'backend-rs capture: finding identity is missing the `backend-server-error` oracle tag',
 );
 
-console.log('PASS: the Rust backend SDK tags its capture finding with `backend-server-error`');
+var backendPorts = [
+  ['reproit-backend-node/capture.js', 'Node backend'],
+  ['reproit-backend-py/reproit_backend_py/capture.py', 'Python backend'],
+];
+var portConstant = /SERVER_ERROR_ORACLE\s*=\s*["']backend-server-error["']/;
+var portTaggedFinding =
+  /["']?kind["']?\s*[:=]\s*["']finding["'][\s\S]{0,500}?["']?oracle["']?\s*:\s*SERVER_ERROR_ORACLE/;
+for (var j = 0; j < backendPorts.length; j++) {
+  var portRel = backendPorts[j][0];
+  var portLabel = backendPorts[j][1];
+  var portSrc = fs.readFileSync(path.join(root, portRel), 'utf8');
+  assert.ok(
+    portConstant.test(portSrc),
+    portLabel + ' (' + portRel + '): expected the backend-server-error oracle id constant',
+  );
+  assert.ok(
+    portTaggedFinding.test(portSrc),
+    portLabel +
+      ' (' +
+      portRel +
+      '): finding identity is missing the `backend-server-error` oracle tag',
+  );
+}
+
+console.log(
+  'PASS: every backend SDK (Rust, Node, Python) tags its capture finding with ' +
+    '`backend-server-error`',
+);
