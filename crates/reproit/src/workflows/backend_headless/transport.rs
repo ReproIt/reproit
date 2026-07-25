@@ -488,39 +488,6 @@ pub(super) fn grpcurl_asset() -> Result<(&'static str, &'static str)> {
     }
 }
 
-/// Env-expand `${VAR}` occurrences in a string (unset -> empty), so login
-/// bodies reference secrets from the environment instead of writing them to disk.
-fn expand_env(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut rest = input;
-    while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        if let Some(end) = after.find('}') {
-            out.push_str(&std::env::var(&after[..end]).unwrap_or_default());
-            rest = &after[end + 1..];
-        } else {
-            out.push_str(&rest[start..]);
-            return out;
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-fn expand_env_value(value: &Value) -> Value {
-    match value {
-        Value::String(s) => Value::String(expand_env(s)),
-        Value::Array(items) => Value::Array(items.iter().map(expand_env_value).collect()),
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(k, v)| (k.clone(), expand_env_value(v)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
-
 /// Log in one identity and return its token. Fails closed: a non-2xx login or a
 /// missing token aborts the run rather than fuzzing only the public surface (an
 /// unauthed run that looks clean is the same silent-truncation trap as dropping
@@ -548,20 +515,14 @@ async fn login_account(
         (Some(form), None) => {
             let encoded = form
                 .iter()
-                .map(|(name, value)| {
-                    format!(
-                        "{}={}",
-                        percent_encode(name),
-                        percent_encode(&expand_env(value))
-                    )
-                })
+                .map(|(name, value)| format!("{}={}", percent_encode(name), percent_encode(value)))
                 .collect::<Vec<_>>()
                 .join("&");
             request = request
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(encoded);
         }
-        (None, Some(json)) => request = request.json(&expand_env_value(json)),
+        (None, Some(json)) => request = request.json(json),
         (None, None) => {}
     }
     let response = request

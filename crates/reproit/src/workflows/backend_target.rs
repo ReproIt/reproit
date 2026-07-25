@@ -44,13 +44,23 @@ pub(super) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
     let Some(path) = path else {
         return Ok(None);
     };
-    let document: serde_yaml::Value = serde_yaml::from_slice(&std::fs::read(&path)?)?;
+    let raw = std::fs::read_to_string(&path)?;
+    let document: serde_yaml::Value = serde_yaml::from_str(&raw)?;
     if document.get("app").is_some() {
         return Ok(None);
     }
-    let Some(backend) = document.get("backend") else {
+    if document.get("backend").is_none() {
         return Ok(None);
-    };
+    }
+    // A backend config: interpolate ${VAR}, ${VAR:-default}, and ${VAR:?required}
+    // over the whole document with the same loader the app config uses, so secrets
+    // reach every field (login url/path/headers, not just bodies) and the syntax
+    // matches the rest of reproit. Only backend configs are touched.
+    let interpolated = crate::adapters::config::interpolate_env(&raw)?;
+    let document: serde_yaml::Value = serde_yaml::from_str(&interpolated)?;
+    let backend = document
+        .get("backend")
+        .expect("backend key present before interpolation");
     let config: backend::BackendConfig = serde_yaml::from_value(backend.clone())?;
     if !config.enabled {
         return Ok(None);

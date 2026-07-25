@@ -86,7 +86,7 @@ fn find_config(from: &Path) -> Option<PathBuf> {
 
 /// Interpolate the supported shell parameter-expansion subset across the whole
 /// configuration and report every missing required variable together.
-pub(super) fn interpolate_env(raw: &str) -> Result<String> {
+pub(crate) fn interpolate_env(raw: &str) -> Result<String> {
     let regex = Regex::new(r"\$\{(\w+)(?::(-|\?)([^}]*))?\}").unwrap();
     let mut missing = Vec::new();
     let output = regex

@@ -768,6 +768,7 @@ mod loader;
 mod synthesis;
 mod web_runner;
 
+pub(crate) use loader::interpolate_env;
 pub use loader::{load, parse_str, Loaded};
 pub use synthesis::{synthesize_tui, synthesize_web};
 pub use web_runner::{
@@ -777,9 +778,6 @@ pub use web_runner::{
 // Retain the pre-refactor façade even though the current crate has no caller.
 #[allow(unused_imports)]
 pub use web_runner::web_runner_data_dir;
-
-#[cfg(test)]
-use loader::interpolate_env;
 
 #[cfg(test)]
 mod route_access_tests;
