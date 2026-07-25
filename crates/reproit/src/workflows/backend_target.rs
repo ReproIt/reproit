@@ -55,10 +55,17 @@ pub(super) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
     if !config.enabled {
         return Ok(None);
     }
+    // A bare-filename config (`reproit.yaml`) has an EMPTY parent, not None, so
+    // the previous `.unwrap_or(".")` never fired and left the root blank (doctor
+    // printed "backend project root " with nothing after it). Fall back to the
+    // current directory and canonicalize so the root reads as an absolute path,
+    // matching the app-platform "loaded project root" line.
     let root = path
         .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let root = root.canonicalize().unwrap_or(root);
     Ok(Some(BackendProject { root, config }))
 }
 

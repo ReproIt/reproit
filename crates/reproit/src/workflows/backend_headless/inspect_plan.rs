@@ -164,7 +164,7 @@ pub(super) async fn attach_capture_target(
     };
     // Aggregate every declared schema (a contract may be split across files),
     // the same set scan/fuzz exercise.
-    let (mut endpoints, _sha, _violations, primary_document) =
+    let (mut endpoints, _sha, _violations, primary_document, _duplicates) =
         super::aggregate_service_endpoints(&schemas)?;
     if endpoints.is_empty() {
         bail!("the configured backend schema contains no executable operations");

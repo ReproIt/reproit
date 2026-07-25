@@ -571,13 +571,19 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
             // Count operations across EVERY declared schema (deduped by id), not
             // just the first, so the reported coverage matches what scan/fuzz run.
             let mut ids = std::collections::BTreeSet::new();
+            let mut duplicates = std::collections::BTreeSet::new();
             let mut labels = Vec::new();
             let mut parse_error = None;
             for path in &paths {
                 match backend::load_service_document(path) {
                     Ok(parsed) => {
                         for operation in backend::import_service_schema(&parsed) {
-                            ids.insert(operation.id.clone());
+                            if !ids.insert(operation.id.clone()) {
+                                // Same operationId in more than one schema: the
+                                // dedupe keeps the first and drops the rest, so
+                                // flag it rather than silently losing coverage.
+                                duplicates.insert(operation.id.clone());
+                            }
                         }
                         labels.push(path.display().to_string());
                         if document.is_none() {
@@ -618,6 +624,22 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
                         format!("{label} ({operations} operation(s))"),
                         Some("the schema parses but declares no executable operations".into()),
                     );
+                    if !duplicates.is_empty() {
+                        doctor_push(
+                            &mut checks,
+                            "schema-operations",
+                            false,
+                            false,
+                            format!(
+                                "operationId in more than one schema, only the first is used: {}",
+                                duplicates.iter().cloned().collect::<Vec<_>>().join(", ")
+                            ),
+                            Some(
+                                "give each operation a unique operationId across backend.schemas"
+                                    .into(),
+                            ),
+                        );
+                    }
                 }
             }
         }

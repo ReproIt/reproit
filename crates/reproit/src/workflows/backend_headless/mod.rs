@@ -96,9 +96,12 @@ pub async fn run_configured_target(
 /// may be split across several files that all describe the same service, so this
 /// returns the deduped endpoints across all of them (declared order wins on an
 /// id collision), the combined schema sha (bytes concatenated in declared
-/// order), the accumulated OpenAPI parameter-uniqueness violations, and the
-/// first document (its `servers` entry is the base-URL fallback). Loading only
-/// the first file silently dropped every operation past it.
+/// order), the accumulated OpenAPI parameter-uniqueness violations, the first
+/// document (its `servers` entry is the base-URL fallback), and any operation
+/// ids that appeared in more than one schema (dropped by the dedupe). Loading
+/// only the first file silently dropped every operation past it; a duplicate
+/// operationId across files is the same truncation one level down, so it is
+/// reported rather than swallowed.
 fn aggregate_service_endpoints(
     targets: &[PathBuf],
 ) -> Result<(
@@ -106,12 +109,14 @@ fn aggregate_service_endpoints(
     String,
     Vec<backend::BackendSchemaViolation>,
     Value,
+    Vec<String>,
 )> {
     if targets.is_empty() {
         bail!("no backend schema to run");
     }
     let mut endpoints: Vec<Endpoint> = Vec::new();
     let mut seen = BTreeSet::new();
+    let mut duplicates = Vec::new();
     let mut bytes = Vec::new();
     let mut violations = Vec::new();
     let mut primary_document = None;
@@ -146,6 +151,8 @@ fn aggregate_service_endpoints(
         for endpoint in file_endpoints {
             if seen.insert(endpoint.contract.id.clone()) {
                 endpoints.push(endpoint);
+            } else {
+                duplicates.push(endpoint.contract.id.clone());
             }
         }
         if primary_document.is_none() {
@@ -153,7 +160,15 @@ fn aggregate_service_endpoints(
         }
     }
     let primary_document = primary_document.expect("targets is non-empty");
-    Ok((endpoints, hex_hash(&bytes), violations, primary_document))
+    duplicates.sort_unstable();
+    duplicates.dedup();
+    Ok((
+        endpoints,
+        hex_hash(&bytes),
+        violations,
+        primary_document,
+        duplicates,
+    ))
 }
 
 async fn run_target_with_policy(
@@ -170,7 +185,7 @@ async fn run_target_with_policy(
     // service. Aggregate every declared schema's operations (not just the first,
     // which silently dropped the rest); the first document supplies the base URL
     // fallback (service_base_url prefers REPROIT_BACKEND_URL regardless).
-    let (mut endpoints, schema_sha256, schema_violations, primary_document) =
+    let (mut endpoints, schema_sha256, schema_violations, primary_document, duplicate_operations) =
         aggregate_service_endpoints(targets)?;
     let primary = &targets[0];
     let schema_labels: Vec<String> = targets
@@ -206,6 +221,7 @@ async fn run_target_with_policy(
                 "schema": schema_labels.join(", "),
                 "schemas": schema_labels,
                 "schemaSha256": schema_sha256,
+                "duplicateOperations": duplicate_operations.clone(),
                 "baseUrl": Value::Null,
                 "operations": endpoints.len(),
                 "attemptsPerOperation": 0,
@@ -485,6 +501,7 @@ async fn run_target_with_policy(
         "schema": schema_labels.join(", "),
         "schemas": schema_labels,
         "schemaSha256": schema_sha256,
+        "duplicateOperations": duplicate_operations,
         "baseUrl": base_url,
         "operations": endpoints.len(),
         "attemptsPerOperation": attempts,

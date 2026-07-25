@@ -391,12 +391,17 @@ fn aggregates_operations_across_every_declared_schema() {
     let b = write("b.json", "getOrder", "/orders");
     let dup = write("dup.json", "getUser", "/users"); // repeated id must not double-count
 
-    let (endpoints, sha, _violations, _document) =
+    let (endpoints, sha, _violations, _document, duplicates) =
         aggregate_service_endpoints(&[a, b, dup]).unwrap();
     let mut ids: Vec<_> = endpoints.iter().map(|e| e.contract.id.clone()).collect();
     ids.sort();
     assert_eq!(ids, ["getOrder", "getUser"], "both schemas, deduped by id");
     assert_eq!(sha.len(), 64, "combined schema digest is present");
+    assert_eq!(
+        duplicates,
+        ["getUser"],
+        "the operationId repeated across files is reported as dropped"
+    );
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
