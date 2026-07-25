@@ -33,6 +33,8 @@ mod binding;
 use binding::ValueBank;
 mod round_trip;
 use round_trip::{probe_round_trips, record_create, CreateRecord};
+mod history;
+use history::classify_and_record;
 fn operation_rank(method: &str) -> u8 {
     match method {
         "POST" => 0,
@@ -244,6 +246,10 @@ async fn run_target_with_policy(
     let mut rejected = 0usize;
     let mut skipped = Vec::new();
     let mut execution_errors = Vec::new();
+    // Operations actually re-exercised this run: the finding-lifecycle uses this
+    // so a previously-active finding is only called `fixed` when its operation
+    // was genuinely retried (scan hits GETs only, so it must not "fix" a mutation).
+    let mut exercised_ops = BTreeSet::new();
 
     let mut ordered = endpoints.clone();
     if fuzzing {
@@ -298,6 +304,7 @@ async fn run_target_with_policy(
             };
             let accepted = (200..400).contains(&result.status);
             exercised += 1;
+            exercised_ops.insert(endpoint.contract.id.clone());
             if !accepted {
                 rejected += 1;
             }
@@ -441,6 +448,22 @@ async fn run_target_with_policy(
             .cmp(&right.get("id").and_then(Value::as_str))
     });
     let complete = execution_errors.is_empty() && exercised > 0;
+    // Finding lifecycle: classify this run's findings against the per-project
+    // history (new / persisting / regressed / fixed) so a CI gate can block on
+    // new-or-regressed. Only a complete run records history, and `fixed` is
+    // guarded on the operation being re-exercised, so a partial run never
+    // manufactures a fix.
+    let lifecycle = if complete {
+        classify_and_record(&root, &public_findings, &exercised_ops)?
+    } else {
+        Value::Null
+    };
+    if let Some(counts) = lifecycle.get("counts") {
+        ctx.say(format!(
+            "lifecycle: {} new, {} regressed, {} persisting, {} fixed",
+            counts["new"], counts["regressed"], counts["persisting"], counts["fixed"]
+        ));
+    }
     let report = json!({
         "command": format!("backend {command}"),
         "complete": complete,
@@ -456,6 +479,7 @@ async fn run_target_with_policy(
         "skipped": skipped,
         "executionErrors": execution_errors,
         "candidates": candidates,
+        "lifecycle": lifecycle,
         "findings": public_findings,
     });
     persist_run_report(&root, command, &report)?;
