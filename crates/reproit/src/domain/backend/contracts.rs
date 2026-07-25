@@ -53,9 +53,53 @@ pub struct BackendConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackendAuth {
+    /// One or more identities. The fuzzer rotates across them per request, so a
+    /// per-user rate limit throttles a single identity instead of the whole run
+    /// (single-identity auth reaches only one success per throttled endpoint).
+    #[serde(default)]
+    pub accounts: Vec<BackendAccount>,
+    // --- Backward-compatible single-login sugar (one account). ---
     /// Login endpoint path, joined to the service base URL (e.g. /api/auth/token).
-    pub path: String,
-    /// HTTP method for the login call.
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default = "default_login_method")]
+    pub method: String,
+    #[serde(default)]
+    pub form: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    pub json: Option<Value>,
+    #[serde(default)]
+    pub token_path: Option<String>,
+    #[serde(default = "default_auth_header")]
+    pub header: String,
+    #[serde(default = "default_auth_value")]
+    pub value: String,
+}
+
+/// One identity: how to log it in, and the headers to inject once it holds a
+/// token. Multiple headers per identity cover apps that need more than one
+/// (e.g. an `x-user-id` alongside a session token).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackendAccount {
+    pub login: BackendLogin,
+    /// Header name -> value template. `{token}` is the captured token; a
+    /// `{claim:NAME}` template extracts a claim from a decoded JWT token.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+}
+
+/// The login call for one identity.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackendLogin {
+    /// Login path joined to the service base URL. Use `url` instead for a login
+    /// served on a different host than the target (a cross-host auth plane).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Absolute login URL, for a login host separate from the service base.
+    #[serde(default)]
+    pub url: Option<String>,
     #[serde(default = "default_login_method")]
     pub method: String,
     /// Form-urlencoded login body. String values may reference ${ENV} secrets.
@@ -65,13 +109,38 @@ pub struct BackendAuth {
     #[serde(default)]
     pub json: Option<Value>,
     /// JSON pointer to the token in the login response (e.g. /access_token).
+    #[serde(default = "default_token_path")]
     pub token_path: String,
-    /// Header injected on every subsequent request.
-    #[serde(default = "default_auth_header")]
-    pub header: String,
-    /// Header value template; `{token}` is replaced with the captured token.
-    #[serde(default = "default_auth_value")]
-    pub value: String,
+}
+
+impl BackendAuth {
+    /// The identities to log in, whether declared as a `accounts` pool or via the
+    /// flat single-login sugar. Empty when nothing is configured.
+    pub fn resolved_accounts(&self) -> Vec<BackendAccount> {
+        if !self.accounts.is_empty() {
+            return self.accounts.clone();
+        }
+        let Some(path) = self.path.clone() else {
+            return Vec::new();
+        };
+        let mut headers = BTreeMap::new();
+        headers.insert(self.header.clone(), self.value.clone());
+        vec![BackendAccount {
+            login: BackendLogin {
+                path: Some(path),
+                url: None,
+                method: self.method.clone(),
+                form: self.form.clone(),
+                json: self.json.clone(),
+                token_path: self.token_path.clone().unwrap_or_else(default_token_path),
+            },
+            headers,
+        }]
+    }
+}
+
+fn default_token_path() -> String {
+    "/access_token".to_string()
 }
 
 fn default_login_method() -> String {

@@ -1,5 +1,6 @@
 use super::*;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::OnceLock;
 
 /// Scan-time trace identity attached to one inspected request so an
 /// instrumented target returns its effect trail as `x-reproit-events`.
@@ -75,102 +76,127 @@ pub(super) async fn invoke_traced(
         ));
     }
     let method = artifact.method.parse::<reqwest::Method>()?;
-    let mut request = client.request(method, &artifact.url);
-    let mut headers = HeaderMap::new();
+    // Headers identical on every identity attempt: the request's own headers, the
+    // `--header` globals, and the scan-time trace headers.
+    let mut base_headers = HeaderMap::new();
     for (name, value) in &artifact.headers {
-        headers.insert(
+        base_headers.insert(
             HeaderName::from_bytes(name.as_bytes())?,
             HeaderValue::from_str(value)?,
         );
     }
     for (name, value) in extra_headers()?.iter() {
-        headers.insert(name.clone(), value.clone());
+        base_headers.insert(name.clone(), value.clone());
     }
     if let Some(trace) = &trace {
-        headers.insert(
+        base_headers.insert(
             HeaderName::from_static("x-reproit-trace"),
             HeaderValue::from_str(&trace.trace_id)?,
         );
-        headers.insert(
+        base_headers.insert(
             HeaderName::from_static("x-reproit-action"),
             HeaderValue::from_str(&trace.action_index.to_string())?,
         );
     }
-    request = request.headers(headers);
-    if let Some(body) = &artifact.body {
-        if artifact.content_type.as_deref() == Some("application/x-www-form-urlencoded") {
-            let object = body
-                .as_object()
-                .context("form-urlencoded request body must be an object")?;
-            let form = object
-                .iter()
-                .map(|(name, value)| {
-                    Ok((
-                        name.clone(),
-                        value_as_text(value).context("form value is not scalar")?,
-                    ))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let encoded = form
-                .iter()
-                .map(|(name, value)| format!("{}={}", percent_encode(name), percent_encode(value)))
-                .collect::<Vec<_>>()
-                .join("&");
-            request = request
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(encoded);
-        } else {
-            request = request.json(body);
+    // Rotate identities per request; on a 429 retry under the next identity so a
+    // per-user rate limit does not cap the run at one success per endpoint. With
+    // no pool, `attempts` is 1 and this is the pre-existing single-request path.
+    let attempts = identity_count().max(1);
+    let start = IDENTITY_CURSOR.fetch_add(1, Ordering::Relaxed);
+    for attempt in 0..attempts {
+        let mut headers = base_headers.clone();
+        if let Some(pool) = IDENTITY_POOL.get().filter(|pool| !pool.is_empty()) {
+            for (name, value) in &pool[(start + attempt) % pool.len()] {
+                headers.insert(
+                    HeaderName::from_bytes(name.as_bytes())?,
+                    HeaderValue::from_str(value)?,
+                );
+            }
         }
-    }
-    let mut response = request
-        .send()
-        .await
-        .with_context(|| format!("calling {} {}", artifact.method, artifact.url))?;
-    let status = response.status().as_u16();
-    let adapter = if trace.is_some() {
-        decode_adapter_trail(response.headers().get("x-reproit-events"))
-    } else {
-        AdapterTrail::Absent
-    };
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        bail!("response exceeded the {MAX_RESPONSE_BYTES} byte evidence limit");
-    }
-    let content_type = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await? {
-        if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+        let mut request = client
+            .request(method.clone(), &artifact.url)
+            .headers(headers);
+        if let Some(body) = &artifact.body {
+            if artifact.content_type.as_deref() == Some("application/x-www-form-urlencoded") {
+                let object = body
+                    .as_object()
+                    .context("form-urlencoded request body must be an object")?;
+                let form = object
+                    .iter()
+                    .map(|(name, value)| {
+                        Ok((
+                            name.clone(),
+                            value_as_text(value).context("form value is not scalar")?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let encoded = form
+                    .iter()
+                    .map(|(name, value)| {
+                        format!("{}={}", percent_encode(name), percent_encode(value))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("&");
+                request = request
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(encoded);
+            } else {
+                request = request.json(body);
+            }
+        }
+        let mut response = request
+            .send()
+            .await
+            .with_context(|| format!("calling {} {}", artifact.method, artifact.url))?;
+        let status = response.status().as_u16();
+        if status == 429 && attempt + 1 < attempts {
+            continue;
+        }
+        let adapter = if trace.is_some() {
+            decode_adapter_trail(response.headers().get("x-reproit-events"))
+        } else {
+            AdapterTrail::Absent
+        };
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        {
             bail!("response exceeded the {MAX_RESPONSE_BYTES} byte evidence limit");
         }
-        bytes.extend_from_slice(&chunk);
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                bail!("response exceeded the {MAX_RESPONSE_BYTES} byte evidence limit");
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let raw_output = if bytes.is_empty() {
+            Value::Null
+        } else if content_type.contains("json") {
+            serde_json::from_slice(&bytes).context("response declared JSON but was invalid")?
+        } else if let Ok(value) = serde_json::from_slice(&bytes) {
+            value
+        } else {
+            Value::String(String::from_utf8_lossy(&bytes).into_owned())
+        };
+        let output = endpoint
+            .response_field
+            .as_ref()
+            .and_then(|field| raw_output.pointer(&format!("/data/{}", escape_pointer(field))))
+            .cloned()
+            .unwrap_or(raw_output);
+        return Ok((
+            evaluate_invocation(endpoint, &artifact, status, output),
+            adapter,
+        ));
     }
-    let raw_output = if bytes.is_empty() {
-        Value::Null
-    } else if content_type.contains("json") {
-        serde_json::from_slice(&bytes).context("response declared JSON but was invalid")?
-    } else if let Ok(value) = serde_json::from_slice(&bytes) {
-        value
-    } else {
-        Value::String(String::from_utf8_lossy(&bytes).into_owned())
-    };
-    let output = endpoint
-        .response_field
-        .as_ref()
-        .and_then(|field| raw_output.pointer(&format!("/data/{}", escape_pointer(field))))
-        .cloned()
-        .unwrap_or(raw_output);
-    Ok((
-        evaluate_invocation(endpoint, &artifact, status, output),
-        adapter,
-    ))
+    unreachable!("the final identity attempt always returns")
 }
 
 /// SDK adapters encode the finished trace as base64url (no padding) over the
@@ -495,25 +521,30 @@ fn expand_env_value(value: &Value) -> Value {
     }
 }
 
-/// Run the configured login and return the captured token. Fails closed: a
-/// non-2xx login or a missing token aborts the run rather than letting scan/fuzz
-/// proceed against only the public surface (an unauthed run that looks clean is
-/// the same silent-truncation trap as dropping operations).
-pub(super) async fn perform_login(
+/// Log in one identity and return its token. Fails closed: a non-2xx login or a
+/// missing token aborts the run rather than fuzzing only the public surface (an
+/// unauthed run that looks clean is the same silent-truncation trap as dropping
+/// operations). A cross-host login supplies an absolute `url`; otherwise `path`
+/// joins the service base, so an auth plane on a different host is reachable.
+async fn login_account(
     client: &reqwest::Client,
     base_url: &str,
-    auth: &BackendAuth,
+    login: &BackendLogin,
 ) -> Result<String> {
-    let url = format!("{}{}", base_url.trim_end_matches('/'), auth.path);
-    let method = auth.method.parse::<reqwest::Method>().with_context(|| {
+    let url = match (&login.url, &login.path) {
+        (Some(url), _) => url.clone(),
+        (None, Some(path)) => format!("{}{}", base_url.trim_end_matches('/'), path),
+        (None, None) => bail!("backend.auth login needs a `path` or a `url`"),
+    };
+    let method = login.method.parse::<reqwest::Method>().with_context(|| {
         format!(
-            "backend.auth.method {:?} is not a valid HTTP method",
-            auth.method
+            "backend.auth login method {:?} is not a valid HTTP method",
+            login.method
         )
     })?;
     let mut request = client.request(method, &url);
-    match (&auth.form, &auth.json) {
-        (Some(_), Some(_)) => bail!("backend.auth sets both `form` and `json`; use exactly one"),
+    match (&login.form, &login.json) {
+        (Some(_), Some(_)) => bail!("backend.auth login sets both `form` and `json`; use one"),
         (Some(form), None) => {
             let encoded = form
                 .iter()
@@ -545,28 +576,85 @@ pub(super) async fn perform_login(
             status.as_u16()
         );
     }
-    let token = body
-        .pointer(&auth.token_path)
+    body.pointer(&login.token_path)
         .and_then(Value::as_str)
+        .map(str::to_string)
         .with_context(|| {
             format!(
                 "backend.auth login response had no string token at {}",
-                auth.token_path
+                login.token_path
             )
-        })?;
-    Ok(token.to_string())
+        })
 }
 
-/// Merge the captured token into `REPROIT_EXTRA_HEADERS` so every subsequent
-/// request (via `extra_headers`) carries it. Preserves any `--header` values.
-pub(super) fn inject_auth_header(auth: &BackendAuth, token: &str) -> Result<()> {
-    let mut values: BTreeMap<String, String> = match std::env::var_os("REPROIT_EXTRA_HEADERS") {
-        Some(raw) => serde_json::from_str(&raw.to_string_lossy()).unwrap_or_default(),
-        None => BTreeMap::new(),
+/// Extract a claim from a JWT payload (the middle base64url segment). Empty when
+/// the token is not a JWT or lacks the claim.
+fn jwt_claim(token: &str, name: &str) -> String {
+    use base64::Engine as _;
+    let Some(payload) = token.split('.').nth(1) else {
+        return String::new();
     };
-    values.insert(auth.header.clone(), auth.value.replace("{token}", token));
-    std::env::set_var("REPROIT_EXTRA_HEADERS", serde_json::to_string(&values)?);
-    Ok(())
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload) else {
+        return String::new();
+    };
+    serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|claims| {
+            claims.get(name).map(|value| match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// Resolve one header value template: `{token}` -> the token, `{claim:NAME}` -> a
+/// JWT claim (so an `x-user-id: "{claim:sub}"` header works alongside a session).
+fn resolve_header_template(template: &str, token: &str) -> String {
+    let mut out = template.replace("{token}", token);
+    while let Some(start) = out.find("{claim:") {
+        let Some(end_rel) = out[start..].find('}') else {
+            break;
+        };
+        let end = start + end_rel;
+        let name = out[start + 7..end].to_string();
+        out.replace_range(start..=end, &jwt_claim(token, &name));
+    }
+    out
+}
+
+/// The rotating identity pool: one resolved header set per configured account.
+/// The fuzzer cycles it per request (and rotates on a 429), so a per-user rate
+/// limit throttles one identity, not the whole run. Built once at run start.
+static IDENTITY_POOL: OnceLock<Vec<Vec<(String, String)>>> = OnceLock::new();
+static IDENTITY_CURSOR: AtomicUsize = AtomicUsize::new(0);
+
+/// Log in every configured identity and return the pool of resolved header sets.
+pub(super) async fn build_identity_pool(
+    client: &reqwest::Client,
+    base_url: &str,
+    auth: &BackendAuth,
+) -> Result<Vec<Vec<(String, String)>>> {
+    let mut pool = Vec::new();
+    for account in auth.resolved_accounts() {
+        let token = login_account(client, base_url, &account.login).await?;
+        let headers = account
+            .headers
+            .iter()
+            .map(|(name, template)| (name.clone(), resolve_header_template(template, &token)))
+            .collect();
+        pool.push(headers);
+    }
+    Ok(pool)
+}
+
+pub(super) fn install_identity_pool(pool: Vec<Vec<(String, String)>>) {
+    let _ = IDENTITY_POOL.set(pool);
+}
+
+/// Number of identities in the pool (0 when the run is unauthenticated).
+pub(super) fn identity_count() -> usize {
+    IDENTITY_POOL.get().map_or(0, Vec::len)
 }
 
 pub(super) fn extra_headers() -> Result<HeaderMap> {
@@ -583,4 +671,32 @@ pub(super) fn extra_headers() -> Result<HeaderMap> {
         );
     }
     Ok(headers)
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use base64::Engine as _;
+
+    fn jwt(payload: &[u8]) -> String {
+        let body = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload);
+        format!("hdr.{body}.sig")
+    }
+
+    #[test]
+    fn resolves_token_and_claim_header_templates() {
+        let token = jwt(br#"{"sub":"user-123","role":"admin"}"#);
+        assert_eq!(jwt_claim(&token, "sub"), "user-123");
+        assert_eq!(jwt_claim(&token, "missing"), "");
+        assert_eq!(jwt_claim("not-a-jwt", "sub"), "");
+        assert_eq!(
+            resolve_header_template("Bearer {token}", &token),
+            format!("Bearer {token}")
+        );
+        assert_eq!(resolve_header_template("{claim:sub}", &token), "user-123");
+        assert_eq!(
+            resolve_header_template("u:{claim:sub}/r:{claim:role}", &token),
+            "u:user-123/r:admin"
+        );
+    }
 }

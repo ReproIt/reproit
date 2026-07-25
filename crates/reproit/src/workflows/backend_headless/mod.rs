@@ -2,7 +2,7 @@
 
 use crate::domain::backend::{
     self, BackendAuth, BackendConfig, BackendEvent, BackendEventKind, BackendInvariant,
-    BackendViolation, FleetInvariant, OperationContract, ValueDomain,
+    BackendLogin, BackendViolation, FleetInvariant, OperationContract, ValueDomain,
 };
 use crate::domain::repro;
 use crate::interface::cli::context::{Ctx, Exit};
@@ -197,15 +197,17 @@ async fn run_target_with_policy(
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
-    // Authenticated scan/fuzz: run the configured login first and inject the
-    // token, so the run reaches operations behind the auth boundary instead of
-    // bouncing off 401s. Fails closed (a bad login aborts the run).
+    // Authenticated scan/fuzz: log in every configured identity first and install
+    // the rotating pool, so the run reaches operations behind the auth boundary
+    // and a per-user rate limit throttles one identity, not the whole run. Fails
+    // closed (a bad login aborts the run).
     if let Some(auth) = auth {
-        let token = perform_login(&client, &base_url, auth).await?;
-        inject_auth_header(auth, &token)?;
+        let pool = build_identity_pool(&client, &base_url, auth).await?;
+        install_identity_pool(pool);
+        let count = identity_count();
         ctx.say(format!(
-            "Authenticated via {} (token injected as {})",
-            auth.path, auth.header
+            "Authenticated {count} identit{} (rotating per request)",
+            if count == 1 { "y" } else { "ies" }
         ));
     }
     let attempts = if fuzzing { runs.max(1) } else { 1 };
@@ -906,7 +908,7 @@ use request::build_request;
 mod transport;
 #[cfg(test)]
 use transport::evaluate_invocation;
-use transport::{inject_auth_header, invoke, perform_login};
+use transport::{build_identity_pool, identity_count, install_identity_pool, invoke};
 mod replay;
 #[cfg(test)]
 use replay::apply_request_bindings;

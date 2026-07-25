@@ -15,12 +15,12 @@ pub const EVENT_MARKER: &str = "REPROIT:BACKEND ";
 mod contracts;
 #[allow(unused_imports)]
 pub use contracts::{
-    AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendAuth,
-    BackendConfig, BackendInvariant, BackendProofContract, CodecProjection, ConcurrencyPolicy,
-    ControlledFailureWitness, FleetInvariant, QueryComparison, QueryFilterContract,
-    QueryPaginationContract, QuerySortContract, QuerySortDirection, QuerySortType,
-    ResourceConsistency, ResourceCreateContract, ResourceFieldContract, ResourceLifecycleContract,
-    ResourceMutationContract, ResourceReadContract, RoundTripCheck,
+    AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendAccount,
+    BackendAuth, BackendConfig, BackendInvariant, BackendLogin, BackendProofContract,
+    CodecProjection, ConcurrencyPolicy, ControlledFailureWitness, FleetInvariant, QueryComparison,
+    QueryFilterContract, QueryPaginationContract, QuerySortContract, QuerySortDirection,
+    QuerySortType, ResourceConsistency, ResourceCreateContract, ResourceFieldContract,
+    ResourceLifecycleContract, ResourceMutationContract, ResourceReadContract, RoundTripCheck,
 };
 
 mod config;
