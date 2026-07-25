@@ -26,10 +26,10 @@ until their contracts have field evidence from at least two independent uses:
 
 - Firefox, WebKit, mobile, desktop, terminal, Electron, and Tauri adapters;
 - the entire backend pillar: contract oracles, production capture mode, the
-  `reproit-backend-*` SDKs, and backend `inspect`. The Rust SDK is 0.1.0 with a
-  README and metadata and passes `cargo publish --dry-run`, but keeps
-  `publish = false` until publishing is an explicit decision; the other seven
-  remain 0.0.0, unpublished and not install-smoked. Backend is opt-in and its
+  `reproit-backend-*` SDKs, and backend `inspect`. All eight SDKs are 0.0.0,
+  unpublished and not install-smoked; the version number is not a claim that a
+  release exists. The Rust one additionally carries a README and crate metadata,
+  so publishing it is a decision plus a version, not a packaging exercise. Backend is opt-in and its
   contracts may change before it is promoted to the stable surface;
 - specialist oracles selected explicitly with `--only`;
 - `debug map` analysis and contract suggestions;

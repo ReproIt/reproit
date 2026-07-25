@@ -9,9 +9,12 @@ That difference is what the oracles for tenant isolation, lost updates,
 transaction atomicity and idempotency need. Without an adapter they abstain,
 because the evidence to judge them does not exist in the response.
 
+**Not published.** This crate is `0.0.0` and is not on crates.io, so depend on
+it by path or git until it is released:
+
 ```toml
 [dependencies]
-reproit-backend = { version = "0.1", features = ["axum"] }
+reproit-backend = { git = "https://github.com/ReproIt/reproit", features = ["axum"] }
 ```
 
 ```rust
@@ -28,12 +31,13 @@ let app = Router::new()
 `actix` is the other feature-gated framework; the core adapter is
 dependency-light and framework-agnostic.
 
-## Status: preview
+## Status: preview, unreleased
 
-This crate is **0.x and outside the ReproIt 1.x compatibility promise**. Its
-contract may change before the backend pillar is promoted to the stable surface,
-which requires field evidence from at least two independent uses. See
-`docs/stability.md` in the main repository.
+This crate is `0.0.0`, unpublished, and **outside the ReproIt 1.x compatibility
+promise**. There is no release: the version number is not a claim that one
+exists. Its contract may change before the backend pillar is promoted to the
+stable surface, which requires field evidence from at least two independent
+uses. See `docs/stability.md` in the main repository.
 
 Capture mode is bounded by construction: a 64-item drop-oldest queue, 16
 operations per batch, a 48 KB payload cap, a 100 ms flush floor, and one worker
