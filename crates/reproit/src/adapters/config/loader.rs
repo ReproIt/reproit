@@ -4,6 +4,7 @@ use super::Config;
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub struct Loaded {
     pub config: Config,
@@ -41,8 +42,9 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
 /// Parse config YAML, interpolate its environment references, and validate all
 /// platform and backend schema boundaries.
 pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
-    let raw = interpolate_env(raw)?;
-    let mut config: Config = serde_yaml::from_str(&raw)?;
+    let mut value: serde_yaml::Value = serde_yaml::from_str(raw)?;
+    interpolate_value(&mut value)?;
+    let mut config: Config = serde_yaml::from_value(value)?;
     if crate::adapters::platform::resolve(&config.app.platform).is_none() {
         bail!(
             "unsupported platform {:?}; known: {}",
@@ -84,12 +86,15 @@ fn find_config(from: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Interpolate the supported shell parameter-expansion subset across the whole
-/// configuration and report every missing required variable together.
-pub(crate) fn interpolate_env(raw: &str) -> Result<String> {
-    let regex = Regex::new(r"\$\{(\w+)(?::(-|\?)([^}]*))?\}").unwrap();
-    let mut missing = Vec::new();
-    let output = regex
+fn env_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r"\$\{(\w+)(?::(-|\?)([^}]*))?\}").unwrap())
+}
+
+/// Expand the supported shell parameter-expansion subset in a single scalar,
+/// accumulating any missing required variables.
+fn expand_scalar(raw: &str, missing: &mut Vec<String>) -> String {
+    env_regex()
         .replace_all(raw, |captures: &regex::Captures| {
             let name = &captures[1];
             let value = std::env::var(name).ok().filter(|value| !value.is_empty());
@@ -107,9 +112,39 @@ pub(crate) fn interpolate_env(raw: &str) -> Result<String> {
                 _ => value.unwrap_or_default(),
             }
         })
-        .into_owned();
+        .into_owned()
+}
+
+fn expand_tree(value: &mut serde_yaml::Value, missing: &mut Vec<String>) {
+    match value {
+        serde_yaml::Value::String(text) => *text = expand_scalar(text, missing),
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                expand_tree(item, missing);
+            }
+        }
+        serde_yaml::Value::Mapping(map) => {
+            for (_key, entry) in map.iter_mut() {
+                expand_tree(entry, missing);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Interpolate the supported shell parameter-expansion subset across a PARSED
+/// config tree, reporting every missing required variable together. Substituting
+/// into scalars *after* the YAML parse (not into the raw text) keeps a substituted
+/// value a string regardless of its shape: `phone: ${PHONE}` becomes the string
+/// "+15551230001", never the int 15551230001 that unquoted YAML would coerce and a
+/// downstream `Json<String>` extractor would reject with an opaque 422. It also
+/// means a `${VAR}` written inside a config comment is never touched, since
+/// comments are gone by the time the tree exists.
+pub(crate) fn interpolate_value(value: &mut serde_yaml::Value) -> Result<()> {
+    let mut missing = Vec::new();
+    expand_tree(value, &mut missing);
     if !missing.is_empty() {
         bail!("unresolved config variables:\n  {}", missing.join("\n  "));
     }
-    Ok(output)
+    Ok(())
 }

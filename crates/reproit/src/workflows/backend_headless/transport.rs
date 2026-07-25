@@ -537,7 +537,8 @@ async fn login_account(
             status.as_u16()
         );
     }
-    body.pointer(&login.token_path)
+    let pointer = token_pointer(&login.token_path);
+    body.pointer(&pointer)
         .and_then(Value::as_str)
         .map(str::to_string)
         .with_context(|| {
@@ -546,6 +547,22 @@ async fn login_account(
                 login.token_path
             )
         })
+}
+
+/// Normalize a token path into a JSON Pointer. A leading `/` is an explicit
+/// pointer used as-is; otherwise the natural forms `token` and `data.token` are
+/// accepted and turned into `/token` and `/data/token`, so a bare key does not
+/// silently miss (`body.pointer("token")` requires the leading slash).
+fn token_pointer(path: &str) -> String {
+    if path.starts_with('/') {
+        return path.to_string();
+    }
+    let mut pointer = String::new();
+    for segment in path.split(['.', '/']).filter(|segment| !segment.is_empty()) {
+        pointer.push('/');
+        pointer.push_str(&segment.replace('~', "~0").replace('/', "~1"));
+    }
+    pointer
 }
 
 /// Extract a claim from a JWT payload (the middle base64url segment). Empty when
@@ -642,6 +659,17 @@ mod auth_tests {
     fn jwt(payload: &[u8]) -> String {
         let body = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload);
         format!("hdr.{body}.sig")
+    }
+
+    #[test]
+    fn token_pointer_accepts_bare_dotted_and_explicit_paths() {
+        let body = json!({"token": "t", "data": {"access": "a"}, "a/b": "slash"});
+        assert_eq!(body.pointer(&token_pointer("token")).unwrap(), "t");
+        assert_eq!(body.pointer(&token_pointer("data.access")).unwrap(), "a");
+        assert_eq!(body.pointer(&token_pointer("data/access")).unwrap(), "a");
+        assert_eq!(body.pointer(&token_pointer("/data/access")).unwrap(), "a");
+        // Default and any leading-slash pointer are passed through untouched.
+        assert_eq!(token_pointer("/access_token"), "/access_token");
     }
 
     #[test]

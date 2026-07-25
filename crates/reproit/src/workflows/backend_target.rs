@@ -45,7 +45,7 @@ pub(super) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
         return Ok(None);
     };
     let raw = std::fs::read_to_string(&path)?;
-    let document: serde_yaml::Value = serde_yaml::from_str(&raw)?;
+    let mut document: serde_yaml::Value = serde_yaml::from_str(&raw)?;
     if document.get("app").is_some() {
         return Ok(None);
     }
@@ -53,11 +53,12 @@ pub(super) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
         return Ok(None);
     }
     // A backend config: interpolate ${VAR}, ${VAR:-default}, and ${VAR:?required}
-    // over the whole document with the same loader the app config uses, so secrets
+    // over the parsed document with the same loader the app config uses, so secrets
     // reach every field (login url/path/headers, not just bodies) and the syntax
-    // matches the rest of reproit. Only backend configs are touched.
-    let interpolated = crate::adapters::config::interpolate_env(&raw)?;
-    let document: serde_yaml::Value = serde_yaml::from_str(&interpolated)?;
+    // matches the rest of reproit. Interpolating the tree, not the raw text, keeps a
+    // substituted value a string (an env-supplied phone stays "+1555..." instead of
+    // being re-read by YAML as an int) and leaves `${VAR}` in comments alone.
+    crate::adapters::config::interpolate_value(&mut document)?;
     let backend = document
         .get("backend")
         .expect("backend key present before interpolation");

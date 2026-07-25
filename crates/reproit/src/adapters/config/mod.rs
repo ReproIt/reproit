@@ -768,7 +768,7 @@ mod loader;
 mod synthesis;
 mod web_runner;
 
-pub(crate) use loader::interpolate_env;
+pub(crate) use loader::interpolate_value;
 pub use loader::{load, parse_str, Loaded};
 pub use synthesis::{synthesize_tui, synthesize_web};
 pub use web_runner::{
@@ -784,8 +784,21 @@ mod route_access_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{interpolate_env, load, synthesize_tui, synthesize_web};
+    use super::{interpolate_value, load, synthesize_tui, synthesize_web};
     use std::path::PathBuf;
+
+    // Interpolate a one-key YAML document and return the resolved scalar so the
+    // tests exercise the real parse-then-substitute path (type-preserving), not a
+    // raw text substitution.
+    fn expand(yaml: &str) -> anyhow::Result<serde_yaml::Value> {
+        let mut value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        interpolate_value(&mut value)?;
+        Ok(value["v"].clone())
+    }
+
+    fn expand_str(yaml: &str) -> anyhow::Result<String> {
+        Ok(expand(yaml)?.as_str().unwrap_or_default().to_string())
+    }
 
     #[test]
     fn synthesize_web_parses_to_a_valid_web_config() {
@@ -868,35 +881,29 @@ mod tests {
     #[test]
     fn bare_var_substitutes_or_empties() {
         std::env::set_var("RIT_TEST_BARE", "/runner");
-        assert_eq!(
-            interpolate_env("dir: ${RIT_TEST_BARE}").unwrap(),
-            "dir: /runner"
-        );
+        assert_eq!(expand_str("v: ${RIT_TEST_BARE}").unwrap(), "/runner");
         std::env::remove_var("RIT_TEST_BARE_UNSET");
-        assert_eq!(
-            interpolate_env("dir: ${RIT_TEST_BARE_UNSET}").unwrap(),
-            "dir: "
-        );
+        assert_eq!(expand_str("v: ${RIT_TEST_BARE_UNSET}").unwrap(), "");
     }
 
     #[test]
     fn default_form_falls_back_when_unset() {
         std::env::remove_var("RIT_TEST_DEF");
         assert_eq!(
-            interpolate_env("dir: ${RIT_TEST_DEF:-./runners/web}").unwrap(),
-            "dir: ./runners/web"
+            expand_str("v: ${RIT_TEST_DEF:-./runners/web}").unwrap(),
+            "./runners/web"
         );
         std::env::set_var("RIT_TEST_DEF", "/explicit");
         assert_eq!(
-            interpolate_env("dir: ${RIT_TEST_DEF:-./runners/web}").unwrap(),
-            "dir: /explicit"
+            expand_str("v: ${RIT_TEST_DEF:-./runners/web}").unwrap(),
+            "/explicit"
         );
     }
 
     #[test]
     fn required_form_errors_when_unset() {
         std::env::remove_var("RIT_TEST_REQ");
-        let err = interpolate_env("dir: ${RIT_TEST_REQ:?must be set}").unwrap_err();
+        let err = expand("v: ${RIT_TEST_REQ:?must be set}").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("RIT_TEST_REQ"), "got: {msg}");
         assert!(msg.contains("must be set"), "got: {msg}");
@@ -905,10 +912,20 @@ mod tests {
     #[test]
     fn required_form_passes_when_set() {
         std::env::set_var("RIT_TEST_REQ_OK", "x");
-        assert_eq!(
-            interpolate_env("v: ${RIT_TEST_REQ_OK:?nope}").unwrap(),
-            "v: x"
-        );
+        assert_eq!(expand_str("v: ${RIT_TEST_REQ_OK:?nope}").unwrap(), "x");
+    }
+
+    // The regression the parse-then-substitute design exists to prevent: an
+    // env-supplied value that looks numeric stays a string, so a `${VAR}` in an
+    // unquoted YAML scalar cannot be re-coerced into an int (which a downstream
+    // Json<String> extractor would reject with an opaque 422). A `${VAR}` in a
+    // comment is left untouched because comments are gone by parse time.
+    #[test]
+    fn substituted_numeric_value_stays_a_string() {
+        std::env::set_var("RIT_TEST_PHONE", "+15551230001");
+        let value = expand("v: ${RIT_TEST_PHONE} # ${RIT_TEST_UNDECLARED:?never}").unwrap();
+        assert_eq!(value.as_str(), Some("+15551230001"));
+        assert!(value.is_string(), "must stay a string, not coerce to int");
     }
 
     // End-to-end: app.webRunnerDir (the field from issue #1) resolves through the
