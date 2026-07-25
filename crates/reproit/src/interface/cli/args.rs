@@ -447,6 +447,16 @@ pub(crate) enum Cmd {
         /// Finding id, repro id, or saved repro alias.
         reference: String,
     },
+    /// Replay every persisted backend finding against the live target and assert
+    /// none still reproduces: a durable regression suite and batch proof-of-fix.
+    /// Exits non-zero if any finding reproduces. Pass ids to verify only those.
+    Verify {
+        /// Finding ids to verify (default: all persisted findings).
+        ids: Vec<String>,
+        /// Write a JUnit report of held vs reproducing findings.
+        #[arg(long)]
+        junit: Option<PathBuf>,
+    },
     /// List discovered candidates that are still blocked from promotion, with
     /// the exact missing proof stages.
     Candidates,

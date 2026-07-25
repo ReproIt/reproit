@@ -219,7 +219,6 @@ fn removed_compatibility_commands_are_not_parseable() {
         vec!["reproit", "guard"],
         vec!["reproit", "save"],
         vec!["reproit", "pull", "bkt_deadbeef0001"],
-        vec!["reproit", "verify", "fnd_deadbeef0001"],
         vec!["reproit", "replay", "fnd_deadbeef0001"],
         vec!["reproit", "record"],
         vec!["reproit", "scan", "--record"],
@@ -238,6 +237,12 @@ fn removed_compatibility_commands_are_not_parseable() {
     ] {
         assert!(Cli::try_parse_from(args).is_err());
     }
+
+    let cli = Cli::try_parse_from(["reproit", "verify", "fnd_deadbeef0001"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Cmd::Verify { ids, junit: None } if ids == ["fnd_deadbeef0001"]
+    ));
 
     let cli = Cli::try_parse_from(["reproit", "journey", "checkout"]).unwrap();
     assert!(matches!(

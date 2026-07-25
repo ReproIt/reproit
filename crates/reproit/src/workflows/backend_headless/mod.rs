@@ -973,6 +973,8 @@ mod artifacts;
 use artifacts::{emit_report, persist_findings, persist_run_report, persist_schema_findings};
 mod replay_command;
 pub use replay_command::try_replay;
+mod verify;
+pub use verify::run as backend_verify;
 mod capture_replay;
 pub use capture_replay::{check_capture, is_capture_file, replay_capture};
 mod inspect;
@@ -980,21 +982,8 @@ mod inspect_plan;
 mod inspect_report;
 pub use inspect::try_inspect;
 use replay_command::{escape_pointer, maybe_reset_target, replay_endpoint, value_as_text};
-fn percent_encode(value: &str) -> String {
-    let mut encoded = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            encoded.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    encoded
-}
-
-fn hex_hash(value: &[u8]) -> String {
-    crate::domain::hash::sha256_hex(value)
-}
+mod util;
+use util::{hex_hash, percent_encode};
 
 #[cfg(test)]
 mod tests;

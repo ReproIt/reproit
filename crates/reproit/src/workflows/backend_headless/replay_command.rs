@@ -1,40 +1,33 @@
 use super::*;
 
-pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
-    let Some(raw_id) = repro::raw_finding_id(id) else {
-        return Ok(None);
-    };
-    let Some(artifact_path) = find_artifact(raw_id)? else {
-        return Ok(None);
-    };
+/// The result of replaying one persisted finding artifact against the live
+/// target: whether the exact recorded repro still reproduces, plus the finding
+/// so a caller can label it. `reproduced == false` is machine-checkable proof
+/// that this specific defect is gone (the replay re-exercises the exact failing
+/// request, so a fix cannot be faked by simply not reaching the endpoint).
+pub(super) struct ReplayOutcome {
+    pub reproduced: bool,
+    pub finding: Value,
+}
+
+/// Replay a single finding artifact (backend.json or backend-schema.json) and
+/// report whether it still reproduces. Shared by the direct `reproit <id>` form
+/// and the batch `reproit verify` regression suite.
+pub(super) async fn replay_artifact(artifact_path: &Path) -> Result<ReplayOutcome> {
     if artifact_path.file_name().and_then(|value| value.to_str()) == Some("backend-schema.json") {
         let artifact: BackendSchemaFindingArtifact =
-            serde_json::from_slice(&std::fs::read(&artifact_path)?)?;
+            serde_json::from_slice(&std::fs::read(artifact_path)?)?;
         let schema = Path::new(&artifact.schema);
         let document = load_document(schema)?;
         let reproduced = backend::validate_openapi_parameter_uniqueness(&document)
             .iter()
             .any(|value| value.fingerprint == artifact.violation.fingerprint);
-        let report = json!({
-            "command": "backend schema replay",
-            "id": id,
-            "reproduced": reproduced,
-            "finding": artifact.finding,
+        return Ok(ReplayOutcome {
+            reproduced,
+            finding: artifact.finding,
         });
-        if ctx.json {
-            ctx.emit(&report);
-        } else if reproduced {
-            ctx.say(format!("{id}: reproduced exactly"));
-        } else {
-            ctx.say(format!("{id}: no longer reproduces"));
-        }
-        return Ok(Some(if reproduced {
-            Exit::Regression.code()
-        } else {
-            ExitCode::SUCCESS
-        }));
     }
-    let artifact: BackendFindingArtifact = serde_json::from_slice(&std::fs::read(&artifact_path)?)?;
+    let artifact: BackendFindingArtifact = serde_json::from_slice(&std::fs::read(artifact_path)?)?;
     if std::env::var_os("REPROIT_BACKEND_RESET_URL").is_none() {
         if let Some(reset_url) = &artifact.reset_url {
             std::env::set_var("REPROIT_BACKEND_RESET_URL", reset_url);
@@ -58,20 +51,34 @@ pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
         expected,
     )
     .await?;
+    Ok(ReplayOutcome {
+        reproduced,
+        finding: artifact.finding,
+    })
+}
+
+pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
+    let Some(raw_id) = repro::raw_finding_id(id) else {
+        return Ok(None);
+    };
+    let Some(artifact_path) = find_artifact(raw_id)? else {
+        return Ok(None);
+    };
+    let outcome = replay_artifact(&artifact_path).await?;
     let report = json!({
         "command": "backend replay",
         "id": id,
-        "reproduced": reproduced,
-        "finding": artifact.finding,
+        "reproduced": outcome.reproduced,
+        "finding": outcome.finding,
     });
     if ctx.json {
         ctx.emit(&report);
-    } else if reproduced {
+    } else if outcome.reproduced {
         ctx.say(format!("{id}: reproduced exactly"));
     } else {
         ctx.say(format!("{id}: no longer reproduces"));
     }
-    Ok(Some(if reproduced {
+    Ok(Some(if outcome.reproduced {
         Exit::Regression.code()
     } else {
         ExitCode::SUCCESS
