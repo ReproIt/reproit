@@ -124,6 +124,51 @@ pub(super) fn classify_and_record(
     }))
 }
 
+/// The CI gate's exit decision, given this run's lifecycle, whether the run was
+/// complete, and how many operations were inconclusive (rate-limited). Blocks on
+/// new-or-regressed findings and fails closed on inconclusive operations, so a
+/// run that could not evaluate part of the surface never renders as a pass.
+pub(super) fn gate_outcome(
+    ctx: &Ctx,
+    lifecycle: &Value,
+    complete: bool,
+    inconclusive: usize,
+) -> ExitCode {
+    if let Some(path) = std::env::var_os("REPROIT_GATE_JUNIT") {
+        write_gate_junit(Path::new(&path), lifecycle);
+    }
+    let counts = lifecycle.get("counts");
+    let new = counts.and_then(|c| c["new"].as_u64()).unwrap_or(0);
+    let regressed = counts.and_then(|c| c["regressed"].as_u64()).unwrap_or(0);
+    if std::env::var_os("REPROIT_GATE_BASELINE").is_some() {
+        if inconclusive > 0 {
+            ctx.say(format!(
+                "refusing to record a baseline: {inconclusive} operation(s) inconclusive \
+                 (rate-limited); re-run with backoff or fewer identities"
+            ));
+            return Exit::Regression.code();
+        }
+        ctx.say("baseline recorded; the gate now blocks on new or regressed findings".to_string());
+        return ExitCode::SUCCESS;
+    }
+    let blocking = new + regressed;
+    if inconclusive > 0 {
+        ctx.say(format!(
+            "gate: {blocking} blocking ({new} new, {regressed} regressed), \
+             {inconclusive} inconclusive (rate-limited): failing closed"
+        ));
+    } else {
+        ctx.say(format!(
+            "gate: {blocking} blocking ({new} new, {regressed} regressed)"
+        ));
+    }
+    if complete && blocking == 0 {
+        ExitCode::SUCCESS
+    } else {
+        Exit::Regression.code()
+    }
+}
+
 /// Emit a JUnit report for a gated run: each new/regressed finding is a failing
 /// testcase, each persisting one a passing testcase, so CI surfaces exactly what
 /// a merge would newly introduce.

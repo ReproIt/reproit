@@ -34,7 +34,7 @@ use binding::ValueBank;
 mod round_trip;
 use round_trip::{probe_round_trips, record_create, CreateRecord};
 mod history;
-use history::{classify_and_record, write_gate_junit};
+use history::{classify_and_record, gate_outcome};
 fn operation_rank(method: &str) -> u8 {
     match method {
         "POST" => 0,
@@ -250,6 +250,13 @@ async fn run_target_with_policy(
     // so a previously-active finding is only called `fixed` when its operation
     // was genuinely retried (scan hits GETs only, so it must not "fix" a mutation).
     let mut exercised_ops = BTreeSet::new();
+    // Operations that returned only 429s this run: the server refused to process
+    // them, so the oracle learned nothing. These are INCONCLUSIVE, not clean, and
+    // must never render as a pass (a gate that goes blind under rate limiting and
+    // then passes a still-broken PR is worse than no gate). `evaluated_ops` clears
+    // the flag as soon as any non-429 response for that operation is seen.
+    let mut rate_limited_ops = BTreeSet::new();
+    let mut evaluated_ops = BTreeSet::new();
 
     let mut ordered = endpoints.clone();
     if fuzzing {
@@ -305,6 +312,11 @@ async fn run_target_with_policy(
             let accepted = (200..400).contains(&result.status);
             exercised += 1;
             exercised_ops.insert(endpoint.contract.id.clone());
+            if result.status == 429 {
+                rate_limited_ops.insert(endpoint.contract.id.clone());
+            } else {
+                evaluated_ops.insert(endpoint.contract.id.clone());
+            }
             if !accepted {
                 rejected += 1;
             }
@@ -447,7 +459,15 @@ async fn run_target_with_policy(
             .and_then(Value::as_str)
             .cmp(&right.get("id").and_then(Value::as_str))
     });
-    let complete = execution_errors.is_empty() && exercised > 0;
+    // Operations the server refused to evaluate (only ever 429 this run). They are
+    // inconclusive, so a run that contains any is NOT complete: it cannot certify
+    // "clean", record a baseline, or classify a finding as fixed. Fail closed.
+    let inconclusive_ops: Vec<String> = rate_limited_ops
+        .difference(&evaluated_ops)
+        .cloned()
+        .collect();
+    let inconclusive = inconclusive_ops.len();
+    let complete = execution_errors.is_empty() && exercised > 0 && inconclusive_ops.is_empty();
     // Finding lifecycle: classify this run's findings against the per-project
     // history (new / persisting / regressed / fixed) so a CI gate can block on
     // new-or-regressed. Only a complete run records history, and `fixed` is
@@ -480,6 +500,7 @@ async fn run_target_with_policy(
         "attemptsPerOperation": attempts,
         "exercised": exercised,
         "rejected": rejected,
+        "inconclusive": inconclusive_ops,
         "skipped": skipped,
         "executionErrors": execution_errors,
         "candidates": candidates,
@@ -488,31 +509,19 @@ async fn run_target_with_policy(
     });
     persist_run_report(&root, command, &report)?;
     emit_report(ctx, command, &report);
-    // CI gate mode (REPROIT_GATE): block only on NEW or REGRESSED findings, never on
+    if inconclusive > 0 {
+        ctx.say(format!(
+            "{inconclusive} operation(s) inconclusive (rate-limited); not treated as clean"
+        ));
+    }
+    // CI gate mode (REPROIT_GATE): block on NEW or REGRESSED findings, never on
     // persisting/accepted ones, so a gate on every PR fails on a freshly introduced
     // reproducible bug yet not forever on a known one (zero-false-positive findings).
+    // It ALSO fails closed on inconclusive (rate-limited) operations: "could not
+    // evaluate" must never render as "clean", or a retried CI job passes a still
+    // broken PR.
     if std::env::var_os("REPROIT_GATE").is_some() {
-        if let Some(path) = std::env::var_os("REPROIT_GATE_JUNIT") {
-            write_gate_junit(std::path::Path::new(&path), &lifecycle);
-        }
-        let counts = lifecycle.get("counts");
-        let new = counts.and_then(|c| c["new"].as_u64()).unwrap_or(0);
-        let regressed = counts.and_then(|c| c["regressed"].as_u64()).unwrap_or(0);
-        if std::env::var_os("REPROIT_GATE_BASELINE").is_some() {
-            ctx.say(
-                "baseline recorded; the gate now blocks on new or regressed findings".to_string(),
-            );
-            return Ok(ExitCode::SUCCESS);
-        }
-        let blocking = new + regressed;
-        ctx.say(format!(
-            "gate: {blocking} blocking ({new} new, {regressed} regressed)"
-        ));
-        return Ok(if complete && blocking == 0 {
-            ExitCode::SUCCESS
-        } else {
-            Exit::Regression.code()
-        });
+        return Ok(gate_outcome(ctx, &lifecycle, complete, inconclusive));
     }
     let has_findings = report["findings"]
         .as_array()
