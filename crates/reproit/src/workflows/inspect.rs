@@ -86,6 +86,7 @@ pub(super) async fn run(
             record_video: false,
             flicker: false,
             changed: None,
+            update_baseline: false,
             inspect: true,
         },
     )

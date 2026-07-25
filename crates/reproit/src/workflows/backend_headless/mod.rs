@@ -34,7 +34,7 @@ use binding::ValueBank;
 mod round_trip;
 use round_trip::{probe_round_trips, record_create, CreateRecord};
 mod history;
-use history::classify_and_record;
+use history::{classify_and_record, write_gate_junit};
 fn operation_rank(method: &str) -> u8 {
     match method {
         "POST" => 0,
@@ -453,8 +453,12 @@ async fn run_target_with_policy(
     // new-or-regressed. Only a complete run records history, and `fixed` is
     // guarded on the operation being re-exercised, so a partial run never
     // manufactures a fix.
+    // A normal run advances the baseline; a CI gate classifies read-only against
+    // it and records only when explicitly re-baselining.
+    let gate = std::env::var_os("REPROIT_GATE").is_some();
+    let record = !gate || std::env::var_os("REPROIT_GATE_BASELINE").is_some();
     let lifecycle = if complete {
-        classify_and_record(&root, &public_findings, &exercised_ops)?
+        classify_and_record(&root, &public_findings, &exercised_ops, record)?
     } else {
         Value::Null
     };
@@ -484,6 +488,32 @@ async fn run_target_with_policy(
     });
     persist_run_report(&root, command, &report)?;
     emit_report(ctx, command, &report);
+    // CI gate mode (REPROIT_GATE): block only on NEW or REGRESSED findings, never on
+    // persisting/accepted ones, so a gate on every PR fails on a freshly introduced
+    // reproducible bug yet not forever on a known one (zero-false-positive findings).
+    if std::env::var_os("REPROIT_GATE").is_some() {
+        if let Some(path) = std::env::var_os("REPROIT_GATE_JUNIT") {
+            write_gate_junit(std::path::Path::new(&path), &lifecycle);
+        }
+        let counts = lifecycle.get("counts");
+        let new = counts.and_then(|c| c["new"].as_u64()).unwrap_or(0);
+        let regressed = counts.and_then(|c| c["regressed"].as_u64()).unwrap_or(0);
+        if std::env::var_os("REPROIT_GATE_BASELINE").is_some() {
+            ctx.say(
+                "baseline recorded; the gate now blocks on new or regressed findings".to_string(),
+            );
+            return Ok(ExitCode::SUCCESS);
+        }
+        let blocking = new + regressed;
+        ctx.say(format!(
+            "gate: {blocking} blocking ({new} new, {regressed} regressed)"
+        ));
+        return Ok(if complete && blocking == 0 {
+            ExitCode::SUCCESS
+        } else {
+            Exit::Regression.code()
+        });
+    }
     let has_findings = report["findings"]
         .as_array()
         .is_some_and(|values| !values.is_empty());

@@ -27,6 +27,7 @@ pub(super) struct CheckArgs {
     pub(super) record_video: bool,
     pub(super) flicker: bool,
     pub(super) changed: Option<String>,
+    pub(super) update_baseline: bool,
     pub(super) inspect: bool,
 }
 
@@ -50,6 +51,14 @@ pub(super) async fn run(
                 anyhow::bail!("A2UI repros do not produce screen video evidence");
             }
             return Ok(code);
+        }
+    }
+    // Backend project + no saved repro: `reproit check` is the CI gate. Run a
+    // scan and block only on new or regressed findings (the lifecycle gate), so a
+    // PR that introduces a reproducible bug fails while a known finding does not.
+    if args.repro.is_none() {
+        if super::backend_target::find(config_path)?.is_some() {
+            return run_backend_gate(ctx, config_path, &args).await;
         }
     }
     let loaded = match config::load(config_path) {
@@ -115,6 +124,34 @@ pub(super) async fn run(
 /// finding ALWAYS wins over a same-named file, so a repro whose alias looks
 /// like a path still resolves as a repro; the file is routed only when nothing
 /// local matches.
+/// Backend CI gate: run a scan with lifecycle-gate exit semantics (block on new
+/// or regressed findings only), optional JUnit, and optional baseline recording.
+async fn run_backend_gate(
+    ctx: &Ctx,
+    config_path: Option<&Path>,
+    args: &CheckArgs,
+) -> Result<ExitCode> {
+    let Some((schemas, config)) = super::backend_target::resolve(config_path)? else {
+        anyhow::bail!("backend project has no schema; set backend.schemas");
+    };
+    super::backend_target::apply_target_precedence(
+        args.target.as_deref(),
+        config.target.as_deref(),
+    )?;
+    let mut vars = vec![("REPROIT_GATE".to_string(), "1".to_string())];
+    if let Some(junit) = &args.junit {
+        vars.push((
+            "REPROIT_GATE_JUNIT".to_string(),
+            junit.to_string_lossy().into_owned(),
+        ));
+    }
+    if args.update_baseline {
+        vars.push(("REPROIT_GATE_BASELINE".to_string(), "1".to_string()));
+    }
+    let _env = crate::adapters::scoped_env::ScopedEnv::set(vars);
+    backend_headless::run_configured_target(ctx, &schemas, "scan", 1, 1, config).await
+}
+
 fn routes_to_capture_file(loaded: &config::Loaded, reference: &str) -> bool {
     backend_headless::is_capture_file(Path::new(reference))
         && repro::resolve(&loaded.root, reference).is_none()

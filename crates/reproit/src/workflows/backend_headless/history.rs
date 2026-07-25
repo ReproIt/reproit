@@ -1,4 +1,5 @@
 use super::*;
+use crate::interface::junit;
 
 /// Run-over-run finding lifecycle. Findings are identified by their stable
 /// content-hash fingerprint, so the same defect reappearing across runs is the
@@ -40,6 +41,7 @@ pub(super) fn classify_and_record(
     root: &Path,
     findings: &[Value],
     covered_ops: &BTreeSet<String>,
+    record: bool,
 ) -> Result<Value> {
     let path = history_path(root);
     let mut history: History = std::fs::read(&path)
@@ -95,11 +97,16 @@ pub(super) fn classify_and_record(
         }
     }
 
-    history.runs = run;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+    // Read-only classification (the CI gate) leaves the stored baseline
+    // untouched, so re-running a failing PR is stable; only a recording run (a
+    // normal scan/fuzz, or `check --update-baseline`) advances the baseline.
+    if record {
+        history.runs = run;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, serde_json::to_vec_pretty(&history)?)?;
     }
-    std::fs::write(&path, serde_json::to_vec_pretty(&history)?)?;
 
     let counts = json!({
         "new": new.len(),
@@ -115,6 +122,36 @@ pub(super) fn classify_and_record(
         "fixed": fixed,
         "counts": counts,
     }))
+}
+
+/// Emit a JUnit report for a gated run: each new/regressed finding is a failing
+/// testcase, each persisting one a passing testcase, so CI surfaces exactly what
+/// a merge would newly introduce.
+pub(super) fn write_gate_junit(path: &Path, lifecycle: &Value) {
+    let mut cases = Vec::new();
+    let mut push = |category: &str, passed: bool| {
+        if let Some(items) = lifecycle.get(category).and_then(Value::as_array) {
+            for item in items {
+                let operation = item["operation"].as_str().unwrap_or("");
+                let fingerprint = item["fingerprint"].as_str().unwrap_or("");
+                cases.push(junit::Case {
+                    name: format!("{operation} [{category}]"),
+                    passed,
+                    time_s: 0.0,
+                    message: format!("{category} finding {fingerprint} on {operation}"),
+                });
+            }
+        }
+    };
+    push("new", false);
+    push("regressed", false);
+    push("persisting", true);
+    if let Err(error) = junit::write(path, "reproit-gate", &cases) {
+        eprintln!(
+            "warn: could not write gate junit {}: {error}",
+            path.display()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -137,13 +174,14 @@ mod tests {
             &dir,
             &[finding("fp1", "opA"), finding("fp2", "opB")],
             &covered,
+            true,
         )
         .unwrap();
         assert_eq!(r1["counts"]["new"], 2);
         assert_eq!(r1["counts"]["fixed"], 0);
 
         // Run 2: fp1 persists, fp2 is fixed (absent, opB covered).
-        let r2 = classify_and_record(&dir, &[finding("fp1", "opA")], &covered).unwrap();
+        let r2 = classify_and_record(&dir, &[finding("fp1", "opA")], &covered, true).unwrap();
         assert_eq!(r2["counts"]["new"], 0);
         assert_eq!(r2["counts"]["persisting"], 1);
         assert_eq!(r2["counts"]["fixed"], 1);
@@ -153,6 +191,7 @@ mod tests {
             &dir,
             &[finding("fp1", "opA"), finding("fp2", "opB")],
             &covered,
+            true,
         )
         .unwrap();
         assert_eq!(r3["counts"]["regressed"], 1);
@@ -160,7 +199,7 @@ mod tests {
 
         // A finding whose operation was NOT covered is not falsely marked fixed.
         let narrow: BTreeSet<String> = ["opA"].iter().map(|s| s.to_string()).collect();
-        let r4 = classify_and_record(&dir, &[finding("fp1", "opA")], &narrow).unwrap();
+        let r4 = classify_and_record(&dir, &[finding("fp1", "opA")], &narrow, true).unwrap();
         assert_eq!(
             r4["counts"]["fixed"], 0,
             "opB uncovered, so fp2 is not fixed"

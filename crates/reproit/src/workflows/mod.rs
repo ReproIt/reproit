@@ -270,6 +270,7 @@ where
             record_video,
             flicker,
             changed,
+            update_baseline,
         } => {
             check::run(
                 &ctx,
@@ -289,6 +290,7 @@ where
                     record_video,
                     flicker,
                     changed,
+                    update_baseline,
                     inspect: false,
                 },
             )

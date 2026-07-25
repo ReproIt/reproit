@@ -332,6 +332,11 @@ pub(crate) enum Cmd {
             conflicts_with = "repro"
         )]
         changed: Option<String>,
+        /// Backend CI gate: record the current findings as the accepted baseline
+        /// and exit 0, so later `check` runs block only on new or regressed
+        /// findings.
+        #[arg(long)]
+        update_baseline: bool,
     },
     /// Open one repro on its configured platform, step through its actions, and
     /// write a structured fix packet. Inspection is diagnostic and never
