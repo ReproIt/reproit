@@ -101,102 +101,137 @@ pub(super) async fn invoke_traced(
     // Rotate identities per request; on a 429 retry under the next identity so a
     // per-user rate limit does not cap the run at one success per endpoint. With
     // no pool, `attempts` is 1 and this is the pre-existing single-request path.
+    // When every identity is rate-limited, back off (honoring Retry-After, but
+    // bounded so a hostile server cannot stall the run) and retry the rotation,
+    // so a shared CI environment under load stays evaluable rather than silently
+    // inconclusive. After the last round a 429 is returned and classified
+    // inconclusive, and the gate fails closed.
     let attempts = identity_count().max(1);
     let start = IDENTITY_CURSOR.fetch_add(1, Ordering::Relaxed);
-    for attempt in 0..attempts {
-        let mut headers = base_headers.clone();
-        if let Some(pool) = IDENTITY_POOL.get().filter(|pool| !pool.is_empty()) {
-            for (name, value) in &pool[(start + attempt) % pool.len()] {
-                headers.insert(
-                    HeaderName::from_bytes(name.as_bytes())?,
-                    HeaderValue::from_str(value)?,
-                );
+    for round in 0..=BACKOFF_MS.len() {
+        for attempt in 0..attempts {
+            let mut headers = base_headers.clone();
+            if let Some(pool) = IDENTITY_POOL.get().filter(|pool| !pool.is_empty()) {
+                for (name, value) in &pool[(start + attempt) % pool.len()] {
+                    headers.insert(
+                        HeaderName::from_bytes(name.as_bytes())?,
+                        HeaderValue::from_str(value)?,
+                    );
+                }
             }
-        }
-        let mut request = client
-            .request(method.clone(), &artifact.url)
-            .headers(headers);
-        if let Some(body) = &artifact.body {
-            if artifact.content_type.as_deref() == Some("application/x-www-form-urlencoded") {
-                let object = body
-                    .as_object()
-                    .context("form-urlencoded request body must be an object")?;
-                let form = object
-                    .iter()
-                    .map(|(name, value)| {
-                        Ok((
-                            name.clone(),
-                            value_as_text(value).context("form value is not scalar")?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                let encoded = form
-                    .iter()
-                    .map(|(name, value)| {
-                        format!("{}={}", percent_encode(name), percent_encode(value))
-                    })
-                    .collect::<Vec<_>>()
-                    .join("&");
-                request = request
-                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .body(encoded);
+            let mut request = client
+                .request(method.clone(), &artifact.url)
+                .headers(headers);
+            if let Some(body) = &artifact.body {
+                if artifact.content_type.as_deref() == Some("application/x-www-form-urlencoded") {
+                    let object = body
+                        .as_object()
+                        .context("form-urlencoded request body must be an object")?;
+                    let form = object
+                        .iter()
+                        .map(|(name, value)| {
+                            Ok((
+                                name.clone(),
+                                value_as_text(value).context("form value is not scalar")?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let encoded = form
+                        .iter()
+                        .map(|(name, value)| {
+                            format!("{}={}", percent_encode(name), percent_encode(value))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("&");
+                    request = request
+                        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                        .body(encoded);
+                } else {
+                    request = request.json(body);
+                }
+            }
+            let mut response = request
+                .send()
+                .await
+                .with_context(|| format!("calling {} {}", artifact.method, artifact.url))?;
+            let status = response.status().as_u16();
+            if status == 429 {
+                if attempt + 1 < attempts {
+                    continue;
+                }
+                if round < BACKOFF_MS.len() {
+                    let wait = retry_after_ms(&response).unwrap_or(BACKOFF_MS[round]);
+                    tokio::time::sleep(Duration::from_millis(wait.min(MAX_BACKOFF_MS))).await;
+                    break;
+                }
+            }
+            let adapter = if trace.is_some() {
+                decode_adapter_trail(response.headers().get("x-reproit-events"))
             } else {
-                request = request.json(body);
-            }
-        }
-        let mut response = request
-            .send()
-            .await
-            .with_context(|| format!("calling {} {}", artifact.method, artifact.url))?;
-        let status = response.status().as_u16();
-        if status == 429 && attempt + 1 < attempts {
-            continue;
-        }
-        let adapter = if trace.is_some() {
-            decode_adapter_trail(response.headers().get("x-reproit-events"))
-        } else {
-            AdapterTrail::Absent
-        };
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-        {
-            bail!("response exceeded the {MAX_RESPONSE_BYTES} byte evidence limit");
-        }
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await? {
-            if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                AdapterTrail::Absent
+            };
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+            {
                 bail!("response exceeded the {MAX_RESPONSE_BYTES} byte evidence limit");
             }
-            bytes.extend_from_slice(&chunk);
+            let content_type = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                    bail!("response exceeded the {MAX_RESPONSE_BYTES} byte evidence limit");
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let raw_output = if bytes.is_empty() {
+                Value::Null
+            } else if content_type.contains("json") {
+                serde_json::from_slice(&bytes).context("response declared JSON but was invalid")?
+            } else if let Ok(value) = serde_json::from_slice(&bytes) {
+                value
+            } else {
+                Value::String(String::from_utf8_lossy(&bytes).into_owned())
+            };
+            let output = endpoint
+                .response_field
+                .as_ref()
+                .and_then(|field| raw_output.pointer(&format!("/data/{}", escape_pointer(field))))
+                .cloned()
+                .unwrap_or(raw_output);
+            return Ok((
+                evaluate_invocation(endpoint, &artifact, status, output),
+                adapter,
+            ));
         }
-        let raw_output = if bytes.is_empty() {
-            Value::Null
-        } else if content_type.contains("json") {
-            serde_json::from_slice(&bytes).context("response declared JSON but was invalid")?
-        } else if let Ok(value) = serde_json::from_slice(&bytes) {
-            value
-        } else {
-            Value::String(String::from_utf8_lossy(&bytes).into_owned())
-        };
-        let output = endpoint
-            .response_field
-            .as_ref()
-            .and_then(|field| raw_output.pointer(&format!("/data/{}", escape_pointer(field))))
-            .cloned()
-            .unwrap_or(raw_output);
-        return Ok((
-            evaluate_invocation(endpoint, &artifact, status, output),
-            adapter,
-        ));
     }
     unreachable!("the final identity attempt always returns")
+}
+
+/// Bounded per-round backoff (ms) when every identity is rate-limited. The array
+/// length also bounds the number of extra rounds, so the retry loop terminates.
+const BACKOFF_MS: [u64; 3] = [300, 800, 1600];
+/// Cap on any single backoff wait, so a large Retry-After cannot stall the run.
+const MAX_BACKOFF_MS: u64 = 5_000;
+
+/// The `Retry-After` delay in milliseconds, if the server sent one as a count of
+/// seconds (the common form). An HTTP-date form is ignored in favor of the
+/// bounded default.
+fn retry_after_ms(response: &reqwest::Response) -> Option<u64> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|seconds| seconds.saturating_mul(1000))
 }
 
 /// SDK adapters encode the finished trace as base64url (no padding) over the
