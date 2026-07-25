@@ -367,3 +367,36 @@ fn lifecycle_replay_rebinds_fresh_resource_identity_into_transport() {
     assert_eq!(request.input["path"]["id"], 42);
     assert_eq!(request.url, "http://127.0.0.1:9999/users/42");
 }
+
+#[test]
+fn aggregates_operations_across_every_declared_schema() {
+    use std::io::Write;
+    // A contract split across several schema files must exercise EVERY file's
+    // operations (deduped by id), not just the first. Regression guard for the
+    // `.schemas.first()` silent-truncation bug.
+    let template = r#"{"openapi":"3.0.3","servers":[{"url":"http://127.0.0.1:9999"}],"paths":{"__PATH__":{"get":{"operationId":"__OP__","responses":{"200":{"description":"ok"}}}}}}"#;
+    let dir = std::env::temp_dir().join(format!("reproit-agg-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let write = |name: &str, op: &str, path: &str| -> std::path::PathBuf {
+        let file = dir.join(name);
+        let doc = template.replace("__PATH__", path).replace("__OP__", op);
+        std::fs::File::create(&file)
+            .unwrap()
+            .write_all(doc.as_bytes())
+            .unwrap();
+        file
+    };
+    let a = write("a.json", "getUser", "/users");
+    let b = write("b.json", "getOrder", "/orders");
+    let dup = write("dup.json", "getUser", "/users"); // repeated id must not double-count
+
+    let (endpoints, sha, _violations, _document) =
+        aggregate_service_endpoints(&[a, b, dup]).unwrap();
+    let mut ids: Vec<_> = endpoints.iter().map(|e| e.contract.id.clone()).collect();
+    ids.sort();
+    assert_eq!(ids, ["getOrder", "getUser"], "both schemas, deduped by id");
+    assert_eq!(sha.len(), 64, "combined schema digest is present");
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

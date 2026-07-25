@@ -82,10 +82,10 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: FuzzArgs) -
         target_arg.as_deref(),
     );
     if let backend_target::BackendRoute::Backend(positional_url) = route {
-        let (path, config) = configured_backend.expect("backend route implies a backend config");
+        let (schemas, config) = configured_backend.expect("backend route implies a backend config");
         let flag = target_flag_url.or(positional_url);
         backend_target::apply_target_precedence(flag.as_deref(), config.target.as_deref())?;
-        return backend_headless::run_configured_target(ctx, &path, "fuzz", seed, runs, config)
+        return backend_headless::run_configured_target(ctx, &schemas, "fuzz", seed, runs, config)
             .await;
     }
     if platform.as_deref() == Some("backend") {

@@ -157,26 +157,15 @@ pub(super) async fn attach_capture_target(
     config_path: Option<&Path>,
     steps: &mut [PlannedStep],
 ) -> Result<std::result::Result<String, String>> {
-    let Some((schema, declared)) = backend_target::resolve(config_path)? else {
+    let Some((schemas, declared)) = backend_target::resolve(config_path)? else {
         return Ok(Err(
             "no backend target is configured (reproit.yaml backend.schemas)".to_string(),
         ));
     };
-    let document = load_document(&schema)?;
-    let openapi = document.get("openapi").is_some() || document.get("swagger").is_some();
-    let graphql =
-        document.pointer("/data/__schema").is_some() || document.get("__schema").is_some();
-    let grpc = document.get("file").is_some() || document.get("files").is_some();
-    if !openapi && !graphql && !grpc {
-        bail!("backend schema is not OpenAPI, GraphQL, or a protobuf descriptor");
-    }
-    let mut endpoints = if openapi {
-        openapi_endpoints(&document)
-    } else if graphql {
-        graphql_endpoints(&document)
-    } else {
-        grpc_endpoints(&document)
-    };
+    // Aggregate every declared schema (a contract may be split across files),
+    // the same set scan/fuzz exercise.
+    let (mut endpoints, _sha, _violations, primary_document) =
+        super::aggregate_service_endpoints(&schemas)?;
     if endpoints.is_empty() {
         bail!("the configured backend schema contains no executable operations");
     }
@@ -201,11 +190,8 @@ pub(super) async fn attach_capture_target(
             apply_operation_override(&mut endpoint.contract, contract);
         }
         endpoint.policy = policy.clone();
-        if grpc && schema.extension().and_then(|value| value.to_str()) == Some("proto") {
-            endpoint.schema_source = Some(schema.canonicalize()?);
-        }
     }
-    let base_url = service_base_url(&document)?;
+    let base_url = service_base_url(&primary_document)?;
     let mut requests = Vec::new();
     for step in steps.iter() {
         for member in &step.members {

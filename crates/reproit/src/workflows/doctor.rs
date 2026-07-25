@@ -566,33 +566,61 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
         None,
     );
     let mut document = None;
-    match project.schema_path() {
-        Ok(path) => match backend::load_service_document(&path) {
-            Ok(parsed) => {
-                let operations = backend::import_service_schema(&parsed).len();
-                doctor_push(
+    match project.schema_paths() {
+        Ok(paths) => {
+            // Count operations across EVERY declared schema (deduped by id), not
+            // just the first, so the reported coverage matches what scan/fuzz run.
+            let mut ids = std::collections::BTreeSet::new();
+            let mut labels = Vec::new();
+            let mut parse_error = None;
+            for path in &paths {
+                match backend::load_service_document(path) {
+                    Ok(parsed) => {
+                        for operation in backend::import_service_schema(&parsed) {
+                            ids.insert(operation.id.clone());
+                        }
+                        labels.push(path.display().to_string());
+                        if document.is_none() {
+                            document = Some(parsed);
+                        }
+                    }
+                    Err(e) => {
+                        parse_error = Some(format!("{}: {e:#}", path.display()));
+                        break;
+                    }
+                }
+            }
+            match parse_error {
+                Some(message) => doctor_push(
                     &mut checks,
                     "schema",
-                    operations > 0,
+                    false,
                     true,
-                    format!("{} ({operations} operation(s))", path.display()),
-                    Some("the schema parses but declares no executable operations".into()),
-                );
-                document = Some(parsed);
-            }
-            Err(e) => doctor_push(
-                &mut checks,
-                "schema",
-                false,
-                true,
-                format!("{}: {e:#}", path.display()),
-                Some(
-                    "the schema must parse as OpenAPI, GraphQL introspection, or a protobuf \
-                     descriptor"
-                        .into(),
+                    message,
+                    Some(
+                        "the schema must parse as OpenAPI, GraphQL introspection, or a protobuf \
+                         descriptor"
+                            .into(),
+                    ),
                 ),
-            ),
-        },
+                None => {
+                    let operations = ids.len();
+                    let label = if paths.len() == 1 {
+                        labels.join(", ")
+                    } else {
+                        format!("{} ({} schemas)", labels.join(", "), paths.len())
+                    };
+                    doctor_push(
+                        &mut checks,
+                        "schema",
+                        operations > 0,
+                        true,
+                        format!("{label} ({operations} operation(s))"),
+                        Some("the schema parses but declares no executable operations".into()),
+                    );
+                }
+            }
+        }
         Err(e) => doctor_push(
             &mut checks,
             "schema",

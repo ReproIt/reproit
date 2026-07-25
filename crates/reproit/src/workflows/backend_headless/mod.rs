@@ -56,7 +56,7 @@ pub async fn run_target(
 ) -> Result<ExitCode> {
     run_target_with_policy(
         ctx,
-        target,
+        &[target.to_path_buf()],
         command,
         seed,
         runs,
@@ -68,7 +68,7 @@ pub async fn run_target(
 
 pub async fn run_configured_target(
     ctx: &Ctx,
-    target: &Path,
+    targets: &[PathBuf],
     command: &str,
     seed: u64,
     runs: u32,
@@ -77,7 +77,7 @@ pub async fn run_configured_target(
     let operations = config.operations;
     run_target_with_policy(
         ctx,
-        target,
+        targets,
         command,
         seed,
         runs,
@@ -92,9 +92,73 @@ pub async fn run_configured_target(
     .await
 }
 
+/// Load and aggregate every declared schema for one service. A backend contract
+/// may be split across several files that all describe the same service, so this
+/// returns the deduped endpoints across all of them (declared order wins on an
+/// id collision), the combined schema sha (bytes concatenated in declared
+/// order), the accumulated OpenAPI parameter-uniqueness violations, and the
+/// first document (its `servers` entry is the base-URL fallback). Loading only
+/// the first file silently dropped every operation past it.
+fn aggregate_service_endpoints(
+    targets: &[PathBuf],
+) -> Result<(
+    Vec<Endpoint>,
+    String,
+    Vec<backend::BackendSchemaViolation>,
+    Value,
+)> {
+    if targets.is_empty() {
+        bail!("no backend schema to run");
+    }
+    let mut endpoints: Vec<Endpoint> = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut bytes = Vec::new();
+    let mut violations = Vec::new();
+    let mut primary_document = None;
+    for target in targets {
+        let document = load_document(target)?;
+        let openapi = document.get("openapi").is_some() || document.get("swagger").is_some();
+        let graphql =
+            document.pointer("/data/__schema").is_some() || document.get("__schema").is_some();
+        let grpc = document.get("file").is_some() || document.get("files").is_some();
+        if !openapi && !graphql && !grpc {
+            bail!(
+                "backend schema {} is not OpenAPI, GraphQL, or a protobuf descriptor",
+                target.display()
+            );
+        }
+        bytes.extend_from_slice(&std::fs::read(target)?);
+        if openapi {
+            violations.extend(backend::validate_openapi_parameter_uniqueness(&document));
+        }
+        let mut file_endpoints = if openapi {
+            openapi_endpoints(&document)
+        } else if graphql {
+            graphql_endpoints(&document)
+        } else {
+            grpc_endpoints(&document)
+        };
+        for endpoint in &mut file_endpoints {
+            if grpc && target.extension().and_then(|value| value.to_str()) == Some("proto") {
+                endpoint.schema_source = Some(target.canonicalize()?);
+            }
+        }
+        for endpoint in file_endpoints {
+            if seen.insert(endpoint.contract.id.clone()) {
+                endpoints.push(endpoint);
+            }
+        }
+        if primary_document.is_none() {
+            primary_document = Some(document);
+        }
+    }
+    let primary_document = primary_document.expect("targets is non-empty");
+    Ok((endpoints, hex_hash(&bytes), violations, primary_document))
+}
+
 async fn run_target_with_policy(
     ctx: &Ctx,
-    target: &Path,
+    targets: &[PathBuf],
     command: &str,
     seed: u64,
     runs: u32,
@@ -102,28 +166,17 @@ async fn run_target_with_policy(
     operation_overrides: Vec<OperationContract>,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
-    let document = load_document(target)?;
-    let openapi = document.get("openapi").is_some() || document.get("swagger").is_some();
-    let graphql =
-        document.pointer("/data/__schema").is_some() || document.get("__schema").is_some();
-    let grpc = document.get("file").is_some() || document.get("files").is_some();
-    if !openapi && !graphql && !grpc {
-        bail!("backend schema is not OpenAPI, GraphQL, or a protobuf descriptor");
-    }
-    let schema_bytes = std::fs::read(target)?;
-    let schema_sha256 = hex_hash(&schema_bytes);
-    let schema_violations = if openapi {
-        backend::validate_openapi_parameter_uniqueness(&document)
-    } else {
-        Vec::new()
-    };
-    let mut endpoints = if openapi {
-        openapi_endpoints(&document)
-    } else if graphql {
-        graphql_endpoints(&document)
-    } else {
-        grpc_endpoints(&document)
-    };
+    // A backend contract may be split across several schema files describing ONE
+    // service. Aggregate every declared schema's operations (not just the first,
+    // which silently dropped the rest); the first document supplies the base URL
+    // fallback (service_base_url prefers REPROIT_BACKEND_URL regardless).
+    let (mut endpoints, schema_sha256, schema_violations, primary_document) =
+        aggregate_service_endpoints(targets)?;
+    let primary = &targets[0];
+    let schema_labels: Vec<String> = targets
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
     for endpoint in &mut endpoints {
         if let Some(declared) = operation_overrides
             .iter()
@@ -132,12 +185,9 @@ async fn run_target_with_policy(
             apply_operation_override(&mut endpoint.contract, declared);
         }
         endpoint.policy = policy.clone();
-        if grpc && target.extension().and_then(|value| value.to_str()) == Some("proto") {
-            endpoint.schema_source = Some(target.canonicalize()?);
-        }
     }
     if endpoints.is_empty() {
-        bail!("the OpenAPI document contains no executable operations");
+        bail!("the backend schema(s) contain no executable operations");
     }
     if endpoints.len() > MAX_ENDPOINTS {
         bail!(
@@ -145,15 +195,16 @@ async fn run_target_with_policy(
             endpoints.len()
         );
     }
-    let base_url = match service_base_url(&document) {
+    let base_url = match service_base_url(&primary_document) {
         Ok(base_url) => base_url,
         Err(error) if !schema_violations.is_empty() => {
             let findings =
-                persist_schema_findings(&root, target, &schema_sha256, schema_violations)?;
+                persist_schema_findings(&root, primary, &schema_sha256, schema_violations)?;
             let report = json!({
                 "command": format!("backend {command}"),
                 "complete": true,
-                "schema": target.to_string_lossy(),
+                "schema": schema_labels.join(", "),
+                "schemas": schema_labels,
                 "schemaSha256": schema_sha256,
                 "baseUrl": Value::Null,
                 "operations": endpoints.len(),
@@ -414,10 +465,10 @@ async fn run_target_with_policy(
 
     let findings = shrink_findings(&client, &base_url, findings).await?;
     let mut public_findings =
-        persist_schema_findings(&root, target, &schema_sha256, schema_violations)?;
+        persist_schema_findings(&root, primary, &schema_sha256, schema_violations)?;
     public_findings.extend(persist_findings(
         &root,
-        target,
+        primary,
         &schema_sha256,
         seed,
         findings,
@@ -431,7 +482,8 @@ async fn run_target_with_policy(
     let report = json!({
         "command": format!("backend {command}"),
         "complete": complete,
-        "schema": target.to_string_lossy(),
+        "schema": schema_labels.join(", "),
+        "schemas": schema_labels,
         "schemaSha256": schema_sha256,
         "baseUrl": base_url,
         "operations": endpoints.len(),

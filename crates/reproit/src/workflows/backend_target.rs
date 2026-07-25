@@ -13,18 +13,23 @@ pub(super) struct BackendProject {
 }
 
 impl BackendProject {
-    /// The first declared schema, required to exist for scan/fuzz runs.
-    pub(super) fn schema_path(&self) -> Result<PathBuf> {
-        let schema = self
-            .config
-            .schemas
-            .first()
-            .context("backend.enabled is true but backend.schemas is empty")?;
-        let target = self.root.join(schema);
-        if !target.is_file() {
-            bail!("backend schema {} does not exist", target.display());
+    /// Every declared schema, each required to exist for scan/fuzz runs. A
+    /// backend contract may be split across several files; resolving only
+    /// `.schemas.first()` silently dropped every operation past the first, so
+    /// scan, fuzz, and doctor load the full list.
+    pub(super) fn schema_paths(&self) -> Result<Vec<PathBuf>> {
+        if self.config.schemas.is_empty() {
+            bail!("backend.enabled is true but backend.schemas is empty");
         }
-        Ok(target)
+        let mut paths = Vec::with_capacity(self.config.schemas.len());
+        for schema in &self.config.schemas {
+            let target = self.root.join(schema);
+            if !target.is_file() {
+                bail!("backend schema {} does not exist", target.display());
+            }
+            paths.push(target);
+        }
+        Ok(paths)
     }
 }
 
@@ -59,12 +64,12 @@ pub(super) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
 
 pub(super) fn resolve(
     config_path: Option<&Path>,
-) -> Result<Option<(PathBuf, backend::BackendConfig)>> {
+) -> Result<Option<(Vec<PathBuf>, backend::BackendConfig)>> {
     let Some(project) = find(config_path)? else {
         return Ok(None);
     };
-    let schema = project.schema_path()?;
-    Ok(Some((schema, project.config)))
+    let schemas = project.schema_paths()?;
+    Ok(Some((schemas, project.config)))
 }
 
 /// Pure backend target precedence: `--target` flag (a positional URL counts

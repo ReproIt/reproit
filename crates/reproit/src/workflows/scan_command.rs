@@ -55,7 +55,7 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
         args.target.as_deref(),
     );
     if let backend_target::BackendRoute::Backend(positional_url) = route {
-        let (path, config) = configured_backend.expect("backend route implies a backend config");
+        let (schemas, config) = configured_backend.expect("backend route implies a backend config");
         if args.record_video {
             anyhow::bail!(
                 "backend streams produce a structural reproduction, so `scan --record-video` \
@@ -65,7 +65,7 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
         // A positional URL is equivalent to --target; the flag wins if both.
         let flag = args.target_url.clone().or(positional_url);
         backend_target::apply_target_precedence(flag.as_deref(), config.target.as_deref())?;
-        return backend_headless::run_configured_target(ctx, &path, "scan", 1, 1, config).await;
+        return backend_headless::run_configured_target(ctx, &schemas, "scan", 1, 1, config).await;
     }
     if args.platform.as_deref() == Some("backend") {
         anyhow::bail!(
