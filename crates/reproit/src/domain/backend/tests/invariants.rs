@@ -87,6 +87,7 @@ fn frozen_guard_preserves_exact_backend_violation_across_trace_positions() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let original = vec![
         event(

@@ -57,6 +57,15 @@ pub struct BackendConfig {
     /// stateful service needs and is invisible to anyone reading the config.
     #[serde(default)]
     pub reset: BackendReset,
+    /// Subtree that implements THIS service, relative to the project root.
+    ///
+    /// Only needed in a repo that holds more than one service. Source-reading
+    /// features (`--learn`, the doctor contract check) scan the project root by
+    /// default, which in a multi-service repo means comparing one service's
+    /// schema against another service's routes: confidently wrong, in the
+    /// direction of telling you to delete a correct operation.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 /// The ordered reset contract for a backend service.

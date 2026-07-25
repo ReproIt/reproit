@@ -78,6 +78,65 @@ pub fn compare(root: &Path, framework: &str, declared: &[Route]) -> Option<Drift
     Some(diff(declared, &derived))
 }
 
+/// Bound the scan for sibling services.
+const MAX_SERVICE_SCAN: usize = 64;
+
+/// Which subtree implements the service this config describes.
+///
+/// `backend.source` when declared. Otherwise the project root, EXCEPT when the
+/// root turns out to hold several services, where scanning it would compare
+/// this service's schema against a sibling's routes. That produced advice that
+/// was confidently wrong in the dangerous direction ("delete the operation" for
+/// a correct one), so an undeclared multi-service root abstains instead.
+pub enum SourceRoot {
+    Scan(std::path::PathBuf),
+    /// Several services under one root and no `backend.source` to pick one.
+    Ambiguous(Vec<String>),
+}
+
+pub fn source_root(project_root: &Path, declared: Option<&str>) -> SourceRoot {
+    if let Some(declared) = declared {
+        return SourceRoot::Scan(project_root.join(declared));
+    }
+    let siblings = sibling_services(project_root);
+    if siblings.len() > 1 {
+        return SourceRoot::Ambiguous(siblings);
+    }
+    SourceRoot::Scan(project_root.to_path_buf())
+}
+
+/// Immediate child directories that independently detect as their own backend.
+/// A Cargo workspace whose members are the only services still reads as one
+/// service, because the members are not children of the root.
+fn sibling_services(project_root: &Path) -> Vec<String> {
+    use crate::adapters::project_scaffold::backend_detect::detect_backend_framework;
+    let Ok(entries) = std::fs::read_dir(project_root) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<std::path::PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                && !path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('.'))
+        })
+        .take(MAX_SERVICE_SCAN)
+        .collect();
+    paths.sort();
+    paths
+        .iter()
+        .filter(|path| detect_backend_framework(path).is_some())
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
+        .collect()
+}
+
 fn diff(declared: &[Route], derived: &Derived) -> Drift {
     let served: BTreeSet<Route> = derived
         .routes

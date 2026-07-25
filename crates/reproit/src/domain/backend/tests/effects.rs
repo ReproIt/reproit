@@ -15,6 +15,7 @@ fn graph_joins_runtime_effects_to_declared_operations() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     config.programs.push(ProgramSummary {
         language: "rust".into(),
@@ -111,6 +112,7 @@ fn read_only_and_missing_effect_oracles_are_exact() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let events = vec![
         event(
@@ -167,6 +169,7 @@ fn incomplete_effect_telemetry_cannot_create_an_absence_finding() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let events = vec![
         event(
@@ -208,6 +211,7 @@ fn upper_effect_bound_confirms_duplicate_side_effects() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let events = vec![
         event(
@@ -281,6 +285,7 @@ fn idempotency_compares_persistent_effects_for_the_same_actor_and_tenant() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let invocation = |sequence, span: &str, key: &str| {
         let mut start = event(
@@ -346,6 +351,7 @@ fn idempotent_cached_retry_without_a_second_effect_is_clean() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let mut first = event(
         1,
@@ -471,6 +477,7 @@ fn accepted_input_outside_declared_domain_is_a_hard_finding() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let events = vec![
         event(

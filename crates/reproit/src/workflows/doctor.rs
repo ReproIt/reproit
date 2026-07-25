@@ -798,20 +798,42 @@ fn doctor_schema_drift(
     if declared.is_empty() {
         return;
     }
+    // Which subtree serves THIS schema. In a repo with several services, scanning
+    // the whole root compares one service's schema against a sibling's routes.
+    let source = match drift::source_root(&project.root, project.config.source.as_deref()) {
+        drift::SourceRoot::Scan(path) => path,
+        drift::SourceRoot::Ambiguous(services) => {
+            doctor_push(
+                checks,
+                "contract",
+                true,
+                false,
+                format!(
+                    "schema not checked against source: {} services under this root ({}). \
+                     Set `backend.source: <dir>` to say which one serves this schema",
+                    services.len(),
+                    services.join(", ")
+                ),
+                Some("backend.source scopes --learn and this check to one service".into()),
+            );
+            return;
+        }
+    };
     let Some(framework) =
-        crate::adapters::project_scaffold::backend_detect::detect_backend_framework(&project.root)
+        crate::adapters::project_scaffold::backend_detect::detect_backend_framework(&source)
     else {
         return;
     };
-    let Some(found) = drift::compare(&project.root, framework.name, &declared) else {
+    let Some(found) = drift::compare(&source, framework.name, &declared) else {
         doctor_push(
             checks,
             "contract",
             true,
             false,
             format!(
-                "schema not checked against source: no routes extracted from {} sources",
-                framework.name
+                "schema not checked against source: no routes extracted from {} sources in {}",
+                framework.name,
+                source.display()
             ),
             None,
         );

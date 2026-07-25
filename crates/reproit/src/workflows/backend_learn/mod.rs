@@ -27,6 +27,17 @@ pub(super) async fn run(
     target_flag: Option<&str>,
     force: bool,
 ) -> Result<ExitCode> {
+    // Deriving one schema from a root that holds several services merges their
+    // routes into a contract no single service serves. Same reason the doctor
+    // contract check abstains there.
+    if let drift::SourceRoot::Ambiguous(services) = drift::source_root(root, None) {
+        bail!(
+            "--learn found {} services under this root ({}). Run it from one service's \
+             directory, so the derived schema describes a single service",
+            services.len(),
+            services.join(", ")
+        );
+    }
     let Some(framework) = backend_detect::detect_backend_framework(root) else {
         bail!(
             "--learn could not detect a backend framework from the project manifests \

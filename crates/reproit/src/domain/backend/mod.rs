@@ -220,6 +220,7 @@ impl FrozenBackendGuard {
             fleet: FleetInvariant::default(),
             auth: None,
             reset: Default::default(),
+            source: None,
         };
         evaluate(&config, &parse_events(log))
             .iter()

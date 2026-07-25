@@ -55,6 +55,7 @@ fn query_config(consistency: ResourceConsistency) -> BackendConfig {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     }
 }
 

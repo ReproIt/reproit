@@ -30,6 +30,10 @@ pub(super) struct RustUnits {
     pub(super) routes: BTreeMap<String, Vec<(String, &'static str)>>,
     /// (enclosing function, prefix, mounted function).
     pub(super) mounts: Vec<(String, String, String)>,
+    /// (enclosing function, prefix, mounted local variable).
+    pub(super) variable_mounts: Vec<(String, String, String)>,
+    /// (enclosing function, local variable, functions called to build it).
+    pub(super) bindings: Vec<(String, String, Vec<String>)>,
 }
 
 /// Where a route hit sat when we found it. Anything outside a `fn` body (a
@@ -40,6 +44,9 @@ const FILE_SCOPE: &str = "";
 pub(super) struct RustScanner {
     function: Regex,
     nest: Regex,
+    nest_variable: Regex,
+    binding: Regex,
+    call: Regex,
 }
 
 impl RustScanner {
@@ -51,6 +58,16 @@ impl RustScanner {
             nest: compile(
                 r#"\.nest(?:_service)?\(\s*"([^"]*)"\s*,\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*\("#,
             ),
+            // `.nest("/v1", v1)` where the router was built into a local first.
+            // Real services do this whenever the router is conditional, e.g.
+            // `let v1 = match cfg.plane { A => a::routes(), B => b::routes() };`
+            // and matching only a direct call left every one of those routes at
+            // its local path.
+            nest_variable: compile(
+                r#"\.nest(?:_service)?\(\s*"([^"]*)"\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*[,)]"#,
+            ),
+            binding: compile(r"\blet\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]*)?="),
+            call: compile(r"(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)\s*\("),
         }
     }
 
@@ -67,6 +84,7 @@ impl RustScanner {
         // at. A nested block does not change attribution; leaving the body does.
         let mut current: Option<(String, i32)> = None;
         let mut pending: Option<String> = None;
+        let mut binding_scope: Option<(String, String, Vec<String>)> = None;
         let mut depth: i32 = 0;
         for line in content.lines() {
             let code = strip_line_comment(line);
@@ -90,12 +108,55 @@ impl RustScanner {
             for hit in route_hits(code) {
                 units.routes.entry(scope.to_string()).or_default().push(hit);
             }
+            let mut nested_here = Vec::new();
             for captures in self.nest.captures_iter(code) {
+                nested_here.push(captures[1].to_string());
                 units.mounts.push((
                     scope.to_string(),
                     captures[1].to_string(),
                     captures[2].to_string(),
                 ));
+            }
+            for captures in self.nest_variable.captures_iter(code) {
+                // A direct call already matched above; do not record it twice.
+                if nested_here.contains(&captures[1].to_string()) {
+                    continue;
+                }
+                units.variable_mounts.push((
+                    scope.to_string(),
+                    captures[1].to_string(),
+                    captures[2].to_string(),
+                ));
+            }
+            if let Some(captures) = self.binding.captures(code) {
+                let name = captures[1].to_string();
+                let rhs = &code[captures.get(0).map(|m| m.end()).unwrap_or(0)..];
+                let called: Vec<String> = self
+                    .call
+                    .captures_iter(rhs)
+                    .map(|call| call[1].to_string())
+                    .collect();
+                if !called.is_empty() {
+                    binding_scope = Some((scope.to_string(), name, called));
+                } else {
+                    // The binding opens a block (a `match`, an `if`): keep
+                    // collecting calls from the following lines until it closes.
+                    binding_scope = Some((scope.to_string(), name, Vec::new()));
+                }
+            } else if let Some((owner, name, called)) = binding_scope.as_mut() {
+                let _ = (&owner, &name);
+                called.extend(
+                    self.call
+                        .captures_iter(code)
+                        .map(|call| call[1].to_string()),
+                );
+            }
+            if code.contains(';') {
+                if let Some(binding) = binding_scope.take() {
+                    if !binding.2.is_empty() {
+                        units.bindings.push(binding);
+                    }
+                }
             }
             depth += opened - closed;
             if let Some((_, opened_at)) = &current {
@@ -139,6 +200,38 @@ pub(super) fn resolve(
                 .or_default()
                 .push((prefix.clone(), child.clone()));
             mounted.insert(child.clone());
+        }
+    }
+    // Resolve `.nest("/v1", v1)` through the local that built the router. A
+    // binding is function-scoped, so only bindings made in the SAME function as
+    // the mount are considered: two functions may each have their own `v1`.
+    let mut bindings: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for unit in units {
+        for (owner, name, called) in &unit.bindings {
+            bindings
+                .entry((owner.clone(), name.clone()))
+                .or_default()
+                .extend(called.iter().cloned());
+        }
+    }
+    for unit in units {
+        for (parent, prefix, variable) in &unit.variable_mounts {
+            let Some(called) = bindings.get(&(parent.clone(), variable.clone())) else {
+                continue;
+            };
+            for child in called {
+                // Only functions that actually declare routes or mount others:
+                // a binding's right-hand side also calls constructors and
+                // helpers, and mounting those would invent paths.
+                if !routes.contains_key(child) && !mounts.contains_key(child) {
+                    continue;
+                }
+                mounts
+                    .entry(parent.clone())
+                    .or_default()
+                    .push((prefix.clone(), child.clone()));
+                mounted.insert(child.clone());
+            }
         }
     }
 
@@ -319,6 +412,46 @@ mod tests {
         ]);
         assert!(routes.contains_key("/api/new"), "{routes:?}");
         assert!(!routes.contains_key("/api/old"), "{routes:?}");
+    }
+
+    #[test]
+    fn a_router_built_into_a_local_first_is_still_mounted() {
+        // hey's shape: the router is conditional, so it lands in a local before
+        // being nested. Matching only a direct call left all of these unprefixed.
+        let routes = resolve_all(&[
+            r#"
+            fn app() -> Router {
+                let v1 = match cfg.app_plane {
+                    Plane::Regional => regional::routes(),
+                    Plane::Global => global::routes(),
+                };
+                Router::new().nest("/v1", v1)
+            }
+            "#,
+            r#"fn routes() -> Router { Router::new().route("/nearby", get(h)) }"#,
+        ]);
+        assert!(routes.contains_key("/v1/nearby"), "{routes:?}");
+        assert!(
+            !routes.contains_key("/nearby"),
+            "the unprefixed duplicate must not also be emitted: {routes:?}"
+        );
+    }
+
+    #[test]
+    fn chained_routes_on_one_line_each_keep_their_own_method() {
+        let routes = resolve_all(&[
+            r#"fn app() -> Router { Router::new().route("/a", get(x)).route("/b", post(y)) }"#,
+        ]);
+        assert_eq!(routes.get("/a").map(|m| m.len()), Some(1), "{routes:?}");
+        assert!(
+            routes.contains_key("/b"),
+            "the second route was dropped: {routes:?}"
+        );
+        assert!(routes["/b"].contains("post"), "{routes:?}");
+        assert!(
+            !routes["/a"].contains("post"),
+            "methods leaked across routes: {routes:?}"
+        );
     }
 
     #[test]

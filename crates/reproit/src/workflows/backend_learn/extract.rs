@@ -214,7 +214,7 @@ impl Patterns {
     fn new() -> Self {
         let compile = |pattern: &str| Regex::new(pattern).expect("static route pattern");
         Self {
-            rust_route: compile(r#"\.route\(\s*"([^"]+)"\s*,(.*)"#),
+            rust_route: compile(r#"\.route\(\s*"([^"]+)"\s*,"#),
             rust_method_call: compile(r"\b(get|post|put|patch|delete|head|options)\s*\("),
             rust_attribute: compile(
                 r##"#\[(?:\w+::)?(get|post|put|patch|delete|head|options)\(\s*"([^"]+)""##,
@@ -298,9 +298,30 @@ impl Patterns {
     fn rust(&self, content: &str) -> Vec<(String, &'static str)> {
         let mut hits = Vec::new();
         for line in content.lines() {
-            if let Some(captures) = self.rust_route.captures(line) {
-                let path = captures[1].to_string();
-                for method in self.rust_method_call.captures_iter(&captures[2]) {
+            // Every `.route("p", ...)` on the line, each owning only the text up
+            // to the next one. Matching just the first and scanning the whole
+            // remainder for methods gave a chained
+            // `.route(a, get(x)).route(b, post(y))` BOTH methods on `a` and
+            // dropped `b` entirely, which is how a real router ends up with
+            // routes at paths it does not serve.
+            let routes: Vec<(usize, usize, String)> = self
+                .rust_route
+                .captures_iter(line)
+                .filter_map(|captures| {
+                    let whole = captures.get(0)?;
+                    Some((
+                        whole.start(),
+                        whole.end(),
+                        captures.get(1)?.as_str().to_string(),
+                    ))
+                })
+                .collect();
+            for (index, (_, end, path)) in routes.iter().enumerate() {
+                let stop = routes
+                    .get(index + 1)
+                    .map(|(start, _, _)| *start)
+                    .unwrap_or(line.len());
+                for method in self.rust_method_call.captures_iter(&line[*end..stop]) {
                     if let Some(method) = method_const(&method[1]) {
                         hits.push((path.clone(), method));
                     }

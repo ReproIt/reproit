@@ -44,10 +44,14 @@ pub(super) fn classify_and_record(
     record: bool,
 ) -> Result<Value> {
     let path = history_path(root);
-    let mut history: History = std::fs::read(&path)
+    let stored = std::fs::read(&path)
         .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
+        .and_then(|bytes| serde_json::from_slice::<History>(&bytes).ok());
+    // No stored history at all: this project has never recorded a baseline, so
+    // every finding is "new" only in the trivial sense that nothing was known
+    // before. The gate must not read that as clean.
+    let first_run = stored.is_none();
+    let mut history: History = stored.unwrap_or_default();
     let run = history.runs + 1;
 
     let mut current = BTreeMap::new();
@@ -116,6 +120,7 @@ pub(super) fn classify_and_record(
     });
     Ok(json!({
         "run": run,
+        "firstRun": first_run,
         "new": new,
         "persisting": persisting,
         "regressed": regressed,
@@ -143,6 +148,26 @@ pub(super) fn gate_outcome(
     let regressed = counts.and_then(|c| c["regressed"].as_u64()).unwrap_or(0);
     let (accepted, expired) = apply_accepts(ctx, lifecycle, root);
     let new = new.saturating_sub(accepted);
+    // ADOPTION. On the very first gated run there is no baseline, so "new or
+    // regressed" has nothing to compare against and the findings that are
+    // already in the tree would be recorded as known and never block again.
+    // Passing there means a team that adopts ReproIt on a repo with a live
+    // reproducible bug is permanently green on exactly that bug, and CI only
+    // reads the exit code. Same principle as the inconclusive verdict: the
+    // absence of a comparison is not a clean comparison. Adopting is fine, but
+    // it has to be a decision, so it needs --update-baseline.
+    let first_run = lifecycle["firstRun"].as_bool().unwrap_or(false);
+    if first_run && new + regressed > 0 && std::env::var_os("REPROIT_GATE_BASELINE").is_none() {
+        ctx.say(format!(
+            "no baseline yet, and {} finding(s) already reproduce. These are \
+             pre-existing, not introduced by this change, so the gate cannot call \
+             them clean or silently adopt them.\n  Fix them, or run `reproit check \
+             --update-baseline` to adopt them as known (they will stop blocking, \
+             and any NEW finding still will).",
+            new + regressed
+        ));
+        return Exit::Regression.code();
+    }
     if std::env::var_os("REPROIT_GATE_BASELINE").is_some() {
         if inconclusive > 0 {
             ctx.say(format!(

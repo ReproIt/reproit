@@ -150,6 +150,12 @@ the routes it extracts from your source:
           GET /healthz
 ```
 
+In a repo that holds more than one service, set `backend.source: <dir>` so the check reads only
+that service's code. Without it, the check would compare this schema against a sibling service's
+routes and confidently tell you to delete correct operations, so an undeclared multi-service root
+abstains and names the services it found. `--learn` refuses there for the same reason: a schema
+derived from three services describes none of them.
+
 It compares method and path template only, never types: the extractor sees
 routes, not handler signatures, and claiming a type mismatch it cannot observe
 would be the same overclaiming the schema is guilty of. A path parameter named
@@ -182,6 +188,22 @@ happen is worse than none, because the run still presents its findings as
 reproducible from a clean state. The contract is recorded into each finding
 artifact, so a replay re-establishes the same preconditions. This replaces
 `REPROIT_BACKEND_RESET_URL`, which still works as the single-URL legacy form.
+
+## Adopting ReproIt on a repo that already has bugs
+
+The gate blocks on new-or-regressed findings, which needs a baseline to compare against. On the
+very first gated run there is none, so findings already in the tree would be silently recorded as
+known and never block again: adopt ReproIt on a repo with a live reproducible bug and CI is
+permanently green on exactly that bug. So the first run fails instead:
+
+```
+no baseline yet, and 3 finding(s) already reproduce. These are pre-existing, not introduced
+by this change, so the gate cannot call them clean or silently adopt them.
+  Fix them, or run `reproit check --update-baseline` to adopt them as known.
+```
+
+Adopting is a fine answer, it just has to be a decision. After `--update-baseline` those findings
+stop blocking and any new one still does.
 
 ## Living with a known finding
 

@@ -77,6 +77,7 @@ fn hard_oracles_require_concrete_authoritative_witnesses() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let events = vec![
         event(
@@ -137,6 +138,7 @@ fn inferred_contracts_never_create_findings() {
         fleet: FleetInvariant::default(),
         auth: None,
         reset: Default::default(),
+        source: None,
     };
     let events = vec![
         event(
