@@ -15,8 +15,8 @@ pub const EVENT_MARKER: &str = "REPROIT:BACKEND ";
 mod contracts;
 #[allow(unused_imports)]
 pub use contracts::{
-    AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendConfig,
-    BackendInvariant, BackendProofContract, CodecProjection, ConcurrencyPolicy,
+    AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendAuth,
+    BackendConfig, BackendInvariant, BackendProofContract, CodecProjection, ConcurrencyPolicy,
     ControlledFailureWitness, FleetInvariant, QueryComparison, QueryFilterContract,
     QueryPaginationContract, QuerySortContract, QuerySortDirection, QuerySortType,
     ResourceConsistency, ResourceCreateContract, ResourceFieldContract, ResourceLifecycleContract,
@@ -217,6 +217,7 @@ impl FrozenBackendGuard {
             resources: self.resources.clone(),
             proofs: self.proofs.clone(),
             fleet: FleetInvariant::default(),
+            auth: None,
         };
         evaluate(&config, &parse_events(log))
             .iter()

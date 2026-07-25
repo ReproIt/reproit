@@ -585,7 +585,15 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
                                 duplicates.insert(operation.id.clone());
                             }
                         }
-                        labels.push(path.display().to_string());
+                        // Show the schema relative to the project root: the root
+                        // is now an absolute (canonicalized) path, so the joined
+                        // schema paths would otherwise print in full.
+                        labels.push(
+                            path.strip_prefix(&project.root)
+                                .unwrap_or(path.as_path())
+                                .display()
+                                .to_string(),
+                        );
                         if document.is_none() {
                             document = Some(parsed);
                         }

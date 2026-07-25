@@ -462,6 +462,113 @@ pub(super) fn grpcurl_asset() -> Result<(&'static str, &'static str)> {
     }
 }
 
+/// Env-expand `${VAR}` occurrences in a string (unset -> empty), so login
+/// bodies reference secrets from the environment instead of writing them to disk.
+fn expand_env(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find('}') {
+            out.push_str(&std::env::var(&after[..end]).unwrap_or_default());
+            rest = &after[end + 1..];
+        } else {
+            out.push_str(&rest[start..]);
+            return out;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn expand_env_value(value: &Value) -> Value {
+    match value {
+        Value::String(s) => Value::String(expand_env(s)),
+        Value::Array(items) => Value::Array(items.iter().map(expand_env_value).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), expand_env_value(v)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Run the configured login and return the captured token. Fails closed: a
+/// non-2xx login or a missing token aborts the run rather than letting scan/fuzz
+/// proceed against only the public surface (an unauthed run that looks clean is
+/// the same silent-truncation trap as dropping operations).
+pub(super) async fn perform_login(
+    client: &reqwest::Client,
+    base_url: &str,
+    auth: &BackendAuth,
+) -> Result<String> {
+    let url = format!("{}{}", base_url.trim_end_matches('/'), auth.path);
+    let method = auth.method.parse::<reqwest::Method>().with_context(|| {
+        format!(
+            "backend.auth.method {:?} is not a valid HTTP method",
+            auth.method
+        )
+    })?;
+    let mut request = client.request(method, &url);
+    match (&auth.form, &auth.json) {
+        (Some(_), Some(_)) => bail!("backend.auth sets both `form` and `json`; use exactly one"),
+        (Some(form), None) => {
+            let encoded = form
+                .iter()
+                .map(|(name, value)| {
+                    format!(
+                        "{}={}",
+                        percent_encode(name),
+                        percent_encode(&expand_env(value))
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("&");
+            request = request
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(encoded);
+        }
+        (None, Some(json)) => request = request.json(&expand_env_value(json)),
+        (None, None) => {}
+    }
+    let response = request
+        .send()
+        .await
+        .with_context(|| format!("backend.auth login {url}"))?;
+    let status = response.status();
+    let body: Value = response.json().await.unwrap_or(Value::Null);
+    if !status.is_success() {
+        bail!(
+            "backend.auth login to {url} returned HTTP {}; check the credentials and path",
+            status.as_u16()
+        );
+    }
+    let token = body
+        .pointer(&auth.token_path)
+        .and_then(Value::as_str)
+        .with_context(|| {
+            format!(
+                "backend.auth login response had no string token at {}",
+                auth.token_path
+            )
+        })?;
+    Ok(token.to_string())
+}
+
+/// Merge the captured token into `REPROIT_EXTRA_HEADERS` so every subsequent
+/// request (via `extra_headers`) carries it. Preserves any `--header` values.
+pub(super) fn inject_auth_header(auth: &BackendAuth, token: &str) -> Result<()> {
+    let mut values: BTreeMap<String, String> = match std::env::var_os("REPROIT_EXTRA_HEADERS") {
+        Some(raw) => serde_json::from_str(&raw.to_string_lossy()).unwrap_or_default(),
+        None => BTreeMap::new(),
+    };
+    values.insert(auth.header.clone(), auth.value.replace("{token}", token));
+    std::env::set_var("REPROIT_EXTRA_HEADERS", serde_json::to_string(&values)?);
+    Ok(())
+}
+
 pub(super) fn extra_headers() -> Result<HeaderMap> {
     let Some(raw) = std::env::var_os("REPROIT_EXTRA_HEADERS") else {
         return Ok(HeaderMap::new());

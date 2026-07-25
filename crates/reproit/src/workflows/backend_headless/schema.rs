@@ -1,5 +1,84 @@
 use super::*;
 
+/// Load and aggregate every declared schema for one service. A backend contract
+/// may be split across several files that all describe the same service, so this
+/// returns the deduped endpoints across all of them (declared order wins on an
+/// id collision), the combined schema sha (bytes concatenated in declared
+/// order), the accumulated OpenAPI parameter-uniqueness violations, the first
+/// document (its `servers` entry is the base-URL fallback), and any operation
+/// ids that appeared in more than one schema (dropped by the dedupe). Loading
+/// only the first file silently dropped every operation past it; a duplicate
+/// operationId across files is the same truncation one level down, so it is
+/// reported rather than swallowed.
+pub(super) fn aggregate_service_endpoints(
+    targets: &[PathBuf],
+) -> Result<(
+    Vec<Endpoint>,
+    String,
+    Vec<backend::BackendSchemaViolation>,
+    Value,
+    Vec<String>,
+)> {
+    if targets.is_empty() {
+        bail!("no backend schema to run");
+    }
+    let mut endpoints: Vec<Endpoint> = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut duplicates = Vec::new();
+    let mut bytes = Vec::new();
+    let mut violations = Vec::new();
+    let mut primary_document = None;
+    for target in targets {
+        let document = load_document(target)?;
+        let openapi = document.get("openapi").is_some() || document.get("swagger").is_some();
+        let graphql =
+            document.pointer("/data/__schema").is_some() || document.get("__schema").is_some();
+        let grpc = document.get("file").is_some() || document.get("files").is_some();
+        if !openapi && !graphql && !grpc {
+            bail!(
+                "backend schema {} is not OpenAPI, GraphQL, or a protobuf descriptor",
+                target.display()
+            );
+        }
+        bytes.extend_from_slice(&std::fs::read(target)?);
+        if openapi {
+            violations.extend(backend::validate_openapi_parameter_uniqueness(&document));
+        }
+        let mut file_endpoints = if openapi {
+            openapi_endpoints(&document)
+        } else if graphql {
+            graphql_endpoints(&document)
+        } else {
+            grpc_endpoints(&document)
+        };
+        for endpoint in &mut file_endpoints {
+            if grpc && target.extension().and_then(|value| value.to_str()) == Some("proto") {
+                endpoint.schema_source = Some(target.canonicalize()?);
+            }
+        }
+        for endpoint in file_endpoints {
+            if seen.insert(endpoint.contract.id.clone()) {
+                endpoints.push(endpoint);
+            } else {
+                duplicates.push(endpoint.contract.id.clone());
+            }
+        }
+        if primary_document.is_none() {
+            primary_document = Some(document);
+        }
+    }
+    let primary_document = primary_document.expect("targets is non-empty");
+    duplicates.sort_unstable();
+    duplicates.dedup();
+    Ok((
+        endpoints,
+        hex_hash(&bytes),
+        violations,
+        primary_document,
+        duplicates,
+    ))
+}
+
 pub(super) fn load_document(path: &Path) -> Result<Value> {
     backend::load_service_document(path)
 }

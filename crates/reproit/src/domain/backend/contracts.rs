@@ -40,6 +40,50 @@ pub struct BackendConfig {
     pub proofs: Vec<BackendProofContract>,
     #[serde(default)]
     pub fleet: FleetInvariant,
+    /// Optional login step. When present, scan/fuzz run it FIRST, capture a
+    /// token from the response, and inject it as a header on every subsequent
+    /// request, so the run reaches authenticated operations instead of bouncing
+    /// off 401s. Fails closed: a failed login aborts the run rather than
+    /// silently fuzzing only the public surface.
+    #[serde(default)]
+    pub auth: Option<BackendAuth>,
+}
+
+/// A login step that mints a session token for authenticated scan/fuzz.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackendAuth {
+    /// Login endpoint path, joined to the service base URL (e.g. /api/auth/token).
+    pub path: String,
+    /// HTTP method for the login call.
+    #[serde(default = "default_login_method")]
+    pub method: String,
+    /// Form-urlencoded login body. String values may reference ${ENV} secrets.
+    #[serde(default)]
+    pub form: Option<BTreeMap<String, String>>,
+    /// JSON login body (alternative to `form`). String leaves may reference ${ENV}.
+    #[serde(default)]
+    pub json: Option<Value>,
+    /// JSON pointer to the token in the login response (e.g. /access_token).
+    pub token_path: String,
+    /// Header injected on every subsequent request.
+    #[serde(default = "default_auth_header")]
+    pub header: String,
+    /// Header value template; `{token}` is replaced with the captured token.
+    #[serde(default = "default_auth_value")]
+    pub value: String,
+}
+
+fn default_login_method() -> String {
+    "POST".to_string()
+}
+
+fn default_auth_header() -> String {
+    "Authorization".to_string()
+}
+
+fn default_auth_value() -> String {
+    "Bearer {token}".to_string()
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]

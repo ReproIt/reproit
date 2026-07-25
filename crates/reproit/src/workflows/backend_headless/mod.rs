@@ -1,8 +1,8 @@
 //! Schema-driven backend scan, fuzz, replay, and artifact orchestration.
 
 use crate::domain::backend::{
-    self, BackendConfig, BackendEvent, BackendEventKind, BackendInvariant, BackendViolation,
-    FleetInvariant, OperationContract, ValueDomain,
+    self, BackendAuth, BackendConfig, BackendEvent, BackendEventKind, BackendInvariant,
+    BackendViolation, FleetInvariant, OperationContract, ValueDomain,
 };
 use crate::domain::repro;
 use crate::interface::cli::context::{Ctx, Exit};
@@ -62,6 +62,7 @@ pub async fn run_target(
         runs,
         BackendPolicy::default(),
         Vec::new(),
+        None,
     )
     .await
 }
@@ -75,6 +76,7 @@ pub async fn run_configured_target(
     config: BackendConfig,
 ) -> Result<ExitCode> {
     let operations = config.operations;
+    let auth = config.auth;
     run_target_with_policy(
         ctx,
         targets,
@@ -88,87 +90,9 @@ pub async fn run_configured_target(
             fleet: config.fleet,
         },
         operations,
+        auth.as_ref(),
     )
     .await
-}
-
-/// Load and aggregate every declared schema for one service. A backend contract
-/// may be split across several files that all describe the same service, so this
-/// returns the deduped endpoints across all of them (declared order wins on an
-/// id collision), the combined schema sha (bytes concatenated in declared
-/// order), the accumulated OpenAPI parameter-uniqueness violations, the first
-/// document (its `servers` entry is the base-URL fallback), and any operation
-/// ids that appeared in more than one schema (dropped by the dedupe). Loading
-/// only the first file silently dropped every operation past it; a duplicate
-/// operationId across files is the same truncation one level down, so it is
-/// reported rather than swallowed.
-fn aggregate_service_endpoints(
-    targets: &[PathBuf],
-) -> Result<(
-    Vec<Endpoint>,
-    String,
-    Vec<backend::BackendSchemaViolation>,
-    Value,
-    Vec<String>,
-)> {
-    if targets.is_empty() {
-        bail!("no backend schema to run");
-    }
-    let mut endpoints: Vec<Endpoint> = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut duplicates = Vec::new();
-    let mut bytes = Vec::new();
-    let mut violations = Vec::new();
-    let mut primary_document = None;
-    for target in targets {
-        let document = load_document(target)?;
-        let openapi = document.get("openapi").is_some() || document.get("swagger").is_some();
-        let graphql =
-            document.pointer("/data/__schema").is_some() || document.get("__schema").is_some();
-        let grpc = document.get("file").is_some() || document.get("files").is_some();
-        if !openapi && !graphql && !grpc {
-            bail!(
-                "backend schema {} is not OpenAPI, GraphQL, or a protobuf descriptor",
-                target.display()
-            );
-        }
-        bytes.extend_from_slice(&std::fs::read(target)?);
-        if openapi {
-            violations.extend(backend::validate_openapi_parameter_uniqueness(&document));
-        }
-        let mut file_endpoints = if openapi {
-            openapi_endpoints(&document)
-        } else if graphql {
-            graphql_endpoints(&document)
-        } else {
-            grpc_endpoints(&document)
-        };
-        for endpoint in &mut file_endpoints {
-            if grpc && target.extension().and_then(|value| value.to_str()) == Some("proto") {
-                endpoint.schema_source = Some(target.canonicalize()?);
-            }
-        }
-        for endpoint in file_endpoints {
-            if seen.insert(endpoint.contract.id.clone()) {
-                endpoints.push(endpoint);
-            } else {
-                duplicates.push(endpoint.contract.id.clone());
-            }
-        }
-        if primary_document.is_none() {
-            primary_document = Some(document);
-        }
-    }
-    let primary_document = primary_document.expect("targets is non-empty");
-    duplicates.sort_unstable();
-    duplicates.dedup();
-    Ok((
-        endpoints,
-        hex_hash(&bytes),
-        violations,
-        primary_document,
-        duplicates,
-    ))
 }
 
 async fn run_target_with_policy(
@@ -179,6 +103,7 @@ async fn run_target_with_policy(
     runs: u32,
     policy: BackendPolicy,
     operation_overrides: Vec<OperationContract>,
+    auth: Option<&BackendAuth>,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
     // A backend contract may be split across several schema files describing ONE
@@ -188,9 +113,17 @@ async fn run_target_with_policy(
     let (mut endpoints, schema_sha256, schema_violations, primary_document, duplicate_operations) =
         aggregate_service_endpoints(targets)?;
     let primary = &targets[0];
+    // Report schemas relative to the working directory when possible: the
+    // resolved paths are absolute (joined from the canonicalized project root),
+    // and a full path per schema makes the report labels noisy.
     let schema_labels: Vec<String> = targets
         .iter()
-        .map(|path| path.to_string_lossy().into_owned())
+        .map(|path| {
+            path.strip_prefix(&root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect();
     for endpoint in &mut endpoints {
         if let Some(declared) = operation_overrides
@@ -264,6 +197,17 @@ async fn run_target_with_policy(
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
+    // Authenticated scan/fuzz: run the configured login first and inject the
+    // token, so the run reaches operations behind the auth boundary instead of
+    // bouncing off 401s. Fails closed (a bad login aborts the run).
+    if let Some(auth) = auth {
+        let token = perform_login(&client, &base_url, auth).await?;
+        inject_auth_header(auth, &token)?;
+        ctx.say(format!(
+            "Authenticated via {} (token injected as {})",
+            auth.path, auth.header
+        ));
+    }
     let attempts = if fuzzing { runs.max(1) } else { 1 };
     if attempts > MAX_ATTEMPTS_PER_OPERATION {
         bail!(
@@ -962,7 +906,7 @@ use request::build_request;
 mod transport;
 #[cfg(test)]
 use transport::evaluate_invocation;
-use transport::invoke;
+use transport::{inject_auth_header, invoke, perform_login};
 mod replay;
 #[cfg(test)]
 use replay::apply_request_bindings;

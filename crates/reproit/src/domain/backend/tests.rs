@@ -75,6 +75,7 @@ fn hard_oracles_require_concrete_authoritative_witnesses() {
         resources: vec![],
         proofs: vec![],
         fleet: FleetInvariant::default(),
+        auth: None,
     };
     let events = vec![
         event(
@@ -133,6 +134,7 @@ fn inferred_contracts_never_create_findings() {
         resources: vec![],
         proofs: vec![],
         fleet: FleetInvariant::default(),
+        auth: None,
     };
     let events = vec![
         event(
@@ -158,4 +160,39 @@ fn inferred_contracts_never_create_findings() {
     ];
     let violations = evaluate(&config, &events);
     assert!(violations.is_empty(), "{violations:#?}");
+}
+
+#[test]
+fn backend_config_parses_auth_block_with_defaults() {
+    let config: BackendConfig = serde_yaml::from_str(
+        "enabled: true\n\
+         schemas: [openapi.json]\n\
+         auth:\n  \
+           path: /api/auth/token\n  \
+           form:\n    \
+             username: ${MEALIE_USER}\n    \
+             password: ${MEALIE_PASS}\n  \
+           tokenPath: /access_token\n",
+    )
+    .unwrap();
+    let auth = config.auth.expect("auth block parses");
+    assert_eq!(auth.path, "/api/auth/token");
+    assert_eq!(auth.token_path, "/access_token");
+    assert_eq!(auth.method, "POST", "method defaults to POST");
+    assert_eq!(
+        auth.header, "Authorization",
+        "header defaults to Authorization"
+    );
+    assert_eq!(
+        auth.value, "Bearer {token}",
+        "value defaults to a bearer template"
+    );
+    assert_eq!(
+        auth.form
+            .as_ref()
+            .unwrap()
+            .get("username")
+            .map(String::as_str),
+        Some("${MEALIE_USER}")
+    );
 }
