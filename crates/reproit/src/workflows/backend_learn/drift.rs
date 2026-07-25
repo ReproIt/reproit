@@ -14,6 +14,7 @@
 //! observe would be the same overclaiming the schema is guilty of.
 
 use super::extract::{self, Derived};
+use super::rust_types;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -28,15 +29,33 @@ pub struct Drift {
     /// Served by the source, absent from every schema. Real surface nothing
     /// will ever test.
     pub unserved_by_schema: Vec<Route>,
+    /// A declared request-body field the handler's type disagrees with. The
+    /// route is right, so every attempt reaches the service and every one is
+    /// rejected, which reads as "exercised" while evaluating nothing.
+    pub field_mismatches: Vec<FieldMismatch>,
     /// Operations that matched. Reported so a clean result is a positive
     /// statement rather than the absence of a warning.
     pub matched: usize,
     pub files_scanned: usize,
+    /// Whether request-body types were actually compared. False for every
+    /// family whose handler signatures cannot be read, so a clean result never
+    /// implies a check that did not run.
+    pub types_checked: bool,
+}
+
+/// One declared body field the code contradicts.
+#[derive(Debug, PartialEq)]
+pub struct FieldMismatch {
+    pub operation: Route,
+    pub field: String,
+    pub detail: String,
 }
 
 impl Drift {
     pub fn is_clean(&self) -> bool {
-        self.undeclared_by_source.is_empty() && self.unserved_by_schema.is_empty()
+        self.undeclared_by_source.is_empty()
+            && self.unserved_by_schema.is_empty()
+            && self.field_mismatches.is_empty()
     }
 }
 
@@ -70,12 +89,26 @@ pub fn declared_routes(document: &serde_json::Value) -> Vec<Route> {
 /// Returns None when the source cannot be read for this framework, so the
 /// caller reports "not checked" rather than inventing a clean result: an
 /// extractor that found nothing must never look like a schema that matches.
-pub fn compare(root: &Path, framework: &str, declared: &[Route]) -> Option<Drift> {
+pub fn compare(
+    root: &Path,
+    framework: &str,
+    declared: &[Route],
+    document: &serde_json::Value,
+) -> Option<Drift> {
     let derived = extract::derive(root, framework)?;
     if derived.routes.is_empty() {
         return None;
     }
-    Some(diff(declared, &derived))
+    let mut drift = diff(declared, &derived);
+    // Types are read for Rust only. Every other family abstains rather than
+    // guessing: a check that cannot see handler signatures must not imply it
+    // looked at them.
+    if extract::family_for(framework) == Some(extract::Family::Rust) {
+        let types = rust_types::scan_types(root);
+        drift.field_mismatches = compare_fields(document, &derived, &types);
+        drift.types_checked = true;
+    }
+    Some(drift)
 }
 
 /// Bound the scan for sibling services.
@@ -226,10 +259,131 @@ pub fn lines(drift: &Drift) -> Vec<String> {
             ));
         }
     }
+    if !drift.field_mismatches.is_empty() {
+        lines.push(format!(
+            "declared body fields the handler disagrees with ({}): every request is rejected, \
+             so the operation reads as exercised while evaluating nothing",
+            drift.field_mismatches.len()
+        ));
+        for mismatch in drift.field_mismatches.iter().take(MAX_REPORTED) {
+            lines.push(format!(
+                "      {} {} .{}: {}",
+                mismatch.operation.0, mismatch.operation.1, mismatch.field, mismatch.detail
+            ));
+        }
+        if drift.field_mismatches.len() > MAX_REPORTED {
+            lines.push(format!(
+                "      ... and {} more",
+                drift.field_mismatches.len() - MAX_REPORTED
+            ));
+        }
+    }
     lines
 }
 
 const MAX_REPORTED: usize = 15;
+
+/// Compare each declared request body against the handler's Rust types.
+///
+/// Only the three things source can actually settle: a value set the schema
+/// leaves open, a field the struct does not have, and a field the handler
+/// requires that the schema does not. Anything the type does not decide (a
+/// range check inside the handler, a validator attribute) is left alone, so a
+/// reported mismatch is always something the compiler already knows.
+fn compare_fields(
+    document: &serde_json::Value,
+    derived: &Derived,
+    types: &rust_types::RustTypes,
+) -> Vec<FieldMismatch> {
+    let mut mismatches = Vec::new();
+    let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
+        return mismatches;
+    };
+    for (path, item) in paths {
+        let Some(operations) = item.as_object() else {
+            continue;
+        };
+        for (method, operation) in operations {
+            let route = (method.to_uppercase(), path.clone());
+            let Some(handler) = derived.handlers.get(&route) else {
+                continue;
+            };
+            let Some(fields) = types.body_fields(handler) else {
+                continue;
+            };
+            let schema = operation.pointer("/requestBody/content/application~1json/schema");
+            let Some(schema) = schema else { continue };
+            let declared = schema
+                .get("properties")
+                .and_then(|properties| properties.as_object());
+            let Some(declared) = declared else { continue };
+            let required: BTreeSet<&str> = schema
+                .get("required")
+                .and_then(|required| required.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|value| value.as_str())
+                .collect();
+
+            for (name, property) in declared {
+                let Some(fact) = fields.get(name) else {
+                    mismatches.push(FieldMismatch {
+                        operation: route.clone(),
+                        field: name.clone(),
+                        detail: format!("the handler's body type has no `{name}` field"),
+                    });
+                    continue;
+                };
+                // A closed value set the schema left open: every generated value
+                // outside the set is a guaranteed rejection.
+                if let Some(allowed) = &fact.allowed {
+                    let declared_enum = property
+                        .get("enum")
+                        .and_then(|values| values.as_array())
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(|value| value.as_str())
+                                .map(str::to_string)
+                                .collect::<Vec<_>>()
+                        });
+                    if declared_enum.as_ref() != Some(allowed) {
+                        mismatches.push(FieldMismatch {
+                            operation: route.clone(),
+                            field: name.clone(),
+                            detail: match declared_enum {
+                                None => format!(
+                                    "declared open, but the handler accepts only [{}]",
+                                    allowed.join(", ")
+                                ),
+                                Some(_) => format!(
+                                    "declared enum differs from the handler's [{}]",
+                                    allowed.join(", ")
+                                ),
+                            },
+                        });
+                    }
+                }
+            }
+            for (name, fact) in fields {
+                if fact.required && declared.contains_key(name) && !required.contains(name.as_str())
+                {
+                    mismatches.push(FieldMismatch {
+                        operation: route.clone(),
+                        field: name.clone(),
+                        detail: "the handler requires it, but the schema does not mark it \
+                                 required, so it will be omitted and rejected"
+                            .to_string(),
+                    });
+                }
+            }
+        }
+    }
+    mismatches.sort_by(|left, right| {
+        (&left.operation, &left.field).cmp(&(&right.operation, &right.field))
+    });
+    mismatches
+}
 
 #[cfg(test)]
 mod tests {
@@ -244,6 +398,7 @@ mod tests {
             routes: map,
             files_scanned: 3,
             skipped: 0,
+            handlers: BTreeMap::new(),
         }
     }
 
@@ -309,6 +464,116 @@ mod tests {
     fn method_case_does_not_matter() {
         let drift = diff(&[route("get", "/users")], &derived(&[("/users", &["get"])]));
         assert!(drift.is_clean(), "{drift:?}");
+    }
+
+    fn typed(sources: &[&str]) -> rust_types::RustTypes {
+        rust_types::TypeScanner::new(|p| regex::Regex::new(p).unwrap())
+            .scan(&sources.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    fn with_handler(method: &str, path: &str, handler: &str) -> Derived {
+        let mut derived = derived(&[(path, &["post"])]);
+        derived
+            .handlers
+            .insert((method.to_string(), path.to_string()), handler.to_string());
+        derived
+    }
+
+    const BLOCK_SOURCE: &[&str] = &[
+        r#"#[serde(rename_all = "snake_case")] pub enum BlockedType { User, Sponsor }"#,
+        "pub struct BlockRequest { pub blocked_type: BlockedType, pub note: Option<String> }",
+        "pub async fn create_block(Json(b): Json<BlockRequest>) {",
+    ];
+
+    fn block_document(property: serde_json::Value, required: &[&str]) -> serde_json::Value {
+        serde_json::json!({"paths": {"/block": {"post": {"requestBody": {"content": {
+        "application/json": {"schema": {
+            "type": "object",
+            "required": required,
+            "properties": {"blocked_type": property}
+        }}}}}}}})
+    }
+
+    #[test]
+    fn an_open_string_against_an_enum_handler_is_reported() {
+        // The reported case: this cost 100% of that operation's mutations.
+        let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
+        let found = compare_fields(
+            &document,
+            &with_handler("POST", "/block", "create_block"),
+            &typed(BLOCK_SOURCE),
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].field, "blocked_type");
+        assert!(
+            found[0].detail.contains("only [user, sponsor]"),
+            "{}",
+            found[0].detail
+        );
+    }
+
+    #[test]
+    fn a_matching_enum_declaration_is_silent() {
+        let document = block_document(
+            serde_json::json!({"type": "string", "enum": ["user", "sponsor"]}),
+            &["blocked_type"],
+        );
+        let found = compare_fields(
+            &document,
+            &with_handler("POST", "/block", "create_block"),
+            &typed(BLOCK_SOURCE),
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn a_declared_field_the_handler_does_not_have_is_reported() {
+        let document = serde_json::json!({"paths": {"/block": {"post": {"requestBody": {"content": {
+            "application/json": {"schema": {"type": "object", "properties": {"blockedType": {"type": "string"}}}}}}}}}});
+        let found = compare_fields(
+            &document,
+            &with_handler("POST", "/block", "create_block"),
+            &typed(BLOCK_SOURCE),
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].detail.contains("no `blockedType` field"),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_handler_required_field_the_schema_leaves_optional_is_reported() {
+        // Generation omits it, the handler rejects the body, and the operation
+        // reads as exercised while evaluating nothing.
+        let document = block_document(
+            serde_json::json!({"type": "string", "enum": ["user", "sponsor"]}),
+            &[],
+        );
+        let found = compare_fields(
+            &document,
+            &with_handler("POST", "/block", "create_block"),
+            &typed(BLOCK_SOURCE),
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].detail.contains("does not mark it required"),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn an_operation_with_no_resolvable_handler_abstains() {
+        let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
+        let found = compare_fields(
+            &document,
+            &derived(&[("/block", &["post"])]),
+            &typed(BLOCK_SOURCE),
+        );
+        assert!(
+            found.is_empty(),
+            "an unresolved handler must not produce a verdict: {found:?}"
+        );
     }
 
     #[test]

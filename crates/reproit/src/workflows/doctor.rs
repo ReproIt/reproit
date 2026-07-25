@@ -824,7 +824,7 @@ fn doctor_schema_drift(
     else {
         return;
     };
-    let Some(found) = drift::compare(&source, framework.name, &declared) else {
+    let Some(found) = drift::compare(&source, framework.name, &declared, document) else {
         doctor_push(
             checks,
             "contract",
@@ -846,8 +846,16 @@ fn doctor_schema_drift(
             true,
             false,
             format!(
-                "all {} declared operation(s) match a route in {} source file(s)",
-                found.matched, found.files_scanned
+                "all {} declared operation(s) match a route in {} source file(s){}",
+                found.matched,
+                found.files_scanned,
+                // Say which check ran. "Clean" must not imply the types were
+                // compared when only the paths were.
+                if found.types_checked {
+                    ", and their request-body types agree"
+                } else {
+                    " (routes only; request-body type checking is Rust-only today)"
+                }
             ),
             None,
         );

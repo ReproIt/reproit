@@ -23,11 +23,16 @@ const MAX_NEST_DEPTH: usize = 8;
 /// Bound the composed set so a pathological graph cannot blow up.
 const MAX_RESOLVED_MOUNTS: usize = 4_096;
 
+/// One extracted route: its local path, method, and the handler that serves it.
+/// The handler is what lets a resolved path be mapped back to the code, which is
+/// how declared TYPES get checked and not just declared paths.
+pub(super) type RouteHit = (String, &'static str, Option<String>);
+
 /// Routes and mounts of one file, attributed to their enclosing function.
 #[derive(Debug, Default)]
 pub(super) struct RustUnits {
     /// enclosing function -> routes declared directly in it.
-    pub(super) routes: BTreeMap<String, Vec<(String, &'static str)>>,
+    pub(super) routes: BTreeMap<String, Vec<RouteHit>>,
     /// (enclosing function, prefix, mounted function).
     pub(super) mounts: Vec<(String, String, String)>,
     /// (enclosing function, prefix, mounted local variable).
@@ -77,7 +82,7 @@ impl RustScanner {
     pub(super) fn scan(
         &self,
         content: &str,
-        route_hits: impl Fn(&str) -> Vec<(String, &'static str)>,
+        route_hits: impl Fn(&str) -> Vec<RouteHit>,
     ) -> RustUnits {
         let mut units = RustUnits::default();
         // The function whose body we are inside, with the brace depth it opened
@@ -183,8 +188,8 @@ pub(super) fn resolve(
     units: &[RustUnits],
     join: impl Fn(Option<&String>, &str) -> String,
     normalize: impl Fn(&str) -> Option<String>,
-) -> (BTreeMap<String, BTreeSet<&'static str>>, usize) {
-    let mut routes: BTreeMap<String, Vec<(String, &'static str)>> = BTreeMap::new();
+) -> Resolved {
+    let mut routes: BTreeMap<String, Vec<RouteHit>> = BTreeMap::new();
     let mut mounts: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     let mut mounted: BTreeSet<String> = BTreeSet::new();
     for unit in units {
@@ -247,6 +252,7 @@ pub(super) fn resolve(
     queue.dedup();
 
     let mut resolved: BTreeMap<String, BTreeSet<&'static str>> = BTreeMap::new();
+    let mut handlers: BTreeMap<(String, String), String> = BTreeMap::new();
     let mut skipped = 0usize;
     let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
     let mut emitted = 0usize;
@@ -258,7 +264,7 @@ pub(super) fn resolve(
         if !seen.insert((function.clone(), prefix.clone())) {
             continue;
         }
-        for (path, method) in routes.get(&function).into_iter().flatten() {
+        for (path, method, handler) in routes.get(&function).into_iter().flatten() {
             let full = if prefix.is_empty() {
                 path.clone()
             } else {
@@ -266,7 +272,11 @@ pub(super) fn resolve(
             };
             match normalize(&full) {
                 Some(path) => {
-                    resolved.entry(path).or_default().insert(method);
+                    resolved.entry(path.clone()).or_default().insert(method);
+                    if let Some(handler) = handler {
+                        // Uppercase to match the Route convention every consumer uses.
+                        handlers.insert((method.to_uppercase(), path), handler.clone());
+                    }
                     emitted += 1;
                 }
                 None => skipped += 1,
@@ -281,7 +291,19 @@ pub(super) fn resolve(
             queue.push((child.clone(), composed, depth + 1));
         }
     }
-    (resolved, skipped)
+    Resolved {
+        routes: resolved,
+        handlers,
+        skipped,
+    }
+}
+
+/// Resolved routes plus the handler serving each, so the type check can find
+/// the code behind a declared operation.
+pub(super) struct Resolved {
+    pub(super) routes: BTreeMap<String, BTreeSet<&'static str>>,
+    pub(super) handlers: BTreeMap<(String, String), String>,
+    pub(super) skipped: usize,
 }
 
 /// Drop a trailing `//` comment so a commented-out route or brace does not move
@@ -303,13 +325,13 @@ mod tests {
     }
 
     /// Stand-in for the real per-line route extractor.
-    fn hits(line: &str) -> Vec<(String, &'static str)> {
+    fn hits(line: &str) -> Vec<RouteHit> {
         let route = Regex::new(r#"\.route\(\s*"([^"]+)"\s*,\s*(get|post)\("#).expect("pattern");
         route
             .captures_iter(line)
             .map(|captures| {
                 let method: &'static str = if &captures[2] == "get" { "get" } else { "post" };
-                (captures[1].to_string(), method)
+                (captures[1].to_string(), method, None)
             })
             .collect()
     }
@@ -327,7 +349,7 @@ mod tests {
             .iter()
             .map(|source| scanner.scan(source, hits))
             .collect();
-        resolve(&units, join, |path| Some(path.to_string())).0
+        resolve(&units, join, |path| Some(path.to_string())).routes
     }
 
     #[test]

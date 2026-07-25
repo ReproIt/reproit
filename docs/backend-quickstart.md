@@ -156,7 +156,25 @@ routes and confidently tell you to delete correct operations, so an undeclared m
 abstains and names the services it found. `--learn` refuses there for the same reason: a schema
 derived from three services describes none of them.
 
-It compares method and path template only, never types: the extractor sees
+On a Rust service it also compares the declared request body against the handler's types, which
+is where a schema costs the most: the route is right, so every attempt reaches the service and
+every one is rejected, and the operation reads as exercised while evaluating nothing.
+
+```
+    declared body fields the handler disagrees with (3):
+      POST /v1/blocks .blocked_type: declared open, but the handler accepts only [user, sponsor]
+      POST /v1/blocks .blocked_id: the handler requires it, but the schema does not mark it required
+      POST /v1/blocks .nite: the handler's body type has no `nite` field
+```
+
+Only what the types actually settle: a unit-only enum's closed value set (serde renames applied),
+a field the struct does not have, and a non-`Option` field the schema leaves optional. A
+`rating: i8` the handler range-checks at runtime is invisible to this and is left alone, because
+reporting a constraint it cannot see would be the same overclaiming the schema is guilty of. Other
+language families get the route check only, and say so rather than letting "clean" imply a type
+comparison that never ran.
+
+For paths it compares method and path template, never types: the extractor sees
 routes, not handler signatures, and claiming a type mismatch it cannot observe
 would be the same overclaiming the schema is guilty of. A path parameter named
 differently in each (`{id}` vs `{user_id}`) is the same route and is not drift.

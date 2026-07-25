@@ -36,6 +36,10 @@ pub(crate) struct Derived {
     pub(super) files_scanned: usize,
     /// Pattern hits dropped because the path could not be normalized.
     pub(super) skipped: usize,
+    /// (METHOD, resolved path) -> the handler function serving it. Rust only:
+    /// it is what lets the contract check compare declared TYPES against the
+    /// code, not just declared paths.
+    pub(super) handlers: BTreeMap<(String, String), String>,
 }
 
 impl Derived {
@@ -139,10 +143,17 @@ fn derive_rust(patterns: &Patterns, files: &[PathBuf]) -> Derived {
         derived.files_scanned += 1;
         units.push(scanner.scan(&content, |line| patterns.rust(line)));
     }
-    let (routes, skipped) = rust_nest::resolve(&units, join_prefix, normalize_path);
-    derived.routes = routes;
-    derived.skipped = skipped;
+    let resolved = rust_nest::resolve(&units, join_prefix, normalize_path);
+    derived.routes = resolved.routes;
+    derived.skipped = resolved.skipped;
+    derived.handlers = resolved.handlers;
     derived
+}
+
+/// The Rust sources the extractor considers, exposed so the type check reads
+/// exactly the same file set as the route check.
+pub(super) fn rust_sources(root: &Path) -> Vec<PathBuf> {
+    source_files(root, extensions(Family::Rust))
 }
 
 /// Bounded, deterministic source walk: sorted entries, capped depth and count,
@@ -215,7 +226,9 @@ impl Patterns {
         let compile = |pattern: &str| Regex::new(pattern).expect("static route pattern");
         Self {
             rust_route: compile(r#"\.route\(\s*"([^"]+)"\s*,"#),
-            rust_method_call: compile(r"\b(get|post|put|patch|delete|head|options)\s*\("),
+            rust_method_call: compile(
+                r"\b(get|post|put|patch|delete|head|options)\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)?",
+            ),
             rust_attribute: compile(
                 r##"#\[(?:\w+::)?(get|post|put|patch|delete|head|options)\(\s*"([^"]+)""##,
             ),
@@ -295,7 +308,7 @@ impl Patterns {
 
     /// axum `.route("/x", get(a).post(b))`, actix `.route("/x", web::get())`,
     /// and actix/rocket attribute routes `#[get("/x")]`.
-    fn rust(&self, content: &str) -> Vec<(String, &'static str)> {
+    fn rust(&self, content: &str) -> Vec<rust_nest::RouteHit> {
         let mut hits = Vec::new();
         for line in content.lines() {
             // Every `.route("p", ...)` on the line, each owning only the text up
@@ -321,9 +334,10 @@ impl Patterns {
                     .get(index + 1)
                     .map(|(start, _, _)| *start)
                     .unwrap_or(line.len());
-                for method in self.rust_method_call.captures_iter(&line[*end..stop]) {
-                    if let Some(method) = method_const(&method[1]) {
-                        hits.push((path.clone(), method));
+                for captures in self.rust_method_call.captures_iter(&line[*end..stop]) {
+                    if let Some(method) = method_const(&captures[1]) {
+                        let handler = captures.get(2).map(|m| m.as_str().to_string());
+                        hits.push((path.clone(), method, handler));
                     }
                 }
             }
@@ -332,7 +346,7 @@ impl Patterns {
                     // Rocket paths may carry a `?<query>` suffix; the path
                     // part before it is the route.
                     let path = captures[2].split('?').next().unwrap_or("").to_string();
-                    hits.push((path, method));
+                    hits.push((path, method, None));
                 }
             }
         }

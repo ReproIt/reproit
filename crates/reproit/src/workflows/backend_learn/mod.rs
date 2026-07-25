@@ -15,6 +15,7 @@ mod emit;
 mod enrich;
 mod extract;
 mod rust_nest;
+mod rust_types;
 
 #[cfg(test)]
 mod tests;
