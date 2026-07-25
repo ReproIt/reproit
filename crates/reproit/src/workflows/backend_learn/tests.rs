@@ -193,6 +193,66 @@ fn extraction_table_covers_every_framework() {
 }
 
 #[test]
+fn nested_router_mount_prefixes_are_resolved() {
+    // Flask blueprint url_prefix applies to every route on that blueprint; a
+    // route on the bare app is left unprefixed.
+    let mut flask = routes(
+        "flask",
+        "app.py",
+        "bp = Blueprint('users', __name__, url_prefix='/api/v1')\n\
+         @bp.route('/users', methods=['GET','POST'])\n\
+         def users(): pass\n\
+         @bp.get('/users/<int:id>')\n\
+         def one(id): pass\n\
+         @app.get('/healthz')\n\
+         def health(): pass\n",
+    );
+    flask.sort();
+    assert_eq!(
+        flask,
+        vec![
+            ("/api/v1/users".to_string(), vec!["get", "post"]),
+            ("/api/v1/users/{id}".to_string(), vec!["get"]),
+            ("/healthz".to_string(), vec!["get"]),
+        ]
+    );
+
+    // FastAPI APIRouter(prefix=) composes with include_router(prefix=): the
+    // include prefix wraps the constructor prefix.
+    let mut fastapi = routes(
+        "fastapi",
+        "main.py",
+        "router = APIRouter(prefix='/users')\n\
+         @router.get('/{id}')\n\
+         def one(id): ...\n\
+         app.include_router(router, prefix='/api')\n",
+    );
+    fastapi.sort();
+    assert_eq!(fastapi, vec![("/api/users/{id}".to_string(), vec!["get"])]);
+
+    // Express Router() mounted with app.use('/prefix', router) prefixes its
+    // routes; the app's own routes are unprefixed.
+    let mut express = routes(
+        "express",
+        "server.js",
+        "const router = express.Router();\n\
+         router.get('/items', list);\n\
+         router.post('/items/:id', edit);\n\
+         app.use('/api', router);\n\
+         app.get('/status', status);\n",
+    );
+    express.sort();
+    assert_eq!(
+        express,
+        vec![
+            ("/api/items".to_string(), vec!["get"]),
+            ("/api/items/{id}".to_string(), vec!["post"]),
+            ("/status".to_string(), vec!["get"]),
+        ]
+    );
+}
+
+#[test]
 fn every_detectable_backend_framework_has_a_family_or_is_php_symfony() {
     // The backend_detect names --learn must route; symfony is the one
     // detectable framework without patterns yet (falls to the guided error).

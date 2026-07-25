@@ -95,10 +95,11 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("");
+        let prefixes = patterns.prefixes(family, &content);
         let hits = match family {
             Family::Rust => patterns.rust(&content),
-            Family::Node => patterns.node(&content),
-            Family::Python => patterns.python(&content, file_name),
+            Family::Node => patterns.node(&content, &prefixes),
+            Family::Python => patterns.python(&content, file_name, &prefixes),
             Family::Go => patterns.go(&content),
             Family::Ruby => patterns.ruby(&content),
             Family::Spring => patterns.spring(&content),
@@ -166,6 +167,10 @@ struct Patterns {
     python_decorator: Regex,
     flask_route: Regex,
     flask_methods: Regex,
+    flask_blueprint: Regex,
+    fastapi_router: Regex,
+    fastapi_include: Regex,
+    node_router_mount: Regex,
     django_path: Regex,
     go_call: Regex,
     go_handle_func: Regex,
@@ -187,15 +192,25 @@ impl Patterns {
                 r##"#\[(?:\w+::)?(get|post|put|patch|delete|head|options)\(\s*"([^"]+)""##,
             ),
             node_call: compile(
-                r#"[\w$\])]\.(get|post|put|patch|delete|head|options|all)\(\s*['"`]([^'"`]+)['"`]"#,
+                r#"([\w$)\]]+)\.(get|post|put|patch|delete|head|options|all)\(\s*['"`]([^'"`]+)['"`]"#,
             ),
             node_route_url: compile(r#"\b(?:url|path)\s*:\s*['"`]([^'"`]+)['"`]"#),
             node_route_method: compile(r#"\bmethod\s*:\s*\[?\s*['"`]([A-Za-z]+)['"`]"#),
+            node_router_mount: compile(r#"\.use\(\s*['"`](/[^'"`]*)['"`]\s*,\s*([\w$]+)"#),
             python_decorator: compile(
-                r#"@[\w.]+\.(get|post|put|patch|delete|head|options)\(\s*[rf]?['"]([^'"]+)['"]"#,
+                r#"@(\w+)\.(get|post|put|patch|delete|head|options)\(\s*[rf]?['"]([^'"]+)['"]"#,
             ),
-            flask_route: compile(r#"@[\w.]+\.route\(\s*[rf]?['"]([^'"]+)['"](.*)"#),
+            flask_route: compile(r#"@(\w+)\.route\(\s*[rf]?['"]([^'"]+)['"](.*)"#),
             flask_methods: compile(r"methods\s*=\s*\[([^\]]*)\]"),
+            flask_blueprint: compile(
+                r#"(\w+)\s*=\s*Blueprint\([^)]*\burl_prefix\s*=\s*['"]([^'"]+)['"]"#,
+            ),
+            fastapi_router: compile(
+                r#"(\w+)\s*=\s*APIRouter\([^)]*\bprefix\s*=\s*['"]([^'"]+)['"]"#,
+            ),
+            fastapi_include: compile(
+                r#"include_router\(\s*(\w+)[^)]*\bprefix\s*=\s*['"]([^'"]+)['"]"#,
+            ),
             django_path: compile(r#"\bpath\(\s*[rf]?['"]([^'"]*)['"]"#),
             go_call: compile(r#"\w\.(?i:(get|post|put|patch|delete|head|options))\(\s*"([^"]+)""#),
             go_handle_func: compile(
@@ -212,6 +227,42 @@ impl Patterns {
             spring_prefix: compile(r#"@RequestMapping\(\s*(?:(?:value|path)\s*=\s*)?"([^"]+)""#),
             php_route: compile(r#"Route::(get|post|put|patch|delete|any)\(\s*['"]([^'"]+)['"]"#),
         }
+    }
+
+    /// File-scoped mount prefixes by router/blueprint variable, so routes defined
+    /// on a nested router carry their real path. Resolved only where the prefix
+    /// travels with the variable in the same file (Flask `Blueprint(url_prefix=)`,
+    /// FastAPI `APIRouter(prefix=)` plus `include_router(prefix=)`, Express
+    /// `app.use("/prefix", router)`). A prefix mounted via a function return
+    /// (e.g. axum `.nest("/api", routes())`) is not followed: guessing would emit
+    /// wrong paths, so those routes keep their local path rather than a fabricated
+    /// one.
+    fn prefixes(&self, family: Family, content: &str) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        match family {
+            Family::Python => {
+                for captures in self.flask_blueprint.captures_iter(content) {
+                    map.insert(captures[1].to_string(), captures[2].to_string());
+                }
+                for captures in self.fastapi_router.captures_iter(content) {
+                    map.insert(captures[1].to_string(), captures[2].to_string());
+                }
+                // include_router(prefix=) mounts a router under an ADDITIONAL
+                // prefix, composed outside any prefix the router already carries.
+                for captures in self.fastapi_include.captures_iter(content) {
+                    let var = captures[1].to_string();
+                    let base = map.get(&var).cloned().unwrap_or_default();
+                    map.insert(var, join_prefix(Some(&captures[2].to_string()), &base));
+                }
+            }
+            Family::Node => {
+                for captures in self.node_router_mount.captures_iter(content) {
+                    map.insert(captures[2].to_string(), captures[1].to_string());
+                }
+            }
+            _ => {}
+        }
+        map
     }
 
     /// axum `.route("/x", get(a).post(b))`, actix `.route("/x", web::get())`,
@@ -242,23 +293,27 @@ impl Patterns {
     /// express/koa/hapi-style `app.get('/x', ...)` plus the fastify
     /// `fastify.route({ method: 'GET', url: '/x' })` object form (the object
     /// is matched across a small line window).
-    fn node(&self, content: &str) -> Vec<(String, &'static str)> {
+    fn node(
+        &self,
+        content: &str,
+        prefixes: &BTreeMap<String, String>,
+    ) -> Vec<(String, &'static str)> {
         let mut hits = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
         for (index, line) in lines.iter().enumerate() {
             for captures in self.node_call.captures_iter(line) {
-                let path = captures[2].to_string();
+                let raw = &captures[3];
                 // `all` claims every method; the draft claims only GET.
-                let method = if &captures[1] == "all" {
+                let method = if &captures[2] == "all" {
                     "get"
                 } else {
-                    match method_const(&captures[1]) {
+                    match method_const(&captures[2]) {
                         Some(method) => method,
                         None => continue,
                     }
                 };
-                if path.starts_with('/') && !path.contains("://") {
-                    hits.push((path, method));
+                if raw.starts_with('/') && !raw.contains("://") {
+                    hits.push((join_prefix(prefixes.get(&captures[1]), raw), method));
                 }
             }
             if line.contains(".route(") {
@@ -280,19 +335,25 @@ impl Patterns {
     /// FastAPI `@app.get("/x")`, Flask `@app.route("/x", methods=[...])`, and
     /// Django `path("x/", ...)` entries (urls.py only; methods are not
     /// declared there, so the draft claims only GET).
-    fn python(&self, content: &str, file_name: &str) -> Vec<(String, &'static str)> {
+    fn python(
+        &self,
+        content: &str,
+        file_name: &str,
+        prefixes: &BTreeMap<String, String>,
+    ) -> Vec<(String, &'static str)> {
         let mut hits = Vec::new();
         for line in content.lines() {
             if let Some(captures) = self.python_decorator.captures(line) {
-                if let Some(method) = method_const(&captures[1]) {
-                    hits.push((captures[2].to_string(), method));
+                if let Some(method) = method_const(&captures[2]) {
+                    let path = join_prefix(prefixes.get(&captures[1]), &captures[3]);
+                    hits.push((path, method));
                 }
             }
             if let Some(captures) = self.flask_route.captures(line) {
-                let path = captures[1].to_string();
+                let path = join_prefix(prefixes.get(&captures[1]), &captures[2]);
                 let methods = self
                     .flask_methods
-                    .captures(&captures[2])
+                    .captures(&captures[3])
                     .map(|list| {
                         list[1]
                             .split(',')
@@ -403,6 +464,24 @@ impl Patterns {
             hits.push((captures[2].to_string(), method));
         }
         hits
+    }
+}
+
+/// Prefix a route path with its router/blueprint mount, if any. A leading slash
+/// on the path is preserved; an empty or root path yields the prefix itself, so
+/// `Blueprint(url_prefix="/api")` + `@bp.route("")` is `/api`, not `/api/`.
+fn join_prefix(prefix: Option<&String>, path: &str) -> String {
+    let Some(prefix) = prefix.filter(|value| !value.is_empty()) else {
+        return path.to_string();
+    };
+    let base = prefix.trim_end_matches('/');
+    if path.is_empty() || path == "/" {
+        return base.to_string();
+    }
+    if path.starts_with('/') {
+        format!("{base}{path}")
+    } else {
+        format!("{base}/{path}")
     }
 }
 
