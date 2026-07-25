@@ -172,6 +172,18 @@ const CHECK_DESCRIPTION: &str = concat!(
     "For a baseline pixel diff use reproit_baseline."
 );
 
+const VERIFY_DESCRIPTION: &str = concat!(
+    "BATCH PROOF-OF-FIX for backend findings. Every confirmed backend finding persists a ",
+    "self-contained, replayable repro under .reproit/findings/; verify replays them all (or the ",
+    "`ids` you name) against the live target and asserts none still reproduces. The replay ",
+    "re-exercises the exact recorded failing request, so a fix cannot be faked by not reaching ",
+    "the endpoint: a held finding is machine-checkable proof the defect is gone. Exits non-zero ",
+    "(reports which findings still reproduce) if any does. This is the close-the-loop step after ",
+    "reproit_scan finds backend bugs and you fix the code: call reproit_verify to PROVE the fix ",
+    "holds, and to catch any regression that brings a fixed finding back. Deterministic and ",
+    "network-only against the configured backend.target."
+);
+
 const BASELINE_DESCRIPTION: &str = concat!(
     "The visual-regression oracle: diff the current capture against the committed baseline ",
     "(per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. ",
@@ -420,6 +432,20 @@ fn tool_defs() -> Value {
                 "flicker": {
                     "type": "boolean",
                     "description": "With record_video, also scan for intra-run flicker."
+                }
+            } }
+        },
+        {
+            "name": "reproit_verify",
+            "description": VERIFY_DESCRIPTION,
+            "inputSchema": { "type": "object", "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": concat!(
+                        "Finding ids (fnd_...) to verify. Omit to verify every persisted ",
+                        "backend finding as one regression suite."
+                    )
                 }
             } }
         },

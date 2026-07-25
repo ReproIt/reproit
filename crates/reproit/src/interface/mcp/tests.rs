@@ -34,6 +34,25 @@ fn the_full_cloud_loop_tools_are_present() {
 }
 
 #[test]
+fn verify_dispatches_all_findings_and_named_ids() {
+    // No ids => verify the whole persisted suite; the bridge globals are present.
+    let all = argv("reproit_verify", json!({}));
+    assert!(all.contains(&"--json".to_string()));
+    assert!(all.contains(&"verify".to_string()));
+    assert!(!all.iter().any(|a| a.starts_with("fnd_")));
+
+    // Named ids are forwarded as positionals to the verify command.
+    let named = argv(
+        "reproit_verify",
+        json!({ "ids": ["fnd_deadbeef0001", "fnd_deadbeef0002"] }),
+    );
+    assert!(named
+        .windows(2)
+        .any(|w| w == ["verify", "fnd_deadbeef0001"]));
+    assert!(named.contains(&"fnd_deadbeef0002".to_string()));
+}
+
+#[test]
 fn cloud_triage_read_dispatches_without_status() {
     // No status => READ through the private machine-only Cloud route with no
     // --status, and the bridge's --json / --yes globals are present.

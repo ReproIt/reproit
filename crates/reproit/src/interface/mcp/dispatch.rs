@@ -114,6 +114,19 @@ pub(super) fn build_argv(
                 argv.push("--flicker".into());
             }
         }
+        "reproit_verify" => {
+            // Batch proof-of-fix: replay every persisted backend finding (or the
+            // named ids) and assert none still reproduces. A green result is
+            // machine-checkable proof the agent's fix holds.
+            argv.push("verify".into());
+            if let Some(ids) = args.get("ids").and_then(Value::as_array) {
+                for id in ids {
+                    if let Some(id) = id.as_str() {
+                        argv.push(id.to_string());
+                    }
+                }
+            }
+        }
         "reproit_baseline" => {
             argv.push("baseline".into());
             // No positional `repro`: the CLI `baseline` command takes only
