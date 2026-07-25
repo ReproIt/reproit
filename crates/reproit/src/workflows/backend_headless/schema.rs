@@ -481,3 +481,15 @@ pub(super) fn apply_operation_override(
         imported.promised_effects = declared.promised_effects.clone();
     }
 }
+
+/// Fuzz order: create before mutate before read before delete, so a mutation
+/// has something to act on and a delete does not remove it first.
+pub(super) fn operation_rank(method: &str) -> u8 {
+    match method {
+        "POST" => 0,
+        "PUT" | "PATCH" => 1,
+        "GET" | "HEAD" | "OPTIONS" => 2,
+        "DELETE" => 3,
+        _ => 4,
+    }
+}

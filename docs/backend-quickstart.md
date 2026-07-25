@@ -102,6 +102,36 @@ real bugs but only from responses (status, shape, round-trip identity): the blac
 one-line mount for the framework it detected. Scan and fuzz state the tier once in their
 summary. Neither tier ever guesses: a check that needs evidence it does not have abstains.
 
+## What the run did not reach
+
+A findings count is not a coverage report. `14 operations exercised, 0 confirmed
+findings` looks like a clean sweep, but it reads exactly the same when every mutation was
+rejected with a 400 and no contract was ever evaluated. So scan and fuzz report reach per
+declared operation, and lead with the gap:
+
+```
+backend fuzz: 14 operation(s) exercised, 0 confirmed finding(s), 0 candidate(s)
+  coverage: 1/4 declared operation(s) evaluated
+    no success to evaluate (3):
+      POST blockUser: 3 attempt(s), last 400 - {"error":"blocked_type must be one of: user, sponsor"}
+      POST createPost: 3 attempt(s), last 400 - {"error":"blocked_type must be one of: user, sponsor"}
+      GET listNearby: 3 attempt(s), all rate limited - {"error":"rate limited"}
+```
+
+Two questions the aggregate could not answer, now answered per operation:
+
+- `reached`: was the request sent at all? A `never sent` operation names why (scan sends
+  read-only GETs only; a request the schema could not build reports the build error).
+- `evaluated`: did any attempt return a success the oracles could judge? An operation
+  that only ever 4xx'd was reached but its contract was never tested.
+
+The last non-2xx body is included because it usually names the input the declared schema
+got wrong, which is the most common reason a mutation never lands. `--json` carries the
+full table (`coverage`, plus `operationsEvaluated`) with per-status counts:
+`attempts`, `ok`, `clientError`, `rateLimited`, `serverError`, `transportErrors`. The
+terminal summary is silent when every declared operation was evaluated, because then the
+aggregate is honest on its own.
+
 ## Proving a fix, and retracting a wrong contract
 
 Every confirmed finding persists a replayable artifact under `.reproit/findings/<id>/`. Together

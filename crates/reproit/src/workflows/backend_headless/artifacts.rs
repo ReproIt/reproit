@@ -128,6 +128,74 @@ pub(super) fn persist_run_report(root: &Path, command: &str, report: &Value) -> 
     Ok(())
 }
 
+/// Bound the rows printed to a terminal; `--json` always carries all of them.
+const MAX_REPORTED_ROWS: usize = 20;
+
+/// Render the coverage rows a run recorded. Reads them back off the report so
+/// the text a user sees and the JSON an agent parses cannot disagree.
+fn coverage_lines(report: &Value) -> Vec<String> {
+    let Some(rows) = report["coverage"].as_array() else {
+        return Vec::new();
+    };
+    let evaluated = rows.iter().filter(|row| row["evaluated"] == true).count();
+    if rows.is_empty() || evaluated == rows.len() {
+        return Vec::new();
+    }
+    let mut lines = vec![format!(
+        "  coverage: {evaluated}/{} declared operation(s) evaluated",
+        rows.len()
+    )];
+    for (label, reached) in [("never sent", false), ("no success to evaluate", true)] {
+        let group: Vec<&Value> = rows
+            .iter()
+            .filter(|row| row["evaluated"] != true && row["reached"] == reached)
+            .collect();
+        if group.is_empty() {
+            continue;
+        }
+        lines.push(format!("    {label} ({}):", group.len()));
+        for row in group.iter().take(MAX_REPORTED_ROWS) {
+            lines.push(format!(
+                "      {} {}{}",
+                row["method"].as_str().unwrap_or(""),
+                row["operation"].as_str().unwrap_or(""),
+                coverage_detail(row)
+            ));
+        }
+        if group.len() > MAX_REPORTED_ROWS {
+            lines.push(format!(
+                "      ... and {} more (use --json for the full table)",
+                group.len() - MAX_REPORTED_ROWS
+            ));
+        }
+    }
+    lines
+}
+
+/// The one-line why: the reason it was skipped, or the status it kept returning
+/// plus what the service said about it.
+fn coverage_detail(row: &Value) -> String {
+    if let Some(reason) = row["notSentReason"].as_str() {
+        return format!(": {reason}");
+    }
+    let attempts = row["attempts"].as_u64().unwrap_or(0);
+    if attempts == 0 {
+        return ": every attempt failed to send".to_string();
+    }
+    let counts = if row["rateLimited"].as_u64() == Some(attempts) {
+        format!("{attempts} attempt(s), all rate limited")
+    } else {
+        format!(
+            "{attempts} attempt(s), last {}",
+            row["lastStatus"].as_u64().unwrap_or(0)
+        )
+    };
+    match row["lastBody"].as_str() {
+        Some(body) => format!(": {counts} - {body}"),
+        None => format!(": {counts}"),
+    }
+}
+
 pub(super) fn emit_report(ctx: &Ctx, command: &str, report: &Value) {
     if ctx.json {
         ctx.emit(report);
@@ -144,6 +212,12 @@ pub(super) fn emit_report(ctx: &Ctx, command: &str, report: &Value) {
     if let Some(tier) = super::transport::adapter_tier_line() {
         ctx.say(format!("  {tier}"));
     }
+    // What the run did NOT reach, before what it found. A findings count alone
+    // reads as coverage, and an operation that 400'd every attempt evaluated no
+    // contract at all.
+    for line in coverage_lines(report) {
+        ctx.say(line);
+    }
     if let Some(values) = report["findings"].as_array() {
         for finding in values {
             ctx.say(format!(
@@ -159,5 +233,84 @@ pub(super) fn emit_report(ctx: &Ctx, command: &str, report: &Value) {
                 finding.get("message").and_then(Value::as_str).unwrap_or("")
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflows::backend_headless::coverage::Coverage;
+
+    fn endpoint(id: &str, method: &str) -> Endpoint {
+        let mut endpoint = super::super::openapi_endpoints(&json!({
+            "openapi": "3.0.3",
+            "paths": {"/x": {"get": {"operationId": id, "responses": {}}}}
+        }))
+        .pop()
+        .expect("one endpoint");
+        endpoint.method = method.to_string();
+        endpoint
+    }
+
+    #[test]
+    fn a_fully_evaluated_run_prints_no_coverage_warning() {
+        let mut coverage = Coverage::new(&[endpoint("getUser", "GET")]);
+        coverage.record("getUser", 200, &json!({"id": 1}));
+        let report = json!({ "coverage": coverage.report() });
+        assert!(
+            coverage_lines(&report).is_empty(),
+            "an honest aggregate needs no warning"
+        );
+    }
+
+    #[test]
+    fn the_summary_names_what_the_run_never_reached_or_evaluated() {
+        // The reported case: a sweep that looks clean because every mutation
+        // 400'd on a schema the service disagrees with, plus an operation scan
+        // never sends at all.
+        let mut coverage = Coverage::new(&[
+            endpoint("getUser", "GET"),
+            endpoint("blockUser", "POST"),
+            endpoint("deletePost", "DELETE"),
+        ]);
+        coverage.record("getUser", 200, &json!({"id": 1}));
+        coverage.record(
+            "blockUser",
+            400,
+            &json!({"error": "blocked_type must be one of user, sponsor"}),
+        );
+        coverage.not_sent("deletePost", "scan executes read-only GET operations only");
+        let lines = coverage_lines(&json!({ "coverage": coverage.report() })).join("\n");
+
+        assert!(
+            lines.contains("1/3 declared operation(s) evaluated"),
+            "{lines}"
+        );
+        assert!(lines.contains("never sent (1)"), "{lines}");
+        assert!(
+            lines.contains("DELETE deletePost: scan executes read-only"),
+            "{lines}"
+        );
+        assert!(lines.contains("no success to evaluate (1)"), "{lines}");
+        // The body snippet is the whole point: it names the field the schema
+        // got wrong, which is what the aggregate could never say.
+        assert!(
+            lines.contains("POST blockUser: 1 attempt(s), last 400")
+                && lines.contains("blocked_type must be one of user, sponsor"),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("getUser"),
+            "an evaluated operation is not noise: {lines}"
+        );
+    }
+
+    #[test]
+    fn an_all_429_operation_is_reported_as_rate_limited_not_as_a_plain_failure() {
+        let mut coverage = Coverage::new(&[endpoint("listNearby", "GET")]);
+        coverage.record("listNearby", 429, &Value::Null);
+        coverage.record("listNearby", 429, &Value::Null);
+        let lines = coverage_lines(&json!({ "coverage": coverage.report() })).join("\n");
+        assert!(lines.contains("2 attempt(s), all rate limited"), "{lines}");
     }
 }

@@ -35,16 +35,6 @@ mod round_trip;
 use round_trip::{probe_round_trips, record_create, CreateRecord};
 mod history;
 use history::{classify_and_record, gate_outcome};
-fn operation_rank(method: &str) -> u8 {
-    match method {
-        "POST" => 0,
-        "PUT" | "PATCH" => 1,
-        "GET" | "HEAD" | "OPTIONS" => 2,
-        "DELETE" => 3,
-        _ => 4,
-    }
-}
-
 pub fn looks_like_schema(path: &Path) -> bool {
     load_document(path).is_ok_and(|document| !backend::import_service_schema(&document).is_empty())
 }
@@ -269,6 +259,7 @@ async fn run_target_with_policy(
     // the flag as soon as any non-429 response for that operation is seen.
     let mut rate_limited_ops = BTreeSet::new();
     let mut evaluated_ops = BTreeSet::new();
+    let mut coverage = Coverage::new(&endpoints);
 
     let mut ordered = endpoints.clone();
     if fuzzing {
@@ -284,9 +275,11 @@ async fn run_target_with_policy(
         for endpoint in &ordered {
             if !fuzzing && !endpoint.contract.read_only {
                 if offset == 0 {
+                    let reason = "scan executes read-only GET operations only";
+                    coverage.not_sent(&endpoint.contract.id, reason);
                     skipped.push(json!({
                         "operation": endpoint.contract.id,
-                        "reason": "scan executes read-only GET operations only",
+                        "reason": reason,
                     }));
                 }
                 continue;
@@ -304,6 +297,7 @@ async fn run_target_with_policy(
             let request = match build_request(endpoint, &base_url, input) {
                 Ok(request) => request,
                 Err(error) => {
+                    coverage.not_sent(&endpoint.contract.id, &error.to_string());
                     skipped.push(json!({
                         "operation": endpoint.contract.id,
                         "reason": error.to_string(),
@@ -314,6 +308,7 @@ async fn run_target_with_policy(
             let result = match invoke(&client, endpoint, request.clone()).await {
                 Ok(result) => result,
                 Err(error) => {
+                    coverage.transport_error(&endpoint.contract.id);
                     execution_errors.push(json!({
                         "operation": endpoint.contract.id,
                         "error": error.to_string(),
@@ -322,6 +317,7 @@ async fn run_target_with_policy(
                 }
             };
             let accepted = (200..400).contains(&result.status);
+            coverage.record(&endpoint.contract.id, result.status, &result.output);
             exercised += 1;
             exercised_ops.insert(endpoint.contract.id.clone());
             if result.status == 429 {
@@ -510,6 +506,8 @@ async fn run_target_with_policy(
         "duplicateOperations": duplicate_operations,
         "baseUrl": base_url,
         "operations": endpoints.len(),
+        "operationsEvaluated": coverage.evaluated_count(),
+        "coverage": coverage.report(),
         "attemptsPerOperation": attempts,
         "exercised": exercised,
         "rejected": rejected,
@@ -978,6 +976,8 @@ mod shrink;
 use shrink::shrink_findings;
 mod artifacts;
 use artifacts::{emit_report, persist_findings, persist_run_report, persist_schema_findings};
+pub(super) mod coverage;
+use coverage::Coverage;
 mod retraction;
 use retraction::{ArtifactVerdict, ContractStatus, CurrentContracts};
 mod replay_command;
