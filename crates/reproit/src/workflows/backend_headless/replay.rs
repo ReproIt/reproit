@@ -20,14 +20,20 @@ pub(super) fn has_fingerprint(result: &InvocationResult, expected: &str) -> bool
         .any(|violation| violation.fingerprint == expected)
 }
 
+/// `reset_url` is the reset endpoint recorded on the artifact being replayed, if
+/// any. It is passed per replay rather than through the environment so a batch
+/// run cannot leak the first artifact's reset target into every later one.
+/// Callers inside a live scan or fuzz run have no recorded artifact and pass
+/// `None`, which falls back to `REPROIT_BACKEND_RESET_URL` as before.
 pub(super) async fn replay_sequence(
     client: &reqwest::Client,
     setup: &[ReplayStep],
     failing_endpoint: &Endpoint,
     failing_request: &RequestArtifact,
     expected: &str,
+    reset_url: Option<&str>,
 ) -> Result<ReplayVerdict> {
-    maybe_reset_target(client, &failing_request.url).await?;
+    maybe_reset_target(client, &failing_request.url, reset_url).await?;
     let mut events = Vec::new();
     let mut contracts = Vec::new();
     let mut outputs = Vec::new();

@@ -22,7 +22,8 @@ pub(super) async fn shrink_findings(
                 let mut candidate = setup.clone();
                 candidate.remove(index);
                 let verdict =
-                    replay_sequence(client, &candidate, &endpoint, &request, expected).await?;
+                    replay_sequence(client, &candidate, &endpoint, &request, expected, None)
+                        .await?;
                 if verdict == ReplayVerdict::Reproduced {
                     setup = candidate;
                 } else {
@@ -43,7 +44,8 @@ pub(super) async fn shrink_findings(
                         continue;
                     };
                     candidate.bindings = request.bindings.clone();
-                    if replay_sequence(client, &setup, &endpoint, &candidate, expected).await?
+                    if replay_sequence(client, &setup, &endpoint, &candidate, expected, None)
+                        .await?
                         == ReplayVerdict::Reproduced
                     {
                         accepted = Some(candidate);
@@ -56,7 +58,7 @@ pub(super) async fn shrink_findings(
                 request = candidate;
             }
         }
-        if replay_sequence(client, &setup, &endpoint, &request, expected).await?
+        if replay_sequence(client, &setup, &endpoint, &request, expected, None).await?
             != ReplayVerdict::Reproduced
         {
             let (request, setup) = original;

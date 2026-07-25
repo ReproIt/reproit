@@ -261,6 +261,7 @@ pub(super) async fn probe_round_trips(
                                     list,
                                     &check_request,
                                     &violation.fingerprint,
+                                    None,
                                 )
                                 .await?
                                     == ReplayVerdict::Reproduced
@@ -469,8 +470,15 @@ pub(super) async fn probe_round_trips(
                 let finding = backend::finding(&violation);
                 // Confirmation IS replay: a fresh resource, rebound identity,
                 // the same quad, the same fingerprint.
-                if replay_sequence(client, &setup, get, &check_request, &violation.fingerprint)
-                    .await?
+                if replay_sequence(
+                    client,
+                    &setup,
+                    get,
+                    &check_request,
+                    &violation.fingerprint,
+                    None,
+                )
+                .await?
                     == ReplayVerdict::Reproduced
                 {
                     run.findings

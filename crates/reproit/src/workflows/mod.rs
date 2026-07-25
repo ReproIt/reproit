@@ -304,9 +304,19 @@ where
             show_proof(&ctx, &loaded, &reference)?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Verify { ids, junit } => {
-            backend_headless::backend_verify(&ctx, cli.config.as_deref(), &ids, junit.as_deref())
-                .await
+        Cmd::Verify {
+            ids,
+            junit,
+            prune_retracted,
+        } => {
+            backend_headless::backend_verify(
+                &ctx,
+                cli.config.as_deref(),
+                &ids,
+                junit.as_deref(),
+                prune_retracted,
+            )
+            .await
         }
         Cmd::Candidates => {
             let loaded = config::load(cli.config.as_deref())?;

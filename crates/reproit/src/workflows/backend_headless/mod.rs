@@ -369,6 +369,7 @@ async fn run_target_with_policy(
                         endpoint,
                         &request,
                         &violation.fingerprint,
+                        None,
                     )
                     .await
                     {
@@ -696,7 +697,7 @@ async fn exercise_resource_lifecycles(
         }
 
         for (branch_index, branch) in branches.into_iter().enumerate() {
-            maybe_reset_target(client, base_url).await?;
+            maybe_reset_target(client, base_url, None).await?;
             let create_input = create
                 .contract
                 .input
@@ -871,8 +872,15 @@ async fn exercise_resource_lifecycles(
                 .filter(|violation| violation.oracle.starts_with("resource-"))
             {
                 let finding = backend::finding(&violation);
-                if replay_sequence(client, &setup, read, &read_request, &violation.fingerprint)
-                    .await?
+                if replay_sequence(
+                    client,
+                    &setup,
+                    read,
+                    &read_request,
+                    &violation.fingerprint,
+                    None,
+                )
+                .await?
                     == ReplayVerdict::Reproduced
                 {
                     run.findings
@@ -940,29 +948,6 @@ fn is_scalar_identity(value: &Value) -> bool {
     matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_))
 }
 
-fn apply_operation_override(imported: &mut OperationContract, declared: &OperationContract) {
-    if declared.input.is_some() {
-        imported.input = declared.input.clone();
-    }
-    if declared.output.is_some() {
-        imported.output = declared.output.clone();
-    }
-    if !declared.outputs_by_status.is_empty() {
-        imported
-            .outputs_by_status
-            .extend(declared.outputs_by_status.clone());
-    }
-    if !declared.success_statuses.is_empty() {
-        imported.success_statuses = declared.success_statuses.clone();
-    }
-    imported.read_only |= declared.read_only;
-    imported.idempotent |= declared.idempotent;
-    imported.tenant_isolated |= declared.tenant_isolated;
-    if !declared.promised_effects.is_empty() {
-        imported.promised_effects = declared.promised_effects.clone();
-    }
-}
-
 mod schema;
 use schema::*;
 mod generation;
@@ -981,6 +966,8 @@ mod shrink;
 use shrink::shrink_findings;
 mod artifacts;
 use artifacts::{emit_report, persist_findings, persist_run_report, persist_schema_findings};
+mod retraction;
+use retraction::{ArtifactVerdict, ContractStatus, CurrentContracts};
 mod replay_command;
 pub use replay_command::try_replay;
 mod verify;

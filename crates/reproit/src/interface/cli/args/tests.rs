@@ -241,7 +241,20 @@ fn removed_compatibility_commands_are_not_parseable() {
     let cli = Cli::try_parse_from(["reproit", "verify", "fnd_deadbeef0001"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Verify { ids, junit: None } if ids == ["fnd_deadbeef0001"]
+        Cmd::Verify {
+            ids,
+            junit: None,
+            prune_retracted: false,
+        } if ids == ["fnd_deadbeef0001"]
+    ));
+
+    let cli = Cli::try_parse_from(["reproit", "verify", "--prune-retracted"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Cmd::Verify {
+            prune_retracted: true,
+            ..
+        }
     ));
 
     let cli = Cli::try_parse_from(["reproit", "journey", "checkout"]).unwrap();

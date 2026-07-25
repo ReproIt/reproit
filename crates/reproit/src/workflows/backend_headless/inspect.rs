@@ -140,7 +140,7 @@ async fn inspect_capture(
     } else {
         match attach_capture_target(client, config_path, &mut steps).await? {
             Ok(base_url) => {
-                maybe_reset_target(client, &base_url).await?;
+                maybe_reset_target(client, &base_url, None).await?;
                 ctx.say(format!(
                     "Re-sending the captured sequence against the configured backend target \
                      {base_url}."
@@ -206,7 +206,12 @@ async fn inspect_finding(
             artifact.failing.request.url
         );
     }
-    maybe_reset_target(client, &artifact.failing.request.url).await?;
+    maybe_reset_target(
+        client,
+        &artifact.failing.request.url,
+        artifact.reset_url.as_deref(),
+    )
+    .await?;
     ctx.say(format!(
         "Re-sending the saved reproduction of {id} against {}.",
         artifact.failing.request.url

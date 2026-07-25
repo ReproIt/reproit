@@ -174,14 +174,19 @@ const CHECK_DESCRIPTION: &str = concat!(
 
 const VERIFY_DESCRIPTION: &str = concat!(
     "BATCH PROOF-OF-FIX for backend findings. Every confirmed backend finding persists a ",
-    "self-contained, replayable repro under .reproit/findings/; verify replays them all (or the ",
+    "self-contained, replayable repro in the project findings store; verify replays them all (or ",
+    "the ",
     "`ids` you name) against the live target and asserts none still reproduces. The replay ",
     "re-exercises the exact recorded failing request, so a fix cannot be faked by not reaching ",
     "the endpoint: a held finding is machine-checkable proof the defect is gone. Exits non-zero ",
     "(reports which findings still reproduce) if any does. This is the close-the-loop step after ",
     "reproit_scan finds backend bugs and you fix the code: call reproit_verify to PROVE the fix ",
-    "holds, and to catch any regression that brings a fixed finding back. Deterministic and ",
-    "network-only against the configured backend.target."
+    "holds, and to catch any regression that brings a fixed finding back. A finding whose ",
+    "contract the schema no longer asserts is reported as RETRACTED, not held: it does not block, ",
+    "but it is not proof of anything either, so never present a retracted finding as a fix. ",
+    "Retracting a claim is only correct when the schema was WRONG about the API; do not weaken a ",
+    "contract to make a finding go away. Deterministic and network-only against the configured ",
+    "backend.target."
 );
 
 const BASELINE_DESCRIPTION: &str = concat!(

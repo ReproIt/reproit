@@ -68,6 +68,13 @@ pub(crate) fn finding_dir(root: &Path, id: &str) -> PathBuf {
     findings_dir(root).join(id)
 }
 
+/// The findings store as a project-relative label, for messages that tell a
+/// user where to look. Composed from `findings_dir` rather than written out, so
+/// a message can never name a location the code does not actually use.
+pub(crate) fn findings_dir_rel() -> String {
+    findings_dir(Path::new("")).to_string_lossy().into_owned()
+}
+
 /// Follow a bounded provisional-to-confirmed finding alias chain. Alias files
 /// contain only validated raw content ids and never escape the findings root.
 pub(crate) fn canonical_finding_id(root: &Path, id: &str) -> String {
@@ -164,6 +171,10 @@ mod tests {
         assert_eq!(
             finding_dir(root, "abc123"),
             PathBuf::from("/project/.reproit/findings/abc123")
+        );
+        assert_eq!(
+            root.join(findings_dir_rel()),
+            PathBuf::from("/project/.reproit/findings")
         );
         assert_eq!(
             tool_dir(root, "grpcurl-1.9.3"),

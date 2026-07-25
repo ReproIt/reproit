@@ -449,3 +449,32 @@ pub(super) fn preferred_request_content_type(content: &Map<String, Value>) -> Op
                 .then(|| "application/x-www-form-urlencoded".to_string())
         })
 }
+
+/// Fold a reproit.yaml `operations` entry onto the contract imported from
+/// the schema. Declared claims win where they are stated and are additive
+/// where they are flags, so a project can tighten a schema it does not own.
+pub(super) fn apply_operation_override(
+    imported: &mut OperationContract,
+    declared: &OperationContract,
+) {
+    if declared.input.is_some() {
+        imported.input = declared.input.clone();
+    }
+    if declared.output.is_some() {
+        imported.output = declared.output.clone();
+    }
+    if !declared.outputs_by_status.is_empty() {
+        imported
+            .outputs_by_status
+            .extend(declared.outputs_by_status.clone());
+    }
+    if !declared.success_statuses.is_empty() {
+        imported.success_statuses = declared.success_statuses.clone();
+    }
+    imported.read_only |= declared.read_only;
+    imported.idempotent |= declared.idempotent;
+    imported.tenant_isolated |= declared.tenant_isolated;
+    if !declared.promised_effects.is_empty() {
+        imported.promised_effects = declared.promised_effects.clone();
+    }
+}

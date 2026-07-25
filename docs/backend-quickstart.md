@@ -102,6 +102,42 @@ real bugs but only from responses (status, shape, round-trip identity): the blac
 one-line mount for the framework it detected. Scan and fuzz state the tier once in their
 summary. Neither tier ever guesses: a check that needs evidence it does not have abstains.
 
+## Proving a fix, and retracting a wrong contract
+
+Every confirmed finding persists a replayable artifact under `.reproit/findings/<id>/`. Together
+they are a regression suite that grows with every bug found:
+
+```
+reproit verify                  # replay them all; exit 1 if any still reproduces
+reproit verify fnd_9ef028c142a0 # replay only that one
+```
+
+A **held** finding is machine-checkable proof the defect is gone: the replay re-sends the exact
+recorded request, so a fix cannot be faked by not reaching the endpoint. A **reproducing** or
+**inconclusive** finding fails closed.
+
+There is a fourth answer. A finding is "this operation violated this contract", and the contract
+lives in your schema, which you edit. When a first run against an existing API is what authored the
+schema, the most common true outcome is that the *contract* was wrong, and the correct fix is to
+withdraw the claim, not to change the product. Withdrawing it makes `scan` go clean immediately,
+but the recorded finding stays true under the contract it was recorded against, so replaying it
+could never go green.
+
+So `verify` re-resolves each finding's operation against the schema you have now. If the operation
+is gone, or if the response no longer violates the claim the schema currently makes, the finding is
+reported as **retracted**:
+
+```
+verify: 0 held, 0 still reproducing, 0 inconclusive, 1 retracted
+  fnd_9ef028c142a0 retracted on getNearby: the schema no longer makes the violated claim about getNearby
+reproit verify --prune-retracted   # delete findings whose constraint no longer exists
+```
+
+Retracted does not block, because withdrawing a claim is an explicit schema edit that shows up in
+review. It is never counted as held: nothing was proven about the implementation. Only an evaluable
+non-reproduction under the current contract retracts, so a flaky or unreachable run cannot retract a
+live bug, and a schema that cannot be read at all never retracts anything.
+
 ## Production capture replay
 
 With the adapter in capture mode, a production failure ships its full event trail. One command

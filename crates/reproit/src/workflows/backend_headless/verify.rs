@@ -2,8 +2,9 @@ use super::*;
 use crate::interface::junit;
 
 /// Batch proof-of-fix. Every confirmed finding persists a self-contained,
-/// replayable artifact under `.reproit/findings/<id>/`; together they are a
-/// durable regression suite that grows with every bug ever found. `verify`
+/// replayable artifact in the project's findings store (`layout::finding_dir`);
+/// together they are a durable regression suite that grows with every bug ever
+/// found. `verify`
 /// replays each one against the live target and asserts none still reproduces,
 /// so an agent that claims "fixed" is checked against the exact recorded repro
 /// (batch, or one id at a time). A held finding is machine-checkable proof the
@@ -13,15 +14,23 @@ pub async fn run(
     config_path: Option<&Path>,
     ids: &[String],
     junit_path: Option<&Path>,
+    prune_retracted: bool,
 ) -> Result<ExitCode> {
     let Some(root) = project_root_with_findings()? else {
-        ctx.say("no findings to verify (nothing under .reproit/findings)".to_string());
+        ctx.say(format!(
+            "no findings to verify (nothing under {})",
+            layout::findings_dir_rel()
+        ));
         return Ok(ExitCode::SUCCESS);
     };
     // Authenticate exactly like the scan: an auth-gated finding replayed
     // unauthenticated returns 401 and its contract cannot be evaluated, which
     // would otherwise be misread as "held". Fails closed on a bad login.
     install_identity_pool_for_verify(ctx, config_path).await?;
+    // What the project asserts right now, read once for the whole batch: a
+    // finding proven against a claim the schema has since withdrawn is retracted
+    // rather than replayed forever.
+    let current = CurrentContracts::load(config_path);
     let wanted: BTreeSet<String> = ids.iter().map(|id| id.trim().to_string()).collect();
     let mut artifacts = collect_artifacts(&root)?;
     artifacts.sort();
@@ -29,9 +38,19 @@ pub async fn run(
     let mut held = Vec::new();
     let mut reproducing = Vec::new();
     let mut inconclusive = Vec::new();
+    let mut retracted = Vec::new();
     let mut cases = Vec::new();
     for artifact_path in &artifacts {
-        let outcome = replay_command::replay_artifact(artifact_path).await?;
+        // Select before replaying. Naming ids must narrow the work, not just the
+        // report: every replay re-sends setup and the failing request at the live
+        // target, so filtering afterwards would exercise the whole suite to
+        // answer a question about one finding.
+        if !wanted.is_empty()
+            && !wanted.contains(&replay_command::artifact_finding_id(artifact_path)?)
+        {
+            continue;
+        }
+        let outcome = replay_command::replay_artifact(artifact_path, &current).await?;
         let id = outcome
             .finding
             .get("id")
@@ -44,28 +63,34 @@ pub async fn run(
             .and_then(Value::as_str)
             .unwrap_or("operation")
             .to_string();
-        if !wanted.is_empty() && !wanted.contains(&id) {
-            continue;
-        }
         let entry = json!({ "id": id, "operation": operation });
-        let (passed, message) = match outcome.verdict {
-            ReplayVerdict::Fixed => {
+        let (passed, message) = match &outcome.verdict {
+            ArtifactVerdict::Fixed => {
                 held.push(entry);
                 (
                     true,
                     format!("{id} held (no longer reproduces) on {operation}"),
                 )
             }
-            ReplayVerdict::Reproduced => {
+            ArtifactVerdict::Reproduced => {
                 reproducing.push(entry);
                 (false, format!("{id} still reproduces on {operation}"))
             }
-            ReplayVerdict::Inconclusive => {
+            ArtifactVerdict::Inconclusive => {
                 inconclusive.push(entry);
                 (
                     false,
                     format!("{id} inconclusive on {operation} (could not evaluate)"),
                 )
+            }
+            // Passing, but never counted as held: nothing was proven about the
+            // implementation, the claim was withdrawn.
+            ArtifactVerdict::Retracted(reason) => {
+                let mut entry = entry;
+                entry["reason"] = Value::String(reason.clone());
+                entry["path"] = Value::String(artifact_path.to_string_lossy().into_owned());
+                retracted.push(entry);
+                (true, format!("{id} retracted on {operation}: {reason}"))
             }
         };
         cases.push(junit::Case {
@@ -75,6 +100,11 @@ pub async fn run(
             message,
         });
     }
+    let pruned = if prune_retracted {
+        prune(ctx, &retracted)?
+    } else {
+        0
+    };
 
     if let Some(path) = junit_path {
         if let Err(error) = junit::write(path, "reproit-verify", &cases) {
@@ -90,22 +120,30 @@ pub async fn run(
         "held": held,
         "reproducing": reproducing,
         "inconclusive": inconclusive,
+        "retracted": retracted,
+        "pruned": pruned,
         "counts": {
             "held": held.len(),
             "reproducing": reproducing.len(),
             "inconclusive": inconclusive.len(),
+            "retracted": retracted.len(),
         },
     });
     if ctx.json {
         ctx.emit(&report);
-    } else if held.is_empty() && reproducing.is_empty() && inconclusive.is_empty() {
+    } else if held.is_empty()
+        && reproducing.is_empty()
+        && inconclusive.is_empty()
+        && retracted.is_empty()
+    {
         ctx.say("verify: no matching findings".to_string());
     } else {
         ctx.say(format!(
-            "verify: {} held, {} still reproducing, {} inconclusive",
+            "verify: {} held, {} still reproducing, {} inconclusive, {} retracted",
             held.len(),
             reproducing.len(),
-            inconclusive.len()
+            inconclusive.len(),
+            retracted.len()
         ));
         for finding in &reproducing {
             ctx.say(format!(
@@ -121,15 +159,57 @@ pub async fn run(
                 finding["operation"].as_str().unwrap_or("")
             ));
         }
+        for finding in &retracted {
+            ctx.say(format!(
+                "  {} retracted on {}: {}",
+                finding["id"].as_str().unwrap_or(""),
+                finding["operation"].as_str().unwrap_or(""),
+                finding["reason"].as_str().unwrap_or("")
+            ));
+        }
+        if !retracted.is_empty() {
+            ctx.say(if prune_retracted {
+                format!("  removed {pruned} retracted finding(s)")
+            } else {
+                "  a retracted finding proves nothing about the implementation; \
+                 remove them with `reproit verify --prune-retracted`"
+                    .to_string()
+            });
+        }
     }
     // Only an all-held run is a pass: a still-reproducing finding is a live bug,
     // and an inconclusive one means verify could not certify the fix, so it fails
-    // closed rather than issuing a false all-clear.
+    // closed rather than issuing a false all-clear. Retracted findings do not
+    // block, because withdrawing a claim is an explicit schema edit that already
+    // makes `scan` stop reporting them.
     Ok(if reproducing.is_empty() && inconclusive.is_empty() {
         ExitCode::SUCCESS
     } else {
         Exit::Regression.code()
     })
+}
+
+/// Delete the finding directories of retracted findings. The artifact is only
+/// meaningful as a constraint, and its constraint no longer exists; leaving it
+/// on disk means every later run re-reports it forever.
+fn prune(ctx: &Ctx, retracted: &[Value]) -> Result<usize> {
+    let mut removed = 0;
+    for finding in retracted {
+        let Some(path) = finding["path"].as_str().map(Path::new) else {
+            continue;
+        };
+        let Some(directory) = path.parent() else {
+            continue;
+        };
+        match std::fs::remove_dir_all(directory) {
+            Ok(()) => removed += 1,
+            Err(error) => ctx.say(format!(
+                "warn: could not remove {}: {error}",
+                directory.display()
+            )),
+        }
+    }
+    Ok(removed)
 }
 
 /// Build and install the identity pool from the project's backend auth config so
@@ -162,7 +242,7 @@ async fn install_identity_pool_for_verify(ctx: &Ctx, config_path: Option<&Path>)
     Ok(())
 }
 
-/// The nearest ancestor of the cwd that has a `.reproit/findings` directory.
+/// The nearest ancestor of the cwd that has a findings store.
 fn project_root_with_findings() -> Result<Option<PathBuf>> {
     let cwd = std::env::current_dir()?;
     for root in cwd.ancestors() {

@@ -456,6 +456,9 @@ pub(crate) enum Cmd {
         /// Write a JUnit report of held vs reproducing findings.
         #[arg(long)]
         junit: Option<PathBuf>,
+        /// Delete findings whose contract the schema no longer asserts.
+        #[arg(long)]
+        prune_retracted: bool,
     },
     /// List discovered candidates that are still blocked from promotion, with
     /// the exact missing proof stages.
