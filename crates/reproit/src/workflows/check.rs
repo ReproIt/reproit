@@ -20,6 +20,7 @@ pub(super) struct CheckArgs {
     pub(super) kind: Option<String>,
     pub(super) runs: Option<u32>,
     pub(super) junit: Option<PathBuf>,
+    pub(super) service: Vec<PathBuf>,
     pub(super) strict: bool,
     pub(super) locale: Option<String>,
     pub(super) target: Option<String>,
@@ -56,6 +57,12 @@ pub(super) async fn run(
     // Backend project + no saved repro: `reproit check` is the CI gate. Run a
     // scan and block only on new or regressed findings (the lifecycle gate), so a
     // PR that introduces a reproducible bug fails while a known finding does not.
+    // Gate the whole repo: one exit code across several services, so CI does not
+    // have to run N commands and AND the codes itself (and quietly lose a
+    // failure when someone forgets one).
+    if !args.service.is_empty() {
+        return run_repo_gate(ctx, &args).await;
+    }
     if args.repro.is_none() && super::backend_target::find(config_path)?.is_some() {
         return run_backend_gate(ctx, config_path, &args).await;
     }
@@ -129,6 +136,7 @@ async fn run_backend_gate(
     config_path: Option<&Path>,
     args: &CheckArgs,
 ) -> Result<ExitCode> {
+    let root = super::backend_target::find(config_path)?.map(|project| project.root);
     let Some((schemas, config)) = super::backend_target::resolve(config_path)? else {
         anyhow::bail!("backend project has no schema; set backend.schemas");
     };
@@ -147,7 +155,7 @@ async fn run_backend_gate(
         vars.push(("REPROIT_GATE_BASELINE".to_string(), "1".to_string()));
     }
     let _env = crate::adapters::scoped_env::ScopedEnv::set(vars);
-    backend_headless::run_configured_target(ctx, &schemas, "scan", 1, 1, config).await
+    backend_headless::run_configured_target(ctx, &schemas, "scan", 1, 1, config, root).await
 }
 
 fn routes_to_capture_file(loaded: &config::Loaded, reference: &str) -> bool {
@@ -488,6 +496,59 @@ fn write_junit(ctx: &Ctx, path: Option<&Path>, cases: &[junit::Case]) {
         ));
     } else {
         ctx.say(format!("  junit: {}", path.display()));
+    }
+}
+
+/// Gate every named service and aggregate into one exit code.
+///
+/// A repo with more than one service needed `reproit check` per config plus
+/// hand-written `&&` in CI, which loses a failure the moment someone adds a
+/// third service and forgets to extend the chain. This runs each in turn,
+/// reports a per-service line, and fails if ANY service fails: the aggregate is
+/// pessimistic by construction, so a service that could not even be resolved
+/// counts as a failure rather than being skipped.
+async fn run_repo_gate(ctx: &Ctx, args: &CheckArgs) -> Result<ExitCode> {
+    let mut failures = Vec::new();
+    let mut outcomes = Vec::new();
+    for service in &args.service {
+        if !service.is_file() {
+            failures.push(service.display().to_string());
+            outcomes.push((service.clone(), "config not found".to_string()));
+            continue;
+        }
+        ctx.say(format!("=== {} ===", service.display()));
+        // Each service resolves its OWN target. `apply_target_precedence`
+        // publishes the winner through REPROIT_BACKEND_URL, and env beats
+        // config, so without clearing it here service 2 would silently be
+        // scanned against service 1's URL and report its schema as violated.
+        let outcome = {
+            let _scoped = crate::adapters::scoped_env::ScopedEnv::cleared(&["REPROIT_BACKEND_URL"]);
+            run_backend_gate(ctx, Some(service), args).await
+        };
+        let label = match &outcome {
+            Ok(code) if *code == ExitCode::SUCCESS => "pass".to_string(),
+            Ok(_) => "FAIL".to_string(),
+            // A service whose gate could not run at all is a failure, never a
+            // skip: an unreachable service must not silently widen the merge.
+            Err(error) => format!("ERROR {error}"),
+        };
+        if label != "pass" {
+            failures.push(service.display().to_string());
+        }
+        outcomes.push((service.clone(), label));
+    }
+    ctx.say(format!(
+        "repo gate: {}/{} service(s) passed",
+        outcomes.len() - failures.len(),
+        outcomes.len()
+    ));
+    for (service, label) in &outcomes {
+        ctx.say(format!("  {label:<6} {}", service.display()));
+    }
+    if failures.is_empty() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(Exit::Regression.code())
     }
 }
 

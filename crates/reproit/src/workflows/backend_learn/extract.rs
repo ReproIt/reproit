@@ -3,6 +3,7 @@
 //! deliberately not a parser; anything a pattern cannot claim confidently is
 //! skipped and counted rather than guessed.
 
+use super::rust_nest;
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -29,7 +30,7 @@ const SKIP_DIRS: [&str; 8] = [
 ];
 
 #[derive(Debug, Default)]
-pub(super) struct Derived {
+pub(crate) struct Derived {
     /// path -> methods, both normalized (`{id}` params, lowercase methods).
     pub(super) routes: BTreeMap<String, BTreeSet<&'static str>>,
     pub(super) files_scanned: usize,
@@ -85,8 +86,12 @@ fn extensions(family: Family) -> &'static [&'static str] {
 pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
     let family = family_for(framework)?;
     let patterns = Patterns::new();
+    let files = source_files(root, extensions(family));
+    if family == Family::Rust {
+        return Some(derive_rust(&patterns, &files));
+    }
     let mut derived = Derived::default();
-    for file in source_files(root, extensions(family)) {
+    for file in files {
         let Ok(content) = std::fs::read_to_string(&file) else {
             continue;
         };
@@ -97,13 +102,13 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             .unwrap_or("");
         let prefixes = patterns.prefixes(family, &content);
         let hits = match family {
-            Family::Rust => patterns.rust(&content),
             Family::Node => patterns.node(&content, &prefixes),
             Family::Python => patterns.python(&content, file_name, &prefixes),
             Family::Go => patterns.go(&content),
             Family::Ruby => patterns.ruby(&content),
             Family::Spring => patterns.spring(&content),
             Family::Php => patterns.php(&content),
+            Family::Rust => unreachable!("handled by derive_rust"),
         };
         for (raw, method) in hits {
             match normalize_path(&raw) {
@@ -115,6 +120,29 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
         }
     }
     Some(derived)
+}
+
+/// Rust needs the whole file set before it can place a route: the prefix is at
+/// the `.nest(...)` call site and the routes are in another function, usually
+/// another file. Pass one attributes hits to their enclosing function, pass two
+/// composes the mount graph.
+fn derive_rust(patterns: &Patterns, files: &[PathBuf]) -> Derived {
+    let scanner = rust_nest::RustScanner::new(|pattern: &str| {
+        Regex::new(pattern).expect("static mount pattern")
+    });
+    let mut derived = Derived::default();
+    let mut units = Vec::new();
+    for file in files {
+        let Ok(content) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        derived.files_scanned += 1;
+        units.push(scanner.scan(&content, |line| patterns.rust(line)));
+    }
+    let (routes, skipped) = rust_nest::resolve(&units, join_prefix, normalize_path);
+    derived.routes = routes;
+    derived.skipped = skipped;
+    derived
 }
 
 /// Bounded, deterministic source walk: sorted entries, capped depth and count,

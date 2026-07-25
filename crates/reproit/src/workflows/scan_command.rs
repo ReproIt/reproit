@@ -65,7 +65,8 @@ pub(super) async fn run(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -
         // A positional URL is equivalent to --target; the flag wins if both.
         let flag = args.target_url.clone().or(positional_url);
         backend_target::apply_target_precedence(flag.as_deref(), config.target.as_deref())?;
-        return backend_headless::run_configured_target(ctx, &schemas, "scan", 1, 1, config).await;
+        return backend_headless::run_configured_target(ctx, &schemas, "scan", 1, 1, config, None)
+            .await;
     }
     if args.platform.as_deref() == Some("backend") {
         anyhow::bail!(

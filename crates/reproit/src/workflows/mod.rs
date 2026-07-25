@@ -263,6 +263,7 @@ where
             kind,
             runs,
             junit,
+            service,
             strict,
             locale,
             target,
@@ -283,6 +284,7 @@ where
                     kind,
                     runs,
                     junit,
+                    service,
                     strict,
                     locale,
                     target,
@@ -318,6 +320,12 @@ where
             )
             .await
         }
+        Cmd::Accept {
+            ids,
+            reason,
+            until,
+            remove,
+        } => backend_headless::backend_accept(&ctx, &ids, &reason, until.as_deref(), remove).await,
         Cmd::Candidates => {
             let loaded = config::load(cli.config.as_deref())?;
             list_candidates(&ctx, &loaded)?;

@@ -6,6 +6,7 @@ pub(super) fn persist_findings(
     schema_sha256: &str,
     seed: u64,
     findings: Vec<FindingCase>,
+    reset: &crate::domain::backend::BackendReset,
 ) -> Result<Vec<Value>> {
     let mut persisted = Vec::new();
     let mut seen = BTreeSet::new();
@@ -34,6 +35,7 @@ pub(super) fn persist_findings(
             schema: schema.to_string_lossy().into_owned(),
             schema_sha256: schema_sha256.into(),
             reset_url: std::env::var("REPROIT_BACKEND_RESET_URL").ok(),
+            reset: reset.clone(),
             setup,
             failing: ReplayStep {
                 contract: endpoint.contract,

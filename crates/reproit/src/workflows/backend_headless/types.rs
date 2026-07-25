@@ -78,6 +78,15 @@ pub(super) struct BackendFindingArtifact {
     pub(super) schema_sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) reset_url: Option<String>,
+    /// The declared reset contract this finding was found under. Recorded so a
+    /// replay re-establishes the SAME preconditions; a finding reproduced from
+    /// a different starting state is not the same finding. Defaulted, so
+    /// artifacts written before the contract existed still load.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::domain::backend::BackendReset::is_empty"
+    )]
+    pub(super) reset: crate::domain::backend::BackendReset,
     #[serde(default)]
     pub(super) setup: Vec<ReplayStep>,
     pub(super) failing: ReplayStep,
@@ -121,4 +130,5 @@ pub(super) struct RunPolicy<'a> {
     pub(super) policy: BackendPolicy,
     pub(super) operation_overrides: Vec<OperationContract>,
     pub(super) auth: Option<&'a BackendAuth>,
+    pub(super) reset: crate::domain::backend::BackendReset,
 }

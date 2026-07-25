@@ -56,7 +56,9 @@ pub async fn run_target(
             policy: BackendPolicy::default(),
             operation_overrides: Vec::new(),
             auth: None,
+            reset: Default::default(),
         },
+        None,
     )
     .await
 }
@@ -68,9 +70,11 @@ pub async fn run_configured_target(
     seed: u64,
     runs: u32,
     config: BackendConfig,
+    root: Option<PathBuf>,
 ) -> Result<ExitCode> {
     let operations = config.operations;
     let auth = config.auth;
+    let reset = config.reset;
     run_target_with_policy(
         ctx,
         targets,
@@ -86,7 +90,9 @@ pub async fn run_configured_target(
             },
             operation_overrides: operations,
             auth: auth.as_ref(),
+            reset,
         },
+        root,
     )
     .await
 }
@@ -98,13 +104,21 @@ async fn run_target_with_policy(
     seed: u64,
     runs: u32,
     declared: RunPolicy<'_>,
+    root: Option<PathBuf>,
 ) -> Result<ExitCode> {
     let RunPolicy {
         policy,
         operation_overrides,
         auth,
+        reset,
     } = declared;
-    let root = std::env::current_dir()?;
+    // The project root, not the process cwd: a repo-level gate runs several
+    // services from one working directory, and each must own its own .reproit/
+    // store or their finding histories collide.
+    let root = match root {
+        Some(root) => root,
+        None => std::env::current_dir()?,
+    };
     // A backend contract may be split across several schema files describing ONE
     // service. Aggregate every declared schema's operations (not just the first,
     // which silently dropped the rest); the first document supplies the base URL
@@ -214,6 +228,10 @@ async fn run_target_with_policy(
             if count == 1 { "y" } else { "ies" }
         ));
     }
+    // Return the service to a known state before the sweep, so findings are
+    // reproducible from a declared starting point rather than from whatever the
+    // last run left behind. Fails closed on a required step.
+    reset::run_reset(ctx, &reset, &root).await?;
     let attempts = if fuzzing { runs.max(1) } else { 1 };
     if attempts > MAX_ATTEMPTS_PER_OPERATION {
         bail!(
@@ -270,6 +288,12 @@ async fn run_target_with_policy(
         });
     }
     for offset in 0..attempts {
+        // Each fuzz round starts clean too: without this, round N inherits the
+        // resources round N-1 created and a shrink can chase state that no
+        // longer exists.
+        if offset > 0 {
+            reset::run_reset(ctx, &reset, &root).await?;
+        }
         let mut values = ValueBank::default();
         let mut setup = Vec::<ReplayStep>::new();
         for endpoint in &ordered {
@@ -462,6 +486,7 @@ async fn run_target_with_policy(
         &schema_sha256,
         seed,
         findings,
+        &reset,
     )?);
     public_findings.sort_by(|left, right| {
         left.get("id")
@@ -532,7 +557,7 @@ async fn run_target_with_policy(
     // evaluate" must never render as "clean", or a retried CI job passes a still
     // broken PR.
     if std::env::var_os("REPROIT_GATE").is_some() {
-        return Ok(gate_outcome(ctx, &lifecycle, complete, inconclusive));
+        return Ok(gate_outcome(ctx, &lifecycle, complete, inconclusive, &root));
     }
     let has_findings = report["findings"]
         .as_array()
@@ -916,48 +941,6 @@ fn unique_endpoint<'a>(endpoints: &'a [Endpoint], operation: &str) -> Option<&'a
     matches.next().is_none().then_some(first)
 }
 
-fn json_path_value<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
-    if path.is_empty() || path == "$" {
-        return Some(value);
-    }
-    path.trim_start_matches('$')
-        .trim_start_matches('.')
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .try_fold(value, |current, part| current.get(part))
-}
-
-fn set_json_path(value: &mut Value, path: &str, replacement: Value) -> bool {
-    let parts = path
-        .trim_start_matches('$')
-        .trim_start_matches('.')
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    let Some((last, parents)) = parts.split_last() else {
-        *value = replacement;
-        return true;
-    };
-    let Some(parent) = parents
-        .iter()
-        .try_fold(value, |current, part| current.get_mut(*part))
-    else {
-        return false;
-    };
-    let Some(object) = parent.as_object_mut() else {
-        return false;
-    };
-    if !object.contains_key(*last) {
-        return false;
-    }
-    object.insert((*last).into(), replacement);
-    true
-}
-
-fn is_scalar_identity(value: &Value) -> bool {
-    matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_))
-}
-
 mod schema;
 use schema::*;
 mod generation;
@@ -978,6 +961,9 @@ mod artifacts;
 use artifacts::{emit_report, persist_findings, persist_run_report, persist_schema_findings};
 pub(super) mod coverage;
 use coverage::Coverage;
+mod accept;
+pub use accept::run as backend_accept;
+mod reset;
 mod retraction;
 use retraction::{ArtifactVerdict, ContractStatus, CurrentContracts};
 mod replay_command;
@@ -990,9 +976,11 @@ mod inspect;
 mod inspect_plan;
 mod inspect_report;
 pub use inspect::try_inspect;
-use replay_command::{escape_pointer, maybe_reset_target, replay_endpoint, value_as_text};
+use replay_command::{
+    escape_pointer, find_artifact, maybe_reset_target, replay_endpoint, value_as_text,
+};
 mod util;
-use util::{hex_hash, percent_encode};
+use util::{hex_hash, is_scalar_identity, json_path_value, percent_encode, set_json_path};
 
 #[cfg(test)]
 mod tests;

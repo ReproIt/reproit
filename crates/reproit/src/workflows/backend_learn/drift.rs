@@ -1,0 +1,263 @@
+//! Declared contract versus the routes the source actually serves.
+//!
+//! Nothing checked a hand-written schema against the code, so a schema that
+//! merely LOOKS right silently cost coverage: a `blocked_type: {type: string}`
+//! where the handler accepts an enum rejects every generated value, and the run
+//! reports "exercised" while evaluating nothing. Worse, a path the service does
+//! not serve 404s forever and reads as a passing operation.
+//!
+//! `--learn` already extracts routes from source for exactly this reason. This
+//! points the same extractor at VALIDATION: which declared operations have no
+//! matching route, and which served routes are undeclared. It compares
+//! (method, path template) only, never types, because the extractor sees routes
+//! and not handler signatures, and reporting a type mismatch it cannot actually
+//! observe would be the same overclaiming the schema is guilty of.
+
+use super::extract::{self, Derived};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+
+/// One (method, path) the schema declares or the source serves.
+pub type Route = (String, String);
+
+#[derive(Debug, Default, PartialEq)]
+pub struct Drift {
+    /// Declared in a schema, no matching route in the source. These 404 at
+    /// runtime, so every attempt is wasted.
+    pub undeclared_by_source: Vec<Route>,
+    /// Served by the source, absent from every schema. Real surface nothing
+    /// will ever test.
+    pub unserved_by_schema: Vec<Route>,
+    /// Operations that matched. Reported so a clean result is a positive
+    /// statement rather than the absence of a warning.
+    pub matched: usize,
+    pub files_scanned: usize,
+}
+
+impl Drift {
+    pub fn is_clean(&self) -> bool {
+        self.undeclared_by_source.is_empty() && self.unserved_by_schema.is_empty()
+    }
+}
+
+/// The (method, path) pairs an OpenAPI document declares.
+///
+/// Only OpenAPI: a GraphQL or protobuf service has no URL routes to compare
+/// against, and inventing a comparison for them would produce noise rather than
+/// drift. Those return an empty list, which the caller reports as "not checked".
+pub fn declared_routes(document: &serde_json::Value) -> Vec<Route> {
+    const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
+    let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
+        return Vec::new();
+    };
+    let mut routes = Vec::new();
+    for (path, item) in paths {
+        let Some(operations) = item.as_object() else {
+            continue;
+        };
+        for method in operations.keys() {
+            if METHODS.contains(&method.as_str()) {
+                routes.push((method.to_uppercase(), path.clone()));
+            }
+        }
+    }
+    routes.sort();
+    routes
+}
+
+/// Compare declared operations against routes extracted from `root`.
+///
+/// Returns None when the source cannot be read for this framework, so the
+/// caller reports "not checked" rather than inventing a clean result: an
+/// extractor that found nothing must never look like a schema that matches.
+pub fn compare(root: &Path, framework: &str, declared: &[Route]) -> Option<Drift> {
+    let derived = extract::derive(root, framework)?;
+    if derived.routes.is_empty() {
+        return None;
+    }
+    Some(diff(declared, &derived))
+}
+
+fn diff(declared: &[Route], derived: &Derived) -> Drift {
+    let served: BTreeSet<Route> = derived
+        .routes
+        .iter()
+        .flat_map(|(path, methods)| {
+            methods
+                .iter()
+                .map(move |method| (method.to_uppercase(), path.clone()))
+        })
+        .collect();
+    // Path parameters are named by the handler, not by the schema, so
+    // `/users/{id}` and `/users/{user_id}` are the same route. Compare on a
+    // name-erased shape and keep the declared spelling for the message.
+    let served_shapes: BTreeMap<Route, Route> = served
+        .iter()
+        .map(|route| (erase_params(route), route.clone()))
+        .collect();
+    let declared_set: BTreeSet<Route> = declared
+        .iter()
+        .map(|(method, path)| (method.to_uppercase(), path.clone()))
+        .collect();
+    let declared_shapes: BTreeSet<Route> = declared_set.iter().map(erase_params).collect();
+
+    let mut drift = Drift {
+        files_scanned: derived.files_scanned,
+        ..Drift::default()
+    };
+    for route in &declared_set {
+        if served_shapes.contains_key(&erase_params(route)) {
+            drift.matched += 1;
+        } else {
+            drift.undeclared_by_source.push(route.clone());
+        }
+    }
+    for (shape, route) in &served_shapes {
+        if !declared_shapes.contains(shape) {
+            drift.unserved_by_schema.push(route.clone());
+        }
+    }
+    drift
+}
+
+/// `/users/{user_id}/posts/{id}` -> `/users/{}/posts/{}`.
+fn erase_params(route: &Route) -> Route {
+    let mut erased = String::with_capacity(route.1.len());
+    let mut in_param = false;
+    for character in route.1.chars() {
+        match character {
+            '{' => {
+                in_param = true;
+                erased.push_str("{}");
+            }
+            '}' => in_param = false,
+            _ if !in_param => erased.push(character),
+            _ => {}
+        }
+    }
+    (route.0.clone(), erased)
+}
+
+/// The human report. Silent only when the comparison actually ran and matched.
+pub fn lines(drift: &Drift) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (label, routes, fix) in [
+        (
+            "declared but not served by the source",
+            &drift.undeclared_by_source,
+            "these 404 at runtime: fix the path, or delete the operation",
+        ),
+        (
+            "served by the source but not declared",
+            &drift.unserved_by_schema,
+            "add these to a schema so they are actually tested",
+        ),
+    ] {
+        if routes.is_empty() {
+            continue;
+        }
+        lines.push(format!("{} ({}): {}", label, routes.len(), fix));
+        for (method, path) in routes.iter().take(MAX_REPORTED) {
+            lines.push(format!("      {method} {path}"));
+        }
+        if routes.len() > MAX_REPORTED {
+            lines.push(format!(
+                "      ... and {} more",
+                routes.len() - MAX_REPORTED
+            ));
+        }
+    }
+    lines
+}
+
+const MAX_REPORTED: usize = 15;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn derived(routes: &[(&str, &[&'static str])]) -> Derived {
+        let mut map: BTreeMap<String, BTreeSet<&'static str>> = BTreeMap::new();
+        for (path, methods) in routes {
+            map.insert(path.to_string(), methods.iter().copied().collect());
+        }
+        Derived {
+            routes: map,
+            files_scanned: 3,
+            skipped: 0,
+        }
+    }
+
+    fn route(method: &str, path: &str) -> Route {
+        (method.to_string(), path.to_string())
+    }
+
+    #[test]
+    fn a_matching_schema_is_clean() {
+        let drift = diff(
+            &[route("GET", "/users"), route("POST", "/users")],
+            &derived(&[("/users", &["get", "post"])]),
+        );
+        assert!(drift.is_clean(), "{drift:?}");
+        assert_eq!(drift.matched, 2);
+        assert!(lines(&drift).is_empty());
+    }
+
+    #[test]
+    fn a_declared_path_the_source_does_not_serve_is_reported() {
+        // The expensive case: it 404s forever and reads as a passing operation.
+        let drift = diff(
+            &[route("GET", "/users"), route("GET", "/usres")],
+            &derived(&[("/users", &["get"])]),
+        );
+        assert_eq!(drift.undeclared_by_source, vec![route("GET", "/usres")]);
+        assert_eq!(drift.matched, 1);
+        let report = lines(&drift).join("\n");
+        assert!(report.contains("declared but not served"), "{report}");
+        assert!(report.contains("GET /usres"), "{report}");
+    }
+
+    #[test]
+    fn a_served_route_missing_from_the_schema_is_reported() {
+        let drift = diff(
+            &[route("GET", "/users")],
+            &derived(&[("/users", &["get"]), ("/admin/purge", &["post"])]),
+        );
+        assert_eq!(
+            drift.unserved_by_schema,
+            vec![route("POST", "/admin/purge")]
+        );
+        let report = lines(&drift).join("\n");
+        assert!(
+            report.contains("served by the source but not declared"),
+            "{report}"
+        );
+        assert!(report.contains("POST /admin/purge"), "{report}");
+    }
+
+    #[test]
+    fn a_path_parameter_named_differently_still_matches() {
+        // The schema author writes {id}; the handler calls it {user_id}. Same
+        // route, and reporting it as drift would train people to ignore this.
+        let drift = diff(
+            &[route("GET", "/users/{id}/posts/{post_id}")],
+            &derived(&[("/users/{user_id}/posts/{pid}", &["get"])]),
+        );
+        assert!(drift.is_clean(), "{drift:?}");
+    }
+
+    #[test]
+    fn method_case_does_not_matter() {
+        let drift = diff(&[route("get", "/users")], &derived(&[("/users", &["get"])]));
+        assert!(drift.is_clean(), "{drift:?}");
+    }
+
+    #[test]
+    fn a_method_the_source_does_not_serve_is_drift_even_on_a_served_path() {
+        let drift = diff(
+            &[route("GET", "/users"), route("DELETE", "/users")],
+            &derived(&[("/users", &["get"])]),
+        );
+        assert_eq!(drift.undeclared_by_source, vec![route("DELETE", "/users")]);
+    }
+}

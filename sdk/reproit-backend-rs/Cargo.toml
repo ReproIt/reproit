@@ -1,11 +1,18 @@
 [package]
 name = "reproit-backend"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
+# Publish-ready: 0.1.0, README, and metadata are in place and
+# `cargo publish -p reproit-backend --dry-run` passes. Kept closed until
+# publishing is an explicit decision, because it permanently claims the
+# crates.io name and opens a distribution channel this repo does not use today.
 publish = false
-description = "Experimental trace-bound service instrumentation for Reproit"
+description = "Trace-bound service instrumentation for ReproIt: effect-grounded backend verdicts"
+readme = "README.md"
+keywords = ["testing", "observability", "middleware", "axum", "actix"]
+categories = ["development-tools::testing", "web-programming"]
 
 [features]
 # First-class framework middleware, feature-gated so the core adapter stays

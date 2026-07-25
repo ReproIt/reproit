@@ -74,6 +74,7 @@ pub(super) async fn run(
         ctx,
         config_path,
         CheckArgs {
+            service: Vec::new(),
             repro: Some(reference.to_string()),
             devices: 1,
             kind: None,

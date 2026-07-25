@@ -66,6 +66,13 @@ pub(super) async fn replay_artifact(
             finding: artifact.finding,
         });
     }
+    // Re-establish the SAME preconditions the finding was found under before
+    // replaying it. A finding reproduced from a different starting state is not
+    // the same finding, and a fix "proven" from one is not proven.
+    let client_for_reset = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    super::reset::run_reset_quiet(&client_for_reset, &artifact.reset).await?;
     let expected = artifact
         .finding
         .get("fingerprint")

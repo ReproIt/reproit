@@ -175,6 +175,21 @@ reproit <id> --record-video   # run the bug and produce annotated video evidence
 reproit inspect @login-crash  # step through a repro on its configured platform
 ```
 
+On a backend project `reproit check` is the CI gate: it runs a scan and exits non-zero only on
+new-or-regressed findings. Two flags shape that:
+
+```sh
+reproit check --service api/reproit.yaml --service worker/reproit.yaml   # gate a whole repo
+reproit accept fnd_<id> --reason "..." --until 2026-12-31                # live with one finding
+reproit accept fnd_<id> --remove                                          # and stop living with it
+```
+
+`--service` gates several services under one exit code, so a multi-service repo needs one CI step
+instead of N chained ones; a service whose gate cannot run counts as a failure, never a skip.
+`accept` is the per-finding alternative to `--update-baseline`, which accepts everything currently
+reproducing: an accept names one finding, requires a reason, and blocks again once `--until`
+passes. See `docs/backend-quickstart.md`.
+
 On a backend project, `reproit check <capture.json>` also accepts a captured-production payload
 file (the `reproit-backend-capture` JSON a backend SDK attaches to a production finding, the same
 artifact `reproit debug replay-capture` takes). The capture is re-evaluated deterministically

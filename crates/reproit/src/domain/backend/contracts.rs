@@ -47,6 +47,58 @@ pub struct BackendConfig {
     /// silently fuzzing only the public surface.
     #[serde(default)]
     pub auth: Option<BackendAuth>,
+    /// Ordered steps that return the service to a known state. Runs before the
+    /// sweep and before every fuzz round, so runs are independent instead of
+    /// inheriting whatever the previous one left behind.
+    ///
+    /// The UI side has had this as a first-class contract for a long time; the
+    /// backend had only `REPROIT_BACKEND_RESET_URL`, a single URL in the
+    /// environment, which cannot express the several ordered steps a real
+    /// stateful service needs and is invisible to anyone reading the config.
+    #[serde(default)]
+    pub reset: BackendReset,
+}
+
+/// The ordered reset contract for a backend service.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BackendReset {
+    #[serde(default)]
+    pub steps: Vec<BackendResetStep>,
+}
+
+impl BackendReset {
+    pub fn is_empty(&self) -> bool {
+        self.steps.is_empty()
+    }
+}
+
+/// One reset step. Mirrors the UI `reset:` block so a project with both sides
+/// declares state reset the same way twice, rather than learning two shapes.
+/// Steps are best-effort unless `required`, which fails the run closed: a reset
+/// that silently did not happen is worse than no reset, because the run still
+/// reports its findings as reproducible from a clean state.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+pub enum BackendResetStep {
+    Command {
+        run: String,
+        #[serde(default)]
+        required: bool,
+    },
+    Http {
+        #[serde(default = "default_reset_method")]
+        method: String,
+        url: String,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        required: bool,
+    },
+}
+
+fn default_reset_method() -> String {
+    "POST".to_string()
 }
 
 /// A login step that mints a session token for authenticated scan/fuzz.

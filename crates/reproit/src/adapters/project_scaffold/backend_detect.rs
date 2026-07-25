@@ -2,7 +2,7 @@
 //! schema guidance and adapter one-liner that `init` and `doctor` teach.
 //! Detection is a hint for guidance only; it never creates configuration.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Manifests are small; anything larger is not a manifest we should parse.
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
@@ -107,10 +107,7 @@ fn go_framework(name: &'static str) -> BackendFramework {
 /// treated as a backend only when it has a server framework and no obvious
 /// frontend framework, so web projects keep their web init.
 pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
-    if let Some(name) = manifest(dir, "Cargo.toml")
-        .as_deref()
-        .and_then(cargo_framework)
-    {
+    if let Some(name) = detect_cargo_framework(dir) {
         return Some(rust_framework(name));
     }
     if let Some(found) = manifest(dir, "package.json").and_then(|pkg| node_backend(&pkg)) {
@@ -179,6 +176,80 @@ fn manifest(dir: &Path, name: &str) -> Option<String> {
         return None;
     }
     std::fs::read_to_string(&path).ok()
+}
+
+/// Bound on workspace members inspected, so a large monorepo cannot turn
+/// detection into a full-tree walk.
+const MAX_WORKSPACE_MEMBERS: usize = 64;
+
+/// The Rust framework for this directory, following a workspace root into its
+/// members. A Cargo workspace root declares `[workspace] members = [...]` and
+/// usually has no dependencies of its own, so reading only the root manifest
+/// reported "no backend" for every workspace-layout service: the common shape
+/// for exactly the Rust projects that most need `--learn`.
+fn detect_cargo_framework(dir: &Path) -> Option<&'static str> {
+    let root = manifest(dir, "Cargo.toml")?;
+    if let Some(name) = cargo_framework(&root) {
+        return Some(name);
+    }
+    for member in workspace_members(&root, dir) {
+        if let Some(name) = manifest(&member, "Cargo.toml")
+            .as_deref()
+            .and_then(cargo_framework)
+        {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// Member directories declared by a workspace root, with a single trailing `*`
+/// expanded one level. Deterministic (sorted) and bounded.
+fn workspace_members(cargo: &str, root: &Path) -> Vec<PathBuf> {
+    let Some(list) = workspace_member_list(cargo) else {
+        return Vec::new();
+    };
+    let mut members = Vec::new();
+    for entry in list {
+        if members.len() >= MAX_WORKSPACE_MEMBERS {
+            break;
+        }
+        match entry.strip_suffix("/*") {
+            Some(parent) => {
+                let Ok(children) = std::fs::read_dir(root.join(parent)) else {
+                    continue;
+                };
+                let mut paths: Vec<PathBuf> = children
+                    .filter_map(Result::ok)
+                    .map(|child| child.path())
+                    .filter(|path| path.is_dir())
+                    .collect();
+                paths.sort();
+                members.extend(paths.into_iter().take(MAX_WORKSPACE_MEMBERS));
+            }
+            None => members.push(root.join(entry)),
+        }
+    }
+    members.truncate(MAX_WORKSPACE_MEMBERS);
+    members
+}
+
+/// The raw `members = [...]` strings under `[workspace]`. Hand-scanned rather
+/// than fully parsed: detection only needs the paths, and adding a TOML parser
+/// for one array is not worth the dependency.
+fn workspace_member_list(cargo: &str) -> Option<Vec<String>> {
+    let start = cargo.find("[workspace]")?;
+    let section = &cargo[start..];
+    let members = section.find("members")?;
+    let open = section[members..].find('[')? + members;
+    let close = section[open..].find(']')? + open;
+    Some(
+        section[open + 1..close]
+            .split(',')
+            .map(|entry| entry.trim().trim_matches(['"', '\'']).to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect(),
+    )
 }
 
 fn cargo_framework(cargo: &str) -> Option<&'static str> {

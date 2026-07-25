@@ -298,6 +298,11 @@ pub(crate) enum Cmd {
         /// Write JUnit XML results to this path (for CI)
         #[arg(long)]
         junit: Option<PathBuf>,
+        /// Gate several services in one command: repeat for each service's
+        /// reproit.yaml. Exits non-zero if ANY of them fails, so a repo with
+        /// more than one service needs one CI step instead of N chained ones.
+        #[arg(long, value_name = "CONFIG")]
+        service: Vec<PathBuf>,
         /// Treat a quarantined (reported, non-blocking) repro's failure as
         /// blocking too, so it gates the exit code like a required repro.
         #[arg(long)]
@@ -459,6 +464,23 @@ pub(crate) enum Cmd {
         /// Delete findings whose contract the schema no longer asserts.
         #[arg(long)]
         prune_retracted: bool,
+    },
+    /// Accept one backend finding so the CI gate stops blocking on it, with a
+    /// stated reason and an optional expiry. Unlike `check --update-baseline`,
+    /// this accepts ONLY the findings you name; everything else keeps blocking.
+    Accept {
+        /// Finding ids to accept.
+        ids: Vec<String>,
+        /// Why this finding is being lived with. Required.
+        #[arg(long, default_value = "")]
+        reason: String,
+        /// Date the acceptance lapses (YYYY-MM-DD). After it, the finding
+        /// blocks again rather than staying silent forever.
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        until: Option<String>,
+        /// Drop the acceptance instead of adding it.
+        #[arg(long)]
+        remove: bool,
     },
     /// List discovered candidates that are still blocked from promotion, with
     /// the exact missing proof stages.

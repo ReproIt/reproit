@@ -132,6 +132,85 @@ full table (`coverage`, plus `operationsEvaluated`) with per-status counts:
 terminal summary is silent when every declared operation was evaluated, because then the
 aggregate is honest on its own.
 
+## Keeping the schema honest
+
+A hand-written schema is not checked by anything, and a wrong one is expensive in
+a way that looks like success: a mistyped path 404s on every attempt while still
+counting as an exercised operation, and a route missing from the schema is real
+surface nothing will ever test. `doctor` compares the declared contract against
+the routes it extracts from your source:
+
+```
+  warn    contract
+          schema and source disagree (4 declared operation(s) matched)
+    declared but not served by the source (1): these 404 at runtime
+          GET /api/v1/user/{id}
+    served by the source but not declared (2): add these so they are tested
+          GET /api/v1/users/{id}
+          GET /healthz
+```
+
+It compares method and path template only, never types: the extractor sees
+routes, not handler signatures, and claiming a type mismatch it cannot observe
+would be the same overclaiming the schema is guilty of. A path parameter named
+differently in each (`{id}` vs `{user_id}`) is the same route and is not drift.
+When the comparison cannot run at all (unrecognized framework, unreadable
+source, a GraphQL or protobuf schema with no URL routes) it says "not checked"
+rather than reporting a pass.
+
+## Resetting state between runs
+
+Fuzzing a stateful service without a reset means run N inherits whatever run N-1
+left behind, so findings stop being independently reproducible. Declare it:
+
+```yaml
+backend:
+  reset:
+    steps:
+      - kind: http
+        method: POST
+        url: http://localhost:8080/test/reset
+        required: true
+      - kind: command
+        run: ./scripts/seed-fixtures.sh
+        required: true
+```
+
+Steps run in order before the sweep and before every fuzz round. Best-effort
+unless `required`, which fails the run closed: a reset that silently did not
+happen is worse than none, because the run still presents its findings as
+reproducible from a clean state. The contract is recorded into each finding
+artifact, so a replay re-establishes the same preconditions. This replaces
+`REPROIT_BACKEND_RESET_URL`, which still works as the single-URL legacy form.
+
+## Living with a known finding
+
+`check --update-baseline` accepts everything currently reproducing, which
+silently accepts anything else present. To accept exactly one:
+
+```
+reproit accept fnd_445ab4e5432f --reason "id lands in v2, tracked in HEY-412" --until 2026-12-31
+reproit accept fnd_445ab4e5432f --remove
+```
+
+A reason is required. The accept names one finding's fingerprint, so it can
+never cover a finding nobody looked at, and a passing gate still prints what it
+is carrying. Past `--until` the finding blocks again and the gate says the
+acceptance expired, so silence lapses loudly rather than becoming permanent. An
+accept whose finding stopped reproducing is reported as stale but does not fail
+the build: unlike a dependency allowlist entry, it can only ever silence the one
+fingerprint it names.
+
+## Gating a repo with several services
+
+```
+reproit check --service api/reproit.yaml --service worker/reproit.yaml
+```
+
+One command, one exit code, a per-service line. Fails if any service fails, and
+a service whose gate could not run at all counts as a failure rather than being
+skipped. Each service resolves its own target and owns its own `.reproit/` store.
+
 ## Proving a fix, and retracting a wrong contract
 
 Every confirmed finding persists a replayable artifact under `.reproit/findings/<id>/`. Together

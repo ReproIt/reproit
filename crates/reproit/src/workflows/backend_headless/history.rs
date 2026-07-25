@@ -133,6 +133,7 @@ pub(super) fn gate_outcome(
     lifecycle: &Value,
     complete: bool,
     inconclusive: usize,
+    root: &Path,
 ) -> ExitCode {
     if let Some(path) = std::env::var_os("REPROIT_GATE_JUNIT") {
         write_gate_junit(Path::new(&path), lifecycle);
@@ -140,6 +141,8 @@ pub(super) fn gate_outcome(
     let counts = lifecycle.get("counts");
     let new = counts.and_then(|c| c["new"].as_u64()).unwrap_or(0);
     let regressed = counts.and_then(|c| c["regressed"].as_u64()).unwrap_or(0);
+    let (accepted, expired) = apply_accepts(ctx, lifecycle, root);
+    let new = new.saturating_sub(accepted);
     if std::env::var_os("REPROIT_GATE_BASELINE").is_some() {
         if inconclusive > 0 {
             ctx.say(format!(
@@ -151,16 +154,22 @@ pub(super) fn gate_outcome(
         ctx.say("baseline recorded; the gate now blocks on new or regressed findings".to_string());
         return ExitCode::SUCCESS;
     }
-    let blocking = new + regressed;
+    // An expired accept is not a pass: it blocks again, loudly, which is what
+    // makes the expiry meaningful rather than decorative.
+    let blocking = new + regressed + expired;
+    // The breakdown must add up to the blocking count, or the line reads as a
+    // bug in the gate rather than as a lapsed exception.
+    let mut breakdown = format!("{new} new, {regressed} regressed");
+    if expired > 0 {
+        breakdown.push_str(&format!(", {expired} expired acceptance"));
+    }
     if inconclusive > 0 {
         ctx.say(format!(
-            "gate: {blocking} blocking ({new} new, {regressed} regressed), \
+            "gate: {blocking} blocking ({breakdown}), \
              {inconclusive} inconclusive (rate-limited): failing closed"
         ));
     } else {
-        ctx.say(format!(
-            "gate: {blocking} blocking ({new} new, {regressed} regressed)"
-        ));
+        ctx.say(format!("gate: {blocking} blocking ({breakdown})"));
     }
     if complete && blocking == 0 {
         ExitCode::SUCCESS
@@ -197,6 +206,55 @@ pub(super) fn write_gate_junit(path: &Path, lifecycle: &Value) {
             path.display()
         );
     }
+}
+
+/// Subtract per-finding accepts from this run's blocking findings.
+///
+/// Returns (accepted, expired). Accepted findings are reported by name and
+/// reason so a passing gate still says what it is carrying: an exception nobody
+/// can see is indistinguishable from a bug nobody found.
+fn apply_accepts(ctx: &Ctx, lifecycle: &Value, root: &Path) -> (u64, u64) {
+    let accepted_store = accept::load(root);
+    let today = accept::today();
+    let mut seen = BTreeSet::new();
+    let mut accepted = 0u64;
+    let mut expired = 0u64;
+    for category in ["new", "regressed"] {
+        for item in lifecycle[category].as_array().into_iter().flatten() {
+            let Some(fingerprint) = item["fingerprint"].as_str() else {
+                continue;
+            };
+            let operation = item["operation"].as_str().unwrap_or("");
+            seen.insert(fingerprint.to_string());
+            match accepted_store.verdict(fingerprint, &today) {
+                accept::Verdict::None => {}
+                accept::Verdict::Accepted(reason) => {
+                    // Regressed findings are deliberately NOT auto-accepted: a
+                    // finding that was fixed and came back is new information
+                    // about the code, not the known issue that was accepted.
+                    if category == "new" {
+                        accepted += 1;
+                        ctx.say(format!("  accepted {operation}: {reason}"));
+                    }
+                }
+                accept::Verdict::Expired(on) => {
+                    expired += 1;
+                    ctx.say(format!(
+                        "  acceptance EXPIRED on {on} for {operation}: blocking again"
+                    ));
+                }
+            }
+        }
+    }
+    for (fingerprint, entry) in accepted_store.stale(&seen) {
+        ctx.say(format!(
+            "  stale acceptance for {} ({}): the finding no longer reproduces, \
+             remove it with `reproit accept --remove`",
+            entry.operation,
+            &fingerprint[..fingerprint.len().min(12)]
+        ));
+    }
+    (accepted, expired)
 }
 
 #[cfg(test)]

@@ -10,9 +10,11 @@ use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::ExitCode;
 
+pub(super) mod drift;
 mod emit;
 mod enrich;
 mod extract;
+mod rust_nest;
 
 #[cfg(test)]
 mod tests;

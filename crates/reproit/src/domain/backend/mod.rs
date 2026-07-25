@@ -16,11 +16,12 @@ mod contracts;
 #[allow(unused_imports)]
 pub use contracts::{
     AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendAccount,
-    BackendAuth, BackendConfig, BackendInvariant, BackendLogin, BackendProofContract,
-    CodecProjection, ConcurrencyPolicy, ControlledFailureWitness, FleetInvariant, QueryComparison,
-    QueryFilterContract, QueryPaginationContract, QuerySortContract, QuerySortDirection,
-    QuerySortType, ResourceConsistency, ResourceCreateContract, ResourceFieldContract,
-    ResourceLifecycleContract, ResourceMutationContract, ResourceReadContract, RoundTripCheck,
+    BackendAuth, BackendConfig, BackendInvariant, BackendLogin, BackendProofContract, BackendReset,
+    BackendResetStep, CodecProjection, ConcurrencyPolicy, ControlledFailureWitness, FleetInvariant,
+    QueryComparison, QueryFilterContract, QueryPaginationContract, QuerySortContract,
+    QuerySortDirection, QuerySortType, ResourceConsistency, ResourceCreateContract,
+    ResourceFieldContract, ResourceLifecycleContract, ResourceMutationContract,
+    ResourceReadContract, RoundTripCheck,
 };
 
 mod config;
@@ -218,6 +219,7 @@ impl FrozenBackendGuard {
             proofs: self.proofs.clone(),
             fleet: FleetInvariant::default(),
             auth: None,
+            reset: Default::default(),
         };
         evaluate(&config, &parse_events(log))
             .iter()

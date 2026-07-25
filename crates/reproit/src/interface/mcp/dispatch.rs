@@ -127,6 +127,27 @@ pub(super) fn build_argv(
                 }
             }
         }
+        "reproit_accept" => {
+            argv.push("accept".into());
+            if let Some(ids) = args.get("ids").and_then(Value::as_array) {
+                for id in ids {
+                    if let Some(id) = id.as_str() {
+                        argv.push(id.to_string());
+                    }
+                }
+            }
+            if let Some(reason) = args.get("reason").and_then(Value::as_str) {
+                argv.push("--reason".into());
+                argv.push(reason.to_string());
+            }
+            if let Some(until) = args.get("until").and_then(Value::as_str) {
+                argv.push("--until".into());
+                argv.push(until.to_string());
+            }
+            if b("remove") {
+                argv.push("--remove".into());
+            }
+        }
         "reproit_baseline" => {
             argv.push("baseline".into());
             // No positional `repro`: the CLI `baseline` command takes only

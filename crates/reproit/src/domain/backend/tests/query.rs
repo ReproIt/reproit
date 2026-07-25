@@ -54,6 +54,7 @@ fn query_config(consistency: ResourceConsistency) -> BackendConfig {
         proofs: vec![],
         fleet: FleetInvariant::default(),
         auth: None,
+        reset: Default::default(),
     }
 }
 

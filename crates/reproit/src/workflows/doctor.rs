@@ -663,6 +663,10 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
         ),
     }
 
+    if let Some(document) = document.as_ref() {
+        doctor_schema_drift(&mut checks, project, document);
+    }
+
     let env = std::env::var("REPROIT_BACKEND_URL").ok();
     let picked =
         super::backend_target::pick_target(None, env.as_deref(), project.config.target.as_deref())
@@ -770,6 +774,76 @@ async fn adapter_checks(
             }
         }
     }
+}
+
+/// Check the declared contract against the routes the source actually serves.
+///
+/// A schema is hand-written far more often than generated, and nothing verified
+/// it against the code: a mistyped path 404s on every attempt while still
+/// reporting as an exercised operation, and a route missing from the schema is
+/// real surface nothing will ever test. `--learn`'s extractor already reads
+/// routes from source, so this points it at validation.
+///
+/// Reports "not checked" rather than a pass whenever the comparison could not
+/// actually run: no recognized framework, no readable source, or a non-OpenAPI
+/// schema with no URL routes to compare. An extractor that found nothing must
+/// never look like a schema that matched.
+fn doctor_schema_drift(
+    checks: &mut Vec<DoctorCheck>,
+    project: &super::backend_target::BackendProject,
+    document: &serde_json::Value,
+) {
+    use crate::workflows::backend_learn::drift;
+    let declared = drift::declared_routes(document);
+    if declared.is_empty() {
+        return;
+    }
+    let Some(framework) =
+        crate::adapters::project_scaffold::backend_detect::detect_backend_framework(&project.root)
+    else {
+        return;
+    };
+    let Some(found) = drift::compare(&project.root, framework.name, &declared) else {
+        doctor_push(
+            checks,
+            "contract",
+            true,
+            false,
+            format!(
+                "schema not checked against source: no routes extracted from {} sources",
+                framework.name
+            ),
+            None,
+        );
+        return;
+    };
+    if found.is_clean() {
+        doctor_push(
+            checks,
+            "contract",
+            true,
+            false,
+            format!(
+                "all {} declared operation(s) match a route in {} source file(s)",
+                found.matched, found.files_scanned
+            ),
+            None,
+        );
+        return;
+    }
+    let report = drift::lines(&found);
+    doctor_push(
+        checks,
+        "contract",
+        false,
+        false,
+        format!(
+            "schema and source disagree ({} declared operation(s) matched)\n    {}",
+            found.matched,
+            report.join("\n    ")
+        ),
+        Some("reproit init --learn rewrites the draft from source".into()),
+    );
 }
 
 /// Send one GET with `x-reproit-trace` and report (status, adapter present).

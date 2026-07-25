@@ -189,6 +189,16 @@ const VERIFY_DESCRIPTION: &str = concat!(
     "backend.target."
 );
 
+const ACCEPT_DESCRIPTION: &str = concat!(
+    "Stop the CI gate blocking on ONE known backend finding, with a stated reason and an ",
+    "optional expiry. Use this instead of reproit_check update_baseline=true when a single ",
+    "finding is being lived with: update_baseline accepts EVERYTHING reproducing in that run, ",
+    "so it silently accepts findings nobody looked at. An accept names one finding's ",
+    "fingerprint, so it can never cover another; `reason` is required; and past `until` the ",
+    "finding blocks again rather than staying silent forever. Never accept a finding to make a ",
+    "gate green: accept it only when a human has decided to live with it and said why."
+);
+
 const BASELINE_DESCRIPTION: &str = concat!(
     "The visual-regression oracle: diff the current capture against the committed baseline ",
     "(per-pixel tolerance + ignore regions), driven by the `visual` section in reproit.yaml. ",
@@ -453,6 +463,32 @@ fn tool_defs() -> Value {
                     )
                 }
             } }
+        },
+        {
+            "name": "reproit_accept",
+            "description": ACCEPT_DESCRIPTION,
+            "inputSchema": { "type": "object", "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Finding ids (fnd_...) to accept."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": concat!(
+                        "Why this finding is being lived with. Required: an accepted finding ",
+                        "with no stated reason is a mute button."
+                    )
+                },
+                "until": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD after which the finding blocks again."
+                },
+                "remove": {
+                    "type": "boolean",
+                    "description": "Drop the acceptance so the finding blocks again now."
+                }
+            }, "required": ["ids", "reason"] }
         },
         {
             "name": "reproit_baseline",

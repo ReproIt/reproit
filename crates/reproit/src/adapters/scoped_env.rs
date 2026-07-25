@@ -10,6 +10,19 @@ pub(crate) struct ScopedEnv {
 }
 
 impl ScopedEnv {
+    /// Restore these variables on drop, having removed them for the scope.
+    /// Used when a sequential run must NOT inherit the previous iteration's
+    /// value: leaving one set makes iteration N silently reuse iteration N-1's
+    /// target.
+    pub(crate) fn cleared(keys: &[&str]) -> Self {
+        let mut prior = Vec::with_capacity(keys.len());
+        for key in keys {
+            prior.push(((*key).to_string(), std::env::var(key).ok()));
+            std::env::remove_var(key);
+        }
+        Self { prior }
+    }
+
     pub(crate) fn set(vars: Vec<(String, String)>) -> Self {
         let mut prior = Vec::with_capacity(vars.len());
         for (key, value) in vars {
@@ -52,5 +65,20 @@ mod tests {
         assert_eq!(std::env::var(SET).as_deref(), Ok("before"));
         assert!(std::env::var(UNSET).is_err());
         std::env::remove_var(SET);
+    }
+
+    #[test]
+    fn cleared_removes_for_the_scope_and_restores_after() {
+        const KEY: &str = "REPROIT_SCOPED_ENV_CLEARED_TEST";
+        std::env::set_var(KEY, "outer");
+        {
+            let _scope = ScopedEnv::cleared(&[KEY]);
+            assert!(
+                std::env::var(KEY).is_err(),
+                "the scope must not inherit the outer value"
+            );
+        }
+        assert_eq!(std::env::var(KEY).as_deref(), Ok("outer"));
+        std::env::remove_var(KEY);
     }
 }
