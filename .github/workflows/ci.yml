@@ -105,7 +105,7 @@ jobs:
       - name: Install deps
         run: npm ci
       - name: Audit production runner dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: node ../audit-production-deps.mjs
       - name: Install the Chromium the runner drives
         # The browser-backed tests (drawFindingBoxes, detectOverflow, the a11y/
         # trigger tagging) test the REAL runner behaviour, so CI installs the
@@ -364,7 +364,7 @@ jobs:
         run: npm ci
       - name: Audit production runner dependencies
         working-directory: runners/rn
-        run: npm audit --omit=dev --audit-level=high
+        run: node ../audit-production-deps.mjs
       - name: Device-free runner tests (oracle reducers + conductor client)
         # Runs before the emulator boots: the oracle reducer tests are pure,
         # and scenario.test.mjs contract-tests the multi-actor conductor
