@@ -13,8 +13,24 @@ pub fn load_service_document(path: &Path) -> Result<Value> {
         .canonicalize()
         .with_context(|| format!("resolving backend schema {}", path.display()))?;
     let document = read_schema_document(&path)?;
-    resolve_schema_refs(&document, &document, &path, &mut BTreeSet::new(), 0)
+    let mut budget = MAX_INLINE_NODES;
+    resolve_schema_refs(
+        &document,
+        &document,
+        &path,
+        &mut BTreeSet::new(),
+        0,
+        &mut budget,
+    )
 }
+
+/// Node cap on the inlined document. Deep shared-`$ref` reuse (one component
+/// referenced by several fields, recursively) inlines to an exponentially large
+/// tree even without a true cycle; a large FastAPI flow/graph schema hit this
+/// and hung the run before it issued a single request. Past the cap the
+/// remaining refs inline as `{}`. A normal fully-dereferenced schema is far under
+/// this and is unaffected.
+const MAX_INLINE_NODES: usize = 200_000;
 
 fn read_schema_document(path: &Path) -> Result<Value> {
     let raw = std::fs::read_to_string(path)
@@ -289,6 +305,7 @@ fn resolve_schema_refs(
     document_path: &Path,
     visiting: &mut BTreeSet<String>,
     depth: usize,
+    budget: &mut usize,
 ) -> Result<Value> {
     if depth > 128 {
         bail!(
@@ -296,6 +313,14 @@ fn resolve_schema_refs(
             document_path.display()
         );
     }
+    // Bound the inlined document. Deep shared-ref reuse expands exponentially
+    // even without a cycle; once the node budget is spent the rest inlines as
+    // `{}` so a pathological schema cannot hang the run. `visiting` still breaks
+    // true cycles independently.
+    if *budget == 0 {
+        return Ok(json!({}));
+    }
+    *budget -= 1;
     if let Some(reference) = value.get("$ref").and_then(Value::as_str) {
         if reference.starts_with("http://") || reference.starts_with("https://") {
             bail!(
@@ -304,8 +329,36 @@ fn resolve_schema_refs(
             );
         }
         let (file, fragment) = reference.split_once('#').unwrap_or((reference, ""));
-        let (target_path, target_document) = if file.is_empty() {
-            (document_path.to_path_buf(), document.clone())
+        let pointer = if fragment.is_empty() {
+            String::new()
+        } else if fragment.starts_with('/') {
+            fragment.to_string()
+        } else {
+            bail!("backend schema reference fragments must be JSON pointers: {reference}");
+        };
+        // Internal references resolve against the CURRENT document by borrow;
+        // cloning the whole document per internal ref was O(refs x document size)
+        // and, with the exponential re-inlining, catastrophic. External file
+        // references own the freshly read target document.
+        let mut resolved = if file.is_empty() {
+            let identity = format!("{}#{pointer}", document_path.display());
+            if !visiting.insert(identity.clone()) {
+                return Ok(json!({}));
+            }
+            let target = if pointer.is_empty() {
+                document
+            } else {
+                document.pointer(&pointer).with_context(|| {
+                    format!(
+                        "backend schema reference {reference:?} points outside {}",
+                        document_path.display()
+                    )
+                })?
+            };
+            let resolved =
+                resolve_schema_refs(target, document, document_path, visiting, depth + 1, budget)?;
+            visiting.remove(&identity);
+            resolved
         } else {
             let target_path = document_path
                 .parent()
@@ -319,38 +372,44 @@ fn resolve_schema_refs(
                     )
                 })?;
             let target_document = read_schema_document(&target_path)?;
-            (target_path, target_document)
+            let identity = format!("{}#{pointer}", target_path.display());
+            if !visiting.insert(identity.clone()) {
+                return Ok(json!({}));
+            }
+            let target = if pointer.is_empty() {
+                &target_document
+            } else {
+                target_document.pointer(&pointer).with_context(|| {
+                    format!(
+                        "backend schema reference {reference:?} points outside {}",
+                        target_path.display()
+                    )
+                })?
+            };
+            let resolved = resolve_schema_refs(
+                target,
+                &target_document,
+                &target_path,
+                visiting,
+                depth + 1,
+                budget,
+            )?;
+            visiting.remove(&identity);
+            resolved
         };
-        let pointer = if fragment.is_empty() {
-            "".to_string()
-        } else if fragment.starts_with('/') {
-            fragment.to_string()
-        } else {
-            bail!("backend schema reference fragments must be JSON pointers: {reference}");
-        };
-        let identity = format!("{}#{pointer}", target_path.display());
-        if !visiting.insert(identity.clone()) {
-            return Ok(json!({}));
-        }
-        let target = if pointer.is_empty() {
-            &target_document
-        } else {
-            target_document.pointer(&pointer).with_context(|| {
-                format!(
-                    "backend schema reference {reference:?} points outside {}",
-                    target_path.display()
-                )
-            })?
-        };
-        let mut resolved =
-            resolve_schema_refs(target, &target_document, &target_path, visiting, depth + 1)?;
-        visiting.remove(&identity);
         if let (Some(resolved), Some(siblings)) = (resolved.as_object_mut(), value.as_object()) {
             for (name, sibling) in siblings {
                 if name != "$ref" {
                     resolved.insert(
                         name.clone(),
-                        resolve_schema_refs(sibling, document, document_path, visiting, depth + 1)?,
+                        resolve_schema_refs(
+                            sibling,
+                            document,
+                            document_path,
+                            visiting,
+                            depth + 1,
+                            budget,
+                        )?,
                     );
                 }
             }
@@ -364,7 +423,14 @@ fn resolve_schema_refs(
                 .map(|(name, value)| {
                     Ok((
                         name.clone(),
-                        resolve_schema_refs(value, document, document_path, visiting, depth + 1)?,
+                        resolve_schema_refs(
+                            value,
+                            document,
+                            document_path,
+                            visiting,
+                            depth + 1,
+                            budget,
+                        )?,
                     ))
                 })
                 .collect::<Result<Map<String, Value>>>()?,
@@ -373,10 +439,57 @@ fn resolve_schema_refs(
             values
                 .iter()
                 .map(|value| {
-                    resolve_schema_refs(value, document, document_path, visiting, depth + 1)
+                    resolve_schema_refs(value, document, document_path, visiting, depth + 1, budget)
                 })
                 .collect::<Result<Vec<_>>>()?,
         )),
         _ => Ok(value.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn deep_shared_ref_schema_is_bounded_not_exponential() {
+        // A component referenced by two fields, chained N deep, inlines to 2^N
+        // nodes without a bound (a large FastAPI schema hung the run this way).
+        // The node budget must keep it finite; if this regresses the test hangs.
+        let n = 40;
+        let mut schemas = Map::new();
+        for k in 0..n {
+            schemas.insert(
+                format!("L{k}"),
+                json!({"type":"object","properties":{
+                    "a":{"$ref": format!("#/components/schemas/L{}", k + 1)},
+                    "b":{"$ref": format!("#/components/schemas/L{}", k + 1)}}}),
+            );
+        }
+        schemas.insert(
+            format!("L{n}"),
+            json!({"type":"object","properties":{"leaf":{"type":"string"}}}),
+        );
+        let document = json!({
+            "openapi":"3.0.3",
+            "root":{"$ref":"#/components/schemas/L0"},
+            "components":{"schemas": schemas}
+        });
+        let dir = std::env::temp_dir().join(format!("reproit-refbound-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("schema.json");
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(document.to_string().as_bytes())
+            .unwrap();
+
+        let resolved = load_service_document(&path).expect("bounded resolution completes");
+        assert!(
+            resolved.is_object(),
+            "resolved document stays a JSON object"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
