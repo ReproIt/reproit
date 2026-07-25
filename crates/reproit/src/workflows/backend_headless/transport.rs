@@ -108,7 +108,10 @@ pub(super) async fn invoke_traced(
     // inconclusive, and the gate fails closed.
     let attempts = identity_count().max(1);
     let start = IDENTITY_CURSOR.fetch_add(1, Ordering::Relaxed);
-    for round in 0..=BACKOFF_MS.len() {
+    // One attempt round per bounded backoff, plus a final round that does not
+    // sleep: N backoffs terminate the loop at N+1 rounds. `None` is that last
+    // round, where a 429 falls through and is classified inconclusive.
+    for backoff in BACKOFF_MS.iter().copied().map(Some).chain([None]) {
         for attempt in 0..attempts {
             let mut headers = base_headers.clone();
             if let Some(pool) = IDENTITY_POOL.get().filter(|pool| !pool.is_empty()) {
@@ -159,8 +162,8 @@ pub(super) async fn invoke_traced(
                 if attempt + 1 < attempts {
                     continue;
                 }
-                if round < BACKOFF_MS.len() {
-                    let wait = retry_after_ms(&response).unwrap_or(BACKOFF_MS[round]);
+                if let Some(backoff) = backoff {
+                    let wait = retry_after_ms(&response).unwrap_or(backoff);
                     tokio::time::sleep(Duration::from_millis(wait.min(MAX_BACKOFF_MS))).await;
                     break;
                 }

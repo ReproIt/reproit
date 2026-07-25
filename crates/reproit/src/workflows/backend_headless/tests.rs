@@ -391,8 +391,12 @@ fn aggregates_operations_across_every_declared_schema() {
     let b = write("b.json", "getOrder", "/orders");
     let dup = write("dup.json", "getUser", "/users"); // repeated id must not double-count
 
-    let (endpoints, sha, _violations, _document, duplicates) =
-        aggregate_service_endpoints(&[a, b, dup]).unwrap();
+    let ServiceSchemas {
+        endpoints,
+        sha256: sha,
+        duplicates,
+        ..
+    } = aggregate_service_endpoints(&[a, b, dup]).unwrap();
     let mut ids: Vec<_> = endpoints.iter().map(|e| e.contract.id.clone()).collect();
     ids.sort();
     assert_eq!(ids, ["getOrder", "getUser"], "both schemas, deduped by id");

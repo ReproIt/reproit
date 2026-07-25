@@ -10,15 +10,18 @@ use super::*;
 /// only the first file silently dropped every operation past it; a duplicate
 /// operationId across files is the same truncation one level down, so it is
 /// reported rather than swallowed.
-pub(super) fn aggregate_service_endpoints(
-    targets: &[PathBuf],
-) -> Result<(
-    Vec<Endpoint>,
-    String,
-    Vec<backend::BackendSchemaViolation>,
-    Value,
-    Vec<String>,
-)> {
+pub(super) struct ServiceSchemas {
+    pub(super) endpoints: Vec<Endpoint>,
+    /// Bytes of every declared schema, concatenated in declared order.
+    pub(super) sha256: String,
+    pub(super) violations: Vec<backend::BackendSchemaViolation>,
+    /// The first document: its `servers` entry is the base-URL fallback.
+    pub(super) primary: Value,
+    /// Operation ids that appeared in more than one schema and were deduped.
+    pub(super) duplicates: Vec<String>,
+}
+
+pub(super) fn aggregate_service_endpoints(targets: &[PathBuf]) -> Result<ServiceSchemas> {
     if targets.is_empty() {
         bail!("no backend schema to run");
     }
@@ -70,13 +73,13 @@ pub(super) fn aggregate_service_endpoints(
     let primary_document = primary_document.expect("targets is non-empty");
     duplicates.sort_unstable();
     duplicates.dedup();
-    Ok((
+    Ok(ServiceSchemas {
         endpoints,
-        hex_hash(&bytes),
+        sha256: hex_hash(&bytes),
         violations,
-        primary_document,
+        primary: primary_document,
         duplicates,
-    ))
+    })
 }
 
 pub(super) fn load_document(path: &Path) -> Result<Value> {

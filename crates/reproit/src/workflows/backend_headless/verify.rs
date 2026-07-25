@@ -253,6 +253,29 @@ fn project_root_with_findings() -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
+/// Every backend finding artifact under the project's findings store.
+fn collect_artifacts(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut artifacts = Vec::new();
+    let findings = layout::findings_dir(root);
+    let Ok(entries) = std::fs::read_dir(&findings) else {
+        return Ok(artifacts);
+    };
+    for entry in entries.flatten() {
+        let directory = entry.path();
+        if !directory.is_dir() {
+            continue;
+        }
+        for name in ["backend.json", "backend-schema.json"] {
+            let artifact = directory.join(name);
+            if artifact.is_file() {
+                artifacts.push(artifact);
+                break;
+            }
+        }
+    }
+    Ok(artifacts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,27 +305,4 @@ mod tests {
         assert_eq!(names, ["backend-schema.json", "backend.json"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
-}
-
-/// Every backend finding artifact under the project's findings store.
-fn collect_artifacts(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut artifacts = Vec::new();
-    let findings = layout::findings_dir(root);
-    let Ok(entries) = std::fs::read_dir(&findings) else {
-        return Ok(artifacts);
-    };
-    for entry in entries.flatten() {
-        let directory = entry.path();
-        if !directory.is_dir() {
-            continue;
-        }
-        for name in ["backend.json", "backend-schema.json"] {
-            let artifact = directory.join(name);
-            if artifact.is_file() {
-                artifacts.push(artifact);
-                break;
-            }
-        }
-    }
-    Ok(artifacts)
 }

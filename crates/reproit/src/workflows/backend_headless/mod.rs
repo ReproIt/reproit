@@ -62,9 +62,11 @@ pub async fn run_target(
         command,
         seed,
         runs,
-        BackendPolicy::default(),
-        Vec::new(),
-        None,
+        RunPolicy {
+            policy: BackendPolicy::default(),
+            operation_overrides: Vec::new(),
+            auth: None,
+        },
     )
     .await
 }
@@ -85,14 +87,16 @@ pub async fn run_configured_target(
         command,
         seed,
         runs,
-        BackendPolicy {
-            invariants: config.invariants,
-            resources: config.resources,
-            proofs: config.proofs,
-            fleet: config.fleet,
+        RunPolicy {
+            policy: BackendPolicy {
+                invariants: config.invariants,
+                resources: config.resources,
+                proofs: config.proofs,
+                fleet: config.fleet,
+            },
+            operation_overrides: operations,
+            auth: auth.as_ref(),
         },
-        operations,
-        auth.as_ref(),
     )
     .await
 }
@@ -103,17 +107,25 @@ async fn run_target_with_policy(
     command: &str,
     seed: u64,
     runs: u32,
-    policy: BackendPolicy,
-    operation_overrides: Vec<OperationContract>,
-    auth: Option<&BackendAuth>,
+    declared: RunPolicy<'_>,
 ) -> Result<ExitCode> {
+    let RunPolicy {
+        policy,
+        operation_overrides,
+        auth,
+    } = declared;
     let root = std::env::current_dir()?;
     // A backend contract may be split across several schema files describing ONE
     // service. Aggregate every declared schema's operations (not just the first,
     // which silently dropped the rest); the first document supplies the base URL
     // fallback (service_base_url prefers REPROIT_BACKEND_URL regardless).
-    let (mut endpoints, schema_sha256, schema_violations, primary_document, duplicate_operations) =
-        aggregate_service_endpoints(targets)?;
+    let ServiceSchemas {
+        mut endpoints,
+        sha256: schema_sha256,
+        violations: schema_violations,
+        primary: primary_document,
+        duplicates: duplicate_operations,
+    } = aggregate_service_endpoints(targets)?;
     let primary = &targets[0];
     // Report schemas relative to the working directory when possible: the
     // resolved paths are absolute (joined from the canonicalized project root),

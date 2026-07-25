@@ -56,10 +56,8 @@ pub(super) async fn run(
     // Backend project + no saved repro: `reproit check` is the CI gate. Run a
     // scan and block only on new or regressed findings (the lifecycle gate), so a
     // PR that introduces a reproducible bug fails while a known finding does not.
-    if args.repro.is_none() {
-        if super::backend_target::find(config_path)?.is_some() {
-            return run_backend_gate(ctx, config_path, &args).await;
-        }
+    if args.repro.is_none() && super::backend_target::find(config_path)?.is_some() {
+        return run_backend_gate(ctx, config_path, &args).await;
     }
     let loaded = match config::load(config_path) {
         Ok(loaded) => loaded,

@@ -70,9 +70,10 @@ impl CurrentContracts {
         else {
             return unknown;
         };
-        let Ok((mut endpoints, ..)) = aggregate_service_endpoints(&targets) else {
+        let Ok(schemas) = aggregate_service_endpoints(&targets) else {
             return unknown;
         };
+        let mut endpoints = schemas.endpoints;
         for endpoint in &mut endpoints {
             if let Some(declared) = config
                 .operations

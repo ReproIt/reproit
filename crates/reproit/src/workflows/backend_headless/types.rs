@@ -113,3 +113,12 @@ pub(super) struct InvocationResult {
     pub(super) violations: Vec<BackendViolation>,
     pub(super) events: Vec<BackendEvent>,
 }
+
+/// What the project declares for one run: the claims to check and how to reach
+/// them. Grouped so the executor takes the run plus its contract, not eight
+/// positional arguments that are easy to transpose at a call site.
+pub(super) struct RunPolicy<'a> {
+    pub(super) policy: BackendPolicy,
+    pub(super) operation_overrides: Vec<OperationContract>,
+    pub(super) auth: Option<&'a BackendAuth>,
+}
