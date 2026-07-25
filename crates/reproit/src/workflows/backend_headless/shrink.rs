@@ -11,6 +11,11 @@ pub(super) async fn shrink_findings(
             .get("fingerprint")
             .and_then(Value::as_str)
             .context("backend finding has no fingerprint")?;
+        // The confirmed pre-shrink repro, kept so a minimization that no longer
+        // verifies (typically a rate limit engaging mid-shrink, or target
+        // nondeterminism) falls back to it instead of discarding a real finding
+        // or aborting the whole run. Shrinking is only an optimization.
+        let original = (request.clone(), setup.clone());
         if std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some() {
             let mut index = 0;
             while index < setup.len() {
@@ -48,7 +53,9 @@ pub(super) async fn shrink_findings(
             }
         }
         if !replay_sequence(client, &setup, &endpoint, &request, expected).await? {
-            bail!("shrunk backend reproduction failed final exact verification");
+            let (request, setup) = original;
+            shrunk.push((endpoint, request, setup, finding));
+            continue;
         }
         shrunk.push((endpoint, request, setup, finding));
     }
