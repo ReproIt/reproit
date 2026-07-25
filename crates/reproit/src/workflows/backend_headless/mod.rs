@@ -372,13 +372,13 @@ async fn run_target_with_policy(
                     )
                     .await
                     {
-                        Ok(true) => findings.push((
+                        Ok(ReplayVerdict::Reproduced) => findings.push((
                             endpoint.clone(),
                             request.clone(),
                             setup.clone(),
                             finding,
                         )),
-                        Ok(false) => candidates.push(json!({
+                        Ok(_) => candidates.push(json!({
                             "operation": endpoint.contract.id,
                             "reason": violation.reason,
                             "confirmation": "clean-state replay did not reproduce exactly",
@@ -873,6 +873,7 @@ async fn exercise_resource_lifecycles(
                 let finding = backend::finding(&violation);
                 if replay_sequence(client, &setup, read, &read_request, &violation.fingerprint)
                     .await?
+                    == ReplayVerdict::Reproduced
                 {
                     run.findings
                         .push((read.clone(), read_request.clone(), setup.clone(), finding));
@@ -975,7 +976,7 @@ use transport::{build_identity_pool, identity_count, install_identity_pool, invo
 mod replay;
 #[cfg(test)]
 use replay::apply_request_bindings;
-use replay::{append_sequence_events, has_fingerprint, replay_sequence};
+use replay::{append_sequence_events, has_fingerprint, replay_sequence, ReplayVerdict};
 mod shrink;
 use shrink::shrink_findings;
 mod artifacts;

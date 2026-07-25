@@ -263,6 +263,7 @@ pub(super) async fn probe_round_trips(
                                     &violation.fingerprint,
                                 )
                                 .await?
+                                    == ReplayVerdict::Reproduced
                                 {
                                     run.findings.push((
                                         list.clone(),
@@ -470,6 +471,7 @@ pub(super) async fn probe_round_trips(
                 // the same quad, the same fingerprint.
                 if replay_sequence(client, &setup, get, &check_request, &violation.fingerprint)
                     .await?
+                    == ReplayVerdict::Reproduced
                 {
                     run.findings
                         .push((get.clone(), check_request.clone(), setup.clone(), finding));

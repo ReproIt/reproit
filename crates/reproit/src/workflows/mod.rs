@@ -305,7 +305,8 @@ where
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Verify { ids, junit } => {
-            backend_headless::backend_verify(&ctx, &ids, junit.as_deref()).await
+            backend_headless::backend_verify(&ctx, cli.config.as_deref(), &ids, junit.as_deref())
+                .await
         }
         Cmd::Candidates => {
             let loaded = config::load(cli.config.as_deref())?;

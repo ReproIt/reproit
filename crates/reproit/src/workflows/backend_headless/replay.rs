@@ -1,5 +1,18 @@
 use super::*;
 
+/// The outcome of replaying a recorded finding against the live target. The
+/// three states are kept distinct because "could not evaluate" must never read
+/// as "fixed": a proof-of-fix (Fixed) requires an evaluable success, not merely
+/// the absence of the violation in a response we could not assess (a 401 because
+/// the replay was unauthenticated, a 429, a 5xx, or a setup step that would not
+/// run). Inconclusive fails closed everywhere it is consumed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ReplayVerdict {
+    Reproduced,
+    Fixed,
+    Inconclusive,
+}
+
 pub(super) fn has_fingerprint(result: &InvocationResult, expected: &str) -> bool {
     result
         .violations
@@ -13,7 +26,7 @@ pub(super) async fn replay_sequence(
     failing_endpoint: &Endpoint,
     failing_request: &RequestArtifact,
     expected: &str,
-) -> Result<bool> {
+) -> Result<ReplayVerdict> {
     maybe_reset_target(client, &failing_request.url).await?;
     let mut events = Vec::new();
     let mut contracts = Vec::new();
@@ -22,11 +35,14 @@ pub(super) async fn replay_sequence(
         let endpoint = replay_endpoint(step);
         let mut request = step.request.clone();
         if !apply_request_bindings(&mut request, &outputs) {
-            return Ok(false);
+            return Ok(ReplayVerdict::Inconclusive);
         }
         let result = invoke(client, &endpoint, request).await?;
+        // A setup precondition that will not re-establish (non-2xx, or itself
+        // now violating) means we cannot recreate the failing state, so we can
+        // neither reproduce nor certify a fix.
         if !(200..400).contains(&result.status) || !result.violations.is_empty() {
-            return Ok(false);
+            return Ok(ReplayVerdict::Inconclusive);
         }
         contracts.push(step.contract.clone());
         outputs.push(result.output.clone());
@@ -34,11 +50,12 @@ pub(super) async fn replay_sequence(
     }
     let mut failing_request = failing_request.clone();
     if !apply_request_bindings(&mut failing_request, &outputs) {
-        return Ok(false);
+        return Ok(ReplayVerdict::Inconclusive);
     }
     let result = invoke(client, failing_endpoint, failing_request).await?;
+    let failing_status = result.status;
     if has_fingerprint(&result, expected) {
-        return Ok(true);
+        return Ok(ReplayVerdict::Reproduced);
     }
     contracts.push(failing_endpoint.contract.clone());
     append_sequence_events(&mut events, result.events, setup.len());
@@ -51,9 +68,20 @@ pub(super) async fn replay_sequence(
         fleet: failing_endpoint.policy.fleet.clone(),
         ..BackendConfig::default()
     };
-    Ok(backend::evaluate(&config, &events)
+    if backend::evaluate(&config, &events)
         .iter()
-        .any(|violation| violation.fingerprint == expected))
+        .any(|violation| violation.fingerprint == expected)
+    {
+        return Ok(ReplayVerdict::Reproduced);
+    }
+    // Not reproduced. Certify Fixed ONLY from an evaluable success; a non-2xx
+    // failing response means the contract could not be checked this run, so the
+    // finding is inconclusive rather than proven gone (fails closed).
+    Ok(if (200..400).contains(&failing_status) {
+        ReplayVerdict::Fixed
+    } else {
+        ReplayVerdict::Inconclusive
+    })
 }
 
 pub(super) fn apply_request_bindings(request: &mut RequestArtifact, outputs: &[Value]) -> bool {

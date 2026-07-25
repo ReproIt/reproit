@@ -1,29 +1,38 @@
 use super::*;
 
 /// The result of replaying one persisted finding artifact against the live
-/// target: whether the exact recorded repro still reproduces, plus the finding
-/// so a caller can label it. `reproduced == false` is machine-checkable proof
-/// that this specific defect is gone (the replay re-exercises the exact failing
-/// request, so a fix cannot be faked by simply not reaching the endpoint).
+/// target: the three-state verdict plus the finding so a caller can label it.
+/// `Fixed` is machine-checkable proof this defect is gone (the replay
+/// re-exercises the exact failing request); `Inconclusive` means the run could
+/// not evaluate the operation (unauthenticated, rate-limited, target down, or a
+/// setup step that would not re-run) and must never be read as fixed.
 pub(super) struct ReplayOutcome {
-    pub reproduced: bool,
+    pub verdict: ReplayVerdict,
     pub finding: Value,
 }
 
 /// Replay a single finding artifact (backend.json or backend-schema.json) and
-/// report whether it still reproduces. Shared by the direct `reproit <id>` form
-/// and the batch `reproit verify` regression suite.
+/// report its verdict. Shared by the direct `reproit <id>` form and the batch
+/// `reproit verify` regression suite. The live-replay client picks up any
+/// identity pool installed by the caller, so an auth-gated finding is replayed
+/// authenticated rather than bouncing off a 401.
 pub(super) async fn replay_artifact(artifact_path: &Path) -> Result<ReplayOutcome> {
     if artifact_path.file_name().and_then(|value| value.to_str()) == Some("backend-schema.json") {
         let artifact: BackendSchemaFindingArtifact =
             serde_json::from_slice(&std::fs::read(artifact_path)?)?;
         let schema = Path::new(&artifact.schema);
         let document = load_document(schema)?;
-        let reproduced = backend::validate_openapi_parameter_uniqueness(&document)
+        // A static schema check is deterministic: it either reproduces or not.
+        let verdict = if backend::validate_openapi_parameter_uniqueness(&document)
             .iter()
-            .any(|value| value.fingerprint == artifact.violation.fingerprint);
+            .any(|value| value.fingerprint == artifact.violation.fingerprint)
+        {
+            ReplayVerdict::Reproduced
+        } else {
+            ReplayVerdict::Fixed
+        };
         return Ok(ReplayOutcome {
-            reproduced,
+            verdict,
             finding: artifact.finding,
         });
     }
@@ -43,7 +52,7 @@ pub(super) async fn replay_artifact(artifact_path: &Path) -> Result<ReplayOutcom
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
     let endpoint = replay_endpoint(&artifact.failing);
-    let reproduced = replay_sequence(
+    let verdict = replay_sequence(
         &client,
         &artifact.setup,
         &endpoint,
@@ -52,7 +61,7 @@ pub(super) async fn replay_artifact(artifact_path: &Path) -> Result<ReplayOutcom
     )
     .await?;
     Ok(ReplayOutcome {
-        reproduced,
+        verdict,
         finding: artifact.finding,
     })
 }
@@ -65,23 +74,32 @@ pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
         return Ok(None);
     };
     let outcome = replay_artifact(&artifact_path).await?;
+    let (state, message) = match outcome.verdict {
+        ReplayVerdict::Reproduced => ("reproduced", format!("{id}: reproduced exactly")),
+        ReplayVerdict::Fixed => ("fixed", format!("{id}: no longer reproduces")),
+        ReplayVerdict::Inconclusive => (
+            "inconclusive",
+            format!("{id}: could not verify (unauthenticated, rate-limited, or target down)"),
+        ),
+    };
     let report = json!({
         "command": "backend replay",
         "id": id,
-        "reproduced": outcome.reproduced,
+        "state": state,
+        "reproduced": outcome.verdict == ReplayVerdict::Reproduced,
         "finding": outcome.finding,
     });
     if ctx.json {
         ctx.emit(&report);
-    } else if outcome.reproduced {
-        ctx.say(format!("{id}: reproduced exactly"));
     } else {
-        ctx.say(format!("{id}: no longer reproduces"));
+        ctx.say(message);
     }
-    Ok(Some(if outcome.reproduced {
-        Exit::Regression.code()
-    } else {
+    // Only a proven Fixed is a pass; Reproduced and Inconclusive both fail closed,
+    // so a replay that could not evaluate never reports success.
+    Ok(Some(if outcome.verdict == ReplayVerdict::Fixed {
         ExitCode::SUCCESS
+    } else {
+        Exit::Regression.code()
     }))
 }
 
