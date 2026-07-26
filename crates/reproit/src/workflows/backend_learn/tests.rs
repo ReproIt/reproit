@@ -194,6 +194,95 @@ fn extraction_table_covers_every_framework() {
     }
 }
 
+/// A whole program per family, in the shape a service is actually written in.
+///
+/// The table above feeds each reader a SNIPPET, which is how a total extractor
+/// failure shipped: every axum case declared its router as `fn app() -> Router`,
+/// where the router is the function's value. A real binary binds it in `main`
+/// and hands it to `serve`, `main` returns `()`, and the reader that passed
+/// nine unit tests extracted zero routes from it.
+///
+/// These fixtures are entry points, not fragments. A family that stops
+/// extracting fails here even when its own unit tests still pass.
+#[test]
+fn every_family_extracts_from_an_entry_point_not_just_a_snippet() {
+    let cases: &[ExtractionCase] = &[
+        (
+            "axum",
+            "src/main.rs",
+            "use axum::routing::{get, post};\nuse axum::Router;\n\n\
+             async fn health() -> &'static str { \"ok\" }\n\
+             async fn create() -> &'static str { \"made\" }\n\n\
+             #[tokio::main]\nasync fn main() {\n    let app = Router::new()\n        \
+             .route(\"/health\", get(health))\n        .route(\"/items\", post(create));\n    \
+             let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    \
+             axum::serve(listener, app).await.unwrap();\n}\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "gin",
+            "main.go",
+            "package main\n\nimport \"github.com/gin-gonic/gin\"\n\n\
+             func main() {\n\tr := gin.Default()\n\tr.GET(\"/health\", health)\n\t\
+             r.POST(\"/items\", create)\n\tr.Run(\":3000\")\n}\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "express",
+            "server.js",
+            "const express = require('express');\nconst app = express();\n\
+             app.get('/health', health);\napp.post('/items', create);\n\
+             app.listen(3000);\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "fastapi",
+            "main.py",
+            "from fastapi import FastAPI\n\napp = FastAPI()\n\n\
+             @app.get(\"/health\")\nasync def health():\n    return {}\n\n\
+             @app.post(\"/items\")\nasync def create():\n    return {}\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "rails",
+            "config/routes.rb",
+            "Rails.application.routes.draw do\n  get '/health', to: 'health#show'\n  \
+             post '/items', to: 'items#create'\nend\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "laravel",
+            "routes/api.php",
+            "<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n\n\
+             Route::get('/health', [HealthController::class, 'show']);\n\
+             Route::post('/items', [ItemController::class, 'store']);\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "spring",
+            "src/ItemController.java",
+            "package com.example;\n\nimport org.springframework.web.bind.annotation.*;\n\n\
+             @RestController\npublic class ItemController {\n    \
+             @GetMapping(\"/health\")\n    public String health() { return \"ok\"; }\n\n    \
+             @PostMapping(\"/items\")\n    public String create() { return \"made\"; }\n}\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+    ];
+    for (framework, file, content, expected) in cases {
+        let found = routes(framework, file, content);
+        assert!(
+            !found.is_empty(),
+            "{framework} extracted NOTHING from an entry point; the reader is inert \
+             for every real service in this family"
+        );
+        let expected: Vec<(String, Vec<&str>)> = expected
+            .iter()
+            .map(|(path, methods)| (path.to_string(), methods.to_vec()))
+            .collect();
+        assert_eq!(found, expected, "framework {framework}");
+    }
+}
+
 #[test]
 fn nested_router_mount_prefixes_are_resolved() {
     // Flask blueprint url_prefix applies to every route on that blueprint; a

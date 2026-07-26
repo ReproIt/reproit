@@ -287,6 +287,22 @@ fn routes_of_fn(
 }
 
 /// The routes a block evaluates to, following its local bindings.
+///
+/// A block yields its tail expression AND any local router it never mounted
+/// into another one. Yielding only the tail was wrong for the shape almost
+/// every real service uses:
+///
+/// ```ignore
+/// async fn main() {
+///     let app = Router::new().route("/health", get(health));
+///     axum::serve(listener, app).await
+/// }
+/// ```
+///
+/// `main` returns `()`, so the block's value is nothing and every route in the
+/// service was computed and then discarded. Each test written for this file
+/// used `fn app() -> Router { Router::new()... }`, where the router IS the tail,
+/// so nine of them passed over a reader that extracted nothing from a binary.
 fn routes_of_block(
     stmts: &[Stmt],
     krate: &Crate,
@@ -295,6 +311,9 @@ fn routes_of_block(
     depth: usize,
 ) -> Vec<Route> {
     let mut locals: BTreeMap<String, Vec<Route>> = BTreeMap::new();
+    // Locals mounted into another router. They are reachable at that mount, so
+    // emitting their local paths as well would invent routes nobody serves.
+    let mut nested: BTreeSet<String> = BTreeSet::new();
     let mut routes = Vec::new();
     for stmt in stmts {
         match stmt {
@@ -303,7 +322,15 @@ fn routes_of_block(
             // what the pattern reader could not express.
             Stmt::Local(local) => {
                 let Some(init) = &local.init else { continue };
-                let value = routes_of_expr(&init.expr, krate, &locals, mounted, visiting, depth);
+                let value = routes_of_expr(
+                    &init.expr,
+                    krate,
+                    &locals,
+                    &mut nested,
+                    mounted,
+                    visiting,
+                    depth,
+                );
                 if !value.is_empty() {
                     if let syn::Pat::Ident(ident) = &local.pat {
                         locals.insert(ident.ident.to_string(), value);
@@ -311,11 +338,26 @@ fn routes_of_block(
                 }
             }
             Stmt::Expr(expr, _) => routes.extend(routes_of_expr(
-                expr, krate, &locals, mounted, visiting, depth,
+                expr,
+                krate,
+                &locals,
+                &mut nested,
+                mounted,
+                visiting,
+                depth,
             )),
             _ => {}
         }
     }
+    // A local is emitted only when nothing mounted it. `let app = ...` handed
+    // to `serve` is the service; `let v1 = ...` nested under `/v1` is not.
+    for (name, value) in locals {
+        if !nested.contains(&name) {
+            routes.extend(value);
+        }
+    }
+    routes.sort();
+    routes.dedup();
     routes
 }
 
@@ -324,6 +366,7 @@ fn routes_of_expr(
     expr: &Expr,
     krate: &Crate,
     locals: &BTreeMap<String, Vec<Route>>,
+    nested: &mut BTreeSet<String>,
     mounted: &mut BTreeSet<String>,
     visiting: &mut BTreeSet<String>,
     depth: usize,
@@ -332,35 +375,84 @@ fn routes_of_expr(
         return Vec::new();
     }
     match expr {
-        Expr::MethodCall(call) => {
+        // A method chain is ITERATION, not nesting. Recursing into each
+        // receiver charged every `.route()` against the recursion budget, so a
+        // router declaring more routes than MAX_ROUTER_DEPTH in one chain lost
+        // everything before the last few links. hey's regional plane declares
+        // 24 routes that way and the reader returned the tail 12, which is far
+        // worse than returning none: a silently truncated router reads as a
+        // service that does not serve the routes it dropped.
+        Expr::MethodCall(_) => {
+            let mut chain = Vec::new();
+            let mut base = expr;
+            while let Expr::MethodCall(call) = base {
+                if chain.len() >= MAX_ROUTES {
+                    break;
+                }
+                chain.push(call);
+                base = &call.receiver;
+            }
             let mut routes =
-                routes_of_expr(&call.receiver, krate, locals, mounted, visiting, depth + 1);
-            let method = call.method.to_string();
-            let mut args = call.args.iter();
-            match method.as_str() {
-                "route" => {
-                    if let (Some(path), Some(handlers)) = (args.next(), args.next()) {
-                        if let Some(path) = string_of(path) {
-                            for (verb, handler) in method_router(handlers) {
-                                routes.push((path.clone(), verb, handler));
+                routes_of_expr(base, krate, locals, nested, mounted, visiting, depth + 1);
+            // Innermost first, so a `.nest()` sees the routes built before it.
+            for call in chain.iter().rev() {
+                let method = call.method.to_string();
+                let mut args = call.args.iter();
+                match method.as_str() {
+                    "route" => {
+                        if let (Some(path), Some(handlers)) = (args.next(), args.next()) {
+                            if let Some(path) = string_of(path) {
+                                for (verb, handler) in method_router(handlers) {
+                                    routes.push((path.clone(), verb, handler));
+                                }
                             }
                         }
                     }
-                }
-                "nest" | "nest_service" => {
-                    if let (Some(prefix), Some(inner)) = (args.next(), args.next()) {
-                        if let Some(prefix) = string_of(prefix) {
-                            for (path, verb, handler) in
-                                routes_of_expr(inner, krate, locals, mounted, visiting, depth + 1)
-                            {
-                                routes.push((join(&prefix, &path), verb, handler));
+                    "nest" | "nest_service" => {
+                        if let (Some(prefix), Some(inner)) = (args.next(), args.next()) {
+                            if let Some(prefix) = string_of(prefix) {
+                                // The mounted router is reachable at this
+                                // prefix, so it must not also surface at its
+                                // local path.
+                                if let Some(name) = last_segment(inner) {
+                                    nested.insert(name);
+                                }
+                                for (path, verb, handler) in routes_of_expr(
+                                    inner,
+                                    krate,
+                                    locals,
+                                    nested,
+                                    mounted,
+                                    visiting,
+                                    depth + 1,
+                                ) {
+                                    routes.push((join(&prefix, &path), verb, handler));
+                                }
                             }
                         }
                     }
+                    // `.merge(other)` composes a router at the SAME level, so
+                    // its routes are this router's routes, unprefixed.
+                    "merge" => {
+                        if let Some(inner) = args.next() {
+                            if let Some(name) = last_segment(inner) {
+                                nested.insert(name);
+                            }
+                            routes.extend(routes_of_expr(
+                                inner,
+                                krate,
+                                locals,
+                                nested,
+                                mounted,
+                                visiting,
+                                depth + 1,
+                            ));
+                        }
+                    }
+                    // `.layer(..)`, `.with_state(..)` and friends pass the
+                    // router through unchanged.
+                    _ => {}
                 }
-                // `.layer(..)`, `.with_state(..)` and friends pass the router
-                // through unchanged, which the receiver recursion already did.
-                _ => {}
             }
             routes
         }
@@ -395,6 +487,7 @@ fn routes_of_expr(
                     &arm.body,
                     krate,
                     locals,
+                    nested,
                     mounted,
                     visiting,
                     depth + 1,
@@ -410,6 +503,7 @@ fn routes_of_expr(
                     other,
                     krate,
                     locals,
+                    nested,
                     mounted,
                     visiting,
                     depth + 1,
@@ -420,12 +514,24 @@ fn routes_of_expr(
         Expr::Block(node) => {
             routes_of_block(&node.block.stmts, krate, mounted, visiting, depth + 1)
         }
-        Expr::Reference(node) => {
-            routes_of_expr(&node.expr, krate, locals, mounted, visiting, depth + 1)
-        }
-        Expr::Paren(node) => {
-            routes_of_expr(&node.expr, krate, locals, mounted, visiting, depth + 1)
-        }
+        Expr::Reference(node) => routes_of_expr(
+            &node.expr,
+            krate,
+            locals,
+            nested,
+            mounted,
+            visiting,
+            depth + 1,
+        ),
+        Expr::Paren(node) => routes_of_expr(
+            &node.expr,
+            krate,
+            locals,
+            nested,
+            mounted,
+            visiting,
+            depth + 1,
+        ),
         _ => Vec::new(),
     }
 }
@@ -608,6 +714,71 @@ mod tests {
             !source.routes.contains_key("/users"),
             "a mounted router must not also surface at its local path: {paths:?}"
         );
+    }
+
+    #[test]
+    fn a_router_longer_than_the_recursion_budget_keeps_every_route() {
+        // The chain walk used to recurse per `.route()`, so a router with more
+        // links than MAX_ROUTER_DEPTH returned only its tail. hey declares 24
+        // routes in one chain and the reader silently dropped the first 12,
+        // which reads downstream as a service that does not serve them.
+        let routes: String = (0..40)
+            .map(|index| format!("        .route(\"/r{index}\", get(h{index}))\n"))
+            .collect();
+        let source = read_source(
+            "long_chain",
+            &[(
+                "main.rs",
+                &format!("fn app() -> Router {{\n    Router::new()\n{routes}    }}\n"),
+            )],
+        );
+        assert_eq!(source.routes.len(), 40, "{:?}", source.routes.keys());
+        assert!(
+            source.routes.contains_key("/r0"),
+            "the FIRST link must survive"
+        );
+        assert!(source.routes.contains_key("/r39"));
+    }
+
+    #[test]
+    fn a_router_bound_in_a_block_with_no_tail_is_still_the_service() {
+        // Every test in this file used `fn app() -> Router`, where the router
+        // is the function's value. A real binary binds it and hands it to
+        // `serve`; `main` returns `()`, so the block's value is nothing and
+        // the whole service was computed and then discarded.
+        let source = read_source(
+            "main_binding",
+            &[(
+                "main.rs",
+                r#"async fn main() {
+                    let app = Router::new()
+                        .route("/health", get(health))
+                        .route("/items", post(create));
+                    axum::serve(listener, app).await.unwrap();
+                }"#,
+            )],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/health"), "{paths:?}");
+        assert!(source.routes.contains_key("/items"), "{paths:?}");
+    }
+
+    #[test]
+    fn a_merged_router_contributes_at_the_same_level() {
+        let source = read_source(
+            "merge",
+            &[(
+                "main.rs",
+                r#"fn app() -> Router {
+                    let ops = Router::new().route("/metrics", get(metrics));
+                    Router::new().route("/health", get(health)).merge(ops)
+                }"#,
+            )],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/metrics"), "{paths:?}");
+        assert!(source.routes.contains_key("/health"), "{paths:?}");
+        assert_eq!(source.routes.len(), 2, "no duplicate twin: {paths:?}");
     }
 
     #[test]
