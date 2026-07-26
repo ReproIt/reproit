@@ -167,12 +167,25 @@ every one is rejected, and the operation reads as exercised while evaluating not
       POST /v1/blocks .nite: the handler's body type has no `nite` field
 ```
 
-Only what the types actually settle: a unit-only enum's closed value set (serde renames applied),
-a field the struct does not have, and a non-`Option` field the schema leaves optional. A
-`rating: i8` the handler range-checks at runtime is invisible to this and is left alone, because
-reporting a constraint it cannot see would be the same overclaiming the schema is guilty of. Other
-language families get the route check only, and say so rather than letting "clean" imply a type
-comparison that never ran.
+A Rust type carries no value range, so the check reads the source rather than only the signature.
+`rating: i8` says nothing; `matches!(body.rating, -1 | 0 | 1)` two lines into the handler says
+everything, and that is the constraint that actually rejects the request:
+
+```
+      POST /v1/rate .rating: declared 1..5, but the handler accepts only [-1, 0, 1]
+                            (an explicit value guard in the handler)
+```
+
+What it reads, each stating its accepted set outright: a unit-only enum (serde renames applied),
+a `validate`/`garde` range attribute, and three guard shapes in the handler body,
+`matches!(x, A | B)`, `[A, B].contains(&x)`, and `(A..=B).contains(&x)`. Every report names its
+evidence, so a verdict can be checked against the line that produced it.
+
+It abstains on anything whose accepted set has to be inferred: an enum variant carrying data, a
+`matches!` arm with a guard expression, validation spread across several statements. Those are
+real constraints it cannot see, and reporting them would be the same overclaiming the schema is
+guilty of. Other language families get the route check only, and say so rather than letting
+"clean" imply a type comparison that never ran.
 
 For paths it compares method and path template, never types: the extractor sees
 routes, not handler signatures, and claiming a type mismatch it cannot observe

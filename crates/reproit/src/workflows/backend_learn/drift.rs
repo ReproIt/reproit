@@ -283,6 +283,23 @@ pub fn lines(drift: &Drift) -> Vec<String> {
 
 const MAX_REPORTED: usize = 15;
 
+/// Render a bound pair the way a reader thinks about it.
+fn describe_bounds(low: Option<f64>, high: Option<f64>) -> String {
+    fn number(value: f64) -> String {
+        if value.fract() == 0.0 {
+            format!("{}", value as i64)
+        } else {
+            format!("{value}")
+        }
+    }
+    match (low, high) {
+        (Some(low), Some(high)) => format!("{}..{}", number(low), number(high)),
+        (Some(low), None) => format!(">= {}", number(low)),
+        (None, Some(high)) => format!("<= {}", number(high)),
+        (None, None) => "no bound".to_string(),
+    }
+}
+
 /// Compare each declared request body against the handler's Rust types.
 ///
 /// Only the three things source can actually settle: a value set the schema
@@ -334,6 +351,27 @@ fn compare_fields(
                     });
                     continue;
                 };
+                // A numeric range the handler enforces and the schema does not
+                // match: generation samples the DECLARED range, so every value
+                // outside the enforced one is a guaranteed rejection.
+                if let Some((low, high)) = fact.range {
+                    let declared_low = property.get("minimum").and_then(|v| v.as_f64());
+                    let declared_high = property.get("maximum").and_then(|v| v.as_f64());
+                    let too_low = low.is_some_and(|low| declared_low.is_none_or(|d| d < low));
+                    let too_high = high.is_some_and(|high| declared_high.is_none_or(|d| d > high));
+                    if too_low || too_high {
+                        mismatches.push(FieldMismatch {
+                            operation: route.clone(),
+                            field: name.clone(),
+                            detail: format!(
+                                "declared {}, but the handler accepts only {} ({})",
+                                describe_bounds(declared_low, declared_high),
+                                describe_bounds(low, high),
+                                fact.evidence.as_deref().unwrap_or("read from source")
+                            ),
+                        });
+                    }
+                }
                 // A closed value set the schema left open: every generated value
                 // outside the set is a guaranteed rejection.
                 if let Some(allowed) = &fact.allowed {
@@ -351,22 +389,35 @@ fn compare_fields(
                         mismatches.push(FieldMismatch {
                             operation: route.clone(),
                             field: name.clone(),
-                            detail: match declared_enum {
-                                None => format!(
-                                    "declared open, but the handler accepts only [{}]",
-                                    allowed.join(", ")
-                                ),
-                                Some(_) => format!(
-                                    "declared enum differs from the handler's [{}]",
-                                    allowed.join(", ")
-                                ),
+                            // Name what the schema actually says. Reporting a
+                            // declared 1..5 as "open" is its own small lie.
+                            detail: {
+                                let declared = match &declared_enum {
+                                    Some(values) => format!("declared [{}]", values.join(", ")),
+                                    None => {
+                                        let low = property.get("minimum").and_then(|v| v.as_f64());
+                                        let high = property.get("maximum").and_then(|v| v.as_f64());
+                                        if low.is_some() || high.is_some() {
+                                            format!("declared {}", describe_bounds(low, high))
+                                        } else {
+                                            "declared open".to_string()
+                                        }
+                                    }
+                                };
+                                format!(
+                                    "{declared}, but the handler accepts only [{}] ({})",
+                                    allowed.join(", "),
+                                    fact.evidence.as_deref().unwrap_or("from its type")
+                                )
                             },
                         });
                     }
                 }
             }
             for (name, fact) in fields {
-                if fact.required && declared.contains_key(name) && !required.contains(name.as_str())
+                if fact.required
+                    && declared.contains_key(name.as_str())
+                    && !required.contains(name.as_str())
                 {
                     mismatches.push(FieldMismatch {
                         operation: route.clone(),

@@ -23,17 +23,27 @@
 use regex::Regex;
 use std::collections::BTreeMap;
 
+/// A field as first read: name, declared type, and its attributes.
+type RawField = (String, String, Vec<String>);
+
 /// Bound the source considered, matching the extractor's own walk limits.
 const MAX_TYPE_BYTES: usize = 2 * 1024 * 1024;
 
 /// What the code says about one request-body field.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct FieldFact {
     /// Non-`Option`, so the handler will reject a body that omits it.
     pub(super) required: bool,
-    /// The exact values a unit-only enum accepts, serde renames applied. None
-    /// when the type is open (a String, a number, another struct).
+    /// The exact values accepted, serde renames applied. From a unit-only enum,
+    /// or from an explicit literal-set guard in the handler. None when the
+    /// accepted set is open or could not be read.
     pub(super) allowed: Option<Vec<String>>,
+    /// Inclusive numeric bounds the handler enforces, from a `validate`/`garde`
+    /// range attribute or an explicit range guard. Either side may be open.
+    pub(super) range: Option<(Option<f64>, Option<f64>)>,
+    /// Where the constraint came from, so the report can name the evidence
+    /// rather than assert a bare fact.
+    pub(super) evidence: Option<String>,
 }
 
 /// Request-body facts per handler function.
@@ -43,13 +53,151 @@ pub(super) struct RustTypes {
     bodies: BTreeMap<String, String>,
     /// struct name -> field name -> fact.
     structs: BTreeMap<String, BTreeMap<String, FieldFact>>,
+    /// handler fn -> its body text, for reading explicit guards.
+    handler_bodies: BTreeMap<String, String>,
 }
 
 impl RustTypes {
     /// The body fields a handler accepts, if its body type could be resolved.
-    pub(super) fn body_fields(&self, handler: &str) -> Option<&BTreeMap<String, FieldFact>> {
-        self.structs.get(self.bodies.get(handler)?)
+    ///
+    /// Facts from the struct (types and validation attributes) are merged with
+    /// facts from the handler body, because a Rust type carries no value range:
+    /// `rating: i8` says nothing, while `matches!(body.rating, -1 | 0 | 1)` two
+    /// lines into the handler says everything. Reading only the type would miss
+    /// the constraint that actually rejects the request.
+    pub(super) fn body_fields(&self, handler: &str) -> Option<BTreeMap<String, FieldFact>> {
+        let mut fields = self.structs.get(self.bodies.get(handler)?)?.clone();
+        if let Some(body) = self.handler_bodies.get(handler) {
+            for (name, fact) in fields.iter_mut() {
+                if let Some(guard) = read_guard(body, name) {
+                    // A guard is only additional evidence; it never loosens what
+                    // the type already settled.
+                    if fact.allowed.is_none() {
+                        fact.allowed = guard.allowed;
+                    }
+                    if fact.range.is_none() {
+                        fact.range = guard.range;
+                    }
+                    if fact.evidence.is_none() {
+                        fact.evidence = guard.evidence;
+                    }
+                }
+            }
+        }
+        Some(fields)
     }
+}
+
+/// Bound how many guard candidates are considered per field.
+const MAX_GUARDS: usize = 8;
+
+/// An explicit, unambiguous value guard on `field` inside a handler body.
+///
+/// Only three shapes, each of which states its accepted set outright:
+/// `matches!(x.field, A | B)`, `[A, B].contains(&x.field)`, and
+/// `(A..=B).contains(&x.field)`. Anything else abstains: a guard whose accepted
+/// set has to be inferred is exactly the kind of thing this must not guess at.
+fn read_guard(body: &str, field: &str) -> Option<FieldFact> {
+    let mut found = FieldFact::default();
+    let mut seen = 0usize;
+    for (index, _) in body.match_indices(field).take(MAX_GUARDS) {
+        seen += 1;
+        let window_start = body[..index].rfind(['\n', ';', '{']).map_or(0, |at| at + 1);
+        let window_end = body[index..]
+            .find(['\n', ';'])
+            .map_or(body.len(), |at| index + at);
+        let window = &body[window_start..window_end];
+        if let Some(values) = matches_arm(window).or_else(|| slice_contains(window)) {
+            found.allowed = Some(values);
+            found.evidence = Some("an explicit value guard in the handler".to_string());
+            break;
+        }
+        if let Some(range) = range_contains(window) {
+            found.range = Some(range);
+            found.evidence = Some("an explicit range guard in the handler".to_string());
+            break;
+        }
+    }
+    let _ = seen;
+    (found.allowed.is_some() || found.range.is_some()).then_some(found)
+}
+
+/// `matches!(expr, -1 | 0 | 1)` -> the literal alternatives.
+fn matches_arm(window: &str) -> Option<Vec<String>> {
+    let at = window.find("matches!(")? + "matches!(".len();
+    let inner = balanced(&window[at..], '(', ')')?;
+    let (_, arms) = inner.split_once(',')?;
+    literal_list(arms, '|')
+}
+
+/// `[-1, 0, 1].contains(&expr)` -> the literal elements.
+fn slice_contains(window: &str) -> Option<Vec<String>> {
+    if !window.contains(".contains(") {
+        return None;
+    }
+    let open = window.find('[')?;
+    let inner = balanced(&window[open + 1..], '[', ']')?;
+    literal_list(&inner, ',')
+}
+
+/// `(1..=5).contains(&expr)` -> the inclusive bounds.
+fn range_contains(window: &str) -> Option<(Option<f64>, Option<f64>)> {
+    if !window.contains(".contains(") {
+        return None;
+    }
+    let at = window.find("..")?;
+    let inclusive = window[at..].starts_with("..=");
+    let before: String = window[..at]
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
+        .collect();
+    let low: String = before.chars().rev().collect();
+    let after: String = window[at + if inclusive { 3 } else { 2 }..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
+        .collect();
+    let low = low.parse::<f64>().ok();
+    let high = after
+        .parse::<f64>()
+        .ok()
+        .map(|high| if inclusive { high } else { high - 1.0 });
+    (low.is_some() || high.is_some()).then_some((low, high))
+}
+
+/// The literal items of a separated list, or None if any item is not a literal:
+/// a list with one computed element states no closed set.
+fn literal_list(text: &str, separator: char) -> Option<Vec<String>> {
+    let mut values = Vec::new();
+    for part in text.split(separator) {
+        let item = part.trim().trim_matches('"');
+        if item.is_empty() || item == "_" {
+            return None;
+        }
+        let numeric = item.parse::<f64>().is_ok();
+        let quoted = part.trim().starts_with('"');
+        if !numeric && !quoted {
+            return None;
+        }
+        values.push(item.to_string());
+    }
+    (values.len() > 1).then_some(values)
+}
+
+/// The text inside the first balanced `open`..`close` pair of `text`.
+fn balanced(text: &str, open: char, close: char) -> Option<String> {
+    let mut depth = 1i32;
+    for (index, character) in text.char_indices() {
+        if character == open {
+            depth += 1;
+        } else if character == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(text[..index].to_string());
+            }
+        }
+    }
+    None
 }
 
 pub(super) struct TypeScanner {
@@ -81,19 +229,26 @@ impl TypeScanner {
     pub(super) fn scan(&self, sources: &[String]) -> RustTypes {
         let mut types = RustTypes::default();
         let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let mut raw_structs: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+        let mut raw_structs: BTreeMap<String, Vec<RawField>> = BTreeMap::new();
+        let mut handler_bodies: BTreeMap<String, String> = BTreeMap::new();
         for source in sources {
             if source.len() > MAX_TYPE_BYTES {
                 continue;
             }
-            self.scan_one(source, &mut types.bodies, &mut enums, &mut raw_structs);
+            self.scan_one(
+                source,
+                &mut types.bodies,
+                &mut enums,
+                &mut raw_structs,
+                &mut handler_bodies,
+            );
         }
         // Resolve field types against the enums, now that every file is read: a
         // struct and the enum it uses are usually in different modules.
         for (name, fields) in raw_structs {
             let resolved = fields
                 .into_iter()
-                .map(|(field, declared)| {
+                .map(|(field, declared, attributes)| {
                     let optional = declared.starts_with("Option<");
                     let inner = declared
                         .strip_prefix("Option<")
@@ -109,12 +264,16 @@ impl TypeScanner {
                         FieldFact {
                             required: !optional,
                             allowed: enums.get(&inner).cloned(),
+                            range: attribute_range(&attributes),
+                            evidence: attribute_range(&attributes)
+                                .map(|_| "a validation attribute on the field".to_string()),
                         },
                     )
                 })
                 .collect();
             types.structs.insert(name, resolved);
         }
+        types.handler_bodies = handler_bodies;
         types
     }
 
@@ -123,7 +282,8 @@ impl TypeScanner {
         source: &str,
         bodies: &mut BTreeMap<String, String>,
         enums: &mut BTreeMap<String, Vec<String>>,
-        structs: &mut BTreeMap<String, Vec<(String, String)>>,
+        structs: &mut BTreeMap<String, Vec<RawField>>,
+        handler_bodies: &mut BTreeMap<String, String>,
     ) {
         let lines: Vec<&str> = source.lines().map(strip_comment).collect();
         for (index, line) in lines.iter().enumerate() {
@@ -141,7 +301,13 @@ impl TypeScanner {
             if let Some(captures) = self.handler_body.captures(line) {
                 let name = captures[1].to_string();
                 if let Some(body) = self.body_type(&lines, index) {
-                    bodies.insert(name, body);
+                    bodies.insert(name.clone(), body);
+                    // Keep the body text: a Rust numeric type carries no range,
+                    // so the constraint that actually rejects the request lives
+                    // in the handler, not the signature.
+                    if let Some(text) = block_text(&lines, index) {
+                        handler_bodies.insert(name, text);
+                    }
                 }
             }
         }
@@ -178,7 +344,7 @@ impl TypeScanner {
         (!values.is_empty()).then_some(values)
     }
 
-    fn named_fields(&self, lines: &[&str], open: usize) -> Vec<(String, String)> {
+    fn named_fields(&self, lines: &[&str], open: usize) -> Vec<RawField> {
         let Some(body) = block_text(lines, open) else {
             return Vec::new();
         };
@@ -193,7 +359,7 @@ impl TypeScanner {
                 .find_map(|attribute| self.rename.captures(attribute))
                 .map(|captures| captures[1].to_string());
             let name = renamed.unwrap_or_else(|| captures[1].to_string());
-            fields.push((name, captures[2].trim().to_string()));
+            fields.push((name, captures[2].trim().to_string(), attributes));
         }
         fields
     }
@@ -375,6 +541,32 @@ pub(super) fn scan_types(root: &std::path::Path) -> RustTypes {
     scanner.scan(&sources)
 }
 
+/// Inclusive bounds from a `validator` or `garde` range attribute.
+///
+/// A Rust numeric type carries no range, but these attributes state one
+/// declaratively, which is exactly as readable as the enum case and just as
+/// unambiguous. `#[validate(range(min = -1, max = 1))]` against a schema
+/// declaring `1..5` is a contradiction the compiler-adjacent source already
+/// spells out.
+fn attribute_range(attributes: &[String]) -> Option<(Option<f64>, Option<f64>)> {
+    let text = attributes.join(" ");
+    if !text.contains("range(") {
+        return None;
+    }
+    let bound = |key: &str| -> Option<f64> {
+        let at = text.find(key)? + key.len();
+        let rest = text[at..].trim_start().strip_prefix('=')?.trim_start();
+        let literal: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
+            .collect();
+        literal.parse().ok()
+    };
+    let min = bound("min");
+    let max = bound("max");
+    (min.is_some() || max.is_some()).then_some((min, max))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +660,106 @@ mod tests {
             "#,
         ]);
         assert!(types.body_fields("create").is_some());
+    }
+
+    #[test]
+    fn a_literal_match_guard_supplies_the_value_set_a_numeric_type_cannot() {
+        // The reported case: `rating: i8` says nothing, the guard says
+        // everything, and reading only the type misses the real constraint.
+        let types = scan(&[
+            "pub struct R { pub rating: i8 }",
+            r#"
+            pub async fn submit(Json(body): Json<R>) {
+                if !matches!(body.rating, -1 | 0 | 1) {
+                    return bad_request();
+                }
+            }
+            "#,
+        ]);
+        let fields = types.body_fields("submit").unwrap();
+        assert_eq!(
+            fields["rating"].allowed.as_deref(),
+            Some(["-1".to_string(), "0".to_string(), "1".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn a_slice_contains_guard_is_read_too() {
+        let types = scan(&[
+            "pub struct R { pub mode: String }",
+            r#"
+            pub async fn submit(Json(body): Json<R>) {
+                if !["fast", "slow"].contains(&body.mode.as_str()) { return bad(); }
+            }
+            "#,
+        ]);
+        assert_eq!(
+            types.body_fields("submit").unwrap()["mode"]
+                .allowed
+                .as_deref(),
+            Some(["fast".to_string(), "slow".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn a_range_guard_gives_bounds() {
+        let types = scan(&[
+            "pub struct R { pub size: u32 }",
+            r#"
+            pub async fn submit(Json(body): Json<R>) {
+                if !(1..=100).contains(&body.size) { return bad(); }
+            }
+            "#,
+        ]);
+        assert_eq!(
+            types.body_fields("submit").unwrap()["size"].range,
+            Some((Some(1.0), Some(100.0)))
+        );
+    }
+
+    #[test]
+    fn a_validation_attribute_range_is_read_from_the_field() {
+        let types = scan(&[
+            r#"
+            pub struct R {
+                #[validate(range(min = -1, max = 1))]
+                pub rating: i8,
+            }
+            "#,
+            "pub async fn submit(Json(body): Json<R>) {",
+        ]);
+        assert_eq!(
+            types.body_fields("submit").unwrap()["rating"].range,
+            Some((Some(-1.0), Some(1.0)))
+        );
+    }
+
+    #[test]
+    fn a_guard_whose_accepted_set_is_not_literal_abstains() {
+        // `matches!(x, v if v > threshold)` states no closed set, and guessing
+        // one is exactly what this must not do.
+        let types = scan(&[
+            "pub struct R { pub rating: i8 }",
+            r#"
+            pub async fn submit(Json(body): Json<R>) {
+                if !matches!(body.rating, v if v > threshold) { return bad(); }
+            }
+            "#,
+        ]);
+        let fields = types.body_fields("submit").unwrap();
+        assert_eq!(fields["rating"].allowed, None, "no closed set is stated");
+        assert_eq!(fields["rating"].range, None);
+    }
+
+    #[test]
+    fn a_field_with_no_guard_at_all_stays_open() {
+        let types = scan(&[
+            "pub struct R { pub note: String }",
+            "pub async fn submit(Json(body): Json<R>) { store(body.note); }",
+        ]);
+        let fields = types.body_fields("submit").unwrap();
+        assert_eq!(fields["note"].allowed, None);
+        assert_eq!(fields["note"].range, None);
     }
 
     #[test]

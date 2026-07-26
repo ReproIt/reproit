@@ -162,7 +162,7 @@ This API consumes the complete event stream and delivers only decoded A2UI messa
 validation and replay. It never yields raw A2A events. Failed, interrupted, oversized, or
 exhausted-repair streams deliver nothing.
 
-This seam is pinned to A2UI commit `96abfdc60de0657c6322028d10c1cc7bc25c237c`, its
+This seam is pinned to A2UI commit `d46dd9e2124687c6cdc5d8c65567ac7cfdd5c091`, its
 `samples/agent/adk/restaurant_finder` integration (`google-adk>=1.28.1`, `a2a-sdk>=0.3.0`),
 `@a2a-js/sdk` 0.3.13, `@a2ui/web_core` 0.10.4, and A2UI v0.9. It recognizes `message.parts` and
 `status-update.status.message.parts`, including both official A2UI MIME spellings. Exact cumulative
@@ -266,7 +266,7 @@ prove `appUiFailure` when both real renderers agree on the same faulty stream.
 
 The fixture is a reduced copy of the official Apache-2.0 A2UI v0.9.1 contact form conformance case
 at `specification/v0_9_1/test/cases/contact_form_example.jsonl` in <https://github.com/google/A2UI>
-(captured from commit `96abfdc60de0657c6322028d10c1cc7bc25c237c`).
+(captured from commit `d46dd9e2124687c6cdc5d8c65567ac7cfdd5c091`).
 
 The standalone experimental CLI can create a capture:
 
@@ -314,7 +314,7 @@ Then use `replay capture.json`, `shrink capture.json --out minimal.json`, or
 Run the complete deterministic gate against an exact A2UI checkout:
 
 ```sh
-A2UI_EXPECTED_COMMIT=96abfdc60de0657c6322028d10c1cc7bc25c237c \
+A2UI_EXPECTED_COMMIT=d46dd9e2124687c6cdc5d8c65567ac7cfdd5c091 \
 A2UI_ARTIFACT_DIR=/tmp/a2ui-conformance \
   runners/a2ui/run-official-conformance.sh /path/to/A2UI
 ```

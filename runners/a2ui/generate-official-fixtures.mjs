@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { capture, replay, sha256 } from './adapter.mjs';
 
-export const PIN = '96abfdc60de0657c6322028d10c1cc7bc25c237c';
+export const PIN = 'd46dd9e2124687c6cdc5d8c65567ac7cfdd5c091';
 
 export function messagesFrom(document) {
   return Array.isArray(document) ? document : document.messages;

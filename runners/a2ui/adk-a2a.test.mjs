@@ -163,7 +163,7 @@ test(
 test(
   'default validator is pinned to the official web SDK and fails closed ' + 'outside its contract',
   async () => {
-    assert.equal(ADK_A2UI_SUPPORT.upstreamCommit, '96abfdc60de0657c6322028d10c1cc7bc25c237c');
+    assert.equal(ADK_A2UI_SUPPORT.upstreamCommit, 'd46dd9e2124687c6cdc5d8c65567ac7cfdd5c091');
     const result = await validateOfficialAdkA2uiMessages([], { protocolVersion: 'v0.9' });
     assert.match(JSON.stringify(result), /exact pinned v0.9 server_to_client/);
     assert.match(JSON.stringify(result), /exact official v0.9 basic catalog/);

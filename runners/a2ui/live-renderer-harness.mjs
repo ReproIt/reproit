@@ -312,7 +312,7 @@ try {
   console.log(
     JSON.stringify(
       {
-        upstream: { commit: '96abfdc60de0657c6322028d10c1cc7bc25c237c', example: exampleName },
+        upstream: { commit: 'd46dd9e2124687c6cdc5d8c65567ac7cfdd5c091', example: exampleName },
         expected,
         engines: results,
       },

@@ -15,7 +15,7 @@ const SERVER_TO_CLIENT_SHA256 = 'a5feade7635f1e9ed199f37d88c8bdc985cd6f0d57d0933
 
 export const ADK_A2UI_SUPPORT = Object.freeze({
   upstreamRepository: 'https://github.com/google/A2UI',
-  upstreamCommit: '96abfdc60de0657c6322028d10c1cc7bc25c237c',
+  upstreamCommit: 'd46dd9e2124687c6cdc5d8c65567ac7cfdd5c091',
   sample: 'samples/agent/adk/restaurant_finder',
   googleAdk: '>=1.28.1',
   a2aSdk: '>=0.3.0',
