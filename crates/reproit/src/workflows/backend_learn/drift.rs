@@ -14,12 +14,18 @@
 //! observe would be the same overclaiming the schema is guilty of.
 
 use super::extract::{self, Derived};
+use super::go_types;
+use super::python_types;
 use super::rust_types;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// One (method, path) the schema declares or the source serves.
 pub type Route = (String, String);
+
+/// A family's reader: handler name -> the body fields it accepts. Boxed so each
+/// family plugs in the same way and adding one is a match arm, not plumbing.
+type BodyReader<'a> = Box<dyn Fn(&str) -> Option<BTreeMap<String, rust_types::FieldFact>> + 'a>;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Drift {
@@ -100,12 +106,26 @@ pub fn compare(
         return None;
     }
     let mut drift = diff(declared, &derived);
-    // Types are read for Rust only. Every other family abstains rather than
+    // Types are read per family. A family with no reader abstains rather than
     // guessing: a check that cannot see handler signatures must not imply it
     // looked at them.
-    if extract::family_for(framework) == Some(extract::Family::Rust) {
-        let types = rust_types::scan_types(root);
-        drift.field_mismatches = compare_fields(document, &derived, &types);
+    let fields: Option<BodyReader> = match extract::family_for(framework) {
+        Some(extract::Family::Rust) => {
+            let types = rust_types::scan_types(root);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        Some(extract::Family::Python) => {
+            let types = python_types::scan_types(root);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        Some(extract::Family::Go) => {
+            let types = go_types::scan_types(root);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        _ => None,
+    };
+    if let Some(fields) = fields {
+        drift.field_mismatches = compare_fields(document, &derived, fields.as_ref());
         drift.types_checked = true;
     }
     Some(drift)
@@ -310,7 +330,7 @@ fn describe_bounds(low: Option<f64>, high: Option<f64>) -> String {
 fn compare_fields(
     document: &serde_json::Value,
     derived: &Derived,
-    types: &rust_types::RustTypes,
+    body_fields: &dyn Fn(&str) -> Option<BTreeMap<String, rust_types::FieldFact>>,
 ) -> Vec<FieldMismatch> {
     let mut mismatches = Vec::new();
     let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
@@ -325,7 +345,7 @@ fn compare_fields(
             let Some(handler) = derived.handlers.get(&route) else {
                 continue;
             };
-            let Some(fields) = types.body_fields(handler) else {
+            let Some(fields) = body_fields(handler) else {
                 continue;
             };
             let schema = operation.pointer("/requestBody/content/application~1json/schema");
@@ -552,7 +572,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &typed(BLOCK_SOURCE),
+            &|h| typed(BLOCK_SOURCE).body_fields(h),
         );
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].field, "blocked_type");
@@ -572,7 +592,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &typed(BLOCK_SOURCE),
+            &|h| typed(BLOCK_SOURCE).body_fields(h),
         );
         assert!(found.is_empty(), "{found:?}");
     }
@@ -584,7 +604,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &typed(BLOCK_SOURCE),
+            &|h| typed(BLOCK_SOURCE).body_fields(h),
         );
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
@@ -604,7 +624,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &typed(BLOCK_SOURCE),
+            &|h| typed(BLOCK_SOURCE).body_fields(h),
         );
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
@@ -616,11 +636,9 @@ mod tests {
     #[test]
     fn an_operation_with_no_resolvable_handler_abstains() {
         let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
-        let found = compare_fields(
-            &document,
-            &derived(&[("/block", &["post"])]),
-            &typed(BLOCK_SOURCE),
-        );
+        let found = compare_fields(&document, &derived(&[("/block", &["post"])]), &|h| {
+            typed(BLOCK_SOURCE).body_fields(h)
+        });
         assert!(
             found.is_empty(),
             "an unresolved handler must not produce a verdict: {found:?}"

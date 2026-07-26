@@ -114,10 +114,22 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             Family::Php => patterns.php(&content),
             Family::Rust => unreachable!("handled by derive_rust"),
         };
-        for (raw, method) in hits {
+        for (raw, method, handler) in hits {
             match normalize_path(&raw) {
                 Some(path) => {
-                    derived.routes.entry(path).or_default().insert(method);
+                    derived
+                        .routes
+                        .entry(path.clone())
+                        .or_default()
+                        .insert(method);
+                    // Handlers are recorded for every family that can name one,
+                    // so reading a family's types is a matter of teaching its
+                    // signatures, not of plumbing.
+                    if let Some(handler) = handler {
+                        derived
+                            .handlers
+                            .insert((method.to_uppercase(), path), handler);
+                    }
                 }
                 None => derived.skipped += 1,
             }
@@ -153,7 +165,13 @@ fn derive_rust(patterns: &Patterns, files: &[PathBuf]) -> Derived {
 /// The Rust sources the extractor considers, exposed so the type check reads
 /// exactly the same file set as the route check.
 pub(super) fn rust_sources(root: &Path) -> Vec<PathBuf> {
-    source_files(root, extensions(Family::Rust))
+    family_sources(root, Family::Rust)
+}
+
+/// The sources of one family, so a type reader sees exactly the file set the
+/// route reader saw.
+pub(super) fn family_sources(root: &Path, family: Family) -> Vec<PathBuf> {
+    source_files(root, extensions(family))
 }
 
 /// Bounded, deterministic source walk: sorted entries, capped depth and count,
@@ -204,6 +222,7 @@ struct Patterns {
     node_route_url: Regex,
     node_route_method: Regex,
     python_decorator: Regex,
+    python_def: Regex,
     flask_route: Regex,
     flask_methods: Regex,
     flask_blueprint: Regex,
@@ -242,6 +261,7 @@ impl Patterns {
                 r#"@(\w+)\.(get|post|put|patch|delete|head|options)\(\s*[rf]?['"]([^'"]+)['"]"#,
             ),
             flask_route: compile(r#"@(\w+)\.route\(\s*[rf]?['"]([^'"]+)['"](.*)"#),
+            python_def: compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)"),
             flask_methods: compile(r"methods\s*=\s*\[([^\]]*)\]"),
             flask_blueprint: compile(
                 r#"(\w+)\s*=\s*Blueprint\([^)]*\burl_prefix\s*=\s*['"]([^'"]+)['"]"#,
@@ -253,7 +273,9 @@ impl Patterns {
                 r#"include_router\(\s*(\w+)[^)]*\bprefix\s*=\s*['"]([^'"]+)['"]"#,
             ),
             django_path: compile(r#"\bpath\(\s*[rf]?['"]([^'"]*)['"]"#),
-            go_call: compile(r#"\w\.(?i:(get|post|put|patch|delete|head|options))\(\s*"([^"]+)""#),
+            go_call: compile(
+                r#"\w\.(?i:(get|post|put|patch|delete|head|options))\(\s*"([^"]+)"\s*,\s*(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)"#,
+            ),
             go_handle_func: compile(
                 r#"HandleFunc\(\s*"(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) ([^"]+)""#,
             ),
@@ -356,11 +378,7 @@ impl Patterns {
     /// express/koa/hapi-style `app.get('/x', ...)` plus the fastify
     /// `fastify.route({ method: 'GET', url: '/x' })` object form (the object
     /// is matched across a small line window).
-    fn node(
-        &self,
-        content: &str,
-        prefixes: &BTreeMap<String, String>,
-    ) -> Vec<(String, &'static str)> {
+    fn node(&self, content: &str, prefixes: &BTreeMap<String, String>) -> Vec<rust_nest::RouteHit> {
         let mut hits = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
         for (index, line) in lines.iter().enumerate() {
@@ -376,7 +394,7 @@ impl Patterns {
                     }
                 };
                 if raw.starts_with('/') && !raw.contains("://") {
-                    hits.push((join_prefix(prefixes.get(&captures[1]), raw), method));
+                    hits.push((join_prefix(prefixes.get(&captures[1]), raw), method, None));
                 }
             }
             if line.contains(".route(") {
@@ -387,7 +405,7 @@ impl Patterns {
                     self.node_route_method.captures(&window),
                 ) {
                     if let Some(method) = method_const(&method[1]) {
-                        hits.push((url[1].to_string(), method));
+                        hits.push((url[1].to_string(), method, None));
                     }
                 }
             }
@@ -403,13 +421,22 @@ impl Patterns {
         content: &str,
         file_name: &str,
         prefixes: &BTreeMap<String, String>,
-    ) -> Vec<(String, &'static str)> {
+    ) -> Vec<rust_nest::RouteHit> {
         let mut hits = Vec::new();
-        for line in content.lines() {
+        let lines: Vec<&str> = content.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.python_decorator.captures(line) {
                 if let Some(method) = method_const(&captures[2]) {
                     let path = join_prefix(prefixes.get(&captures[1]), &captures[3]);
-                    hits.push((path, method));
+                    // The decorated function is the handler: it sits within a
+                    // few lines, past any further decorators.
+                    let handler = lines
+                        .iter()
+                        .skip(index + 1)
+                        .take(6)
+                        .find_map(|next| self.python_def.captures(next))
+                        .map(|captures| captures[1].to_string());
+                    hits.push((path, method, handler));
                 }
             }
             if let Some(captures) = self.flask_route.captures(line) {
@@ -424,13 +451,19 @@ impl Patterns {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_else(|| vec!["get"]);
+                let handler = lines
+                    .iter()
+                    .skip(index + 1)
+                    .take(6)
+                    .find_map(|next| self.python_def.captures(next))
+                    .map(|captures| captures[1].to_string());
                 for method in methods {
-                    hits.push((path.clone(), method));
+                    hits.push((path.clone(), method, handler.clone()));
                 }
             }
             if file_name == "urls.py" {
                 if let Some(captures) = self.django_path.captures(line) {
-                    hits.push((format!("/{}", &captures[1]), "get"));
+                    hits.push((format!("/{}", &captures[1]), "get", None));
                 }
             }
         }
@@ -439,19 +472,20 @@ impl Patterns {
 
     /// gin/echo/fiber `r.GET("/x", ...)`, chi `r.Get("/x", ...)`, and Go 1.22
     /// net/http `mux.HandleFunc("GET /x", ...)` method-prefixed patterns.
-    fn go(&self, content: &str) -> Vec<(String, &'static str)> {
+    fn go(&self, content: &str) -> Vec<rust_nest::RouteHit> {
         let mut hits = Vec::new();
         for line in content.lines() {
             for captures in self.go_call.captures_iter(line) {
                 if let Some(method) = method_const(&captures[1]) {
                     if captures[2].starts_with('/') {
-                        hits.push((captures[2].to_string(), method));
+                        let handler = captures.get(3).map(|value| value.as_str().to_string());
+                        hits.push((captures[2].to_string(), method, handler));
                     }
                 }
             }
             if let Some(captures) = self.go_handle_func.captures(line) {
                 if let Some(method) = method_const(&captures[1]) {
-                    hits.push((captures[2].to_string(), method));
+                    hits.push((captures[2].to_string(), method, None));
                 }
             }
         }
@@ -460,11 +494,11 @@ impl Patterns {
 
     /// Rails routes.rb verbs and `resources :name` (expanded to the standard
     /// five routes), plus Sinatra's identical top-level verb blocks.
-    fn ruby(&self, content: &str) -> Vec<(String, &'static str)> {
+    fn ruby(&self, content: &str) -> Vec<rust_nest::RouteHit> {
         let mut hits = Vec::new();
         for captures in self.ruby_verb.captures_iter(content) {
             if let Some(method) = method_const(&captures[1]) {
-                hits.push((captures[2].to_string(), method));
+                hits.push((captures[2].to_string(), method, None));
             }
         }
         for captures in self.ruby_resources.captures_iter(content) {
@@ -476,7 +510,7 @@ impl Patterns {
                 ("/{id}", "patch"),
                 ("/{id}", "delete"),
             ] {
-                hits.push((format!("/{name}{suffix}"), method));
+                hits.push((format!("/{name}{suffix}"), method, None));
             }
         }
         hits
@@ -485,7 +519,7 @@ impl Patterns {
     /// Spring `@GetMapping("/x")` (and friends), with a class-level
     /// `@RequestMapping` prefix applied when one precedes the class keyword.
     /// Bare `@GetMapping` maps to the prefix itself.
-    fn spring(&self, content: &str) -> Vec<(String, &'static str)> {
+    fn spring(&self, content: &str) -> Vec<rust_nest::RouteHit> {
         let class_line = content
             .lines()
             .position(|line| line.contains("class "))
@@ -500,12 +534,12 @@ impl Patterns {
         for line in content.lines() {
             if let Some(captures) = self.spring_mapping.captures(line) {
                 if let Some(method) = method_const(&captures[1]) {
-                    hits.push((format!("{prefix}{}", &captures[2]), method));
+                    hits.push((format!("{prefix}{}", &captures[2]), method, None));
                 }
             } else if let Some(captures) = self.spring_bare_mapping.captures(line) {
                 if let Some(method) = method_const(&captures[1]) {
                     let path = if prefix.is_empty() { "/" } else { &prefix };
-                    hits.push((path.to_string(), method));
+                    hits.push((path.to_string(), method, None));
                 }
             }
         }
@@ -513,7 +547,7 @@ impl Patterns {
     }
 
     /// Laravel `Route::get('/x', ...)` in routes/*.php (`any` claims only GET).
-    fn php(&self, content: &str) -> Vec<(String, &'static str)> {
+    fn php(&self, content: &str) -> Vec<rust_nest::RouteHit> {
         let mut hits = Vec::new();
         for captures in self.php_route.captures_iter(content) {
             let method = if &captures[1] == "any" {
@@ -524,7 +558,7 @@ impl Patterns {
                     None => continue,
                 }
             };
-            hits.push((captures[2].to_string(), method));
+            hits.push((captures[2].to_string(), method, None));
         }
         hits
     }

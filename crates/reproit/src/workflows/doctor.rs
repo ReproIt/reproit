@@ -854,7 +854,7 @@ fn doctor_schema_drift(
                 if found.types_checked {
                     ", and their request-body types agree"
                 } else {
-                    " (routes only; request-body type checking is Rust-only today)"
+                    " (routes only; request-body types are read for Rust, Python and Go)"
                 }
             ),
             None,

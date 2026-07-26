@@ -176,16 +176,22 @@ everything, and that is the constraint that actually rejects the request:
                             (an explicit value guard in the handler)
 ```
 
-What it reads, each stating its accepted set outright: a unit-only enum (serde renames applied),
-a `validate`/`garde` range attribute, and three guard shapes in the handler body,
-`matches!(x, A | B)`, `[A, B].contains(&x)`, and `(A..=B).contains(&x)`. Every report names its
-evidence, so a verdict can be checked against the line that produced it.
+Three families are read, each through the signal its own ecosystem already uses:
+
+| | closed value set | range | optional |
+|---|---|---|---|
+| Rust | unit-only enum, `matches!(x, A \| B)`, `[A, B].contains(&x)` | `validate`/`garde` `range(...)`, `(A..=B).contains(&x)` | `Option<T>` |
+| Python | `Literal["a", "b"]`, a `str, Enum` class | `Field(ge=, le=, gt=, lt=)` | `Optional[T]`, `\| None`, a default |
+| Go | struct tag `oneof=a b` | struct tag `min=`/`max=`/`gte=`/`lte=` | pointer, `omitempty`, absent `required` |
+
+Every report names its evidence, so a verdict can be checked against the line that produced it.
+Node, Ruby, PHP and Java get the route check and say so; adding one is teaching its signatures,
+not new plumbing.
 
 It abstains on anything whose accepted set has to be inferred: an enum variant carrying data, a
 `matches!` arm with a guard expression, validation spread across several statements. Those are
 real constraints it cannot see, and reporting them would be the same overclaiming the schema is
-guilty of. Other language families get the route check only, and say so rather than letting
-"clean" imply a type comparison that never ran.
+guilty of. 
 
 For paths it compares method and path template, never types: the extractor sees
 routes, not handler signatures, and claiming a type mismatch it cannot observe

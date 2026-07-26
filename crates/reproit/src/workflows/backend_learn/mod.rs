@@ -14,6 +14,8 @@ pub(super) mod drift;
 mod emit;
 mod enrich;
 mod extract;
+mod go_types;
+mod python_types;
 mod rust_nest;
 mod rust_types;
 
