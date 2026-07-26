@@ -428,3 +428,57 @@ fn absence_never_merges_with_a_negative_result() {
         "expected a reader per family, found {readers}"
     );
 }
+
+#[test]
+fn a_multi_schema_project_is_never_narrowed_to_one() {
+    // Three bugs have had this exact shape: one code path counts every declared
+    // schema and another reads only the first, so the reported total is right
+    // while the work covers a fraction of it. It keeps recurring because the
+    // reporting path and the consuming path read the schema list separately,
+    // and fixing one leaves the other silently narrowed.
+    for relative in [
+        "src/workflows/doctor.rs",
+        "src/workflows/backend_target.rs",
+        "src/workflows/backend_learn/drift.rs",
+    ] {
+        let body = source(relative);
+        // Comments here QUOTE the old bug to explain why the guard exists, so
+        // this reads the code rather than the prose about it.
+        let production: String = body
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(&body)
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let compact: String = production.chars().filter(|c| !c.is_whitespace()).collect();
+        for narrowing in [
+            "schemas.first()",
+            "schema_paths().first()",
+            "schema_paths()?.first()",
+            "documents.first()",
+            "documents.iter().take(1)",
+        ] {
+            let needle: String = narrowing.chars().filter(|c| !c.is_whitespace()).collect();
+            assert!(
+                !compact.contains(&needle),
+                "{relative} narrows a multi-schema project to one via `{narrowing}`; \
+                 every declared schema must be read"
+            );
+        }
+    }
+
+    // The drift check takes the whole set, so a service split across files is
+    // compared against the union rather than against whichever file is first.
+    let drift = source("src/workflows/backend_learn/drift.rs");
+    for signature in [
+        "pub fn declared_routes(documents: &[serde_json::Value])",
+        "documents: &[serde_json::Value],",
+    ] {
+        assert!(
+            drift.contains(signature),
+            "drift.rs must accept every declared schema (`{signature}`)"
+        );
+    }
+}
