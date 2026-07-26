@@ -852,7 +852,7 @@ fn doctor_schema_drift(
                 // Say exactly which check ran, and over how much. An
                 // operation whose handler did not resolve was not compared, and
                 // a clean result must not speak for it.
-                &match (found.types_checked, found.bodies_compared) {
+                match (found.types_checked, found.bodies_compared) {
                     (false, _) => " (routes only for this framework)".to_string(),
                     (true, 0) => {
                         " (routes only: no request body could be traced to a handler)".to_string()
