@@ -74,23 +74,30 @@ impl Drift {
 /// Only OpenAPI: a GraphQL or protobuf service has no URL routes to compare
 /// against, and inventing a comparison for them would produce noise rather than
 /// drift. Those return an empty list, which the caller reports as "not checked".
-pub fn declared_routes(document: &serde_json::Value) -> Vec<Route> {
+/// Takes EVERY declared schema. A project that splits its service across
+/// several files had only the first one compared, so an operation declared in
+/// the second read as one the schema does not declare, and one declared in the
+/// first but served from a path the second describes read as unserved.
+pub fn declared_routes(documents: &[serde_json::Value]) -> Vec<Route> {
     const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
-    let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
-        return Vec::new();
-    };
     let mut routes = Vec::new();
-    for (path, item) in paths {
-        let Some(operations) = item.as_object() else {
+    for document in documents {
+        let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
             continue;
         };
-        for method in operations.keys() {
-            if METHODS.contains(&method.as_str()) {
-                routes.push((method.to_uppercase(), path.clone()));
+        for (path, item) in paths {
+            let Some(operations) = item.as_object() else {
+                continue;
+            };
+            for method in operations.keys() {
+                if METHODS.contains(&method.as_str()) {
+                    routes.push((method.to_uppercase(), path.clone()));
+                }
             }
         }
     }
     routes.sort();
+    routes.dedup();
     routes
 }
 
@@ -103,7 +110,7 @@ pub fn compare(
     root: &Path,
     framework: &str,
     declared: &[Route],
-    document: &serde_json::Value,
+    documents: &[serde_json::Value],
 ) -> Option<Drift> {
     let derived = extract::derive(root, framework)?;
     if derived.routes.is_empty() {
@@ -121,7 +128,7 @@ pub fn compare(
         Box::new(move |handler: &str| bodies.get(handler).cloned()) as BodyReader
     });
     if let Some(fields) = fields {
-        let (mismatches, compared) = compare_fields(document, &derived, fields.as_ref());
+        let (mismatches, compared) = compare_fields(documents, &derived, fields.as_ref());
         drift.field_mismatches = mismatches;
         drift.bodies_compared = compared;
         drift.types_checked = true;
@@ -345,15 +352,134 @@ fn describe_bounds(low: Option<f64>, high: Option<f64>) -> String {
 /// requires that the schema does not. Anything the type does not decide (a
 /// range check inside the handler, a validator attribute) is left alone, so a
 /// reported mismatch is always something the compiler already knows.
-fn compare_fields(
+/// Bound `$ref` chasing: a schema that refers to itself must not spin.
+const MAX_REF_DEPTH: usize = 8;
+/// Bound how many branches one property may expand to.
+const MAX_ALTERNATIVES: usize = 32;
+
+/// The concrete schemas a property can be, with `$ref`s followed and the
+/// nullable wrappers unwrapped.
+///
+/// `oneOf: [{$ref: Mode}, {type: "null"}]` is the standard OpenAPI 3.1 spelling
+/// of a nullable enum. Reading the property directly found no `enum` on it and
+/// reported a already-closed value set as "declared open", which is a wrong
+/// claim about a correct schema.
+fn alternatives<'a>(
+    schema: &'a serde_json::Value,
+    root: &'a serde_json::Value,
+    depth: usize,
+    out: &mut Vec<&'a serde_json::Value>,
+) {
+    if depth > MAX_REF_DEPTH || out.len() >= MAX_ALTERNATIVES {
+        return;
+    }
+    if let Some(pointer) = schema.get("$ref").and_then(|value| value.as_str()) {
+        // Only same-document refs. An external file is not loaded here, so it
+        // resolves to nothing rather than to a guess.
+        if let Some(target) = pointer
+            .strip_prefix('#')
+            .and_then(|rest| root.pointer(rest))
+        {
+            alternatives(target, root, depth + 1, out);
+        }
+        return;
+    }
+    let mut branched = false;
+    for key in ["oneOf", "anyOf", "allOf"] {
+        let Some(items) = schema.get(key).and_then(|value| value.as_array()) else {
+            continue;
+        };
+        branched = true;
+        for item in items {
+            if is_null_schema(item) {
+                continue;
+            }
+            alternatives(item, root, depth + 1, out);
+        }
+    }
+    if !branched {
+        out.push(schema);
+    }
+}
+
+/// `{"type": "null"}`: the nullable half of the idiom, which states nothing
+/// about the values the field accepts.
+fn is_null_schema(schema: &serde_json::Value) -> bool {
+    schema.get("type").and_then(|value| value.as_str()) == Some("null")
+}
+
+/// The closed value set a property declares, seen through `$ref` and `oneOf`.
+fn declared_enum(
+    property: &serde_json::Value,
     document: &serde_json::Value,
+) -> Option<Vec<String>> {
+    let mut branches = Vec::new();
+    alternatives(property, document, 0, &mut branches);
+    for branch in branches {
+        let values: Vec<String> = branch
+            .get("enum")?
+            .as_array()?
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(str::to_string)
+            .collect();
+        if !values.is_empty() {
+            return Some(values);
+        }
+    }
+    None
+}
+
+/// A numeric bound a property declares, seen through `$ref` and `oneOf`.
+fn declared_number(
+    property: &serde_json::Value,
+    document: &serde_json::Value,
+    key: &str,
+) -> Option<f64> {
+    let mut branches = Vec::new();
+    alternatives(property, document, 0, &mut branches);
+    branches
+        .into_iter()
+        .find_map(|branch| branch.get(key).and_then(|value| value.as_f64()))
+}
+
+fn compare_fields(
+    documents: &[serde_json::Value],
     derived: &Derived,
     body_fields: &dyn Fn(&str) -> Option<BTreeMap<String, field_facts::FieldFact>>,
 ) -> (Vec<FieldMismatch>, usize) {
     let mut mismatches = Vec::new();
     let mut compared = 0usize;
+    for document in documents {
+        compare_document(
+            document,
+            derived,
+            body_fields,
+            &mut mismatches,
+            &mut compared,
+        );
+    }
+    mismatches.sort_by(|left, right| {
+        (&left.operation, &left.field).cmp(&(&right.operation, &right.field))
+    });
+    mismatches.dedup_by(|left, right| {
+        (&left.operation, &left.field, &left.detail)
+            == (&right.operation, &right.field, &right.detail)
+    });
+    (mismatches, compared)
+}
+
+/// One schema's operations. `$ref`s resolve against THIS document, so a split
+/// schema's components stay with the file that declares them.
+fn compare_document(
+    document: &serde_json::Value,
+    derived: &Derived,
+    body_fields: &dyn Fn(&str) -> Option<BTreeMap<String, field_facts::FieldFact>>,
+    mismatches: &mut Vec<FieldMismatch>,
+    compared: &mut usize,
+) {
     let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
-        return (mismatches, compared);
+        return;
     };
     for (path, item) in paths {
         let Some(operations) = item.as_object() else {
@@ -373,7 +499,7 @@ fn compare_fields(
                 .get("properties")
                 .and_then(|properties| properties.as_object());
             let Some(declared) = declared else { continue };
-            compared += 1;
+            *compared += 1;
             let required: BTreeSet<&str> = schema
                 .get("required")
                 .and_then(|required| required.as_array())
@@ -402,8 +528,8 @@ fn compare_fields(
                 // match: generation samples the DECLARED range, so every value
                 // outside the enforced one is a guaranteed rejection.
                 if let Some((low, high)) = fact.range {
-                    let declared_low = property.get("minimum").and_then(|v| v.as_f64());
-                    let declared_high = property.get("maximum").and_then(|v| v.as_f64());
+                    let declared_low = declared_number(property, document, "minimum");
+                    let declared_high = declared_number(property, document, "maximum");
                     let too_low = low.is_some_and(|low| declared_low.is_none_or(|d| d < low));
                     let too_high = high.is_some_and(|high| declared_high.is_none_or(|d| d > high));
                     if too_low || too_high {
@@ -422,16 +548,7 @@ fn compare_fields(
                 // A closed value set the schema left open: every generated value
                 // outside the set is a guaranteed rejection.
                 if let Some(allowed) = &fact.allowed {
-                    let declared_enum = property
-                        .get("enum")
-                        .and_then(|values| values.as_array())
-                        .map(|values| {
-                            values
-                                .iter()
-                                .filter_map(|value| value.as_str())
-                                .map(str::to_string)
-                                .collect::<Vec<_>>()
-                        });
+                    let declared_enum = declared_enum(property, document);
                     if declared_enum.as_ref() != Some(allowed) {
                         mismatches.push(FieldMismatch {
                             operation: route.clone(),
@@ -442,8 +559,8 @@ fn compare_fields(
                                 let declared = match &declared_enum {
                                     Some(values) => format!("declared [{}]", values.join(", ")),
                                     None => {
-                                        let low = property.get("minimum").and_then(|v| v.as_f64());
-                                        let high = property.get("maximum").and_then(|v| v.as_f64());
+                                        let low = declared_number(property, document, "minimum");
+                                        let high = declared_number(property, document, "maximum");
                                         if low.is_some() || high.is_some() {
                                             format!("declared {}", describe_bounds(low, high))
                                         } else {
@@ -477,10 +594,6 @@ fn compare_fields(
             }
         }
     }
-    mismatches.sort_by(|left, right| {
-        (&left.operation, &left.field).cmp(&(&right.operation, &right.field))
-    });
-    (mismatches, compared)
 }
 
 #[cfg(test)]
@@ -610,7 +723,7 @@ mod tests {
         // The reported case: this cost 100% of that operation's mutations.
         let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
         let found = compare_fields(
-            &document,
+            std::slice::from_ref(&document),
             &with_handler("POST", "/block", "create_block"),
             &|handler| (handler == "create_block").then(block_fields),
         )
@@ -625,13 +738,101 @@ mod tests {
     }
 
     #[test]
+    fn a_nullable_enum_behind_a_ref_is_already_tight() {
+        // `oneOf: [{$ref: Mode}, {type: "null"}]` is the standard OpenAPI 3.1
+        // spelling of a nullable enum. Reading the property directly found no
+        // `enum` and called an already-closed set "declared open": a wrong
+        // claim about a correct schema.
+        let mut document = block_document(
+            serde_json::json!({
+                "oneOf": [
+                    {"$ref": "#/components/schemas/BlockedType"},
+                    {"type": "null"}
+                ]
+            }),
+            &["blocked_type"],
+        );
+        document["components"] = serde_json::json!({
+            "schemas": {
+                "BlockedType": {"type": "string", "enum": ["user", "sponsor"]}
+            }
+        });
+        let found = compare_fields(
+            std::slice::from_ref(&document),
+            &with_handler("POST", "/block", "create_block"),
+            &|handler| (handler == "create_block").then(block_fields),
+        )
+        .0;
+        assert!(
+            found.is_empty(),
+            "a nullable enum behind a $ref is already tight: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_bound_behind_a_ref_is_read_through_it() {
+        let mut document = block_document(
+            serde_json::json!({"$ref": "#/components/schemas/Rating"}),
+            &["blocked_type"],
+        );
+        document["components"] = serde_json::json!({
+            "schemas": {"Rating": {"type": "string", "enum": ["user", "sponsor"]}}
+        });
+        let found = compare_fields(
+            std::slice::from_ref(&document),
+            &with_handler("POST", "/block", "create_block"),
+            &|handler| (handler == "create_block").then(block_fields),
+        )
+        .0;
+        assert!(found.is_empty(), "a bare $ref must resolve: {found:?}");
+    }
+
+    #[test]
+    fn a_self_referential_ref_terminates() {
+        let mut document = block_document(
+            serde_json::json!({"$ref": "#/components/schemas/Loop"}),
+            &["blocked_type"],
+        );
+        document["components"] = serde_json::json!({
+            "schemas": {"Loop": {"$ref": "#/components/schemas/Loop"}}
+        });
+        // The assertion is that this returns at all.
+        let found = compare_fields(
+            std::slice::from_ref(&document),
+            &with_handler("POST", "/block", "create_block"),
+            &|handler| (handler == "create_block").then(block_fields),
+        )
+        .0;
+        assert_eq!(
+            found.len(),
+            1,
+            "an unresolvable ref states nothing: {found:?}"
+        );
+    }
+
+    #[test]
+    fn every_declared_schema_is_compared_not_only_the_first() {
+        // A service split across files had only the first compared, so an
+        // operation declared in the second read as one the schema does not
+        // declare at all.
+        let first = serde_json::json!({"paths": {"/a": {"get": {}}}});
+        let second = serde_json::json!({"paths": {"/b": {"post": {}}}});
+        let declared = declared_routes(&[first, second]);
+        assert_eq!(
+            declared,
+            vec![route("GET", "/a"), route("POST", "/b")],
+            "{declared:?}"
+        );
+    }
+
+    #[test]
     fn a_matching_enum_declaration_is_silent() {
         let document = block_document(
             serde_json::json!({"type": "string", "enum": ["user", "sponsor"]}),
             &["blocked_type"],
         );
         let found = compare_fields(
-            &document,
+            std::slice::from_ref(&document),
             &with_handler("POST", "/block", "create_block"),
             &|handler| (handler == "create_block").then(block_fields),
         )
@@ -644,7 +845,7 @@ mod tests {
         let document = serde_json::json!({"paths": {"/block": {"post": {"requestBody": {"content": {
             "application/json": {"schema": {"type": "object", "properties": {"blockedType": {"type": "string"}}}}}}}}}});
         let found = compare_fields(
-            &document,
+            std::slice::from_ref(&document),
             &with_handler("POST", "/block", "create_block"),
             &|handler| (handler == "create_block").then(block_fields),
         )
@@ -668,7 +869,7 @@ mod tests {
             &[],
         );
         let found = compare_fields(
-            &document,
+            std::slice::from_ref(&document),
             &with_handler("POST", "/block", "create_block"),
             &|handler| (handler == "create_block").then(block_fields),
         )
@@ -683,9 +884,11 @@ mod tests {
     #[test]
     fn an_operation_with_no_resolvable_handler_abstains() {
         let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
-        let found = compare_fields(&document, &derived(&[("/block", &["post"])]), &|handler| {
-            (handler == "create_block").then(block_fields)
-        })
+        let found = compare_fields(
+            std::slice::from_ref(&document),
+            &derived(&[("/block", &["post"])]),
+            &|handler| (handler == "create_block").then(block_fields),
+        )
         .0;
         assert!(
             found.is_empty(),

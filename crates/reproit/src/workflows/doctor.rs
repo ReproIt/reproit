@@ -566,6 +566,9 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
         None,
     );
     let mut document = None;
+    // EVERY parsed schema: the drift check compares against the union, so a
+    // service split across files does not read its own operations as undeclared.
+    let mut documents: Vec<serde_json::Value> = Vec::new();
     match project.schema_paths() {
         Ok(paths) => {
             // Count operations across EVERY declared schema (deduped by id), not
@@ -595,8 +598,9 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
                                 .to_string(),
                         );
                         if document.is_none() {
-                            document = Some(parsed);
+                            document = Some(parsed.clone());
                         }
+                        documents.push(parsed);
                     }
                     Err(e) => {
                         parse_error = Some(format!("{}: {e:#}", path.display()));
@@ -663,8 +667,8 @@ async fn doctor_backend(ctx: &Ctx, project: &super::backend_target::BackendProje
         ),
     }
 
-    if let Some(document) = document.as_ref() {
-        doctor_schema_drift(&mut checks, project, document);
+    if !documents.is_empty() {
+        doctor_schema_drift(&mut checks, project, &documents);
     }
 
     let env = std::env::var("REPROIT_BACKEND_URL").ok();
@@ -791,10 +795,10 @@ async fn adapter_checks(
 fn doctor_schema_drift(
     checks: &mut Vec<DoctorCheck>,
     project: &super::backend_target::BackendProject,
-    document: &serde_json::Value,
+    documents: &[serde_json::Value],
 ) {
     use crate::workflows::backend_learn::drift;
-    let declared = drift::declared_routes(document);
+    let declared = drift::declared_routes(documents);
     if declared.is_empty() {
         return;
     }
@@ -824,7 +828,7 @@ fn doctor_schema_drift(
     else {
         return;
     };
-    let Some(found) = drift::compare(&source, framework.name, &declared, document) else {
+    let Some(found) = drift::compare(&source, framework.name, &declared, documents) else {
         doctor_push(
             checks,
             "contract",
