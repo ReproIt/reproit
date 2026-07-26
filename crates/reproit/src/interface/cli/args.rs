@@ -10,12 +10,32 @@ mod actions;
 
 pub(crate) use actions::*;
 
+/// The listed commands are the loop. Everything else still works and is still
+/// documented; it is hidden so a first reader sees the product rather than
+/// thirty-five peers.
+const AFTER_HELP: &str = concat!(
+    "The loop:\n",
+    "  reproit init      set up from a schema or the app\n",
+    "  reproit scan      audit what is reachable now\n",
+    "  reproit fuzz      find deeper, sequence-dependent bugs\n",
+    "  reproit check     the CI gate: block on new or regressed findings\n",
+    "  reproit verify    prove a fix against the recorded repro\n",
+    "\nRun one repro:\n",
+    "  reproit fnd_<id>\n",
+    "  reproit @saved-name\n",
+    "  reproit @saved-name --record-video\n",
+    "\nAlso available (`reproit help <command>`, or docs/cli.md):\n",
+    "  cloud       login, push, bugs, triage, timeline, diagnose, resolution-events\n",
+    "  evidence    create, keep, repros, proof, candidates, watch, baseline\n",
+    "  ui          journey, screenshots, import, devices, platforms, skills",
+);
+
 #[derive(Parser)]
 #[command(
     name = "reproit",
     version = VERSION,
-    about = "Find UI failures and keep every confirmed bug reproducible",
-    after_help = "Run one repro:\n  reproit fnd_<id>\n  reproit rep_<id>\n  reproit @saved-name\n\nAdd video evidence:\n  reproit @saved-name --record-video"
+    about = "Find real bugs in a UI or a backend, and keep every one reproducible",
+    after_help = AFTER_HELP
 )]
 pub(crate) struct Cli {
     /// Path to reproit.yaml (default: search cwd and ancestors)
@@ -360,6 +380,7 @@ pub(crate) enum Cmd {
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified
     /// detector result.
+    #[command(hide = true)]
     Create {
         /// Wait for a marked SDK capture, clean-run it, and derive a minimized
         /// repro. Unlike the default human capture, this requires verification.
@@ -409,6 +430,7 @@ pub(crate) enum Cmd {
         kind: Option<String>,
     },
     /// Push a local human-created bug report to Repro It Cloud.
+    #[command(hide = true)]
     Push {
         /// Immutable local capture id (cap_...).
         capture: String,
@@ -420,6 +442,7 @@ pub(crate) enum Cmd {
     /// per-pixel tolerance, ignore regions, and `--update` to accept the
     /// current capture. What is compared is driven by the `visual` section
     /// in reproit.yaml.
+    #[command(hide = true)]
     Baseline {
         /// Accept the current capture as the new baseline.
         #[arg(long)]
@@ -448,6 +471,7 @@ pub(crate) enum Cmd {
     },
     /// Explain the immutable authority, evaluation, replay, minimization, and
     /// promotion decision for a finding or saved repro.
+    #[command(hide = true)]
     Proof {
         /// Finding id, repro id, or saved repro alias.
         reference: String,
@@ -488,11 +512,14 @@ pub(crate) enum Cmd {
     },
     /// List discovered candidates that are still blocked from promotion, with
     /// the exact missing proof stages.
+    #[command(hide = true)]
     Candidates,
     /// List saved local repros under .reproit/repros/.
+    #[command(hide = true)]
     Repros,
     /// List confirmed production bugs, impact-ranked, for the project selected
     /// during `reproit login`.
+    #[command(hide = true)]
     Bugs {
         /// Filter by message, signature, or bucket id.
         query: Option<String>,
@@ -535,6 +562,7 @@ pub(crate) enum Cmd {
     },
     /// Update a production bug's lifecycle state. Example:
     /// `reproit triage bkt_... fixed --fixed-in-build 1.2.3`.
+    #[command(hide = true)]
     Triage {
         issue: String,
         status: String,
@@ -544,18 +572,22 @@ pub(crate) enum Cmd {
         assignee: Option<i64>,
     },
     /// Show a production bug's occurrence history and resolution state.
+    #[command(hide = true)]
     Timeline { issue: String },
     /// Match a bug report to a confirmed production bug.
+    #[command(hide = true)]
     Diagnose {
         report: String,
         #[arg(long)]
         run: bool,
     },
     /// List recent production confirmation and regression transitions.
+    #[command(hide = true)]
     ResolutionEvents,
     /// Open a repro's recorded video in your default player. Recordings live
     /// under .reproit/recordings/repro/ (gitignored); make one with
     /// `reproit @name --record-video`.
+    #[command(hide = true)]
     Watch {
         /// The repro to watch (id or alias).
         repro: String,
@@ -576,6 +608,7 @@ pub(crate) enum Cmd {
         run: Option<String>,
     },
     /// List the simulators reproit manages (by configured name prefix)
+    #[command(hide = true)]
     Devices,
     /// Scan each reachable screen once for state-present oracle findings.
     /// Results retain an authoritative or specialist classification, but both
@@ -592,9 +625,11 @@ pub(crate) enum Cmd {
     Mcp,
     /// Show the platform support matrix: which UI frameworks map to which
     /// introspection backend and capability source
+    #[command(hide = true)]
     Platforms,
     /// Install the bundled coding-agent skills (the reproit playbook) into
     /// .claude/skills, so an agent drives reproit like an expert
+    #[command(hide = true)]
     Skills {
         #[command(subcommand)]
         action: SkillsAction,
@@ -637,6 +672,7 @@ pub(crate) enum Cmd {
         after_help = "Run:     reproit journey <name>\nCreate:  reproit journey create \
                       <name>\nList:    reproit journey list"
     )]
+    #[command(hide = true)]
     Journey {
         #[command(subcommand)]
         action: JourneyAction,
@@ -645,6 +681,7 @@ pub(crate) enum Cmd {
     /// locales and devices into a journey-led layout (or your own
     /// --path-template). Reuses the SHOOT capture machinery; one
     /// locale-invariant tour covers every locale.
+    #[command(hide = true)]
     Screenshots {
         /// Tour to drive (a journey file stem). Defaults to screenshots.tour.
         tour: Option<String>,
@@ -671,6 +708,7 @@ pub(crate) enum Cmd {
     },
     /// Import a flow from another tool into a reproit journey (switching cost
     /// ~0). Currently supports Maestro: `reproit import maestro flow.yaml`.
+    #[command(hide = true)]
     Import {
         /// Source tool. Currently: maestro.
         tool: String,
@@ -692,6 +730,7 @@ pub(crate) enum Cmd {
     /// Sign in to ReproIt Cloud in your browser, then discover and select a
     /// project. Hosted Cloud is assumed; --cloud is only for a self-hosted
     /// deployment.
+    #[command(hide = true)]
     Login {
         /// Cloud base URL (default: https://cloud.reproit.com).
         #[arg(long)]

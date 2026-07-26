@@ -281,10 +281,14 @@ mod tests {
         ];
         let text = all_skill_text();
         let cmd = crate::interface::cli::args::Cli::command();
+        // Hidden is not the same as absent. A specialist command is kept out of
+        // the top-level help so a first reader sees the loop, but it still runs
+        // and skills may still teach it. Only the `__`-prefixed process entry
+        // points are genuinely not user commands.
         let names: Vec<&str> = cmd
             .get_subcommands()
-            .filter(|s| !s.is_hide_set())
-            .map(|s| s.get_name())
+            .map(|command| command.get_name())
+            .filter(|name| !name.starts_with("__"))
             .collect();
         for verb in CORE {
             assert!(

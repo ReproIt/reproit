@@ -10,6 +10,11 @@ the command list, jump to [Reference](#reference).
 
 reproit has three core workflows:
 
+`reproit --help` lists the loop, not every command. Nineteen specialist, cloud, and one-shot
+commands are still supported and still documented here; they are hidden from the top-level help so
+a first reader sees the product rather than thirty-five peers. `reproit help <command>` works for
+every one of them.
+
 ```sh
 reproit scan    # audit visible bugs on every reachable screen
 reproit fuzz    # find deeper sequence-dependent bugs
