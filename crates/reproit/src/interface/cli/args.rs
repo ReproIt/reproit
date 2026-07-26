@@ -481,6 +481,10 @@ pub(crate) enum Cmd {
         /// Drop the acceptance instead of adding it.
         #[arg(long)]
         remove: bool,
+        /// Show what is currently accepted. Acceptances outlive a baseline, so
+        /// a cleared history can still be carrying one.
+        #[arg(long)]
+        list: bool,
     },
     /// List discovered candidates that are still blocked from promotion, with
     /// the exact missing proof stages.

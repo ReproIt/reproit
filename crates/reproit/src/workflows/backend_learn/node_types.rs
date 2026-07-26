@@ -4,9 +4,9 @@
 //! TypeScript union of string literals, and NestJS class-validator decorators.
 //! Each states its accepted set outright, so none of them needs inference.
 
-use super::rust_types::FieldFact;
+use super::rust_types::{drop_ambiguous, record, FieldFact};
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_TYPE_BYTES: usize = 2 * 1024 * 1024;
 /// How far past a declaration a body may run before it is treated as unreadable.
@@ -72,12 +72,21 @@ impl NodeScanner {
     pub(super) fn scan(&self, sources: &[String]) -> NodeTypes {
         let mut types = NodeTypes::default();
         let mut unions: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut ambiguous_shapes = BTreeSet::new();
+        let mut ambiguous_unions = BTreeSet::new();
         for source in sources {
             if source.len() > MAX_TYPE_BYTES {
                 continue;
             }
-            self.scan_one(source, &mut types, &mut unions);
+            self.scan_one(
+                source,
+                &mut types,
+                &mut unions,
+                (&mut ambiguous_shapes, &mut ambiguous_unions),
+            );
         }
+        drop_ambiguous(&mut types.shapes, &ambiguous_shapes);
+        drop_ambiguous(&mut unions, &ambiguous_unions);
         // Resolve interface fields whose type is a declared string union.
         for fields in types.shapes.values_mut() {
             for fact in fields.values_mut() {
@@ -104,26 +113,38 @@ impl NodeScanner {
         source: &str,
         types: &mut NodeTypes,
         unions: &mut BTreeMap<String, Vec<String>>,
+        ambiguous: (&mut BTreeSet<String>, &mut BTreeSet<String>),
     ) {
+        let (ambiguous_shapes, ambiguous_unions) = ambiguous;
         let lines: Vec<&str> = source.lines().map(strip_comment).collect();
         for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.union_alias.captures(line) {
                 if let Some(values) = string_union(&captures[2]) {
-                    unions.insert(captures[1].to_string(), values);
+                    record(unions, ambiguous_unions, captures[1].to_string(), values);
                     continue;
                 }
             }
             if let Some(captures) = self.zod_object.captures(line) {
                 let fields = self.zod_fields(&lines, index);
                 if !fields.is_empty() {
-                    types.shapes.insert(captures[1].to_string(), fields);
+                    record(
+                        &mut types.shapes,
+                        ambiguous_shapes,
+                        captures[1].to_string(),
+                        fields,
+                    );
                 }
                 continue;
             }
             if let Some(captures) = self.class_open.captures(line) {
                 let fields = self.decorated_fields(&lines, index);
                 if !fields.is_empty() {
-                    types.shapes.insert(captures[1].to_string(), fields);
+                    record(
+                        &mut types.shapes,
+                        ambiguous_shapes,
+                        captures[1].to_string(),
+                        fields,
+                    );
                     continue;
                 }
             }

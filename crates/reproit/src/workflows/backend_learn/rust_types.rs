@@ -21,10 +21,42 @@
 //! schema is guilty of.
 
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A field as first read: name, declared type, and its attributes.
 type RawField = (String, String, Vec<String>);
+
+/// Record a declaration, treating a CONFLICTING redefinition as ambiguous.
+///
+/// Every language here namespaces types by module; these scanners key them by
+/// bare name, so two modules declaring the same name silently overwrote each
+/// other and which one won depended on directory walk order. That is how a
+/// report came to tell someone three fields of a live struct did not exist.
+/// An ambiguous name is dropped rather than resolved to a guess: not knowing
+/// which type a handler takes has to read as "not checked", never as a verdict.
+pub(super) fn record<T: PartialEq>(
+    map: &mut BTreeMap<String, T>,
+    ambiguous: &mut BTreeSet<String>,
+    name: String,
+    value: T,
+) {
+    match map.get(&name) {
+        Some(existing) if *existing != value => {
+            ambiguous.insert(name);
+        }
+        Some(_) => {}
+        None => {
+            map.insert(name, value);
+        }
+    }
+}
+
+/// Drop every name that had conflicting declarations.
+pub(super) fn drop_ambiguous<T>(map: &mut BTreeMap<String, T>, ambiguous: &BTreeSet<String>) {
+    for name in ambiguous {
+        map.remove(name);
+    }
+}
 
 /// Bound the source considered, matching the extractor's own walk limits.
 const MAX_TYPE_BYTES: usize = 2 * 1024 * 1024;
@@ -200,6 +232,14 @@ fn balanced(text: &str, open: char, close: char) -> Option<String> {
     None
 }
 
+/// Names that were declared more than once, differently.
+#[derive(Default)]
+pub(super) struct Ambiguous {
+    pub(super) enums: BTreeSet<String>,
+    pub(super) structs: BTreeSet<String>,
+    pub(super) bodies: BTreeSet<String>,
+}
+
 pub(super) struct TypeScanner {
     handler_body: Regex,
     enum_open: Regex,
@@ -231,6 +271,7 @@ impl TypeScanner {
         let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut raw_structs: BTreeMap<String, Vec<RawField>> = BTreeMap::new();
         let mut handler_bodies: BTreeMap<String, String> = BTreeMap::new();
+        let mut ambiguous = Ambiguous::default();
         for source in sources {
             if source.len() > MAX_TYPE_BYTES {
                 continue;
@@ -241,8 +282,12 @@ impl TypeScanner {
                 &mut enums,
                 &mut raw_structs,
                 &mut handler_bodies,
+                &mut ambiguous,
             );
         }
+        drop_ambiguous(&mut enums, &ambiguous.enums);
+        drop_ambiguous(&mut raw_structs, &ambiguous.structs);
+        drop_ambiguous(&mut types.bodies, &ambiguous.bodies);
         // Resolve field types against the enums, now that every file is read: a
         // struct and the enum it uses are usually in different modules.
         for (name, fields) in raw_structs {
@@ -284,24 +329,30 @@ impl TypeScanner {
         enums: &mut BTreeMap<String, Vec<String>>,
         structs: &mut BTreeMap<String, Vec<RawField>>,
         handler_bodies: &mut BTreeMap<String, String>,
+        ambiguous: &mut Ambiguous,
     ) {
         let lines: Vec<&str> = source.lines().map(strip_comment).collect();
         for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.enum_open.captures(line) {
                 if let Some(values) = self.unit_variants(&lines, index) {
-                    enums.insert(captures[1].to_string(), values);
+                    record(enums, &mut ambiguous.enums, captures[1].to_string(), values);
                 }
             }
             if let Some(captures) = self.struct_open.captures(line) {
                 let fields = self.named_fields(&lines, index);
                 if !fields.is_empty() {
-                    structs.insert(captures[1].to_string(), fields);
+                    record(
+                        structs,
+                        &mut ambiguous.structs,
+                        captures[1].to_string(),
+                        fields,
+                    );
                 }
             }
             if let Some(captures) = self.handler_body.captures(line) {
                 let name = captures[1].to_string();
                 if let Some(body) = self.body_type(&lines, index) {
-                    bodies.insert(name.clone(), body);
+                    record(bodies, &mut ambiguous.bodies, name.clone(), body);
                     // Keep the body text: a Rust numeric type carries no range,
                     // so the constraint that actually rejects the request lives
                     // in the handler, not the signature.
@@ -577,6 +628,53 @@ mod tests {
 
     fn scan(sources: &[&str]) -> RustTypes {
         scanner().scan(&sources.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn a_type_declared_twice_with_different_fields_abstains() {
+        // The reported false positive: a second definition of the same name
+        // elsewhere in the tree silently won, and the report told someone three
+        // fields of a live struct did not exist. Which one won depended on
+        // directory walk order, so the advice was both wrong and unstable.
+        let full = r#"
+pub(crate) struct PresenceUpdateRequest {
+    pub(crate) visible: bool,
+    pub(crate) interests: Option<Vec<String>>,
+    pub(crate) age: Option<i64>,
+    pub(crate) gender: Option<String>,
+}
+pub async fn update_presence(Json(body): Json<PresenceUpdateRequest>) {}
+"#;
+        let partial = r#"
+pub struct PresenceUpdateRequest {
+    pub visible: bool,
+    pub interests: Option<Vec<String>>,
+}
+"#;
+        let types = TypeScanner::new(|p| Regex::new(p).expect("pattern"))
+            .scan(&[full.to_string(), partial.to_string()]);
+        assert!(
+            types.body_fields("update_presence").is_none(),
+            "an ambiguous type must abstain, never pick a winner"
+        );
+    }
+
+    #[test]
+    fn an_identical_redeclaration_is_not_ambiguous() {
+        // Re-exports and cfg-duplicated definitions are the same type; only a
+        // CONFLICTING redefinition is unknowable.
+        let same = r#"
+pub struct R { pub a: String }
+pub async fn h(Json(b): Json<R>) {}
+"#;
+        let types = TypeScanner::new(|p| Regex::new(p).expect("pattern")).scan(&[
+            same.to_string(),
+            "pub struct R { pub a: String }".to_string(),
+        ]);
+        assert!(
+            types.body_fields("h").is_some(),
+            "identical is not ambiguous"
+        );
     }
 
     #[test]

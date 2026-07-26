@@ -76,6 +76,11 @@ impl Accepted {
     /// could mask a different advisory. Here an accept names one fingerprint and
     /// can only ever silence that finding, so a stale entry is cruft to clean up
     /// rather than a hole to fail on.
+    /// Every acceptance, so the store can be inspected rather than guessed at.
+    pub(super) fn entries(&self) -> Vec<(&String, &AcceptEntry)> {
+        self.findings.iter().collect()
+    }
+
     pub(super) fn stale(&self, seen: &BTreeSet<String>) -> Vec<(&String, &AcceptEntry)> {
         self.findings
             .iter()
@@ -95,8 +100,9 @@ pub async fn run(
     reason: &str,
     until: Option<&str>,
     remove: bool,
+    list: bool,
 ) -> Result<ExitCode> {
-    if reason.trim().is_empty() && !remove {
+    if reason.trim().is_empty() && !remove && !list {
         bail!("--reason is required: an accepted finding without a stated reason is a mute button");
     }
     if let Some(until) = until {
@@ -104,6 +110,26 @@ pub async fn run(
     }
     let root = std::env::current_dir()?;
     let mut accepted = load(&root);
+    if list {
+        let entries = accepted.entries();
+        if entries.is_empty() {
+            ctx.say("no accepted findings".to_string());
+        }
+        for (fingerprint, entry) in entries {
+            ctx.say(format!(
+                "{} on {}{}: {}",
+                &fingerprint[..fingerprint.len().min(12)],
+                entry.operation,
+                entry
+                    .expires
+                    .as_ref()
+                    .map(|until| format!(" until {until}"))
+                    .unwrap_or_default(),
+                entry.reason
+            ));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     let mut changed = 0usize;
     for id in ids {
         let Some(raw) = repro::raw_finding_id(id) else {

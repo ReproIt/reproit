@@ -5,9 +5,9 @@
 //! set and a required flag in one place, and gin, echo and fiber all read the
 //! same `validate`/`binding` vocabulary.
 
-use super::rust_types::FieldFact;
+use super::rust_types::{drop_ambiguous, record, FieldFact};
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_TYPE_BYTES: usize = 2 * 1024 * 1024;
 
@@ -53,28 +53,53 @@ impl GoScanner {
 
     pub(super) fn scan(&self, sources: &[String]) -> GoTypes {
         let mut types = GoTypes::default();
+        let mut ambiguous_structs = BTreeSet::new();
+        let mut ambiguous_bodies = BTreeSet::new();
         for source in sources {
             if source.len() > MAX_TYPE_BYTES {
                 continue;
             }
-            self.scan_one(source, &mut types);
+            self.scan_one(
+                source,
+                &mut types,
+                &mut ambiguous_structs,
+                &mut ambiguous_bodies,
+            );
         }
+        drop_ambiguous(&mut types.structs, &ambiguous_structs);
+        drop_ambiguous(&mut types.bodies, &ambiguous_bodies);
         types
     }
 
-    fn scan_one(&self, source: &str, types: &mut GoTypes) {
+    fn scan_one(
+        &self,
+        source: &str,
+        types: &mut GoTypes,
+        ambiguous_structs: &mut BTreeSet<String>,
+        ambiguous_bodies: &mut BTreeSet<String>,
+    ) {
         let lines: Vec<&str> = source.lines().map(strip_comment).collect();
         for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.struct_open.captures(line) {
                 let fields = self.struct_fields(&lines, index);
                 if !fields.is_empty() {
-                    types.structs.insert(captures[1].to_string(), fields);
+                    record(
+                        &mut types.structs,
+                        ambiguous_structs,
+                        captures[1].to_string(),
+                        fields,
+                    );
                 }
                 continue;
             }
             if let Some(captures) = self.func_open.captures(line) {
                 if let Some(bound) = self.bound_struct(&lines, index) {
-                    types.bodies.insert(captures[1].to_string(), bound);
+                    record(
+                        &mut types.bodies,
+                        ambiguous_bodies,
+                        captures[1].to_string(),
+                        bound,
+                    );
                 }
             }
         }

@@ -157,6 +157,16 @@ pub(super) fn gate_outcome(
     // absence of a comparison is not a clean comparison. Adopting is fine, but
     // it has to be a decision, so it needs --update-baseline.
     let first_run = lifecycle["firstRun"].as_bool().unwrap_or(false);
+    // An acceptance outlives a baseline, so a project whose history was cleared
+    // can still be silently carrying one. On a first run that is indistinguishable
+    // from "the gate is broken" unless the suppression is named where the exit
+    // code is decided, not twenty lines earlier.
+    if first_run && accepted > 0 {
+        ctx.say(format!(
+            "note: {accepted} finding(s) suppressed by an existing acceptance in \
+             .reproit/backend-accepted.json, which is not cleared by wiping history"
+        ));
+    }
     if first_run && new + regressed > 0 && std::env::var_os("REPROIT_GATE_BASELINE").is_none() {
         ctx.say(format!(
             "no baseline yet, and {} finding(s) already reproduce. These are \

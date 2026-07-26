@@ -325,7 +325,11 @@ where
             reason,
             until,
             remove,
-        } => backend_headless::backend_accept(&ctx, &ids, &reason, until.as_deref(), remove).await,
+            list,
+        } => {
+            backend_headless::backend_accept(&ctx, &ids, &reason, until.as_deref(), remove, list)
+                .await
+        }
         Cmd::Candidates => {
             let loaded = config::load(cli.config.as_deref())?;
             list_candidates(&ctx, &loaded)?;

@@ -6,9 +6,9 @@
 //! There is no guard-reading needed here at all, which makes FastAPI and
 //! django-ninja easier to check than the language this started with.
 
-use super::rust_types::FieldFact;
+use super::rust_types::{drop_ambiguous, record, FieldFact};
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_TYPE_BYTES: usize = 2 * 1024 * 1024;
 
@@ -59,12 +59,28 @@ impl PythonScanner {
         let mut types = PythonTypes::default();
         let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut raw: BTreeMap<String, Vec<RawField>> = BTreeMap::new();
+        let mut ambiguous_enums = BTreeSet::new();
+        let mut ambiguous_models = BTreeSet::new();
+        let mut ambiguous_bodies = BTreeSet::new();
         for source in sources {
             if source.len() > MAX_TYPE_BYTES {
                 continue;
             }
-            self.scan_one(source, &mut types.bodies, &mut enums, &mut raw);
+            self.scan_one(
+                source,
+                &mut types.bodies,
+                &mut enums,
+                &mut raw,
+                (
+                    &mut ambiguous_enums,
+                    &mut ambiguous_models,
+                    &mut ambiguous_bodies,
+                ),
+            );
         }
+        drop_ambiguous(&mut enums, &ambiguous_enums);
+        drop_ambiguous(&mut raw, &ambiguous_models);
+        drop_ambiguous(&mut types.bodies, &ambiguous_bodies);
         for (model, fields) in raw {
             let resolved = fields
                 .into_iter()
@@ -135,7 +151,13 @@ impl PythonScanner {
         bodies: &mut BTreeMap<String, String>,
         enums: &mut BTreeMap<String, Vec<String>>,
         models: &mut BTreeMap<String, Vec<RawField>>,
+        ambiguous: (
+            &mut BTreeSet<String>,
+            &mut BTreeSet<String>,
+            &mut BTreeSet<String>,
+        ),
     ) {
+        let (ambiguous_enums, ambiguous_models, ambiguous_bodies) = ambiguous;
         let lines: Vec<&str> = source.lines().map(strip_comment).collect();
         for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.enum_open.captures(line) {
@@ -145,7 +167,7 @@ impl PythonScanner {
                     .map(|captures| captures[1].to_string())
                     .collect();
                 if !values.is_empty() {
-                    enums.insert(captures[1].to_string(), values);
+                    record(enums, ambiguous_enums, captures[1].to_string(), values);
                 }
                 continue;
             }
@@ -166,13 +188,13 @@ impl PythonScanner {
                     })
                     .collect();
                 if !fields.is_empty() {
-                    models.insert(captures[1].to_string(), fields);
+                    record(models, ambiguous_models, captures[1].to_string(), fields);
                 }
                 continue;
             }
             if let Some(captures) = self.def_open.captures(line) {
                 if let Some(model) = self.body_model(&lines, index, models) {
-                    bodies.insert(captures[1].to_string(), model);
+                    record(bodies, ambiguous_bodies, captures[1].to_string(), model);
                 }
             }
         }

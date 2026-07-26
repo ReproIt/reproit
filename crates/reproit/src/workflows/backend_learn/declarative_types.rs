@@ -7,9 +7,9 @@
 //! each at least as explicit as a Go struct tag. They share a reader because
 //! they share a shape: a named rule set attached to a field.
 
-use super::rust_types::FieldFact;
+use super::rust_types::{drop_ambiguous, FieldFact};
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_TYPE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_BLOCK_LINES: usize = 400;
@@ -79,18 +79,36 @@ impl DeclarativeScanner {
 
     pub(super) fn scan(&self, sources: &[String], family: Family) -> DeclarativeTypes {
         let mut types = DeclarativeTypes::default();
+        // These families accumulate a class's fields across lines, so a repeat
+        // declaration MERGES rather than replaces. Two same-named classes in
+        // different modules would silently blend into one shape nobody wrote,
+        // so a name declared in more than one file abstains.
+        let mut seen_in: BTreeMap<String, usize> = BTreeMap::new();
         let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for source in sources {
             if source.len() > MAX_TYPE_BYTES {
                 continue;
             }
             let lines: Vec<&str> = source.lines().collect();
+            let before: BTreeSet<String> = types.shapes.keys().cloned().collect();
             match family {
                 Family::Ruby => self.ruby(&lines, &mut types),
                 Family::Php => self.php(&lines, &mut types),
                 Family::Java => self.java(&lines, &mut types, &mut enums),
             }
+            for name in types.shapes.keys() {
+                if before.contains(name) {
+                    continue;
+                }
+                *seen_in.entry(name.clone()).or_default() += 1;
+            }
         }
+        let ambiguous: BTreeSet<String> = seen_in
+            .into_iter()
+            .filter(|(_, files)| *files > 1)
+            .map(|(name, _)| name)
+            .collect();
+        drop_ambiguous(&mut types.shapes, &ambiguous);
         types
     }
 

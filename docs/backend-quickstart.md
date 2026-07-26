@@ -192,6 +192,11 @@ Every report names its evidence, so a verdict can be checked against the line th
 and the summary says how many request bodies were actually traced to a handler: an operation whose
 handler could not be resolved was not compared, and a clean result does not speak for it.
 
+It also abstains when the type itself is ambiguous. Every one of these languages namespaces types
+by module while this reader keys them by bare name, so two modules declaring the same name would
+otherwise silently overwrite each other, with the winner depending on directory walk order. A name
+declared twice with different fields is dropped rather than resolved to a guess.
+
 It abstains on anything whose accepted set has to be inferred: an enum variant carrying data, a
 `matches!` arm with a guard expression, validation spread across several statements. Those are
 real constraints it cannot see, and reporting them would be the same overclaiming the schema is

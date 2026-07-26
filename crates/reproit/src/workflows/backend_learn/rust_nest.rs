@@ -110,29 +110,6 @@ impl RustScanner {
                 .as_ref()
                 .map(|(name, _)| name.as_str())
                 .unwrap_or(FILE_SCOPE);
-            for hit in route_hits(code) {
-                units.routes.entry(scope.to_string()).or_default().push(hit);
-            }
-            let mut nested_here = Vec::new();
-            for captures in self.nest.captures_iter(code) {
-                nested_here.push(captures[1].to_string());
-                units.mounts.push((
-                    scope.to_string(),
-                    captures[1].to_string(),
-                    captures[2].to_string(),
-                ));
-            }
-            for captures in self.nest_variable.captures_iter(code) {
-                // A direct call already matched above; do not record it twice.
-                if nested_here.contains(&captures[1].to_string()) {
-                    continue;
-                }
-                units.variable_mounts.push((
-                    scope.to_string(),
-                    captures[1].to_string(),
-                    captures[2].to_string(),
-                ));
-            }
             if let Some(captures) = self.binding.captures(code) {
                 let name = captures[1].to_string();
                 let rhs = &code[captures.get(0).map(|m| m.end()).unwrap_or(0)..];
@@ -155,6 +132,39 @@ impl RustScanner {
                         .captures_iter(code)
                         .map(|call| call[1].to_string()),
                 );
+            }
+            // Routes inside a binding's initializer belong to the LOCAL being
+            // built, not to the enclosing function. `let v1 = match plane {
+            // A => Router::new().route(..), B => .. };` has no callee to
+            // resolve to: the arms are the router. Attributing them to a
+            // synthetic unit named for the local lets `.nest("/v1", v1)` mount
+            // them like any other child.
+            let owner = match &binding_scope {
+                Some((binding_owner, name, _)) if binding_owner == scope => local_unit(scope, name),
+                _ => scope.to_string(),
+            };
+            for hit in route_hits(code) {
+                units.routes.entry(owner.clone()).or_default().push(hit);
+            }
+            let mut nested_here = Vec::new();
+            for captures in self.nest.captures_iter(code) {
+                nested_here.push(captures[1].to_string());
+                units.mounts.push((
+                    scope.to_string(),
+                    captures[1].to_string(),
+                    captures[2].to_string(),
+                ));
+            }
+            for captures in self.nest_variable.captures_iter(code) {
+                // A direct call already matched above; do not record it twice.
+                if nested_here.contains(&captures[1].to_string()) {
+                    continue;
+                }
+                units.variable_mounts.push((
+                    scope.to_string(),
+                    captures[1].to_string(),
+                    captures[2].to_string(),
+                ));
             }
             if code.contains(';') {
                 if let Some(binding) = binding_scope.take() {
@@ -221,6 +231,16 @@ pub(super) fn resolve(
     }
     for unit in units {
         for (parent, prefix, variable) in &unit.variable_mounts {
+            // The local may itself hold routes (inline match arms), and may also
+            // call builders. Both are children of this mount.
+            let local = local_unit(parent, variable);
+            if routes.contains_key(&local) || mounts.contains_key(&local) {
+                mounts
+                    .entry(parent.clone())
+                    .or_default()
+                    .push((prefix.clone(), local.clone()));
+                mounted.insert(local);
+            }
             let Some(called) = bindings.get(&(parent.clone(), variable.clone())) else {
                 continue;
             };
@@ -314,6 +334,12 @@ fn strip_line_comment(line: &str) -> &str {
         Some(at) => &line[..at],
         None => line,
     }
+}
+
+/// The synthetic unit name for a router built into a local variable. Scoped to
+/// the enclosing function, because two functions may each have their own `v1`.
+pub(super) fn local_unit(scope: &str, name: &str) -> String {
+    format!("{scope}::let {name}")
 }
 
 #[cfg(test)]
@@ -473,6 +499,56 @@ mod tests {
         assert!(
             !routes["/a"].contains("post"),
             "methods leaked across routes: {routes:?}"
+        );
+    }
+
+    #[test]
+    fn a_local_built_from_inline_match_arms_is_mounted() {
+        // hey's actual shape: the arms build the router inline, so there is no
+        // callee to resolve to. Every route under it was staying unprefixed and
+        // the drift check was calling 11 correct operations 404s.
+        let routes = resolve_all(&[r#"
+            fn app(cfg: &Cfg) -> Router {
+                let v1 = match cfg.app_plane {
+                    AppPlane::Global => Router::new().route("/auth/request-code", post(code)),
+                    AppPlane::Regional => Router::new().route("/presence/update", post(pres)),
+                };
+                Router::new().route("/healthz", get(h)).nest("/v1", v1)
+            }
+            "#]);
+        assert!(routes.contains_key("/v1/auth/request-code"), "{routes:?}");
+        assert!(routes.contains_key("/v1/presence/update"), "{routes:?}");
+        assert!(
+            routes.contains_key("/healthz"),
+            "the root route stays: {routes:?}"
+        );
+        assert!(
+            !routes.contains_key("/presence/update"),
+            "the unprefixed local path must not also be emitted: {routes:?}"
+        );
+    }
+
+    #[test]
+    fn two_functions_may_each_have_their_own_local_router() {
+        let routes = resolve_all(&[
+            r#"
+            fn a() -> Router {
+                let v1 = match x { _ => Router::new().route("/a", get(h)) };
+                Router::new().nest("/one", v1)
+            }
+            "#,
+            r#"
+            fn b() -> Router {
+                let v1 = match x { _ => Router::new().route("/b", get(h)) };
+                Router::new().nest("/two", v1)
+            }
+            "#,
+        ]);
+        assert!(routes.contains_key("/one/a"), "{routes:?}");
+        assert!(routes.contains_key("/two/b"), "{routes:?}");
+        assert!(
+            !routes.contains_key("/two/a"),
+            "locals must not cross functions: {routes:?}"
         );
     }
 
