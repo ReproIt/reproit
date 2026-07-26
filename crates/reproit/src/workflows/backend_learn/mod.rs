@@ -73,13 +73,28 @@ pub(super) async fn run(
         );
     };
     if derived.routes.is_empty() {
+        // Naming the unreadable count is the difference between "this service
+        // declares no routes" and "the reader could not read it". Reporting
+        // only "0 files scanned" hid the reason at the one moment it decides
+        // what the user should do next: a TypeScript service read as empty
+        // because the wrong grammar rejected every annotated file.
+        let blind = if derived.unreadable > 0 {
+            format!(
+                ", {} file(s) the reader could not parse -- an absence over \
+                 those is not evidence, so fix or exclude them first",
+                derived.unreadable
+            )
+        } else {
+            String::new()
+        };
         bail!(
             "detected {} (from {}) but no routes could be derived from its source \
-             ({} files scanned, {} unconfident matches skipped).\n{}",
+             ({} files read, {} unconfident matches skipped{}).\n{}",
             framework.name,
             framework.manifest,
             derived.files_scanned,
             derived.skipped,
+            blind,
             project_scaffold::backend_schema_guide(root)
         );
     }

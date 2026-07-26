@@ -8,10 +8,11 @@
 //! which token was which.
 
 use super::field_facts::FieldFact;
+use super::grammar;
 use super::grammar::SourceRead;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use tree_sitter::{Node, Parser};
+use tree_sitter::Node;
 
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
 const MAX_FIELDS: usize = 512;
@@ -20,42 +21,41 @@ const MAX_FIELDS: usize = 512;
 /// the handler, and the schema the registration wraps it in.
 type RawRoute = (String, String, &'static str, Option<String>, Option<String>);
 
+/// The grammar for one Node source. TypeScript is a different language to the
+/// parser even though it is the same family to the ecosystem, and reading a
+/// `.ts` file with the JavaScript grammar produced an error on every type
+/// annotation.
+fn grammar_for(path: &Path) -> tree_sitter::Language {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("ts") => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        Some("tsx") => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        _ => tree_sitter_javascript::LANGUAGE.into(),
+    }
+}
+
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
-    let mut parser = Parser::new();
-    if parser
-        .set_language(&tree_sitter_javascript::LANGUAGE.into())
-        .is_err()
-    {
-        return source;
-    }
     let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     let mut mounts: BTreeMap<String, String> = BTreeMap::new();
     let mut raw_routes: Vec<RawRoute> = Vec::new();
 
-    for file in super::extract::family_sources(root, super::extract::Family::Node) {
-        let Ok(text) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        let Some(tree) = parser.parse(&text, None) else {
-            source.files_unreadable += 1;
-            continue;
-        };
-        if tree.root_node().has_error() {
-            source.files_unreadable += 1;
-            continue;
-        }
-        source.files_parsed += 1;
-        walk(
-            tree.root_node(),
-            &text,
-            &mut raw_routes,
-            &mut shapes,
-            &mut ambiguous,
-            &mut mounts,
-        );
-    }
+    grammar::read_files_with(
+        root,
+        super::extract::Family::Node,
+        |path| Some(grammar_for(path)),
+        &mut source,
+        |root_node, text| {
+            walk(
+                root_node,
+                text,
+                &mut raw_routes,
+                &mut shapes,
+                &mut ambiguous,
+                &mut mounts,
+            );
+        },
+    );
     for name in &ambiguous {
         shapes.remove(name);
     }
@@ -419,6 +419,34 @@ mod tests {
         assert!(fields["a"].required);
         assert!(!fields["b"].required, ".default() opts out");
         assert!(!fields["c"].required, ".catch() opts out");
+    }
+
+    #[test]
+    fn typescript_reads_through_its_own_grammar() {
+        // `.ts` was in the extension list but parsed with the JavaScript
+        // grammar, so every type annotation was an error and a whole
+        // TypeScript service came back as zero routes -- indistinguishable
+        // from a service with no routes at all.
+        let source = read_source(
+            "typescript",
+            &[(
+                "server.ts",
+                "import express, { Request, Response, Router } from 'express';\n\
+                 interface Item { name: string }\n\
+                 const app = express();\n\
+                 const users: Router = express.Router();\n\
+                 users.get('/list', (req: Request, res: Response): void => { res.json([]); });\n\
+                 app.use('/api', users);\n\
+                 app.get('/status', (req: Request, res: Response): void => { res.send('ok'); });\n",
+            )],
+        );
+        assert_eq!(source.files_unreadable, 0, "TypeScript must parse cleanly");
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(paths.contains(&&"/status".to_string()), "{paths:?}");
+        assert!(
+            paths.contains(&&"/api/list".to_string()),
+            "a mounted TS router keeps its prefix: {paths:?}"
+        );
     }
 
     #[test]

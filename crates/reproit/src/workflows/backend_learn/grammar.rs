@@ -43,13 +43,36 @@ pub(super) fn read_files(
     family: Family,
     language: tree_sitter::Language,
     source: &mut SourceRead,
+    visit: impl FnMut(Node, &str),
+) {
+    read_files_with(root, family, |_| Some(language.clone()), source, visit);
+}
+
+/// The same, choosing a grammar per file.
+///
+/// One family can span dialects: `.ts` is not `.js`. Parsing TypeScript with
+/// the JavaScript grammar makes every annotated file an error, and since a file
+/// that does not parse is counted rather than read, a whole TypeScript service
+/// came back as zero routes.
+pub(super) fn read_files_with(
+    root: &Path,
+    family: Family,
+    language_for: impl Fn(&Path) -> Option<tree_sitter::Language>,
+    source: &mut SourceRead,
     mut visit: impl FnMut(Node, &str),
 ) {
     let mut parser = Parser::new();
-    if parser.set_language(&language).is_err() {
-        return;
-    }
+    let mut current: Option<tree_sitter::Language> = None;
     for file in super::extract::family_sources(root, family) {
+        let Some(language) = language_for(&file) else {
+            continue;
+        };
+        if current.as_ref() != Some(&language) {
+            if parser.set_language(&language).is_err() {
+                continue;
+            }
+            current = Some(language);
+        }
         let Ok(text) = std::fs::read_to_string(&file) else {
             continue;
         };

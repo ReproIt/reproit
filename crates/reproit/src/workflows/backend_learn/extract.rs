@@ -98,7 +98,7 @@ pub(super) fn family_for(framework: &str) -> Option<Family> {
 fn extensions(family: Family) -> &'static [&'static str] {
     match family {
         Family::Rust => &["rs"],
-        Family::Node => &["js", "mjs", "cjs", "ts"],
+        Family::Node => &["js", "mjs", "cjs", "ts", "tsx", "jsx"],
         Family::Python => &["py"],
         Family::Go => &["go"],
         Family::Ruby => &["rb"],

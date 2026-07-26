@@ -79,6 +79,7 @@ portable-pty = "0.9.0"
 vt100 = "0.16.2"
 # canonical TUI screen signature, shared byte-for-byte with the production TUI SDKs
 reproit-tui-sig = { path = "../tui-sig" }
+tree-sitter-typescript = "0.23"
 
 # Windows desktop runner (`reproit __uia`): the OFFICIAL Microsoft windows-rs
 # projection of the UI Automation COM API (IUIAutomation / IUIAutomationElement /
