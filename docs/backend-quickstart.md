@@ -175,9 +175,11 @@ every one is rejected, and the operation reads as exercised while evaluating not
       POST /v1/blocks .nite: the handler's body type has no `nite` field
 ```
 
-Rust is read with a real parser (`syn`), not with patterns. That matters for what an absence
-means: a file either parses, and then every route and field in it is seen exactly, or it does not,
-and the report says so instead of treating a file it never read as a file with nothing in it.
+Every family's sources are parsed: Rust by `syn`, and Python, Node, Ruby, PHP and Java by their
+tree-sitter grammars. Go still has only its pattern reader. That matters for what an absence means: a file either
+parses, or it does not and is COUNTED, and the report says so instead of treating a file it never
+read as a file with nothing in it. Route and type extraction for the non-Rust families is still
+pattern-based; what the grammar adds is knowing when those patterns were reading nothing.
 
 ```
     declared, but no route matched in source (1): NOT reliable: 1 source file(s) could not

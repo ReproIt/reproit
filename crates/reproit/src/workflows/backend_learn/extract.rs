@@ -120,7 +120,13 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             bodies: parsed.bodies,
         });
     }
-    let mut derived = Derived::default();
+    // Pattern extraction still does the reading, but a grammar now says which
+    // files it could make sense of: an absence over an unreadable file is not
+    // evidence, and only a parse can tell the difference.
+    let mut derived = Derived {
+        unreadable: super::parsed_source::check(root, family).files_unreadable,
+        ..Derived::default()
+    };
     for file in files {
         let Ok(content) = std::fs::read_to_string(&file) else {
             continue;

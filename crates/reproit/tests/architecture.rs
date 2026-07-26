@@ -360,6 +360,12 @@ fn absence_never_merges_with_a_negative_result() {
             "an ambiguous type must abstain rather than pick a winner",
         ),
         (
+            "src/workflows/backend_learn/parsed_source.rs",
+            "files_unreadable",
+            "a source file no grammar could read is a known blind spot for every \
+             family, not an empty one",
+        ),
+        (
             "src/workflows/backend_learn/rust_ast.rs",
             "files_unparsed",
             "a source file that could not be read is a known blind spot, not an \

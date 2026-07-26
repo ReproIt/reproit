@@ -18,6 +18,7 @@ mod extract;
 mod field_facts;
 mod go_types;
 mod node_types;
+mod parsed_source;
 mod python_types;
 mod rust_ast;
 
