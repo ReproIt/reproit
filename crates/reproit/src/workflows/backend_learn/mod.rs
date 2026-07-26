@@ -23,6 +23,7 @@ mod php_ast;
 mod python_ast;
 mod ruby_ast;
 mod rust_ast;
+mod rust_router;
 mod rust_types;
 
 #[cfg(test)]

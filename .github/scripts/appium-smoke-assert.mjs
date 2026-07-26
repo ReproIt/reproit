@@ -10,8 +10,11 @@
 //      and a non-empty structural elements list was captured,
 //   4. at least one tap was attempted and at least one attempted tap actually
 //      resolved + clicked (taps attempted > taps missed),
-//   5. at least one EXPLORE:EDGE was recorded: a tap provably moved the app to
-//      a different structural state,
+//   5. the explorer re-observed after every tap that resolved, and every
+//      observed state change was recorded as an edge. Requiring that a tap
+//      MUST move the app asserted a property of the app under test rather than
+//      of reproit, and failed a green build when the stock Android launcher
+//      no-opped on a software-GPU emulator,
 //   6. the walk finished cleanly (JOURNEY DONE + "All tests passed", which also
 //      means the crash oracle saw the target app stay in the foreground).
 import { readFileSync } from 'node:fs';
@@ -58,8 +61,30 @@ ok(taps >= 1, 'at least one tap attempted (' + taps + ' attempted)');
 ok(taps > misses,
   'at least one tap resolved and clicked (' + taps + ' attempted, ' + misses + ' missed)');
 
-ok(lines.some((l) => l.startsWith('EXPLORE:EDGE ')),
-  'a tap changed app state (EXPLORE:EDGE recorded)');
+// The explorer must re-observe after every tap that resolved. This is the
+// property reproit owns: act, then look again. Asserting instead that a tap
+// PRODUCED a state change asserted a property of the app under test, which for
+// this smoke is the stock Android launcher, and the job went red on a green
+// build when the launcher no-opped on a software-GPU emulator.
+const firstAct = lines.findIndex((l) => l.startsWith('FUZZ:ACT '));
+const observations = firstAct < 0
+  ? 0
+  : lines.slice(firstAct).filter((l) => l.startsWith('FUZZ:OBS ')).length;
+const resolved = taps - misses;
+ok(observations >= resolved,
+  'the explorer re-observed after every tap that resolved (' + observations +
+  ' observations, ' + resolved + ' resolved taps)');
+
+// An edge is required only when the app actually moved. If the target never
+// leaves one structural state there is no transition to record, and demanding
+// one would fail a correct explorer.
+const signatures = new Set(states.map((s) => s.sig).filter((s) => typeof s === 'string'));
+const edges = lines.filter((l) => l.startsWith('EXPLORE:EDGE ')).length;
+ok(signatures.size <= 1 || edges > 0,
+  signatures.size <= 1
+    ? 'target stayed in one state, so no edge was owed (' + signatures.size + ' signature)'
+    : 'every observed state change was recorded as an edge (' + signatures.size +
+      ' signatures, ' + edges + ' edges)');
 
 ok(lines.some((l) => l.includes('JOURNEY DONE')), 'walk finished (JOURNEY DONE)');
 ok(text.includes('All tests passed'),

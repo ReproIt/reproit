@@ -15,20 +15,11 @@
 //! are two types instead of one silently overwriting the other.
 
 use super::field_facts::FieldFact;
+use super::rust_router::{attribute_route, routes_of_fn, Crate, Route, MAX_ROUTES};
 use super::rust_types::{json_body_type, struct_fields, unit_variants, Guards};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use syn::{Expr, Item, Lit, Stmt};
-
-/// Bound recursion through router-building functions.
-const MAX_ROUTER_DEPTH: usize = 12;
-/// Bound the routes one expression tree may contribute.
-const MAX_ROUTES: usize = 4_096;
-
-/// One route as the parser sees it: path, method, and the handler serving it.
-type Route = (String, &'static str, Option<String>);
-
-const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
+use syn::Item;
 
 #[derive(Debug, Default)]
 pub(super) struct RustSource {
@@ -42,32 +33,6 @@ pub(super) struct RustSource {
     /// Files `syn` could not parse. Non-zero means the reader has a blind spot
     /// and any absence it reports is unreliable, which the caller must say.
     pub(super) files_unparsed: usize,
-}
-
-/// Everything one crate's sources declare.
-#[derive(Default)]
-struct Crate {
-    /// QUALIFIED function name -> its body. Bodies are collected BEFORE any
-    /// are evaluated: a router built by a function defined later in the walk is
-    /// still a router, and evaluating in file order silently lost it.
-    ///
-    /// The key carries the module because two modules routinely export the same
-    /// `routes()`, and a bare key let the second overwrite the first: one
-    /// `.nest()` resolved and the other reported no routes at all.
-    fn_bodies: BTreeMap<String, syn::Block>,
-    /// qualified type name -> fields.
-    structs: BTreeMap<String, BTreeMap<String, FieldFact>>,
-    /// qualified enum name -> its unit variant values.
-    enums: BTreeMap<String, Vec<String>>,
-    /// handler fn -> the bare name of its `Json<T>` request body.
-    handler_body: BTreeMap<String, String>,
-    /// bare type name -> how many DIFFERENT declarations carry it.
-    declarations: BTreeMap<String, BTreeSet<String>>,
-    /// Routes declared by an attribute on the handler, which belong to no
-    /// router expression and are therefore always roots.
-    attribute_routes: Vec<Route>,
-    /// handler -> the value guards its body enforces.
-    handler_guards: BTreeMap<String, Guards>,
 }
 
 pub(super) fn read(root: &Path) -> RustSource {
@@ -193,6 +158,12 @@ fn resolve(krate: &Crate, source: &mut RustSource) {
             continue;
         }
         for (path, method, handler) in routes {
+            // An attribute route belongs to no router expression, so it is a
+            // root UNLESS a `.mount()` claimed its handler and already emitted
+            // it at a prefix. Emitting both invents a path nobody serves.
+            if name.is_none() && handler.as_deref().is_some_and(|h| mounted.contains(h)) {
+                continue;
+            }
             if source.routes.len() >= MAX_ROUTES {
                 break;
             }
@@ -265,378 +236,6 @@ fn resolve(krate: &Crate, source: &mut RustSource) {
         }
         source.bodies.insert(handler.clone(), fields);
     }
-}
-
-/// The routes a named function evaluates to, guarding against recursion.
-fn routes_of_fn(
-    name: &str,
-    krate: &Crate,
-    mounted: &mut BTreeSet<String>,
-    visiting: &mut BTreeSet<String>,
-    depth: usize,
-) -> Vec<Route> {
-    if depth > MAX_ROUTER_DEPTH || !visiting.insert(name.to_string()) {
-        return Vec::new();
-    }
-    let Some(block) = krate.fn_bodies.get(name) else {
-        return Vec::new();
-    };
-    let routes = routes_of_block(&block.stmts, krate, mounted, visiting, depth);
-    visiting.remove(name);
-    routes
-}
-
-/// The routes a block evaluates to, following its local bindings.
-///
-/// A block yields its tail expression AND any local router it never mounted
-/// into another one. Yielding only the tail was wrong for the shape almost
-/// every real service uses:
-///
-/// ```ignore
-/// async fn main() {
-///     let app = Router::new().route("/health", get(health));
-///     axum::serve(listener, app).await
-/// }
-/// ```
-///
-/// `main` returns `()`, so the block's value is nothing and every route in the
-/// service was computed and then discarded. Each test written for this file
-/// used `fn app() -> Router { Router::new()... }`, where the router IS the tail,
-/// so nine of them passed over a reader that extracted nothing from a binary.
-fn routes_of_block(
-    stmts: &[Stmt],
-    krate: &Crate,
-    mounted: &mut BTreeSet<String>,
-    visiting: &mut BTreeSet<String>,
-    depth: usize,
-) -> Vec<Route> {
-    let mut locals: BTreeMap<String, Vec<Route>> = BTreeMap::new();
-    // Locals mounted into another router. They are reachable at that mount, so
-    // emitting their local paths as well would invent routes nobody serves.
-    let mut nested: BTreeSet<String> = BTreeSet::new();
-    let mut routes = Vec::new();
-    for stmt in stmts {
-        match stmt {
-            // `let v1 = match ... { .. };` binds a router to a name. The arms
-            // are the router: there is no callee to follow, which is exactly
-            // what the pattern reader could not express.
-            Stmt::Local(local) => {
-                let Some(init) = &local.init else { continue };
-                let value = routes_of_expr(
-                    &init.expr,
-                    krate,
-                    &locals,
-                    &mut nested,
-                    mounted,
-                    visiting,
-                    depth,
-                );
-                if !value.is_empty() {
-                    if let syn::Pat::Ident(ident) = &local.pat {
-                        locals.insert(ident.ident.to_string(), value);
-                    }
-                }
-            }
-            Stmt::Expr(expr, _) => routes.extend(routes_of_expr(
-                expr,
-                krate,
-                &locals,
-                &mut nested,
-                mounted,
-                visiting,
-                depth,
-            )),
-            _ => {}
-        }
-    }
-    // A local is emitted only when nothing mounted it. `let app = ...` handed
-    // to `serve` is the service; `let v1 = ...` nested under `/v1` is not.
-    for (name, value) in locals {
-        if !nested.contains(&name) {
-            routes.extend(value);
-        }
-    }
-    routes.sort();
-    routes.dedup();
-    routes
-}
-
-/// The routes an expression evaluates to.
-fn routes_of_expr(
-    expr: &Expr,
-    krate: &Crate,
-    locals: &BTreeMap<String, Vec<Route>>,
-    nested: &mut BTreeSet<String>,
-    mounted: &mut BTreeSet<String>,
-    visiting: &mut BTreeSet<String>,
-    depth: usize,
-) -> Vec<Route> {
-    if depth > MAX_ROUTER_DEPTH {
-        return Vec::new();
-    }
-    match expr {
-        // A method chain is ITERATION, not nesting. Recursing into each
-        // receiver charged every `.route()` against the recursion budget, so a
-        // router declaring more routes than MAX_ROUTER_DEPTH in one chain lost
-        // everything before the last few links. hey's regional plane declares
-        // 24 routes that way and the reader returned the tail 12, which is far
-        // worse than returning none: a silently truncated router reads as a
-        // service that does not serve the routes it dropped.
-        Expr::MethodCall(_) => {
-            let mut chain = Vec::new();
-            let mut base = expr;
-            while let Expr::MethodCall(call) = base {
-                if chain.len() >= MAX_ROUTES {
-                    break;
-                }
-                chain.push(call);
-                base = &call.receiver;
-            }
-            let mut routes =
-                routes_of_expr(base, krate, locals, nested, mounted, visiting, depth + 1);
-            // Innermost first, so a `.nest()` sees the routes built before it.
-            for call in chain.iter().rev() {
-                let method = call.method.to_string();
-                let mut args = call.args.iter();
-                match method.as_str() {
-                    "route" => {
-                        if let (Some(path), Some(handlers)) = (args.next(), args.next()) {
-                            if let Some(path) = string_of(path) {
-                                for (verb, handler) in method_router(handlers) {
-                                    routes.push((path.clone(), verb, handler));
-                                }
-                            }
-                        }
-                    }
-                    "nest" | "nest_service" => {
-                        if let (Some(prefix), Some(inner)) = (args.next(), args.next()) {
-                            if let Some(prefix) = string_of(prefix) {
-                                // The mounted router is reachable at this
-                                // prefix, so it must not also surface at its
-                                // local path.
-                                if let Some(name) = last_segment(inner) {
-                                    nested.insert(name);
-                                }
-                                for (path, verb, handler) in routes_of_expr(
-                                    inner,
-                                    krate,
-                                    locals,
-                                    nested,
-                                    mounted,
-                                    visiting,
-                                    depth + 1,
-                                ) {
-                                    routes.push((join(&prefix, &path), verb, handler));
-                                }
-                            }
-                        }
-                    }
-                    // `.merge(other)` composes a router at the SAME level, so
-                    // its routes are this router's routes, unprefixed.
-                    "merge" => {
-                        if let Some(inner) = args.next() {
-                            if let Some(name) = last_segment(inner) {
-                                nested.insert(name);
-                            }
-                            routes.extend(routes_of_expr(
-                                inner,
-                                krate,
-                                locals,
-                                nested,
-                                mounted,
-                                visiting,
-                                depth + 1,
-                            ));
-                        }
-                    }
-                    // `.layer(..)`, `.with_state(..)` and friends pass the
-                    // router through unchanged.
-                    _ => {}
-                }
-            }
-            routes
-        }
-        // A router built by another function.
-        // A router built by another function: evaluate it, and remember that it
-        // is reachable through this mount rather than on its own.
-        Expr::Call(call) => {
-            match written_path(&call.func).and_then(|written| resolve_fn(krate, &written)) {
-                Some(name) => {
-                    let routes = routes_of_fn(&name, krate, mounted, visiting, depth + 1);
-                    if !routes.is_empty() {
-                        mounted.insert(name);
-                    }
-                    routes
-                }
-                None => Vec::new(),
-            }
-        }
-        // A local holding a router.
-        Expr::Path(path) => path
-            .path
-            .segments
-            .last()
-            .and_then(|segment| locals.get(&segment.ident.to_string()))
-            .cloned()
-            .unwrap_or_default(),
-        // Every branch can be the router, so every branch contributes.
-        Expr::Match(node) => {
-            let mut routes = Vec::new();
-            for arm in &node.arms {
-                routes.extend(routes_of_expr(
-                    &arm.body,
-                    krate,
-                    locals,
-                    nested,
-                    mounted,
-                    visiting,
-                    depth + 1,
-                ));
-            }
-            routes
-        }
-        Expr::If(node) => {
-            let mut routes =
-                routes_of_block(&node.then_branch.stmts, krate, mounted, visiting, depth + 1);
-            if let Some((_, other)) = &node.else_branch {
-                routes.extend(routes_of_expr(
-                    other,
-                    krate,
-                    locals,
-                    nested,
-                    mounted,
-                    visiting,
-                    depth + 1,
-                ));
-            }
-            routes
-        }
-        Expr::Block(node) => {
-            routes_of_block(&node.block.stmts, krate, mounted, visiting, depth + 1)
-        }
-        Expr::Reference(node) => routes_of_expr(
-            &node.expr,
-            krate,
-            locals,
-            nested,
-            mounted,
-            visiting,
-            depth + 1,
-        ),
-        Expr::Paren(node) => routes_of_expr(
-            &node.expr,
-            krate,
-            locals,
-            nested,
-            mounted,
-            visiting,
-            depth + 1,
-        ),
-        _ => Vec::new(),
-    }
-}
-
-/// `get(list).post(create)` -> the verbs and their handlers.
-fn method_router(expr: &Expr) -> Vec<(&'static str, Option<String>)> {
-    match expr {
-        Expr::Call(call) => match last_segment(&call.func) {
-            Some(name) => METHODS
-                .iter()
-                .find(|verb| **verb == name)
-                .map(|verb| {
-                    let handler = call.args.first().and_then(last_segment);
-                    vec![(*verb, handler)]
-                })
-                .unwrap_or_default(),
-            None => Vec::new(),
-        },
-        Expr::MethodCall(call) => {
-            let mut verbs = method_router(&call.receiver);
-            let name = call.method.to_string();
-            if let Some(verb) = METHODS.iter().find(|verb| **verb == name) {
-                verbs.push((*verb, call.args.first().and_then(last_segment)));
-            }
-            verbs
-        }
-        _ => Vec::new(),
-    }
-}
-
-fn string_of(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Lit(lit) => match &lit.lit {
-            Lit::Str(text) => Some(text.value()),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// A call's callee as written, e.g. `users::routes` or `routes`. `crate` and
-/// `self` prefixes are dropped: they say where the caller is, not which module
-/// declares the callee.
-fn written_path(expr: &Expr) -> Option<String> {
-    let Expr::Path(path) = expr else {
-        return None;
-    };
-    let segments: Vec<String> = path
-        .path
-        .segments
-        .iter()
-        .map(|segment| segment.ident.to_string())
-        .filter(|segment| segment != "crate" && segment != "self" && segment != "super")
-        .collect();
-    (!segments.is_empty()).then(|| segments.join("::"))
-}
-
-/// The one qualified function a written path names, or None.
-///
-/// None covers both "no such function" and "more than one module declares it",
-/// and the two must stay indistinguishable HERE: resolving an ambiguous name by
-/// picking one would attach a real router to the wrong mount, which reads as a
-/// route the service does not serve.
-fn resolve_fn(krate: &Crate, written: &str) -> Option<String> {
-    let suffix = format!("::{written}");
-    let mut matches = krate
-        .fn_bodies
-        .keys()
-        .filter(|qualified| *qualified == written || qualified.ends_with(&suffix));
-    let first = matches.next()?;
-    matches.next().is_none().then(|| first.clone())
-}
-
-fn last_segment(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Path(path) => path
-            .path
-            .segments
-            .last()
-            .map(|segment| segment.ident.to_string()),
-        _ => None,
-    }
-}
-
-fn join(prefix: &str, path: &str) -> String {
-    let base = prefix.trim_end_matches('/');
-    if path.is_empty() || path == "/" {
-        return base.to_string();
-    }
-    format!("{base}{path}")
-}
-
-/// `#[get("/status")]` on a handler, as actix and rocket declare routes.
-/// Rocket paths may carry a `?<query>` suffix; the path is the part before it.
-fn attribute_route(attrs: &[syn::Attribute]) -> Option<(&'static str, String)> {
-    attrs.iter().find_map(|attr| {
-        let name = attr.path().segments.last()?.ident.to_string();
-        let verb = METHODS.iter().find(|method| **method == name)?;
-        let syn::Meta::List(list) = &attr.meta else {
-            return None;
-        };
-        let tokens = list.tokens.to_string();
-        let path = tokens.split('"').nth(1)?;
-        Some((*verb, path.split('?').next()?.to_string()))
-    })
 }
 
 #[cfg(test)]
@@ -713,6 +312,172 @@ mod tests {
         assert!(
             !source.routes.contains_key("/users"),
             "a mounted router must not also surface at its local path: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_conditionally_nested_router_carries_its_prefix_and_leaves_no_twin() {
+        // hey's exact shape. Reading the router but not the mount emitted
+        // `/seed` instead of `/dev/seed`: a path the service does not serve,
+        // which is worse than not reading it at all.
+        let source = read_source(
+            "conditional_nest",
+            &[(
+                "main.rs",
+                r#"async fn main() {
+                    let dev_routes = if dev {
+                        Some(Router::new().route("/seed", post(seed)))
+                    } else {
+                        None
+                    };
+                    let mut app = Router::new().route("/health/live", get(live));
+                    if let Some(dev) = dev_routes {
+                        app = app.nest("/dev", dev);
+                    }
+                    axum::serve(listener, app).await.unwrap();
+                }"#,
+            )],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/health/live"), "{paths:?}");
+        assert!(source.routes.contains_key("/dev/seed"), "{paths:?}");
+        assert!(
+            !source.routes.contains_key("/seed"),
+            "the unprefixed twin is a path nobody serves: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_warp_filter_chain_states_its_path_and_verb() {
+        let source = read_source(
+            "warp_filters",
+            &[(
+                "main.rs",
+                r#"async fn main() {
+                    let status = warp::path!("status").and(warp::get()).map(|| "ok");
+                    let items = warp::path!("api" / "items").and(warp::post()).map(|| "made");
+                    let routes = status.or(items);
+                    warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
+                }"#,
+            )],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/status"), "{paths:?}");
+        assert!(source.routes.contains_key("/api/items"), "{paths:?}");
+        assert_eq!(
+            source.routes["/api/items"]
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec!["post"]
+        );
+    }
+
+    #[test]
+    fn a_warp_path_with_an_unnamed_parameter_is_left_unread() {
+        // warp parameters are positional, so there is no name for the template.
+        // Inventing one produces a path that matches no declared operation,
+        // which reads as a route the service does not serve.
+        let source = read_source(
+            "warp_param",
+            &[(
+                "main.rs",
+                r#"async fn main() {
+                    let one = warp::path!("items" / u32).and(warp::get()).map(|| "x");
+                    warp::serve(one).run(([127, 0, 0, 1], 8080)).await;
+                }"#,
+            )],
+        );
+        assert!(
+            source.routes.is_empty(),
+            "an unnamed parameter must not be guessed: {:?}",
+            source.routes.keys()
+        );
+    }
+
+    #[test]
+    fn a_router_wrapped_in_some_is_still_a_router() {
+        // hey gates seven dev-only routes behind
+        // `if !cfg.is_production() { Some(Router::new()...) }`. `Some` is a
+        // wrapper, not a router builder, and not seeing through it made those
+        // routes indistinguishable from routes the service does not have.
+        let source = read_source(
+            "some_wrapper",
+            &[(
+                "main.rs",
+                r#"fn app() -> Option<Router> {
+                    if dev {
+                        Some(Router::new().route("/seed", post(seed)))
+                    } else {
+                        None
+                    }
+                }"#,
+            )],
+        );
+        assert!(
+            source.routes.contains_key("/seed"),
+            "{:?}",
+            source.routes.keys()
+        );
+    }
+
+    #[test]
+    fn an_actix_app_built_in_a_closure_with_a_scope_resolves() {
+        let source = read_source(
+            "actix_entry",
+            &[(
+                "main.rs",
+                r#"async fn main() -> std::io::Result<()> {
+                    HttpServer::new(|| {
+                        App::new()
+                            .route("/status", web::get().to(status))
+                            .service(web::scope("/api").route("/items", web::post().to(create)))
+                    })
+                    .bind(("127.0.0.1", 8080))?
+                    .run()
+                    .await
+                }"#,
+            )],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/status"), "{paths:?}");
+        assert!(
+            source.routes.contains_key("/api/items"),
+            "a scoped service must carry its prefix: {paths:?}"
+        );
+        assert!(
+            !source.routes.contains_key("/items"),
+            "no unprefixed twin: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_rocket_mount_prefixes_the_handlers_it_names() {
+        // The path lives on the handler's attribute and the prefix on the
+        // mount, so reading only the attribute reported every rocket route one
+        // prefix short: a declared `/api/status` matched nothing in source,
+        // which is the direction that advises deleting a live operation.
+        let source = read_source(
+            "rocket_mount",
+            &[(
+                "main.rs",
+                r#"#[get("/status")]
+                fn status() -> &'static str { "ok" }
+
+                #[post("/items")]
+                fn create() -> &'static str { "made" }
+
+                fn rocket() -> Rocket<Build> {
+                    rocket::build().mount("/api", routes![status, create])
+                }"#,
+            )],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/api/status"), "{paths:?}");
+        assert!(source.routes.contains_key("/api/items"), "{paths:?}");
+        assert!(
+            !source.routes.contains_key("/status") && !source.routes.contains_key("/items"),
+            "a mounted handler must not also surface unprefixed: {paths:?}"
         );
     }
 
