@@ -13,8 +13,10 @@
 //! and not handler signatures, and reporting a type mismatch it cannot actually
 //! observe would be the same overclaiming the schema is guilty of.
 
+use super::declarative_types;
 use super::extract::{self, Derived};
 use super::go_types;
+use super::node_types;
 use super::python_types;
 use super::rust_types;
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,10 +45,12 @@ pub struct Drift {
     /// statement rather than the absence of a warning.
     pub matched: usize,
     pub files_scanned: usize,
-    /// Whether request-body types were actually compared. False for every
-    /// family whose handler signatures cannot be read, so a clean result never
-    /// implies a check that did not run.
+    /// Whether this family has a type reader at all.
     pub types_checked: bool,
+    /// How many declared operations actually had their request body compared.
+    /// An operation whose handler could not be resolved was NOT checked, and a
+    /// clean result must not speak for it.
+    pub bodies_compared: usize,
 }
 
 /// One declared body field the code contradicts.
@@ -122,10 +126,28 @@ pub fn compare(
             let types = go_types::scan_types(root);
             Some(Box::new(move |handler| types.body_fields(handler)))
         }
-        _ => None,
+        Some(extract::Family::Node) => {
+            let types = node_types::scan_types(root);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        Some(extract::Family::Ruby) => {
+            let types = declarative_types::scan_types(root, declarative_types::Family::Ruby);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        Some(extract::Family::Php) => {
+            let types = declarative_types::scan_types(root, declarative_types::Family::Php);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        Some(extract::Family::Spring) => {
+            let types = declarative_types::scan_types(root, declarative_types::Family::Java);
+            Some(Box::new(move |handler| types.body_fields(handler)))
+        }
+        None => None,
     };
     if let Some(fields) = fields {
-        drift.field_mismatches = compare_fields(document, &derived, fields.as_ref());
+        let (mismatches, compared) = compare_fields(document, &derived, fields.as_ref());
+        drift.field_mismatches = mismatches;
+        drift.bodies_compared = compared;
         drift.types_checked = true;
     }
     Some(drift)
@@ -331,10 +353,11 @@ fn compare_fields(
     document: &serde_json::Value,
     derived: &Derived,
     body_fields: &dyn Fn(&str) -> Option<BTreeMap<String, rust_types::FieldFact>>,
-) -> Vec<FieldMismatch> {
+) -> (Vec<FieldMismatch>, usize) {
     let mut mismatches = Vec::new();
+    let mut compared = 0usize;
     let Some(paths) = document.get("paths").and_then(|paths| paths.as_object()) else {
-        return mismatches;
+        return (mismatches, compared);
     };
     for (path, item) in paths {
         let Some(operations) = item.as_object() else {
@@ -354,6 +377,7 @@ fn compare_fields(
                 .get("properties")
                 .and_then(|properties| properties.as_object());
             let Some(declared) = declared else { continue };
+            compared += 1;
             let required: BTreeSet<&str> = schema
                 .get("required")
                 .and_then(|required| required.as_array())
@@ -453,7 +477,7 @@ fn compare_fields(
     mismatches.sort_by(|left, right| {
         (&left.operation, &left.field).cmp(&(&right.operation, &right.field))
     });
-    mismatches
+    (mismatches, compared)
 }
 
 #[cfg(test)]
@@ -573,7 +597,8 @@ mod tests {
             &document,
             &with_handler("POST", "/block", "create_block"),
             &|h| typed(BLOCK_SOURCE).body_fields(h),
-        );
+        )
+        .0;
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].field, "blocked_type");
         assert!(
@@ -593,7 +618,8 @@ mod tests {
             &document,
             &with_handler("POST", "/block", "create_block"),
             &|h| typed(BLOCK_SOURCE).body_fields(h),
-        );
+        )
+        .0;
         assert!(found.is_empty(), "{found:?}");
     }
 
@@ -605,7 +631,8 @@ mod tests {
             &document,
             &with_handler("POST", "/block", "create_block"),
             &|h| typed(BLOCK_SOURCE).body_fields(h),
-        );
+        )
+        .0;
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
             found[0].detail.contains("no `blockedType` field"),
@@ -625,7 +652,8 @@ mod tests {
             &document,
             &with_handler("POST", "/block", "create_block"),
             &|h| typed(BLOCK_SOURCE).body_fields(h),
-        );
+        )
+        .0;
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(
             found[0].detail.contains("does not mark it required"),
@@ -638,7 +666,8 @@ mod tests {
         let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
         let found = compare_fields(&document, &derived(&[("/block", &["post"])]), &|h| {
             typed(BLOCK_SOURCE).body_fields(h)
-        });
+        })
+        .0;
         assert!(
             found.is_empty(),
             "an unresolved handler must not produce a verdict: {found:?}"

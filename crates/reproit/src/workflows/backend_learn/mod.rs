@@ -10,11 +10,13 @@ use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::ExitCode;
 
+mod declarative_types;
 pub(super) mod drift;
 mod emit;
 mod enrich;
 mod extract;
 mod go_types;
+mod node_types;
 mod python_types;
 mod rust_nest;
 mod rust_types;

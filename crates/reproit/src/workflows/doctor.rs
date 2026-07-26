@@ -849,12 +849,17 @@ fn doctor_schema_drift(
                 "all {} declared operation(s) match a route in {} source file(s){}",
                 found.matched,
                 found.files_scanned,
-                // Say which check ran. "Clean" must not imply the types were
-                // compared when only the paths were.
-                if found.types_checked {
-                    ", and their request-body types agree"
-                } else {
-                    " (routes only; request-body types are read for Rust, Python and Go)"
+                // Say exactly which check ran, and over how much. An
+                // operation whose handler did not resolve was not compared, and
+                // a clean result must not speak for it.
+                &match (found.types_checked, found.bodies_compared) {
+                    (false, _) => " (routes only for this framework)".to_string(),
+                    (true, 0) => {
+                        " (routes only: no request body could be traced to a handler)".to_string()
+                    }
+                    (true, compared) => format!(
+                        ", and the {compared} request body/bodies traced to a handler agree"
+                    ),
                 }
             ),
             None,

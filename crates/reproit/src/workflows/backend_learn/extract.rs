@@ -221,6 +221,9 @@ struct Patterns {
     node_call: Regex,
     node_route_url: Regex,
     node_route_method: Regex,
+    node_handler: Regex,
+    spring_method: Regex,
+    php_action: Regex,
     python_decorator: Regex,
     python_def: Regex,
     flask_route: Regex,
@@ -233,6 +236,7 @@ struct Patterns {
     go_call: Regex,
     go_handle_func: Regex,
     ruby_verb: Regex,
+    ruby_action: Regex,
     ruby_resources: Regex,
     spring_mapping: Regex,
     spring_bare_mapping: Regex,
@@ -256,6 +260,9 @@ impl Patterns {
             ),
             node_route_url: compile(r#"\b(?:url|path)\s*:\s*['"`]([^'"`]+)['"`]"#),
             node_route_method: compile(r#"\bmethod\s*:\s*\[?\s*['"`]([A-Za-z]+)['"`]"#),
+            node_handler: compile(r"[,(]\s*(?:[A-Za-z_$][\w$]*\s*\(\s*)?([A-Za-z_$][\w$]*)\s*[,)]"),
+            spring_method: compile(r"\b(?:public|protected)\s+\S+\s+([A-Za-z_]\w*)\s*\("),
+            php_action: compile(r#"[,\[]\s*['"]?([A-Za-z_]\w*)(?:::class)?"#),
             node_router_mount: compile(r#"\.use\(\s*['"`](/[^'"`]*)['"`]\s*,\s*([\w$]+)"#),
             python_decorator: compile(
                 r#"@(\w+)\.(get|post|put|patch|delete|head|options)\(\s*[rf]?['"]([^'"]+)['"]"#,
@@ -279,7 +286,8 @@ impl Patterns {
             go_handle_func: compile(
                 r#"HandleFunc\(\s*"(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) ([^"]+)""#,
             ),
-            ruby_verb: compile(r#"(?m)^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]"#),
+            ruby_verb: compile(r#"(?m)^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]([^\n]*)"#),
+            ruby_action: compile(r##"to:\s*['"][^'"#]*#([a-z_]\w*)['"]"##),
             ruby_resources: compile(r"(?m)^\s*resources\s+:([a-z_]+)"),
             spring_mapping: compile(
                 r#"@(Get|Post|Put|Patch|Delete)Mapping\(\s*(?:(?:value|path)\s*=\s*)?"([^"]+)""#,
@@ -288,7 +296,9 @@ impl Patterns {
                 r"(?m)^\s*@(Get|Post|Put|Patch|Delete)Mapping\s*(?:\(\s*\))?\s*$",
             ),
             spring_prefix: compile(r#"@RequestMapping\(\s*(?:(?:value|path)\s*=\s*)?"([^"]+)""#),
-            php_route: compile(r#"Route::(get|post|put|patch|delete|any)\(\s*['"]([^'"]+)['"]"#),
+            php_route: compile(
+                r#"Route::(get|post|put|patch|delete|any)\(\s*['"]([^'"]+)['"]([^\n]*)"#,
+            ),
         }
     }
 
@@ -394,7 +404,18 @@ impl Patterns {
                     }
                 };
                 if raw.starts_with('/') && !raw.contains("://") {
-                    hits.push((join_prefix(prefixes.get(&captures[1]), raw), method, None));
+                    // The rest of the registration names either the handler or
+                    // the validation schema it is wrapped in; both are keys the
+                    // type reader can resolve.
+                    let handler = self
+                        .node_handler
+                        .captures(&line[captures.get(0).map_or(0, |m| m.end())..])
+                        .map(|found| found[1].to_string());
+                    hits.push((
+                        join_prefix(prefixes.get(&captures[1]), raw),
+                        method,
+                        handler,
+                    ));
                 }
             }
             if line.contains(".route(") {
@@ -498,7 +519,13 @@ impl Patterns {
         let mut hits = Vec::new();
         for captures in self.ruby_verb.captures_iter(content) {
             if let Some(method) = method_const(&captures[1]) {
-                hits.push((captures[2].to_string(), method, None));
+                // `to: 'blocks#create'` names the action that handles it.
+                let handler = captures.get(3).and_then(|rest| {
+                    self.ruby_action
+                        .captures(rest.as_str())
+                        .map(|found| found[1].to_string())
+                });
+                hits.push((captures[2].to_string(), method, handler));
             }
         }
         for captures in self.ruby_resources.captures_iter(content) {
@@ -520,6 +547,7 @@ impl Patterns {
     /// `@RequestMapping` prefix applied when one precedes the class keyword.
     /// Bare `@GetMapping` maps to the prefix itself.
     fn spring(&self, content: &str) -> Vec<rust_nest::RouteHit> {
+        let lines: Vec<&str> = content.lines().collect();
         let class_line = content
             .lines()
             .position(|line| line.contains("class "))
@@ -531,15 +559,29 @@ impl Patterns {
             .map(|captures| captures[1].to_string())
             .unwrap_or_default();
         let mut hits = Vec::new();
-        for line in content.lines() {
+        // The annotated method is the handler; it follows the mapping within a
+        // few lines, past any further annotations.
+        let handler_after = |index: usize| {
+            lines
+                .iter()
+                .skip(index + 1)
+                .take(6)
+                .find_map(|next| self.spring_method.captures(next))
+                .map(|captures| captures[1].to_string())
+        };
+        for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.spring_mapping.captures(line) {
                 if let Some(method) = method_const(&captures[1]) {
-                    hits.push((format!("{prefix}{}", &captures[2]), method, None));
+                    hits.push((
+                        format!("{prefix}{}", &captures[2]),
+                        method,
+                        handler_after(index),
+                    ));
                 }
             } else if let Some(captures) = self.spring_bare_mapping.captures(line) {
                 if let Some(method) = method_const(&captures[1]) {
                     let path = if prefix.is_empty() { "/" } else { &prefix };
-                    hits.push((path.to_string(), method, None));
+                    hits.push((path.to_string(), method, handler_after(index)));
                 }
             }
         }
@@ -558,7 +600,14 @@ impl Patterns {
                     None => continue,
                 }
             };
-            hits.push((captures[2].to_string(), method, None));
+            // `Route::post('/x', [StoreBlockController::class, 'store'])` and
+            // the string form both name the class that validates the body.
+            let handler = captures.get(3).and_then(|rest| {
+                self.php_action
+                    .captures(rest.as_str())
+                    .map(|found| found[1].to_string())
+            });
+            hits.push((captures[2].to_string(), method, handler));
         }
         hits
     }

@@ -176,17 +176,21 @@ everything, and that is the constraint that actually rejects the request:
                             (an explicit value guard in the handler)
 ```
 
-Three families are read, each through the signal its own ecosystem already uses:
+Every supported family is read through the signal its own ecosystem already uses:
 
 | | closed value set | range | optional |
 |---|---|---|---|
 | Rust | unit-only enum, `matches!(x, A \| B)`, `[A, B].contains(&x)` | `validate`/`garde` `range(...)`, `(A..=B).contains(&x)` | `Option<T>` |
 | Python | `Literal["a", "b"]`, a `str, Enum` class | `Field(ge=, le=, gt=, lt=)` | `Optional[T]`, `\| None`, a default |
 | Go | struct tag `oneof=a b` | struct tag `min=`/`max=`/`gte=`/`lte=` | pointer, `omitempty`, absent `required` |
+| Node | `z.enum([...])`, a TS string union, `@IsIn([...])` | `.min()`/`.max()`, `@Min`/`@Max` | `.optional()`, `field?:`, `@IsOptional` |
+| Ruby | `validates inclusion: { in: %w[a b] }` | `validates numericality: { greater_than_or_equal_to: }` | absent `presence: true` |
+| PHP | Laravel `'in:a,b'` | Laravel `'min:1\|max:5'` | absent `required` |
+| Java | an enum-typed field | `@Min`/`@Max` | absent `@NotNull`/`@NotBlank` |
 
-Every report names its evidence, so a verdict can be checked against the line that produced it.
-Node, Ruby, PHP and Java get the route check and say so; adding one is teaching its signatures,
-not new plumbing.
+Every report names its evidence, so a verdict can be checked against the line that produced it,
+and the summary says how many request bodies were actually traced to a handler: an operation whose
+handler could not be resolved was not compared, and a clean result does not speak for it.
 
 It abstains on anything whose accepted set has to be inferred: an enum variant carrying data, a
 `matches!` arm with a guard expression, validation spread across several statements. Those are
