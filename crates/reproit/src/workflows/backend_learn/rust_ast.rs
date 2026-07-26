@@ -716,6 +716,112 @@ mod tests {
     }
 
     #[test]
+    fn serde_default_makes_a_non_option_field_optional() {
+        // hey's `RegisterDeviceRequest.platform` is a bare `String` with
+        // `#[serde(default)]`: omitting it yields "" rather than a rejection.
+        // Reading required-ness from `Option` alone called a correct schema
+        // wrong and stated a rejection that does not happen.
+        let source = read_source(
+            "serde_default",
+            &[(
+                "models.rs",
+                r#"
+            pub struct R {
+                pub token: String,
+                #[serde(default)]
+                pub platform: String,
+                #[serde(default = "default_kind")]
+                pub kind: String,
+                #[serde(skip_deserializing)]
+                pub server_set: String,
+            }
+            pub async fn h(Json(b): Json<R>) {}
+            "#,
+            )],
+        );
+        let fields = source.bodies.get("h").expect("resolved");
+        assert!(fields["token"].required, "a bare field is still required");
+        assert!(!fields["platform"].required, "#[serde(default)] opts out");
+        assert!(!fields["kind"].required, "default = \"path\" opts out too");
+        assert!(
+            !fields["server_set"].required,
+            "a field never read from input cannot be required"
+        );
+        assert!(
+            fields.contains_key("server_set"),
+            "it stays in the set: declaring it is ignored, not wrong"
+        );
+    }
+
+    #[test]
+    fn container_default_opts_every_field_out() {
+        let source = read_source(
+            "container_default",
+            &[(
+                "models.rs",
+                r#"
+            #[serde(default)]
+            pub struct R { pub a: String, pub b: String }
+            pub async fn h(Json(b): Json<R>) {}
+            "#,
+            )],
+        );
+        let fields = source.bodies.get("h").expect("resolved");
+        assert!(!fields["a"].required && !fields["b"].required, "{fields:?}");
+    }
+
+    #[test]
+    fn container_rename_all_gives_the_wire_name() {
+        // Comparing the Rust name against a renamed wire name reports a field
+        // that is present as one the handler does not have.
+        let source = read_source(
+            "rename_all_fields",
+            &[(
+                "models.rs",
+                r#"
+            #[serde(rename_all = "camelCase")]
+            pub struct R { pub blocked_type: String, #[serde(rename = "id")] pub blocked_id: String }
+            pub async fn h(Json(b): Json<R>) {}
+            "#,
+            )],
+        );
+        let fields = source.bodies.get("h").expect("resolved");
+        assert!(fields.contains_key("blockedType"), "{:?}", fields.keys());
+        assert!(
+            !fields.contains_key("blocked_type"),
+            "the Rust name is not the wire name: {:?}",
+            fields.keys()
+        );
+        assert!(
+            fields.contains_key("id"),
+            "an explicit rename beats rename_all: {:?}",
+            fields.keys()
+        );
+    }
+
+    #[test]
+    fn a_flattened_field_makes_the_whole_type_abstain() {
+        // The flattened type's fields are on the wire at this level and cannot
+        // be enumerated from here. A partial set would report every one of them
+        // as absent from the handler's body type.
+        let source = read_source(
+            "flatten",
+            &[(
+                "models.rs",
+                r#"
+            pub struct R { pub a: String, #[serde(flatten)] pub extra: Meta }
+            pub async fn h(Json(b): Json<R>) {}
+            "#,
+            )],
+        );
+        assert!(
+            !source.bodies.contains_key("h"),
+            "an unenumerable shape must abstain: {:?}",
+            source.bodies
+        );
+    }
+
+    #[test]
     fn a_data_carrying_variant_abstains() {
         let source = read_source(
             "a_data_carrying_variant_abstains",

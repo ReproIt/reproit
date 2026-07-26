@@ -46,11 +46,41 @@ pub(super) fn struct_fields(item: &syn::ItemStruct) -> BTreeMap<String, FieldFac
     let syn::Fields::Named(named) = &item.fields else {
         return BTreeMap::new();
     };
+    // A `#[serde(flatten)]` field puts ANOTHER type's fields on the wire at
+    // this level, and they cannot be enumerated from here. Returning a partial
+    // set would report every flattened field as one the handler does not have,
+    // so the whole type abstains: an unreadable shape is not an empty one.
+    if named
+        .named
+        .iter()
+        .any(|field| serde_flag(&field.attrs, "flatten"))
+    {
+        return BTreeMap::new();
+    }
+    // `rename_all` on the container renames every field, and comparing the
+    // Rust name against a renamed wire name reports a present field as absent.
+    let rename_all = rename_all(&item.attrs);
+    // `#[serde(default)]` on the CONTAINER defaults every field in it.
+    let all_default = serde_flag(&item.attrs, "default");
     let mut fields = BTreeMap::new();
     for field in &named.named {
         let Some(ident) = &field.ident else { continue };
-        let name = serde_rename(&field.attrs).unwrap_or_else(|| ident.to_string());
-        let optional = inner_of(&field.ty, "Option").is_some();
+        let name = serde_rename(&field.attrs).unwrap_or_else(|| {
+            super::field_facts::apply_rename_all(&ident.to_string(), rename_all.as_deref())
+        });
+        // Required means "omitting it is rejected", which `Option` is only one
+        // way to opt out of. `#[serde(default)]` on a non-Option field makes it
+        // optional just as surely: omitting it yields the default rather than
+        // an error. Reading only the type reported a correct schema as missing
+        // a `required` entry, and stated a rejection that does not happen.
+        let optional = inner_of(&field.ty, "Option").is_some()
+            || all_default
+            || serde_flag(&field.attrs, "default")
+            // Never populated from input at all, so it cannot be required. It
+            // stays in the set: the schema may still declare it, and sending
+            // it is ignored rather than wrong.
+            || serde_flag(&field.attrs, "skip_deserializing")
+            || serde_flag(&field.attrs, "skip");
         let declared = inner_of(&field.ty, "Option").or_else(|| bare_type(&field.ty));
         let range = super::field_facts::attribute_range(
             &field.attrs.iter().map(quote_attr).collect::<Vec<_>>(),
@@ -82,14 +112,7 @@ pub(super) fn bare_type(ty: &syn::Type) -> Option<String> {
 /// A unit-only enum's serde-visible values. A data-carrying variant means the
 /// set is not closed, so it abstains.
 pub(super) fn unit_variants(item: &syn::ItemEnum) -> Option<Vec<String>> {
-    let rename_all = item.attrs.iter().find_map(|attr| {
-        let text = quote_attr(attr);
-        text.split("rename_all")
-            .nth(1)?
-            .split('"')
-            .nth(1)
-            .map(str::to_string)
-    });
+    let rename_all = rename_all(&item.attrs);
     let mut values = Vec::new();
     for variant in &item.variants {
         if !matches!(variant.fields, syn::Fields::Unit) {
@@ -104,6 +127,37 @@ pub(super) fn unit_variants(item: &syn::ItemEnum) -> Option<Vec<String>> {
         });
     }
     (!values.is_empty()).then_some(values)
+}
+
+/// A container's `rename_all` rule, if it declares one.
+fn rename_all(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs.iter().find_map(|attr| {
+        let text = quote_attr(attr);
+        if !text.contains("serde") {
+            return None;
+        }
+        text.split("rename_all")
+            .nth(1)?
+            .split('"')
+            .nth(1)
+            .map(str::to_string)
+    })
+}
+
+/// Whether a serde attribute list carries a bare flag, in either the
+/// `#[serde(default)]` or the `#[serde(default = "path")]` spelling.
+///
+/// The token stream is spaced out by the parser, so matching is done on the
+/// separated words rather than on the source text.
+fn serde_flag(attrs: &[syn::Attribute], flag: &str) -> bool {
+    attrs.iter().any(|attr| {
+        let text = quote_attr(attr);
+        if !text.contains("serde") {
+            return false;
+        }
+        text.split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|word| word == flag)
+    })
 }
 
 pub(super) fn serde_rename(attrs: &[syn::Attribute]) -> Option<String> {

@@ -218,7 +218,14 @@ fn zod_fact(chain: &str) -> FieldFact {
     let high = bound(".max(");
     let range = (low.is_some() || high.is_some()).then_some((low, high));
     FieldFact {
-        required: !chain.contains(".optional()") && !chain.contains(".nullish()"),
+        // `.default(x)` and `.catch(x)` make the INPUT optional just as surely
+        // as `.optional()`: omitting the field yields the fallback rather than
+        // a rejection, so calling it required states a rejection that does not
+        // happen. Same shape as Rust's `#[serde(default)]`.
+        required: !chain.contains(".optional()")
+            && !chain.contains(".nullish()")
+            && !chain.contains(".default(")
+            && !chain.contains(".catch("),
         evidence: match (&allowed, &range) {
             (Some(_), _) => Some("a zod enum".to_string()),
             (_, Some(_)) => Some("a zod min/max".to_string()),
@@ -396,6 +403,22 @@ mod tests {
         let fields = source.bodies.get("S").expect("resolved");
         assert!(fields["a"].required);
         assert!(!fields["b"].required);
+    }
+
+    #[test]
+    fn a_zod_default_makes_a_field_optional() {
+        let source = read_source(
+            "zod_default",
+            &[(
+                "server.js",
+                "const S = z.object({ a: z.string(), b: z.string().default('x'), \
+                 c: z.number().catch(0) });\napp.post('/x', S);\n",
+            )],
+        );
+        let fields = source.bodies.get("S").expect("resolved");
+        assert!(fields["a"].required);
+        assert!(!fields["b"].required, ".default() opts out");
+        assert!(!fields["c"].required, ".catch() opts out");
     }
 
     #[test]
