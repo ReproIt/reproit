@@ -312,3 +312,77 @@ fn flutter_explorer_scaffold_stays_modular() {
         );
     }
 }
+
+/// Every path that can fail to observe keeps a distinct not-observed state.
+///
+/// One bug shape has produced nearly every correctness defect in this tool: an
+/// absence reported as a positive. A replay that could not authenticate read as
+/// "fixed"; an operation that only ever 429'd read as "clean"; no baseline read
+/// as "pass"; a type declared twice read as a verdict; a route a pattern did not
+/// match read as "does not exist"; a schema never compared read as "compared and
+/// agrees".
+///
+/// Each was fixed by giving the absence its own state and refusing to merge it
+/// with the negative result. This pins those states in place, so removing one
+/// fails here instead of quietly restoring the bug. It cannot prove the property
+/// holds everywhere; it does keep the instances that were paid for.
+#[test]
+fn absence_never_merges_with_a_negative_result() {
+    for (relative, state, why) in [
+        (
+            "src/workflows/backend_headless/replay.rs",
+            "Inconclusive",
+            "a replay that could not be evaluated is not a proven fix",
+        ),
+        (
+            "src/workflows/backend_headless/retraction.rs",
+            "Retracted",
+            "a claim the project withdrew is not a defect that was fixed",
+        ),
+        (
+            "src/workflows/backend_headless/coverage.rs",
+            "evaluated",
+            "an operation that was reached but never answered is not clean",
+        ),
+        (
+            "src/workflows/backend_headless/history.rs",
+            "first_run",
+            "no baseline is not a clean comparison",
+        ),
+        (
+            "src/workflows/backend_learn/drift.rs",
+            "bodies_compared",
+            "a body that was never compared must not read as agreeing",
+        ),
+        (
+            "src/workflows/backend_learn/rust_types.rs",
+            "drop_ambiguous",
+            "an ambiguous type must abstain rather than pick a winner",
+        ),
+    ] {
+        let body = source(relative);
+        assert!(
+            body.contains(state),
+            "{relative} no longer carries its `{state}` state: {why}"
+        );
+    }
+
+    // The route check reads patterns, so it cannot know what it failed to match.
+    // Its absence direction must stay a question, never an instruction.
+    // Comments quote the old wording to explain why the abstain exists, so this
+    // reads the code the user actually sees, not the prose about it.
+    let drift = source("src/workflows/backend_learn/drift.rs");
+    let printed: String = drift
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !printed.contains("delete the operation"),
+        "an absence found by a pattern must never advise deleting a live operation"
+    );
+    assert!(
+        printed.contains("no route matched in source"),
+        "the unmatched direction must be phrased as not-found, not as not-existing"
+    );
+}

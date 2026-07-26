@@ -18,7 +18,7 @@ const MAX_WALK_DEPTH: usize = 8;
 const ROUTE_OBJECT_WINDOW: usize = 8;
 
 /// Directories never containing first-party route definitions.
-const SKIP_DIRS: [&str; 8] = [
+const SKIP_DIRS: [&str; 13] = [
     "node_modules",
     "target",
     "vendor",
@@ -27,6 +27,14 @@ const SKIP_DIRS: [&str; 8] = [
     "__pycache__",
     "venv",
     "migrations",
+    // Non-shipping targets. A Cargo `examples/`, `tests/` or `benches/` binary
+    // declares routes that the service does not serve, and reading them as real
+    // surface reports a stale bench fixture as an undeclared endpoint.
+    "examples",
+    "tests",
+    "test",
+    "benches",
+    "testdata",
 ];
 
 #[derive(Debug, Default)]

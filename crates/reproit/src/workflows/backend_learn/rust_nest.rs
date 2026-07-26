@@ -91,8 +91,8 @@ impl RustScanner {
         let mut pending: Option<String> = None;
         let mut binding_scope: Option<(String, String, Vec<String>)> = None;
         let mut depth: i32 = 0;
-        for line in content.lines() {
-            let code = strip_line_comment(line);
+        for code in logical_lines(content) {
+            let code = code.as_str();
             // A signature can span lines, so remember the name until its `{`.
             if let Some(captures) = self.function.captures(code) {
                 pending = Some(captures[1].to_string());
@@ -341,6 +341,50 @@ fn strip_line_comment(line: &str) -> &str {
 pub(super) fn local_unit(scope: &str, name: &str) -> String {
     format!("{scope}::let {name}")
 }
+
+/// Join physical lines into logical ones, merging any line that leaves a
+/// parenthesis open.
+///
+/// rustfmt breaks a call across lines at whatever column limit a project uses,
+/// so `.route("/v1/posts", post(create))` becomes three lines and a per-line
+/// pattern sees neither a path nor a method. Every Rust repo hits this, and the
+/// failure is silent: the route simply is not found, which then reads as "the
+/// schema declares an operation the source does not serve".
+///
+/// Brace counts are unchanged by joining, so function attribution still works.
+pub(super) fn logical_lines(content: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0i32;
+    for line in content.lines() {
+        let code = strip_line_comment(line);
+        if current.is_empty() {
+            current.push_str(code);
+        } else {
+            // Keep a separator so two identifiers cannot fuse into one token.
+            current.push(' ');
+            current.push_str(code.trim_start());
+        }
+        depth += code.matches(['(', '[']).count() as i32;
+        depth -= code.matches([')', ']']).count() as i32;
+        if depth <= 0 {
+            depth = 0;
+            lines.push(std::mem::take(&mut current));
+        }
+        // A pathological unbalanced file must not collapse into one line.
+        if current.len() > MAX_LOGICAL_LINE_BYTES {
+            depth = 0;
+            lines.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// Bound on a joined logical line, so an unbalanced paren cannot swallow a file.
+const MAX_LOGICAL_LINE_BYTES: usize = 64 * 1024;
 
 #[cfg(test)]
 mod tests {

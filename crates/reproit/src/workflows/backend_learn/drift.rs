@@ -275,11 +275,21 @@ fn erase_params(route: &Route) -> Route {
 /// The human report. Silent only when the comparison actually ran and matched.
 pub fn lines(drift: &Drift) -> Vec<String> {
     let mut lines = Vec::new();
+    // The two directions are NOT equally certain, and must not be reported as
+    // if they were.
+    //
+    // "served but not declared" rests on a route the extractor FOUND: positive
+    // evidence, safe to state. "declared but not served" rests on the extractor
+    // not matching anything, and a pattern-based reader cannot know what it
+    // failed to match, so the same absence is produced by a route it does not
+    // understand. Telling someone to delete an operation on that basis is the
+    // one mistake this check must never make: the operation is usually real.
     for (label, routes, fix) in [
         (
-            "declared but not served by the source",
+            "declared, but no route matched in source",
             &drift.undeclared_by_source,
-            "these 404 at runtime: fix the path, or delete the operation",
+            "worth checking: either the path is wrong, or the extractor could not \
+             read that route (it matches patterns, it does not parse)",
         ),
         (
             "served by the source but not declared",
@@ -388,10 +398,17 @@ fn compare_fields(
 
             for (name, property) in declared {
                 let Some(fact) = fields.get(name) else {
+                    // Also an absence, so it names the fields that WERE read.
+                    // If the list looks truncated the reader missed something,
+                    // and that is visible here instead of costing a live field.
+                    let read: Vec<&str> = fields.keys().map(String::as_str).collect();
                     mismatches.push(FieldMismatch {
                         operation: route.clone(),
                         field: name.clone(),
-                        detail: format!("the handler's body type has no `{name}` field"),
+                        detail: format!(
+                            "no `{name}` in the handler's body type (it reads: {})",
+                            read.join(", ")
+                        ),
                     });
                     continue;
                 };
@@ -522,7 +539,7 @@ mod tests {
         assert_eq!(drift.undeclared_by_source, vec![route("GET", "/usres")]);
         assert_eq!(drift.matched, 1);
         let report = lines(&drift).join("\n");
-        assert!(report.contains("declared but not served"), "{report}");
+        assert!(report.contains("no route matched in source"), "{report}");
         assert!(report.contains("GET /usres"), "{report}");
     }
 
@@ -634,9 +651,12 @@ mod tests {
         )
         .0;
         assert_eq!(found.len(), 1, "{found:?}");
+        // The message names the fields it DID read, so an incomplete parse is
+        // visible here instead of costing someone a live field.
+        assert!(found[0].detail.contains("no `blockedType`"), "{found:?}");
         assert!(
-            found[0].detail.contains("no `blockedType` field"),
-            "{found:?}"
+            found[0].detail.contains("it reads: blocked_type"),
+            "it must list what it read: {found:?}"
         );
     }
 

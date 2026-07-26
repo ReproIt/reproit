@@ -9,8 +9,10 @@ That difference is what the oracles for tenant isolation, lost updates,
 transaction atomicity and idempotency need. Without an adapter they abstain,
 because the evidence to judge them does not exist in the response.
 
-**Not published.** This crate is `0.0.0` and is not on crates.io, so depend on
-it by path or git until it is released:
+**Not published, and not blocked on being published.** The crate is `0.0.0` and
+not on crates.io, but `publish = false` only stops it being uploaded: a git
+dependency resolves and builds today, which is all a service needs to move from
+the black-box tier to effect-grounded verdicts.
 
 ```toml
 [dependencies]

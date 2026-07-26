@@ -877,7 +877,12 @@ fn doctor_schema_drift(
             found.matched,
             report.join("\n    ")
         ),
-        Some("reproit init --learn rewrites the draft from source".into()),
+        Some(
+            "reproit init --learn rewrites the draft from source. A route the extractor \
+             cannot read looks the same as one that does not exist, so confirm before \
+             changing a path"
+                .into(),
+        ),
     );
 }
 

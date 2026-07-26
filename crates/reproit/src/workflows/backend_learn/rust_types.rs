@@ -331,7 +331,10 @@ impl TypeScanner {
         handler_bodies: &mut BTreeMap<String, String>,
         ambiguous: &mut Ambiguous,
     ) {
-        let lines: Vec<&str> = source.lines().map(strip_comment).collect();
+        // Same joining as the route scanner: a rustfmt-wrapped signature or
+        // field must read as one line or its type is invisible.
+        let joined = super::rust_nest::logical_lines(source);
+        let lines: Vec<&str> = joined.iter().map(String::as_str).collect();
         for (index, line) in lines.iter().enumerate() {
             if let Some(captures) = self.enum_open.captures(line) {
                 if let Some(values) = self.unit_variants(&lines, index) {
@@ -529,13 +532,6 @@ fn split_attributes(item: &str) -> (Vec<String>, String) {
         rest = rest[end..].trim();
     }
     (attributes, rest.trim().to_string())
-}
-
-fn strip_comment(line: &str) -> &str {
-    match line.find("//") {
-        Some(at) => &line[..at],
-        None => line,
-    }
 }
 
 fn apply_rename_all(variant: &str, rule: Option<&str>) -> String {

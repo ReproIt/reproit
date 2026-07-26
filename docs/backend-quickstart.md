@@ -98,6 +98,14 @@ it answers with its effect trail and verdicts are effect-grounded: what the hand
 read and wrote, not just what the response claimed. Without the adapter, ReproIt still finds
 real bugs but only from responses (status, shape, round-trip identity): the black-box tier.
 
+The Rust adapter is not on crates.io, which does not stop you using it: a git
+dependency resolves and builds today.
+
+```toml
+[dependencies]
+reproit-backend = { git = "https://github.com/ReproIt/reproit", features = ["axum"] }
+```
+
 `reproit doctor` reports which tier you are on and, when the adapter is absent, prints the
 one-line mount for the framework it detected. Scan and fuzz state the tier once in their
 summary. Neither tier ever guesses: a check that needs evidence it does not have abstains.
