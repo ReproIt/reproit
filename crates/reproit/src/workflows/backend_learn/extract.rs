@@ -1,15 +1,20 @@
-//! Static route derivation for `reproit init --learn`: line-level pattern
-//! extraction per framework family over a bounded set of source files. This is
-//! deliberately not a parser; anything a pattern cannot claim confidently is
-//! skipped and counted rather than guessed.
+//! Static route derivation for `reproit init --learn`.
+//!
+//! This file used to BE the extraction: a pattern per framework family, run
+//! line by line over a bounded set of source files. It is now the dispatch and
+//! the shared vocabulary, and every family reads through its own grammar. What
+//! remains here is the file walk each reader shares, the path normalizer they
+//! all emit through, and the shape they all return.
 
+use super::go_ast;
+use super::grammar::SourceRead;
+use super::java_ast;
 use super::node_ast;
+use super::php_ast;
 use super::python_ast;
+use super::ruby_ast;
 use super::rust_ast;
 
-/// One extracted route: local path, method, and the handler that serves it.
-pub(super) type RouteHit = (String, &'static str, Option<String>);
-use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -103,126 +108,64 @@ fn extensions(family: Family) -> &'static [&'static str] {
 }
 
 /// Derive routes for a detected framework from the project's source files.
+///
+/// Every family reads through a real parse now. That is not about matching
+/// more: it is that a parser KNOWS WHEN IT FAILED, and a pattern cannot. Every
+/// false "the source does not serve this operation" this tool has reported came
+/// from an unreadable construct being indistinguishable from an absent one, so
+/// a file that does not parse is COUNTED and the caller qualifies its own
+/// conclusions rather than asserting an absence it has no standing to assert.
 pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
-    let family = family_for(framework)?;
-    let patterns = Patterns::new();
-    let files = source_files(root, extensions(family));
-    if family == Family::Python {
-        // Python reads through its grammar: the decorator, the handler it
-        // decorates and the annotated model are one structure, so a wrapped
-        // decorator or a comment between them stops mattering.
-        let parsed = python_ast::read(root);
-        let mut derived = Derived {
-            files_scanned: parsed.files_parsed,
-            unreadable: parsed.files_unreadable,
-            bodies: parsed.bodies,
-            ..Derived::default()
-        };
-        for (raw, method, handler) in parsed.routes {
-            match normalize_path(&raw) {
-                Some(path) => {
-                    derived
-                        .routes
-                        .entry(path.clone())
-                        .or_default()
-                        .insert(method);
-                    if let Some(handler) = handler {
-                        derived
-                            .handlers
-                            .insert((method.to_uppercase(), path), handler);
-                    }
-                }
-                None => derived.skipped += 1,
-            }
+    let parsed = match family_for(framework)? {
+        Family::Python => python_ast::read(root),
+        Family::Node => node_ast::read(root),
+        Family::Go => go_ast::read(root),
+        Family::Ruby => ruby_ast::read(root),
+        Family::Php => php_ast::read(root),
+        Family::Spring => java_ast::read(root),
+        // Rust reads through `syn`, a full parse rather than a grammar, and
+        // resolves its paths as it goes.
+        Family::Rust => {
+            let parsed = rust_ast::read(root);
+            return Some(Derived {
+                routes: parsed.routes,
+                handlers: parsed.handlers,
+                files_scanned: parsed.files_parsed,
+                skipped: parsed.files_unparsed,
+                unreadable: parsed.files_unparsed,
+                bodies: parsed.bodies,
+            });
         }
-        return Some(derived);
-    }
-    if family == Family::Node {
-        // Node reads through its grammar: the path, the middleware chain and
-        // the handler are distinguishable arguments rather than tokens on a
-        // line, so a route wrapped in `validate(Schema)` resolves both.
-        let parsed = node_ast::read(root);
-        let mut derived = Derived {
-            files_scanned: parsed.files_parsed,
-            unreadable: parsed.files_unreadable,
-            bodies: parsed.bodies,
-            ..Derived::default()
-        };
-        for (raw, method, handler) in parsed.routes {
-            match normalize_path(&raw) {
-                Some(path) => {
-                    derived
-                        .routes
-                        .entry(path.clone())
-                        .or_default()
-                        .insert(method);
-                    if let Some(handler) = handler {
-                        derived
-                            .handlers
-                            .insert((method.to_uppercase(), path), handler);
-                    }
-                }
-                None => derived.skipped += 1,
-            }
-        }
-        return Some(derived);
-    }
-    if family == Family::Rust {
-        // Rust reads through a real parser: an unreadable file is COUNTED
-        // rather than looking like an empty one.
-        let parsed = rust_ast::read(root);
-        return Some(Derived {
-            routes: parsed.routes,
-            handlers: parsed.handlers,
-            files_scanned: parsed.files_parsed,
-            skipped: parsed.files_unparsed,
-            unreadable: parsed.files_unparsed,
-            bodies: parsed.bodies,
-        });
-    }
-    // Pattern extraction still does the reading, but a grammar now says which
-    // files it could make sense of: an absence over an unreadable file is not
-    // evidence, and only a parse can tell the difference.
+    };
+    Some(from_parse(parsed))
+}
+
+/// Fold one grammar reader's result into the shared shape, normalizing paths.
+fn from_parse(parsed: SourceRead) -> Derived {
     let mut derived = Derived {
-        unreadable: super::parsed_source::check(root, family).files_unreadable,
+        files_scanned: parsed.files_parsed,
+        unreadable: parsed.files_unreadable,
+        bodies: parsed.bodies,
         ..Derived::default()
     };
-    for file in files {
-        let Ok(content) = std::fs::read_to_string(&file) else {
-            continue;
-        };
-        derived.files_scanned += 1;
-        let hits = match family {
-            Family::Node => unreachable!("handled by the grammar"),
-            Family::Python => unreachable!("handled by the grammar"),
-            Family::Go => patterns.go(&content),
-            Family::Ruby => patterns.ruby(&content),
-            Family::Spring => patterns.spring(&content),
-            Family::Php => patterns.php(&content),
-            Family::Rust => unreachable!("handled by the parser"),
-        };
-        for (raw, method, handler) in hits {
-            match normalize_path(&raw) {
-                Some(path) => {
+    for (raw, method, handler) in parsed.routes {
+        match normalize_path(&raw) {
+            Some(path) => {
+                derived
+                    .routes
+                    .entry(path.clone())
+                    .or_default()
+                    .insert(method);
+                if let Some(handler) = handler {
                     derived
-                        .routes
-                        .entry(path.clone())
-                        .or_default()
-                        .insert(method);
-                    // Handlers are recorded for every family that can name one,
-                    // so reading a family's types is a matter of teaching its
-                    // signatures, not of plumbing.
-                    if let Some(handler) = handler {
-                        derived
-                            .handlers
-                            .insert((method.to_uppercase(), path), handler);
-                    }
+                        .handlers
+                        .insert((method.to_uppercase(), path), handler);
                 }
-                None => derived.skipped += 1,
             }
+            None => derived.skipped += 1,
         }
     }
-    Some(derived)
+    derived
 }
 
 /// The sources of one family, so a type reader sees exactly the file set the
@@ -264,185 +207,6 @@ fn source_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
         }
     }
     files
-}
-
-fn method_const(method: &str) -> Option<&'static str> {
-    let lower = method.to_ascii_lowercase();
-    METHODS.into_iter().find(|known| **known == lower)
-}
-
-struct Patterns {
-    spring_method: Regex,
-    php_action: Regex,
-    go_call: Regex,
-    go_handle_func: Regex,
-    ruby_verb: Regex,
-    ruby_action: Regex,
-    ruby_resources: Regex,
-    spring_mapping: Regex,
-    spring_bare_mapping: Regex,
-    spring_prefix: Regex,
-    php_route: Regex,
-}
-
-impl Patterns {
-    fn new() -> Self {
-        let compile = |pattern: &str| Regex::new(pattern).expect("static route pattern");
-        Self {
-            spring_method: compile(r"\b(?:public|protected)\s+\S+\s+([A-Za-z_]\w*)\s*\("),
-            php_action: compile(r#"[,\[]\s*['"]?([A-Za-z_]\w*)(?:::class)?"#),
-            go_call: compile(
-                r#"\w\.(?i:(get|post|put|patch|delete|head|options))\(\s*"([^"]+)"\s*,\s*(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)"#,
-            ),
-            go_handle_func: compile(
-                r#"HandleFunc\(\s*"(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) ([^"]+)""#,
-            ),
-            ruby_verb: compile(r#"(?m)^\s*(get|post|put|patch|delete)\s+['"]([^'"]+)['"]([^\n]*)"#),
-            ruby_action: compile(r##"to:\s*['"][^'"#]*#([a-z_]\w*)['"]"##),
-            ruby_resources: compile(r"(?m)^\s*resources\s+:([a-z_]+)"),
-            spring_mapping: compile(
-                r#"@(Get|Post|Put|Patch|Delete)Mapping\(\s*(?:(?:value|path)\s*=\s*)?"([^"]+)""#,
-            ),
-            spring_bare_mapping: compile(
-                r"(?m)^\s*@(Get|Post|Put|Patch|Delete)Mapping\s*(?:\(\s*\))?\s*$",
-            ),
-            spring_prefix: compile(r#"@RequestMapping\(\s*(?:(?:value|path)\s*=\s*)?"([^"]+)""#),
-            php_route: compile(
-                r#"Route::(get|post|put|patch|delete|any)\(\s*['"]([^'"]+)['"]([^\n]*)"#,
-            ),
-        }
-    }
-
-    /// on a nested router carry their real path. Resolved only where the prefix
-    /// travels with the variable in the same file (Flask `Blueprint(url_prefix=)`,
-    /// FastAPI `APIRouter(prefix=)` plus `include_router(prefix=)`, Express
-    /// `app.use("/prefix", router)`). A prefix mounted via a function return
-    /// (e.g. axum `.nest("/api", routes())`) is not followed: guessing would emit
-    /// wrong paths, so those routes keep their local path rather than a fabricated
-    /// one.
-    /// express/koa/hapi-style `app.get('/x', ...)` plus the fastify
-    /// `fastify.route({ method: 'GET', url: '/x' })` object form (the object
-    /// is matched across a small line window).
-    /// gin/echo/fiber `r.GET("/x", ...)`, chi `r.Get("/x", ...)`, and Go 1.22
-    /// net/http `mux.HandleFunc("GET /x", ...)` method-prefixed patterns.
-    fn go(&self, content: &str) -> Vec<RouteHit> {
-        let mut hits = Vec::new();
-        for line in content.lines() {
-            for captures in self.go_call.captures_iter(line) {
-                if let Some(method) = method_const(&captures[1]) {
-                    if captures[2].starts_with('/') {
-                        let handler = captures.get(3).map(|value| value.as_str().to_string());
-                        hits.push((captures[2].to_string(), method, handler));
-                    }
-                }
-            }
-            if let Some(captures) = self.go_handle_func.captures(line) {
-                if let Some(method) = method_const(&captures[1]) {
-                    hits.push((captures[2].to_string(), method, None));
-                }
-            }
-        }
-        hits
-    }
-
-    /// Rails routes.rb verbs and `resources :name` (expanded to the standard
-    /// five routes), plus Sinatra's identical top-level verb blocks.
-    fn ruby(&self, content: &str) -> Vec<RouteHit> {
-        let mut hits = Vec::new();
-        for captures in self.ruby_verb.captures_iter(content) {
-            if let Some(method) = method_const(&captures[1]) {
-                // `to: 'blocks#create'` names the action that handles it.
-                let handler = captures.get(3).and_then(|rest| {
-                    self.ruby_action
-                        .captures(rest.as_str())
-                        .map(|found| found[1].to_string())
-                });
-                hits.push((captures[2].to_string(), method, handler));
-            }
-        }
-        for captures in self.ruby_resources.captures_iter(content) {
-            let name = &captures[1];
-            for (suffix, method) in [
-                ("", "get"),
-                ("", "post"),
-                ("/{id}", "get"),
-                ("/{id}", "patch"),
-                ("/{id}", "delete"),
-            ] {
-                hits.push((format!("/{name}{suffix}"), method, None));
-            }
-        }
-        hits
-    }
-
-    /// Spring `@GetMapping("/x")` (and friends), with a class-level
-    /// `@RequestMapping` prefix applied when one precedes the class keyword.
-    /// Bare `@GetMapping` maps to the prefix itself.
-    fn spring(&self, content: &str) -> Vec<RouteHit> {
-        let lines: Vec<&str> = content.lines().collect();
-        let class_line = content
-            .lines()
-            .position(|line| line.contains("class "))
-            .unwrap_or(usize::MAX);
-        let prefix = content
-            .lines()
-            .take(class_line)
-            .find_map(|line| self.spring_prefix.captures(line))
-            .map(|captures| captures[1].to_string())
-            .unwrap_or_default();
-        let mut hits = Vec::new();
-        // The annotated method is the handler; it follows the mapping within a
-        // few lines, past any further annotations.
-        let handler_after = |index: usize| {
-            lines
-                .iter()
-                .skip(index + 1)
-                .take(6)
-                .find_map(|next| self.spring_method.captures(next))
-                .map(|captures| captures[1].to_string())
-        };
-        for (index, line) in lines.iter().enumerate() {
-            if let Some(captures) = self.spring_mapping.captures(line) {
-                if let Some(method) = method_const(&captures[1]) {
-                    hits.push((
-                        format!("{prefix}{}", &captures[2]),
-                        method,
-                        handler_after(index),
-                    ));
-                }
-            } else if let Some(captures) = self.spring_bare_mapping.captures(line) {
-                if let Some(method) = method_const(&captures[1]) {
-                    let path = if prefix.is_empty() { "/" } else { &prefix };
-                    hits.push((path.to_string(), method, handler_after(index)));
-                }
-            }
-        }
-        hits
-    }
-
-    /// Laravel `Route::get('/x', ...)` in routes/*.php (`any` claims only GET).
-    fn php(&self, content: &str) -> Vec<RouteHit> {
-        let mut hits = Vec::new();
-        for captures in self.php_route.captures_iter(content) {
-            let method = if &captures[1] == "any" {
-                "get"
-            } else {
-                match method_const(&captures[1]) {
-                    Some(method) => method,
-                    None => continue,
-                }
-            };
-            // `Route::post('/x', [StoreBlockController::class, 'store'])` and
-            // the string form both name the class that validates the body.
-            let handler = captures.get(3).and_then(|rest| {
-                self.php_action
-                    .captures(rest.as_str())
-                    .map(|found| found[1].to_string())
-            });
-            hits.push((captures[2].to_string(), method, handler));
-        }
-        hits
-    }
 }
 
 /// Normalize an extracted raw path to an OpenAPI path template. Framework

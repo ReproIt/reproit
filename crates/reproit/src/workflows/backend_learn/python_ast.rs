@@ -8,6 +8,7 @@
 //! nested definition stop mattering.
 
 use super::field_facts::FieldFact;
+use super::grammar::SourceRead;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -16,18 +17,8 @@ const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "op
 /// Bound the class body scanned for fields.
 const MAX_FIELDS: usize = 512;
 
-#[derive(Debug, Default)]
-pub(super) struct PythonSource {
-    /// local path -> methods, before router prefixes are applied.
-    pub(super) routes: Vec<(String, &'static str, Option<String>)>,
-    /// handler -> request body fields.
-    pub(super) bodies: BTreeMap<String, BTreeMap<String, FieldFact>>,
-    pub(super) files_parsed: usize,
-    pub(super) files_unreadable: usize,
-}
-
-pub(super) fn read(root: &Path) -> PythonSource {
-    let mut source = PythonSource::default();
+pub(super) fn read(root: &Path) -> SourceRead {
+    let mut source = SourceRead::default();
     let mut parser = Parser::new();
     if parser
         .set_language(&tree_sitter_python::LANGUAGE.into())
@@ -544,7 +535,7 @@ fn django_routes(node: Node, text: &str, routes: &mut Vec<(String, &'static str,
 mod tests {
     use super::*;
 
-    fn read_source(case: &str, files: &[(&str, &str)]) -> PythonSource {
+    fn read_source(case: &str, files: &[(&str, &str)]) -> SourceRead {
         let root =
             std::env::temp_dir().join(format!("reproit-pyast-{}-{case}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

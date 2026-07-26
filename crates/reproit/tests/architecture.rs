@@ -360,16 +360,10 @@ fn absence_never_merges_with_a_negative_result() {
             "an ambiguous type must abstain rather than pick a winner",
         ),
         (
-            "src/workflows/backend_learn/python_ast.rs",
+            "src/workflows/backend_learn/grammar.rs",
             "files_unreadable",
-            "Python reads through its grammar, so a file it could not read is a \
-             counted blind spot rather than a file with nothing in it",
-        ),
-        (
-            "src/workflows/backend_learn/parsed_source.rs",
-            "files_unreadable",
-            "a source file no grammar could read is a known blind spot for every \
-             family, not an empty one",
+            "the shared parse harness must count what it could not read; every \
+             family reader's honesty about absences rests on this one counter",
         ),
         (
             "src/workflows/backend_learn/rust_ast.rs",
@@ -402,5 +396,35 @@ fn absence_never_merges_with_a_negative_result() {
     assert!(
         printed.contains("no route matched in source"),
         "the unmatched direction must be phrased as not-found, not as not-existing"
+    );
+
+    // Every family reader, including ones added after this was written. A new
+    // reader that silently skips what it cannot read reintroduces the exact bug
+    // the parse rewrite existed to remove, and it would do so in a file no
+    // named-list ratchet covers.
+    let learn =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/workflows/backend_learn");
+    let mut readers = 0;
+    for entry in std::fs::read_dir(&learn).expect("read backend_learn") {
+        let path = entry.expect("entry").path();
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if !name.ends_with("_ast.rs") {
+            continue;
+        }
+        readers += 1;
+        let body = std::fs::read_to_string(&path).expect("read reader");
+        assert!(
+            body.contains("files_unreadable") || body.contains("files_unparsed"),
+            "{name} extracts from a parse but never counts what it could not read: \
+             an unreadable file would be indistinguishable from an empty one"
+        );
+    }
+    assert!(
+        readers >= 6,
+        "expected a reader per family, found {readers}"
     );
 }

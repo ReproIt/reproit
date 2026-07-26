@@ -8,6 +8,7 @@
 //! which token was which.
 
 use super::field_facts::FieldFact;
+use super::grammar::SourceRead;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -19,16 +20,8 @@ const MAX_FIELDS: usize = 512;
 /// the handler, and the schema the registration wraps it in.
 type RawRoute = (String, String, &'static str, Option<String>, Option<String>);
 
-#[derive(Debug, Default)]
-pub(super) struct NodeSource {
-    pub(super) routes: Vec<(String, &'static str, Option<String>)>,
-    pub(super) bodies: BTreeMap<String, BTreeMap<String, FieldFact>>,
-    pub(super) files_parsed: usize,
-    pub(super) files_unreadable: usize,
-}
-
-pub(super) fn read(root: &Path) -> NodeSource {
-    let mut source = NodeSource::default();
+pub(super) fn read(root: &Path) -> SourceRead {
+    let mut source = SourceRead::default();
     let mut parser = Parser::new();
     if parser
         .set_language(&tree_sitter_javascript::LANGUAGE.into())
@@ -318,7 +311,7 @@ fn fastify_route(args: &[Node], text: &str) -> Option<(String, &'static str, Opt
 mod tests {
     use super::*;
 
-    fn read_source(case: &str, files: &[(&str, &str)]) -> NodeSource {
+    fn read_source(case: &str, files: &[(&str, &str)]) -> SourceRead {
         let root =
             std::env::temp_dir().join(format!("reproit-jsast-{}-{case}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

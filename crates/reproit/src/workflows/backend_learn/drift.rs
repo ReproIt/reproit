@@ -13,10 +13,8 @@
 //! and not handler signatures, and reporting a type mismatch it cannot actually
 //! observe would be the same overclaiming the schema is guilty of.
 
-use super::declarative_types;
 use super::extract::{self, Derived};
 use super::field_facts;
-use super::go_types;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -113,40 +111,15 @@ pub fn compare(
     }
     let mut drift = diff(declared, &derived);
     drift.unreadable_sources = derived.unreadable;
-    // Types are read per family. A family with no reader abstains rather than
-    // guessing: a check that cannot see handler signatures must not imply it
-    // looked at them.
-    let fields: Option<BodyReader> = match extract::family_for(framework) {
-        Some(extract::Family::Rust) => {
-            let bodies = derived.bodies.clone();
-            Some(Box::new(move |handler| bodies.get(handler).cloned()))
-        }
-        Some(extract::Family::Python) => {
-            let bodies = derived.bodies.clone();
-            Some(Box::new(move |handler| bodies.get(handler).cloned()))
-        }
-        Some(extract::Family::Go) => {
-            let types = go_types::scan_types(root);
-            Some(Box::new(move |handler| types.body_fields(handler)))
-        }
-        Some(extract::Family::Node) => {
-            let bodies = derived.bodies.clone();
-            Some(Box::new(move |handler| bodies.get(handler).cloned()))
-        }
-        Some(extract::Family::Ruby) => {
-            let types = declarative_types::scan_types(root, declarative_types::Family::Ruby);
-            Some(Box::new(move |handler| types.body_fields(handler)))
-        }
-        Some(extract::Family::Php) => {
-            let types = declarative_types::scan_types(root, declarative_types::Family::Php);
-            Some(Box::new(move |handler| types.body_fields(handler)))
-        }
-        Some(extract::Family::Spring) => {
-            let types = declarative_types::scan_types(root, declarative_types::Family::Java);
-            Some(Box::new(move |handler| types.body_fields(handler)))
-        }
-        None => None,
-    };
+    // Every family resolves its bodies in the same pass as its routes, so the
+    // handler key is the one the route reader recorded rather than one a
+    // second scanner re-derived under its own naming rules. A framework with
+    // no reader at all abstains: a check that cannot see handler signatures
+    // must not imply it looked at them.
+    let fields: Option<BodyReader> = extract::family_for(framework).map(|_| {
+        let bodies = derived.bodies.clone();
+        Box::new(move |handler: &str| bodies.get(handler).cloned()) as BodyReader
+    });
     if let Some(fields) = fields {
         let (mismatches, compared) = compare_fields(document, &derived, fields.as_ref());
         drift.field_mismatches = mismatches;

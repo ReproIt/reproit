@@ -174,7 +174,8 @@ fn extraction_table_covers_every_framework() {
         (
             "laravel",
             "routes/api.php",
-            "Route::get('/projects', [ProjectController::class, 'index']);\n\
+            "<?php\n\
+             Route::get('/projects', [ProjectController::class, 'index']);\n\
              Route::post('/projects', [ProjectController::class, 'store']);\n\
              Route::get('/projects/{project}', [ProjectController::class, 'show']);\n",
             &[
