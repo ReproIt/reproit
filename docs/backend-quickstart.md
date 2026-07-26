@@ -243,6 +243,31 @@ reproducible from a clean state. The contract is recorded into each finding
 artifact, so a replay re-establishes the same preconditions. This replaces
 `REPROIT_BACKEND_RESET_URL`, which still works as the single-URL legacy form.
 
+## Operations that need a resource to exist
+
+An operation on `/posts/{id}/going` needs a real post. The run creates one, so the request lands,
+but CONFIRMING the violation used to be the problem: a non-idempotent POST cannot be re-sent to
+check (the resource is already in the acted-on state), so confirmation needed a whole-service reset
+and, without `REPROIT_BACKEND_RESET_URL`, a real violation was filed as an unconfirmed candidate
+that never blocked anything.
+
+It does not need a reset. The finding records the create as a setup step plus a binding, so the
+sequence replays against a FRESH resource: create, take the id that create returns, act.
+
+```json
+"setup":   [{ "request": { "operation": "createPost" } }],
+"bindings": [{ "sourceStep": 0, "sourceOutputPath": "id", "inputPath": "path.post_id" }]
+```
+
+That makes the artifact self-contained: it still reproduces after a restart that dropped every row
+the original run made, and `verify` flips it to held the moment the handler is fixed.
+
+The link is drawn from STRUCTURE, never names: a create is used only for an operation whose path
+extends the created collection by exactly one parameter (`POST /posts` for `/posts/{id}/going`).
+There is no singularisation and no matching a field because it sounds like an identity. A path with
+a second unsourced parameter has no established precondition, so it abstains rather than inventing
+one and reporting a bug about a request nobody made.
+
 ## Adopting ReproIt on a repo that already has bugs
 
 The gate blocks on new-or-regressed findings, which needs a baseline to compare against. On the

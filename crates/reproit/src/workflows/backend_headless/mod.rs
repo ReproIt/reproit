@@ -32,7 +32,7 @@ use types::*;
 mod binding;
 use binding::ValueBank;
 mod round_trip;
-use round_trip::{probe_round_trips, record_create, CreateRecord};
+use round_trip::{create_identity, probe_round_trips, record_create, CreateRecord};
 mod history;
 use history::{classify_and_record, gate_outcome};
 pub fn looks_like_schema(path: &Path) -> bool {
@@ -370,7 +370,6 @@ async fn run_target_with_policy(
             }
             for violation in result.violations {
                 let finding = backend::finding(&violation);
-                let reset_available = std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some();
                 if endpoint.contract.idempotent && setup.is_empty() {
                     match invoke(&client, endpoint, request.clone()).await {
                         Ok(confirmation)
@@ -394,7 +393,24 @@ async fn run_target_with_policy(
                             "confirmation": format!("confirmation failed: {error}"),
                         })),
                     }
-                } else if reset_available {
+                } else if let Some(outcome) =
+                    chaining::confirm_dependent(&client, endpoint, &request, &creates, &violation)
+                        .await
+                {
+                    match outcome {
+                        Ok(chained) => findings.push((
+                            endpoint.clone(),
+                            chained.request,
+                            chained.setup,
+                            finding,
+                        )),
+                        Err(reason) => candidates.push(json!({
+                            "operation": endpoint.contract.id,
+                            "reason": violation.reason,
+                            "confirmation": reason,
+                        })),
+                    }
+                } else if std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some() {
                     match replay_sequence(
                         &client,
                         &setup,
@@ -577,79 +593,6 @@ struct PassRun {
     execution_errors: Vec<Value>,
     exercised: usize,
     rejected: usize,
-}
-
-/// Wrong-typed input probes: each declared body field of an HTTP operation is
-/// sent once with a wrong JSON type. A 4xx rejection is the contract's
-/// required outcome and stays silent; a 5xx (crashed instead of rejecting) or
-/// a 2xx (accepted invalid input) surfaces through the same oracle evaluation
-/// as every other invocation. Probes carry no setup, so the one-shot
-/// confirmation here is exactly the artifact replay: re-send one request and
-/// require the same violation fingerprint.
-async fn probe_invalid_inputs(
-    client: &reqwest::Client,
-    endpoints: &[Endpoint],
-    base_url: &str,
-    seed: u64,
-) -> PassRun {
-    let mut run = PassRun::default();
-    for endpoint in endpoints {
-        // GraphQL rejects invalid variables inside a 200 envelope and gRPC
-        // rejections abort transport-side, so neither carries the HTTP
-        // accept/reject verdict these probes measure.
-        if endpoint.transport != Transport::Http || endpoint.response_field.is_some() {
-            continue;
-        }
-        let Some(domain) = endpoint.contract.input.as_ref() else {
-            continue;
-        };
-        for input in invalid_probes(domain, seed, endpoint.body_only) {
-            let request = match build_request(endpoint, base_url, input) {
-                Ok(request) => request,
-                Err(error) => {
-                    run.skipped.push(json!({
-                        "operation": endpoint.contract.id,
-                        "reason": error.to_string(),
-                    }));
-                    continue;
-                }
-            };
-            let result = match invoke(client, endpoint, request.clone()).await {
-                Ok(result) => result,
-                Err(error) => {
-                    run.execution_errors.push(json!({
-                        "operation": endpoint.contract.id,
-                        "error": error.to_string(),
-                    }));
-                    continue;
-                }
-            };
-            run.exercised += 1;
-            if !(200..400).contains(&result.status) {
-                run.rejected += 1;
-            }
-            for violation in result.violations {
-                let finding = backend::finding(&violation);
-                match invoke(client, endpoint, request.clone()).await {
-                    Ok(confirmation) if has_fingerprint(&confirmation, &violation.fingerprint) => {
-                        run.findings
-                            .push((endpoint.clone(), request.clone(), Vec::new(), finding));
-                    }
-                    Ok(_) => run.candidates.push(json!({
-                        "operation": endpoint.contract.id,
-                        "reason": violation.reason,
-                        "confirmation": "did not reproduce exactly",
-                    })),
-                    Err(error) => run.candidates.push(json!({
-                        "operation": endpoint.contract.id,
-                        "reason": violation.reason,
-                        "confirmation": format!("confirmation failed: {error}"),
-                    })),
-                }
-            }
-        }
-    }
-    run
 }
 
 #[derive(Clone, Copy)]
@@ -944,7 +887,9 @@ fn unique_endpoint<'a>(endpoints: &'a [Endpoint], operation: &str) -> Option<&'a
 mod schema;
 use schema::*;
 mod generation;
-use generation::{invalid_probes, sample_domain, MAX_INVALID_PROBES_PER_OPERATION};
+#[cfg(test)]
+use generation::invalid_probes;
+use generation::{probe_invalid_inputs, sample_domain, MAX_INVALID_PROBES_PER_OPERATION};
 mod request;
 use request::build_request;
 mod transport;
@@ -962,6 +907,7 @@ use artifacts::{emit_report, persist_findings, persist_run_report, persist_schem
 pub(super) mod coverage;
 use coverage::Coverage;
 mod accept;
+mod chaining;
 pub use accept::run as backend_accept;
 mod reset;
 mod retraction;
