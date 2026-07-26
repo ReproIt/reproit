@@ -18,7 +18,6 @@ use super::extract::{self, Derived};
 use super::field_facts;
 use super::go_types;
 use super::node_types;
-use super::python_types;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -124,8 +123,8 @@ pub fn compare(
             Some(Box::new(move |handler| bodies.get(handler).cloned()))
         }
         Some(extract::Family::Python) => {
-            let types = python_types::scan_types(root);
-            Some(Box::new(move |handler| types.body_fields(handler)))
+            let bodies = derived.bodies.clone();
+            Some(Box::new(move |handler| bodies.get(handler).cloned()))
         }
         Some(extract::Family::Go) => {
             let types = go_types::scan_types(root);

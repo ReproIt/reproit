@@ -360,6 +360,12 @@ fn absence_never_merges_with_a_negative_result() {
             "an ambiguous type must abstain rather than pick a winner",
         ),
         (
+            "src/workflows/backend_learn/python_ast.rs",
+            "files_unreadable",
+            "Python reads through its grammar, so a file it could not read is a \
+             counted blind spot rather than a file with nothing in it",
+        ),
+        (
             "src/workflows/backend_learn/parsed_source.rs",
             "files_unreadable",
             "a source file no grammar could read is a known blind spot for every \

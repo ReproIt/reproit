@@ -3,6 +3,7 @@
 //! deliberately not a parser; anything a pattern cannot claim confidently is
 //! skipped and counted rather than guessed.
 
+use super::python_ast;
 use super::rust_ast;
 
 /// One extracted route: local path, method, and the handler that serves it.
@@ -107,6 +108,36 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
     let family = family_for(framework)?;
     let patterns = Patterns::new();
     let files = source_files(root, extensions(family));
+    if family == Family::Python {
+        // Python reads through its grammar: the decorator, the handler it
+        // decorates and the annotated model are one structure, so a wrapped
+        // decorator or a comment between them stops mattering.
+        let parsed = python_ast::read(root);
+        let mut derived = Derived {
+            files_scanned: parsed.files_parsed,
+            unreadable: parsed.files_unreadable,
+            bodies: parsed.bodies,
+            ..Derived::default()
+        };
+        for (raw, method, handler) in parsed.routes {
+            match normalize_path(&raw) {
+                Some(path) => {
+                    derived
+                        .routes
+                        .entry(path.clone())
+                        .or_default()
+                        .insert(method);
+                    if let Some(handler) = handler {
+                        derived
+                            .handlers
+                            .insert((method.to_uppercase(), path), handler);
+                    }
+                }
+                None => derived.skipped += 1,
+            }
+        }
+        return Some(derived);
+    }
     if family == Family::Rust {
         // Rust reads through a real parser: an unreadable file is COUNTED
         // rather than looking like an empty one.
@@ -132,14 +163,10 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             continue;
         };
         derived.files_scanned += 1;
-        let file_name = file
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
         let prefixes = patterns.prefixes(family, &content);
         let hits = match family {
             Family::Node => patterns.node(&content, &prefixes),
-            Family::Python => patterns.python(&content, file_name, &prefixes),
+            Family::Python => unreachable!("handled by the grammar"),
             Family::Go => patterns.go(&content),
             Family::Ruby => patterns.ruby(&content),
             Family::Spring => patterns.spring(&content),
@@ -223,15 +250,10 @@ struct Patterns {
     node_handler: Regex,
     spring_method: Regex,
     php_action: Regex,
-    python_decorator: Regex,
-    python_def: Regex,
-    flask_route: Regex,
-    flask_methods: Regex,
     flask_blueprint: Regex,
     fastapi_router: Regex,
     fastapi_include: Regex,
     node_router_mount: Regex,
-    django_path: Regex,
     go_call: Regex,
     go_handle_func: Regex,
     ruby_verb: Regex,
@@ -256,12 +278,6 @@ impl Patterns {
             spring_method: compile(r"\b(?:public|protected)\s+\S+\s+([A-Za-z_]\w*)\s*\("),
             php_action: compile(r#"[,\[]\s*['"]?([A-Za-z_]\w*)(?:::class)?"#),
             node_router_mount: compile(r#"\.use\(\s*['"`](/[^'"`]*)['"`]\s*,\s*([\w$]+)"#),
-            python_decorator: compile(
-                r#"@(\w+)\.(get|post|put|patch|delete|head|options)\(\s*[rf]?['"]([^'"]+)['"]"#,
-            ),
-            flask_route: compile(r#"@(\w+)\.route\(\s*[rf]?['"]([^'"]+)['"](.*)"#),
-            python_def: compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)"),
-            flask_methods: compile(r"methods\s*=\s*\[([^\]]*)\]"),
             flask_blueprint: compile(
                 r#"(\w+)\s*=\s*Blueprint\([^)]*\burl_prefix\s*=\s*['"]([^'"]+)['"]"#,
             ),
@@ -271,7 +287,6 @@ impl Patterns {
             fastapi_include: compile(
                 r#"include_router\(\s*(\w+)[^)]*\bprefix\s*=\s*['"]([^'"]+)['"]"#,
             ),
-            django_path: compile(r#"\bpath\(\s*[rf]?['"]([^'"]*)['"]"#),
             go_call: compile(
                 r#"\w\.(?i:(get|post|put|patch|delete|head|options))\(\s*"([^"]+)"\s*,\s*(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)"#,
             ),
@@ -373,63 +388,6 @@ impl Patterns {
                     if let Some(method) = method_const(&method[1]) {
                         hits.push((url[1].to_string(), method, None));
                     }
-                }
-            }
-        }
-        hits
-    }
-
-    /// FastAPI `@app.get("/x")`, Flask `@app.route("/x", methods=[...])`, and
-    /// Django `path("x/", ...)` entries (urls.py only; methods are not
-    /// declared there, so the draft claims only GET).
-    fn python(
-        &self,
-        content: &str,
-        file_name: &str,
-        prefixes: &BTreeMap<String, String>,
-    ) -> Vec<RouteHit> {
-        let mut hits = Vec::new();
-        let lines: Vec<&str> = content.lines().collect();
-        for (index, line) in lines.iter().enumerate() {
-            if let Some(captures) = self.python_decorator.captures(line) {
-                if let Some(method) = method_const(&captures[2]) {
-                    let path = join_prefix(prefixes.get(&captures[1]), &captures[3]);
-                    // The decorated function is the handler: it sits within a
-                    // few lines, past any further decorators.
-                    let handler = lines
-                        .iter()
-                        .skip(index + 1)
-                        .take(6)
-                        .find_map(|next| self.python_def.captures(next))
-                        .map(|captures| captures[1].to_string());
-                    hits.push((path, method, handler));
-                }
-            }
-            if let Some(captures) = self.flask_route.captures(line) {
-                let path = join_prefix(prefixes.get(&captures[1]), &captures[2]);
-                let methods = self
-                    .flask_methods
-                    .captures(&captures[3])
-                    .map(|list| {
-                        list[1]
-                            .split(',')
-                            .filter_map(|item| method_const(item.trim().trim_matches(['\'', '"'])))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_else(|| vec!["get"]);
-                let handler = lines
-                    .iter()
-                    .skip(index + 1)
-                    .take(6)
-                    .find_map(|next| self.python_def.captures(next))
-                    .map(|captures| captures[1].to_string());
-                for method in methods {
-                    hits.push((path.clone(), method, handler.clone()));
-                }
-            }
-            if file_name == "urls.py" {
-                if let Some(captures) = self.django_path.captures(line) {
-                    hits.push((format!("/{}", &captures[1]), "get", None));
                 }
             }
         }

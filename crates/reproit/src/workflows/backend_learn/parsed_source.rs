@@ -91,6 +91,39 @@ mod tests {
     }
 
     #[test]
+    fn probe_python_shape() {
+        let src = r#"
+@app.post("/v1/blocks")
+async def create_block(body: BlockRequest):
+    return {}
+"#;
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap();
+        let tree = parser.parse(src, None).unwrap();
+        fn walk(n: tree_sitter::Node, src: &str, d: usize) {
+            if d < 6 {
+                eprintln!(
+                    "{}{} :: {}",
+                    "  ".repeat(d),
+                    n.kind(),
+                    n.utf8_text(src.as_bytes())
+                        .unwrap_or("")
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                );
+            }
+            let mut c = n.walk();
+            for ch in n.children(&mut c) {
+                walk(ch, src, d + 1);
+            }
+        }
+        walk(tree.root_node(), src, 0);
+    }
+
+    #[test]
     fn valid_python_parses_and_broken_python_is_counted() {
         let dir = root(
             "python",

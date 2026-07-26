@@ -19,7 +19,7 @@ mod field_facts;
 mod go_types;
 mod node_types;
 mod parsed_source;
-mod python_types;
+mod python_ast;
 mod rust_ast;
 
 #[cfg(test)]
