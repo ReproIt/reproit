@@ -5,7 +5,7 @@
 //! set and a required flag in one place, and gin, echo and fiber all read the
 //! same `validate`/`binding` vocabulary.
 
-use super::rust_types::{drop_ambiguous, record, FieldFact};
+use super::field_facts::{drop_ambiguous, record, FieldFact};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 

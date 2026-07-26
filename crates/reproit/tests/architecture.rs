@@ -355,9 +355,15 @@ fn absence_never_merges_with_a_negative_result() {
             "a body that was never compared must not read as agreeing",
         ),
         (
-            "src/workflows/backend_learn/rust_types.rs",
+            "src/workflows/backend_learn/field_facts.rs",
             "drop_ambiguous",
             "an ambiguous type must abstain rather than pick a winner",
+        ),
+        (
+            "src/workflows/backend_learn/rust_ast.rs",
+            "files_unparsed",
+            "a source file that could not be read is a known blind spot, not an \
+             empty one, and an absence reported over it is not evidence",
         ),
     ] {
         let body = source(relative);

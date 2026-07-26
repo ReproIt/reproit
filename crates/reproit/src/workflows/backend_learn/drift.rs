@@ -15,10 +15,10 @@
 
 use super::declarative_types;
 use super::extract::{self, Derived};
+use super::field_facts;
 use super::go_types;
 use super::node_types;
 use super::python_types;
-use super::rust_types;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -27,7 +27,7 @@ pub type Route = (String, String);
 
 /// A family's reader: handler name -> the body fields it accepts. Boxed so each
 /// family plugs in the same way and adding one is a match arm, not plumbing.
-type BodyReader<'a> = Box<dyn Fn(&str) -> Option<BTreeMap<String, rust_types::FieldFact>> + 'a>;
+type BodyReader<'a> = Box<dyn Fn(&str) -> Option<BTreeMap<String, field_facts::FieldFact>> + 'a>;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Drift {
@@ -45,6 +45,10 @@ pub struct Drift {
     /// statement rather than the absence of a warning.
     pub matched: usize,
     pub files_scanned: usize,
+    /// Source files the reader could not read. While this is non-zero the
+    /// "no route matched" direction is not evidence of anything, because the
+    /// route may be in a file that was never read.
+    pub unreadable_sources: usize,
     /// Whether this family has a type reader at all.
     pub types_checked: bool,
     /// How many declared operations actually had their request body compared.
@@ -110,13 +114,14 @@ pub fn compare(
         return None;
     }
     let mut drift = diff(declared, &derived);
+    drift.unreadable_sources = derived.unreadable;
     // Types are read per family. A family with no reader abstains rather than
     // guessing: a check that cannot see handler signatures must not imply it
     // looked at them.
     let fields: Option<BodyReader> = match extract::family_for(framework) {
         Some(extract::Family::Rust) => {
-            let types = rust_types::scan_types(root);
-            Some(Box::new(move |handler| types.body_fields(handler)))
+            let bodies = derived.bodies.clone();
+            Some(Box::new(move |handler| bodies.get(handler).cloned()))
         }
         Some(extract::Family::Python) => {
             let types = python_types::scan_types(root);
@@ -288,8 +293,18 @@ pub fn lines(drift: &Drift) -> Vec<String> {
         (
             "declared, but no route matched in source",
             &drift.undeclared_by_source,
-            "worth checking: either the path is wrong, or the extractor could not \
-             read that route (it matches patterns, it does not parse)",
+            match drift.unreadable_sources {
+                // A file that would not parse is a known blind spot, so this
+                // list is not evidence at all while one exists.
+                0 => "worth checking: the path may be wrong, or the route may be \
+                      built in a way the reader does not follow"
+                    .to_string(),
+                unreadable => format!(
+                    "NOT reliable: {unreadable} source file(s) could not be parsed, so a \
+                     route may simply never have been read. Fix those first"
+                ),
+            }
+            .as_str(),
         ),
         (
             "served by the source but not declared",
@@ -362,7 +377,7 @@ fn describe_bounds(low: Option<f64>, high: Option<f64>) -> String {
 fn compare_fields(
     document: &serde_json::Value,
     derived: &Derived,
-    body_fields: &dyn Fn(&str) -> Option<BTreeMap<String, rust_types::FieldFact>>,
+    body_fields: &dyn Fn(&str) -> Option<BTreeMap<String, field_facts::FieldFact>>,
 ) -> (Vec<FieldMismatch>, usize) {
     let mut mismatches = Vec::new();
     let mut compared = 0usize;
@@ -511,6 +526,8 @@ mod tests {
             files_scanned: 3,
             skipped: 0,
             handlers: BTreeMap::new(),
+            unreadable: 0,
+            bodies: BTreeMap::new(),
         }
     }
 
@@ -578,9 +595,26 @@ mod tests {
         assert!(drift.is_clean(), "{drift:?}");
     }
 
-    fn typed(sources: &[&str]) -> rust_types::RustTypes {
-        rust_types::TypeScanner::new(|p| regex::Regex::new(p).unwrap())
-            .scan(&sources.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    /// The body the handler actually takes, as the Rust parser reports it.
+    fn block_fields() -> BTreeMap<String, field_facts::FieldFact> {
+        BTreeMap::from([
+            (
+                "blocked_type".to_string(),
+                field_facts::FieldFact {
+                    required: true,
+                    allowed: Some(vec!["user".into(), "sponsor".into()]),
+                    range: None,
+                    evidence: Some("a unit-only enum".into()),
+                },
+            ),
+            (
+                "note".to_string(),
+                field_facts::FieldFact {
+                    required: false,
+                    ..field_facts::FieldFact::default()
+                },
+            ),
+        ])
     }
 
     fn with_handler(method: &str, path: &str, handler: &str) -> Derived {
@@ -590,12 +624,6 @@ mod tests {
             .insert((method.to_string(), path.to_string()), handler.to_string());
         derived
     }
-
-    const BLOCK_SOURCE: &[&str] = &[
-        r#"#[serde(rename_all = "snake_case")] pub enum BlockedType { User, Sponsor }"#,
-        "pub struct BlockRequest { pub blocked_type: BlockedType, pub note: Option<String> }",
-        "pub async fn create_block(Json(b): Json<BlockRequest>) {",
-    ];
 
     fn block_document(property: serde_json::Value, required: &[&str]) -> serde_json::Value {
         serde_json::json!({"paths": {"/block": {"post": {"requestBody": {"content": {
@@ -613,7 +641,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &|h| typed(BLOCK_SOURCE).body_fields(h),
+            &|handler| (handler == "create_block").then(block_fields),
         )
         .0;
         assert_eq!(found.len(), 1, "{found:?}");
@@ -634,7 +662,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &|h| typed(BLOCK_SOURCE).body_fields(h),
+            &|handler| (handler == "create_block").then(block_fields),
         )
         .0;
         assert!(found.is_empty(), "{found:?}");
@@ -647,7 +675,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &|h| typed(BLOCK_SOURCE).body_fields(h),
+            &|handler| (handler == "create_block").then(block_fields),
         )
         .0;
         assert_eq!(found.len(), 1, "{found:?}");
@@ -671,7 +699,7 @@ mod tests {
         let found = compare_fields(
             &document,
             &with_handler("POST", "/block", "create_block"),
-            &|h| typed(BLOCK_SOURCE).body_fields(h),
+            &|handler| (handler == "create_block").then(block_fields),
         )
         .0;
         assert_eq!(found.len(), 1, "{found:?}");
@@ -684,8 +712,8 @@ mod tests {
     #[test]
     fn an_operation_with_no_resolvable_handler_abstains() {
         let document = block_document(serde_json::json!({"type": "string"}), &["blocked_type"]);
-        let found = compare_fields(&document, &derived(&[("/block", &["post"])]), &|h| {
-            typed(BLOCK_SOURCE).body_fields(h)
+        let found = compare_fields(&document, &derived(&[("/block", &["post"])]), &|handler| {
+            (handler == "create_block").then(block_fields)
         })
         .0;
         assert!(

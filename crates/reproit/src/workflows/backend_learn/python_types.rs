@@ -6,7 +6,7 @@
 //! There is no guard-reading needed here at all, which makes FastAPI and
 //! django-ninja easier to check than the language this started with.
 
-use super::rust_types::{drop_ambiguous, record, FieldFact};
+use super::field_facts::{drop_ambiguous, record, FieldFact};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 

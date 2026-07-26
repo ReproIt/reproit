@@ -175,6 +175,15 @@ every one is rejected, and the operation reads as exercised while evaluating not
       POST /v1/blocks .nite: the handler's body type has no `nite` field
 ```
 
+Rust is read with a real parser (`syn`), not with patterns. That matters for what an absence
+means: a file either parses, and then every route and field in it is seen exactly, or it does not,
+and the report says so instead of treating a file it never read as a file with nothing in it.
+
+```
+    declared, but no route matched in source (1): NOT reliable: 1 source file(s) could not
+    be parsed, so a route may simply never have been read. Fix those first
+```
+
 A Rust type carries no value range, so the check reads the source rather than only the signature.
 `rating: i8` says nothing; `matches!(body.rating, -1 | 0 | 1)` two lines into the handler says
 everything, and that is the constraint that actually rejects the request:

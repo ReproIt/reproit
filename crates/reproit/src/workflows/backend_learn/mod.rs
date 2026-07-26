@@ -15,11 +15,11 @@ pub(super) mod drift;
 mod emit;
 mod enrich;
 mod extract;
+mod field_facts;
 mod go_types;
 mod node_types;
 mod python_types;
-mod rust_nest;
-mod rust_types;
+mod rust_ast;
 
 #[cfg(test)]
 mod tests;

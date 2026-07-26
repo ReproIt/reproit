@@ -3,7 +3,10 @@
 //! deliberately not a parser; anything a pattern cannot claim confidently is
 //! skipped and counted rather than guessed.
 
-use super::rust_nest;
+use super::rust_ast;
+
+/// One extracted route: local path, method, and the handler that serves it.
+pub(super) type RouteHit = (String, &'static str, Option<String>);
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -44,10 +47,15 @@ pub(crate) struct Derived {
     pub(super) files_scanned: usize,
     /// Pattern hits dropped because the path could not be normalized.
     pub(super) skipped: usize,
-    /// (METHOD, resolved path) -> the handler function serving it. Rust only:
-    /// it is what lets the contract check compare declared TYPES against the
-    /// code, not just declared paths.
+    /// (METHOD, resolved path) -> the handler function serving it. It is what
+    /// lets the contract check compare declared TYPES against the code, not
+    /// just declared paths.
     pub(super) handlers: BTreeMap<(String, String), String>,
+    /// Source files the reader could not read at all. Any absence it reports
+    /// while this is non-zero is unreliable, and the report must say so.
+    pub(super) unreadable: usize,
+    /// handler -> request body fields, where the family has a parser for them.
+    pub(super) bodies: BTreeMap<String, BTreeMap<String, super::field_facts::FieldFact>>,
 }
 
 impl Derived {
@@ -100,7 +108,17 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
     let patterns = Patterns::new();
     let files = source_files(root, extensions(family));
     if family == Family::Rust {
-        return Some(derive_rust(&patterns, &files));
+        // Rust reads through a real parser: an unreadable file is COUNTED
+        // rather than looking like an empty one.
+        let parsed = rust_ast::read(root);
+        return Some(Derived {
+            routes: parsed.routes,
+            handlers: parsed.handlers,
+            files_scanned: parsed.files_parsed,
+            skipped: parsed.files_unparsed,
+            unreadable: parsed.files_unparsed,
+            bodies: parsed.bodies,
+        });
     }
     let mut derived = Derived::default();
     for file in files {
@@ -120,7 +138,7 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             Family::Ruby => patterns.ruby(&content),
             Family::Spring => patterns.spring(&content),
             Family::Php => patterns.php(&content),
-            Family::Rust => unreachable!("handled by derive_rust"),
+            Family::Rust => unreachable!("handled by the parser"),
         };
         for (raw, method, handler) in hits {
             match normalize_path(&raw) {
@@ -144,36 +162,6 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
         }
     }
     Some(derived)
-}
-
-/// Rust needs the whole file set before it can place a route: the prefix is at
-/// the `.nest(...)` call site and the routes are in another function, usually
-/// another file. Pass one attributes hits to their enclosing function, pass two
-/// composes the mount graph.
-fn derive_rust(patterns: &Patterns, files: &[PathBuf]) -> Derived {
-    let scanner = rust_nest::RustScanner::new(|pattern: &str| {
-        Regex::new(pattern).expect("static mount pattern")
-    });
-    let mut derived = Derived::default();
-    let mut units = Vec::new();
-    for file in files {
-        let Ok(content) = std::fs::read_to_string(file) else {
-            continue;
-        };
-        derived.files_scanned += 1;
-        units.push(scanner.scan(&content, |line| patterns.rust(line)));
-    }
-    let resolved = rust_nest::resolve(&units, join_prefix, normalize_path);
-    derived.routes = resolved.routes;
-    derived.skipped = resolved.skipped;
-    derived.handlers = resolved.handlers;
-    derived
-}
-
-/// The Rust sources the extractor considers, exposed so the type check reads
-/// exactly the same file set as the route check.
-pub(super) fn rust_sources(root: &Path) -> Vec<PathBuf> {
-    family_sources(root, Family::Rust)
 }
 
 /// The sources of one family, so a type reader sees exactly the file set the
@@ -223,9 +211,6 @@ fn method_const(method: &str) -> Option<&'static str> {
 }
 
 struct Patterns {
-    rust_route: Regex,
-    rust_method_call: Regex,
-    rust_attribute: Regex,
     node_call: Regex,
     node_route_url: Regex,
     node_route_method: Regex,
@@ -256,13 +241,6 @@ impl Patterns {
     fn new() -> Self {
         let compile = |pattern: &str| Regex::new(pattern).expect("static route pattern");
         Self {
-            rust_route: compile(r#"\.route\(\s*"([^"]+)"\s*,"#),
-            rust_method_call: compile(
-                r"\b(get|post|put|patch|delete|head|options)\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*([A-Za-z_][A-Za-z0-9_]*)?",
-            ),
-            rust_attribute: compile(
-                r##"#\[(?:\w+::)?(get|post|put|patch|delete|head|options)\(\s*"([^"]+)""##,
-            ),
             node_call: compile(
                 r#"([\w$)\]]+)\.(get|post|put|patch|delete|head|options|all)\(\s*['"`]([^'"`]+)['"`]"#,
             ),
@@ -346,57 +324,10 @@ impl Patterns {
         map
     }
 
-    /// axum `.route("/x", get(a).post(b))`, actix `.route("/x", web::get())`,
-    /// and actix/rocket attribute routes `#[get("/x")]`.
-    fn rust(&self, content: &str) -> Vec<rust_nest::RouteHit> {
-        let mut hits = Vec::new();
-        for line in content.lines() {
-            // Every `.route("p", ...)` on the line, each owning only the text up
-            // to the next one. Matching just the first and scanning the whole
-            // remainder for methods gave a chained
-            // `.route(a, get(x)).route(b, post(y))` BOTH methods on `a` and
-            // dropped `b` entirely, which is how a real router ends up with
-            // routes at paths it does not serve.
-            let routes: Vec<(usize, usize, String)> = self
-                .rust_route
-                .captures_iter(line)
-                .filter_map(|captures| {
-                    let whole = captures.get(0)?;
-                    Some((
-                        whole.start(),
-                        whole.end(),
-                        captures.get(1)?.as_str().to_string(),
-                    ))
-                })
-                .collect();
-            for (index, (_, end, path)) in routes.iter().enumerate() {
-                let stop = routes
-                    .get(index + 1)
-                    .map(|(start, _, _)| *start)
-                    .unwrap_or(line.len());
-                for captures in self.rust_method_call.captures_iter(&line[*end..stop]) {
-                    if let Some(method) = method_const(&captures[1]) {
-                        let handler = captures.get(2).map(|m| m.as_str().to_string());
-                        hits.push((path.clone(), method, handler));
-                    }
-                }
-            }
-            if let Some(captures) = self.rust_attribute.captures(line) {
-                if let Some(method) = method_const(&captures[1]) {
-                    // Rocket paths may carry a `?<query>` suffix; the path
-                    // part before it is the route.
-                    let path = captures[2].split('?').next().unwrap_or("").to_string();
-                    hits.push((path, method, None));
-                }
-            }
-        }
-        hits
-    }
-
     /// express/koa/hapi-style `app.get('/x', ...)` plus the fastify
     /// `fastify.route({ method: 'GET', url: '/x' })` object form (the object
     /// is matched across a small line window).
-    fn node(&self, content: &str, prefixes: &BTreeMap<String, String>) -> Vec<rust_nest::RouteHit> {
+    fn node(&self, content: &str, prefixes: &BTreeMap<String, String>) -> Vec<RouteHit> {
         let mut hits = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
         for (index, line) in lines.iter().enumerate() {
@@ -450,7 +381,7 @@ impl Patterns {
         content: &str,
         file_name: &str,
         prefixes: &BTreeMap<String, String>,
-    ) -> Vec<rust_nest::RouteHit> {
+    ) -> Vec<RouteHit> {
         let mut hits = Vec::new();
         let lines: Vec<&str> = content.lines().collect();
         for (index, line) in lines.iter().enumerate() {
@@ -501,7 +432,7 @@ impl Patterns {
 
     /// gin/echo/fiber `r.GET("/x", ...)`, chi `r.Get("/x", ...)`, and Go 1.22
     /// net/http `mux.HandleFunc("GET /x", ...)` method-prefixed patterns.
-    fn go(&self, content: &str) -> Vec<rust_nest::RouteHit> {
+    fn go(&self, content: &str) -> Vec<RouteHit> {
         let mut hits = Vec::new();
         for line in content.lines() {
             for captures in self.go_call.captures_iter(line) {
@@ -523,7 +454,7 @@ impl Patterns {
 
     /// Rails routes.rb verbs and `resources :name` (expanded to the standard
     /// five routes), plus Sinatra's identical top-level verb blocks.
-    fn ruby(&self, content: &str) -> Vec<rust_nest::RouteHit> {
+    fn ruby(&self, content: &str) -> Vec<RouteHit> {
         let mut hits = Vec::new();
         for captures in self.ruby_verb.captures_iter(content) {
             if let Some(method) = method_const(&captures[1]) {
@@ -554,7 +485,7 @@ impl Patterns {
     /// Spring `@GetMapping("/x")` (and friends), with a class-level
     /// `@RequestMapping` prefix applied when one precedes the class keyword.
     /// Bare `@GetMapping` maps to the prefix itself.
-    fn spring(&self, content: &str) -> Vec<rust_nest::RouteHit> {
+    fn spring(&self, content: &str) -> Vec<RouteHit> {
         let lines: Vec<&str> = content.lines().collect();
         let class_line = content
             .lines()
@@ -597,7 +528,7 @@ impl Patterns {
     }
 
     /// Laravel `Route::get('/x', ...)` in routes/*.php (`any` claims only GET).
-    fn php(&self, content: &str) -> Vec<rust_nest::RouteHit> {
+    fn php(&self, content: &str) -> Vec<RouteHit> {
         let mut hits = Vec::new();
         for captures in self.php_route.captures_iter(content) {
             let method = if &captures[1] == "any" {

@@ -21,6 +21,12 @@ required-features = ["perf-bench"]
 [dependencies]
 anyhow = { workspace = true }
 llm = { path = "../llm" }
+# A real Rust parser for the source reader. Route and type extraction used to be
+# regex over text, which cannot know what it failed to match: an unparsed route
+# and an absent one were indistinguishable, and that ambiguity was the source of
+# every false "this operation does not exist". Same major as the copy the derive
+# macros already pull, so features unify instead of adding a second syn.
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }
 chrono = "0.4.45"
 clap = { version = "4.6.2", features = ["derive"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }

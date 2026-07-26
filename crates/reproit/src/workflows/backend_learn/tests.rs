@@ -96,8 +96,9 @@ fn extraction_table_covers_every_framework() {
         (
             "axum",
             "src/main.rs",
-            "let app = Router::new()\n    .route(\"/orders\", post(create).get(list))\n    \
-             .route(\"/orders/{id}\", get(show))\n    .route(\"/health\", get(health));\n",
+            "fn app() -> Router {\n    Router::new()\n        .route(\"/orders\", \
+             post(create).get(list))\n        .route(\"/orders/{id}\", get(show))\n        \
+             .route(\"/health\", get(health))\n}\n",
             &[
                 ("/health", &["get"]),
                 ("/orders", &["get", "post"]),
@@ -108,7 +109,7 @@ fn extraction_table_covers_every_framework() {
             "actix-web",
             "src/main.rs",
             "#[get(\"/status\")]\nasync fn status() {}\n\
-             App::new().route(\"/orders/{id}\", web::patch().to(update))\n",
+             fn app() -> App { App::new().route(\"/orders/{id}\", web::patch().to(update)) }\n",
             &[("/orders/{id}", &["patch"]), ("/status", &["get"])],
         ),
         (
@@ -327,7 +328,8 @@ fn zero_derived_routes_fails_closed_without_writing_config() {
 fn draft_yaml_round_trips_through_the_schema_importer() {
     let dir = project(&[(
         "src/main.rs",
-        ".route(\"/orders\", post(create).get(list))\n.route(\"/orders/{id}\", get(show))\n",
+        "fn app() -> Router {\n    Router::new()\n        .route(\"/orders\", \
+         post(create).get(list))\n        .route(\"/orders/{id}\", get(show))\n}\n",
     )]);
     let derived = derive(&dir, "axum").unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
@@ -398,9 +400,11 @@ async fn live_enrichment_records_status_shape_and_effects() {
     assert_eq!(observed.effects, vec!["read(inventory)".to_string()]);
     let shape = observed.body.as_ref().unwrap();
     assert_eq!(shape["ok"], serde_json::json!(true));
-
     // The observation lands in the draft as a recorded response + comment.
-    let dir = project(&[("src/main.rs", ".route(\"/health\", get(health))\n")]);
+    let dir = project(&[(
+        "src/main.rs",
+        "fn app() -> Router { Router::new().route(\"/health\", get(health)) }\n",
+    )]);
     let derived = derive(&dir, "axum").unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let yaml = emit::draft_yaml("fixture", "axum", &derived, &outcome.observations).unwrap();

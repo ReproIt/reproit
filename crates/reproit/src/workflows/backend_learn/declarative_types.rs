@@ -7,7 +7,7 @@
 //! each at least as explicit as a Go struct tag. They share a reader because
 //! they share a shape: a named rule set attached to a field.
 
-use super::rust_types::{drop_ambiguous, FieldFact};
+use super::field_facts::{drop_ambiguous, FieldFact};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 
