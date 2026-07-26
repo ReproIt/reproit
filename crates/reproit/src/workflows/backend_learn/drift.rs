@@ -17,7 +17,6 @@ use super::declarative_types;
 use super::extract::{self, Derived};
 use super::field_facts;
 use super::go_types;
-use super::node_types;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -131,8 +130,8 @@ pub fn compare(
             Some(Box::new(move |handler| types.body_fields(handler)))
         }
         Some(extract::Family::Node) => {
-            let types = node_types::scan_types(root);
-            Some(Box::new(move |handler| types.body_fields(handler)))
+            let bodies = derived.bodies.clone();
+            Some(Box::new(move |handler| bodies.get(handler).cloned()))
         }
         Some(extract::Family::Ruby) => {
             let types = declarative_types::scan_types(root, declarative_types::Family::Ruby);

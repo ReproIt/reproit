@@ -15,6 +15,7 @@
 //! are two types instead of one silently overwriting the other.
 
 use super::field_facts::FieldFact;
+use super::rust_types::{json_body_type, struct_fields, unit_variants, Guards};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use syn::{Expr, Item, Lit, Stmt};
@@ -46,9 +47,13 @@ pub(super) struct RustSource {
 /// Everything one crate's sources declare.
 #[derive(Default)]
 struct Crate {
-    /// function name -> its body. Bodies are collected BEFORE any are
-    /// evaluated: a router built by a function defined later in the walk is
+    /// QUALIFIED function name -> its body. Bodies are collected BEFORE any
+    /// are evaluated: a router built by a function defined later in the walk is
     /// still a router, and evaluating in file order silently lost it.
+    ///
+    /// The key carries the module because two modules routinely export the same
+    /// `routes()`, and a bare key let the second overwrite the first: one
+    /// `.nest()` resolved and the other reported no routes at all.
     fn_bodies: BTreeMap<String, syn::Block>,
     /// qualified type name -> fields.
     structs: BTreeMap<String, BTreeMap<String, FieldFact>>,
@@ -122,7 +127,7 @@ fn collect(items: &[Item], module: &str, krate: &mut Crate) {
                 }
                 krate
                     .fn_bodies
-                    .insert(name.clone(), (*function.block).clone());
+                    .insert(format!("{module}::{name}"), (*function.block).clone());
                 if let Some(body) = json_body_type(function) {
                     krate.handler_body.insert(name.clone(), body);
                     let mut guards = Guards::default();
@@ -362,16 +367,18 @@ fn routes_of_expr(
         // A router built by another function.
         // A router built by another function: evaluate it, and remember that it
         // is reachable through this mount rather than on its own.
-        Expr::Call(call) => match last_segment(&call.func) {
-            Some(name) if krate.fn_bodies.contains_key(&name) => {
-                let routes = routes_of_fn(&name, krate, mounted, visiting, depth + 1);
-                if !routes.is_empty() {
-                    mounted.insert(name);
+        Expr::Call(call) => {
+            match written_path(&call.func).and_then(|written| resolve_fn(krate, &written)) {
+                Some(name) => {
+                    let routes = routes_of_fn(&name, krate, mounted, visiting, depth + 1);
+                    if !routes.is_empty() {
+                        mounted.insert(name);
+                    }
+                    routes
                 }
-                routes
+                None => Vec::new(),
             }
-            _ => Vec::new(),
-        },
+        }
         // A local holding a router.
         Expr::Path(path) => path
             .path
@@ -459,6 +466,39 @@ fn string_of(expr: &Expr) -> Option<String> {
     }
 }
 
+/// A call's callee as written, e.g. `users::routes` or `routes`. `crate` and
+/// `self` prefixes are dropped: they say where the caller is, not which module
+/// declares the callee.
+fn written_path(expr: &Expr) -> Option<String> {
+    let Expr::Path(path) = expr else {
+        return None;
+    };
+    let segments: Vec<String> = path
+        .path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .filter(|segment| segment != "crate" && segment != "self" && segment != "super")
+        .collect();
+    (!segments.is_empty()).then(|| segments.join("::"))
+}
+
+/// The one qualified function a written path names, or None.
+///
+/// None covers both "no such function" and "more than one module declares it",
+/// and the two must stay indistinguishable HERE: resolving an ambiguous name by
+/// picking one would attach a real router to the wrong mount, which reads as a
+/// route the service does not serve.
+fn resolve_fn(krate: &Crate, written: &str) -> Option<String> {
+    let suffix = format!("::{written}");
+    let mut matches = krate
+        .fn_bodies
+        .keys()
+        .filter(|qualified| *qualified == written || qualified.ends_with(&suffix));
+    let first = matches.next()?;
+    matches.next().is_none().then(|| first.clone())
+}
+
 fn last_segment(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Path(path) => path
@@ -476,130 +516,6 @@ fn join(prefix: &str, path: &str) -> String {
         return base.to_string();
     }
     format!("{base}{path}")
-}
-
-/// The `Json<T>` REQUEST body of a handler. A `Json<T>` RETURN type is not one.
-fn json_body_type(function: &syn::ItemFn) -> Option<String> {
-    function.sig.inputs.iter().find_map(|input| {
-        let syn::FnArg::Typed(typed) = input else {
-            return None;
-        };
-        inner_of(&typed.ty, "Json")
-    })
-}
-
-/// The single generic argument of `Wrapper<T>`, by bare name.
-fn inner_of(ty: &syn::Type, wrapper: &str) -> Option<String> {
-    let syn::Type::Path(path) = ty else {
-        return None;
-    };
-    let segment = path.path.segments.last()?;
-    if segment.ident != wrapper {
-        return None;
-    }
-    let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
-        return None;
-    };
-    args.args.iter().find_map(|arg| match arg {
-        syn::GenericArgument::Type(syn::Type::Path(inner)) => {
-            Some(inner.path.segments.last()?.ident.to_string())
-        }
-        _ => None,
-    })
-}
-
-fn struct_fields(item: &syn::ItemStruct) -> BTreeMap<String, FieldFact> {
-    let syn::Fields::Named(named) = &item.fields else {
-        return BTreeMap::new();
-    };
-    let mut fields = BTreeMap::new();
-    for field in &named.named {
-        let Some(ident) = &field.ident else { continue };
-        let name = serde_rename(&field.attrs).unwrap_or_else(|| ident.to_string());
-        let optional = inner_of(&field.ty, "Option").is_some();
-        let declared = inner_of(&field.ty, "Option").or_else(|| bare_type(&field.ty));
-        let range = super::field_facts::attribute_range(
-            &field.attrs.iter().map(quote_attr).collect::<Vec<_>>(),
-        );
-        fields.insert(
-            name,
-            FieldFact {
-                required: !optional,
-                // Remembered by name; resolved once every module is read.
-                evidence: match &range {
-                    Some(_) => Some("a validation attribute on the field".to_string()),
-                    None => declared.map(|name| format!("@{name}")),
-                },
-                allowed: None,
-                range,
-            },
-        );
-    }
-    fields
-}
-
-fn bare_type(ty: &syn::Type) -> Option<String> {
-    let syn::Type::Path(path) = ty else {
-        return None;
-    };
-    Some(path.path.segments.last()?.ident.to_string())
-}
-
-/// A unit-only enum's serde-visible values. A data-carrying variant means the
-/// set is not closed, so it abstains.
-fn unit_variants(item: &syn::ItemEnum) -> Option<Vec<String>> {
-    let rename_all = item.attrs.iter().find_map(|attr| {
-        let text = quote_attr(attr);
-        text.split("rename_all")
-            .nth(1)?
-            .split('"')
-            .nth(1)
-            .map(str::to_string)
-    });
-    let mut values = Vec::new();
-    for variant in &item.variants {
-        if !matches!(variant.fields, syn::Fields::Unit) {
-            return None;
-        }
-        values.push(match serde_rename(&variant.attrs) {
-            Some(renamed) => renamed,
-            None => super::field_facts::apply_rename_all(
-                &variant.ident.to_string(),
-                rename_all.as_deref(),
-            ),
-        });
-    }
-    (!values.is_empty()).then_some(values)
-}
-
-fn serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
-    attrs.iter().find_map(|attr| {
-        let text = quote_attr(attr);
-        if !text.contains("serde") {
-            return None;
-        }
-        let after = text.split("rename").nth(1)?;
-        if after.trim_start().starts_with("_all") {
-            return None;
-        }
-        after.split('"').nth(1).map(str::to_string)
-    })
-}
-
-/// An attribute's argument text. serde and validator take arbitrary token
-/// trees, so this last mile stays textual, but it operates on tokens the parser
-/// produced rather than on a line of a file.
-fn quote_attr(attr: &syn::Attribute) -> String {
-    let path = attr
-        .path()
-        .segments
-        .last()
-        .map(|segment| segment.ident.to_string())
-        .unwrap_or_default();
-    match &attr.meta {
-        syn::Meta::List(list) => format!("{path} {}", list.tokens),
-        _ => path,
-    }
 }
 
 /// `#[get("/status")]` on a handler, as actix and rocket declare routes.
@@ -691,6 +607,70 @@ mod tests {
         assert!(
             !source.routes.contains_key("/users"),
             "a mounted router must not also surface at its local path: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn two_modules_exporting_routes_both_resolve() {
+        // Every real axum workspace has several `pub fn routes()`. Keyed by
+        // bare name, the second overwrote the first and one whole module's
+        // routes came back as "not served by the source".
+        let source = read_source(
+            "same_named_routes_fns",
+            &[
+                (
+                    "main.rs",
+                    r#"fn app() -> Router {
+                        Router::new()
+                            .nest("/api/v1", users::routes())
+                            .nest("/api/v1", posts::routes())
+                    }"#,
+                ),
+                (
+                    "users.rs",
+                    r#"pub fn routes() -> Router { Router::new().route("/users", get(list)) }"#,
+                ),
+                (
+                    "posts.rs",
+                    r#"pub fn routes() -> Router { Router::new().route("/posts", post(create)) }"#,
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(source.routes.contains_key("/api/v1/users"), "{paths:?}");
+        assert!(source.routes.contains_key("/api/v1/posts"), "{paths:?}");
+        assert!(
+            !source.routes.contains_key("/posts"),
+            "a mounted router must not also surface at its local path: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_bare_call_resolves_to_nothing_rather_than_to_a_guess() {
+        // `routes()` written bare with two candidates names neither. Picking
+        // one would mount a real router under the wrong prefix, which reads
+        // downstream as a route the service does not serve.
+        let source = read_source(
+            "ambiguous_bare_call",
+            &[
+                (
+                    "main.rs",
+                    r#"fn app() -> Router { Router::new().nest("/api", routes()) }"#,
+                ),
+                (
+                    "users.rs",
+                    r#"pub fn routes() -> Router { Router::new().route("/users", get(list)) }"#,
+                ),
+                (
+                    "posts.rs",
+                    r#"pub fn routes() -> Router { Router::new().route("/posts", post(create)) }"#,
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.keys().collect();
+        assert!(
+            !source.routes.contains_key("/api/users") && !source.routes.contains_key("/api/posts"),
+            "an ambiguous name must not be guessed: {paths:?}"
         );
     }
 
@@ -812,143 +792,4 @@ mod tests {
         );
         assert_eq!(source.bodies.get("h").expect("resolved")["t"].allowed, None);
     }
-}
-
-/// Value guards found in a handler body, by the field they constrain.
-///
-/// A Rust type carries no value range: `rating: i8` says nothing, and the
-/// constraint that actually rejects the request is two lines into the handler.
-/// Over a parse these are exact expressions rather than a line that looked
-/// right, so `matches!(body.rating, -1 | 0 | 1)` is read as the closed set it
-/// is, and a guard whose alternatives are not literals is left alone.
-#[derive(Default)]
-struct Guards {
-    /// field -> the values an explicit guard accepts.
-    allowed: BTreeMap<String, Vec<String>>,
-    /// field -> the bounds an explicit range guard accepts.
-    ranges: BTreeMap<String, (Option<f64>, Option<f64>)>,
-}
-
-impl<'ast> syn::visit::Visit<'ast> for Guards {
-    fn visit_expr(&mut self, expr: &'ast Expr) {
-        match expr {
-            // `matches!(body.rating, -1 | 0 | 1)`
-            Expr::Macro(node) if node.mac.path.is_ident("matches") => {
-                let tokens = node.mac.tokens.to_string();
-                if let Some((scrutinee, arms)) = tokens.split_once(',') {
-                    if let (Some(field), Some(values)) =
-                        (mentioned_field(scrutinee), literal_list(arms, '|'))
-                    {
-                        self.allowed.entry(field).or_insert(values);
-                    }
-                }
-            }
-            // `[-1, 0, 1].contains(&body.rating)` and `(1..=5).contains(..)`
-            Expr::MethodCall(call) if call.method == "contains" => {
-                let Some(field) = call
-                    .args
-                    .first()
-                    .and_then(|arg| mentioned_field(&expr_text(arg)))
-                else {
-                    syn::visit::visit_expr(self, expr);
-                    return;
-                };
-                match unwrap_paren(&call.receiver) {
-                    Expr::Array(array) => {
-                        let items = array
-                            .elems
-                            .iter()
-                            .map(expr_text)
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        if let Some(values) = literal_list(&items, ',') {
-                            self.allowed.entry(field).or_insert(values);
-                        }
-                    }
-                    Expr::Range(range) => {
-                        let low = range.start.as_ref().and_then(|e| numeric(e));
-                        let inclusive = matches!(range.limits, syn::RangeLimits::Closed(_));
-                        let high = range.end.as_ref().and_then(|e| numeric(e)).map(|high| {
-                            if inclusive {
-                                high
-                            } else {
-                                high - 1.0
-                            }
-                        });
-                        if low.is_some() || high.is_some() {
-                            self.ranges.entry(field).or_insert((low, high));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-        syn::visit::visit_expr(self, expr);
-    }
-}
-
-fn unwrap_paren(expr: &Expr) -> &Expr {
-    match expr {
-        Expr::Paren(inner) => unwrap_paren(&inner.expr),
-        Expr::Reference(inner) => unwrap_paren(&inner.expr),
-        other => other,
-    }
-}
-
-/// The last identifier of a field access, which is the field a guard is about.
-fn mentioned_field(text: &str) -> Option<String> {
-    let cleaned: String = text
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
-        .collect();
-    let last = cleaned.rsplit('.').next()?.trim().to_string();
-    (!last.is_empty() && last.chars().next()?.is_alphabetic()).then_some(last)
-}
-
-fn expr_text(expr: &Expr) -> String {
-    match expr {
-        Expr::Lit(lit) => match &lit.lit {
-            Lit::Str(text) => format!("\"{}\"", text.value()),
-            Lit::Int(value) => value.to_string(),
-            Lit::Float(value) => value.to_string(),
-            other => format!("{other:?}"),
-        },
-        Expr::Unary(unary) => format!("-{}", expr_text(&unary.expr)),
-        Expr::Reference(inner) => expr_text(&inner.expr),
-        Expr::Field(field) => match &field.member {
-            syn::Member::Named(name) => format!(".{name}"),
-            syn::Member::Unnamed(_) => String::new(),
-        },
-        Expr::MethodCall(call) => expr_text(&call.receiver),
-        Expr::Path(path) => path
-            .path
-            .segments
-            .last()
-            .map(|segment| segment.ident.to_string())
-            .unwrap_or_default(),
-        _ => String::new(),
-    }
-}
-
-fn numeric(expr: &Expr) -> Option<f64> {
-    expr_text(expr).replace(' ', "").parse().ok()
-}
-
-/// The literal items of a separated list, or None if any item is computed: a
-/// list with one non-literal element states no closed set.
-fn literal_list(text: &str, separator: char) -> Option<Vec<String>> {
-    let mut values = Vec::new();
-    for part in text.split(separator) {
-        let item = part.trim().replace(' ', "");
-        if item.is_empty() || item == "_" {
-            return None;
-        }
-        let unquoted = item.trim_matches('"').to_string();
-        if unquoted == item && item.parse::<f64>().is_err() {
-            return None;
-        }
-        values.push(unquoted);
-    }
-    (values.len() > 1).then_some(values)
 }

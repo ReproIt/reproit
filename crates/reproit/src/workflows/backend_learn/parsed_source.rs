@@ -37,8 +37,9 @@ fn language(family: Family) -> Option<tree_sitter::Language> {
         Family::Ruby => tree_sitter_ruby::LANGUAGE.into(),
         Family::Php => tree_sitter_php::LANGUAGE_PHP.into(),
         Family::Spring => tree_sitter_java::LANGUAGE.into(),
+        Family::Go => tree_sitter_go::LANGUAGE.into(),
         // Rust is read by `syn`, which is a full parse rather than a grammar.
-        Family::Rust | Family::Go => return None,
+        Family::Rust => return None,
     })
 }
 
@@ -91,39 +92,6 @@ mod tests {
     }
 
     #[test]
-    fn probe_python_shape() {
-        let src = r#"
-@app.post("/v1/blocks")
-async def create_block(body: BlockRequest):
-    return {}
-"#;
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_python::LANGUAGE.into())
-            .unwrap();
-        let tree = parser.parse(src, None).unwrap();
-        fn walk(n: tree_sitter::Node, src: &str, d: usize) {
-            if d < 6 {
-                eprintln!(
-                    "{}{} :: {}",
-                    "  ".repeat(d),
-                    n.kind(),
-                    n.utf8_text(src.as_bytes())
-                        .unwrap_or("")
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                );
-            }
-            let mut c = n.walk();
-            for ch in n.children(&mut c) {
-                walk(ch, src, d + 1);
-            }
-        }
-        walk(tree.root_node(), src, 0);
-    }
-
-    #[test]
     fn valid_python_parses_and_broken_python_is_counted() {
         let dir = root(
             "python",
@@ -146,6 +114,7 @@ async def create_block(body: BlockRequest):
             ("rb", Family::Ruby, "a.rb", "x = 1\n"),
             ("php", Family::Php, "a.php", "<?php $x = 1;\n"),
             ("java", Family::Spring, "A.java", "class A { int x; }\n"),
+            ("go", Family::Go, "a.go", "package main\n\nfunc main() {}\n"),
         ] {
             let dir = root(case, &[(name, body)]);
             let report = check(&dir, family);
@@ -159,11 +128,11 @@ async def create_block(body: BlockRequest):
     }
 
     #[test]
-    fn a_family_with_no_grammar_reports_no_parse_rather_than_a_clean_one() {
-        // Go still has only its pattern reader. Claiming zero unreadable files
-        // would imply a parse that never happened.
-        let dir = root("go", &[("a.go", "package main\n")]);
-        let report = check(&dir, Family::Go);
+    fn rust_reports_no_grammar_parse_because_syn_does_that_job() {
+        // Claiming zero unreadable files here would imply a parse that never
+        // happened; `syn` counts Rust's separately.
+        let dir = root("rs", &[("a.rs", "fn main() {}\n")]);
+        let report = check(&dir, Family::Rust);
         assert_eq!((report.files_parsed, report.files_unreadable), (0, 0));
         let _ = std::fs::remove_dir_all(&dir);
     }

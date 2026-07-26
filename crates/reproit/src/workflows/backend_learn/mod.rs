@@ -17,10 +17,11 @@ mod enrich;
 mod extract;
 mod field_facts;
 mod go_types;
-mod node_types;
+mod node_ast;
 mod parsed_source;
 mod python_ast;
 mod rust_ast;
+mod rust_types;
 
 #[cfg(test)]
 mod tests;

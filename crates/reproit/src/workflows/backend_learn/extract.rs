@@ -3,6 +3,7 @@
 //! deliberately not a parser; anything a pattern cannot claim confidently is
 //! skipped and counted rather than guessed.
 
+use super::node_ast;
 use super::python_ast;
 use super::rust_ast;
 
@@ -18,8 +19,6 @@ pub(super) const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", 
 const MAX_FILES: usize = 400;
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const MAX_WALK_DEPTH: usize = 8;
-/// Lines joined when a route definition spans an object literal (fastify).
-const ROUTE_OBJECT_WINDOW: usize = 8;
 
 /// Directories never containing first-party route definitions.
 const SKIP_DIRS: [&str; 13] = [
@@ -138,6 +137,36 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
         }
         return Some(derived);
     }
+    if family == Family::Node {
+        // Node reads through its grammar: the path, the middleware chain and
+        // the handler are distinguishable arguments rather than tokens on a
+        // line, so a route wrapped in `validate(Schema)` resolves both.
+        let parsed = node_ast::read(root);
+        let mut derived = Derived {
+            files_scanned: parsed.files_parsed,
+            unreadable: parsed.files_unreadable,
+            bodies: parsed.bodies,
+            ..Derived::default()
+        };
+        for (raw, method, handler) in parsed.routes {
+            match normalize_path(&raw) {
+                Some(path) => {
+                    derived
+                        .routes
+                        .entry(path.clone())
+                        .or_default()
+                        .insert(method);
+                    if let Some(handler) = handler {
+                        derived
+                            .handlers
+                            .insert((method.to_uppercase(), path), handler);
+                    }
+                }
+                None => derived.skipped += 1,
+            }
+        }
+        return Some(derived);
+    }
     if family == Family::Rust {
         // Rust reads through a real parser: an unreadable file is COUNTED
         // rather than looking like an empty one.
@@ -163,9 +192,8 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
             continue;
         };
         derived.files_scanned += 1;
-        let prefixes = patterns.prefixes(family, &content);
         let hits = match family {
-            Family::Node => patterns.node(&content, &prefixes),
+            Family::Node => unreachable!("handled by the grammar"),
             Family::Python => unreachable!("handled by the grammar"),
             Family::Go => patterns.go(&content),
             Family::Ruby => patterns.ruby(&content),
@@ -244,16 +272,8 @@ fn method_const(method: &str) -> Option<&'static str> {
 }
 
 struct Patterns {
-    node_call: Regex,
-    node_route_url: Regex,
-    node_route_method: Regex,
-    node_handler: Regex,
     spring_method: Regex,
     php_action: Regex,
-    flask_blueprint: Regex,
-    fastapi_router: Regex,
-    fastapi_include: Regex,
-    node_router_mount: Regex,
     go_call: Regex,
     go_handle_func: Regex,
     ruby_verb: Regex,
@@ -269,24 +289,8 @@ impl Patterns {
     fn new() -> Self {
         let compile = |pattern: &str| Regex::new(pattern).expect("static route pattern");
         Self {
-            node_call: compile(
-                r#"([\w$)\]]+)\.(get|post|put|patch|delete|head|options|all)\(\s*['"`]([^'"`]+)['"`]"#,
-            ),
-            node_route_url: compile(r#"\b(?:url|path)\s*:\s*['"`]([^'"`]+)['"`]"#),
-            node_route_method: compile(r#"\bmethod\s*:\s*\[?\s*['"`]([A-Za-z]+)['"`]"#),
-            node_handler: compile(r"[,(]\s*(?:[A-Za-z_$][\w$]*\s*\(\s*)?([A-Za-z_$][\w$]*)\s*[,)]"),
             spring_method: compile(r"\b(?:public|protected)\s+\S+\s+([A-Za-z_]\w*)\s*\("),
             php_action: compile(r#"[,\[]\s*['"]?([A-Za-z_]\w*)(?:::class)?"#),
-            node_router_mount: compile(r#"\.use\(\s*['"`](/[^'"`]*)['"`]\s*,\s*([\w$]+)"#),
-            flask_blueprint: compile(
-                r#"(\w+)\s*=\s*Blueprint\([^)]*\burl_prefix\s*=\s*['"]([^'"]+)['"]"#,
-            ),
-            fastapi_router: compile(
-                r#"(\w+)\s*=\s*APIRouter\([^)]*\bprefix\s*=\s*['"]([^'"]+)['"]"#,
-            ),
-            fastapi_include: compile(
-                r#"include_router\(\s*(\w+)[^)]*\bprefix\s*=\s*['"]([^'"]+)['"]"#,
-            ),
             go_call: compile(
                 r#"\w\.(?i:(get|post|put|patch|delete|head|options))\(\s*"([^"]+)"\s*,\s*(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)"#,
             ),
@@ -309,7 +313,6 @@ impl Patterns {
         }
     }
 
-    /// File-scoped mount prefixes by router/blueprint variable, so routes defined
     /// on a nested router carry their real path. Resolved only where the prefix
     /// travels with the variable in the same file (Flask `Blueprint(url_prefix=)`,
     /// FastAPI `APIRouter(prefix=)` plus `include_router(prefix=)`, Express
@@ -317,83 +320,9 @@ impl Patterns {
     /// (e.g. axum `.nest("/api", routes())`) is not followed: guessing would emit
     /// wrong paths, so those routes keep their local path rather than a fabricated
     /// one.
-    fn prefixes(&self, family: Family, content: &str) -> BTreeMap<String, String> {
-        let mut map = BTreeMap::new();
-        match family {
-            Family::Python => {
-                for captures in self.flask_blueprint.captures_iter(content) {
-                    map.insert(captures[1].to_string(), captures[2].to_string());
-                }
-                for captures in self.fastapi_router.captures_iter(content) {
-                    map.insert(captures[1].to_string(), captures[2].to_string());
-                }
-                // include_router(prefix=) mounts a router under an ADDITIONAL
-                // prefix, composed outside any prefix the router already carries.
-                for captures in self.fastapi_include.captures_iter(content) {
-                    let var = captures[1].to_string();
-                    let base = map.get(&var).cloned().unwrap_or_default();
-                    map.insert(var, join_prefix(Some(&captures[2].to_string()), &base));
-                }
-            }
-            Family::Node => {
-                for captures in self.node_router_mount.captures_iter(content) {
-                    map.insert(captures[2].to_string(), captures[1].to_string());
-                }
-            }
-            _ => {}
-        }
-        map
-    }
-
     /// express/koa/hapi-style `app.get('/x', ...)` plus the fastify
     /// `fastify.route({ method: 'GET', url: '/x' })` object form (the object
     /// is matched across a small line window).
-    fn node(&self, content: &str, prefixes: &BTreeMap<String, String>) -> Vec<RouteHit> {
-        let mut hits = Vec::new();
-        let lines: Vec<&str> = content.lines().collect();
-        for (index, line) in lines.iter().enumerate() {
-            for captures in self.node_call.captures_iter(line) {
-                let raw = &captures[3];
-                // `all` claims every method; the draft claims only GET.
-                let method = if &captures[2] == "all" {
-                    "get"
-                } else {
-                    match method_const(&captures[2]) {
-                        Some(method) => method,
-                        None => continue,
-                    }
-                };
-                if raw.starts_with('/') && !raw.contains("://") {
-                    // The rest of the registration names either the handler or
-                    // the validation schema it is wrapped in; both are keys the
-                    // type reader can resolve.
-                    let handler = self
-                        .node_handler
-                        .captures(&line[captures.get(0).map_or(0, |m| m.end())..])
-                        .map(|found| found[1].to_string());
-                    hits.push((
-                        join_prefix(prefixes.get(&captures[1]), raw),
-                        method,
-                        handler,
-                    ));
-                }
-            }
-            if line.contains(".route(") {
-                let end = (index + ROUTE_OBJECT_WINDOW).min(lines.len());
-                let window = lines[index..end].join(" ");
-                if let (Some(url), Some(method)) = (
-                    self.node_route_url.captures(&window),
-                    self.node_route_method.captures(&window),
-                ) {
-                    if let Some(method) = method_const(&method[1]) {
-                        hits.push((url[1].to_string(), method, None));
-                    }
-                }
-            }
-        }
-        hits
-    }
-
     /// gin/echo/fiber `r.GET("/x", ...)`, chi `r.Get("/x", ...)`, and Go 1.22
     /// net/http `mux.HandleFunc("GET /x", ...)` method-prefixed patterns.
     fn go(&self, content: &str) -> Vec<RouteHit> {
@@ -513,24 +442,6 @@ impl Patterns {
             hits.push((captures[2].to_string(), method, handler));
         }
         hits
-    }
-}
-
-/// Prefix a route path with its router/blueprint mount, if any. A leading slash
-/// on the path is preserved; an empty or root path yields the prefix itself, so
-/// `Blueprint(url_prefix="/api")` + `@bp.route("")` is `/api`, not `/api/`.
-fn join_prefix(prefix: Option<&String>, path: &str) -> String {
-    let Some(prefix) = prefix.filter(|value| !value.is_empty()) else {
-        return path.to_string();
-    };
-    let base = prefix.trim_end_matches('/');
-    if path.is_empty() || path == "/" {
-        return base.to_string();
-    }
-    if path.starts_with('/') {
-        format!("{base}{path}")
-    } else {
-        format!("{base}/{path}")
     }
 }
 
