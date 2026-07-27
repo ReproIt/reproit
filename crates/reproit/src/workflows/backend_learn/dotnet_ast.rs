@@ -20,6 +20,9 @@ use tree_sitter::Node;
 
 /// `MapGet` and `[HttpGet]` both name the verb in their suffix.
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
+const MAX_GROUP_DEPTH: usize = 8;
+const OPAQUE: &str = "\u{1}opaque";
+type Groups = BTreeMap<String, (String, String)>;
 
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
@@ -37,7 +40,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
             // `var g = app.MapGroup("/api")` binds a prefix to a local name,
             // which is a per-file binding. Without it every minimal-API path in
             // a grouped service was reported one prefix short.
-            let mut groups: BTreeMap<String, String> = BTreeMap::new();
+            let mut groups = Groups::new();
             grammar::walk(root_node, &mut |node| {
                 if node.kind() == "variable_declarator" {
                     collect_group(node, text, &mut groups);
@@ -76,21 +79,22 @@ pub(super) fn read(root: &Path) -> SourceRead {
 
 /// `app.MapGet("/health", handler)` and `app.MapPost("/items", ...)`.
 /// `var api = app.MapGroup("api/orders");` -> `api` carries that prefix.
-fn collect_group(node: Node, text: &str, groups: &mut BTreeMap<String, String>) {
+fn collect_group(node: Node, text: &str, groups: &mut Groups) {
     let Some(name) = grammar::field(node, text, "name") else {
         return;
     };
     let Some(prefix) = map_group_prefix(node, text) else {
         return;
     };
-    groups.insert(name, prefix);
+    let parent = map_group_receiver(node, text).unwrap_or_default();
+    groups.insert(name, (parent, prefix));
 }
 
 /// The prefix a `MapGroup("...")` anywhere in this expression establishes.
 fn map_group_prefix(node: Node, text: &str) -> Option<String> {
-    let mut found = None;
+    let mut found = Vec::new();
     grammar::walk(node, &mut |inner| {
-        if found.is_some() || inner.kind() != "invocation_expression" {
+        if inner.kind() != "invocation_expression" {
             return;
         }
         let Some(callee) = inner.child_by_field_name("function") else {
@@ -104,20 +108,59 @@ fn map_group_prefix(node: Node, text: &str) -> Option<String> {
         };
         let mut args = Vec::new();
         grammar::children(arguments, &mut args);
-        if let Some(literal) = args
+        let prefix = args
             .first()
             .and_then(|arg| grammar::find(*arg, "string_literal"))
-        {
-            found = Some(grammar::unquote(grammar::text(literal, text)).to_string());
+            .map(|literal| grammar::unquote(grammar::text(literal, text)).to_string())
+            .unwrap_or_else(|| OPAQUE.to_string());
+        found.push(prefix);
+    });
+    let mut prefixes = found.into_iter().rev();
+    let first = prefixes.next()?;
+    Some(prefixes.fold(first, |outer, own| join(&outer, &own)))
+}
+
+/// Receiver of the outermost `MapGroup` call in an assignment expression.
+fn map_group_receiver(node: Node, text: &str) -> Option<String> {
+    let mut receiver = None;
+    grammar::walk(node, &mut |inner| {
+        if receiver.is_some() || inner.kind() != "invocation_expression" {
+            return;
+        }
+        let Some(callee) = inner.child_by_field_name("function") else {
+            return;
+        };
+        if grammar::field(callee, text, "name").as_deref() == Some("MapGroup") {
+            receiver = grammar::field(callee, text, "expression");
         }
     });
-    found
+    receiver
+}
+
+fn resolve_group_prefix(groups: &Groups, group: &str) -> Option<String> {
+    let (mut parent, own) = groups.get(group)?.clone();
+    let mut prefix = own;
+    let mut seen = BTreeSet::from([group.to_string()]);
+    for _ in 0..MAX_GROUP_DEPTH {
+        if !seen.insert(parent.clone()) {
+            return None;
+        }
+        let Some((outer, own)) = groups.get(&parent) else {
+            break;
+        };
+        prefix = join(own, &prefix);
+        parent = outer.clone();
+    }
+    if groups.contains_key(&parent) {
+        return None;
+    }
+    Some(prefix)
 }
 
 fn minimal_api(
     node: Node,
     text: &str,
-    groups: &BTreeMap<String, String>,
+    groups: &Groups,
     found: &mut Vec<(String, &'static str, Option<String>)>,
 ) {
     let Some(callee) = node.child_by_field_name("function") else {
@@ -155,15 +198,20 @@ fn minimal_api(
     }
     // The receiver is either a grouped local or an inline `MapGroup(..)` chain.
     let receiver = grammar::field(callee, text, "expression").unwrap_or_default();
-    let outer = groups
-        .get(&receiver)
-        .cloned()
-        .or_else(|| {
-            callee
-                .child_by_field_name("expression")
-                .and_then(|inner| map_group_prefix(inner, text))
-        })
-        .unwrap_or_default();
+    let outer = if groups.contains_key(&receiver) {
+        let Some(prefix) = resolve_group_prefix(groups, &receiver) else {
+            return;
+        };
+        prefix
+    } else {
+        callee
+            .child_by_field_name("expression")
+            .and_then(|inner| map_group_prefix(inner, text))
+            .unwrap_or_default()
+    };
+    if outer.contains(OPAQUE) {
+        return;
+    }
     found.push((join(&outer, &raw), method, None));
 }
 
@@ -548,6 +596,26 @@ public class UsersController : ControllerBase
         assert!(
             paths.contains(&&"/api/orders/{orderId}".to_string()),
             "{paths:?}"
+        );
+    }
+
+    #[test]
+    fn nested_map_group_variables_compose_through_their_parent() {
+        let source = read_source(
+            "nested-mapgroup",
+            &[(
+                "Program.cs",
+                "var builder = WebApplication.CreateBuilder(args);\n\
+                 var app = builder.Build();\n\
+                 var api = app.MapGroup(\"api/v1\");\n\
+                 var nested = api.MapGroup(\"/nested\");\n\
+                 nested.MapPost(\"/deep\", () => Results.Ok());\n\
+                 app.Run();\n",
+            )],
+        );
+        assert_eq!(
+            source.routes,
+            vec![("/api/v1/nested/deep".to_string(), "post", None)]
         );
     }
 
