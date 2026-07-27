@@ -117,7 +117,13 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) -> serde_json::Value {
     ));
     if derived.routes.is_empty() {
         ctx.say("  no routes read from source".to_string());
-        return service_json(&label, framework.name, &derived);
+        let schemas = declared_schemas(service);
+        let schema = if schemas.is_empty() {
+            schema_absent()
+        } else {
+            compare_declared(ctx, service, &schemas, framework.name)
+        };
+        return service_json(&label, framework.name, &derived, schema);
     }
     ctx.say(format!(
         "  {} operation(s) on {} path(s):",
@@ -129,20 +135,26 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) -> serde_json::Value {
         ctx.say(format!("    {:<7} {path}", verbs.join(",")));
     }
     let schemas = declared_schemas(service);
-    if schemas.is_empty() {
+    let schema = if schemas.is_empty() {
         ctx.say(
             "  no schema in this service: nothing declares this surface, so nothing tests it"
                 .to_string(),
         );
+        schema_absent()
     } else {
-        compare_declared(ctx, service, &schemas, framework.name);
-    }
-    service_json(&label, framework.name, &derived)
+        compare_declared(ctx, service, &schemas, framework.name)
+    };
+    service_json(&label, framework.name, &derived, schema)
 }
 
 /// The machine-readable form of one service, so `--json` carries the same
 /// facts as the text: what was read, and what could not be.
-fn service_json(label: &str, framework: &str, derived: &extract::Derived) -> serde_json::Value {
+fn service_json(
+    label: &str,
+    framework: &str,
+    derived: &extract::Derived,
+    schema: serde_json::Value,
+) -> serde_json::Value {
     let routes: Vec<serde_json::Value> = derived
         .routes
         .iter()
@@ -161,6 +173,14 @@ fn service_json(label: &str, framework: &str, derived: &extract::Derived) -> ser
         "filesSkippedByLimit": derived.unscanned,
         "operations": derived.operation_count(),
         "routes": routes,
+        "schema": schema,
+    })
+}
+
+fn schema_absent() -> serde_json::Value {
+    serde_json::json!({
+        "status": "absent",
+        "files": [],
     })
 }
 
@@ -205,14 +225,32 @@ fn blind_spot(derived: &extract::Derived) -> String {
     }
 }
 
-fn compare_declared(ctx: &Ctx, service: &Path, schemas: &[PathBuf], framework: &str) {
+fn compare_declared(
+    ctx: &Ctx,
+    service: &Path,
+    schemas: &[PathBuf],
+    framework: &str,
+) -> serde_json::Value {
     let documents: Vec<serde_json::Value> = schemas
         .iter()
         .filter_map(|path| crate::domain::backend::load_service_document(path).ok())
         .collect();
     let declared = drift::declared_routes(&documents);
+    let files: Vec<String> = schemas
+        .iter()
+        .map(|path| {
+            path.strip_prefix(service)
+                .unwrap_or(path)
+                .display()
+                .to_string()
+        })
+        .collect();
     if declared.is_empty() {
-        return;
+        return serde_json::json!({
+            "status": "notChecked",
+            "files": files,
+            "reason": "no declared HTTP operations were read",
+        });
     }
     let name = schemas
         .iter()
@@ -222,17 +260,102 @@ fn compare_declared(ctx: &Ctx, service: &Path, schemas: &[PathBuf], framework: &
         .join(", ");
     let Some(found) = drift::compare(service, framework, &declared, &documents) else {
         ctx.say(format!("  {name}: not checked against source"));
-        return;
+        return serde_json::json!({
+            "status": "notChecked",
+            "files": files,
+            "declaredOperations": declared.len(),
+            "reason": "no routes were read from source",
+        });
     };
     if found.is_clean() {
         ctx.say(format!(
             "  {name}: all {} declared operation(s) match a route in source",
             declared.len()
         ));
-        return;
+    } else {
+        ctx.say(format!("  {name}:"));
+        for line in drift::lines(&found) {
+            ctx.say(format!("    {line}"));
+        }
     }
-    ctx.say(format!("  {name}:"));
-    for line in drift::lines(&found) {
-        ctx.say(format!("    {line}"));
+    schema_json(files, declared.len(), &found)
+}
+
+fn schema_json(files: Vec<String>, declared: usize, found: &drift::Drift) -> serde_json::Value {
+    let routes = |items: &[drift::Route]| {
+        items
+            .iter()
+            .map(|(method, path)| serde_json::json!({"method": method, "path": path}))
+            .collect::<Vec<_>>()
+    };
+    let fields: Vec<serde_json::Value> = found
+        .field_mismatches
+        .iter()
+        .map(|mismatch| {
+            serde_json::json!({
+                "method": mismatch.operation.0,
+                "path": mismatch.operation.1,
+                "field": mismatch.field,
+                "detail": mismatch.detail,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "status": if found.is_clean() { "matched" } else { "drift" },
+        "files": files,
+        "declaredOperations": declared,
+        "matchedOperations": found.matched,
+        "sourceFilesRead": found.files_scanned,
+        "sourceFilesUnreadable": found.unreadable_sources,
+        "typesChecked": found.types_checked,
+        "bodiesCompared": found.bodies_compared,
+        "declaredButNoRouteMatched": routes(&found.undeclared_by_source),
+        "servedButNotDeclared": routes(&found.unserved_by_schema),
+        "fieldMismatches": fields,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_service_report_carries_the_schema_drift_seen_in_text_mode() {
+        let root =
+            std::env::temp_dir().join(format!("reproit-report-schema-json-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("source root");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"schema-json\"\nversion = \"0.1.0\"\n\
+             edition = \"2021\"\n[dependencies]\naxum = \"0.8\"\n",
+        )
+        .expect("manifest");
+        std::fs::write(
+            root.join("src/main.rs"),
+            "async fn main() {\n\
+             \x20   let app = Router::new().route(\"/served\", get(served));\n\
+             \x20   axum::serve(listener, app).await.unwrap();\n}\n",
+        )
+        .expect("entry point");
+        std::fs::write(
+            root.join("openapi.yaml"),
+            "openapi: 3.1.0\ninfo: {title: test, version: \"1\"}\npaths:\n\
+             \x20 /declared:\n    get:\n      responses: {\"200\": {description: ok}}\n",
+        )
+        .expect("schema");
+
+        let report = report_service(&Ctx::default(), &root, &root);
+        let schema = report.get("schema").expect("schema report");
+        assert_eq!(schema["status"], "drift");
+        assert_eq!(
+            schema["declaredButNoRouteMatched"],
+            serde_json::json!([{"method": "GET", "path": "/declared"}])
+        );
+        assert_eq!(
+            schema["servedButNotDeclared"],
+            serde_json::json!([{"method": "GET", "path": "/served"}])
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }
