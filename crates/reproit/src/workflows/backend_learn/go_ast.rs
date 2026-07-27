@@ -47,7 +47,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         Family::Go,
         tree_sitter_go::LANGUAGE.into(),
         &mut source,
-        |root_node, text| {
+        |root_node, text, _path| {
             let mut groups: Groups = BTreeMap::new();
             let mut found: Vec<(String, String, &'static str, Option<String>)> = Vec::new();
             grammar::walk(root_node, &mut |node| match node.kind() {
@@ -277,6 +277,23 @@ fn collect_handler(node: Node, text: &str, handler_body: &mut BTreeMap<String, S
 
 /// `v1 := r.Group("/v1")`. The parent router is recorded with the prefix so a
 /// nested group composes rather than dropping its outer segment.
+/// The `X.Group("...")` call inside an expression, past anything chained onto
+/// it.
+fn innermost_group<'a>(node: Node<'a>, text: &str) -> Option<Node<'a>> {
+    if node.kind() == "call_expression" {
+        if let Some(callee) = node.child_by_field_name("function") {
+            if grammar::field(callee, text, "field").as_deref() == Some("Group") {
+                return Some(node);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    let children: Vec<Node<'a>> = node.children(&mut cursor).collect();
+    children
+        .into_iter()
+        .find_map(|child| innermost_group(child, text))
+}
+
 fn collect_group(node: Node, text: &str, groups: &mut Groups) {
     let mut left = Vec::new();
     let mut right = Vec::new();
@@ -295,10 +312,15 @@ fn collect_group(node: Node, text: &str, groups: &mut Groups) {
     let Some(function) = value.child_by_field_name("function") else {
         return;
     };
-    if grammar::field(function, text, "field").as_deref() != Some("Group") {
+    // `app.Group("/todo").Use(mw)` is a Group call with more chained onto it.
+    // Only matching the outermost call missed it, and the routes hung off that
+    // variable were then emitted at the root: four paths nothing serves.
+    let Some(group) = innermost_group(*value, text) else {
         return;
-    }
+    };
+    let function = group.child_by_field_name("function").unwrap_or(function);
     let parent = grammar::field(function, text, "operand").unwrap_or_default();
+    let value = &group;
     let Some(arguments) = value.child_by_field_name("arguments") else {
         return;
     };

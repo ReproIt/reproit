@@ -47,7 +47,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         Family::Spring,
         tree_sitter_java::LANGUAGE.into(),
         &mut source,
-        |root_node, text| {
+        |root_node, text, _path| {
             grammar::walk(root_node, &mut |node| match node.kind() {
                 "class_declaration" | "record_declaration" => {
                     collect_class(
@@ -376,10 +376,15 @@ fn annotation_path(list: Node, text: &str) -> Option<String> {
                 }
                 // A non-string argument is still an argument: `@Min(1)` and
                 // `@Max(5)` carry numbers, and their callers read this same
-                // field. Only a NAMED argument is skipped above, because a
-                // `produces=` says nothing about the path.
+                // field. But an IDENTIFIER is a constant this cannot resolve,
+                // and returning its text made `@GetMapping(SOME_CONST)` into
+                // the literal route `/p/SOME_CONST`.
                 let raw = grammar::text(*argument, text).trim();
-                if !raw.is_empty() {
+                let resolvable = !raw.is_empty()
+                    && raw
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || c == '-' || c == '.');
+                if resolvable {
                     return Some(raw.to_string());
                 }
             }

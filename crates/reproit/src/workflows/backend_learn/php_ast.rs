@@ -30,7 +30,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         Family::Php,
         tree_sitter_php::LANGUAGE_PHP.into(),
         &mut source,
-        |root_node, text| {
+        |root_node, text, _path| {
             grammar::walk(root_node, &mut |node| {
                 if node.kind() == "class_declaration" {
                     collect_class(node, text, &mut shapes, &mut ambiguous);
@@ -90,17 +90,33 @@ fn group_of<'a>(node: Node<'a>, text: &str, outer: &str) -> Option<(String, Node
     if grammar::field(node, text, "name").as_deref() != Some("group") {
         return None;
     }
+    // Only the RECEIVER chain of THIS call, never its body. Searching the
+    // whole subtree found a prefix declared by a NESTED group and applied it
+    // to the outer one, so the prefix both doubled inside its own group and
+    // leaked onto every later sibling: 219 of 228 paths wrong in one real app.
+    let mut chain = String::new();
+    let mut cursor = node.child_by_field_name("object");
+    while let Some(link) = cursor {
+        chain.push_str(grammar::text(link, text));
+        chain.push('\n');
+        cursor = link.child_by_field_name("object");
+    }
     let raw = grammar::text(node, text);
-    // `Route::prefix('v1')->...->group(...)`, anywhere in the chain.
-    let chained = raw
+    let chained = chain
         .split_once("prefix(")
         .map(|(_, rest)| rest)
         .and_then(|rest| rest.split_once(')'))
         .map(|(inner, _)| grammar::unquote(inner.trim()).to_string());
     // `Route::group(['prefix' => 'v2'], ...)`, the array form.
-    let arrayed = raw
+    // The array form's options are the FIRST argument of this call, so they
+    // are read from the call text up to the closure, not from the body.
+    let head = raw
+        .split_once("function")
+        .map(|(head, _)| head)
+        .unwrap_or(raw);
+    let arrayed = head
         .split_once("'prefix'")
-        .or_else(|| raw.split_once("\"prefix\""))
+        .or_else(|| head.split_once("\"prefix\""))
         .map(|(_, rest)| rest)
         .and_then(|rest| rest.split_once("=>"))
         .map(|(_, rest)| rest)

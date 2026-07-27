@@ -7,11 +7,12 @@
 //! happened to be adjacent, so a wrapped decorator, a comment between them, or a
 //! nested definition stop mattering.
 
+use super::django_urls::{collect_view_verbs, django_routes};
 use super::field_facts::FieldFact;
 use super::grammar::SourceRead;
 
 /// One route before its module's mount prefix is applied.
-type PyRoute = (String, &'static str, Option<String>);
+pub(super) type PyRoute = (String, &'static str, Option<String>);
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -460,7 +461,7 @@ fn literal_values(inner: &str) -> Option<Vec<String>> {
     (values.len() > 1).then_some(values)
 }
 
-fn string_value(node: Node, text: &str) -> Option<String> {
+pub(super) fn string_value(node: Node, text: &str) -> Option<String> {
     let raw = node.utf8_text(text.as_bytes()).ok()?;
     Some(
         raw.trim_start_matches(['r', 'f', 'b'])
@@ -480,81 +481,22 @@ fn field_text(node: Node, field: &str, text: &str) -> Option<String> {
 /// whose stem collides across the whole project, and the stem otherwise.
 fn module_of(file: &std::path::Path) -> String {
     if file.file_name().is_some_and(|name| name == "urls.py") {
-        return file
+        // The dotted module path an `include(...)` would name, so
+        // `ipam/api/urls.py` is `ipam.api` rather than the ambiguous `api`.
+        let parts: Vec<String> = file
             .parent()
-            .and_then(|dir| dir.file_name())
-            .map(|name| name.to_string_lossy().into_owned())
+            .map(|dir| {
+                dir.components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect()
+            })
             .unwrap_or_default();
+        let tail: Vec<String> = parts.into_iter().rev().take(2).collect();
+        return tail.into_iter().rev().collect::<Vec<_>>().join(".");
     }
     file.file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default()
-}
-
-/// The verbs a Django view answers.
-///
-/// `@api_view(["GET", "POST"])` on a function, and the handler methods of a
-/// class-based view (`def post`), both state this exactly. Reading neither made
-/// every Django route a GET, including endpoints that answer only POST.
-fn collect_view_verbs(node: Node, text: &str, verbs: &mut BTreeMap<String, Vec<&'static str>>) {
-    const KNOWN: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
-    if node.kind() == "decorated_definition" {
-        let raw = node.utf8_text(text.as_bytes()).unwrap_or_default();
-        if let Some(definition) = node.child_by_field_name("definition") {
-            if let Some(name) = definition
-                .child_by_field_name("name")
-                .and_then(|node| node.utf8_text(text.as_bytes()).ok())
-            {
-                if let Some((_, rest)) = raw.split_once("@api_view") {
-                    let listed: Vec<&'static str> = KNOWN
-                        .into_iter()
-                        .filter(|verb| {
-                            let upper = verb.to_uppercase();
-                            rest.split(')').next().unwrap_or_default().contains(&upper)
-                        })
-                        .collect();
-                    if !listed.is_empty() {
-                        verbs.insert(name.to_string(), listed);
-                    }
-                }
-            }
-        }
-    }
-    // A class-based view answers the verbs it defines handlers for.
-    if node.kind() == "class_definition" {
-        if let (Some(name), Some(body)) = (
-            node.child_by_field_name("name")
-                .and_then(|node| node.utf8_text(text.as_bytes()).ok()),
-            node.child_by_field_name("body"),
-        ) {
-            let mut listed = Vec::new();
-            let mut cursor = body.walk();
-            for member in body.children(&mut cursor) {
-                let definition = if member.kind() == "decorated_definition" {
-                    member.child_by_field_name("definition")
-                } else {
-                    Some(member)
-                };
-                let Some(method) = definition
-                    .filter(|node| node.kind() == "function_definition")
-                    .and_then(|node| node.child_by_field_name("name"))
-                    .and_then(|node| node.utf8_text(text.as_bytes()).ok())
-                else {
-                    continue;
-                };
-                if let Some(verb) = KNOWN.into_iter().find(|verb| *verb == method) {
-                    listed.push(verb);
-                }
-            }
-            if !listed.is_empty() {
-                verbs.insert(name.to_string(), listed);
-            }
-        }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_view_verbs(child, text, verbs);
-    }
 }
 
 /// Cross-file mounts: `include_router(items.router, prefix="/api")`.
@@ -679,144 +621,6 @@ fn keyword_string(node: Node, text: &str, keys: &[&str]) -> Option<String> {
         }
     }
     None
-}
-
-/// Django `path("orders/", views.list)` and `re_path(...)` entries.
-/// A Django URL regex as an OpenAPI template.
-///
-/// `^legacy/(?P<pk>\d+)/$` is `/legacy/{pk}`. Saleor declares all nine of its
-/// routes with `re_path` and reading none of them made the whole service
-/// surface as empty. A regex carrying anything this cannot express returns
-/// None rather than a guess.
-fn template_of_regex(pattern: &str) -> Option<String> {
-    let mut out = String::new();
-    let mut rest = pattern.trim_start_matches('^').trim_end_matches('$');
-    while let Some(at) = rest.find("(?P<") {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + 4..];
-        let (name, tail) = after.split_once('>')?;
-        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return None;
-        }
-        out.push_str(&format!("{{{name}}}"));
-        // Skip the group's body, which is the pattern the parameter matches.
-        let mut depth = 1usize;
-        let mut end = None;
-        for (index, character) in tail.char_indices() {
-            match character {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = Some(index);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        rest = &tail[end? + 1..];
-    }
-    out.push_str(rest);
-    // Anything left that is regex rather than path means this is not readable.
-    let readable = !out.chars().any(|c| {
-        matches!(
-            c,
-            '(' | ')' | '[' | ']' | '+' | '*' | '?' | '\\' | '|' | '.'
-        )
-    });
-    readable.then(|| out.replace("\\/", "/"))
-}
-
-fn django_routes(
-    node: Node,
-    text: &str,
-    routes: &mut Vec<PyRoute>,
-    mounted: &mut BTreeMap<String, String>,
-) {
-    if node.kind() == "call" {
-        let callee = node
-            .child_by_field_name("function")
-            .and_then(|node| node.utf8_text(text.as_bytes()).ok())
-            .unwrap_or_default();
-        if callee == "path" || callee == "re_path" {
-            if let Some(arguments) = node.child_by_field_name("arguments") {
-                let mut cursor = arguments.walk();
-                let children: Vec<Node> = arguments.children(&mut cursor).collect();
-                let raw = children.iter().find(|child| child.kind() == "string");
-                // An f-string interpolates a value this cannot know.
-                // `path(f"{base_url}/", ...)` became the literal route
-                // `/{base_url}`, which is a path nothing serves.
-                let interpolated =
-                    raw.is_some_and(|node| super::grammar::find(*node, "interpolation").is_some());
-                let path = raw
-                    .filter(|_| !interpolated)
-                    .and_then(|node| string_value(*node, text));
-                // `path('blog/', include('blog.urls'))` is a MOUNT, not an
-                // endpoint. Emitting it as a leaf GET invented a route that
-                // 404s, and the module it mounts was read unprefixed.
-                // `include('blog.urls')` names the app whose table this
-                // mounts, which is what makes the prefix resolvable across
-                // files at all.
-                let included = children.iter().find_map(|child| {
-                    let raw = child.utf8_text(text.as_bytes()).unwrap_or_default();
-                    let inner = raw.strip_prefix("include(")?;
-                    let quoted = inner.trim_start_matches(['(', '\'', '"']);
-                    let module = quoted
-                        .split(['\'', '"', ',', ')'])
-                        .next()
-                        .unwrap_or_default();
-                    let app = module
-                        .split('.')
-                        .rfind(|part| *part != "urls")
-                        .unwrap_or_default();
-                    (!app.is_empty()).then(|| app.to_string())
-                });
-                // `views.foo` names the function; `views.Foo.as_view()` names
-                // the CLASS, one component further in, and it arrives as a call
-                // rather than an attribute so it was not read at all.
-                let handler = children
-                    .iter()
-                    .filter(|child| matches!(child.kind(), "attribute" | "identifier" | "call"))
-                    .find_map(|child| {
-                        let raw = child.utf8_text(text.as_bytes()).ok()?;
-                        let named = raw.strip_suffix("()").unwrap_or(raw);
-                        let named = named.strip_suffix(".as_view").unwrap_or(named);
-                        let last = named.rsplit('.').next()?.trim();
-                        (!last.is_empty() && last != "include").then(|| last.to_string())
-                    });
-                if let Some(path) = path {
-                    let path = if callee == "re_path" {
-                        match template_of_regex(&path) {
-                            Some(path) => path,
-                            // A regex this cannot express as a template is not
-                            // guessed at.
-                            None => return,
-                        }
-                    } else {
-                        path
-                    };
-                    let path = format!("/{}", path.trim_matches('/'));
-                    match included {
-                        Some(app) => {
-                            mounted.insert(app, path.trim_end_matches('/').to_string());
-                        }
-                        // Django states no verb at the URL. Which verbs the
-                        // VIEW answers is knowable, but only once every file
-                        // has been read: `urls.py` sorts before `views.py`, so
-                        // resolving here found an empty map and made every
-                        // Django route a GET, including endpoints that only
-                        // answer POST.
-                        None => routes.push((path, "get", handler)),
-                    }
-                }
-            }
-        }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        django_routes(child, text, routes, mounted);
-    }
 }
 
 #[cfg(test)]

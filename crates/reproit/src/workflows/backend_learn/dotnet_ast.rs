@@ -33,7 +33,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         Family::DotNet,
         tree_sitter_c_sharp::LANGUAGE.into(),
         &mut source,
-        |root_node, text| {
+        |root_node, text, _path| {
             // `var g = app.MapGroup("/api")` binds a prefix to a local name,
             // which is a per-file binding. Without it every minimal-API path in
             // a grouped service was reported one prefix short.
@@ -245,6 +245,12 @@ fn collect_action(
             .and_then(|(_, value)| value.clone())
             .filter(|value| !value.is_empty())
     });
+    // No class template and no method template means the path comes from a
+    // routing convention this cannot see. `/` is not it, and nothing serves
+    // that: 14 actions of one real service collapsed onto it.
+    if template.is_none() && prefix.is_empty() {
+        return;
+    }
     let path = match template {
         // A template starting with `/` REPLACES the controller template rather
         // than extending it: that is ASP.NET's rule, and composing it produced

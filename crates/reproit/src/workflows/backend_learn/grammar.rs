@@ -43,7 +43,7 @@ pub(super) fn read_files(
     family: Family,
     language: tree_sitter::Language,
     source: &mut SourceRead,
-    visit: impl FnMut(Node, &str),
+    visit: impl FnMut(Node, &str, &Path),
 ) {
     read_files_with(root, family, |_| Some(language.clone()), source, visit);
 }
@@ -59,7 +59,7 @@ pub(super) fn read_files_with(
     family: Family,
     language_for: impl Fn(&Path) -> Option<tree_sitter::Language>,
     source: &mut SourceRead,
-    mut visit: impl FnMut(Node, &str),
+    mut visit: impl FnMut(Node, &str, &Path),
 ) {
     let mut parser = Parser::new();
     let mut current: Option<tree_sitter::Language> = None;
@@ -83,7 +83,7 @@ pub(super) fn read_files_with(
         match parser.parse(&text, None) {
             Some(tree) if !tree.root_node().has_error() => {
                 source.files_parsed += 1;
-                visit(tree.root_node(), &text);
+                visit(tree.root_node(), &text, &file);
             }
             _ => source.files_unreadable += 1,
         }

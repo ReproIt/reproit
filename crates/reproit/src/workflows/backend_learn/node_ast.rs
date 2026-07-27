@@ -44,7 +44,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         super::extract::Family::Node,
         |path| Some(grammar_for(path)),
         &mut source,
-        |root_node, text| {
+        |root_node, text, _path| {
             // `app.use('/api', users)` binds a LOCAL name. Keyed globally, one
             // file's mount prefix landed on another file's router.
             // An express-style registration and an HTTP CLIENT call are the

@@ -15,6 +15,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::Node;
 
+/// One route before its engine's mount prefix is applied.
+type RbRoute = (String, &'static str, Option<String>);
+
 const METHODS: [&str; 5] = ["get", "post", "put", "patch", "delete"];
 /// The five routes `resources :name` declares that a draft can exercise.
 /// The routes `resources :name` declares, each with the action it serves so
@@ -38,19 +41,38 @@ pub(super) fn read(root: &Path) -> SourceRead {
     // action name -> the class whose validations govern it.
     let mut actions: BTreeMap<String, String> = BTreeMap::new();
     let mut found: Vec<(String, &'static str, Option<String>)> = Vec::new();
+    // engine key -> the prefix the host app mounts it at.
+    let mut mounts: BTreeMap<String, String> = BTreeMap::new();
+    // (engine key of the file, its routes), resolved once every file is read:
+    // the host's `mount` and the engine's own routes.rb are different files.
+    let mut engines: Vec<(String, Vec<RbRoute>)> = Vec::new();
 
     grammar::read_files(
         root,
         Family::Ruby,
         tree_sitter_ruby::LANGUAGE.into(),
         &mut source,
-        |root_node, text| {
-            routes(root_node, text, "", &mut found);
+        |root_node, text, path| {
+            routes(root_node, text, "", &mut mounts, &mut found);
+            engines.push((engine_of(path), found.split_off(0)));
             classes(root_node, text, &mut shapes, &mut ambiguous, &mut actions);
         },
     );
     drop_ambiguous(&mut shapes, &ambiguous);
 
+    let found: Vec<(String, &'static str, Option<String>)> = engines
+        .into_iter()
+        .flat_map(|(engine, routes)| {
+            let at = mounts.get(&engine).cloned().unwrap_or_default();
+            routes.into_iter().map(move |(path, method, handler)| {
+                (
+                    format!("{}{path}", at.trim_end_matches('/')),
+                    method,
+                    handler,
+                )
+            })
+        })
+        .collect();
     for (path, method, handler) in found {
         source.routes.push((path, method, handler.clone()));
         if let Some(handler) = handler {
@@ -66,6 +88,21 @@ pub(super) fn read(root: &Path) -> SourceRead {
     source
 }
 
+/// Which engine a routes file belongs to: `plugins/chat/config/routes.rb` is
+/// the `chat` engine, and the host mounts it by that name.
+fn engine_of(file: &std::path::Path) -> String {
+    let parts: Vec<String> = file
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().to_ascii_lowercase())
+        .collect();
+    parts
+        .iter()
+        .position(|part| part == "plugins" || part == "engines")
+        .and_then(|at| parts.get(at + 1))
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// Route calls under `prefix`, descending into the blocks that extend it.
 ///
 /// Recursion is over the tree rather than over lines, so a `namespace` inside a
@@ -74,13 +111,14 @@ fn routes(
     node: Node,
     text: &str,
     prefix: &str,
+    mounts: &mut BTreeMap<String, String>,
     out: &mut Vec<(String, &'static str, Option<String>)>,
 ) {
     let mut children = Vec::new();
     grammar::children(node, &mut children);
     for child in children {
         if child.kind() != "call" {
-            routes(child, text, prefix, out);
+            routes(child, text, prefix, mounts, out);
             continue;
         }
         let called = grammar::field(child, text, "method").unwrap_or_default();
@@ -94,15 +132,57 @@ fn routes(
             // A namespace takes a SYMBOL, which names a path segment; a scope
             // takes the path itself.
             "namespace" | "scope" => {
-                let segment = args.first().map(|node| segment_of(*node, text));
-                let inner = match segment {
-                    Some(Some(segment)) => format!("{}/{segment}", prefix.trim_end_matches('/')),
+                // A scope path may be MULTI-SEGMENT (`scope "/admin/plugins/foo"`)
+                // and may arrive as the `path:` keyword rather than positionally.
+                // Reading neither dropped the prefix and emitted the body at the
+                // root: nine invented paths from one plugin alone.
+                let positional = args.first().and_then(|node| segment_of(*node, text));
+                let keyword = args.iter().find_map(|node| {
+                    (node.kind() == "pair"
+                        && grammar::field(*node, text, "key").as_deref() == Some("path"))
+                    .then(|| node.child_by_field_name("value"))
+                    .flatten()
+                    .and_then(|value| segment_of(value, text))
+                });
+                let inner = match positional.or(keyword) {
+                    Some(segment) => format!(
+                        "{}/{}",
+                        prefix.trim_end_matches('/'),
+                        segment.trim_matches('/')
+                    ),
                     // A scope with no readable path (`scope module: :api`) does
                     // not change the path, so the body keeps the outer prefix.
-                    _ => prefix.to_string(),
+                    None => prefix.to_string(),
                 };
                 if let Some(block) = block {
-                    routes(block, text, &inner, out);
+                    routes(block, text, &inner, mounts, out);
+                }
+            }
+            // `mount ::Chat::Engine, at: "/chat"` puts a whole engine under a
+            // prefix. Its routes live in another file, so this only records the
+            // mount; unresolved, 22 engines' routes were emitted at the root.
+            "mount" => {
+                if let Some(at) = args.iter().find_map(|node| {
+                    (node.kind() == "pair"
+                        && grammar::field(*node, text, "key").as_deref() == Some("at"))
+                    .then(|| node.child_by_field_name("value"))
+                    .flatten()
+                    .and_then(|value| segment_of(value, text))
+                }) {
+                    if let Some(engine) = args.first().map(|node| grammar::text(*node, text)) {
+                        let parts: Vec<&str> = engine
+                            .split("::")
+                            .filter(|part| !part.is_empty() && *part != "Engine")
+                            .collect();
+                        let key = parts
+                            .last()
+                            .copied()
+                            .unwrap_or_default()
+                            .to_ascii_lowercase();
+                        if !key.is_empty() && at != "/" {
+                            mounts.insert(key, format!("/{}", at.trim_matches('/')));
+                        }
+                    }
                 }
             }
             "resources" | "resource" => {
@@ -120,7 +200,24 @@ fn routes(
                     }
                 }
                 if let Some(block) = block {
-                    routes(block, text, prefix, out);
+                    // A `collection`/`member` block inside `resources :badges`
+                    // hangs off the RESOURCE, not off the enclosing prefix.
+                    let base = args
+                        .first()
+                        .and_then(|node| segment_of(*node, text))
+                        .map(|name| format!("{}/{name}", prefix.trim_end_matches('/')))
+                        .unwrap_or_else(|| prefix.to_string());
+                    routes(block, text, &base, mounts, out);
+                }
+            }
+            "collection" => {
+                if let Some(block) = block {
+                    routes(block, text, prefix, mounts, out);
+                }
+            }
+            "member" => {
+                if let Some(block) = block {
+                    routes(block, text, &format!("{prefix}/{{id}}"), mounts, out);
                 }
             }
             _ => {
@@ -130,7 +227,7 @@ fn routes(
                     }
                 }
                 if let Some(block) = block {
-                    routes(block, text, prefix, out);
+                    routes(block, text, prefix, mounts, out);
                 }
             }
         }
@@ -250,10 +347,11 @@ fn segment_of(node: Node, text: &str) -> Option<String> {
         "string" => grammar::unquote(raw).trim_start_matches('/'),
         _ => return None,
     };
+    // `/admin/plugins/foo` is one scope argument and several path segments.
     let valid = !value.is_empty()
         && value
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/');
     valid.then(|| value.to_string())
 }
 

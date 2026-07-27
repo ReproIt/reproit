@@ -69,7 +69,18 @@ fn services_under(root: &Path) -> Vec<PathBuf> {
                 Vec::new()
             }
         }
-        drift::SourceRoot::Ambiguous(names) => names.iter().map(|name| root.join(name)).collect(),
+        drift::SourceRoot::Ambiguous(names) => {
+            let mut services: Vec<PathBuf> = names.iter().map(|name| root.join(name)).collect();
+            // The root may be a service in its OWN right as well as the parent
+            // of others: a Go repo with a root `go.mod` and nested module
+            // directories serves both. Reporting only the children silently
+            // dropped ~30 applications and 45 routes from one real repo, with
+            // the count giving no hint that anything was missing.
+            if backend_detect::detect_backend_framework(root).is_some() {
+                services.insert(0, root.to_path_buf());
+            }
+            services
+        }
     }
 }
 

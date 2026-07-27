@@ -74,16 +74,41 @@ fn module_of(root: &Path, file: &Path) -> String {
         .join("::")
 }
 
+/// Whether an item is compiled only for tests.
+fn is_test_gated(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        let path = attr
+            .path()
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+            .unwrap_or_default();
+        if path != "cfg" {
+            return false;
+        }
+        match &attr.meta {
+            syn::Meta::List(list) => list.tokens.to_string().contains("test"),
+            _ => false,
+        }
+    })
+}
+
 fn collect(items: &[Item], module: &str, krate: &mut Crate) {
     for item in items {
         match item {
             Item::Mod(inner) => {
+                // `#[cfg(test)] mod tests` builds routers to exercise them, not
+                // to serve them. Every one of axum-extra's reported operations
+                // came from such a module, in a library that serves nothing.
+                if is_test_gated(&inner.attrs) {
+                    continue;
+                }
                 if let Some((_, nested)) = &inner.content {
                     let module = format!("{module}::{}", inner.ident);
                     collect(nested, &module, krate);
                 }
             }
-            Item::Fn(function) => {
+            Item::Fn(function) if !is_test_gated(&function.attrs) => {
                 let name = function.sig.ident.to_string();
                 // actix and rocket put the route on the handler: `#[get("/x")]`.
                 // The function IS the route, so it is emitted directly rather
