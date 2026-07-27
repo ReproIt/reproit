@@ -23,6 +23,8 @@ const MAX_GROUP_DEPTH: usize = 8;
 
 /// Router variable -> (the router it was grouped off, its own prefix segment).
 type Groups = BTreeMap<String, (String, String)>;
+/// Router builder identity -> every literal prefix where it is mounted.
+type Mounts = BTreeMap<String, BTreeSet<String>>;
 
 /// Marks a group whose prefix could not be read. Its routes are real but their
 /// location is not knowable from source, and emitting them at the root would
@@ -35,67 +37,107 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     // handler fn -> the struct it binds its request body into.
     let mut handler_body: BTreeMap<String, String> = BTreeMap::new();
-    // Resolved per file. `r := app.Group("/auth")` in one file and
-    // `r := app.Group("/todo")` in another are two different routers that
-    // happen to share a local name, and a global map let the first one's
-    // prefix land on the second one's routes: four invented paths under
-    // `/auth` in a real fiber service, with the four real `/todo` paths gone.
-    let mut raw: Vec<(String, String, &'static str, Option<String>)> = Vec::new();
+    // Router builders and mount sites are collected independently, then joined
+    // after every file is read. chi commonly declares a receiver method in one
+    // file and mounts it from main.go.
+    let mut built: Vec<(String, String, &'static str, Option<String>)> = Vec::new();
+    let mut mounts = Mounts::new();
 
     grammar::read_files(
         root,
         Family::Go,
         tree_sitter_go::LANGUAGE.into(),
         &mut source,
-        |root_node, text, _path| {
-            let mut groups: Groups = BTreeMap::new();
-            let mut found: Vec<(String, String, &'static str, Option<String>)> = Vec::new();
+        |root_node, text, path| {
             grammar::walk(root_node, &mut |node| match node.kind() {
                 "type_spec" => collect_struct(node, text, &mut structs, &mut ambiguous),
                 "function_declaration" => collect_handler(node, text, &mut handler_body),
-                "short_var_declaration" => collect_group(node, text, &mut groups),
                 _ => {}
             });
-            // chi nests with a CLOSURE rather than a variable:
-            // `r.Route("/articles", func(r chi.Router) { r.Get("/search", h) })`.
-            // The inner `r` shadows the outer one, so no variable map can
-            // express it; the prefix has to travel lexically.
-            // `r.Mount("/admin", adminRouter())` mounts a router BUILT BY a
-            // function. Without resolving it, that function's routes surfaced
-            // at the root: `/accounts` for a service that serves
-            // `/admin/accounts`.
-            let mut mounts: BTreeMap<String, String> = BTreeMap::new();
-            grammar::walk(root_node, &mut |node| {
-                collect_mount(node, text, &mut mounts)
-            });
-            routes_under(root_node, text, "", &mounts, &mut found);
-            // Resolve against THIS file's groups before moving on.
-            for (router, path, method, handler) in found {
-                let path = match resolve_prefix(&groups, &router) {
-                    Some(prefix) if prefix.contains(OPAQUE) => continue,
-                    Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
-                    None => path,
+
+            collect_mounts_under(root, path, root_node, text, "", &mut mounts);
+
+            let mut declarations = Vec::new();
+            grammar::children(root_node, &mut declarations);
+            let mut found_declaration = false;
+            for declaration in declarations {
+                if !matches!(
+                    declaration.kind(),
+                    "function_declaration" | "method_declaration"
+                ) {
+                    continue;
+                }
+                found_declaration = true;
+                let Some(builder) = declaration_key(root, path, declaration, text) else {
+                    continue;
                 };
-                let path = if path.is_empty() {
-                    "/".to_string()
-                } else {
-                    path
-                };
-                raw.push((String::new(), path, method, handler));
+                let mut groups = Groups::new();
+                grammar::walk(declaration, &mut |node| {
+                    if node.kind() == "short_var_declaration" {
+                        collect_group(node, text, &mut groups);
+                    }
+                });
+                let mut found = Vec::new();
+                routes_under(declaration, text, "", &mut found);
+                for (router, path, method, handler) in found {
+                    let path = match resolve_prefix(&groups, &router) {
+                        Some(prefix) if prefix.contains(OPAQUE) => continue,
+                        Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
+                        None => path,
+                    };
+                    let path = if path.is_empty() {
+                        "/".to_string()
+                    } else {
+                        path
+                    };
+                    built.push((builder.clone(), path, method, handler));
+                }
+            }
+            // Preserve the reader's long-standing snippet contract. Real Go
+            // programs take the declaration path above; this fallback exists
+            // only for a source fragment with calls directly at the root.
+            if !found_declaration {
+                let mut groups = Groups::new();
+                grammar::walk(root_node, &mut |node| {
+                    if node.kind() == "short_var_declaration" {
+                        collect_group(node, text, &mut groups);
+                    }
+                });
+                let mut found = Vec::new();
+                routes_under(root_node, text, "", &mut found);
+                let builder = scoped_builder_key(root, path, "<root>");
+                for (router, path, method, handler) in found {
+                    let path = resolve_prefix(&groups, &router)
+                        .map(|prefix| format!("{}{path}", prefix.trim_end_matches('/')))
+                        .unwrap_or(path);
+                    if !path.contains(OPAQUE) {
+                        built.push((builder.clone(), path, method, handler));
+                    }
+                }
             }
         },
     );
     drop_ambiguous(&mut structs, &ambiguous);
 
-    for (_, path, method, handler) in raw {
-        source.routes.push((path, method, handler.clone()));
-        if let Some(handler) = handler {
-            if let Some(fields) = handler_body
-                .get(&handler)
-                .and_then(|name| structs.get(name))
-                .cloned()
-            {
-                source.bodies.insert(handler, fields);
+    for (builder, path, method, handler) in built {
+        let prefixes = mounts
+            .get(&builder)
+            .map(|prefixes| prefixes.iter().map(String::as_str).collect())
+            .unwrap_or_else(|| vec![""]);
+        for prefix in prefixes {
+            if prefix.contains(OPAQUE) {
+                continue;
+            }
+            let mounted_path = format!("{}{path}", prefix.trim_end_matches('/'));
+            source.routes.push((mounted_path, method, handler.clone()));
+            if let Some(handler) = &handler {
+                if let Some(fields) = handler_body
+                    .get(handler)
+                    .and_then(|name| structs.get(name))
+                    .cloned()
+                {
+                    source.bodies.insert(handler.clone(), fields);
+                }
             }
         }
     }
@@ -353,24 +395,13 @@ fn routes_under(
     node: Node,
     text: &str,
     prefix: &str,
-    mounts: &BTreeMap<String, String>,
     out: &mut Vec<(String, String, &'static str, Option<String>)>,
 ) {
     let mut children = Vec::new();
     grammar::children(node, &mut children);
     for child in children {
-        // A function whose router is mounted elsewhere builds its routes under
-        // that mount, not at the root.
-        if child.kind() == "function_declaration" {
-            let mounted =
-                grammar::field(child, text, "name").and_then(|name| mounts.get(&name).cloned());
-            if let Some(at) = mounted {
-                routes_under(child, text, &at, mounts, out);
-                continue;
-            }
-        }
         if let Some((inner, body)) = nested_router(child, text, prefix) {
-            routes_under(body, text, &inner, mounts, out);
+            routes_under(body, text, &inner, out);
             continue;
         }
         if child.kind() == "call_expression" {
@@ -380,12 +411,40 @@ fn routes_under(
                 out.push((router, format!("{prefix}{path}"), method, handler));
             }
         }
-        routes_under(child, text, prefix, mounts, out);
+        routes_under(child, text, prefix, out);
     }
 }
 
-/// `r.Mount("/admin", adminRouter())` -> the function and where it is mounted.
-fn collect_mount(node: Node, text: &str, mounts: &mut BTreeMap<String, String>) {
+/// Mount calls under a lexical chi prefix.
+fn collect_mounts_under(
+    root: &Path,
+    path: &Path,
+    node: Node,
+    text: &str,
+    prefix: &str,
+    mounts: &mut Mounts,
+) {
+    let mut children = Vec::new();
+    grammar::children(node, &mut children);
+    for child in children {
+        if let Some((inner, body)) = nested_router(child, text, prefix) {
+            collect_mounts_under(root, path, body, text, &inner, mounts);
+            continue;
+        }
+        collect_mount(root, path, child, text, prefix, mounts);
+        collect_mounts_under(root, path, child, text, prefix, mounts);
+    }
+}
+
+/// `r.Mount("/admin", adminRouter())` -> the builder and full mount prefix.
+fn collect_mount(
+    root: &Path,
+    path: &Path,
+    node: Node,
+    text: &str,
+    outer: &str,
+    mounts: &mut Mounts,
+) {
     if node.kind() != "call_expression" {
         return;
     }
@@ -403,19 +462,73 @@ fn collect_mount(node: Node, text: &str, mounts: &mut BTreeMap<String, String>) 
     let (Some(first), Some(second)) = (args.first(), args.get(1)) else {
         return;
     };
-    if !matches!(
+    let literal = matches!(
         first.kind(),
         "interpreted_string_literal" | "raw_string_literal"
-    ) {
+    );
+    let own = grammar::unquote(grammar::text(*first, text));
+    let prefix = if literal && own.starts_with('/') {
+        format!(
+            "{}{}",
+            outer.trim_end_matches('/'),
+            own.trim_end_matches('/')
+        )
+    } else {
+        OPAQUE.to_string()
+    };
+    let Some(target) = mount_target(*second, text) else {
         return;
+    };
+    mounts
+        .entry(scoped_builder_key(root, path, &target))
+        .or_default()
+        .insert(prefix);
+}
+
+/// The local builder invoked as a mount target.
+///
+/// Plain functions use their function name. Receiver methods use the concrete
+/// composite-literal type plus method name, so `usersResource{}.Routes()` and
+/// `todosResource{}.Routes()` remain distinct.
+fn mount_target(node: Node, text: &str) -> Option<String> {
+    let call = (node.kind() == "call_expression").then_some(node)?;
+    let function = call.child_by_field_name("function")?;
+    match function.kind() {
+        "identifier" => Some(grammar::text(function, text).to_string()),
+        "selector_expression" => {
+            let method = grammar::field(function, text, "field")?;
+            let receiver = function.child_by_field_name("operand")?;
+            let receiver_type = grammar::find(receiver, "type_identifier")
+                .map(|node| grammar::text(node, text).to_string())?;
+            Some(format!("{receiver_type}.{method}"))
+        }
+        _ => None,
     }
-    let prefix = grammar::unquote(grammar::text(*first, text)).to_string();
-    if let Some(name) = grammar::find(*second, "identifier") {
-        mounts.insert(
-            grammar::text(name, text).to_string(),
-            prefix.trim_end_matches('/').to_string(),
-        );
-    }
+}
+
+/// Stable identity for a function or receiver method that builds routes.
+fn declaration_key(root: &Path, path: &Path, node: Node, text: &str) -> Option<String> {
+    let name = grammar::field(node, text, "name")?;
+    let symbol = if node.kind() == "method_declaration" {
+        let receiver = node.child_by_field_name("receiver")?;
+        let receiver_type = grammar::find(receiver, "type_identifier")
+            .map(|node| grammar::text(node, text).to_string())?;
+        format!("{receiver_type}.{name}")
+    } else {
+        name
+    };
+    Some(scoped_builder_key(root, path, &symbol))
+}
+
+/// Go declarations can only be joined across files in the same package
+/// directory. Including that directory prevents same-named builders in sibling
+/// packages from borrowing each other's mount prefixes.
+fn scoped_builder_key(root: &Path, path: &Path, symbol: &str) -> String {
+    let directory = path
+        .parent()
+        .and_then(|parent| parent.strip_prefix(root).ok())
+        .unwrap_or_else(|| Path::new(""));
+    format!("{}:{symbol}", directory.display())
 }
 
 /// A chi `Route("/x", func(...))` or `Mount("/x", handler())` and the prefix
@@ -694,6 +807,51 @@ func main() {
             !paths.contains(&&"/accounts".to_string()),
             "and must not also surface unprefixed: {paths:?}"
         );
+    }
+
+    #[test]
+    fn chi_nested_mounts_and_method_router_mounts_keep_every_prefix() {
+        let source = read_source(
+            "chi_nested_and_method_mounts",
+            &[(
+                "main.go",
+                "package main\n\
+                 func main() {\n\
+                 \tr := chi.NewRouter()\n\
+                 \tr.Route(\"/v3\", func(r chi.Router) {\n\
+                 \t\tr.Mount(\"/articles\", articleRouter())\n\
+                 \t})\n\
+                 \tr.Mount(\"/users\", usersResource{}.Routes())\n\
+                 }\n\
+                 func articleRouter() http.Handler {\n\
+                 \tr := chi.NewRouter()\n\
+                 \tr.Get(\"/\", listArticles)\n\
+                 \tr.Get(\"/{articleID}\", getArticle)\n\
+                 \treturn r\n\
+                 }\n\
+                 type usersResource struct{}\n\
+                 func (usersResource) Routes() chi.Router {\n\
+                 \tr := chi.NewRouter()\n\
+                 \tr.Get(\"/\", listUsers)\n\
+                 \tr.Get(\"/{id}\", getUser)\n\
+                 \tr.Get(\"/{id}/sync\", syncUser)\n\
+                 \treturn r\n\
+                 }\n",
+            )],
+        );
+        let paths: BTreeSet<String> = source
+            .routes
+            .iter()
+            .map(|(path, _, _)| path.clone())
+            .collect();
+        let expected = BTreeSet::from([
+            "/v3/articles/".to_string(),
+            "/v3/articles/{articleID}".to_string(),
+            "/users/".to_string(),
+            "/users/{id}".to_string(),
+            "/users/{id}/sync".to_string(),
+        ]);
+        assert_eq!(paths, expected, "every mounted route needs its full prefix");
     }
 
     #[test]
