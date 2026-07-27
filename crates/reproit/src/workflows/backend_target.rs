@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 /// A project whose reproit.yaml is backend-only: no `app` section and
 /// `backend.enabled: true`. The schema may still be missing on disk; doctor
 /// reports that as a failing check instead of erroring out.
-pub(super) struct BackendProject {
+pub(crate) struct BackendProject {
     pub(super) root: PathBuf,
     pub(super) config: backend::BackendConfig,
 }
@@ -17,7 +17,7 @@ impl BackendProject {
     /// backend contract may be split across several files; resolving only
     /// `.schemas.first()` silently dropped every operation past the first, so
     /// scan, fuzz, and doctor load the full list.
-    pub(super) fn schema_paths(&self) -> Result<Vec<PathBuf>> {
+    pub(crate) fn schema_paths(&self) -> Result<Vec<PathBuf>> {
         if self.config.schemas.is_empty() {
             bail!("backend.enabled is true but backend.schemas is empty");
         }
@@ -35,7 +35,7 @@ impl BackendProject {
 
 /// Find the backend project configuration, if the effective reproit.yaml is a
 /// backend one. App-platform configs and missing configs return None.
-pub(super) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>> {
+pub(crate) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>> {
     let path = match config_path {
         Some(path) if path.is_file() => Some(path.to_path_buf()),
         Some(path) => anyhow::bail!("config file {} does not exist", path.display()),

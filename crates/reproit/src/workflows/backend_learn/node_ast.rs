@@ -141,6 +141,13 @@ fn walk(
         }
     }
     // `const Schema = z.object({ ... })`
+    // NestJS states routes as decorators on a controller class, which is a
+    // different shape from every express-style registration above: the path is
+    // split between a `@Controller('users')` on the class and a `@Get(':id')`
+    // on the method, and the decorator is a SIBLING of what it decorates.
+    if node.kind() == "class_declaration" {
+        nest_controller(node, text, routes);
+    }
     if node.kind() == "variable_declarator" {
         if let (Some(name), Some(value)) = (
             node.child_by_field_name("name")
@@ -165,6 +172,140 @@ fn walk(
     for child in node.children(&mut cursor) {
         walk(child, text, routes, shapes, ambiguous, mounts);
     }
+}
+
+/// A NestJS controller: `@Controller('users')` on the class, an HTTP decorator
+/// on each method.
+///
+/// The class decorator is not a child of the class, it precedes it, so the
+/// prefix is read from the enclosing statement's children rather than from the
+/// class node.
+fn nest_controller(node: Node, text: &str, routes: &mut Vec<RawRoute>) {
+    let prefix = match decorator_argument(node, "Controller", text) {
+        Some(prefix) => prefix,
+        // No `@Controller` means this is an ordinary class, not a route table.
+        None => return,
+    };
+    let Some(body) = node.child_by_field_name("body") else {
+        return;
+    };
+    let mut members = Vec::new();
+    grammar_children(body, &mut members);
+    // Decorators precede the method they belong to, so the walk carries the
+    // pending one forward rather than looking inside the method.
+    let mut pending: Option<(&'static str, String)> = None;
+    for member in members {
+        match member.kind() {
+            "decorator" => {
+                if let Some(found) = nest_verb(member, text) {
+                    pending = Some(found);
+                }
+            }
+            "method_definition" => {
+                let Some((method, suffix)) = pending.take() else {
+                    continue;
+                };
+                let handler = member
+                    .child_by_field_name("name")
+                    .map(|name| grammar_text(name, text).to_string());
+                routes.push((
+                    String::new(),
+                    join_nest(&prefix, &suffix),
+                    method,
+                    handler,
+                    None,
+                ));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `@Get(':id')` -> the verb and its path suffix.
+fn nest_verb(decorator: Node, text: &str) -> Option<(&'static str, String)> {
+    let call = decorator.named_child(0)?;
+    let (name, argument) = match call.kind() {
+        "call_expression" => {
+            let name = call.child_by_field_name("function")?;
+            let mut args = Vec::new();
+            if let Some(list) = call.child_by_field_name("arguments") {
+                grammar_children(list, &mut args);
+            }
+            (
+                grammar_text(name, text).to_string(),
+                args.first()
+                    .map(|arg| {
+                        grammar_text(*arg, text)
+                            .trim_matches(['"', '\'', '`'])
+                            .to_string()
+                    })
+                    .unwrap_or_default(),
+            )
+        }
+        // A bare `@Get` with no parentheses maps the controller path itself.
+        "identifier" => (grammar_text(call, text).to_string(), String::new()),
+        _ => return None,
+    };
+    let verb = name.to_ascii_lowercase();
+    METHODS
+        .into_iter()
+        .find(|known| *known == verb)
+        .map(|method| (method, argument))
+}
+
+/// The single string argument of a named decorator preceding `node`.
+fn decorator_argument(node: Node, name: &str, text: &str) -> Option<String> {
+    let parent = node.parent()?;
+    let mut siblings = Vec::new();
+    grammar_children(parent, &mut siblings);
+    for sibling in siblings {
+        if sibling.kind() != "decorator" {
+            continue;
+        }
+        let raw = grammar_text(sibling, text);
+        if !raw.trim_start_matches('@').starts_with(name) {
+            continue;
+        }
+        let Some(call) = sibling.named_child(0) else {
+            continue;
+        };
+        if call.kind() != "call_expression" {
+            return Some(String::new());
+        }
+        let mut args = Vec::new();
+        if let Some(list) = call.child_by_field_name("arguments") {
+            grammar_children(list, &mut args);
+        }
+        return Some(
+            args.first()
+                .map(|arg| {
+                    grammar_text(*arg, text)
+                        .trim_matches(['"', '\'', '`'])
+                        .to_string()
+                })
+                .unwrap_or_default(),
+        );
+    }
+    None
+}
+
+fn join_nest(prefix: &str, suffix: &str) -> String {
+    let base = prefix.trim_matches('/');
+    let suffix = suffix.trim_matches('/');
+    match (base.is_empty(), suffix.is_empty()) {
+        (true, true) => "/".to_string(),
+        (true, false) => format!("/{suffix}"),
+        (false, true) => format!("/{base}"),
+        (false, false) => format!("/{base}/{suffix}"),
+    }
+}
+
+fn grammar_children<'a>(node: Node<'a>, into: &mut Vec<Node<'a>>) {
+    super::grammar::children(node, into);
+}
+
+fn grammar_text<'a>(node: Node, source: &'a str) -> &'a str {
+    super::grammar::text(node, source)
 }
 
 /// The fields of a `z.object({ ... })`, or None if this is not one.
@@ -447,6 +588,57 @@ mod tests {
             paths.contains(&&"/api/list".to_string()),
             "a mounted TS router keeps its prefix: {paths:?}"
         );
+    }
+
+    #[test]
+    fn a_nestjs_controller_composes_its_decorator_paths() {
+        // NestJS is TypeScript but shares nothing with an express registration:
+        // the path is split between a class decorator and a method decorator,
+        // and the decorator PRECEDES what it decorates rather than nesting in it.
+        let source = read_source(
+            "nestjs",
+            &[(
+                "users.controller.ts",
+                "import { Controller, Get, Post, Body, Param } from '@nestjs/common';\n\
+                 @Controller('users')\n\
+                 export class UsersController {\n\
+                 \x20 @Get()\n  findAll(): string { return 'all'; }\n\
+                 \x20 @Get(':id')\n  findOne(@Param('id') id: string): string { return id; }\n\
+                 \x20 @Post()\n  create(@Body() dto: CreateUserDto): string { return 'made'; }\n\
+                 }\n\
+                 @Controller()\n\
+                 export class HealthController {\n\
+                 \x20 @Get('health')\n  health(): string { return 'ok'; }\n\
+                 }\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(paths.contains(&&"/users".to_string()), "{paths:?}");
+        assert!(paths.contains(&&"/users/:id".to_string()), "{paths:?}");
+        assert!(
+            paths.contains(&&"/health".to_string()),
+            "a bare @Controller() has no prefix: {paths:?}"
+        );
+        let post = source
+            .routes
+            .iter()
+            .find(|(path, method, _)| path == "/users" && *method == "post");
+        assert_eq!(
+            post.and_then(|(_, _, handler)| handler.clone()),
+            Some("create".to_string())
+        );
+    }
+
+    #[test]
+    fn an_ordinary_typescript_class_is_not_a_route_table() {
+        let source = read_source(
+            "plainclass",
+            &[(
+                "service.ts",
+                "export class UserService {\n  findAll(): string { return 'all'; }\n}\n",
+            )],
+        );
+        assert!(source.routes.is_empty(), "{:?}", source.routes);
     }
 
     #[test]

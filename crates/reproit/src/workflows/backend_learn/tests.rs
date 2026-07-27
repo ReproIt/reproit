@@ -259,6 +259,27 @@ fn every_family_extracts_from_an_entry_point_not_just_a_snippet() {
             &[("/health", &["get"]), ("/items", &["post"])],
         ),
         (
+            "aspnet",
+            "Program.cs",
+            "var builder = WebApplication.CreateBuilder(args);\n\
+             var app = builder.Build();\n\
+             app.MapGet(\"/health\", () => \"ok\");\n\
+             app.MapPost(\"/items\", () => Results.Ok());\n\
+             app.Run();\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
+            "nestjs",
+            "src/items.controller.ts",
+            "import { Controller, Get, Post } from '@nestjs/common';\n\
+             @Controller()\n\
+             export class ItemsController {\n\
+             \x20 @Get('health')\n  health(): string { return 'ok'; }\n\
+             \x20 @Post('items')\n  create(): string { return 'made'; }\n\
+             }\n",
+            &[("/health", &["get"]), ("/items", &["post"])],
+        ),
+        (
             "spring",
             "src/ItemController.java",
             "package com.example;\n\nimport org.springframework.web.bind.annotation.*;\n\n\
@@ -406,7 +427,7 @@ fn zero_derived_routes_fails_closed_without_writing_config() {
     let ctx = crate::interface::cli::context::Ctx::default();
     let error = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(super::run(&ctx, &dir, None, false))
+        .block_on(super::run(&ctx, &dir, None, false, false))
         .unwrap_err();
     assert!(error.to_string().contains("no routes could be derived"));
     assert!(!dir.join("reproit.yaml").exists());
@@ -531,4 +552,60 @@ fn malformed_adapter_trails_note_nothing() {
     use base64::Engine as _;
     let not_events = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"{\"nope\":1}");
     assert!(enrich::decode_effects(&not_events).is_empty());
+}
+
+/// The report exists so it can be run on someone else's repo. If it writes
+/// anything at all, that promise is void, so the guarantee is a test rather
+/// than a comment.
+#[test]
+fn the_report_writes_nothing() {
+    let dir = project(&[
+        ("Cargo.toml", "[dependencies]\naxum = \"0.8\"\n"),
+        (
+            "src/main.rs",
+            "async fn main() {\n    let app = Router::new().route(\"/health\", get(h));\n\
+             \x20   axum::serve(listener, app).await.unwrap();\n}\n",
+        ),
+        // A schema already present is one of the two cases `--learn` refuses.
+        (
+            "openapi.yaml",
+            "openapi: 3.1.0\ninfo: { title: t, version: \"1\" }\npaths: {}\n",
+        ),
+    ]);
+    let before = snapshot(&dir);
+    let ctx = crate::interface::cli::context::Ctx::default();
+    let code = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(super::run(&ctx, &dir, None, false, true));
+    let after = snapshot(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        code.is_ok(),
+        "the report must not fail on a repo with a schema"
+    );
+    assert_eq!(before, after, "the report wrote to the project");
+}
+
+/// Every file under a root, with its bytes, so a rewrite is caught as well as
+/// a create or a delete.
+fn snapshot(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                out.push((path, bytes));
+            }
+        }
+    }
+    out.sort();
+    out
 }

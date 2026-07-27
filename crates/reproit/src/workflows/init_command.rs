@@ -22,6 +22,7 @@ pub(super) async fn run(
     learn: bool,
     learn_target: Option<String>,
     force: bool,
+    report: bool,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
     if learn {
@@ -34,7 +35,7 @@ pub(super) async fn run(
                 platform.as_deref().unwrap_or_default()
             );
         }
-        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
+        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force, report).await;
     }
     let Some(target) = target else {
         project_scaffold::init(&root, platform.as_deref(), force)?;

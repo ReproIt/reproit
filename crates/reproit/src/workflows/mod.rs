@@ -134,8 +134,9 @@ where
             platform,
             learn,
             learn_target,
+            report,
             force,
-        } => init_command::run(&ctx, target, platform, learn, learn_target, force).await,
+        } => init_command::run(&ctx, target, platform, learn, learn_target, force, report).await,
         Cmd::Reset {
             all,
             init: initialize,

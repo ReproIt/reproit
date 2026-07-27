@@ -260,6 +260,11 @@ pub(crate) enum Cmd {
         /// parameterless GET route and records the observed response.
         #[arg(long = "target", value_name = "SERVICE_URL", requires = "learn")]
         learn_target: Option<String>,
+        /// With --learn: print what the source serves and write NOTHING. Runs
+        /// where setup refuses, so it works on a repo that already has a schema
+        /// and on a monorepo (each service is reported separately).
+        #[arg(long, requires = "learn")]
+        report: bool,
         /// Replace existing generated scaffold files.
         #[arg(long)]
         force: bool,

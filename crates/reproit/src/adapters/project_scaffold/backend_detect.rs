@@ -67,6 +67,10 @@ fn node_framework(name: &'static str) -> BackendFramework {
             "register @fastify/swagger (serves /documentation/json), then `reproit init \
                       http://localhost:3000/documentation/json`"
         }
+        "nestjs" => {
+            "add @nestjs/swagger and SwaggerModule (serves /api-json), then `reproit init \
+                      http://localhost:3000/api-json`"
+        }
         _ => {
             "generate an OpenAPI schema with swagger-jsdoc (serve it or write openapi.yaml), or \
               hand-write openapi.yaml, then `reproit init <schema url or file>`"
@@ -105,6 +109,32 @@ fn go_framework(name: &'static str) -> BackendFramework {
 /// Detect the backend framework of a project directory from its manifests.
 /// Returns None for UI projects and anything unrecognized. package.json is
 /// treated as a backend only when it has a server framework and no obvious
+/// ASP.NET Core, detected from a `.csproj`. The SDK attribute is the marker:
+/// `Microsoft.NET.Sdk.Web` is a web project, a plain `Microsoft.NET.Sdk` is a
+/// library or console app with no routes to read.
+fn dotnet_backend(dir: &Path) -> Option<BackendFramework> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("csproj") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if !text.contains("Microsoft.NET.Sdk.Web") {
+            continue;
+        }
+        return Some(framework(
+            "aspnet",
+            "csproj",
+            "expose an OpenAPI schema with Swashbuckle or the built-in \
+             `AddOpenApi()` (serves /swagger/v1/swagger.json or /openapi/v1.json), \
+             then `reproit init <that url>`",
+            "app.UseMiddleware<ReproitMiddleware>(capture)",
+        ));
+    }
+    None
+}
+
 /// frontend framework, so web projects keep their web init.
 pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
     if let Some(name) = detect_cargo_framework(dir) {
@@ -163,6 +193,9 @@ pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
                 "$app->add(new ReproitMiddleware($capture))",
             ));
         }
+    }
+    if let Some(found) = dotnet_backend(dir) {
+        return Some(found);
     }
     go_backend(dir)
 }
@@ -277,6 +310,13 @@ fn node_backend(pkg: &str) -> Option<BackendFramework> {
     let frontend = ["react", "vue", "svelte", "next", "@angular/core"];
     if frontend.iter().any(|name| has_dep(name)) {
         return None;
+    }
+    // NestJS runs ON express, so it declares both. It is checked first because
+    // its routes are decorators on a controller class, not express-style
+    // registrations, and labelling it "express" pointed the guidance at the
+    // wrong schema generator.
+    if has_dep("@nestjs/core") || has_dep("@nestjs/common") {
+        return Some(node_framework("nestjs"));
     }
     for name in ["express", "fastify", "koa", "@hapi/hapi", "hapi"] {
         if has_dep(name) {

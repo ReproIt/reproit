@@ -6,6 +6,7 @@
 //! remains here is the file walk each reader shares, the path normalizer they
 //! all emit through, and the shape they all return.
 
+use super::dotnet_ast;
 use super::go_ast;
 use super::grammar::SourceRead;
 use super::java_ast;
@@ -80,17 +81,19 @@ pub(super) enum Family {
     Ruby,
     Spring,
     Php,
+    DotNet,
 }
 
 pub(super) fn family_for(framework: &str) -> Option<Family> {
     Some(match framework {
         "axum" | "actix-web" | "rocket" | "warp" => Family::Rust,
-        "express" | "fastify" | "koa" | "hapi" => Family::Node,
+        "express" | "fastify" | "koa" | "hapi" | "nestjs" => Family::Node,
         "fastapi" | "flask" | "django" => Family::Python,
         "gin" | "echo" | "fiber" | "chi" | "net/http" => Family::Go,
         "rails" | "sinatra" => Family::Ruby,
         "spring" | "java" => Family::Spring,
         "laravel" => Family::Php,
+        "aspnet" => Family::DotNet,
         _ => return None,
     })
 }
@@ -104,6 +107,7 @@ fn extensions(family: Family) -> &'static [&'static str] {
         Family::Ruby => &["rb"],
         Family::Spring => &["java", "kt"],
         Family::Php => &["php"],
+        Family::DotNet => &["cs"],
     }
 }
 
@@ -123,6 +127,7 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
         Family::Ruby => ruby_ast::read(root),
         Family::Php => php_ast::read(root),
         Family::Spring => java_ast::read(root),
+        Family::DotNet => dotnet_ast::read(root),
         // Rust reads through `syn`, a full parse rather than a grammar, and
         // resolves its paths as it goes.
         Family::Rust => {
