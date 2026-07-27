@@ -126,7 +126,7 @@ pub(super) fn family_for(framework: &str) -> Option<Family> {
         "axum" | "actix-web" | "rocket" | "warp" => Family::Rust,
         "express" | "fastify" | "koa" | "hapi" | "nestjs" => Family::Node,
         "fastapi" | "flask" | "django" => Family::Python,
-        "gin" | "echo" | "fiber" | "chi" | "net/http" => Family::Go,
+        "gin" | "echo" | "fiber" | "chi" | "gorilla/mux" | "net/http" => Family::Go,
         "rails" | "sinatra" => Family::Ruby,
         "spring" | "java" => Family::Spring,
         "laravel" => Family::Php,

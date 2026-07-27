@@ -241,8 +241,8 @@ fn detection_failure_guide(dir: &Path) -> String {
         None => "no supported UI project or backend framework recognised here. A manifest \
                  may well be present: what is missing is a framework this can read \
                  (axum, actix-web, rocket, warp, express, fastify, koa, hapi, NestJS, \
-                 FastAPI, Flask, Django, gin, echo, fiber, chi, net/http, Rails, Sinatra, \
-                 Laravel, Spring, ASP.NET). Pass --platform to override"
+                 FastAPI, Flask, Django, gin, echo, fiber, chi, gorilla/mux, net/http, Rails, \
+                 Sinatra, Laravel, Spring, ASP.NET). Pass --platform to override"
             .into(),
     }
 }

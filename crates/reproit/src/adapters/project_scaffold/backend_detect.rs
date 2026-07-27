@@ -312,7 +312,10 @@ fn cargo_framework(cargo: &str) -> Option<&'static str> {
 /// is what a workspace member idiomatically writes.
 fn declares_dependency(cargo: &str, name: &str) -> bool {
     cargo.lines().any(|line| {
-        let line = line.trim_start();
+        let line = line.trim();
+        if line == format!("[dependencies.{name}]") {
+            return true;
+        }
         let Some(rest) = line.strip_prefix(name) else {
             return false;
         };
@@ -410,6 +413,7 @@ fn go_backend(dir: &Path) -> Option<BackendFramework> {
             ("github.com/labstack/echo", "echo"),
             ("github.com/gofiber/fiber", "fiber"),
             ("github.com/go-chi/chi", "chi"),
+            ("github.com/gorilla/mux", "gorilla/mux"),
         ] {
             if go_mod.contains(needle) {
                 return Some(go_framework(name));
@@ -585,5 +589,35 @@ mod tests {
             assert!(detect_backend_framework(&dir).is_none(), "files {files:?}");
             std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    #[test]
+    fn cargo_dependency_table_headers_detect_the_framework() {
+        let dir = project(&[(
+            "Cargo.toml",
+            "[package]\nname = \"serialization\"\nversion = \"0.1.0\"\n\
+             [dependencies.rocket]\nversion = \"0.5\"\n",
+        )]);
+        let detected = detect_backend_framework(&dir);
+        assert_eq!(
+            detected.as_ref().map(|framework| framework.name),
+            Some("rocket")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn gorilla_mux_module_detects_the_existing_go_route_reader() {
+        let dir = project(&[(
+            "go.mod",
+            "module example.test/service\n\
+             require github.com/gorilla/mux v1.8.1\n",
+        )]);
+        let detected = detect_backend_framework(&dir);
+        assert_eq!(
+            detected.as_ref().map(|framework| framework.name),
+            Some("gorilla/mux")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

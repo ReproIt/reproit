@@ -391,6 +391,7 @@ fn every_detectable_backend_framework_has_a_family_or_is_php_symfony() {
         "echo",
         "fiber",
         "chi",
+        "gorilla/mux",
         "net/http",
     ] {
         assert!(
