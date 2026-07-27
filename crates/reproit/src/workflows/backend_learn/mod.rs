@@ -10,6 +10,7 @@ use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::ExitCode;
 
+mod discovery;
 mod django_urls;
 mod dotnet_ast;
 pub(super) mod drift;

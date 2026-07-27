@@ -63,7 +63,7 @@ pub(super) fn run(ctx: &Ctx, root: &Path) -> Result<ExitCode> {
 fn services_under(root: &Path) -> Vec<PathBuf> {
     match drift::source_root(root, None) {
         drift::SourceRoot::Scan(path) => {
-            if backend_detect::detect_backend_framework(&path).is_some() {
+            if super::discovery::is_service_root(&path) {
                 vec![path]
             } else {
                 Vec::new()
@@ -76,7 +76,7 @@ fn services_under(root: &Path) -> Vec<PathBuf> {
             // directories serves both. Reporting only the children silently
             // dropped ~30 applications and 45 routes from one real repo, with
             // the count giving no hint that anything was missing.
-            if backend_detect::detect_backend_framework(root).is_some() {
+            if super::discovery::is_service_root(root) {
                 services.insert(0, root.to_path_buf());
             }
             services

@@ -595,6 +595,74 @@ fn the_report_writes_nothing() {
     assert_eq!(before, after, "the report wrote to the project");
 }
 
+#[test]
+fn surface_descends_into_one_nested_service() {
+    let dir = project(&[
+        (
+            "redis/Cargo.toml",
+            "[package]\nname = \"redis-service\"\nversion = \"0.1.0\"\n\
+             edition = \"2021\"\n[dependencies]\naxum = \"0.8\"\n",
+        ),
+        (
+            "redis/src/main.rs",
+            "async fn main() {\n    let app = Router::new().route(\"/health\", get(health));\n\
+             \x20   axum::serve(listener, app).await.unwrap();\n}\n",
+        ),
+    ]);
+    let before = snapshot(&dir);
+    let ctx = crate::interface::cli::context::Ctx::default();
+    let result = super::surface(&ctx, &dir);
+    let after = snapshot(&dir);
+    assert!(
+        result.is_ok(),
+        "one nested service must be discovered: {result:?}"
+    );
+    assert_eq!(before, after, "surface changed the nested service");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn surface_discovers_services_under_non_shipping_directory_names() {
+    let manifest = "[package]\nname = \"service\"\nversion = \"0.1.0\"\n\
+                    edition = \"2021\"\n[dependencies]\naxum = \"0.8\"\n";
+    let source = "async fn main() {\n\
+                  \x20   let app = Router::new().route(\"/health\", get(health));\n\
+                  \x20   axum::serve(listener, app).await.unwrap();\n}\n";
+    let dir = project(&[
+        (
+            "examples/Cargo.toml",
+            "[workspace]\nresolver = \"2\"\nmembers = [\"one\"]\n",
+        ),
+        ("examples/one/Cargo.toml", manifest),
+        ("examples/one/src/main.rs", source),
+        ("benches/two/Cargo.toml", manifest),
+        ("benches/two/src/main.rs", source),
+        ("tests/three/Cargo.toml", manifest),
+        ("tests/three/src/main.rs", source),
+        ("spec/four/Cargo.toml", manifest),
+        ("spec/four/src/main.rs", source),
+    ]);
+    let before = snapshot(&dir);
+    let ctx = crate::interface::cli::context::Ctx::default();
+    let result = super::surface(&ctx, &dir);
+    let after = snapshot(&dir);
+    assert!(
+        result.is_ok(),
+        "deployable services must not inherit source-file skip rules: {result:?}"
+    );
+    assert_eq!(before, after, "surface changed a discovered service");
+    let super::drift::SourceRoot::Ambiguous(services) = super::drift::source_root(&dir, None)
+    else {
+        panic!("four nested services must remain independently discoverable");
+    };
+    assert!(
+        services.contains(&"examples/one".to_string())
+            && !services.contains(&"examples".to_string()),
+        "a workspace-only manifest is an aggregator, not a service leaf: {services:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Every file under a root, with its bytes, so a rewrite is caught as well as
 /// a create or a delete.
 fn snapshot(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {

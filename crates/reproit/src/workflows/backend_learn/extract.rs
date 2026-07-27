@@ -233,11 +233,6 @@ struct Scan {
     skipped: usize,
 }
 
-/// Whether a directory never holds first-party sources.
-pub(super) fn skipped_dir(name: &str) -> bool {
-    SKIP_DIRS.contains(&name)
-}
-
 /// Bounded, deterministic source walk: sorted entries, capped depth and count,
 /// skip directories that never hold first-party routes.
 fn source_files(root: &Path, extensions: &[&str]) -> Scan {
