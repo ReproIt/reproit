@@ -689,6 +689,38 @@ fn surface_descends_into_one_nested_service() {
 }
 
 #[test]
+fn a_dotnet_solution_root_does_not_duplicate_its_nested_web_service() {
+    let dir = project(&[
+        ("CleanArchitecture.slnx", "<Solution></Solution>\n"),
+        ("global.json", "{}\n"),
+        (
+            "src/Web/Web.csproj",
+            r#"<Project Sdk="Microsoft.NET.Sdk.Web"></Project>"#,
+        ),
+        (
+            "src/Web/Program.cs",
+            "var app = WebApplication.Create();\n\
+             app.MapGet(\"/health\", () => \"ok\");\n\
+             app.Run();\n",
+        ),
+    ]);
+    let super::drift::SourceRoot::Scan(service) = super::drift::source_root(&dir, None) else {
+        panic!("a solution with one web project must resolve to that project");
+    };
+    assert_eq!(
+        service.strip_prefix(&dir).expect("nested service"),
+        std::path::Path::new("src/Web")
+    );
+    let before = snapshot(&dir);
+    let ctx = crate::interface::cli::context::Ctx::default();
+    let result = super::surface(&ctx, &dir);
+    let after = snapshot(&dir);
+    assert!(result.is_ok(), "solution root must report: {result:?}");
+    assert_eq!(before, after, "surface changed the solution");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn surface_discovers_services_under_non_shipping_directory_names() {
     let manifest = "[package]\nname = \"service\"\nversion = \"0.1.0\"\n\
                     edition = \"2021\"\n[dependencies]\naxum = \"0.8\"\n";

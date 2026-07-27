@@ -6,7 +6,9 @@
 //! the policies separate prevents the file-content skip list from hiding whole
 //! applications.
 
-use crate::adapters::project_scaffold::backend_detect::detect_backend_framework;
+use crate::adapters::project_scaffold::backend_detect::{
+    detect_backend_framework, is_dotnet_aggregator,
+};
 use std::path::{Path, PathBuf};
 
 /// Bound the scan for sibling services.
@@ -85,7 +87,9 @@ fn descend(root: &Path, dir: &Path, depth: usize, found: &mut Vec<String>) {
 }
 
 pub(super) fn is_service_root(path: &Path) -> bool {
-    detect_backend_framework(path).is_some() && !is_workspace_aggregator(path)
+    detect_backend_framework(path).is_some()
+        && !is_workspace_aggregator(path)
+        && !is_dotnet_aggregator(path)
 }
 
 /// Cargo workspace-only manifests group services but do not serve routes.

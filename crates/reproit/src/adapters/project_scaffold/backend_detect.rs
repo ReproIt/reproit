@@ -6,6 +6,14 @@ use std::path::{Path, PathBuf};
 
 /// Manifests are small; anything larger is not a manifest we should parse.
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+const MAX_DOTNET_PROJECT_SCAN: usize = 128;
+const MAX_DOTNET_PROJECT_DEPTH: usize = 4;
+const DOTNET_WEB_SDKS: [&str; 3] = [
+    "Microsoft.NET.Sdk.Web",
+    "Microsoft.NET.Sdk.Razor",
+    "Microsoft.NET.Sdk.BlazorWebAssembly",
+];
+const DOTNET_SKIP_DIRS: [&str; 6] = ["bin", "obj", "node_modules", "vendor", "build", ".git"];
 
 /// One detected backend framework: where it was seen, how to get a schema out
 /// of it, and the one-line ReproIt adapter mount for effect-level verdicts.
@@ -109,30 +117,126 @@ fn go_framework(name: &'static str) -> BackendFramework {
 /// Detect the backend framework of a project directory from its manifests.
 /// Returns None for UI projects and anything unrecognized. package.json is
 /// treated as a backend only when it has a server framework and no obvious
-/// ASP.NET Core, detected from a `.csproj`. The SDK attribute is the marker:
-/// `Microsoft.NET.Sdk.Web` is a web project, a plain `Microsoft.NET.Sdk` is a
-/// library or console app with no routes to read.
+/// ASP.NET Core, detected from a `.csproj`.
+///
+/// A solution marker permits a bounded search for nested projects, but is not
+/// itself evidence of a web service. The project SDK is still authoritative:
+/// plain library, console, worker, test, and app-host projects remain excluded.
 fn dotnet_backend(dir: &Path) -> Option<BackendFramework> {
-    let entries = std::fs::read_dir(dir).ok()?;
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("csproj") {
-            continue;
-        }
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        if !text.contains("Microsoft.NET.Sdk.Web") {
-            continue;
-        }
-        return Some(framework(
-            "aspnet",
-            "csproj",
-            "expose an OpenAPI schema with Swashbuckle or the built-in \
-             `AddOpenApi()` (serves /swagger/v1/swagger.json or /openapi/v1.json), \
-             then `reproit init <that url>`",
-            "app.UseMiddleware<ReproitMiddleware>(capture)",
-        ));
+    if direct_dotnet_web_project(dir) {
+        return Some(dotnet_framework("csproj"));
     }
-    None
+    let marker = dotnet_root_marker(dir)?;
+    let mut remaining = MAX_DOTNET_PROJECT_SCAN;
+    nested_dotnet_web_project(dir, 0, &mut remaining).then(|| dotnet_framework(marker))
+}
+
+fn dotnet_framework(manifest: &'static str) -> BackendFramework {
+    framework(
+        "aspnet",
+        manifest,
+        "expose an OpenAPI schema with Swashbuckle or the built-in \
+         `AddOpenApi()` (serves /swagger/v1/swagger.json or /openapi/v1.json), \
+         then `reproit init <that url>`",
+        "app.UseMiddleware<ReproitMiddleware>(capture)",
+    )
+}
+
+fn direct_dotnet_web_project(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .any(|path| is_dotnet_web_project(&path))
+}
+
+fn is_dotnet_web_project(path: &Path) -> bool {
+    if path.extension().and_then(|extension| extension.to_str()) != Some("csproj") {
+        return false;
+    }
+    let readable = std::fs::metadata(path)
+        .ok()
+        .is_some_and(|metadata| metadata.is_file() && metadata.len() <= MAX_MANIFEST_BYTES);
+    if !readable {
+        return false;
+    }
+    let Ok(project) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    DOTNET_WEB_SDKS.iter().any(|sdk| project.contains(sdk))
+}
+
+fn dotnet_root_marker(dir: &Path) -> Option<&'static str> {
+    if dir.join("global.json").is_file() {
+        return Some("global.json");
+    }
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut extensions: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            path.is_file()
+                .then(|| path.extension()?.to_str().map(str::to_string))
+                .flatten()
+        })
+        .collect();
+    extensions.sort();
+    if extensions.iter().any(|extension| extension == "slnx") {
+        Some("slnx")
+    } else if extensions.iter().any(|extension| extension == "sln") {
+        Some("sln")
+    } else {
+        None
+    }
+}
+
+fn nested_dotnet_web_project(dir: &Path, depth: usize, remaining: &mut usize) -> bool {
+    if depth > MAX_DOTNET_PROJECT_DEPTH || *remaining == 0 {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let mut candidates: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            if path.is_dir() {
+                return path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        !name.starts_with('.') && !DOTNET_SKIP_DIRS.contains(&name)
+                    });
+            }
+            path.extension().and_then(|extension| extension.to_str()) == Some("csproj")
+        })
+        .collect();
+    candidates.sort();
+    for path in candidates {
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining -= 1;
+        if path.is_dir() {
+            if nested_dotnet_web_project(&path, depth + 1, remaining) {
+                return true;
+            }
+        } else if is_dotnet_web_project(&path) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether a solution root groups nested web projects but is not one itself.
+pub(crate) fn is_dotnet_aggregator(dir: &Path) -> bool {
+    dotnet_root_marker(dir).is_some() && !direct_dotnet_web_project(dir) && {
+        let mut remaining = MAX_DOTNET_PROJECT_SCAN;
+        nested_dotnet_web_project(dir, 0, &mut remaining)
+    }
 }
 
 /// frontend framework, so web projects keep their web init.
@@ -443,7 +547,11 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         for (name, content) in files {
-            std::fs::write(dir.join(name), content).unwrap();
+            let path = dir.join(name);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(path, content).unwrap();
         }
         dir
     }
@@ -619,5 +727,47 @@ mod tests {
             Some("gorilla/mux")
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn dotnet_root_markers_find_a_nested_web_project() {
+        for marker in ["Repo.sln", "Repo.slnx", "global.json"] {
+            let dir = project(&[
+                (marker, "{}"),
+                (
+                    "src/Web/Web.csproj",
+                    r#"<Project Sdk="Microsoft.NET.Sdk.Web"></Project>"#,
+                ),
+                (
+                    "src/Web/Program.cs",
+                    r#"app.MapGet("/health", () => "ok");"#,
+                ),
+            ]);
+            let detected = detect_backend_framework(&dir);
+            assert_eq!(
+                detected.as_ref().map(|framework| framework.name),
+                Some("aspnet"),
+                "marker {marker}"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn razor_and_blazor_sdk_projects_are_dotnet_web_projects() {
+        for sdk in [
+            "Microsoft.NET.Sdk.Razor",
+            "Microsoft.NET.Sdk.BlazorWebAssembly",
+        ] {
+            let project_file = format!(r#"<Project Sdk="{sdk}"></Project>"#);
+            let dir = project(&[("App.csproj", &project_file)]);
+            let detected = detect_backend_framework(&dir);
+            assert_eq!(
+                detected.as_ref().map(|framework| framework.name),
+                Some("aspnet"),
+                "SDK {sdk}"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 }
