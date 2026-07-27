@@ -43,6 +43,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
     // constant, say). Their real paths are unknowable from source, so their
     // routes are dropped rather than emitted one prefix short.
     let mut opaque: BTreeSet<String> = BTreeSet::new();
+    let mut included: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut pending: Vec<(String, Vec<PyRoute>)> = Vec::new();
     // view name -> the verbs it answers, for Django, where the URL states none.
     let mut view_verbs: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
@@ -61,13 +62,24 @@ pub(super) fn read(root: &Path) -> SourceRead {
             continue;
         }
         source.files_parsed += 1;
+        let module = module_of(root, &file);
         // Router bindings are LOCAL. `router = APIRouter(prefix="/items")` in
         // one module and a bare `router = APIRouter()` in another are two
         // routers sharing a name; a map that outlived the file put the first
         // one's prefix on the second one's routes and invented every path.
         let mut prefixes: BTreeMap<String, String> = BTreeMap::new();
+        let mut imported_values = BTreeMap::new();
+        collect_imported_values(tree.root_node(), &text, &module, &mut imported_values);
         collect_prefixes(tree.root_node(), &text, &mut prefixes);
-        collect_mounts(tree.root_node(), &text, &mut mounted, &mut opaque);
+        collect_mounts(
+            tree.root_node(),
+            &text,
+            &module,
+            &imported_values,
+            &mut mounted,
+            &mut opaque,
+            &mut included,
+        );
         collect_view_verbs(tree.root_node(), &text, &mut view_verbs);
         let mut found = Vec::new();
         // Django declares routes in urls.py rather than on the handler, and
@@ -75,7 +87,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         // that file so an ordinary `path(...)` helper elsewhere is not a route.
         if file.file_name().is_some_and(|name| name == "urls.py") {
             django_routes(tree.root_node(), &text, &mut found, &mut mounted);
-            django_files.insert(module_of(&file));
+            django_files.insert(module.clone());
         }
         walk(
             tree.root_node(),
@@ -90,10 +102,10 @@ pub(super) fn read(root: &Path) -> SourceRead {
         // Every Django app names its route table `urls.py`, so the stem
         // collides across the whole project; the app is the DIRECTORY, which is
         // also what `include('blog.urls')` names.
-        let module = module_of(&file);
         pending.push((module, found));
     }
 
+    propagate_opaque_mounts(&included, &mut opaque);
     for (module, routes) in pending {
         // A module mounted under an unreadable prefix contributes nothing: the
         // paths it serves are real but their location is not knowable here, and
@@ -479,24 +491,23 @@ fn field_text(node: Node, field: &str, text: &str) -> Option<String> {
 
 /// The module key for a source file: the app directory for a Django `urls.py`,
 /// whose stem collides across the whole project, and the stem otherwise.
-fn module_of(file: &std::path::Path) -> String {
-    if file.file_name().is_some_and(|name| name == "urls.py") {
-        // The dotted module path an `include(...)` would name, so
-        // `ipam/api/urls.py` is `ipam.api` rather than the ambiguous `api`.
-        let parts: Vec<String> = file
-            .parent()
-            .map(|dir| {
-                dir.components()
-                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let tail: Vec<String> = parts.into_iter().rev().take(2).collect();
-        return tail.into_iter().rev().collect::<Vec<_>>().join(".");
-    }
-    file.file_stem()
+fn module_of(root: &Path, file: &Path) -> String {
+    let relative = file.strip_prefix(root).unwrap_or(file);
+    let mut parts: Vec<String> = relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let Some(last) = parts.pop() else {
+        return String::new();
+    };
+    let stem = Path::new(&last)
+        .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if stem != "urls" && stem != "__init__" {
+        parts.push(stem);
+    }
+    parts.join(".")
 }
 
 /// Cross-file mounts: `include_router(items.router, prefix="/api")`.
@@ -508,8 +519,11 @@ fn module_of(file: &std::path::Path) -> String {
 fn collect_mounts(
     node: Node,
     text: &str,
+    current_module: &str,
+    imported_values: &BTreeMap<String, (String, String)>,
     mounted: &mut BTreeMap<String, String>,
     opaque: &mut BTreeSet<String>,
+    included: &mut BTreeMap<String, BTreeSet<String>>,
 ) {
     if node.kind() == "call" {
         let callee = node
@@ -525,9 +539,27 @@ fn collect_mounts(
                     .and_then(|node| node.utf8_text(text.as_bytes()).ok())
                     .unwrap_or_default()
                     .to_string();
-                // `items.router` names the module; a bare `router` does not.
-                if let Some((module, _)) = first.split_once('.') {
-                    let module = module.trim().to_string();
+                // A dotted value names its module directly. A bare value can
+                // name one just as precisely when an import statement binds it
+                // in this file.
+                let module = first
+                    .split_once('.')
+                    .map(|(binding, _)| {
+                        imported_values
+                            .get(binding.trim())
+                            .map(|(_, imported_module)| imported_module.clone())
+                            .unwrap_or_else(|| binding.trim().to_string())
+                    })
+                    .or_else(|| {
+                        imported_values
+                            .get(first.trim())
+                            .map(|(owner, _)| owner.clone())
+                    });
+                if let Some(module) = module {
+                    included
+                        .entry(current_module.to_string())
+                        .or_default()
+                        .insert(module.clone());
                     match keyword_string(node, text, &["prefix"]) {
                         Some(prefix) => {
                             mounted.insert(module, prefix.trim_end_matches('/').to_string());
@@ -547,8 +579,105 @@ fn collect_mounts(
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_mounts(child, text, mounted, opaque);
+        collect_mounts(
+            child,
+            text,
+            current_module,
+            imported_values,
+            mounted,
+            opaque,
+            included,
+        );
     }
+}
+
+fn propagate_opaque_mounts(
+    included: &BTreeMap<String, BTreeSet<String>>,
+    opaque: &mut BTreeSet<String>,
+) {
+    for _ in 0..=included.len() {
+        let mut changed = false;
+        for (parent, children) in included {
+            if !opaque.contains(parent) {
+                continue;
+            }
+            for child in children {
+                changed |= opaque.insert(child.clone());
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+/// Bare values imported from another module, keyed by their local binding.
+///
+/// `from app.api.main import api_router` makes the otherwise bare
+/// `include_router(api_router, ...)` just as resolvable as `api.router`.
+fn collect_imported_values(
+    node: Node,
+    text: &str,
+    current_module: &str,
+    imports: &mut BTreeMap<String, (String, String)>,
+) {
+    if node.kind() == "import_from_statement" {
+        let raw = node.utf8_text(text.as_bytes()).unwrap_or_default();
+        if let Some(rest) = raw.trim().strip_prefix("from ") {
+            if let Some((module, names)) = rest.split_once(" import ") {
+                let module = resolve_python_module(current_module, module.trim());
+                if !module.is_empty() {
+                    let names = names.trim().trim_matches(['(', ')']);
+                    for imported in names.split(',').take(MAX_FIELDS) {
+                        let imported = imported.trim();
+                        let local = imported
+                            .split_once(" as ")
+                            .map(|(_, alias)| alias.trim())
+                            .unwrap_or(imported);
+                        if local
+                            .chars()
+                            .all(|character| character == '_' || character.is_ascii_alphanumeric())
+                            && local
+                                .chars()
+                                .next()
+                                .is_some_and(|character| !character.is_ascii_digit())
+                        {
+                            let imported_name = imported
+                                .split_once(" as ")
+                                .map(|(name, _)| name.trim())
+                                .unwrap_or(imported);
+                            let imported_module = format!("{module}.{imported_name}");
+                            imports.insert(local.to_string(), (module.clone(), imported_module));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_imported_values(child, text, current_module, imports);
+    }
+}
+
+fn resolve_python_module(current_module: &str, imported: &str) -> String {
+    let dot_count = imported
+        .chars()
+        .take_while(|character| *character == '.')
+        .count();
+    if dot_count == 0 {
+        return imported.to_string();
+    }
+    let mut base: Vec<&str> = current_module.split('.').collect();
+    base.pop();
+    for _ in 1..dot_count {
+        base.pop();
+    }
+    let suffix = imported.trim_start_matches('.');
+    if !suffix.is_empty() {
+        base.extend(suffix.split('.'));
+    }
+    base.join(".")
 }
 
 /// Mount prefixes by router variable.
@@ -711,6 +840,36 @@ async def create_block(body: BlockRequest):
             !paths.contains(&&"/login".to_string()),
             "an unknowable prefix must abstain: {paths:?}"
         );
+    }
+
+    #[test]
+    fn an_imported_bare_router_with_an_unreadable_prefix_abstains() {
+        let source = read_source(
+            "opaque_bare_mount",
+            &[
+                (
+                    "main.py",
+                    "from fastapi import FastAPI\nfrom api import api_router\napp = FastAPI()\n\
+                     app.include_router(api_router, prefix=settings.API_V1_STR)\n",
+                ),
+                (
+                    "api.py",
+                    "from fastapi import APIRouter\nfrom login import router\napi_router = APIRouter()\n\
+                     api_router.include_router(router)\n",
+                ),
+                (
+                    "login.py",
+                    "from fastapi import APIRouter\nrouter = APIRouter()\n\
+                     @router.post(\"/login\")\nasync def login(): return {}\n",
+                ),
+            ],
+        );
+        assert!(
+            source.routes.is_empty(),
+            "a bare imported router with an unknowable prefix must abstain: {:?}",
+            source.routes
+        );
+        assert_eq!(source.files_unreadable, 2);
     }
 
     #[test]
