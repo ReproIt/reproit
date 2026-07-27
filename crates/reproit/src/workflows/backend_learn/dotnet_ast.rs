@@ -495,6 +495,71 @@ public class UsersController : ControllerBase
     }
 
     #[test]
+    fn a_method_level_route_composes_instead_of_collapsing() {
+        // Every action of this controller carries its own `[Route]`. Reading
+        // only the verb attribute collapsed them all onto the class prefix,
+        // fabricating a bare route nothing serves and losing the real ones.
+        let source = read_source(
+            "method_route",
+            &[(
+                "C.cs",
+                "[Route(\"integration-api/identity/users\")]\n\
+                 public class IdentityUserIntegrationController : ControllerBase\n{\n\
+                 \x20   [HttpGet]\n    [Route(\"{id}/role-names\")]\n\
+                 \x20   public IActionResult R(Guid id) => Ok();\n\
+                 \x20   [HttpGet]\n    [Route(\"count/roles\")]\n\
+                 \x20   public IActionResult C() => Ok();\n}\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(
+            paths.contains(&&"/integration-api/identity/users/{id}/role-names".to_string()),
+            "{paths:?}"
+        );
+        assert!(
+            !paths.contains(&&"/integration-api/identity/users".to_string()),
+            "nothing serves the bare class route: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn map_group_composes_and_a_relative_template_is_a_path() {
+        let source = read_source(
+            "mapgroup",
+            &[(
+                "Program.cs",
+                "var app = WebApplication.Create();\n\
+                 app.MapGet(\"api/catalog-brands\", () => \"ok\");\n\
+                 var api = app.MapGroup(\"api/orders\");\n\
+                 api.MapGet(\"{orderId}\", () => \"ok\");\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(
+            paths.contains(&&"/api/catalog-brands".to_string()),
+            "{paths:?}"
+        );
+        assert!(
+            paths.contains(&&"/api/orders/{orderId}".to_string()),
+            "{paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_root_absolute_method_template_overrides_the_class() {
+        let source = read_source(
+            "absolute",
+            &[(
+                "C.cs",
+                "[Route(\"api/v1/legacy\")]\npublic class LegacyController : ControllerBase\n{\n\
+                 \x20   [HttpGet(\"/absolute/root\")] public IActionResult A() => Ok();\n}\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert_eq!(paths, vec![&"/absolute/root".to_string()], "{paths:?}");
+    }
+
+    #[test]
     fn a_file_that_does_not_parse_is_counted() {
         let source = read_source(
             "broken",

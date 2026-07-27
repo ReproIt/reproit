@@ -618,6 +618,82 @@ func main() {
     }
 
     #[test]
+    fn a_group_prefix_does_not_leak_into_another_file() {
+        // `r := app.Group("/auth")` in one file put `/auth` on another file's
+        // routes: four invented paths, four real ones gone.
+        let source = read_source(
+            "no_leak",
+            &[
+                (
+                    "auth.go",
+                    "package r\nfunc A(app *fiber.App) {\n\tr := app.Group(\"/auth\")\n\
+                     \tr.Post(\"/signup\", Signup)\n}\n",
+                ),
+                (
+                    "todo.go",
+                    "package r\nfunc T(app *fiber.App) {\n\tr := app.Group(\"/todo\")\n\
+                     \tr.Get(\"/list\", List)\n}\n",
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(paths.contains(&&"/auth/signup".to_string()), "{paths:?}");
+        assert!(paths.contains(&&"/todo/list".to_string()), "{paths:?}");
+        assert!(
+            !paths.contains(&&"/auth/list".to_string()),
+            "a neighbour's prefix must not be applied: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn chi_route_and_mount_compose_lexically() {
+        let source = read_source(
+            "chi_nesting",
+            &[(
+                "main.go",
+                "package main\nfunc main() {\n\tr := chi.NewRouter()\n\
+                 \tr.Route(\"/articles\", func(r chi.Router) {\n\
+                 \t\tr.Get(\"/search\", Search)\n\t})\n\
+                 \tr.Mount(\"/admin\", adminRouter())\n}\n\
+                 func adminRouter() http.Handler {\n\tr := chi.NewRouter()\n\
+                 \tr.Get(\"/accounts\", Accounts)\n\treturn r\n}\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(
+            paths.contains(&&"/articles/search".to_string()),
+            "{paths:?}"
+        );
+        assert!(
+            paths.contains(&&"/admin/accounts".to_string()),
+            "a mounted router must carry its prefix: {paths:?}"
+        );
+        assert!(
+            !paths.contains(&&"/accounts".to_string()),
+            "and must not also surface unprefixed: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_group_prefix_from_a_constant_skips_its_routes() {
+        // The prefix is unknowable, so the routes are real but their location
+        // is not. Emitting them at the root names paths nothing serves.
+        let source = read_source(
+            "opaque_group",
+            &[(
+                "main.go",
+                "package main\nconst adminBase = \"/admin\"\nfunc main() {\n\
+                 \tg := r.Group(adminBase)\n\tg.GET(\"/stats\", Stats)\n}\n",
+            )],
+        );
+        assert!(
+            source.routes.is_empty(),
+            "an unreadable prefix must abstain: {:?}",
+            source.routes
+        );
+    }
+
+    #[test]
     fn a_file_that_does_not_parse_is_counted() {
         let source = read_source(
             "broken",

@@ -495,6 +495,31 @@ mod tests {
     }
 
     #[test]
+    fn a_path_without_a_leading_slash_is_still_a_route() {
+        // Requiring one cost a real application 326 of its 328 routes.
+        let source = read_source(
+            "slashless",
+            &[(
+                "routes.php",
+                "<?php\nRoute::get('noslash', fn() => 1);\n\
+                 Route::apiResource('users', UserController::class);\n\
+                 Route::prefix('v1')->group(function () {\n\
+                 \x20   Route::get('/inner', fn() => 1);\n});\n\
+                 Route::group(['prefix' => 'v2'], function () {\n\
+                 \x20   Route::get('/other', fn() => 1);\n});\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(paths.contains(&&"/noslash".to_string()), "{paths:?}");
+        assert!(
+            paths.contains(&&"/users".to_string()),
+            "apiResource: {paths:?}"
+        );
+        assert!(paths.contains(&&"/v1/inner".to_string()), "{paths:?}");
+        assert!(paths.contains(&&"/v2/other".to_string()), "{paths:?}");
+    }
+
+    #[test]
     fn a_file_that_does_not_parse_is_counted() {
         let source = read_source(
             "broken",

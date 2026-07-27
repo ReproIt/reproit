@@ -539,6 +539,50 @@ mod tests {
     }
 
     #[test]
+    fn the_hashrocket_form_is_a_route_and_only_restricts_a_resource() {
+        // Discourse writes `get "/x" => "c#a"` 743 times; reading only the
+        // comma form lost almost the entire routes file. `only:` restricts the
+        // expansion, which otherwise invents routes that 404.
+        let source = read_source(
+            "hashrocket",
+            &[(
+                "routes.rb",
+                "Rails.application.routes.draw do\n\
+                 \x20 get \"/404-body\" => \"exceptions#not_found_body\"\n\
+                 \x20 post \"/webhooks/aws\" => \"webhooks#aws\"\n\
+                 \x20 resources :about, only: [:index]\n\
+                 \x20 resources :words, only: %i[index create destroy]\nend\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(paths.contains(&&"/404-body".to_string()), "{paths:?}");
+        assert!(paths.contains(&&"/webhooks/aws".to_string()), "{paths:?}");
+        assert_eq!(
+            source
+                .routes
+                .iter()
+                .filter(|(p, _, _)| p == "/about")
+                .count(),
+            1,
+            "only: [:index] is one operation: {paths:?}"
+        );
+        assert!(
+            !paths.contains(&&"/about/{id}".to_string()),
+            "show/update/destroy are not in only: {paths:?}"
+        );
+        // %i[...] must not weld its `i` onto the first symbol.
+        assert_eq!(
+            source
+                .routes
+                .iter()
+                .filter(|(p, _, _)| p == "/words")
+                .count(),
+            2,
+            "index and create: {paths:?}"
+        );
+    }
+
+    #[test]
     fn a_file_that_does_not_parse_is_counted() {
         let source = read_source(
             "broken",

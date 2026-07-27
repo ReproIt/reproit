@@ -621,6 +621,49 @@ public class BlockController {
     }
 
     #[test]
+    fn every_spring_annotation_form_keeps_its_path() {
+        // The named-argument and array forms lost their path and fell back to
+        // the class prefix, which invented a route AT the prefix.
+        let source = read_source(
+            "forms",
+            &[(
+                "A.java",
+                "@RestController\n@RequestMapping(\"/p\")\nclass A {\n\
+                 \x20 @GetMapping(\"/plain\") String s1() { return \"\"; }\n\
+                 \x20 @GetMapping({\"/arr\"}) String s2() { return \"\"; }\n\
+                 \x20 @GetMapping(value = \"/namedval\") String s3() { return \"\"; }\n\
+                 \x20 @GetMapping(path = \"/namedpath\") String s4() { return \"\"; }\n\
+                 \x20 @RequestMapping(value=\"/rm\", method=RequestMethod.PUT) String s6() { return \"\"; }\n\
+                 \x20 @GetMapping(\"relative\") String s8() { return \"\"; }\n}\n",
+            )],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        for expected in [
+            "/p/plain",
+            "/p/arr",
+            "/p/namedval",
+            "/p/namedpath",
+            "/p/rm",
+            "/p/relative",
+        ] {
+            assert!(
+                paths.contains(&&expected.to_string()),
+                "{expected}: {paths:?}"
+            );
+        }
+        assert!(
+            !paths.contains(&&"/p".to_string()),
+            "nothing serves the bare class prefix: {paths:?}"
+        );
+        let put = source
+            .routes
+            .iter()
+            .find(|(path, _, _)| path == "/p/rm")
+            .map(|(_, method, _)| *method);
+        assert_eq!(put, Some("put"), "the verb comes from method=");
+    }
+
+    #[test]
     fn a_file_that_does_not_parse_is_counted() {
         let source = read_source(
             "broken",

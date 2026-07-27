@@ -852,6 +852,64 @@ async def create_block(body: BlockRequest):
 "#;
 
     #[test]
+    fn a_router_prefix_does_not_leak_into_another_module() {
+        // A prefix-less `APIRouter()` in users.py inherited `/items` from
+        // items.py, inventing /items/users/me and losing /users/me.
+        let source = read_source(
+            "no_leak",
+            &[
+                (
+                    "items.py",
+                    "from fastapi import APIRouter\nrouter = APIRouter(prefix=\"/items\")\n\
+                     @router.get(\"/{item_id}\")\nasync def read_item(item_id: str): return {}\n",
+                ),
+                (
+                    "users.py",
+                    "from fastapi import APIRouter\nrouter = APIRouter()\n\
+                     @router.get(\"/users/me\")\nasync def me(): return {}\n",
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(
+            paths.contains(&&"/items/{item_id}".to_string()),
+            "{paths:?}"
+        );
+        assert!(paths.contains(&&"/users/me".to_string()), "{paths:?}");
+        assert!(
+            !paths.contains(&&"/items/users/me".to_string()),
+            "a neighbour's prefix must not be applied: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_module_mounted_under_an_unreadable_prefix_abstains() {
+        // `include_router(api_router, prefix=settings.API_V1_STR)`: the routes
+        // are real but their location is not knowable, and emitting them one
+        // prefix short names paths the service does not serve.
+        let source = read_source(
+            "opaque_mount",
+            &[
+                (
+                    "main.py",
+                    "from fastapi import FastAPI\nfrom . import api\napp = FastAPI()\n\
+                     app.include_router(api.router, prefix=settings.API_V1_STR)\n",
+                ),
+                (
+                    "api.py",
+                    "from fastapi import APIRouter\nrouter = APIRouter()\n\
+                     @router.post(\"/login\")\nasync def login(): return {}\n",
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert!(
+            !paths.contains(&&"/login".to_string()),
+            "an unknowable prefix must abstain: {paths:?}"
+        );
+    }
+
+    #[test]
     fn the_decorator_the_handler_and_its_model_are_one_structure() {
         let source = read_source("basic", &[("main.py", APP)]);
         assert_eq!(

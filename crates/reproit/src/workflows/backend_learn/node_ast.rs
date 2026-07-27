@@ -691,6 +691,67 @@ mod tests {
     }
 
     #[test]
+    fn a_test_source_is_not_the_served_surface() {
+        // `request(app).get('/1/abc')` is a URL the test DRIVES. Reading them
+        // made 144 of 162 reported NestJS paths fictional.
+        let source = read_source(
+            "testfiles",
+            &[
+                (
+                    "server.js",
+                    "const app = require('express')();\napp.get('/real', h);\n",
+                ),
+                (
+                    "server.spec.js",
+                    "const request = require('supertest');\nrequest(app).get('/1/abc');\n",
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert_eq!(paths, vec![&"/real".to_string()], "{paths:?}");
+    }
+
+    #[test]
+    fn an_http_client_call_is_not_a_route() {
+        // `api.get('/x')` on an axios instance is someone else's surface.
+        let source = read_source(
+            "client",
+            &[
+                (
+                    "server.js",
+                    "const app = require('express')();\napp.get('/real', h);\n",
+                ),
+                (
+                    "client.js",
+                    "import axios from 'axios';\nconst api = axios.create({});\n\
+                     api.get('/api/frontend-only');\n",
+                ),
+            ],
+        );
+        let paths: Vec<&String> = source.routes.iter().map(|(path, _, _)| path).collect();
+        assert_eq!(paths, vec![&"/real".to_string()], "{paths:?}");
+    }
+
+    #[test]
+    fn a_non_literal_controller_argument_abstains() {
+        // `@Controller(RouteKey.Asset)` emitted `/RouteKey.Asset`, burying the
+        // real `/assets` surface behind a path nothing serves.
+        let source = read_source(
+            "enumprefix",
+            &[(
+                "a.controller.ts",
+                "import { Controller, Get } from '@nestjs/common';\n\
+                 @Controller(RouteKey.Asset)\nexport class A { @Get(':id') one(): string { return ''; } }\n",
+            )],
+        );
+        assert!(
+            source.routes.is_empty(),
+            "an unresolvable prefix must abstain: {:?}",
+            source.routes
+        );
+    }
+
+    #[test]
     fn a_file_that_does_not_parse_is_counted() {
         let source = read_source(
             "broken",
