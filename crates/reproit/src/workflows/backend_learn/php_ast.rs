@@ -70,6 +70,11 @@ fn routes_under(
             routes_under(body, text, &inner, out);
             continue;
         }
+        if child.kind() == "member_call_expression"
+            && collect_filtered_resource(child, text, prefix, out)
+        {
+            continue;
+        }
         if child.kind() == "scoped_call_expression" {
             collect_route(child, text, prefix, out);
         }
@@ -144,14 +149,92 @@ fn join(outer: &str, inner: &str) -> String {
     }
 }
 
-/// The five operations `apiResource` declares, and the two `resource` adds.
-const API_RESOURCE: [(&str, &str); 5] = [
-    ("", "get"),
-    ("", "post"),
-    ("/{id}", "get"),
-    ("/{id}", "put"),
-    ("/{id}", "delete"),
+/// The operations declared by `resource`, including the action name Laravel
+/// accepts in `only` and `except`.
+const RESOURCE_ROUTES: [(&str, &str, &str); 7] = [
+    ("index", "", "get"),
+    ("store", "", "post"),
+    ("show", "/{id}", "get"),
+    ("update", "/{id}", "put"),
+    ("destroy", "/{id}", "delete"),
+    ("create", "/create", "get"),
+    ("edit", "/{id}/edit", "get"),
 ];
+
+/// Read a chained resource filter as one declaration.
+///
+/// Descending into the receiver after handling the chain would also collect the
+/// unfiltered `Route::resource` call and reintroduce every excluded operation.
+fn collect_filtered_resource(
+    node: Node,
+    text: &str,
+    prefix: &str,
+    out: &mut Vec<(String, &'static str, Option<String>)>,
+) -> bool {
+    let Some(filter) = grammar::field(node, text, "name") else {
+        return false;
+    };
+    if filter != "only" && filter != "except" {
+        return false;
+    }
+    let Some(resource) = node.child_by_field_name("object") else {
+        return false;
+    };
+    if resource.kind() != "scoped_call_expression" || !is_resource_call(resource, text) {
+        return false;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return true;
+    };
+    let Some(actions) = literal_action_names(arguments, text) else {
+        // A dynamic filter is not evidence for any particular route set.
+        return true;
+    };
+    collect_resource(
+        resource,
+        text,
+        prefix,
+        Some((filter.as_str(), &actions)),
+        out,
+    );
+    true
+}
+
+fn is_resource_call(node: Node, text: &str) -> bool {
+    let mut parts = Vec::new();
+    grammar::children(node, &mut parts);
+    let (Some(scope), Some(name)) = (parts.first(), parts.get(1)) else {
+        return false;
+    };
+    grammar::text(*scope, text) == "Route"
+        && matches!(
+            grammar::text(*name, text).to_ascii_lowercase().as_str(),
+            "apiresource" | "resource"
+        )
+}
+
+fn literal_action_names(node: Node, text: &str) -> Option<BTreeSet<String>> {
+    fn visit(node: Node, text: &str, actions: &mut BTreeSet<String>) -> bool {
+        if matches!(node.kind(), "string" | "encapsed_string") {
+            actions.insert(grammar::unquote(grammar::text(node, text)).to_string());
+            return true;
+        }
+        if !matches!(
+            node.kind(),
+            "arguments" | "argument" | "array_creation_expression" | "array_element_initializer"
+        ) {
+            return false;
+        }
+        let mut children = Vec::new();
+        grammar::children(node, &mut children);
+        children
+            .into_iter()
+            .all(|child| visit(child, text, actions))
+    }
+
+    let mut actions = BTreeSet::new();
+    visit(node, text, &mut actions).then_some(actions)
+}
 
 /// `Route::post('/v1/blocks', [StoreBlockRequest::class, 'store'])`.
 ///
@@ -186,17 +269,7 @@ fn collect_route(
     // `Route::apiResource('users', C::class)` declares five operations and
     // `resource` seven. Reading neither lost them entirely.
     if called == "apiresource" || called == "resource" {
-        if let Some(name) = first {
-            let base = join(prefix, &name);
-            let handler = args.get(1).and_then(|node| class_of(*node, text));
-            for (suffix, method) in API_RESOURCE {
-                out.push((format!("{base}{suffix}"), method, handler.clone()));
-            }
-            if called == "resource" {
-                out.push((format!("{base}/create"), "get", handler.clone()));
-                out.push((format!("{base}/{{id}}/edit"), "get", handler));
-            }
-        }
+        collect_resource(node, text, prefix, None, out);
         return;
     }
     // `Route::any` serves every verb; a draft can only exercise one, and GET is
@@ -215,6 +288,50 @@ fn collect_route(
             method,
             args.get(1).and_then(|node| class_of(*node, text)),
         ));
+    }
+}
+
+fn collect_resource(
+    node: Node,
+    text: &str,
+    prefix: &str,
+    restriction: Option<(&str, &BTreeSet<String>)>,
+    out: &mut Vec<(String, &'static str, Option<String>)>,
+) {
+    let mut parts = Vec::new();
+    grammar::children(node, &mut parts);
+    let Some(called) = parts
+        .get(1)
+        .map(|name| grammar::text(*name, text).to_ascii_lowercase())
+    else {
+        return;
+    };
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let mut args = Vec::new();
+    grammar::children(arguments, &mut args);
+    let Some(name) = args
+        .first()
+        .map(|arg| grammar::unquote(grammar::text(*arg, text)))
+    else {
+        return;
+    };
+    let base = join(prefix, name);
+    let handler = args.get(1).and_then(|arg| class_of(*arg, text));
+    for (action, suffix, method) in RESOURCE_ROUTES {
+        if called == "apiresource" && matches!(action, "create" | "edit") {
+            continue;
+        }
+        let included = match restriction {
+            Some(("only", actions)) => actions.contains(action),
+            Some(("except", actions)) => !actions.contains(action),
+            Some(_) => false,
+            None => true,
+        };
+        if included {
+            out.push((format!("{base}{suffix}"), method, handler.clone()));
+        }
     }
 }
 
@@ -533,6 +650,37 @@ mod tests {
         );
         assert!(paths.contains(&&"/v1/inner".to_string()), "{paths:?}");
         assert!(paths.contains(&&"/v2/other".to_string()), "{paths:?}");
+    }
+
+    #[test]
+    fn resource_action_filters_do_not_invent_excluded_routes() {
+        let source = read_source(
+            "resource-filters",
+            &[(
+                "routes.php",
+                "<?php\n\
+                 Route::apiResource('users', UserController::class)\n\
+                 \x20   ->only(['index', 'show']);\n\
+                 Route::resource('posts', PostController::class)\n\
+                 \x20   ->except('create', 'edit', 'destroy');\n",
+            )],
+        );
+        let routes: Vec<(&str, &str)> = source
+            .routes
+            .iter()
+            .map(|(path, method, _)| (path.as_str(), *method))
+            .collect();
+        assert_eq!(
+            routes,
+            vec![
+                ("/users", "get"),
+                ("/users/{id}", "get"),
+                ("/posts", "get"),
+                ("/posts", "post"),
+                ("/posts/{id}", "get"),
+                ("/posts/{id}", "put"),
+            ]
+        );
     }
 
     #[test]
