@@ -18,7 +18,7 @@ use tree_sitter::Node;
 /// One route before its engine's mount prefix is applied.
 type RbRoute = (String, &'static str, Option<String>);
 
-const METHODS: [&str; 5] = ["get", "post", "put", "patch", "delete"];
+const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
 /// The five routes `resources :name` declares that a draft can exercise.
 /// The routes `resources :name` declares, each with the action it serves so
 /// `only:`/`except:` can restrict them. `update` answers both PATCH and PUT.
@@ -186,7 +186,7 @@ fn routes(
                 }
             }
             "resources" | "resource" => {
-                if let Some(Some(name)) = args.first().map(|node| segment_of(*node, text)) {
+                if let Some(name) = resource_segment(&args, text) {
                     let base = format!("{}/{name}", prefix.trim_end_matches('/'));
                     // `only:` and `except:` restrict the set. Expanding all
                     // seven regardless invented routes that 404: 45 such
@@ -202,12 +202,20 @@ fn routes(
                 if let Some(block) = block {
                     // A `collection`/`member` block inside `resources :badges`
                     // hangs off the RESOURCE, not off the enclosing prefix.
-                    let base = args
-                        .first()
-                        .and_then(|node| segment_of(*node, text))
+                    let base = resource_segment(&args, text)
                         .map(|name| format!("{}/{name}", prefix.trim_end_matches('/')))
                         .unwrap_or_else(|| prefix.to_string());
                     routes(block, text, &base, mounts, out);
+                }
+            }
+            "match" => {
+                if let Some((path, action)) = verb_route(&args, text) {
+                    for method in match_methods(&args, text) {
+                        out.push((join_path(prefix, &path), method, action.clone()));
+                    }
+                }
+                if let Some(block) = block {
+                    routes(block, text, prefix, mounts, out);
                 }
             }
             "collection" => {
@@ -297,7 +305,9 @@ fn action_of(args: &[Node], text: &str) -> Option<String> {
 
 /// The actions a `resources` call permits, or None when it permits all seven.
 fn restricted_actions(args: &[Node], text: &str) -> Option<BTreeSet<String>> {
-    const ALL: [&str; 6] = ["index", "create", "new", "show", "update", "destroy"];
+    const ALL: [&str; 7] = [
+        "index", "create", "new", "show", "update", "destroy", "edit",
+    ];
     for argument in args {
         if argument.kind() != "pair" {
             continue;
@@ -321,6 +331,42 @@ fn restricted_actions(args: &[Node], text: &str) -> Option<BTreeSet<String>> {
         });
     }
     None
+}
+
+/// The literal path segment a resource serves.
+///
+/// A present but opaque `path:` cannot safely fall back to the resource name:
+/// that would emit a path Rails does not serve.
+fn resource_segment(args: &[Node], text: &str) -> Option<String> {
+    let name = args.first().and_then(|node| segment_of(*node, text))?;
+    for argument in args {
+        if argument.kind() != "pair"
+            || grammar::field(*argument, text, "key").as_deref() != Some("path")
+        {
+            continue;
+        }
+        return argument
+            .child_by_field_name("value")
+            .and_then(|value| segment_of(value, text));
+    }
+    Some(name)
+}
+
+/// Literal HTTP verbs declared by `match "/path", via: ...`.
+fn match_methods(args: &[Node], text: &str) -> Vec<&'static str> {
+    let Some(via) = args.iter().find_map(|argument| {
+        (argument.kind() == "pair"
+            && grammar::field(*argument, text, "key").as_deref() == Some("via"))
+        .then(|| argument.child_by_field_name("value"))
+        .flatten()
+    }) else {
+        return Vec::new();
+    };
+    let named = symbol_list(via, text);
+    METHODS
+        .into_iter()
+        .filter(|method| named.contains(*method))
+        .collect()
 }
 
 /// The symbols in `[:index, :show]` or `%i[index show]`.
@@ -677,6 +723,46 @@ mod tests {
                 .count(),
             2,
             "index and create: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn rails_match_and_resource_options_preserve_the_served_surface() {
+        let source = read_source(
+            "match-and-resource-options",
+            &[(
+                "routes.rb",
+                "Rails.application.routes.draw do\n\
+                 \x20 match \"/404\", via: %i[get post], to: \"errors#not_found\"\n\
+                 \x20 resources :ai_llm_quotas, path: \"quotas\", only: %i[index show]\n\
+                 \x20 resources :drafts, except: %i[destroy]\n\
+                 end\n",
+            )],
+        );
+        let operations: BTreeSet<(String, &'static str)> = source
+            .routes
+            .iter()
+            .map(|(path, method, _)| (path.clone(), *method))
+            .collect();
+        assert!(
+            operations.contains(&("/404".to_string(), "get"))
+                && operations.contains(&("/404".to_string(), "post")),
+            "match via: must emit every literal method: {operations:?}"
+        );
+        assert!(
+            operations.contains(&("/quotas".to_string(), "get"))
+                && operations.contains(&("/quotas/{id}".to_string(), "get")),
+            "resources path: must replace the resource segment: {operations:?}"
+        );
+        assert!(
+            !operations
+                .iter()
+                .any(|(path, _)| path.starts_with("/ai_llm_quotas")),
+            "the resource name is not a served path when path: overrides it: {operations:?}"
+        );
+        assert!(
+            operations.contains(&("/drafts/{id}/edit".to_string(), "get")),
+            "except: must preserve the edit action: {operations:?}"
         );
     }
 
