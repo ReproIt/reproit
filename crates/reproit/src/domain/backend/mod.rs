@@ -30,6 +30,7 @@ mod schema_document;
 #[cfg(test)]
 use schema_document::graphql_sdl_document;
 pub use schema_document::load_service_document;
+pub(crate) use schema_document::MAX_SCHEMA_FILE_BYTES;
 mod operation;
 #[allow(unused_imports)]
 pub use operation::{

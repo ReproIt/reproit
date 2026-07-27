@@ -1,7 +1,14 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
 use std::path::Path;
+
+/// Bound each schema document independently. This is intentionally larger than
+/// the source-file limit: generated OpenAPI contracts routinely exceed 4 MiB,
+/// while a fixed cap still prevents an accidental or hostile file from growing
+/// memory without limit.
+pub(crate) const MAX_SCHEMA_FILE_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Load a JSON/YAML service schema and inline every local file or JSON-pointer
 /// reference before import. Remote references stay explicit failures so a
@@ -33,8 +40,19 @@ pub fn load_service_document(path: &Path) -> Result<Value> {
 const MAX_INLINE_NODES: usize = 200_000;
 
 fn read_schema_document(path: &Path) -> Result<Value> {
-    let raw = std::fs::read_to_string(path)
+    let file = std::fs::File::open(path)
         .with_context(|| format!("reading backend schema {}", path.display()))?;
+    let mut raw = String::new();
+    file.take(MAX_SCHEMA_FILE_BYTES + 1)
+        .read_to_string(&mut raw)
+        .with_context(|| format!("reading backend schema {}", path.display()))?;
+    if raw.len() as u64 > MAX_SCHEMA_FILE_BYTES {
+        bail!(
+            "backend schema {} exceeds the {} byte limit",
+            path.display(),
+            MAX_SCHEMA_FILE_BYTES
+        );
+    }
     match path.extension().and_then(|value| value.to_str()) {
         Some("proto") => {
             let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -491,5 +509,29 @@ mod tests {
             "resolved document stays a JSON object"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn schema_file_size_limit_accepts_boundary_and_rejects_next_byte() {
+        let dir =
+            std::env::temp_dir().join(format!("reproit-schema-file-bound-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("schema directory");
+
+        let boundary = dir.join("boundary.json");
+        let mut contents = String::from("{}");
+        contents.push_str(&" ".repeat(MAX_SCHEMA_FILE_BYTES as usize - contents.len()));
+        std::fs::write(&boundary, &contents).expect("boundary schema");
+        load_service_document(&boundary).expect("schema at the byte limit");
+
+        contents.push(' ');
+        let over = dir.join("over.json");
+        std::fs::write(&over, contents).expect("over-limit schema");
+        let error = load_service_document(&over).expect_err("schema beyond the byte limit");
+        assert!(
+            error.to_string().contains("exceeds"),
+            "limit failure is explicit: {error:#}"
+        );
+        std::fs::remove_dir_all(&dir).expect("schema cleanup");
     }
 }

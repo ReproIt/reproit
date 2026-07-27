@@ -12,7 +12,11 @@ use crate::adapters::project_scaffold::backend_detect::{
 use std::path::{Path, PathBuf};
 
 /// Bound the scan for sibling services.
-const MAX_SERVICE_SCAN: usize = 64;
+///
+/// This covers large example collections such as Go Fiber's 90 modules while
+/// keeping manifest inspection bounded. Hitting the cap is reported as a lower
+/// bound rather than an exact count.
+pub(super) const MAX_SERVICE_SCAN: usize = 1_024;
 /// Bound traversal independently from source-file depth.
 const MAX_SERVICE_DEPTH: usize = 3;
 /// Build and dependency directories that cannot be first-party service roots.

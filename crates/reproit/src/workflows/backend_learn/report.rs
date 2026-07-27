@@ -33,7 +33,13 @@ pub(super) fn run(ctx: &Ctx, root: &Path) -> Result<ExitCode> {
     // are your services" into a claim the tool cannot support: a fiber repo of
     // 82 modules and an axum repo of 56 examples both printed exactly 32 and
     // exited 0, with no sign that anything was left out.
-    if services.len() > MAX_SERVICES {
+    if services.len() >= super::discovery::MAX_SERVICE_SCAN {
+        ctx.say(format!(
+            "note: at least {} services found, reporting the first {MAX_SERVICES}. Run reproit \
+             surface inside a service directory to see the rest.",
+            services.len()
+        ));
+    } else if services.len() > MAX_SERVICES {
         ctx.say(format!(
             "note: {} services found, reporting the first {MAX_SERVICES}. Run reproit \
              surface inside a service directory to see the rest.",
@@ -48,6 +54,7 @@ pub(super) fn run(ctx: &Ctx, root: &Path) -> Result<ExitCode> {
         ctx.emit(&serde_json::json!({
             "services": reported,
             "found": services.len(),
+            "foundIsLowerBound": services.len() >= super::discovery::MAX_SERVICE_SCAN,
             "reported": reported.len(),
         }));
     }
@@ -181,13 +188,17 @@ fn schema_absent() -> serde_json::Value {
     serde_json::json!({
         "status": "absent",
         "files": [],
+        "filesRead": 0,
+        "filesUnreadable": 0,
+        "filesSkippedByLimit": 0,
     })
 }
 
 /// The schemas this service declares. `backend.schemas` in a reproit.yaml when
 /// there is one, since a project that splits its contract across files is
 /// exactly the case a conventional single-filename lookup misses. Otherwise the
-/// conventional file.
+/// conventional file at the service root or in the standard `contrib/`
+/// contract directory.
 fn declared_schemas(service: &Path) -> Vec<PathBuf> {
     let configured = crate::workflows::backend_target::find(Some(&service.join("reproit.yaml")))
         .ok()
@@ -198,6 +209,7 @@ fn declared_schemas(service: &Path) -> Vec<PathBuf> {
         return configured;
     }
     project_scaffold::detect_backend_schema(service)
+        .or_else(|| project_scaffold::detect_backend_schema(&service.join("contrib")))
         .into_iter()
         .collect()
 }
@@ -231,11 +243,8 @@ fn compare_declared(
     schemas: &[PathBuf],
     framework: &str,
 ) -> serde_json::Value {
-    let documents: Vec<serde_json::Value> = schemas
-        .iter()
-        .filter_map(|path| crate::domain::backend::load_service_document(path).ok())
-        .collect();
-    let declared = drift::declared_routes(&documents);
+    let loaded = load_declared_schemas(schemas);
+    let declared = drift::declared_routes(&loaded.documents);
     let files: Vec<String> = schemas
         .iter()
         .map(|path| {
@@ -246,10 +255,17 @@ fn compare_declared(
         })
         .collect();
     if declared.is_empty() {
+        ctx.say(format!(
+            "  schema not checked: {}",
+            schema_blind_spot(&loaded)
+        ));
         return serde_json::json!({
             "status": "notChecked",
             "files": files,
             "reason": "no declared HTTP operations were read",
+            "filesRead": loaded.files_read,
+            "filesUnreadable": loaded.files_unreadable,
+            "filesSkippedByLimit": loaded.files_skipped_by_limit,
         });
     }
     let name = schemas
@@ -258,15 +274,24 @@ fn compare_declared(
         .map(|name| name.to_string_lossy().into_owned())
         .collect::<Vec<_>>()
         .join(", ");
-    let Some(found) = drift::compare(service, framework, &declared, &documents) else {
+    let Some(found) = drift::compare(service, framework, &declared, &loaded.documents) else {
         ctx.say(format!("  {name}: not checked against source"));
         return serde_json::json!({
             "status": "notChecked",
             "files": files,
             "declaredOperations": declared.len(),
             "reason": "no routes were read from source",
+            "filesRead": loaded.files_read,
+            "filesUnreadable": loaded.files_unreadable,
+            "filesSkippedByLimit": loaded.files_skipped_by_limit,
         });
     };
+    if loaded.files_unreadable > 0 || loaded.files_skipped_by_limit > 0 {
+        ctx.say(format!(
+            "  schema blind spot: {}",
+            schema_blind_spot(&loaded)
+        ));
+    }
     if found.is_clean() {
         ctx.say(format!(
             "  {name}: all {} declared operation(s) match a route in source",
@@ -278,10 +303,52 @@ fn compare_declared(
             ctx.say(format!("    {line}"));
         }
     }
-    schema_json(files, declared.len(), &found)
+    schema_json(files, declared.len(), &found, &loaded)
 }
 
-fn schema_json(files: Vec<String>, declared: usize, found: &drift::Drift) -> serde_json::Value {
+#[derive(Default)]
+struct LoadedSchemas {
+    documents: Vec<serde_json::Value>,
+    files_read: usize,
+    files_unreadable: usize,
+    files_skipped_by_limit: usize,
+}
+
+fn load_declared_schemas(schemas: &[PathBuf]) -> LoadedSchemas {
+    let mut loaded = LoadedSchemas::default();
+    for path in schemas {
+        let Ok(metadata) = std::fs::metadata(path) else {
+            loaded.files_unreadable += 1;
+            continue;
+        };
+        if metadata.len() > crate::domain::backend::MAX_SCHEMA_FILE_BYTES {
+            loaded.files_skipped_by_limit += 1;
+            continue;
+        }
+        match crate::domain::backend::load_service_document(path) {
+            Ok(document) => {
+                loaded.documents.push(document);
+                loaded.files_read += 1;
+            }
+            Err(_) => loaded.files_unreadable += 1,
+        }
+    }
+    loaded
+}
+
+fn schema_blind_spot(loaded: &LoadedSchemas) -> String {
+    format!(
+        "{} file(s) read, {} unreadable, {} skipped by the schema size limit",
+        loaded.files_read, loaded.files_unreadable, loaded.files_skipped_by_limit
+    )
+}
+
+fn schema_json(
+    files: Vec<String>,
+    declared: usize,
+    found: &drift::Drift,
+    loaded: &LoadedSchemas,
+) -> serde_json::Value {
     let routes = |items: &[drift::Route]| {
         items
             .iter()
@@ -303,6 +370,9 @@ fn schema_json(files: Vec<String>, declared: usize, found: &drift::Drift) -> ser
     serde_json::json!({
         "status": if found.is_clean() { "matched" } else { "drift" },
         "files": files,
+        "filesRead": loaded.files_read,
+        "filesUnreadable": loaded.files_unreadable,
+        "filesSkippedByLimit": loaded.files_skipped_by_limit,
         "declaredOperations": declared,
         "matchedOperations": found.matched,
         "sourceFilesRead": found.files_scanned,
@@ -356,6 +426,84 @@ mod tests {
             schema["servedButNotDeclared"],
             serde_json::json!([{"method": "GET", "path": "/served"}])
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn large_nested_schema_is_read_and_accounted_separately_from_source_limits() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-report-large-schema-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("source root");
+        std::fs::create_dir_all(root.join("contrib")).expect("schema root");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"large-schema\"\nversion = \"0.1.0\"\n\
+             edition = \"2021\"\n[dependencies]\naxum = \"0.8\"\n",
+        )
+        .expect("manifest");
+        std::fs::write(
+            root.join("src/main.rs"),
+            "async fn main() {\n\
+             \x20   let app = Router::new().route(\"/served\", get(served));\n\
+             \x20   axum::serve(listener, app).await.unwrap();\n}\n",
+        )
+        .expect("entry point");
+        std::fs::write(
+            root.join("src/generated.rs"),
+            " ".repeat(4 * 1024 * 1024 + 1),
+        )
+        .expect("oversized source");
+        let mut schema = String::from(
+            "{\"openapi\":\"3.1.0\",\"info\":{\"title\":\"test\",\"version\":\"1\"},\
+             \"paths\":{\"/served\":{\"get\":{\"responses\":{\"200\":{\"description\":\"ok\"}}}}}}",
+        );
+        schema.push_str(&" ".repeat(4 * 1024 * 1024 + 1));
+        std::fs::write(root.join("contrib/openapi.json"), schema).expect("large schema");
+
+        let report = report_service(&Ctx::default(), &root, &root);
+        assert_eq!(report["filesSkippedByLimit"], 1);
+        assert_eq!(report["schema"]["status"], "matched");
+        assert_eq!(
+            report["schema"]["files"],
+            serde_json::json!(["contrib/openapi.json"])
+        );
+        assert_eq!(report["schema"]["filesRead"], 1);
+        assert_eq!(report["schema"]["filesUnreadable"], 0);
+        assert_eq!(report["schema"]["filesSkippedByLimit"], 0);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn service_count_is_not_the_discovery_scan_cap() {
+        let root = std::env::temp_dir().join(format!(
+            "reproit-report-service-count-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        for index in 0..70 {
+            let service = root.join(format!("service-{index:02}"));
+            std::fs::create_dir_all(service.join("src")).expect("service source root");
+            std::fs::write(
+                service.join("Cargo.toml"),
+                format!(
+                    "[package]\nname = \"service-{index:02}\"\nversion = \"0.1.0\"\n\
+                     edition = \"2021\"\n[dependencies]\naxum = \"0.8\"\n"
+                ),
+            )
+            .expect("manifest");
+            std::fs::write(
+                service.join("src/main.rs"),
+                "async fn main() {\n\
+                 \x20   let app = Router::new().route(\"/health\", get(health));\n\
+                 \x20   axum::serve(listener, app).await.unwrap();\n}\n",
+            )
+            .expect("entry point");
+        }
+
+        assert_eq!(services_under(&root).len(), 70);
         let _ = std::fs::remove_dir_all(root);
     }
 }
