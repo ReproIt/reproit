@@ -11,7 +11,7 @@ use super::field_facts::FieldFact;
 use super::grammar;
 use super::grammar::SourceRead;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
@@ -20,6 +20,15 @@ const MAX_FIELDS: usize = 512;
 /// A route as first read: the router it hangs off, its local path, the method,
 /// the handler, and the schema the registration wraps it in.
 type RawRoute = (String, String, &'static str, Option<String>, Option<String>);
+
+#[derive(Debug)]
+struct ModuleRead {
+    path: PathBuf,
+    routes: Vec<RawRoute>,
+    mounts: BTreeMap<String, String>,
+    imports: BTreeMap<String, String>,
+    routers: BTreeSet<String>,
+}
 
 /// The grammar for one Node source. TypeScript is a different language to the
 /// parser even though it is the same family to the ecosystem, and reading a
@@ -37,14 +46,14 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
     let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
-    let mut raw_routes: Vec<RawRoute> = Vec::new();
+    let mut modules = Vec::new();
 
     grammar::read_files_with(
         root,
         super::extract::Family::Node,
         |path| Some(grammar_for(path)),
         &mut source,
-        |root_node, text, _path| {
+        |root_node, text, path| {
             // `app.use('/api', users)` binds a LOCAL name. Keyed globally, one
             // file's mount prefix landed on another file's router.
             // An express-style registration and an HTTP CLIENT call are the
@@ -55,41 +64,104 @@ pub(super) fn read(root: &Path) -> SourceRead {
             let server = reads_as_server(text);
             let mut mounts: BTreeMap<String, String> = BTreeMap::new();
             let mut found: Vec<RawRoute> = Vec::new();
-            walk(
-                root_node,
-                text,
-                server,
-                &mut found,
-                &mut shapes,
-                &mut ambiguous,
-                &mut mounts,
-            );
-            for (router, path, method, handler, schema) in found {
-                let path = match mounts.get(&router) {
-                    Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
-                    None => path,
+            let mut imports = BTreeMap::new();
+            let mut routers = BTreeSet::new();
+            {
+                let mut state = WalkState {
+                    routes: &mut found,
+                    shapes: &mut shapes,
+                    ambiguous: &mut ambiguous,
+                    mounts: &mut mounts,
+                    imports: &mut imports,
+                    routers: &mut routers,
                 };
-                raw_routes.push((String::new(), path, method, handler, schema));
+                walk(root_node, text, server, &mut state);
             }
+            modules.push(ModuleRead {
+                path: path.to_path_buf(),
+                routes: found,
+                mounts,
+                imports,
+                routers,
+            });
         },
     );
+    let external_mounts = resolve_external_mounts(&modules);
     for name in &ambiguous {
         shapes.remove(name);
     }
-    for (_, path, method, handler, schema) in raw_routes {
-        source.routes.push((path, method, handler.clone()));
-        // Resolve the body under the handler's name, from whichever of the two
-        // actually declared a shape.
-        if let Some(handler) = handler {
-            let fields = shapes
-                .get(&handler)
-                .or_else(|| schema.as_ref().and_then(|name| shapes.get(name)));
-            if let Some(fields) = fields {
-                source.bodies.insert(handler, fields.clone());
+    for module in modules {
+        for (router, path, method, handler, schema) in module.routes {
+            let prefixes: Vec<Option<&str>> = match module.mounts.get(&router) {
+                Some(prefix) => vec![Some(prefix)],
+                None if module.routers.contains(&router) => external_mounts
+                    .get(&module.path)
+                    .map(|prefixes| {
+                        prefixes
+                            .iter()
+                            .map(|prefix| Some(prefix.as_str()))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                None => vec![None],
+            };
+            for prefix in prefixes {
+                let path = prefix
+                    .map(|prefix| format!("{}{path}", prefix.trim_end_matches('/')))
+                    .unwrap_or_else(|| path.clone());
+                source.routes.push((path, method, handler.clone()));
+                // Resolve the body under the handler's name, from whichever of
+                // the two actually declared a shape.
+                if let Some(handler) = &handler {
+                    let fields = shapes
+                        .get(handler)
+                        .or_else(|| schema.as_ref().and_then(|name| shapes.get(name)));
+                    if let Some(fields) = fields {
+                        source.bodies.insert(handler.clone(), fields.clone());
+                    }
+                }
             }
         }
     }
     source
+}
+
+fn resolve_external_mounts(modules: &[ModuleRead]) -> BTreeMap<PathBuf, Vec<String>> {
+    let known: BTreeSet<PathBuf> = modules.iter().map(|module| module.path.clone()).collect();
+    let mut mounted: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for module in modules {
+        for (binding, prefix) in &module.mounts {
+            let Some(specifier) = module.imports.get(binding) else {
+                continue;
+            };
+            let Some(target) = resolve_import(&module.path, specifier, &known) else {
+                continue;
+            };
+            mounted.entry(target).or_default().push(prefix.clone());
+        }
+    }
+    for prefixes in mounted.values_mut() {
+        prefixes.sort();
+        prefixes.dedup();
+    }
+    mounted
+}
+
+fn resolve_import(importer: &Path, specifier: &str, known: &BTreeSet<PathBuf>) -> Option<PathBuf> {
+    if !specifier.starts_with("./") && !specifier.starts_with("../") {
+        return None;
+    }
+    let base = importer.parent()?.join(specifier);
+    let mut candidates = vec![base.clone()];
+    for extension in ["js", "mjs", "cjs", "ts", "tsx", "jsx"] {
+        candidates.push(base.with_extension(extension));
+    }
+    for extension in ["js", "mjs", "cjs", "ts", "tsx", "jsx"] {
+        candidates.push(base.join(format!("index.{extension}")));
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| known.contains(candidate))
 }
 
 /// Whether `x.get('/path')` in this file registers a route or CALLS one.
@@ -122,15 +194,16 @@ fn reads_as_server(text: &str) -> bool {
         || !CLIENT.iter().any(|marker| text.contains(marker))
 }
 
-fn walk(
-    node: Node,
-    text: &str,
-    server: bool,
-    routes: &mut Vec<RawRoute>,
-    shapes: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
-    ambiguous: &mut BTreeSet<String>,
-    mounts: &mut BTreeMap<String, String>,
-) {
+struct WalkState<'a> {
+    routes: &'a mut Vec<RawRoute>,
+    shapes: &'a mut BTreeMap<String, BTreeMap<String, FieldFact>>,
+    ambiguous: &'a mut BTreeSet<String>,
+    mounts: &'a mut BTreeMap<String, String>,
+    imports: &'a mut BTreeMap<String, String>,
+    routers: &'a mut BTreeSet<String>,
+}
+
+fn walk(node: Node, text: &str, server: bool, state: &mut WalkState<'_>) {
     if server && node.kind() == "call_expression" {
         if let Some(member) = node.child_by_field_name("function") {
             let object = member
@@ -153,13 +226,21 @@ fn walk(
                 // fastify's object form: `.route({ method: 'PUT', url: '/x' })`.
                 if property == "route" {
                     if let Some((path, method, handler)) = fastify_route(&args, text) {
-                        routes.push((object.clone(), path, method, handler, None));
+                        state
+                            .routes
+                            .push((object.clone(), path, method, handler, None));
                     }
                 }
                 if let Some(path) = first.filter(|path| path.starts_with('/')) {
                     if property == "use" {
                         if let Some(name) = args.get(1).and_then(|node| identifier(*node, text)) {
-                            mounts.insert(name, path);
+                            state.mounts.insert(name, path);
+                        } else if let Some(specifier) =
+                            args.get(1).and_then(|node| require_specifier(*node, text))
+                        {
+                            let key = format!("@module:{specifier}");
+                            state.imports.insert(key.clone(), specifier);
+                            state.mounts.insert(key, path);
                         }
                     } else if let Some(method) = METHODS.iter().find(|method| **method == property)
                     {
@@ -177,7 +258,7 @@ fn walk(
                             .iter()
                             .skip(1)
                             .find_map(|node| wrapped_argument(*node, text));
-                        routes.push((object, path, *method, handler, schema));
+                        state.routes.push((object, path, *method, handler, schema));
                     }
                 }
             }
@@ -189,7 +270,7 @@ fn walk(
     // split between a `@Controller('users')` on the class and a `@Get(':id')`
     // on the method, and the decorator is a SIBLING of what it decorates.
     if node.kind() == "class_declaration" {
-        nest_controller(node, text, routes);
+        nest_controller(node, text, state.routes);
     }
     if node.kind() == "variable_declarator" {
         if let (Some(name), Some(value)) = (
@@ -198,23 +279,78 @@ fn walk(
                 .map(str::to_string),
             node.child_by_field_name("value"),
         ) {
+            if is_router_constructor(value, text) {
+                state.routers.insert(name.clone());
+            }
+            if let Some(specifier) = require_specifier(value, text) {
+                state.imports.insert(name.clone(), specifier);
+            }
             if let Some(fields) = zod_object(value, text) {
-                match shapes.get(&name) {
+                match state.shapes.get(&name) {
                     Some(existing) if *existing != fields => {
-                        ambiguous.insert(name);
+                        state.ambiguous.insert(name);
                     }
                     Some(_) => {}
                     None => {
-                        shapes.insert(name, fields);
+                        state.shapes.insert(name, fields);
                     }
                 }
             }
         }
     }
+    if node.kind() == "import_statement" {
+        collect_imports(node, text, state.imports);
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk(child, text, server, routes, shapes, ambiguous, mounts);
+        walk(child, text, server, state);
     }
+}
+
+fn is_router_constructor(node: Node, text: &str) -> bool {
+    let compact: String = grammar_text(node, text)
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    compact.ends_with("Router()") || compact.ends_with("Router({})")
+}
+
+fn require_specifier(node: Node, text: &str) -> Option<String> {
+    if node.kind() != "call_expression"
+        || grammar::field(node, text, "function").as_deref() != Some("require")
+    {
+        return None;
+    }
+    let arguments = node.child_by_field_name("arguments")?;
+    let mut children = Vec::new();
+    grammar_children(arguments, &mut children);
+    let specifier = children
+        .first()
+        .and_then(|child| string_value(*child, text))?;
+    (specifier.starts_with("./") || specifier.starts_with("../")).then_some(specifier)
+}
+
+fn collect_imports(node: Node, text: &str, imports: &mut BTreeMap<String, String>) {
+    let Some(source) = node
+        .child_by_field_name("source")
+        .and_then(|source| string_value(source, text))
+    else {
+        return;
+    };
+    if !source.starts_with("./") && !source.starts_with("../") {
+        return;
+    }
+    let Some(clause) = node
+        .named_children(&mut node.walk())
+        .find(|child| child.kind() == "import_clause")
+    else {
+        return;
+    };
+    grammar::walk(clause, &mut |child| {
+        if child.kind() == "identifier" {
+            imports.insert(grammar_text(child, text).to_string(), source.clone());
+        }
+    });
 }
 
 /// A NestJS controller: `@Controller('users')` on the class, an HTTP decorator
@@ -577,6 +713,33 @@ mod tests {
         assert_eq!(
             source.routes,
             vec![("/api/list".to_string(), "get", Some("listUsers".into()))]
+        );
+    }
+
+    #[test]
+    fn a_router_mounted_from_another_module_has_no_unmounted_paths() {
+        let source = read_source(
+            "cross-file-mount",
+            &[
+                (
+                    "server.js",
+                    "const express = require('express');\n\
+                     const users = require('./users');\n\
+                     const app = express();\n\
+                     app.use('/api', users);\n",
+                ),
+                (
+                    "users.js",
+                    "const express = require('express');\n\
+                     const router = express.Router();\n\
+                     router.get('/users', listUsers);\n\
+                     module.exports = router;\n",
+                ),
+            ],
+        );
+        assert_eq!(
+            source.routes,
+            vec![("/api/users".to_string(), "get", Some("listUsers".into()))]
         );
     }
 
