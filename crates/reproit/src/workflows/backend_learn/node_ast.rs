@@ -37,7 +37,6 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
     let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
-    let mut mounts: BTreeMap<String, String> = BTreeMap::new();
     let mut raw_routes: Vec<RawRoute> = Vec::new();
 
     grammar::read_files_with(
@@ -46,25 +45,31 @@ pub(super) fn read(root: &Path) -> SourceRead {
         |path| Some(grammar_for(path)),
         &mut source,
         |root_node, text| {
+            // `app.use('/api', users)` binds a LOCAL name. Keyed globally, one
+            // file's mount prefix landed on another file's router.
+            let mut mounts: BTreeMap<String, String> = BTreeMap::new();
+            let mut found: Vec<RawRoute> = Vec::new();
             walk(
                 root_node,
                 text,
-                &mut raw_routes,
+                &mut found,
                 &mut shapes,
                 &mut ambiguous,
                 &mut mounts,
             );
+            for (router, path, method, handler, schema) in found {
+                let path = match mounts.get(&router) {
+                    Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
+                    None => path,
+                };
+                raw_routes.push((String::new(), path, method, handler, schema));
+            }
         },
     );
     for name in &ambiguous {
         shapes.remove(name);
     }
-    for (router, path, method, handler, schema) in raw_routes {
-        // `app.use('/api', router)` mounts a router under a prefix.
-        let path = match mounts.get(&router) {
-            Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
-            None => path,
-        };
+    for (_, path, method, handler, schema) in raw_routes {
         source.routes.push((path, method, handler.clone()));
         // Resolve the body under the handler's name, from whichever of the two
         // actually declared a shape.

@@ -22,9 +22,16 @@ use std::path::{Path, PathBuf};
 /// HTTP methods a derived draft may claim, in emission order.
 pub(super) const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
 
-const MAX_FILES: usize = 400;
-const MAX_FILE_BYTES: u64 = 256 * 1024;
-const MAX_WALK_DEPTH: usize = 8;
+// These bound the walk so a pathological tree cannot hang a CI job. They were
+// set for a single small service and were wrong for real repositories: a
+// canonical Spring controller lives at `src/main/java/com/example/.../X.java`,
+// which is already at the old depth of 8, so one more package level made an
+// entire codebase read as empty. Every limit is now generous enough that
+// hitting one is unusual, and hitting one is REPORTED rather than silent,
+// because a file a limit excluded is a file whose absence proves nothing.
+const MAX_FILES: usize = 20_000;
+const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_WALK_DEPTH: usize = 24;
 
 /// Directories never containing first-party route definitions.
 const SKIP_DIRS: [&str; 13] = [
@@ -60,6 +67,9 @@ pub(crate) struct Derived {
     /// Source files the reader could not read at all. Any absence it reports
     /// while this is non-zero is unreliable, and the report must say so.
     pub(super) unreadable: usize,
+    /// Source files a walk LIMIT excluded before any parse: too large, too
+    /// deeply nested, or past the file cap.
+    pub(super) unscanned: usize,
     /// handler -> request body fields, where the family has a parser for them.
     pub(super) bodies: BTreeMap<String, BTreeMap<String, super::field_facts::FieldFact>>,
 }
@@ -138,11 +148,14 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
                 files_scanned: parsed.files_parsed,
                 skipped: parsed.files_unparsed,
                 unreadable: parsed.files_unparsed,
+                unscanned: skipped_by_limit(root, Family::Rust),
                 bodies: parsed.bodies,
             });
         }
     };
-    Some(from_parse(parsed))
+    let mut derived = from_parse(parsed);
+    derived.unscanned = skipped_by_limit(root, family_for(framework)?);
+    Some(derived)
 }
 
 /// Fold one grammar reader's result into the shared shape, normalizing paths.
@@ -176,17 +189,34 @@ fn from_parse(parsed: SourceRead) -> Derived {
 /// The sources of one family, so a type reader sees exactly the file set the
 /// route reader saw.
 pub(super) fn family_sources(root: &Path, family: Family) -> Vec<PathBuf> {
-    source_files(root, extensions(family))
+    source_files(root, extensions(family)).files
+}
+
+/// How many source files a LIMIT kept the reader from opening: too large, too
+/// deeply nested, or past the file cap. Distinct from a file that was opened
+/// and would not parse, and reported separately, because the two call for
+/// different fixes. Either way an absence over them is not evidence.
+pub(super) fn skipped_by_limit(root: &Path, family: Family) -> usize {
+    source_files(root, extensions(family)).skipped
+}
+
+/// A bounded walk and what it had to leave out.
+struct Scan {
+    files: Vec<PathBuf>,
+    skipped: usize,
 }
 
 /// Bounded, deterministic source walk: sorted entries, capped depth and count,
 /// skip directories that never hold first-party routes.
-fn source_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
+fn source_files(root: &Path, extensions: &[&str]) -> Scan {
     let mut files = Vec::new();
+    let mut skipped = 0usize;
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
         if depth > MAX_WALK_DEPTH || files.len() >= MAX_FILES {
-            break;
+            // Whatever is under here is unread, and saying so is the point.
+            skipped += count_sources(&dir, extensions);
+            continue;
         }
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
@@ -205,13 +235,48 @@ fn source_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
                 continue;
             }
             let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            if !extensions.contains(&extension) {
+                continue;
+            }
             let small = std::fs::metadata(&path).is_ok_and(|meta| meta.len() <= MAX_FILE_BYTES);
-            if extensions.contains(&extension) && small && files.len() < MAX_FILES {
+            if small && files.len() < MAX_FILES {
                 files.push(path);
+            } else {
+                skipped += 1;
             }
         }
     }
-    files
+    Scan { files, skipped }
+}
+
+/// Source files under a subtree the walk refused to descend into, so the
+/// report can say how much it did not look at.
+fn count_sources(dir: &Path, extensions: &[&str]) -> usize {
+    let mut found = 0usize;
+    let mut stack = vec![dir.to_path_buf()];
+    // Bounded independently: this is an accounting pass, not a read.
+    while let Some(dir) = stack.pop() {
+        if found >= MAX_FILES {
+            break;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if path.is_dir() {
+                if !name.starts_with('.') && !SKIP_DIRS.contains(&name) {
+                    stack.push(path);
+                }
+                continue;
+            }
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+            if extensions.contains(&extension) {
+                found += 1;
+            }
+        }
+    }
+    found
 }
 
 /// Normalize an extracted raw path to an OpenAPI path template. Framework

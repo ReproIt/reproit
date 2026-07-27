@@ -30,8 +30,11 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     // handler fn -> the struct it binds its request body into.
     let mut handler_body: BTreeMap<String, String> = BTreeMap::new();
-    // router variable -> (the router it was grouped off, its own prefix).
-    let mut groups: Groups = BTreeMap::new();
+    // Resolved per file. `r := app.Group("/auth")` in one file and
+    // `r := app.Group("/todo")` in another are two different routers that
+    // happen to share a local name, and a global map let the first one's
+    // prefix land on the second one's routes: four invented paths under
+    // `/auth` in a real fiber service, with the four real `/todo` paths gone.
     let mut raw: Vec<(String, String, &'static str, Option<String>)> = Vec::new();
 
     grammar::read_files(
@@ -40,22 +43,28 @@ pub(super) fn read(root: &Path) -> SourceRead {
         tree_sitter_go::LANGUAGE.into(),
         &mut source,
         |root_node, text| {
+            let mut groups: Groups = BTreeMap::new();
+            let mut found: Vec<(String, String, &'static str, Option<String>)> = Vec::new();
             grammar::walk(root_node, &mut |node| match node.kind() {
                 "type_spec" => collect_struct(node, text, &mut structs, &mut ambiguous),
                 "function_declaration" => collect_handler(node, text, &mut handler_body),
                 "short_var_declaration" => collect_group(node, text, &mut groups),
-                "call_expression" => collect_route(node, text, &mut raw),
+                "call_expression" => collect_route(node, text, &mut found),
                 _ => {}
             });
+            // Resolve against THIS file's groups before moving on.
+            for (router, path, method, handler) in found {
+                let path = match resolve_prefix(&groups, &router) {
+                    Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
+                    None => path,
+                };
+                raw.push((String::new(), path, method, handler));
+            }
         },
     );
     drop_ambiguous(&mut structs, &ambiguous);
 
-    for (router, path, method, handler) in raw {
-        let path = match resolve_prefix(&groups, &router) {
-            Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
-            None => path,
-        };
+    for (_, path, method, handler) in raw {
         source.routes.push((path, method, handler.clone()));
         if let Some(handler) = handler {
             if let Some(fields) = handler_body

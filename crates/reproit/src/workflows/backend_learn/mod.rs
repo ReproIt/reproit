@@ -85,14 +85,24 @@ pub(super) async fn run(
         // only "0 files scanned" hid the reason at the one moment it decides
         // what the user should do next: a TypeScript service read as empty
         // because the wrong grammar rejected every annotated file.
-        let blind = if derived.unreadable > 0 {
-            format!(
-                ", {} file(s) the reader could not parse -- an absence over \
-                 those is not evidence, so fix or exclude them first",
-                derived.unreadable
-            )
-        } else {
+        let mut reasons = Vec::new();
+        if derived.unreadable > 0 {
+            reasons.push(format!("{} the reader could not parse", derived.unreadable));
+        }
+        if derived.unscanned > 0 {
+            reasons.push(format!(
+                "{} excluded by a size or depth limit",
+                derived.unscanned
+            ));
+        }
+        let blind = if reasons.is_empty() {
             String::new()
+        } else {
+            format!(
+                ", {} file(s) unread ({}) -- an absence over those is not evidence",
+                derived.unreadable + derived.unscanned,
+                reasons.join(", ")
+            )
         };
         bail!(
             "detected {} (from {}) but no routes could be derived from its source \

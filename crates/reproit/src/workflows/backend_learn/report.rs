@@ -29,8 +29,27 @@ pub(super) fn run(ctx: &Ctx, root: &Path) -> Result<ExitCode> {
             root.display()
         );
     }
+    // Truncation is REPORTED. A cap that silently drops services turns "these
+    // are your services" into a claim the tool cannot support: a fiber repo of
+    // 82 modules and an axum repo of 56 examples both printed exactly 32 and
+    // exited 0, with no sign that anything was left out.
+    if services.len() > MAX_SERVICES {
+        ctx.say(format!(
+            "note: {} services found, reporting the first {MAX_SERVICES}. Run reproit \
+             surface inside a service directory to see the rest.",
+            services.len()
+        ));
+    }
+    let mut reported = Vec::new();
     for service in services.iter().take(MAX_SERVICES) {
-        report_service(ctx, root, service);
+        reported.push(report_service(ctx, root, service));
+    }
+    if ctx.json {
+        ctx.emit(&serde_json::json!({
+            "services": reported,
+            "found": services.len(),
+            "reported": reported.len(),
+        }));
     }
     // A report that found nothing is still a report, not a failure. The exit
     // code says the run completed; the text says what was read and what could
@@ -55,8 +74,8 @@ fn services_under(root: &Path) -> Vec<PathBuf> {
 }
 
 /// One service: what it serves, and where that disagrees with a schema it
-/// already declares.
-fn report_service(ctx: &Ctx, root: &Path, service: &Path) {
+/// already declares. Returns the machine-readable form for `--json`.
+fn report_service(ctx: &Ctx, root: &Path, service: &Path) -> serde_json::Value {
     let label = service
         .strip_prefix(root)
         .ok()
@@ -64,14 +83,14 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) {
         .map(|rest| rest.display().to_string())
         .unwrap_or_else(|| ".".to_string());
     let Some(framework) = backend_detect::detect_backend_framework(service) else {
-        return;
+        return serde_json::json!({ "service": label, "framework": null });
     };
     let Some(derived) = extract::derive(service, framework.name) else {
         ctx.say(format!(
             "{label}: detected {}, which has no source reader yet",
             framework.name
         ));
-        return;
+        return serde_json::json!({ "service": label, "framework": framework.name });
     };
     ctx.say(format!(
         "\n{label}  ({}, {} file(s) read{})",
@@ -81,7 +100,7 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) {
     ));
     if derived.routes.is_empty() {
         ctx.say("  no routes read from source".to_string());
-        return;
+        return service_json(&label, framework.name, &derived);
     }
     ctx.say(format!(
         "  {} operation(s) on {} path(s):",
@@ -101,6 +120,31 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) {
     } else {
         compare_declared(ctx, service, &schemas, framework.name);
     }
+    service_json(&label, framework.name, &derived)
+}
+
+/// The machine-readable form of one service, so `--json` carries the same
+/// facts as the text: what was read, and what could not be.
+fn service_json(label: &str, framework: &str, derived: &extract::Derived) -> serde_json::Value {
+    let routes: Vec<serde_json::Value> = derived
+        .routes
+        .iter()
+        .map(|(path, methods)| {
+            serde_json::json!({
+                "path": path,
+                "methods": methods.iter().map(|m| m.to_uppercase()).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "service": label,
+        "framework": framework,
+        "filesRead": derived.files_scanned,
+        "filesUnreadable": derived.unreadable,
+        "filesSkippedByLimit": derived.unscanned,
+        "operations": derived.operation_count(),
+        "routes": routes,
+    })
 }
 
 /// The schemas this service declares. `backend.schemas` in a reproit.yaml when
@@ -124,12 +168,22 @@ fn declared_schemas(service: &Path) -> Vec<PathBuf> {
 /// The blind-spot clause. An absence over an unreadable file is not evidence,
 /// and a report that omits the count invites the reader to treat it as one.
 fn blind_spot(derived: &extract::Derived) -> String {
-    if derived.unreadable == 0 {
+    let mut parts = Vec::new();
+    if derived.unreadable > 0 {
+        parts.push(format!("{} UNREADABLE", derived.unreadable));
+    }
+    if derived.unscanned > 0 {
+        parts.push(format!(
+            "{} SKIPPED by a size/depth limit",
+            derived.unscanned
+        ));
+    }
+    if parts.is_empty() {
         String::new()
     } else {
         format!(
-            ", {} UNREADABLE -- absences below are not reliable",
-            derived.unreadable
+            ", {} -- absences below are not reliable",
+            parts.join(" and ")
         )
     }
 }

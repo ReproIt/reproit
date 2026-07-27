@@ -9,6 +9,9 @@
 
 use super::field_facts::FieldFact;
 use super::grammar::SourceRead;
+
+/// One route before its module's mount prefix is applied.
+type PyRoute = (String, &'static str, Option<String>);
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -30,9 +33,16 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     let mut handler_models: Vec<(String, String)> = Vec::new();
-    // router variable -> its mount prefix. A decorator names the router it
-    // belongs to, so the prefix is resolved per file rather than guessed.
-    let mut prefixes: BTreeMap<String, String> = BTreeMap::new();
+    // MODULE -> the prefix another file mounts it under, from
+    // `include_router(users.router, prefix="/v1")`. This one is genuinely
+    // cross-file, and the dotted argument names the module, so it resolves
+    // without guessing.
+    let mut mounted: BTreeMap<String, String> = BTreeMap::new();
+    // Modules mounted under a prefix that is NOT a literal (a settings
+    // constant, say). Their real paths are unknowable from source, so their
+    // routes are dropped rather than emitted one prefix short.
+    let mut opaque: BTreeSet<String> = BTreeSet::new();
+    let mut pending: Vec<(String, Vec<PyRoute>)> = Vec::new();
 
     for file in super::extract::family_sources(root, super::extract::Family::Python) {
         let Ok(text) = std::fs::read_to_string(&file) else {
@@ -47,7 +57,14 @@ pub(super) fn read(root: &Path) -> SourceRead {
             continue;
         }
         source.files_parsed += 1;
+        // Router bindings are LOCAL. `router = APIRouter(prefix="/items")` in
+        // one module and a bare `router = APIRouter()` in another are two
+        // routers sharing a name; a map that outlived the file put the first
+        // one's prefix on the second one's routes and invented every path.
+        let mut prefixes: BTreeMap<String, String> = BTreeMap::new();
         collect_prefixes(tree.root_node(), &text, &mut prefixes);
+        collect_mounts(tree.root_node(), &text, &mut mounted, &mut opaque);
+        let mut found = Vec::new();
         // Django declares routes in urls.py rather than on the handler, and
         // declares no method there, so the draft claims only GET. Restricted to
         // that file so an ordinary `path(...)` helper elsewhere is not a route.
@@ -57,13 +74,33 @@ pub(super) fn read(root: &Path) -> SourceRead {
         walk(
             tree.root_node(),
             &text,
-            &mut source.routes,
+            &mut found,
             &mut models,
             &mut enums,
             &mut ambiguous,
             &mut handler_models,
             &prefixes,
         );
+        let module = file
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        pending.push((module, found));
+    }
+
+    for (module, routes) in pending {
+        // A module mounted under an unreadable prefix contributes nothing: the
+        // paths it serves are real but their location is not knowable here, and
+        // emitting them at the wrong place is worse than not emitting them.
+        if opaque.contains(&module) {
+            source.files_unreadable += 1;
+            continue;
+        }
+        let outer = mounted.get(&module).cloned().unwrap_or_default();
+        for (path, method, handler) in routes {
+            let path = format!("{}{path}", outer.trim_end_matches('/'));
+            source.routes.push((path, method, handler));
+        }
     }
 
     // Two modules declaring the same model differently is not a verdict.
@@ -420,6 +457,58 @@ fn field_text(node: Node, field: &str, text: &str) -> Option<String> {
         .utf8_text(text.as_bytes())
         .ok()
         .map(str::to_string)
+}
+
+/// Cross-file mounts: `include_router(items.router, prefix="/api")`.
+///
+/// The dotted argument names the MODULE, which is what makes this resolvable
+/// across files at all. A `prefix=` whose value is not a literal marks the
+/// module opaque rather than being ignored, because a route emitted one prefix
+/// short is a path the service does not serve.
+fn collect_mounts(
+    node: Node,
+    text: &str,
+    mounted: &mut BTreeMap<String, String>,
+    opaque: &mut BTreeSet<String>,
+) {
+    if node.kind() == "call" {
+        let callee = node
+            .child_by_field_name("function")
+            .and_then(|node| node.utf8_text(text.as_bytes()).ok())
+            .unwrap_or_default();
+        if callee.ends_with("include_router") {
+            if let Some(arguments) = node.child_by_field_name("arguments") {
+                let mut cursor = arguments.walk();
+                let first = arguments
+                    .children(&mut cursor)
+                    .find(|child| child.is_named())
+                    .and_then(|node| node.utf8_text(text.as_bytes()).ok())
+                    .unwrap_or_default()
+                    .to_string();
+                // `items.router` names the module; a bare `router` does not.
+                if let Some((module, _)) = first.split_once('.') {
+                    let module = module.trim().to_string();
+                    match keyword_string(node, text, &["prefix"]) {
+                        Some(prefix) => {
+                            mounted.insert(module, prefix.trim_end_matches('/').to_string());
+                        }
+                        None if node
+                            .utf8_text(text.as_bytes())
+                            .unwrap_or_default()
+                            .contains("prefix=") =>
+                        {
+                            opaque.insert(module);
+                        }
+                        None => {}
+                    }
+                }
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_mounts(child, text, mounted, opaque);
+    }
 }
 
 /// Mount prefixes by router variable.

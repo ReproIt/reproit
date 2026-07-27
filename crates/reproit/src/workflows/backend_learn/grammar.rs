@@ -73,7 +73,11 @@ pub(super) fn read_files_with(
             }
             current = Some(language);
         }
+        // A file that cannot be decoded or opened is a file the reader did not
+        // read. Skipping it silently made a permission error and a byte the
+        // decoder rejected look exactly like a file that declares nothing.
         let Ok(text) = std::fs::read_to_string(&file) else {
+            source.files_unreadable += 1;
             continue;
         };
         match parser.parse(&text, None) {

@@ -40,7 +40,10 @@ pub(super) fn read(root: &Path) -> RustSource {
     let mut krate = Crate::default();
     let mut files = Vec::new();
     for file in super::extract::family_sources(root, super::extract::Family::Rust) {
+        // Not decodable or not openable is not the same as not declaring
+        // anything, and it used to be indistinguishable.
         let Ok(text) = std::fs::read_to_string(&file) else {
+            source.files_unparsed += 1;
             continue;
         };
         match syn::parse_file(&text) {

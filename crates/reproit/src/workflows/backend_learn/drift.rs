@@ -117,7 +117,9 @@ pub fn compare(
         return None;
     }
     let mut drift = diff(declared, &derived);
-    drift.unreadable_sources = derived.unreadable;
+    // A file a limit excluded is as unread as one that would not parse, and
+    // the caller qualifies its conclusions on the total either way.
+    drift.unreadable_sources = derived.unreadable + derived.unscanned;
     // Every family resolves its bodies in the same pass as its routes, so the
     // handler key is the one the route reader recorded rather than one a
     // second scanner re-derived under its own naming rules. A framework with
@@ -611,6 +613,7 @@ mod tests {
             skipped: 0,
             handlers: BTreeMap::new(),
             unreadable: 0,
+            unscanned: 0,
             bodies: BTreeMap::new(),
         }
     }
