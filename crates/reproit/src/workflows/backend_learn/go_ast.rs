@@ -24,6 +24,11 @@ const MAX_GROUP_DEPTH: usize = 8;
 /// Router variable -> (the router it was grouped off, its own prefix segment).
 type Groups = BTreeMap<String, (String, String)>;
 
+/// Marks a group whose prefix could not be read. Its routes are real but their
+/// location is not knowable from source, and emitting them at the root would
+/// name paths the service does not serve.
+const OPAQUE: &str = "\u{1}opaque";
+
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
     let mut structs: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
@@ -55,8 +60,14 @@ pub(super) fn read(root: &Path) -> SourceRead {
             // Resolve against THIS file's groups before moving on.
             for (router, path, method, handler) in found {
                 let path = match resolve_prefix(&groups, &router) {
+                    Some(prefix) if prefix.contains(OPAQUE) => continue,
                     Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
                     None => path,
+                };
+                let path = if path.is_empty() {
+                    "/".to_string()
+                } else {
+                    path
                 };
                 raw.push((String::new(), path, method, handler));
             }
@@ -281,13 +292,25 @@ fn collect_group(node: Node, text: &str, groups: &mut Groups) {
     };
     let mut args = Vec::new();
     grammar::children(arguments, &mut args);
-    let Some(prefix) = args
-        .first()
-        .map(|node| grammar::unquote(grammar::text(*node, text)).to_string())
-        .filter(|prefix| prefix.starts_with('/'))
-    else {
+    let Some(first) = args.first() else {
         return;
     };
+    // A group prefix built from a constant or variable is unknowable here.
+    // Dropping it silently emitted the inner routes at the root, which are
+    // paths the service does not serve, so the group is recorded as OPAQUE and
+    // its routes are skipped instead.
+    let literal = matches!(
+        first.kind(),
+        "interpreted_string_literal" | "raw_string_literal"
+    );
+    let prefix = grammar::unquote(grammar::text(*first, text)).to_string();
+    if !literal || !prefix.starts_with('/') {
+        groups.insert(
+            grammar::text(*name, text).to_string(),
+            (String::new(), OPAQUE.to_string()),
+        );
+        return;
+    }
     groups.insert(grammar::text(*name, text).to_string(), (parent, prefix));
 }
 
@@ -313,6 +336,15 @@ fn collect_route(
     let Some(first) = args.first() else {
         return;
     };
+    // Only a string LITERAL is a path. `r.Group(adminBase)` names a constant
+    // this cannot resolve; treating its text as a path emitted a route nobody
+    // serves.
+    if !matches!(
+        first.kind(),
+        "interpreted_string_literal" | "raw_string_literal"
+    ) {
+        return;
+    }
     let literal = grammar::unquote(grammar::text(*first, text)).to_string();
     let handler = args
         .get(1)
@@ -333,8 +365,12 @@ fn collect_route(
         }
         return;
     }
-    if let (Some(method), true) = (method_of(&called), literal.starts_with('/')) {
-        raw.push((router, literal, method, handler));
+    // `u.GET("", h)` registers the group's own collection route. Requiring a
+    // leading slash dropped every collection endpoint in a grouped service.
+    if let Some(method) = method_of(&called) {
+        if literal.is_empty() || literal.starts_with('/') {
+            raw.push((router, literal, method, handler));
+        }
     }
 }
 

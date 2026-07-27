@@ -34,7 +34,7 @@ const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_WALK_DEPTH: usize = 24;
 
 /// Directories never containing first-party route definitions.
-const SKIP_DIRS: [&str; 13] = [
+const SKIP_DIRS: [&str; 19] = [
     "node_modules",
     "target",
     "vendor",
@@ -49,9 +49,36 @@ const SKIP_DIRS: [&str; 13] = [
     "examples",
     "tests",
     "test",
+    "__tests__",
+    "__mocks__",
+    "e2e",
+    "integration",
+    "spec",
+    "fixtures",
     "benches",
     "testdata",
 ];
+
+/// Filename markers for a test source. A supertest call like
+/// `request(app).get('/1/abc')` is a URL the test DRIVES, not one the service
+/// serves, and reading them made 144 of 162 reported NestJS paths fictional.
+const TEST_MARKERS: [&str; 6] = [
+    ".spec.",
+    ".test.",
+    "_test.",
+    "test_",
+    ".e2e-spec.",
+    ".integration.",
+];
+
+/// Whether this file is a test rather than served source.
+fn is_test_source(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    TEST_MARKERS.iter().any(|marker| name.contains(marker))
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct Derived {
@@ -206,6 +233,11 @@ struct Scan {
     skipped: usize,
 }
 
+/// Whether a directory never holds first-party sources.
+pub(super) fn skipped_dir(name: &str) -> bool {
+    SKIP_DIRS.contains(&name)
+}
+
 /// Bounded, deterministic source walk: sorted entries, capped depth and count,
 /// skip directories that never hold first-party routes.
 fn source_files(root: &Path, extensions: &[&str]) -> Scan {
@@ -236,6 +268,9 @@ fn source_files(root: &Path, extensions: &[&str]) -> Scan {
             }
             let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
             if !extensions.contains(&extension) {
+                continue;
+            }
+            if is_test_source(&path) {
                 continue;
             }
             let small = std::fs::metadata(&path).is_ok_and(|meta| meta.len() <= MAX_FILE_BYTES);
@@ -308,6 +343,23 @@ fn is_identifier(name: &str) -> bool {
 
 fn normalize_segment(segment: &str) -> Option<String> {
     let param = |name: &str| is_identifier(name).then(|| format!("{{{name}}}"));
+    // Catch-alls: gin `*any`, echo/chi `*`, rocket `<path..>`. The segment is a
+    // real part of the surface, and dropping the whole route lost `/swagger/*any`
+    // and every static-file mount. OpenAPI has no wildcard, so it becomes a
+    // named template parameter, which is what a generator can exercise.
+    if let Some(name) = segment.strip_prefix('*') {
+        return Some(if is_identifier(name) {
+            format!("{{{name}}}")
+        } else {
+            "{wildcard}".to_string()
+        });
+    }
+    if let Some(name) = segment
+        .strip_prefix('<')
+        .and_then(|rest| rest.strip_suffix("..>"))
+    {
+        return param(name.split(':').next_back().unwrap_or(name));
+    }
     if let Some(name) = segment.strip_prefix(':') {
         return param(name);
     }
@@ -325,9 +377,15 @@ fn normalize_segment(segment: &str) -> Option<String> {
         // chi-style `{id:[0-9]+}` -> the name before the colon.
         return param(name.split(':').next().unwrap_or(name));
     }
-    let literal = segment.chars().all(|character| {
-        character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | '~' | '%')
-    });
+    // A literal segment may be non-ASCII: `#[get("/мир")]` is a real Rocket
+    // route, and requiring ASCII dropped it silently. What must be rejected is
+    // a character that is structural in a URL, not one that is merely foreign.
+    // A regex fragment is not a path segment, and a URL-structural character
+    // means this is not a literal either.
+    const REJECT: [char; 15] = [
+        '/', '?', '#', '[', ']', '{', '}', '*', '^', '$', '(', ')', '+', '|', '\\',
+    ];
+    let literal = !segment.is_empty() && !segment.chars().any(|c| REJECT.contains(&c));
     literal.then(|| segment.to_string())
 }
 

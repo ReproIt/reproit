@@ -69,7 +69,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         // declares no method there, so the draft claims only GET. Restricted to
         // that file so an ordinary `path(...)` helper elsewhere is not a route.
         if file.file_name().is_some_and(|name| name == "urls.py") {
-            django_routes(tree.root_node(), &text, &mut source.routes);
+            django_routes(tree.root_node(), &text, &mut found, &mut mounted);
         }
         walk(
             tree.root_node(),
@@ -81,10 +81,19 @@ pub(super) fn read(root: &Path) -> SourceRead {
             &mut handler_models,
             &prefixes,
         );
-        let module = file
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        // Every Django app names its route table `urls.py`, so the stem
+        // collides across the whole project; the app is the DIRECTORY, which is
+        // also what `include('blog.urls')` names.
+        let module = if file.file_name().is_some_and(|name| name == "urls.py") {
+            file.parent()
+                .and_then(|dir| dir.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        } else {
+            file.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
         pending.push((module, found));
     }
 
@@ -584,7 +593,58 @@ fn keyword_string(node: Node, text: &str, keys: &[&str]) -> Option<String> {
 }
 
 /// Django `path("orders/", views.list)` and `re_path(...)` entries.
-fn django_routes(node: Node, text: &str, routes: &mut Vec<(String, &'static str, Option<String>)>) {
+/// A Django URL regex as an OpenAPI template.
+///
+/// `^legacy/(?P<pk>\d+)/$` is `/legacy/{pk}`. Saleor declares all nine of its
+/// routes with `re_path` and reading none of them made the whole service
+/// surface as empty. A regex carrying anything this cannot express returns
+/// None rather than a guess.
+fn template_of_regex(pattern: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut rest = pattern.trim_start_matches('^').trim_end_matches('$');
+    while let Some(at) = rest.find("(?P<") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 4..];
+        let (name, tail) = after.split_once('>')?;
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return None;
+        }
+        out.push_str(&format!("{{{name}}}"));
+        // Skip the group's body, which is the pattern the parameter matches.
+        let mut depth = 1usize;
+        let mut end = None;
+        for (index, character) in tail.char_indices() {
+            match character {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(index);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rest = &tail[end? + 1..];
+    }
+    out.push_str(rest);
+    // Anything left that is regex rather than path means this is not readable.
+    let readable = !out.chars().any(|c| {
+        matches!(
+            c,
+            '(' | ')' | '[' | ']' | '+' | '*' | '?' | '\\' | '|' | '.'
+        )
+    });
+    readable.then(|| out.replace("\\/", "/"))
+}
+
+fn django_routes(
+    node: Node,
+    text: &str,
+    routes: &mut Vec<PyRoute>,
+    mounted: &mut BTreeMap<String, String>,
+) {
     if node.kind() == "call" {
         let callee = node
             .child_by_field_name("function")
@@ -594,29 +654,65 @@ fn django_routes(node: Node, text: &str, routes: &mut Vec<(String, &'static str,
             if let Some(arguments) = node.child_by_field_name("arguments") {
                 let mut cursor = arguments.walk();
                 let children: Vec<Node> = arguments.children(&mut cursor).collect();
-                let path = children
-                    .iter()
-                    .find(|child| child.kind() == "string")
+                let raw = children.iter().find(|child| child.kind() == "string");
+                // An f-string interpolates a value this cannot know.
+                // `path(f"{base_url}/", ...)` became the literal route
+                // `/{base_url}`, which is a path nothing serves.
+                let interpolated =
+                    raw.is_some_and(|node| super::grammar::find(*node, "interpolation").is_some());
+                let path = raw
+                    .filter(|_| !interpolated)
                     .and_then(|node| string_value(*node, text));
+                // `path('blog/', include('blog.urls'))` is a MOUNT, not an
+                // endpoint. Emitting it as a leaf GET invented a route that
+                // 404s, and the module it mounts was read unprefixed.
+                // `include('blog.urls')` names the app whose table this
+                // mounts, which is what makes the prefix resolvable across
+                // files at all.
+                let included = children.iter().find_map(|child| {
+                    let raw = child.utf8_text(text.as_bytes()).unwrap_or_default();
+                    let inner = raw.strip_prefix("include(")?;
+                    let quoted = inner.trim_start_matches(['(', '\'', '"']);
+                    let module = quoted
+                        .split(['\'', '"', ',', ')'])
+                        .next()
+                        .unwrap_or_default();
+                    let app = module
+                        .split('.')
+                        .rfind(|part| *part != "urls")
+                        .unwrap_or_default();
+                    (!app.is_empty()).then(|| app.to_string())
+                });
                 let handler = children
                     .iter()
                     .find(|child| matches!(child.kind(), "attribute" | "identifier"))
                     .and_then(|node| node.utf8_text(text.as_bytes()).ok())
                     .and_then(|text| text.rsplit('.').next().map(str::to_string));
                 if let Some(path) = path {
-                    let path = if path.starts_with('/') {
-                        path
+                    let path = if callee == "re_path" {
+                        match template_of_regex(&path) {
+                            Some(path) => path,
+                            // A regex this cannot express as a template is not
+                            // guessed at.
+                            None => return,
+                        }
                     } else {
-                        format!("/{path}")
+                        path
                     };
-                    routes.push((path, "get", handler));
+                    let path = format!("/{}", path.trim_matches('/'));
+                    match included {
+                        Some(app) => {
+                            mounted.insert(app, path.trim_end_matches('/').to_string());
+                        }
+                        None => routes.push((path, "get", handler)),
+                    }
                 }
             }
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        django_routes(child, text, routes);
+        django_routes(child, text, routes, mounted);
     }
 }
 

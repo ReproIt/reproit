@@ -169,32 +169,60 @@ pub fn source_root(project_root: &Path, declared: Option<&str>) -> SourceRoot {
 /// A Cargo workspace whose members are the only services still reads as one
 /// service, because the members are not children of the root.
 fn sibling_services(project_root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    descend(project_root, project_root, 0, &mut found);
+    found.sort();
+    found
+}
+
+/// How deep to look for a service below the root.
+///
+/// Immediate children only was wrong for the layout most real monorepos use:
+/// .NET puts projects at `src/<Name>/`, Nest at `sample/<app>/`, pnpm at
+/// `packages/<name>/`. Four .NET repos and two Node ones all failed at their
+/// own root because the services were one level further down.
+const MAX_SERVICE_DEPTH: usize = 3;
+
+fn descend(root: &Path, dir: &Path, depth: usize, found: &mut Vec<String>) {
     use crate::adapters::project_scaffold::backend_detect::detect_backend_framework;
-    let Ok(entries) = std::fs::read_dir(project_root) else {
-        return Vec::new();
+    if depth > MAX_SERVICE_DEPTH || found.len() >= MAX_SERVICE_SCAN {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
     let mut paths: Vec<std::path::PathBuf> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
             path.is_dir()
-                && !path
+                && path
                     .file_name()
                     .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with('.'))
+                    .is_some_and(|name| {
+                        !name.starts_with('.') && !super::extract::skipped_dir(name)
+                    })
         })
-        .take(MAX_SERVICE_SCAN)
         .collect();
     paths.sort();
-    paths
-        .iter()
-        .filter(|path| detect_backend_framework(path).is_some())
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .map(str::to_string)
-        })
-        .collect()
+    for path in paths {
+        if found.len() >= MAX_SERVICE_SCAN {
+            return;
+        }
+        if detect_backend_framework(&path).is_some() {
+            // A service is a leaf: its own subdirectories are its source, not
+            // more services.
+            if let Some(name) = path
+                .strip_prefix(root)
+                .ok()
+                .map(|rest| rest.display().to_string())
+            {
+                found.push(name);
+            }
+            continue;
+        }
+        descend(root, &path, depth + 1, found);
+    }
 }
 
 fn diff(declared: &[Route], derived: &Derived) -> Drift {

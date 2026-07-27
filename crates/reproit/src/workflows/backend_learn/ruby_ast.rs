@@ -17,12 +17,17 @@ use tree_sitter::Node;
 
 const METHODS: [&str; 5] = ["get", "post", "put", "patch", "delete"];
 /// The five routes `resources :name` declares that a draft can exercise.
-const RESOURCE_ROUTES: [(&str, &str); 5] = [
-    ("", "get"),
-    ("", "post"),
-    ("/{id}", "get"),
-    ("/{id}", "patch"),
-    ("/{id}", "delete"),
+/// The routes `resources :name` declares, each with the action it serves so
+/// `only:`/`except:` can restrict them. `update` answers both PATCH and PUT.
+const RESOURCE_ROUTES: [(&str, &str, &str); 8] = [
+    ("", "get", "index"),
+    ("", "post", "create"),
+    ("/new", "get", "new"),
+    ("/{id}", "get", "show"),
+    ("/{id}", "patch", "update"),
+    ("/{id}", "put", "update"),
+    ("/{id}", "delete", "destroy"),
+    ("/{id}/edit", "get", "edit"),
 ];
 
 pub(super) fn read(root: &Path) -> SourceRead {
@@ -103,7 +108,14 @@ fn routes(
             "resources" | "resource" => {
                 if let Some(Some(name)) = args.first().map(|node| segment_of(*node, text)) {
                     let base = format!("{}/{name}", prefix.trim_end_matches('/'));
-                    for (suffix, method) in RESOURCE_ROUTES {
+                    // `only:` and `except:` restrict the set. Expanding all
+                    // seven regardless invented routes that 404: 45 such
+                    // declarations in one real routes file.
+                    let allowed = restricted_actions(&args, text);
+                    for (suffix, method, action) in RESOURCE_ROUTES {
+                        if allowed.as_ref().is_some_and(|set| !set.contains(action)) {
+                            continue;
+                        }
                         out.push((format!("{base}{suffix}"), method, None));
                     }
                 }
@@ -113,13 +125,8 @@ fn routes(
             }
             _ => {
                 if let Some(method) = METHODS.into_iter().find(|known| *known == called) {
-                    if let Some(path) = args
-                        .first()
-                        .map(|node| grammar::unquote(grammar::text(*node, text)))
-                        .filter(|path| path.starts_with('/'))
-                    {
-                        let full = format!("{}{path}", prefix.trim_end_matches('/'));
-                        out.push((full, method, action_of(&args, text)));
+                    if let Some((path, action)) = verb_route(&args, text) {
+                        out.push((join_path(prefix, &path), method, action));
                     }
                 }
                 if let Some(block) = block {
@@ -128,6 +135,51 @@ fn routes(
             }
         }
     }
+}
+
+/// The path and action a verb call states, in either Rails spelling.
+///
+/// `get "/x", to: "c#a"` and `get "/x" => "c#a"` are equally common; Discourse
+/// writes the hashrocket form 743 times and the comma form 32, and reading only
+/// the comma form lost almost the entire routes file. In the hashrocket form
+/// the path is the KEY of a pair rather than a positional argument, so it never
+/// appeared as the first argument at all.
+fn verb_route(args: &[Node], text: &str) -> Option<(String, Option<String>)> {
+    // Comma form: the path is the first positional argument.
+    if let Some(first) = args.first() {
+        if first.kind() == "string" {
+            let path = grammar::unquote(grammar::text(*first, text)).to_string();
+            if path.starts_with('/') {
+                return Some((path, action_of(args, text)));
+            }
+        }
+    }
+    // Hashrocket form: `get "/x" => "controller#action"`.
+    for argument in args {
+        if argument.kind() != "pair" {
+            continue;
+        }
+        let Some(key) = argument.child_by_field_name("key") else {
+            continue;
+        };
+        if key.kind() != "string" {
+            continue;
+        }
+        let path = grammar::unquote(grammar::text(key, text)).to_string();
+        if !path.starts_with('/') {
+            continue;
+        }
+        let action = argument
+            .child_by_field_name("value")
+            .map(|value| grammar::unquote(grammar::text(value, text)).to_string())
+            .and_then(|target| target.split_once('#').map(|(_, a)| a.to_string()));
+        return Some((path, action));
+    }
+    None
+}
+
+fn join_path(prefix: &str, path: &str) -> String {
+    format!("{}{path}", prefix.trim_end_matches('/'))
 }
 
 /// `to: 'blocks#create'` -> `create`, the action serving the route.
@@ -144,6 +196,50 @@ fn action_of(args: &[Node], text: &str) -> Option<String> {
         return value.split_once('#').map(|(_, action)| action.to_string());
     }
     None
+}
+
+/// The actions a `resources` call permits, or None when it permits all seven.
+fn restricted_actions(args: &[Node], text: &str) -> Option<BTreeSet<String>> {
+    const ALL: [&str; 6] = ["index", "create", "new", "show", "update", "destroy"];
+    for argument in args {
+        if argument.kind() != "pair" {
+            continue;
+        }
+        let key = grammar::field(*argument, text, "key").unwrap_or_default();
+        if key != "only" && key != "except" {
+            continue;
+        }
+        let value = argument.child_by_field_name("value")?;
+        let named: BTreeSet<String> = symbol_list(value, text);
+        if named.is_empty() {
+            continue;
+        }
+        return Some(if key == "only" {
+            named
+        } else {
+            ALL.iter()
+                .map(|action| action.to_string())
+                .filter(|action| !named.contains(action))
+                .collect()
+        });
+    }
+    None
+}
+
+/// The symbols in `[:index, :show]` or `%i[index show]`.
+fn symbol_list(node: Node, text: &str) -> BTreeSet<String> {
+    // The `i` of a `%i[...]` literal is alphanumeric, so trimming punctuation
+    // from the ends left it welded to the first symbol and dropped that action.
+    let raw = grammar::text(node, text).trim();
+    let inner = raw
+        .strip_prefix("%i")
+        .or_else(|| raw.strip_prefix("%w"))
+        .unwrap_or(raw);
+    inner
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// A path segment from either a symbol (`:api`) or a string (`'/api'`).
@@ -381,7 +477,7 @@ mod tests {
             paths.iter().all(|path| path.starts_with("/api/users")),
             "{paths:?}"
         );
-        assert_eq!(source.routes.len(), 5, "{paths:?}");
+        assert_eq!(source.routes.len(), 8, "{paths:?}");
     }
 
     #[test]

@@ -31,11 +31,12 @@ pub(super) fn read(root: &Path) -> SourceRead {
         tree_sitter_php::LANGUAGE_PHP.into(),
         &mut source,
         |root_node, text| {
-            grammar::walk(root_node, &mut |node| match node.kind() {
-                "class_declaration" => collect_class(node, text, &mut shapes, &mut ambiguous),
-                "scoped_call_expression" => collect_route(node, text, "", &mut found),
-                _ => {}
+            grammar::walk(root_node, &mut |node| {
+                if node.kind() == "class_declaration" {
+                    collect_class(node, text, &mut shapes, &mut ambiguous);
+                }
             });
+            routes_under(root_node, text, "", &mut found);
         },
     );
     drop_ambiguous(&mut shapes, &ambiguous);
@@ -50,6 +51,91 @@ pub(super) fn read(root: &Path) -> SourceRead {
     }
     source
 }
+
+/// Routes under `prefix`, descending into the group blocks that extend it.
+///
+/// `Route::prefix('v1')->group(...)` and `Route::group(['prefix' => 'v2'], ...)`
+/// both nest their body under a prefix, which no single statement states. A
+/// flat walk read the inner routes at the wrong path.
+fn routes_under(
+    node: Node,
+    text: &str,
+    prefix: &str,
+    out: &mut Vec<(String, &'static str, Option<String>)>,
+) {
+    let mut children = Vec::new();
+    grammar::children(node, &mut children);
+    for child in children {
+        if let Some((inner, body)) = group_of(child, text, prefix) {
+            routes_under(body, text, &inner, out);
+            continue;
+        }
+        if child.kind() == "scoped_call_expression" {
+            collect_route(child, text, prefix, out);
+        }
+        routes_under(child, text, prefix, out);
+    }
+}
+
+/// A `->group(...)` call and the prefix its body inherits, if this is one.
+fn group_of<'a>(node: Node<'a>, text: &str, outer: &str) -> Option<(String, Node<'a>)> {
+    // `Route::prefix('v1')->group(..)` is a member call; `Route::group([..], ..)`
+    // is a scoped one. Both nest a body under a prefix.
+    if !matches!(
+        node.kind(),
+        "member_call_expression" | "scoped_call_expression"
+    ) {
+        return None;
+    }
+    if grammar::field(node, text, "name").as_deref() != Some("group") {
+        return None;
+    }
+    let raw = grammar::text(node, text);
+    // `Route::prefix('v1')->...->group(...)`, anywhere in the chain.
+    let chained = raw
+        .split_once("prefix(")
+        .map(|(_, rest)| rest)
+        .and_then(|rest| rest.split_once(')'))
+        .map(|(inner, _)| grammar::unquote(inner.trim()).to_string());
+    // `Route::group(['prefix' => 'v2'], ...)`, the array form.
+    let arrayed = raw
+        .split_once("'prefix'")
+        .or_else(|| raw.split_once("\"prefix\""))
+        .map(|(_, rest)| rest)
+        .and_then(|rest| rest.split_once("=>"))
+        .map(|(_, rest)| rest)
+        .and_then(|rest| {
+            let rest = rest.trim_start();
+            let quote = rest.chars().next()?;
+            (quote == '\'' || quote == '"').then(|| rest[1..].split(quote).next())?
+        })
+        .map(str::to_string);
+    let inner = chained.or(arrayed).unwrap_or_default();
+    let composed = join(outer, &inner);
+    let body = node.child_by_field_name("arguments")?;
+    Some((composed, body))
+}
+
+/// Compose two Laravel path fragments, either of which may omit its slashes.
+fn join(outer: &str, inner: &str) -> String {
+    let outer = outer.trim_matches('/');
+    let inner = inner.trim_matches('/');
+    match (outer.is_empty(), inner.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => format!("/{inner}"),
+        (false, true) => format!("/{outer}"),
+        (false, false) => format!("/{outer}/{inner}"),
+    }
+}
+
+/// The five operations `apiResource` declares, and the two `resource` adds.
+const API_RESOURCE: [(&str, &str); 5] = [
+    ("", "get"),
+    ("", "post"),
+    ("/{id}", "get"),
+    ("/{id}", "put"),
+    ("/{id}", "delete"),
+];
 
 /// `Route::post('/v1/blocks', [StoreBlockRequest::class, 'store'])`.
 ///
@@ -81,6 +167,22 @@ fn collect_route(
         .first()
         .map(|node| grammar::unquote(grammar::text(*node, text)).to_string());
 
+    // `Route::apiResource('users', C::class)` declares five operations and
+    // `resource` seven. Reading neither lost them entirely.
+    if called == "apiresource" || called == "resource" {
+        if let Some(name) = first {
+            let base = join(prefix, &name);
+            let handler = args.get(1).and_then(|node| class_of(*node, text));
+            for (suffix, method) in API_RESOURCE {
+                out.push((format!("{base}{suffix}"), method, handler.clone()));
+            }
+            if called == "resource" {
+                out.push((format!("{base}/create"), "get", handler.clone()));
+                out.push((format!("{base}/{{id}}/edit"), "get", handler));
+            }
+        }
+        return;
+    }
     // `Route::any` serves every verb; a draft can only exercise one, and GET is
     // the one that cannot mutate anything if the guess is wrong.
     let method = if called == "any" {
@@ -88,10 +190,12 @@ fn collect_route(
     } else {
         METHODS.into_iter().find(|known| *known == called)
     };
-    if let (Some(method), Some(path)) = (method, first.filter(|p| p.starts_with('/'))) {
-        let full = format!("{}{path}", prefix.trim_end_matches('/'));
+    // Laravel route paths are as often written without a leading slash as with
+    // one (`Route::get('closeBeta', ...)` serves `/closeBeta`). Requiring one
+    // dropped 326 of 328 routes in a real application.
+    if let (Some(method), Some(path)) = (method, first) {
         out.push((
-            full,
+            join(prefix, &path),
             method,
             args.get(1).and_then(|node| class_of(*node, text)),
         ));

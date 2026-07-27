@@ -150,7 +150,20 @@ pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
         return Some(found);
     }
     if let Some(gemfile) = manifest(dir, "Gemfile") {
-        if gemfile.contains("\"rails\"") || gemfile.contains("'rails'") {
+        // A large Rails app often pins the components rather than the
+        // metagem, and Rails itself uses `gemspec`. Requiring a literal
+        // `gem "rails"` missed Discourse and rails/rails, both of which have a
+        // config/routes.rb this reads perfectly once detection lets it.
+        let rails = [
+            "\"rails\"",
+            "'rails'",
+            "railties",
+            "actionpack",
+            "activerecord",
+        ];
+        if rails.iter().any(|needle| gemfile.contains(needle))
+            || dir.join("config/routes.rb").exists()
+        {
             return Some(framework(
                 "rails",
                 "Gemfile",
@@ -288,13 +301,24 @@ fn workspace_member_list(cargo: &str) -> Option<Vec<String>> {
 fn cargo_framework(cargo: &str) -> Option<&'static str> {
     ["axum", "actix-web", "rocket", "warp"]
         .into_iter()
-        .find(|name| {
-            cargo
-                .lines()
-                .any(|line| line.trim_start().starts_with(&format!("{name} ")))
-                || cargo.contains(&format!("\n{name} ="))
-                || cargo.contains(&format!("\n{name}="))
-        })
+        .find(|name| declares_dependency(cargo, name))
+}
+
+/// Whether a Cargo manifest declares a dependency, in any of the spellings.
+///
+/// `actix-web = "4"`, `actix-web = { workspace = true }` and
+/// `actix-web.workspace = true` all declare it. Matching only the first two
+/// missed 57 of 72 services in one real workspace, because the dotted-key form
+/// is what a workspace member idiomatically writes.
+fn declares_dependency(cargo: &str, name: &str) -> bool {
+    cargo.lines().any(|line| {
+        let line = line.trim_start();
+        let Some(rest) = line.strip_prefix(name) else {
+            return false;
+        };
+        let rest = rest.trim_start();
+        rest.starts_with('=') || rest.starts_with('.')
+    })
 }
 
 fn node_backend(pkg: &str) -> Option<BackendFramework> {
@@ -307,16 +331,20 @@ fn node_backend(pkg: &str) -> Option<BackendFramework> {
                 .is_some_and(|deps| deps.contains_key(name))
         })
     };
+    // Checked BEFORE the frontend bail. A Nest server that renders its
+    // transactional email with @react-email declares `react`, and bailing on
+    // that made the largest real Nest backend tested invisible: 42 controllers
+    // and 281 route decorators, reported as "no backend framework".
+    //
+    // NestJS also runs ON express and declares both; its routes are decorators
+    // on a controller class rather than express-style registrations, so
+    // labelling it express pointed the guidance at the wrong schema generator.
+    if has_dep("@nestjs/core") || has_dep("@nestjs/common") {
+        return Some(node_framework("nestjs"));
+    }
     let frontend = ["react", "vue", "svelte", "next", "@angular/core"];
     if frontend.iter().any(|name| has_dep(name)) {
         return None;
-    }
-    // NestJS runs ON express, so it declares both. It is checked first because
-    // its routes are decorators on a controller class, not express-style
-    // registrations, and labelling it "express" pointed the guidance at the
-    // wrong schema generator.
-    if has_dep("@nestjs/core") || has_dep("@nestjs/common") {
-        return Some(node_framework("nestjs"));
     }
     for name in ["express", "fastify", "koa", "@hapi/hapi", "hapi"] {
         if has_dep(name) {

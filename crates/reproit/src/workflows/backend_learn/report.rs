@@ -81,7 +81,13 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) -> serde_json::Value {
         .ok()
         .filter(|rest| !rest.as_os_str().is_empty())
         .map(|rest| rest.display().to_string())
-        .unwrap_or_else(|| ".".to_string());
+        .unwrap_or_else(|| {
+            // The root itself. Its own name reads better than a bare dot.
+            service
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".to_string())
+        });
     let Some(framework) = backend_detect::detect_backend_framework(service) else {
         return serde_json::json!({ "service": label, "framework": null });
     };

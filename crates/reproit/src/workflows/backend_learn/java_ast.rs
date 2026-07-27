@@ -124,7 +124,9 @@ fn collect_class(
     let mut fields = BTreeMap::new();
     for member in members {
         match member.kind() {
-            "method_declaration" => collect_method(member, text, &prefix, handler_body, found),
+            "method_declaration" => {
+                collect_method(member, text, &prefix, handler_body, found);
+            }
             "field_declaration" => collect_field(member, text, &name, &mut fields, pending),
             _ => {}
         }
@@ -149,24 +151,35 @@ fn collect_method(
     prefix: &str,
     handler_body: &mut BTreeMap<String, String>,
     found: &mut Vec<(String, &'static str, Option<String>)>,
-) {
-    let Some(handler) = grammar::field(node, text, "name") else {
-        return;
-    };
+) -> Option<()> {
+    let handler = grammar::field(node, text, "name")?;
     let annotations = annotations_of(node, text);
-    let Some((_, verb, argument)) = annotations.iter().find_map(|(name, argument)| {
+    let mapping = annotations.iter().find_map(|(name, argument)| {
         MAPPINGS
             .into_iter()
             .find(|(mapping, _)| mapping == name)
-            .map(|(_, verb)| (name, verb, argument.clone()))
-    }) else {
-        return;
+            .map(|(_, verb)| (verb, argument.clone()))
+    });
+    // `@RequestMapping(method = RequestMethod.PUT)` states its verb in an
+    // argument rather than in the annotation name. Without a method it serves
+    // every verb, and claiming one would be an invention, so GET is taken as
+    // the one a draft can exercise without mutating anything.
+    let (verb, argument) = match mapping {
+        Some(found) => found,
+        None => {
+            let request = annotations
+                .iter()
+                .find(|(name, _)| name == "RequestMapping")?;
+            (request_verb(node, text).unwrap_or("get"), request.1.clone())
+        }
     };
-    // A bare `@GetMapping` maps the prefix itself.
+    // Spring templates are as often relative as absolute (`@GetMapping("owners")`).
+    // Treating a relative one as absent collapsed it onto the class prefix,
+    // inventing a route at the prefix and losing the real path.
     let path = match argument {
-        Some(path) if path.starts_with('/') => format!("{}{path}", prefix.trim_end_matches('/')),
-        _ if !prefix.is_empty() => prefix.to_string(),
-        _ => "/".to_string(),
+        Some(path) => join(prefix, &path),
+        // A bare `@GetMapping` maps the prefix itself.
+        None => join(prefix, ""),
     };
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let mut params = Vec::new();
@@ -183,6 +196,35 @@ fn collect_method(
         }
     }
     found.push((path, verb, Some(handler)));
+    Some(())
+}
+
+/// The verb a `@RequestMapping(method = RequestMethod.PUT)` names.
+fn request_verb(node: Node, text: &str) -> Option<&'static str> {
+    let raw = grammar::text(node, text);
+    let at = raw.find("RequestMethod.")? + "RequestMethod.".len();
+    let verb: String = raw[at..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    MAPPINGS
+        .into_iter()
+        .map(|(_, known)| known)
+        .find(|known| *known == verb)
+}
+
+/// Compose a class template with a method template, either of which may be
+/// written with or without slashes.
+fn join(prefix: &str, suffix: &str) -> String {
+    let prefix = prefix.trim_matches('/');
+    let suffix = suffix.trim_matches('/');
+    match (prefix.is_empty(), suffix.is_empty()) {
+        (true, true) => "/".to_string(),
+        (true, false) => format!("/{suffix}"),
+        (false, true) => format!("/{prefix}"),
+        (false, false) => format!("/{prefix}/{suffix}"),
+    }
 }
 
 /// A field or record component, with whatever its annotations constrain.
@@ -292,26 +334,64 @@ fn annotations_of(node: Node, text: &str) -> Vec<(String, Option<String>)> {
                 };
                 let argument = child
                     .child_by_field_name("arguments")
-                    .and_then(|list| {
-                        let mut args = Vec::new();
-                        grammar::children(list, &mut args);
-                        // A named-argument list is more than one literal.
-                        (args.len() == 1).then(|| args[0])
-                    })
-                    .map(|value| {
-                        grammar::unquote(
-                            grammar::text(value, text)
-                                .trim_matches(|c: char| c == '"')
-                                .trim(),
-                        )
-                        .to_string()
-                    });
+                    .and_then(|list| annotation_path(list, text));
                 out.push((name, argument));
             }
             _ => {}
         }
     }
     out
+}
+
+/// The path an annotation argument list states, in any of the forms Spring
+/// accepts.
+///
+/// Reading only a lone literal meant `@GetMapping(value = "/x")`,
+/// `@GetMapping(path = "/x")` and `@GetMapping({"/x"})` all lost their path and
+/// fell back to the class prefix, which INVENTED a route at the prefix itself
+/// and lost the real one. All three are as explicit as the bare form.
+fn annotation_path(list: Node, text: &str) -> Option<String> {
+    let mut args = Vec::new();
+    grammar::children(list, &mut args);
+    for argument in &args {
+        match argument.kind() {
+            // `value = "/x"` / `path = "/x"`; any other named argument
+            // (`produces`, `method`, `consumes`) says nothing about the path.
+            "assignment_expression" => {
+                let key = grammar::field(*argument, text, "left").unwrap_or_default();
+                if key != "value" && key != "path" {
+                    continue;
+                }
+                if let Some(found) = first_string(*argument, text) {
+                    return Some(found);
+                }
+            }
+            // A bare literal, or `{"/a", "/b"}`. Only the first element of an
+            // array is taken: the others are real paths too, but this
+            // vocabulary carries one path per operation and inventing a
+            // second entry for the same handler would misreport the surface.
+            _ => {
+                if let Some(found) = first_string(*argument, text) {
+                    return Some(found);
+                }
+                // A non-string argument is still an argument: `@Min(1)` and
+                // `@Max(5)` carry numbers, and their callers read this same
+                // field. Only a NAMED argument is skipped above, because a
+                // `produces=` says nothing about the path.
+                let raw = grammar::text(*argument, text).trim();
+                if !raw.is_empty() {
+                    return Some(raw.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The first string literal anywhere in an argument.
+fn first_string(node: Node, text: &str) -> Option<String> {
+    let literal = grammar::find(node, "string_literal")?;
+    Some(grammar::unquote(grammar::text(literal, text)).to_string())
 }
 
 /// `List<BlockRequest>` -> `BlockRequest`, `com.x.T` -> `T`.

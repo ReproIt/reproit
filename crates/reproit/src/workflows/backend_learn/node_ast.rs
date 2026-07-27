@@ -47,11 +47,18 @@ pub(super) fn read(root: &Path) -> SourceRead {
         |root_node, text| {
             // `app.use('/api', users)` binds a LOCAL name. Keyed globally, one
             // file's mount prefix landed on another file's router.
+            // An express-style registration and an HTTP CLIENT call are the
+            // same shape: `api.get('/x')` on an axios instance in a React
+            // component is not a route the service serves. Only a file that
+            // shows evidence of BEING a server is read that way; a decorator
+            // controller is unambiguous and is read regardless.
+            let server = reads_as_server(text);
             let mut mounts: BTreeMap<String, String> = BTreeMap::new();
             let mut found: Vec<RawRoute> = Vec::new();
             walk(
                 root_node,
                 text,
+                server,
                 &mut found,
                 &mut shapes,
                 &mut ambiguous,
@@ -85,15 +92,46 @@ pub(super) fn read(root: &Path) -> SourceRead {
     source
 }
 
+/// Whether `x.get('/path')` in this file registers a route or CALLS one.
+///
+/// The two are the same shape. Requiring positive server evidence was the
+/// obvious gate and the wrong one: `module.exports = (app) => app.get(...)` is
+/// an ordinary route file with no such marker, and it would have gone missing.
+/// So the test is inverted: a file that pulls in an HTTP CLIENT and shows no
+/// sign of building a server is a caller, and its paths are someone else's
+/// surface. Everything else is read as before.
+fn reads_as_server(text: &str) -> bool {
+    const SERVER: [&str; 7] = [
+        "express(",
+        "Router(",
+        "fastify(",
+        "Fastify(",
+        "new Koa",
+        "'express'",
+        "\"express\"",
+    ];
+    const CLIENT: [&str; 6] = [
+        "axios",
+        "superagent",
+        "supertest",
+        "node-fetch",
+        "'got'",
+        "'ky'",
+    ];
+    SERVER.iter().any(|marker| text.contains(marker))
+        || !CLIENT.iter().any(|marker| text.contains(marker))
+}
+
 fn walk(
     node: Node,
     text: &str,
+    server: bool,
     routes: &mut Vec<RawRoute>,
     shapes: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
     ambiguous: &mut BTreeSet<String>,
     mounts: &mut BTreeMap<String, String>,
 ) {
-    if node.kind() == "call_expression" {
+    if server && node.kind() == "call_expression" {
         if let Some(member) = node.child_by_field_name("function") {
             let object = member
                 .child_by_field_name("object")
@@ -175,7 +213,7 @@ fn walk(
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk(child, text, routes, shapes, ambiguous, mounts);
+        walk(child, text, server, routes, shapes, ambiguous, mounts);
     }
 }
 
@@ -191,6 +229,12 @@ fn nest_controller(node: Node, text: &str, routes: &mut Vec<RawRoute>) {
         // No `@Controller` means this is an ordinary class, not a route table.
         None => return,
     };
+    // `@Controller(RouteKey.Asset)` names a constant this cannot resolve.
+    // Emitting the token produced `/RouteKey.Asset/...` -- a path nothing
+    // serves -- and buried the real `/assets/...` surface.
+    if prefix.contains('.') || prefix.contains('(') {
+        return;
+    }
     let Some(body) = node.child_by_field_name("body") else {
         return;
     };

@@ -34,8 +34,17 @@ pub(super) fn read(root: &Path) -> SourceRead {
         tree_sitter_c_sharp::LANGUAGE.into(),
         &mut source,
         |root_node, text| {
+            // `var g = app.MapGroup("/api")` binds a prefix to a local name,
+            // which is a per-file binding. Without it every minimal-API path in
+            // a grouped service was reported one prefix short.
+            let mut groups: BTreeMap<String, String> = BTreeMap::new();
+            grammar::walk(root_node, &mut |node| {
+                if node.kind() == "variable_declarator" {
+                    collect_group(node, text, &mut groups);
+                }
+            });
             grammar::walk(root_node, &mut |node| match node.kind() {
-                "invocation_expression" => minimal_api(node, text, &mut found),
+                "invocation_expression" => minimal_api(node, text, &groups, &mut found),
                 "class_declaration" => collect_class(
                     node,
                     text,
@@ -66,7 +75,51 @@ pub(super) fn read(root: &Path) -> SourceRead {
 }
 
 /// `app.MapGet("/health", handler)` and `app.MapPost("/items", ...)`.
-fn minimal_api(node: Node, text: &str, found: &mut Vec<(String, &'static str, Option<String>)>) {
+/// `var api = app.MapGroup("api/orders");` -> `api` carries that prefix.
+fn collect_group(node: Node, text: &str, groups: &mut BTreeMap<String, String>) {
+    let Some(name) = grammar::field(node, text, "name") else {
+        return;
+    };
+    let Some(prefix) = map_group_prefix(node, text) else {
+        return;
+    };
+    groups.insert(name, prefix);
+}
+
+/// The prefix a `MapGroup("...")` anywhere in this expression establishes.
+fn map_group_prefix(node: Node, text: &str) -> Option<String> {
+    let mut found = None;
+    grammar::walk(node, &mut |inner| {
+        if found.is_some() || inner.kind() != "invocation_expression" {
+            return;
+        }
+        let Some(callee) = inner.child_by_field_name("function") else {
+            return;
+        };
+        if grammar::field(callee, text, "name").as_deref() != Some("MapGroup") {
+            return;
+        }
+        let Some(arguments) = inner.child_by_field_name("arguments") else {
+            return;
+        };
+        let mut args = Vec::new();
+        grammar::children(arguments, &mut args);
+        if let Some(literal) = args
+            .first()
+            .and_then(|arg| grammar::find(*arg, "string_literal"))
+        {
+            found = Some(grammar::unquote(grammar::text(literal, text)).to_string());
+        }
+    });
+    found
+}
+
+fn minimal_api(
+    node: Node,
+    text: &str,
+    groups: &BTreeMap<String, String>,
+    found: &mut Vec<(String, &'static str, Option<String>)>,
+) {
     let Some(callee) = node.child_by_field_name("function") else {
         return;
     };
@@ -85,14 +138,38 @@ fn minimal_api(node: Node, text: &str, found: &mut Vec<(String, &'static str, Op
     };
     let mut args = Vec::new();
     grammar::children(arguments, &mut args);
-    let Some(path) = args
+    // ASP.NET route templates are commonly written WITHOUT a leading slash
+    // (`app.MapGet("api/catalog-brands", ...)`), and requiring one dropped 8 of
+    // 9 endpoints in a real service. Only a string LITERAL is a template: an
+    // identifier is a constant this cannot resolve, and guessing at it would
+    // invent a path.
+    let Some(literal) = args
         .first()
-        .map(|arg| grammar::unquote(grammar::text(*arg, text)).to_string())
-        .filter(|path| path.starts_with('/'))
+        .and_then(|arg| grammar::find(*arg, "string_literal"))
     else {
         return;
     };
-    found.push((path, method, None));
+    let raw = grammar::unquote(grammar::text(literal, text)).to_string();
+    if raw.contains('[') {
+        return;
+    }
+    // The receiver is either a grouped local or an inline `MapGroup(..)` chain.
+    let receiver = grammar::field(callee, text, "expression").unwrap_or_default();
+    let outer = groups
+        .get(&receiver)
+        .cloned()
+        .or_else(|| {
+            callee
+                .child_by_field_name("expression")
+                .and_then(|inner| map_group_prefix(inner, text))
+        })
+        .unwrap_or_default();
+    found.push((join(&outer, &raw), method, None));
+}
+
+/// `[action]` resolves to the method name, as ASP.NET substitutes it.
+fn substitute_action(template: &str, handler: &str) -> String {
+    template.replace("[action]", handler)
 }
 
 /// A controller class, or a DTO whose properties carry validation attributes.
@@ -156,11 +233,36 @@ fn collect_action(
     }) else {
         return;
     };
-    let path = match argument {
-        Some(suffix) if !suffix.is_empty() => join(prefix, &suffix),
+    // The template can come from the verb attribute OR from a separate
+    // `[Route("...")]` on the same method. Reading only the verb argument made
+    // every action of a `[HttpGet] [Route("{id}")]` controller collapse onto
+    // the class prefix, which invented a route nothing serves and lost the
+    // real one.
+    let template = argument.filter(|value| !value.is_empty()).or_else(|| {
+        attributes
+            .iter()
+            .find(|(attribute, _)| attribute == "Route")
+            .and_then(|(_, value)| value.clone())
+            .filter(|value| !value.is_empty())
+    });
+    let path = match template {
+        // A template starting with `/` REPLACES the controller template rather
+        // than extending it: that is ASP.NET's rule, and composing it produced
+        // a path the service does not serve.
+        Some(suffix) if suffix.starts_with('/') => substitute_action(&suffix, &handler),
+        Some(suffix) => join(prefix, &substitute_action(&suffix, &handler)),
         // A bare `[HttpGet]` serves the class route itself.
-        _ => join(prefix, ""),
+        None => join(prefix, ""),
     };
+    // `[action]` in a class template resolves per action, so it can only be
+    // substituted here.
+    let path = substitute_action(&path, &handler);
+    if path.contains('[') {
+        // An unresolved token (`[area]`, a custom convention) means the real
+        // path is not knowable from this declaration. Emitting it with the
+        // brackets still in would be a route nobody serves.
+        return;
+    }
     // `[FromBody] ItemRequest body` names the type the action accepts.
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let mut params = Vec::new();

@@ -155,7 +155,9 @@ fn extraction_table_covers_every_framework() {
              resources :orders\nend\n",
             &[
                 ("/orders", &["get", "post"]),
-                ("/orders/{id}", &["delete", "get", "patch"]),
+                ("/orders/new", &["get"]),
+                ("/orders/{id}", &["delete", "get", "patch", "put"]),
+                ("/orders/{id}/edit", &["get"]),
                 ("/status", &["get"]),
             ],
         ),
@@ -407,8 +409,17 @@ fn path_normalization_maps_every_param_style_to_openapi() {
     assert_eq!(normalize_path("/a/{id:[0-9]+}"), Some("/a/{id}".into()));
     assert_eq!(normalize_path("orders/"), Some("/orders".into()));
     assert_eq!(normalize_path("/"), Some("/".into()));
-    // Unconfident shapes are rejected, not guessed.
-    assert_eq!(normalize_path("/files/*path"), None);
+    // A catch-all is a real part of the surface. Dropping the whole route lost
+    // `/swagger/*any` and every static-file mount, which is an absence the
+    // source does not support; OpenAPI has no wildcard, so it becomes a named
+    // template parameter a generator can actually exercise.
+    assert_eq!(normalize_path("/files/*path"), Some("/files/{path}".into()));
+    assert_eq!(
+        normalize_path("/static/*"),
+        Some("/static/{wildcard}".into())
+    );
+    assert_eq!(normalize_path("/hello/мир"), Some("/hello/мир".into()));
+    // Unconfident shapes are still rejected, not guessed.
     assert_eq!(normalize_path("http://x/a"), None);
     assert_eq!(normalize_path("/a b"), None);
     assert_eq!(normalize_path("/^orders$"), None);
