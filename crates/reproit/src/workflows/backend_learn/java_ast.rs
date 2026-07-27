@@ -27,6 +27,7 @@ const MAPPINGS: [(&str, &str); 5] = [
     ("PatchMapping", "patch"),
     ("DeleteMapping", "delete"),
 ];
+const MAX_MAPPING_VALUES: usize = 64;
 
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
@@ -154,33 +155,32 @@ fn collect_method(
 ) -> Option<()> {
     let handler = grammar::field(node, text, "name")?;
     let annotations = annotations_of(node, text);
-    let mapping = annotations.iter().find_map(|(name, argument)| {
+    let mapping = annotations.iter().find_map(|(name, _)| {
         MAPPINGS
             .into_iter()
             .find(|(mapping, _)| mapping == name)
-            .map(|(_, verb)| (verb, argument.clone()))
+            .map(|(_, verb)| (name.as_str(), verb))
     });
     // `@RequestMapping(method = RequestMethod.PUT)` states its verb in an
     // argument rather than in the annotation name. Without a method it serves
     // every verb, and claiming one would be an invention, so GET is taken as
     // the one a draft can exercise without mutating anything.
-    let (verb, argument) = match mapping {
-        Some(found) => found,
+    let (verbs, paths) = match mapping {
+        Some((name, verb)) => (vec![verb], mapping_paths(node, text, name)),
         None => {
-            let request = annotations
+            annotations
                 .iter()
                 .find(|(name, _)| name == "RequestMapping")?;
-            (request_verb(node, text).unwrap_or("get"), request.1.clone())
+            let verbs = request_verbs(node, text);
+            (
+                if verbs.is_empty() { vec!["get"] } else { verbs },
+                mapping_paths(node, text, "RequestMapping"),
+            )
         }
     };
     // Spring templates are as often relative as absolute (`@GetMapping("owners")`).
     // Treating a relative one as absent collapsed it onto the class prefix,
     // inventing a route at the prefix and losing the real path.
-    let path = match argument {
-        Some(path) => join(prefix, &path),
-        // A bare `@GetMapping` maps the prefix itself.
-        None => join(prefix, ""),
-    };
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let mut params = Vec::new();
         grammar::children(parameters, &mut params);
@@ -195,23 +195,58 @@ fn collect_method(
             }
         }
     }
-    found.push((path, verb, Some(handler)));
+    if paths.is_empty() {
+        for verb in verbs {
+            found.push((join(prefix, ""), verb, Some(handler.clone())));
+        }
+    } else {
+        for path in paths {
+            for verb in &verbs {
+                found.push((join(prefix, &path), *verb, Some(handler.clone())));
+            }
+        }
+    }
     Some(())
 }
 
-/// The verb a `@RequestMapping(method = RequestMethod.PUT)` names.
-fn request_verb(node: Node, text: &str) -> Option<&'static str> {
-    let raw = grammar::text(node, text);
-    let at = raw.find("RequestMethod.")? + "RequestMethod.".len();
-    let verb: String = raw[at..]
-        .chars()
-        .take_while(|c| c.is_ascii_alphabetic())
-        .collect::<String>()
-        .to_ascii_lowercase();
-    MAPPINGS
-        .into_iter()
-        .map(|(_, known)| known)
-        .find(|known| *known == verb)
+/// The verbs a `@RequestMapping(method = {...})` names, in source order.
+fn request_verbs(node: Node, text: &str) -> Vec<&'static str> {
+    let Some(arguments) = annotation_arguments(node, text, "RequestMapping") else {
+        return Vec::new();
+    };
+    let mut methods = None;
+    grammar::walk(arguments, &mut |argument| {
+        if methods.is_none()
+            && is_annotation_pair(argument)
+            && annotation_pair_key(argument, text).as_deref() == Some("method")
+        {
+            methods = Some(grammar::text(argument, text).to_string());
+        }
+    });
+    let Some(methods) = methods else {
+        return Vec::new();
+    };
+    let mut remaining = methods.as_str();
+    let mut verbs = Vec::new();
+    while verbs.len() < MAX_MAPPING_VALUES {
+        let Some(offset) = remaining.find("RequestMethod.") else {
+            break;
+        };
+        remaining = &remaining[offset + "RequestMethod.".len()..];
+        let name: String = remaining
+            .chars()
+            .take_while(|character| character.is_ascii_alphabetic())
+            .collect();
+        let lower = name.to_ascii_lowercase();
+        if let Some(verb) = MAPPINGS
+            .into_iter()
+            .map(|(_, known)| known)
+            .find(|known| *known == lower && !verbs.contains(known))
+        {
+            verbs.push(verb);
+        }
+    }
+    verbs
 }
 
 /// Compose a class template with a method template, either of which may be
@@ -357,8 +392,8 @@ fn annotation_path(list: Node, text: &str) -> Option<String> {
         match argument.kind() {
             // `value = "/x"` / `path = "/x"`; any other named argument
             // (`produces`, `method`, `consumes`) says nothing about the path.
-            "assignment_expression" => {
-                let key = grammar::field(*argument, text, "left").unwrap_or_default();
+            "assignment_expression" | "element_value_pair" => {
+                let key = annotation_pair_key(*argument, text).unwrap_or_default();
                 if key != "value" && key != "path" {
                     continue;
                 }
@@ -391,6 +426,70 @@ fn annotation_path(list: Node, text: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Every literal path on one route annotation, in source order.
+///
+/// Constants and expressions remain unreadable. Expanding only string
+/// literals preserves the no-invented-path rule while retaining Spring's
+/// explicit array form.
+fn mapping_paths(node: Node, text: &str, annotation: &str) -> Vec<String> {
+    let Some(arguments) = annotation_arguments(node, text, annotation) else {
+        return Vec::new();
+    };
+    let mut args = Vec::new();
+    grammar::children(arguments, &mut args);
+    let mut paths = Vec::new();
+    for argument in args {
+        if paths.len() >= MAX_MAPPING_VALUES {
+            break;
+        }
+        let value = if is_annotation_pair(argument) {
+            let key = annotation_pair_key(argument, text).unwrap_or_default();
+            if key != "value" && key != "path" {
+                continue;
+            }
+            annotation_pair_value(argument).unwrap_or(argument)
+        } else {
+            argument
+        };
+        grammar::walk(value, &mut |inner| {
+            if paths.len() >= MAX_MAPPING_VALUES || inner.kind() != "string_literal" {
+                return;
+            }
+            paths.push(grammar::unquote(grammar::text(inner, text)).to_string());
+        });
+    }
+    paths
+}
+
+fn is_annotation_pair(node: Node) -> bool {
+    matches!(node.kind(), "assignment_expression" | "element_value_pair")
+}
+
+fn annotation_pair_key(node: Node, text: &str) -> Option<String> {
+    grammar::field(node, text, "left").or_else(|| grammar::field(node, text, "key"))
+}
+
+fn annotation_pair_value(node: Node) -> Option<Node> {
+    node.child_by_field_name("right")
+        .or_else(|| node.child_by_field_name("value"))
+}
+
+fn annotation_arguments<'tree>(node: Node<'tree>, text: &str, wanted: &str) -> Option<Node<'tree>> {
+    let modifiers = node
+        .child_by_field_name("modifiers")
+        .or_else(|| grammar::find(node, "modifiers"))?;
+    let mut children = Vec::new();
+    grammar::children(modifiers, &mut children);
+    children.into_iter().find_map(|child| {
+        if child.kind() != "annotation"
+            || grammar::field(child, text, "name").as_deref() != Some(wanted)
+        {
+            return None;
+        }
+        child.child_by_field_name("arguments")
+    })
 }
 
 /// The first string literal anywhere in an argument.
@@ -666,6 +765,30 @@ public class BlockController {
             .find(|(path, _, _)| path == "/p/rm")
             .map(|(_, method, _)| *method);
         assert_eq!(put, Some("put"), "the verb comes from method=");
+    }
+
+    #[test]
+    fn spring_mapping_arrays_contribute_every_literal_path_and_method() {
+        let source = read_source(
+            "mapping-arrays",
+            &[(
+                "A.java",
+                "@RestController\n@RequestMapping(\"/api\")\nclass A {\n\
+                 \x20 @PostMapping(value = {\"/m1\", \"/m2\"}) String create() { return \"\"; }\n\
+                 \x20 @RequestMapping(value = \"/q\", method = {\n\
+                 \x20     RequestMethod.GET, RequestMethod.POST\n\
+                 \x20 }) String query() { return \"\"; }\n}\n",
+            )],
+        );
+        assert_eq!(
+            source.routes,
+            vec![
+                ("/api/m1".to_string(), "post", Some("create".to_string())),
+                ("/api/m2".to_string(), "post", Some("create".to_string())),
+                ("/api/q".to_string(), "get", Some("query".to_string())),
+                ("/api/q".to_string(), "post", Some("query".to_string())),
+            ]
+        );
     }
 
     #[test]
