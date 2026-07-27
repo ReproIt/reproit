@@ -319,7 +319,15 @@ fn count_sources(dir: &Path, extensions: &[&str]) -> usize {
 /// `{id}`. Anything not confidently expressible (wildcards, regex fragments,
 /// URLs) is rejected and counted as skipped by the caller.
 pub(super) fn normalize_path(raw: &str) -> Option<String> {
-    if raw.contains("://") || raw.chars().any(char::is_whitespace) {
+    if raw.contains("://") {
+        return None;
+    }
+    // A Flask converter may carry arguments with spaces:
+    // `<any(xhr, jquery, fetch):js>`. Those spaces are inside the parameter,
+    // not in the path, and rejecting the whole route for them lost a real
+    // endpoint. Whitespace anywhere ELSE still means this is not a path.
+    let raw = &strip_parameter_spaces(raw);
+    if raw.chars().any(char::is_whitespace) {
         return None;
     }
     let raw = raw.strip_prefix('/').unwrap_or(raw);
@@ -331,6 +339,23 @@ pub(super) fn normalize_path(raw: &str) -> Option<String> {
         segments.push(normalize_segment(segment)?);
     }
     Some(format!("/{}", segments.join("/")))
+}
+
+/// Remove whitespace that sits inside a `<...>` or `{...}` parameter.
+fn strip_parameter_spaces(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut depth = 0usize;
+    for character in raw.chars() {
+        match character {
+            '<' | '{' => depth += 1,
+            '>' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if !(depth > 0 && character.is_whitespace()) {
+            out.push(character);
+        }
+    }
+    out
 }
 
 fn is_identifier(name: &str) -> bool {

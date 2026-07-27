@@ -43,6 +43,9 @@ pub(super) fn read(root: &Path) -> SourceRead {
     // routes are dropped rather than emitted one prefix short.
     let mut opaque: BTreeSet<String> = BTreeSet::new();
     let mut pending: Vec<(String, Vec<PyRoute>)> = Vec::new();
+    // view name -> the verbs it answers, for Django, where the URL states none.
+    let mut view_verbs: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
+    let mut django_files: BTreeSet<String> = BTreeSet::new();
 
     for file in super::extract::family_sources(root, super::extract::Family::Python) {
         let Ok(text) = std::fs::read_to_string(&file) else {
@@ -64,12 +67,14 @@ pub(super) fn read(root: &Path) -> SourceRead {
         let mut prefixes: BTreeMap<String, String> = BTreeMap::new();
         collect_prefixes(tree.root_node(), &text, &mut prefixes);
         collect_mounts(tree.root_node(), &text, &mut mounted, &mut opaque);
+        collect_view_verbs(tree.root_node(), &text, &mut view_verbs);
         let mut found = Vec::new();
         // Django declares routes in urls.py rather than on the handler, and
         // declares no method there, so the draft claims only GET. Restricted to
         // that file so an ordinary `path(...)` helper elsewhere is not a route.
         if file.file_name().is_some_and(|name| name == "urls.py") {
             django_routes(tree.root_node(), &text, &mut found, &mut mounted);
+            django_files.insert(module_of(&file));
         }
         walk(
             tree.root_node(),
@@ -84,16 +89,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         // Every Django app names its route table `urls.py`, so the stem
         // collides across the whole project; the app is the DIRECTORY, which is
         // also what `include('blog.urls')` names.
-        let module = if file.file_name().is_some_and(|name| name == "urls.py") {
-            file.parent()
-                .and_then(|dir| dir.file_name())
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        } else {
-            file.file_stem()
-                .map(|stem| stem.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        };
+        let module = module_of(&file);
         pending.push((module, found));
     }
 
@@ -106,9 +102,21 @@ pub(super) fn read(root: &Path) -> SourceRead {
             continue;
         }
         let outer = mounted.get(&module).cloned().unwrap_or_default();
+        let django = django_files.contains(&module);
         for (path, method, handler) in routes {
             let path = format!("{}{path}", outer.trim_end_matches('/'));
-            source.routes.push((path, method, handler));
+            // Now that every file is read, a Django view's own verbs are known.
+            let methods = match handler
+                .as_ref()
+                .filter(|_| django)
+                .and_then(|name| view_verbs.get(name))
+            {
+                Some(found) => found.clone(),
+                None => vec![method],
+            };
+            for method in methods {
+                source.routes.push((path.clone(), method, handler.clone()));
+            }
         }
     }
 
@@ -468,6 +476,87 @@ fn field_text(node: Node, field: &str, text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The module key for a source file: the app directory for a Django `urls.py`,
+/// whose stem collides across the whole project, and the stem otherwise.
+fn module_of(file: &std::path::Path) -> String {
+    if file.file_name().is_some_and(|name| name == "urls.py") {
+        return file
+            .parent()
+            .and_then(|dir| dir.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+    }
+    file.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The verbs a Django view answers.
+///
+/// `@api_view(["GET", "POST"])` on a function, and the handler methods of a
+/// class-based view (`def post`), both state this exactly. Reading neither made
+/// every Django route a GET, including endpoints that answer only POST.
+fn collect_view_verbs(node: Node, text: &str, verbs: &mut BTreeMap<String, Vec<&'static str>>) {
+    const KNOWN: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
+    if node.kind() == "decorated_definition" {
+        let raw = node.utf8_text(text.as_bytes()).unwrap_or_default();
+        if let Some(definition) = node.child_by_field_name("definition") {
+            if let Some(name) = definition
+                .child_by_field_name("name")
+                .and_then(|node| node.utf8_text(text.as_bytes()).ok())
+            {
+                if let Some((_, rest)) = raw.split_once("@api_view") {
+                    let listed: Vec<&'static str> = KNOWN
+                        .into_iter()
+                        .filter(|verb| {
+                            let upper = verb.to_uppercase();
+                            rest.split(')').next().unwrap_or_default().contains(&upper)
+                        })
+                        .collect();
+                    if !listed.is_empty() {
+                        verbs.insert(name.to_string(), listed);
+                    }
+                }
+            }
+        }
+    }
+    // A class-based view answers the verbs it defines handlers for.
+    if node.kind() == "class_definition" {
+        if let (Some(name), Some(body)) = (
+            node.child_by_field_name("name")
+                .and_then(|node| node.utf8_text(text.as_bytes()).ok()),
+            node.child_by_field_name("body"),
+        ) {
+            let mut listed = Vec::new();
+            let mut cursor = body.walk();
+            for member in body.children(&mut cursor) {
+                let definition = if member.kind() == "decorated_definition" {
+                    member.child_by_field_name("definition")
+                } else {
+                    Some(member)
+                };
+                let Some(method) = definition
+                    .filter(|node| node.kind() == "function_definition")
+                    .and_then(|node| node.child_by_field_name("name"))
+                    .and_then(|node| node.utf8_text(text.as_bytes()).ok())
+                else {
+                    continue;
+                };
+                if let Some(verb) = KNOWN.into_iter().find(|verb| *verb == method) {
+                    listed.push(verb);
+                }
+            }
+            if !listed.is_empty() {
+                verbs.insert(name.to_string(), listed);
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_view_verbs(child, text, verbs);
+    }
+}
+
 /// Cross-file mounts: `include_router(items.router, prefix="/api")`.
 ///
 /// The dotted argument names the MODULE, which is what makes this resolvable
@@ -683,11 +772,19 @@ fn django_routes(
                         .unwrap_or_default();
                     (!app.is_empty()).then(|| app.to_string())
                 });
+                // `views.foo` names the function; `views.Foo.as_view()` names
+                // the CLASS, one component further in, and it arrives as a call
+                // rather than an attribute so it was not read at all.
                 let handler = children
                     .iter()
-                    .find(|child| matches!(child.kind(), "attribute" | "identifier"))
-                    .and_then(|node| node.utf8_text(text.as_bytes()).ok())
-                    .and_then(|text| text.rsplit('.').next().map(str::to_string));
+                    .filter(|child| matches!(child.kind(), "attribute" | "identifier" | "call"))
+                    .find_map(|child| {
+                        let raw = child.utf8_text(text.as_bytes()).ok()?;
+                        let named = raw.strip_suffix("()").unwrap_or(raw);
+                        let named = named.strip_suffix(".as_view").unwrap_or(named);
+                        let last = named.rsplit('.').next()?.trim();
+                        (!last.is_empty() && last != "include").then(|| last.to_string())
+                    });
                 if let Some(path) = path {
                     let path = if callee == "re_path" {
                         match template_of_regex(&path) {
@@ -704,6 +801,12 @@ fn django_routes(
                         Some(app) => {
                             mounted.insert(app, path.trim_end_matches('/').to_string());
                         }
+                        // Django states no verb at the URL. Which verbs the
+                        // VIEW answers is knowable, but only once every file
+                        // has been read: `urls.py` sorts before `views.py`, so
+                        // resolving here found an empty map and made every
+                        // Django route a GET, including endpoints that only
+                        // answer POST.
                         None => routes.push((path, "get", handler)),
                     }
                 }

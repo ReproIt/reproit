@@ -357,16 +357,34 @@ fn routes_of_expr(
                 }
                 return routes;
             }
-            match resolve_fn(krate, &written) {
-                Some(name) => {
-                    let routes = routes_of_fn(&name, krate, mounted, visiting, depth + 1);
-                    if !routes.is_empty() {
-                        mounted.insert(name);
-                    }
-                    routes
+            if let Some(name) = resolve_fn(krate, &written) {
+                let routes = routes_of_fn(&name, krate, mounted, visiting, depth + 1);
+                if !routes.is_empty() {
+                    mounted.insert(name);
                 }
-                None => Vec::new(),
+                return routes;
             }
+            // An unresolved call may still BUILD a router in a closure argument:
+            // `AdHoc::on_ignite("q", |rocket| async { rocket.mount("/queue", ..) })`.
+            // Only closure and async arguments are evaluated. Evaluating every
+            // argument would re-emit a router merely PASSED to a function, at
+            // its unprefixed local path.
+            let mut routes = Vec::new();
+            for argument in &call.args {
+                if !matches!(argument, Expr::Closure(_) | Expr::Async(_)) {
+                    continue;
+                }
+                routes.extend(routes_of_expr(
+                    argument,
+                    krate,
+                    locals,
+                    nested,
+                    mounted,
+                    visiting,
+                    depth + 1,
+                ));
+            }
+            routes
         }
         // `HttpServer::new(|| App::new().route(..))`: the closure body IS the app.
         Expr::Closure(node) => routes_of_expr(
@@ -399,6 +417,16 @@ fn routes_of_expr(
         ),
         Expr::Group(node) => routes_of_expr(
             &node.expr,
+            krate,
+            locals,
+            nested,
+            mounted,
+            visiting,
+            depth + 1,
+        ),
+        // A fairing builds its routes inside `async move { rocket.mount(..) }`.
+        Expr::Async(node) => routes_of_block(
+            &node.block.stmts,
             krate,
             locals,
             nested,
@@ -518,27 +546,32 @@ fn routes_of_expr(
 /// `get(list).post(create)` -> the verbs and their handlers.
 fn method_router(expr: &Expr) -> Vec<(&'static str, Option<String>)> {
     match expr {
-        Expr::Call(call) => match last_segment(&call.func) {
-            Some(name) => METHODS
-                .iter()
-                .find(|verb| **verb == name)
-                .map(|verb| {
-                    let handler = call.args.first().and_then(last_segment);
-                    vec![(*verb, handler)]
-                })
-                .unwrap_or_default(),
+        Expr::Call(call) => match last_segment(&call.func).as_deref().and_then(verb_of) {
+            Some(verb) => vec![(verb, call.args.first().and_then(last_segment))],
             None => Vec::new(),
         },
         Expr::MethodCall(call) => {
             let mut verbs = method_router(&call.receiver);
-            let name = call.method.to_string();
-            if let Some(verb) = METHODS.iter().find(|verb| **verb == name) {
-                verbs.push((*verb, call.args.first().and_then(last_segment)));
+            if let Some(verb) = verb_of(&call.method.to_string()) {
+                verbs.push((verb, call.args.first().and_then(last_segment)));
             }
             verbs
         }
         _ => Vec::new(),
     }
+}
+
+/// The verb a method-router constructor names.
+///
+/// `get_service`/`post_service` mount a Service for the same verb, and `any`
+/// answers every verb at once. A draft can exercise one, and GET is the one
+/// that cannot mutate anything if it is the wrong guess.
+fn verb_of(name: &str) -> Option<&'static str> {
+    if name == "any" || name == "any_service" {
+        return Some("get");
+    }
+    let bare = name.strip_suffix("_service").unwrap_or(name);
+    METHODS.iter().copied().find(|verb| *verb == bare)
 }
 
 fn string_of(expr: &Expr) -> Option<String> {

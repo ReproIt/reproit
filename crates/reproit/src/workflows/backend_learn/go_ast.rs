@@ -54,9 +54,21 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 "type_spec" => collect_struct(node, text, &mut structs, &mut ambiguous),
                 "function_declaration" => collect_handler(node, text, &mut handler_body),
                 "short_var_declaration" => collect_group(node, text, &mut groups),
-                "call_expression" => collect_route(node, text, &mut found),
                 _ => {}
             });
+            // chi nests with a CLOSURE rather than a variable:
+            // `r.Route("/articles", func(r chi.Router) { r.Get("/search", h) })`.
+            // The inner `r` shadows the outer one, so no variable map can
+            // express it; the prefix has to travel lexically.
+            // `r.Mount("/admin", adminRouter())` mounts a router BUILT BY a
+            // function. Without resolving it, that function's routes surfaced
+            // at the root: `/accounts` for a service that serves
+            // `/admin/accounts`.
+            let mut mounts: BTreeMap<String, String> = BTreeMap::new();
+            grammar::walk(root_node, &mut |node| {
+                collect_mount(node, text, &mut mounts)
+            });
+            routes_under(root_node, text, "", &mounts, &mut found);
             // Resolve against THIS file's groups before moving on.
             for (router, path, method, handler) in found {
                 let path = match resolve_prefix(&groups, &router) {
@@ -312,6 +324,110 @@ fn collect_group(node: Node, text: &str, groups: &mut Groups) {
         return;
     }
     groups.insert(grammar::text(*name, text).to_string(), (parent, prefix));
+}
+
+/// Routes under a lexical prefix, descending into the closures that extend it.
+fn routes_under(
+    node: Node,
+    text: &str,
+    prefix: &str,
+    mounts: &BTreeMap<String, String>,
+    out: &mut Vec<(String, String, &'static str, Option<String>)>,
+) {
+    let mut children = Vec::new();
+    grammar::children(node, &mut children);
+    for child in children {
+        // A function whose router is mounted elsewhere builds its routes under
+        // that mount, not at the root.
+        if child.kind() == "function_declaration" {
+            let mounted =
+                grammar::field(child, text, "name").and_then(|name| mounts.get(&name).cloned());
+            if let Some(at) = mounted {
+                routes_under(child, text, &at, mounts, out);
+                continue;
+            }
+        }
+        if let Some((inner, body)) = nested_router(child, text, prefix) {
+            routes_under(body, text, &inner, mounts, out);
+            continue;
+        }
+        if child.kind() == "call_expression" {
+            let mut here = Vec::new();
+            collect_route(child, text, &mut here);
+            for (router, path, method, handler) in here {
+                out.push((router, format!("{prefix}{path}"), method, handler));
+            }
+        }
+        routes_under(child, text, prefix, mounts, out);
+    }
+}
+
+/// `r.Mount("/admin", adminRouter())` -> the function and where it is mounted.
+fn collect_mount(node: Node, text: &str, mounts: &mut BTreeMap<String, String>) {
+    if node.kind() != "call_expression" {
+        return;
+    }
+    let Some(callee) = node.child_by_field_name("function") else {
+        return;
+    };
+    if grammar::field(callee, text, "field").as_deref() != Some("Mount") {
+        return;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let mut args = Vec::new();
+    grammar::children(arguments, &mut args);
+    let (Some(first), Some(second)) = (args.first(), args.get(1)) else {
+        return;
+    };
+    if !matches!(
+        first.kind(),
+        "interpreted_string_literal" | "raw_string_literal"
+    ) {
+        return;
+    }
+    let prefix = grammar::unquote(grammar::text(*first, text)).to_string();
+    if let Some(name) = grammar::find(*second, "identifier") {
+        mounts.insert(
+            grammar::text(name, text).to_string(),
+            prefix.trim_end_matches('/').to_string(),
+        );
+    }
+}
+
+/// A chi `Route("/x", func(...))` or `Mount("/x", handler())` and the prefix
+/// its body inherits.
+fn nested_router<'a>(node: Node<'a>, text: &str, outer: &str) -> Option<(String, Node<'a>)> {
+    if node.kind() != "call_expression" {
+        return None;
+    }
+    let callee = node.child_by_field_name("function")?;
+    let called = grammar::field(callee, text, "field")?;
+    if called != "Route" && called != "Mount" && called != "Group" {
+        return None;
+    }
+    let arguments = node.child_by_field_name("arguments")?;
+    let mut args = Vec::new();
+    grammar::children(arguments, &mut args);
+    let first = args.first()?;
+    if !matches!(
+        first.kind(),
+        "interpreted_string_literal" | "raw_string_literal"
+    ) {
+        return None;
+    }
+    let prefix = grammar::unquote(grammar::text(*first, text));
+    // A `Group("/v1")` with no closure is the variable form, handled elsewhere.
+    let body = args.iter().find(|arg| arg.kind() == "func_literal")?;
+    Some((
+        format!(
+            "{}{}",
+            outer.trim_end_matches('/'),
+            prefix.trim_end_matches('/')
+        ),
+        *body,
+    ))
 }
 
 /// `v1.POST("/blocks", createBlock)` and `mux.HandleFunc("GET /healthz", h)`.
