@@ -210,6 +210,9 @@ fn routes_of_expr(
             // actix `web::scope("/api")` prefixes every route built on it, and
             // it is the CHAIN's base rather than a link in it.
             let scope = scope_prefix(base);
+            // actix `web::resource("/items")` states the path once, then each
+            // `.route(web::get().to(handler))` contributes a method.
+            let resource = resource_path(base);
             // warp states the whole path in a macro at the base of the filter
             // chain and the verb in an `.and(warp::get())` link further along.
             if let Some(path) = warp_path(base) {
@@ -225,6 +228,16 @@ fn routes_of_expr(
                 let mut args = call.args.iter();
                 match method.as_str() {
                     "route" => {
+                        if call.args.len() == 1 {
+                            if let (Some(path), Some(handlers)) =
+                                (resource.as_ref(), call.args.first())
+                            {
+                                for (verb, handler) in method_router(handlers) {
+                                    routes.push((path.clone(), verb, handler));
+                                }
+                                continue;
+                            }
+                        }
                         if let (Some(path), Some(handlers)) = (args.next(), args.next()) {
                             if let Some(path) = string_of(path) {
                                 for (verb, handler) in method_router(handlers) {
@@ -677,6 +690,18 @@ fn scope_prefix(base: &Expr) -> Option<String> {
     };
     let written = written_path(&call.func)?;
     if written != "scope" && !written.ends_with("::scope") {
+        return None;
+    }
+    string_of(call.args.first()?)
+}
+
+/// `web::resource("/items")` -> the path its `.route(..)` links serve.
+fn resource_path(base: &Expr) -> Option<String> {
+    let Expr::Call(call) = base else {
+        return None;
+    };
+    let written = written_path(&call.func)?;
+    if written != "resource" && !written.ends_with("::resource") {
         return None;
     }
     string_of(call.args.first()?)

@@ -480,6 +480,35 @@ mod tests {
     }
 
     #[test]
+    fn an_actix_resource_builder_contributes_each_routed_method() {
+        let source = read_source(
+            "actix_resource_builder",
+            &[(
+                "main.rs",
+                r#"async fn main() -> std::io::Result<()> {
+                    HttpServer::new(|| {
+                        App::new().service(
+                            web::scope("/api").service(
+                                web::resource("/items/{id}")
+                                    .route(web::get().to(show))
+                                    .route(web::put().to(update))
+                                    .route(web::delete().to(remove))
+                            )
+                        )
+                    })
+                    .bind(("127.0.0.1", 8080))?
+                    .run()
+                    .await
+                }"#,
+            )],
+        );
+        assert_eq!(
+            source.routes.get("/api/items/{id}"),
+            Some(&BTreeSet::from(["get", "put", "delete"]))
+        );
+    }
+
+    #[test]
     fn a_rocket_mount_prefixes_the_handlers_it_names() {
         // The path lives on the handler's attribute and the prefix on the
         // mount, so reading only the attribute reported every rocket route one
