@@ -13,36 +13,59 @@ use super::extract::Family;
 use super::field_facts::{drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
+const OPAQUE: &str = "\u{1}opaque";
 
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
     // FormRequest / controller class -> the fields its `rules()` declares.
     let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
-    let mut found: Vec<(String, &'static str, Option<String>)> = Vec::new();
+    let mut found: Vec<(PathBuf, String, &'static str, Option<String>)> = Vec::new();
+    let mut route_prefixes: BTreeMap<PathBuf, String> = BTreeMap::new();
 
     grammar::read_files(
         root,
         Family::Php,
         tree_sitter_php::LANGUAGE_PHP.into(),
         &mut source,
-        |root_node, text, _path| {
+        |root_node, text, path| {
             grammar::walk(root_node, &mut |node| {
                 if node.kind() == "class_declaration" {
                     collect_class(node, text, &mut shapes, &mut ambiguous);
                 }
             });
-            routes_under(root_node, text, "", &mut found);
+            collect_routing_prefixes(root, path, root_node, text, &mut route_prefixes);
+            let mut file_routes = Vec::new();
+            routes_under(root_node, text, "", &mut file_routes);
+            found.extend(
+                file_routes
+                    .into_iter()
+                    .map(|(route, method, handler)| (path.to_path_buf(), route, method, handler)),
+            );
         },
     );
     drop_ambiguous(&mut shapes, &ambiguous);
+    source.files_unreadable += route_prefixes
+        .values()
+        .filter(|prefix| prefix.as_str() == OPAQUE)
+        .count();
 
-    for (path, method, handler) in found {
-        source.routes.push((path, method, handler.clone()));
+    for (file, path, method, handler) in found {
+        let prefix = std::fs::canonicalize(&file)
+            .ok()
+            .and_then(|file| route_prefixes.get(&file))
+            .map(String::as_str)
+            .unwrap_or_default();
+        if prefix == OPAQUE {
+            continue;
+        }
+        source
+            .routes
+            .push((join(prefix, &path), method, handler.clone()));
         if let Some(handler) = handler {
             if let Some(fields) = shapes.get(&handler).cloned() {
                 source.bodies.insert(handler, fields);
@@ -50,6 +73,90 @@ pub(super) fn read(root: &Path) -> SourceRead {
         }
     }
     source
+}
+
+/// Laravel 11 registers API routes and their served prefix in
+/// `bootstrap/app.php`, separately from `routes/api.php`.
+fn collect_routing_prefixes(
+    root: &Path,
+    bootstrap: &Path,
+    node: Node,
+    text: &str,
+    prefixes: &mut BTreeMap<PathBuf, String>,
+) {
+    if !bootstrap.ends_with("bootstrap/app.php") {
+        return;
+    }
+    grammar::walk(node, &mut |inner| {
+        if inner.kind() != "member_call_expression"
+            || grammar::field(inner, text, "name").as_deref() != Some("withRouting")
+        {
+            return;
+        }
+        let raw = grammar::text(inner, text);
+        let Some(api_expression) = named_argument(raw, "api") else {
+            return;
+        };
+        let route_file = api_route_file(root, bootstrap, api_expression)
+            .or_else(|| std::fs::canonicalize(root.join("routes/api.php")).ok());
+        let Some(route_file) = route_file else {
+            return;
+        };
+        let prefix = match named_argument(raw, "apiPrefix") {
+            Some(expression) => literal(expression)
+                .map(str::to_string)
+                .unwrap_or_else(|| OPAQUE.to_string()),
+            None => "api".to_string(),
+        };
+        let prefix = if api_route_file(root, bootstrap, api_expression).is_some() {
+            prefix
+        } else {
+            OPAQUE.to_string()
+        };
+        match prefixes.get(&route_file) {
+            Some(existing) if existing != &prefix => {
+                prefixes.insert(route_file, OPAQUE.to_string());
+            }
+            Some(_) => {}
+            None => {
+                prefixes.insert(route_file, prefix);
+            }
+        }
+    });
+}
+
+fn named_argument<'a>(call: &'a str, name: &str) -> Option<&'a str> {
+    let marker = format!("{name}:");
+    let rest = call.split_once(&marker)?.1.trim_start();
+    Some(
+        rest.split(',')
+            .next()
+            .unwrap_or(rest)
+            .trim()
+            .trim_end_matches(')'),
+    )
+}
+
+fn api_route_file(root: &Path, bootstrap: &Path, expression: &str) -> Option<PathBuf> {
+    let rest = expression.strip_prefix("__DIR__")?.trim_start();
+    let suffix = literal(rest.strip_prefix('.')?.trim())?;
+    let root = std::fs::canonicalize(root).ok()?;
+    let candidate =
+        std::fs::canonicalize(bootstrap.parent()?.join(suffix.trim_start_matches('/'))).ok()?;
+    candidate.starts_with(&root).then_some(candidate)
+}
+
+fn literal(expression: &str) -> Option<&str> {
+    let expression = expression.trim();
+    for quote in ['\'', '"'] {
+        if let Some(inner) = expression
+            .strip_prefix(quote)
+            .and_then(|rest| rest.strip_suffix(quote))
+        {
+            return (!inner.contains(quote)).then_some(inner);
+        }
+    }
+    None
 }
 
 /// Routes under `prefix`, descending into the group blocks that extend it.
@@ -481,7 +588,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("root");
         for (name, body) in files {
-            std::fs::write(root.join(name), body).expect("write");
+            let path = root.join(name);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("parent directory");
+            std::fs::write(path, body).expect("write");
         }
         let source = read(&root);
         let _ = std::fs::remove_dir_all(&root);
@@ -680,6 +789,48 @@ mod tests {
                 ("/posts/{id}", "get"),
                 ("/posts/{id}", "put"),
             ]
+        );
+    }
+
+    #[test]
+    fn with_routing_applies_the_api_prefix_to_its_route_file() {
+        let source = read_source(
+            "with-routing-api",
+            &[
+                (
+                    "bootstrap/app.php",
+                    "<?php\nreturn Application::configure(basePath: dirname(__DIR__))\n\
+                     \x20   ->withRouting(\n\
+                     \x20       web: __DIR__.'/../routes/web.php',\n\
+                     \x20       api: __DIR__.'/../routes/api.php',\n\
+                     \x20       commands: __DIR__.'/../routes/console.php',\n\
+                     \x20       health: '/up',\n\
+                     \x20   )->create();\n",
+                ),
+                (
+                    "routes/api.php",
+                    "<?php\nRoute::get('/user', fn () => null);\n\
+                     Route::apiResource('users', UserController::class)->only(['index', 'show']);\n",
+                ),
+                (
+                    "routes/web.php",
+                    "<?php\nRoute::get('/welcome', fn () => null);\n",
+                ),
+            ],
+        );
+        let operations: BTreeSet<(String, &'static str)> = source
+            .routes
+            .iter()
+            .map(|(path, method, _)| (path.clone(), *method))
+            .collect();
+        assert_eq!(
+            operations,
+            BTreeSet::from([
+                ("/api/user".to_string(), "get"),
+                ("/api/users".to_string(), "get"),
+                ("/api/users/{id}".to_string(), "get"),
+                ("/welcome".to_string(), "get"),
+            ])
         );
     }
 
