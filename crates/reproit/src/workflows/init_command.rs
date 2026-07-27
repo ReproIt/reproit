@@ -11,6 +11,22 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
+/// Whether this directory is an un-set-up backend with no schema, which is the
+/// one case where the only useful thing `init` can do is read the source.
+///
+/// An existing `reproit.yaml` disqualifies it even when no conventional schema
+/// file is present, because that config may declare schemas under other names.
+/// Deriving over a project that already has a contract would replace a real one
+/// with a draft, which is the opposite of helpful.
+///
+/// A UI project is left alone: the web and mobile workflows own those, and a
+/// repo holding both must not have its frontend init hijacked.
+pub(crate) fn needs_derivation(root: &Path) -> bool {
+    project_scaffold::backend_detect::detect_backend_framework(root).is_some()
+        && project_scaffold::detect_backend_schema(root).is_none()
+        && !root.join("reproit.yaml").exists()
+}
+
 /// Schemas beyond this size are rejected rather than truncated.
 const MAX_SCHEMA_BYTES: usize = 8 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -22,20 +38,25 @@ pub(super) async fn run(
     learn: bool,
     learn_target: Option<String>,
     force: bool,
-    report: bool,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
+    let backend_platform = matches!(platform.as_deref(), None | Some("backend"));
+    if learn && !backend_platform {
+        bail!(
+            "--learn derives a backend schema and implies --platform backend (got --platform {})",
+            platform.as_deref().unwrap_or_default()
+        );
+    }
+    // Deriving from source is what `init` should DO when a backend has no
+    // schema, not something to ask for. The dead end here used to tell people
+    // to go hand-write an OpenAPI document while the reader could produce a
+    // draft from their code in the time the message took to print, and it did
+    // not even mention the flag that does it.
+    if target.is_none() && backend_platform && needs_derivation(&root) {
+        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
+    }
     if learn {
-        // --learn is the backend schema-derivation workflow; a non-backend
-        // platform contradicts it (the positional URL conflict is clap's).
-        if !matches!(platform.as_deref(), None | Some("backend")) {
-            bail!(
-                "--learn derives a backend schema and implies --platform backend (got \
-                 --platform {})",
-                platform.as_deref().unwrap_or_default()
-            );
-        }
-        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force, report).await;
+        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
     }
     let Some(target) = target else {
         project_scaffold::init(&root, platform.as_deref(), force)?;

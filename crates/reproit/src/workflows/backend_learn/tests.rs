@@ -427,7 +427,7 @@ fn zero_derived_routes_fails_closed_without_writing_config() {
     let ctx = crate::interface::cli::context::Ctx::default();
     let error = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(super::run(&ctx, &dir, None, false, false))
+        .block_on(super::run(&ctx, &dir, None, false))
         .unwrap_err();
     assert!(error.to_string().contains("no routes could be derived"));
     assert!(!dir.join("reproit.yaml").exists());
@@ -574,11 +574,7 @@ fn the_report_writes_nothing() {
     ]);
     let before = snapshot(&dir);
     let ctx = crate::interface::cli::context::Ctx::default();
-    let code = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(super::run(&ctx, &dir, None, false, true));
+    let code = super::surface(&ctx, &dir);
     let after = snapshot(&dir);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(
@@ -608,4 +604,71 @@ fn snapshot(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
     }
     out.sort();
     out
+}
+
+/// The decision `init` makes with no flags at all.
+///
+/// Deriving from source is what `init` should DO when a backend has no schema,
+/// not something to ask for. It used to dead-end with advice to hand-write an
+/// OpenAPI document, without even naming the flag that would have derived one.
+///
+/// The rule is tested directly rather than through `init`, which reads the
+/// process working directory and so cannot be pointed at a fixture without
+/// racing every other test in the binary.
+#[test]
+fn init_derives_only_for_an_unset_up_backend() {
+    let server = (
+        "server.js",
+        "const app = require('express')();\napp.get('/health', h);\n",
+    );
+    let manifest = (
+        "package.json",
+        "{\"dependencies\":{\"express\":\"^4.19.0\"}}",
+    );
+
+    let bare = project(&[manifest, server]);
+    assert!(
+        crate::workflows::init_command::needs_derivation(&bare),
+        "a backend with no schema and no config is the case that should just work"
+    );
+
+    // A conventional schema: there is a contract, so nothing is derived.
+    let with_schema = project(&[
+        manifest,
+        server,
+        (
+            "openapi.yaml",
+            "openapi: 3.1.0\ninfo: { title: t, version: \"1\" }\npaths: {}\n",
+        ),
+    ]);
+    assert!(!crate::workflows::init_command::needs_derivation(
+        &with_schema
+    ));
+
+    // Configured under a name no conventional lookup finds. Deriving here would
+    // replace a real contract with a draft.
+    let configured = project(&[
+        manifest,
+        server,
+        (
+            "reproit.yaml",
+            "backend:\n  enabled: true\n  schemas: [service.yaml]\n",
+        ),
+        (
+            "service.yaml",
+            "openapi: 3.1.0\ninfo: { title: t, version: \"1\" }\npaths: {}\n",
+        ),
+    ]);
+    assert!(
+        !crate::workflows::init_command::needs_derivation(&configured),
+        "an initialized project must never have its contract re-derived"
+    );
+
+    // A frontend is owned by the web workflow.
+    let frontend = project(&[("package.json", "{\"dependencies\":{\"react\":\"^18\"}}")]);
+    assert!(!crate::workflows::init_command::needs_derivation(&frontend));
+
+    for dir in [bare, with_schema, configured, frontend] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

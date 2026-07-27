@@ -33,18 +33,17 @@ mod tests;
 
 pub(super) const DRAFT_SCHEMA_NAME: &str = "openapi.yaml";
 
+/// `reproit surface`: what a backend serves, read from source, writing nothing.
+pub(super) fn surface(ctx: &Ctx, root: &Path) -> Result<ExitCode> {
+    report::run(ctx, root)
+}
+
 pub(super) async fn run(
     ctx: &Ctx,
     root: &Path,
     target_flag: Option<&str>,
     force: bool,
-    report_only: bool,
 ) -> Result<ExitCode> {
-    // A report writes nothing, so it runs where setup refuses: a repo that
-    // already has a contract, and a monorepo of several services.
-    if report_only {
-        return report::run(ctx, root);
-    }
     // Deriving one schema from a root that holds several services merges their
     // routes into a contract no single service serves. Same reason the doctor
     // contract check abstains there.

@@ -252,23 +252,25 @@ pub(crate) enum Cmd {
         /// Platform override: flutter | web | rn | android | backend.
         #[arg(long)]
         platform: Option<String>,
-        /// Derive a DRAFT schema from the backend source when the project has
-        /// none (implies --platform backend).
-        #[arg(long)]
+        /// Deprecated: deriving a draft schema from source is what `init` does
+        /// when a backend project has none. Accepted so existing scripts keep
+        /// working; it changes nothing.
+        #[arg(long, hide = true)]
         learn: bool,
-        /// Running service base URL: --learn sends one bounded GET per derived
-        /// parameterless GET route and records the observed response.
-        #[arg(long = "target", value_name = "SERVICE_URL", requires = "learn")]
+        /// Running service base URL. When a draft is derived from source,
+        /// reproit sends one bounded GET per parameterless GET route and
+        /// records the observed response.
+        #[arg(long = "target", value_name = "SERVICE_URL")]
         learn_target: Option<String>,
-        /// With --learn: print what the source serves and write NOTHING. Runs
-        /// where setup refuses, so it works on a repo that already has a schema
-        /// and on a monorepo (each service is reported separately).
-        #[arg(long, requires = "learn")]
-        report: bool,
         /// Replace existing generated scaffold files.
         #[arg(long)]
         force: bool,
     },
+    /// Print the HTTP surface a backend serves, read from its source, and
+    /// write nothing. Works with no schema, no running service and no
+    /// credentials, and reports each service of a monorepo separately. Where a
+    /// schema is declared it also says where schema and source disagree.
+    Surface,
     /// Reset Reproit state for this project. The default removes only
     /// regenerable state; --all also removes saved evidence and configuration.
     Reset {

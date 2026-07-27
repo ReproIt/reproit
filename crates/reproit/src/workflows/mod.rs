@@ -32,7 +32,7 @@ mod create_command;
 mod device;
 mod doctor;
 mod fuzz_command;
-mod init_command;
+pub(crate) mod init_command;
 mod inspect;
 mod map;
 mod proof;
@@ -134,9 +134,9 @@ where
             platform,
             learn,
             learn_target,
-            report,
             force,
-        } => init_command::run(&ctx, target, platform, learn, learn_target, force, report).await,
+        } => init_command::run(&ctx, target, platform, learn, learn_target, force).await,
+        Cmd::Surface => backend_learn::surface(&ctx, &std::env::current_dir()?),
         Cmd::Reset {
             all,
             init: initialize,

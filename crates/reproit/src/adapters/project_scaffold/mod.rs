@@ -116,6 +116,14 @@ pub enum Platform {
 }
 
 pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
+    // Checked BEFORE detection. An initialized project may declare its schemas
+    // under names no conventional lookup finds, so detection would fail first
+    // and report "no schema" about a project that has two. "Already
+    // initialized" is both accurate and the more useful thing to say.
+    let cfg_path = dir.join("reproit.yaml");
+    if cfg_path.exists() && !force {
+        bail!("reproit.yaml already exists (use --force to overwrite)");
+    }
     let platform = match platform {
         Some("flutter") => Platform::Flutter,
         Some("web") => Platform::Web,
@@ -130,11 +138,6 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
             None => bail!("{}", detection_failure_guide(dir)),
         },
     };
-    let cfg_path = dir.join("reproit.yaml");
-    if cfg_path.exists() && !force {
-        bail!("reproit.yaml already exists (use --force to overwrite)");
-    }
-
     match platform {
         Platform::Flutter => init_flutter(dir, force)?,
         Platform::Web => init_web(dir, force)?,
