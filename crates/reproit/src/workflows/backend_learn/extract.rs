@@ -374,6 +374,23 @@ fn normalize_segment(segment: &str) -> Option<String> {
             "{wildcard}".to_string()
         });
     }
+    // Fiber permits a wildcard after a literal prefix in the same segment:
+    // `/web*` matches `/webanything`, not `/web/anything`. Keep that shape in
+    // the template rather than inventing a slash.
+    if let Some((literal, name)) = segment.split_once('*') {
+        let valid_literal = !literal.is_empty()
+            && literal
+                .chars()
+                .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'));
+        if valid_literal && !name.contains('*') {
+            let name = if is_identifier(name) {
+                name
+            } else {
+                "wildcard"
+            };
+            return Some(format!("{literal}{{{name}}}"));
+        }
+    }
     if let Some(name) = segment
         .strip_prefix('<')
         .and_then(|rest| rest.strip_suffix("..>"))
@@ -381,7 +398,7 @@ fn normalize_segment(segment: &str) -> Option<String> {
         return param(name.split(':').next_back().unwrap_or(name));
     }
     if let Some(name) = segment.strip_prefix(':') {
-        return param(name);
+        return param(name.strip_suffix('?').unwrap_or(name));
     }
     if let Some(name) = segment
         .strip_prefix('<')
@@ -394,7 +411,16 @@ fn normalize_segment(segment: &str) -> Option<String> {
         .strip_prefix('{')
         .and_then(|rest| rest.strip_suffix('}'))
     {
+        // axum 0.8 moved catch-alls from `*rest` to `{*rest}`.
+        if let Some(name) = name.strip_prefix('*') {
+            return Some(if is_identifier(name) {
+                format!("{{{name}}}")
+            } else {
+                "{wildcard}".to_string()
+            });
+        }
         // chi-style `{id:[0-9]+}` -> the name before the colon.
+        let name = name.strip_suffix('?').unwrap_or(name);
         return param(name.split(':').next().unwrap_or(name));
     }
     // A literal segment may be non-ASCII: `#[get("/мир")]` is a real Rocket

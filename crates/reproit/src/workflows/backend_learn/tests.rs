@@ -427,6 +427,72 @@ fn path_normalization_maps_every_param_style_to_openapi() {
 }
 
 #[test]
+fn axum_current_catch_all_syntax_survives_a_whole_entry_point() {
+    let axum = routes(
+        "axum",
+        "src/main.rs",
+        "use axum::{routing::get, Router};\n\
+         #[tokio::main]\n\
+         async fn main() {\n\
+         \x20   let app = Router::new()\n\
+         \x20       .route(\"/{*rest}\", get(fallback))\n\
+         \x20       .route(\"/static/{*path}\", get(static_file));\n\
+         \x20   axum::serve(listener, app).await.unwrap();\n\
+         }\n",
+    );
+    assert_eq!(
+        axum,
+        vec![
+            ("/static/{path}".to_string(), vec!["get"]),
+            ("/{rest}".to_string(), vec!["get"]),
+        ]
+    );
+}
+
+#[test]
+fn optional_parameters_survive_whole_dotnet_and_fiber_entry_points() {
+    let aspnet = routes(
+        "aspnet",
+        "Program.cs",
+        "var builder = WebApplication.CreateBuilder(args);\n\
+         var app = builder.Build();\n\
+         app.MapGet(\"/catalog/{brandId?}\", () => Results.Ok());\n\
+         app.Run();\n",
+    );
+    assert_eq!(
+        aspnet,
+        vec![("/catalog/{brandId}".to_string(), vec!["get"])]
+    );
+
+    let fiber = routes(
+        "fiber",
+        "main.go",
+        "package main\n\
+         func main() {\n\
+         \tapp := fiber.New()\n\
+         \tapp.Get(\"/geo/:ip?\", geo)\n\
+         \tapp.Listen(\":3000\")\n\
+         }\n",
+    );
+    assert_eq!(fiber, vec![("/geo/{ip}".to_string(), vec!["get"])]);
+}
+
+#[test]
+fn fiber_suffixed_catch_all_survives_a_whole_entry_point() {
+    let fiber = routes(
+        "fiber",
+        "main.go",
+        "package main\n\
+         func main() {\n\
+         \tapp := fiber.New()\n\
+         \tapp.Get(\"/web*\", spa)\n\
+         \tapp.Listen(\":3000\")\n\
+         }\n",
+    );
+    assert_eq!(fiber, vec![("/web{wildcard}".to_string(), vec!["get"])]);
+}
+
+#[test]
 fn zero_derived_routes_fails_closed_without_writing_config() {
     let dir = project(&[
         ("Cargo.toml", "[dependencies]\naxum = \"0.8\"\n"),
