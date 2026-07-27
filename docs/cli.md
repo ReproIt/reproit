@@ -677,7 +677,7 @@ missing, Reproit runs the normal full suite.
 
 ```
 --json     machine-readable output (CI, scripts, the MCP bridge)
---quiet    minimal output
+--quiet    suppress human-readable output
 --yes      never prompt (non-interactive / CI)
 --config   path to reproit.yaml (default: ./reproit.yaml)
 ```

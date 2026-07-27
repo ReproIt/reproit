@@ -44,7 +44,7 @@ pub(crate) struct Cli {
     /// Machine-readable output (CI, scripts, the MCP bridge)
     #[arg(long, global = true)]
     pub(crate) json: bool,
-    /// Minimal output (CI logs)
+    /// Suppress human-readable output
     #[arg(long, global = true)]
     pub(crate) quiet: bool,
     /// Never prompt (non-interactive / CI)

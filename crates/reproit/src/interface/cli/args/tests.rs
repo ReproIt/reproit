@@ -7,6 +7,15 @@ fn clap_schema_is_internally_consistent() {
 }
 
 #[test]
+fn quiet_help_states_that_human_output_is_suppressed() {
+    let help = Cli::command().render_long_help().to_string();
+    assert!(
+        help.contains("Suppress human-readable output"),
+        "quiet is silent, so its help must not promise minimal logs:\n{help}"
+    );
+}
+
+#[test]
 fn every_documented_ci_invocation_matches_the_current_parser() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
