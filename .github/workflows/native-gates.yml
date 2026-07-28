@@ -88,6 +88,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+      - name: Install Rust and native libraries
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev
       - name: Install Appium and runner dependencies
         run: |
           npm ci --prefix runners/rn
