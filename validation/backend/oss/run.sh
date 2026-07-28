@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 source "$ROOT/validation/backend/oss/process-tree.sh"
-WORK="$(mktemp -d -t reproit-backend-oss)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-backend-oss.XXXXXX")"
 export REPROIT_OSS_TMP="$WORK/captured"
 mkdir -p "$REPROIT_OSS_TMP"
 PIDS=()

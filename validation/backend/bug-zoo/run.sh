@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-WORK="$(mktemp -d -t reproit-backend-bug-zoo)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-backend-bug-zoo.XXXXXX")"
 export REPROIT_BUG_ZOO_TMP="$WORK/captured"
 mkdir -p "$REPROIT_BUG_ZOO_TMP/buggy" "$REPROIT_BUG_ZOO_TMP/fixed"
 cleanup() { rm -rf "$WORK"; }

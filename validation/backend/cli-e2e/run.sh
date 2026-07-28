@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 FIXTURE="$ROOT/validation/backend/cli-e2e"
-LOG="$(mktemp -t reproit-backend-cli)"
+LOG="$(mktemp "${TMPDIR:-/tmp}/reproit-backend-cli.XXXXXX")"
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]]; then kill "$SERVER_PID" 2>/dev/null || true; fi
   rm -f "$LOG"

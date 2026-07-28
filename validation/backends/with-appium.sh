@@ -7,7 +7,7 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 readonly APPIUM_URL="http://127.0.0.1:4723"
-APPIUM_LOG="$(mktemp -t reproit-appium)"
+APPIUM_LOG="$(mktemp "${TMPDIR:-/tmp}/reproit-appium.XXXXXX")"
 readonly APPIUM_LOG
 APPIUM_PID=""
 
