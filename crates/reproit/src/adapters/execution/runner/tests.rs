@@ -9,6 +9,7 @@ fn provider() -> CommandProvider {
         authority: MechanismAuthority::TrustedCheckout,
         phase: ExecutionPhase::Launch,
         capabilities: BTreeSet::new(),
+        source: None,
         argv: vec!["sh".into(), "-c".into(), "exit 17".into()],
         environment: BTreeMap::new(),
         working_directory: None,
@@ -31,6 +32,32 @@ fn provider_digest_changes_with_executable_mechanism() {
         provider_digest(&first).unwrap(),
         provider_digest(&second).unwrap()
     );
+}
+
+#[test]
+fn interpreted_provider_source_is_bound_by_checkout_relative_digest() {
+    let root = temporary_root("provider-source");
+    let directory = root.join("validation");
+    std::fs::create_dir_all(&directory).unwrap();
+    let script = directory.join("oracle.mjs");
+    std::fs::write(&script, "process.exit(17);\n").unwrap();
+    let source = captured_provider_source(
+        &root,
+        &[
+            "node".into(),
+            "validation/oracle.mjs".into(),
+            "--check".into(),
+        ],
+    )
+    .unwrap();
+    assert_eq!(source.path, PathBuf::from("validation/oracle.mjs"));
+    validate_provider_source(&root, &source).unwrap();
+    std::fs::write(&script, "process.exit(0);\n").unwrap();
+    assert!(validate_provider_source(&root, &source)
+        .unwrap_err()
+        .to_string()
+        .contains("changed"));
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -103,7 +130,7 @@ execution:
 "#,
     )
     .unwrap();
-    let catalog = load_catalog(&root, None).unwrap();
+    let catalog = load_catalog(&root, None, None).unwrap();
     assert!(catalog.providers.contains_key("service-start"));
     std::fs::remove_dir_all(root).unwrap();
 }

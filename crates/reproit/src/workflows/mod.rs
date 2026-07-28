@@ -338,6 +338,7 @@ where
             bundle,
             project,
             component,
+            identity,
             timeout_ms,
             include_output,
             local_only,
@@ -354,6 +355,7 @@ where
                 if !command.is_empty()
                     || project.is_some()
                     || component.is_some()
+                    || identity.is_some()
                     || include_output
                     || local_only
                     || attach
@@ -370,11 +372,13 @@ where
                 return Ok(ExitCode::SUCCESS);
             }
             if command.is_empty() {
-                if project.is_some() || component.is_some() || include_output || local_only {
-                    anyhow::bail!(
-                        "--project, --component, --include-output, and --local-only require \
-                         `reproit capture -- <command>`"
-                    );
+                if project.is_some()
+                    || component.is_some()
+                    || identity.is_some()
+                    || include_output
+                    || local_only
+                {
+                    anyhow::bail!("command capture options require `reproit capture -- <command>`");
                 }
                 return create_command::run(
                     &ctx,
@@ -412,6 +416,7 @@ where
                 command_capture::CommandCaptureArgs {
                     project,
                     component,
+                    identity,
                     timeout_ms,
                     include_output,
                     local_only,
@@ -465,6 +470,18 @@ where
             as_name,
             strict,
         } => {
+            if id
+                .as_deref()
+                .is_some_and(|reference| reference.starts_with("occ_"))
+            {
+                return bundle::keep_occurrence(
+                    &ctx,
+                    id.as_deref().expect("checked occurrence reference"),
+                    as_name.as_deref(),
+                    strict,
+                )
+                .await;
+            }
             let loaded = config::load(cli.config.as_deref())?;
             keep_repro(&ctx, &loaded, id.as_deref(), as_name.as_deref(), strict)?;
             Ok(ExitCode::SUCCESS)

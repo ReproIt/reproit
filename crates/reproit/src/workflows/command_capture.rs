@@ -30,6 +30,7 @@ const MAX_ARGUMENT_BYTES: usize = 16 * 1024;
 pub(crate) struct CommandCaptureArgs {
     pub(crate) project: Option<String>,
     pub(crate) component: Option<String>,
+    pub(crate) identity: Option<String>,
     pub(crate) timeout_ms: u64,
     pub(crate) include_output: bool,
     pub(crate) local_only: bool,
@@ -237,6 +238,7 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
     let stderr = join_stream_task(stderr_task, "stderr").await?;
     let mut observation_artifacts = Vec::new();
     if args.include_output {
+        let mut retained_artifact_ids = std::collections::BTreeSet::new();
         for (name, capture) in [("stdout.bin", &stdout), ("stderr.bin", &stderr)] {
             let artifact = write_private_artifact(
                 &staging.path().join(name),
@@ -244,8 +246,10 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
                 "application/octet-stream",
                 name,
             )?;
-            observation_artifacts.push(artifact.id.clone());
-            recorder.add_artifact(artifact)?;
+            if retained_artifact_ids.insert(artifact.id.clone()) {
+                observation_artifacts.push(artifact.id.clone());
+                recorder.add_artifact(artifact)?;
+            }
         }
     }
     if stdout.truncated || stderr.truncated {
@@ -287,6 +291,7 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
         exit_code,
         signal.as_deref(),
         observation_artifacts,
+        args.identity.as_deref(),
     );
     let mut identity = None;
     if let Some(failure) = failure {
@@ -431,6 +436,16 @@ fn validate_args(args: &CommandCaptureArgs) -> Result<()> {
     for argument in &args.command {
         if argument.as_encoded_bytes().len() > MAX_ARGUMENT_BYTES {
             anyhow::bail!("capture command argument exceeds {MAX_ARGUMENT_BYTES} bytes");
+        }
+    }
+    if let Some(identity) = &args.identity {
+        if identity.is_empty()
+            || identity.len() > MAX_ARGUMENT_BYTES
+            || identity
+                .chars()
+                .any(|character| matches!(character, '\0' | '\r' | '\n'))
+        {
+            anyhow::bail!("--identity must be bounded non-empty single-line text");
         }
     }
     Ok(())
@@ -689,8 +704,9 @@ fn failure_record(
     exit_code: Option<i32>,
     signal: Option<&str>,
     artifact_ids: Vec<String>,
+    asserted_identity: Option<&str>,
 ) -> Option<FailureRecord> {
-    let (observation, summary, signature) = match outcome {
+    let (observation, summary, derived_signature) = match outcome {
         CommandOutcome::Exited(status) if status.success() => return None,
         CommandOutcome::Exited(_) => {
             let identity = exit_code
@@ -709,6 +725,12 @@ fn failure_record(
             "process-timeout".into(),
         ),
         CommandOutcome::Interrupted => return None,
+    };
+    let signature = asserted_identity.unwrap_or(&derived_signature).to_string();
+    let summary = if asserted_identity.is_some() {
+        format!("{summary}; trusted verifier asserted {signature}")
+    } else {
+        summary
     };
     Some(FailureRecord {
         observation,
@@ -949,6 +971,7 @@ mod tests {
         let args = CommandCaptureArgs {
             project: None,
             component: None,
+            identity: None,
             timeout_ms: 1,
             include_output: false,
             local_only: true,
@@ -961,5 +984,14 @@ mod tests {
             ..args
         };
         assert!(validate_args(&args).is_err());
+    }
+
+    #[test]
+    fn identical_output_artifacts_are_retained_once() {
+        let mut retained = std::collections::BTreeSet::new();
+        let digest = format!("sha256:{}", "0".repeat(64));
+        assert!(retained.insert(digest.clone()));
+        assert!(!retained.insert(digest));
+        assert_eq!(retained.len(), 1);
     }
 }

@@ -71,13 +71,22 @@ pub(crate) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
     // printed "backend project root " with nothing after it). Fall back to the
     // current directory and canonicalize so the root reads as an absolute path,
     // matching the app-platform "loaded project root" line.
-    let root = path
+    let root = backend_project_root(&path, &std::env::current_dir()?);
+    Ok(Some(BackendProject { root, config }))
+}
+
+fn backend_project_root(path: &Path, current_directory: &Path) -> PathBuf {
+    let declared_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let root = root.canonicalize().unwrap_or(root);
-    Ok(Some(BackendProject { root, config }))
+        .unwrap_or_else(|| current_directory.to_path_buf());
+    let absolute_root = if declared_root.is_absolute() {
+        declared_root
+    } else {
+        current_directory.join(declared_root)
+    };
+    absolute_root.canonicalize().unwrap_or(absolute_root)
 }
 
 pub(super) fn resolve(
@@ -237,5 +246,15 @@ mod tests {
         assert!(validate_target_url("ftp://x").is_err());
         assert!(validate_target_url("/orders").is_err());
         assert!(validate_target_url("localhost:4477").is_err());
+    }
+
+    #[test]
+    fn bare_filename_backend_config_uses_absolute_current_directory() {
+        let directory =
+            std::env::temp_dir().join(format!("reproit-backend-root-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let root = backend_project_root(Path::new("reproit.yaml"), &directory);
+        assert_eq!(root, directory.canonicalize().unwrap());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

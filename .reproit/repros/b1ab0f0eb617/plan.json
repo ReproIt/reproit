@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "plan_5f679757d55c6411",
+  "occurrenceId": "occ_6afb619408a0fe3c",
+  "target": "current-checkout",
+  "destination": {
+    "kind": "local-process"
+  },
+  "bindings": [
+    {
+      "requirementId": "req_001_trigger",
+      "providerId": "local-occ_6afb619408a0fe3c",
+      "mechanismAuthority": "explicit-local-approval",
+      "templateDigest": "sha256:f41cd46eaa0dccf7b44f70ab7a5336dc9ed36e18965b3dad3f13363c3371a240",
+      "evidenceArtifactIds": [
+        "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee"
+      ]
+    }
+  ],
+  "observation": {
+    "observation": "exit",
+    "identity": "doctor:blank-backend-project-root",
+    "authority": "runtime-diagnosis"
+  }
+}

@@ -10,6 +10,15 @@ dist/
 .reproit/*.vault
 .reproit/*.log
 .reproit/map/provenance.json
+# Committed guards live under .reproit/repros/<id>/. Private capture inputs and
+# generated run evidence stay machine-local: a guard must be portable from a
+# fresh checkout without them.
+.reproit/capsule.key
+.reproit/capsules/
+.reproit/captures/
+.reproit/occurrences/
+.reproit/private-providers/
+.reproit/repros/*/plan-runs/
 *.log
 .DS_Store
 .forbidden-terms

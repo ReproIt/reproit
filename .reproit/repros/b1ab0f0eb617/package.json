@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "id": "pkg_2f187deb5a76ba36",
+  "occurrence": {
+    "version": 1,
+    "occurrenceId": "occ_6afb619408a0fe3c",
+    "source": "reproit-capture",
+    "subject": {
+      "product": "reproit-self-dogfood",
+      "component": "cli-backend-root",
+      "platform": "macos"
+    },
+    "observedAt": "2026-07-28T16:00:27.695367+00:00",
+    "receivedAt": "2026-07-28T16:00:28.719491+00:00",
+    "observations": [
+      {
+        "kind": "exit",
+        "authority": "runtime-diagnosis",
+        "summary": "node terminated with process-exit:17; trusted verifier asserted doctor:blank-backend-project-root",
+        "signature": "doctor:blank-backend-project-root",
+        "observationPoint": "node/process-exit",
+        "artifactIds": [
+          "sha256:b4cffa54a6f9fbfe3e2810dedf732079c5fc8a8b77ed610a7a5086f838c9849a",
+          "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        ]
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee",
+        "kind": "interaction-trace",
+        "mediaType": "application/json",
+        "bytes": 62,
+        "policy": "local-analysis-only",
+        "redaction": "unredacted-restricted",
+        "collection": "flight-recorder",
+        "name": "argv.json"
+      },
+      {
+        "id": "sha256:b4cffa54a6f9fbfe3e2810dedf732079c5fc8a8b77ed610a7a5086f838c9849a",
+        "kind": "text-log",
+        "mediaType": "application/octet-stream",
+        "bytes": 102,
+        "policy": "local-analysis-only",
+        "redaction": "unredacted-restricted",
+        "collection": "flight-recorder",
+        "name": "stdout.bin"
+      },
+      {
+        "id": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "kind": "text-log",
+        "mediaType": "application/octet-stream",
+        "bytes": 0,
+        "policy": "local-analysis-only",
+        "redaction": "unredacted-restricted",
+        "collection": "flight-recorder",
+        "name": "stderr.bin"
+      }
+    ],
+    "captureDefects": [
+      {
+        "kind": "truncated",
+        "detail": "ProcessTree: root process owned; descendant enumeration is not installed"
+      },
+      {
+        "kind": "unavailable",
+        "detail": "Filesystem: filesystem observation is not installed"
+      },
+      {
+        "kind": "truncated",
+        "detail": "Environment: only build identity variables were retained"
+      },
+      {
+        "kind": "truncated",
+        "detail": "CrashDiagnostics: exit status and signal only"
+      }
+    ],
+    "policy": {
+      "consent": "local-analysis",
+      "retentionClass": "local-private"
+    }
+  },
+  "assessment": {
+    "occurrenceId": "occ_6afb619408a0fe3c",
+    "status": "eligible",
+    "requirements": [
+      {
+        "id": "req_001_trigger",
+        "level": "required",
+        "requirement": {
+          "kind": "trigger",
+          "trigger": "command",
+          "subject": "node"
+        },
+        "evidenceArtifactIds": [
+          "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "plan": {
+    "version": 1,
+    "id": "plan_5f679757d55c6411",
+    "occurrenceId": "occ_6afb619408a0fe3c",
+    "target": "current-checkout",
+    "destination": {
+      "kind": "local-process"
+    },
+    "bindings": [
+      {
+        "requirementId": "req_001_trigger",
+        "providerId": "local-occ_6afb619408a0fe3c",
+        "mechanismAuthority": "explicit-local-approval",
+        "templateDigest": "sha256:f41cd46eaa0dccf7b44f70ab7a5336dc9ed36e18965b3dad3f13363c3371a240",
+        "evidenceArtifactIds": [
+          "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee"
+        ]
+      }
+    ],
+    "observation": {
+      "observation": "exit",
+      "identity": "doctor:blank-backend-project-root",
+      "authority": "runtime-diagnosis"
+    }
+  },
+  "capsule": {
+    "actions": [],
+    "app": "reproit-self-dogfood",
+    "assessment": {
+      "occurrenceId": "occ_6afb619408a0fe3c",
+      "requirements": [
+        {
+          "evidenceArtifactIds": [
+            "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee"
+          ],
+          "id": "req_001_trigger",
+          "level": "required",
+          "requirement": {
+            "kind": "trigger",
+            "subject": "node",
+            "trigger": "command"
+          }
+        }
+      ],
+      "status": "eligible",
+      "unresolved": []
+    },
+    "backend_events": [],
+    "builds": {},
+    "capabilities": {
+      "http": {
+        "detail": "no HTTP transaction is part of this finding's cause",
+        "status": "not_applicable"
+      },
+      "http_replay": {
+        "detail": "no causal HTTP transaction requires replay",
+        "status": "not_applicable"
+      }
+    },
+    "causalGraph": {
+      "edges": [],
+      "nodes": [
+        {
+          "id": "cause_d2116267bfdc79154f87",
+          "kind": "finding",
+          "label": "exact finding"
+        },
+        {
+          "actor": "a",
+          "id": "cause_bda3a2a5dc4a7a789522",
+          "kind": "actor-event",
+          "label": "actor a"
+        }
+      ],
+      "version": 1
+    },
+    "cause": "command",
+    "environment": {},
+    "environmentEnvelope": {
+      "complete": false,
+      "relaxedDimensions": [],
+      "replayAttempts": 0,
+      "trials": [],
+      "version": 1
+    },
+    "exchanges": [],
+    "finding": {
+      "boundary": "doctor:blank-backend-project-root",
+      "frame": "node/process-exit",
+      "invariant": "exact-occurrence",
+      "kind": "exit",
+      "message": "node terminated with process-exit:17; trusted verifier asserted doctor:blank-backend-project-root",
+      "oracle": "exit",
+      "trigger": "current-checkout"
+    },
+    "id": "cap_3287a46499f747e2",
+    "occurrence": {
+      "artifacts": [
+        {
+          "bytes": 62,
+          "collection": "flight-recorder",
+          "id": "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee",
+          "kind": "interaction-trace",
+          "mediaType": "application/json",
+          "name": "argv.json",
+          "policy": "local-analysis-only",
+          "redaction": "unredacted-restricted"
+        },
+        {
+          "bytes": 102,
+          "collection": "flight-recorder",
+          "id": "sha256:b4cffa54a6f9fbfe3e2810dedf732079c5fc8a8b77ed610a7a5086f838c9849a",
+          "kind": "text-log",
+          "mediaType": "application/octet-stream",
+          "name": "stdout.bin",
+          "policy": "local-analysis-only",
+          "redaction": "unredacted-restricted"
+        },
+        {
+          "bytes": 0,
+          "collection": "flight-recorder",
+          "id": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "kind": "text-log",
+          "mediaType": "application/octet-stream",
+          "name": "stderr.bin",
+          "policy": "local-analysis-only",
+          "redaction": "unredacted-restricted"
+        }
+      ],
+      "captureDefects": [
+        {
+          "detail": "ProcessTree: root process owned; descendant enumeration is not installed",
+          "kind": "truncated"
+        },
+        {
+          "detail": "Filesystem: filesystem observation is not installed",
+          "kind": "unavailable"
+        },
+        {
+          "detail": "Environment: only build identity variables were retained",
+          "kind": "truncated"
+        },
+        {
+          "detail": "CrashDiagnostics: exit status and signal only",
+          "kind": "truncated"
+        }
+      ],
+      "observations": [
+        {
+          "artifactIds": [
+            "sha256:b4cffa54a6f9fbfe3e2810dedf732079c5fc8a8b77ed610a7a5086f838c9849a",
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          ],
+          "authority": "runtime-diagnosis",
+          "kind": "exit",
+          "observationPoint": "node/process-exit",
+          "signature": "doctor:blank-backend-project-root",
+          "summary": "node terminated with process-exit:17; trusted verifier asserted doctor:blank-backend-project-root"
+        }
+      ],
+      "observedAt": "2026-07-28T16:00:27.695367+00:00",
+      "occurrenceId": "occ_6afb619408a0fe3c",
+      "policy": {
+        "consent": "local-analysis",
+        "retentionClass": "local-private"
+      },
+      "receivedAt": "2026-07-28T16:00:28.719491+00:00",
+      "source": "reproit-capture",
+      "subject": {
+        "component": "cli-backend-root",
+        "platform": "macos",
+        "product": "reproit-self-dogfood"
+      },
+      "version": 1
+    },
+    "redactions": [],
+    "reproductionPlan": {
+      "bindings": [
+        {
+          "evidenceArtifactIds": [
+            "sha256:b7d5a8bea43d450fea047716a7f0ea17fb064c73af50700afb3d987c0fe78bee"
+          ],
+          "mechanismAuthority": "explicit-local-approval",
+          "providerId": "local-occ_6afb619408a0fe3c",
+          "requirementId": "req_001_trigger",
+          "templateDigest": "sha256:f41cd46eaa0dccf7b44f70ab7a5336dc9ed36e18965b3dad3f13363c3371a240"
+        }
+      ],
+      "destination": {
+        "kind": "local-process"
+      },
+      "id": "plan_5f679757d55c6411",
+      "observation": {
+        "authority": "runtime-diagnosis",
+        "identity": "doctor:blank-backend-project-root",
+        "observation": "exit"
+      },
+      "occurrenceId": "occ_6afb619408a0fe3c",
+      "target": "current-checkout",
+      "version": 1
+    },
+    "version": 2
+  }
+}

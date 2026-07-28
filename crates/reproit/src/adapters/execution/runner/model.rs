@@ -21,6 +21,8 @@ pub(super) struct CommandProvider {
     pub(super) phase: ExecutionPhase,
     #[serde(default)]
     pub(super) capabilities: BTreeSet<TrustedCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) source: Option<ProviderSource>,
     pub(super) argv: Vec<String>,
     #[serde(default)]
     pub(super) environment: BTreeMap<String, String>,
@@ -34,6 +36,13 @@ pub(super) struct CommandProvider {
     pub(super) observation: Option<CommandObservation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) cleanup: Option<CommandTemplate>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ProviderSource {
+    pub(super) path: PathBuf,
+    pub(super) sha256: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

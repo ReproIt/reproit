@@ -490,6 +490,10 @@ pub(crate) enum Cmd {
         /// Component identity. Defaults to the executable name.
         #[arg(long)]
         component: Option<String>,
+        /// Exact semantic identity asserted by a trusted command verifier.
+        /// The command's exit status remains the replay matcher.
+        #[arg(long)]
+        identity: Option<String>,
         /// Stop the command after this many milliseconds.
         #[arg(long, default_value_t = 300_000)]
         timeout_ms: u64,
@@ -609,12 +613,12 @@ pub(crate) enum Cmd {
         #[arg(long)]
         update: bool,
     },
-    /// Keep a repro from the latest discovery run in the committed suite. The
+    /// Keep a finding or occurrence in the committed regression suite. The
     /// store dir is the repro's CONTENT HASH (.reproit/repros/<id>/), stable
     /// across machines and self-deduping. `--as` assigns a human alias.
     Keep {
-        /// Finding id (dirname) from the latest fuzz run. Uses the sole finding
-        /// if omitted, else lists choices.
+        /// Finding id from the latest fuzz run, or a local/Cloud occurrence id.
+        /// Uses the sole finding if omitted, else lists choices.
         id: Option<String>,
         /// Optional human label for the kept repro.
         #[arg(long = "as", name = "name")]

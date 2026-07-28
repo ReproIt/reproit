@@ -61,6 +61,8 @@ struct PersistedCompilation {
 }
 
 mod cloud;
+mod format;
+use format::*;
 
 pub(crate) fn collect(ctx: &Ctx, args: CollectArgs) -> Result<()> {
     if args.artifacts.len() > MAX_ARTIFACTS {
@@ -305,7 +307,13 @@ pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCod
         use crate::adapters::execution::AutomaticCompilation;
         match crate::adapters::execution::compile_package_automatically(&root, &package)? {
             AutomaticCompilation::Compiled(compiled) => {
-                let persisted = persist_compiled_package(&root, &directory, reference, *compiled)?;
+                let persisted = persist_compiled_package(
+                    &root,
+                    &directory,
+                    reference,
+                    *compiled,
+                    crate::domain::repro::Status::Quarantined,
+                )?;
                 automatic_plan_id = persisted.package.plan.as_ref().map(|plan| plan.id.clone());
                 package = persisted.package;
                 ctx.say("  plan:     compiled from one unambiguous trusted provider");
@@ -387,7 +395,13 @@ pub(crate) fn compile(
     let bindings = parse_bindings(raw_bindings)?;
     let compiled =
         crate::adapters::execution::compile_package(&root, &package, &bindings, identity)?;
-    let persisted = persist_compiled_package(&root, &occurrence_directory, reference, compiled)?;
+    let persisted = persist_compiled_package(
+        &root,
+        &occurrence_directory,
+        reference,
+        compiled,
+        crate::domain::repro::Status::Quarantined,
+    )?;
     let plan = persisted
         .package
         .plan
@@ -414,11 +428,82 @@ pub(crate) fn compile(
     Ok(persisted.repro_id)
 }
 
+pub(crate) async fn keep_occurrence(
+    ctx: &Ctx,
+    reference: &str,
+    alias: Option<&str>,
+    strict: bool,
+) -> Result<ExitCode> {
+    if find_occurrence(reference).is_none() {
+        cloud::pull_cloud_occurrence(ctx, reference).await?;
+    }
+    let (root, occurrence_directory) = find_occurrence(reference)
+        .with_context(|| format!("no local or Cloud occurrence `{reference}` is available"))?;
+    let package_path = occurrence_directory.join("package.json");
+    let package: ReproductionPackage = serde_json::from_slice(
+        &std::fs::read(&package_path)
+            .with_context(|| format!("reading {}", package_path.display()))?,
+    )
+    .with_context(|| format!("parsing {}", package_path.display()))?;
+    package.validate().map_err(protocol_error)?;
+    let compiled =
+        if package.assessment.status == AssessmentStatus::Eligible && package.plan.is_some() {
+            package
+        } else {
+            use crate::adapters::execution::AutomaticCompilation;
+            match crate::adapters::execution::compile_package_automatically(&root, &package)? {
+                AutomaticCompilation::Compiled(compiled) => *compiled,
+                AutomaticCompilation::Blocked(blockers) => {
+                    let detail = blockers
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    anyhow::bail!(
+                        "occurrence `{reference}` cannot be kept until it has one exact trusted \
+                     reproduction plan: {detail}"
+                    );
+                }
+            }
+        };
+    let requested_status = if strict {
+        crate::domain::repro::Status::Required
+    } else {
+        crate::domain::repro::Status::Quarantined
+    };
+    let persisted = persist_compiled_package(
+        &root,
+        &occurrence_directory,
+        alias.unwrap_or(reference),
+        compiled,
+        requested_status,
+    )?;
+    let meta = crate::domain::repro::load_meta(&root, &persisted.repro_id)
+        .context("kept occurrence omitted its guard metadata")?;
+    let display_id = crate::domain::repro::display_repro_id(&persisted.repro_id);
+    let directory = crate::domain::repro::repro_dir(&root, &persisted.repro_id);
+    ctx.emit(&serde_json::json!({
+        "command": "keep",
+        "source": "occurrence",
+        "occurrenceId": reference,
+        "id": display_id,
+        "alias": meta.alias,
+        "status": meta.status.as_str(),
+        "directory": directory,
+        "planId": persisted.package.plan.as_ref().map(|plan| &plan.id),
+    }));
+    ctx.say(format!("Kept occurrence {reference} as {display_id}"));
+    ctx.say(format!("  status: {}", meta.status.as_str()));
+    ctx.say(format!("  guard:  {}", directory.display()));
+    Ok(ExitCode::SUCCESS)
+}
+
 fn persist_compiled_package(
     root: &Path,
     occurrence_directory: &Path,
-    reference: &str,
+    alias: &str,
     mut compiled: ReproductionPackage,
+    requested_status: crate::domain::repro::Status,
 ) -> Result<PersistedCompilation> {
     let package_path = occurrence_directory.join("package.json");
     let plan = compiled
@@ -456,21 +541,29 @@ fn persist_compiled_package(
     let repro_id = crate::domain::repro::repro_id(0, &[format!("plan:{}", plan.id)]);
     let repro_directory = crate::domain::repro::repro_dir(root, &repro_id);
     std::fs::create_dir_all(&repro_directory)?;
-    let meta = crate::domain::repro::Meta {
-        id: repro_id.clone(),
-        alias: Some(reference.to_string()),
-        status: crate::domain::repro::Status::Quarantined,
-        seed: 0,
-        created: chrono::Utc::now().to_rfc3339(),
-        last_checked: None,
-        last_result: None,
-        trigger_index: Some(0),
-        trigger_sig: Some(identity.clone()),
-        trigger_selector: None,
-        trigger_fingerprint: None,
-        oracle: Some("exact-occurrence".into()),
-        record_url: None,
-        record_action: None,
+    let meta = if let Some(mut existing) = crate::domain::repro::load_meta(root, &repro_id) {
+        existing.alias = Some(alias.to_string());
+        if requested_status == crate::domain::repro::Status::Required {
+            existing.status = requested_status;
+        }
+        existing
+    } else {
+        crate::domain::repro::Meta {
+            id: repro_id.clone(),
+            alias: Some(alias.to_string()),
+            status: requested_status,
+            seed: 0,
+            created: chrono::Utc::now().to_rfc3339(),
+            last_checked: None,
+            last_result: None,
+            trigger_index: Some(0),
+            trigger_sig: Some(identity.clone()),
+            trigger_selector: None,
+            trigger_fingerprint: None,
+            oracle: Some("exact-occurrence".into()),
+            record_url: None,
+            record_action: None,
+        }
     };
     crate::domain::repro::save_meta(root, &meta)?;
     write_json_atomically(
@@ -479,6 +572,7 @@ fn persist_compiled_package(
     )?;
     write_json_atomically(&repro_directory.join("package.json"), &compiled)?;
     write_json_atomically(&repro_directory.join("plan.json"), &plan)?;
+    crate::adapters::execution::persist_plan_catalog(root, &compiled, &repro_directory)?;
     std::fs::write(repro_directory.join("capsule-id"), &capsule.id)?;
     Ok(PersistedCompilation {
         package: compiled,
@@ -663,299 +757,6 @@ fn verify_imported_artifacts(
         }
     }
     Ok(())
-}
-
-fn write_bundle(
-    path: &Path,
-    manifest: &reproit_protocol::SupportBundleManifest,
-    ciphertext: &[u8],
-) -> Result<()> {
-    let header = serde_json::to_vec(manifest)?;
-    if header.len() > MAX_HEADER_BYTES {
-        anyhow::bail!("support-bundle header exceeds the 1 MiB limit");
-    }
-    if path.exists() {
-        anyhow::bail!("support bundle {} already exists", path.display());
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let filename = path
-        .file_name()
-        .context("support-bundle output path has no filename")?
-        .to_string_lossy();
-    let temporary = parent.join(format!(".{filename}.{}.tmp", std::process::id()));
-    let write_result = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .with_context(|| format!("creating {}", temporary.display()))?;
-        file.write_all(MAGIC)?;
-        file.write_all(&(header.len() as u32).to_be_bytes())?;
-        file.write_all(&header)?;
-        file.write_all(ciphertext)?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, path)
-            .with_context(|| format!("installing {}", path.display()))?;
-        Ok(())
-    })();
-    if write_result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    write_result
-}
-
-fn read_bundle(path: &Path) -> Result<ParsedBundle> {
-    let mut file =
-        std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let metadata = file.metadata()?;
-    if metadata.len() > (MAX_PLAINTEXT_BYTES * 2) as u64 {
-        anyhow::bail!("support bundle exceeds the local import limit");
-    }
-    let mut magic = vec![0u8; MAGIC.len()];
-    file.read_exact(&mut magic)?;
-    if magic != MAGIC {
-        anyhow::bail!("not a Reproit support bundle");
-    }
-    let mut length = [0u8; 4];
-    file.read_exact(&mut length)?;
-    let header_bytes = u32::from_be_bytes(length) as usize;
-    if header_bytes == 0 || header_bytes > MAX_HEADER_BYTES {
-        anyhow::bail!("invalid support-bundle header length");
-    }
-    let mut header = vec![0u8; header_bytes];
-    file.read_exact(&mut header)?;
-    let manifest: reproit_protocol::SupportBundleManifest =
-        serde_json::from_slice(&header).context("parsing support-bundle manifest")?;
-    manifest.validate().map_err(protocol_error)?;
-    let mut ciphertext = Vec::new();
-    file.read_to_end(&mut ciphertext)?;
-    if ciphertext.is_empty() {
-        anyhow::bail!("support bundle has no encrypted payload");
-    }
-    Ok(ParsedBundle {
-        manifest,
-        ciphertext,
-    })
-}
-
-fn verify_bundle(bundle: &ParsedBundle, path: &Path) -> Result<()> {
-    let payload_hash = sha256_hex(&bundle.ciphertext);
-    if bundle.manifest.payload_sha256 != format!("sha256:{payload_hash}") {
-        anyhow::bail!("support-bundle payload hash does not match its manifest");
-    }
-    let public_key = hex_decode::<32>(
-        &bundle.manifest.signature.public_key,
-        "signature public key",
-    )?;
-    let trusted = trusted_signer(path)?;
-    if public_key != trusted {
-        anyhow::bail!("support-bundle signer does not match the independently trusted key");
-    }
-    let signature_bytes =
-        hex_decode::<64>(&bundle.manifest.signature.signature, "bundle signature")?;
-    let verifying_key =
-        VerifyingKey::from_bytes(&public_key).context("invalid bundle verifying key")?;
-    let signature = Signature::from_bytes(&signature_bytes);
-    verifying_key
-        .verify(
-            &bundle.manifest.signing_bytes().map_err(protocol_error)?,
-            &signature,
-        )
-        .context("support-bundle signature verification failed")
-}
-
-fn incomplete_package(occurrence: &OccurrenceEnvelope) -> Result<ReproductionPackage> {
-    let requirement = ReproductionRequirement {
-        id: "req_current_checkout_process".into(),
-        level: RequirementLevel::Required,
-        requirement: RequirementKind::Process {
-            role: occurrence.subject.component.clone(),
-            operation: ProcessOperation::Launch,
-        },
-        evidence_artifact_ids: vec![],
-    };
-    let assessment = CapabilityAssessment {
-        occurrence_id: occurrence.occurrence_id.clone(),
-        status: AssessmentStatus::Incomplete,
-        requirements: vec![requirement.clone()],
-        unresolved: vec![UnresolvedRequirement {
-            requirement_id: requirement.id,
-            reason: UnresolvedRequirementReason::MissingEvidence,
-            detail: "bind the occurrence to a checkout-owned process provider and exact oracle"
-                .into(),
-        }],
-    };
-    let mut package = ReproductionPackage {
-        version: PACKAGE_VERSION,
-        id: String::new(),
-        occurrence: occurrence.clone(),
-        assessment,
-        plan: None,
-        capsule: None,
-        legacy: None,
-    };
-    package.finalize_id().map_err(protocol_error)?;
-    package.validate().map_err(protocol_error)?;
-    Ok(package)
-}
-
-fn encryption_key() -> Result<([u8; 32], bool)> {
-    if let Ok(value) = std::env::var(ENCRYPTION_KEY_ENV) {
-        return Ok((hex_decode(&value, ENCRYPTION_KEY_ENV)?, false));
-    }
-    let mut key = [0u8; 32];
-    getrandom::fill(&mut key).context("generating support-bundle key")?;
-    Ok((key, true))
-}
-
-fn signing_key() -> Result<(SigningKey, bool)> {
-    if let Ok(value) = std::env::var(SIGNING_KEY_ENV) {
-        return Ok((
-            SigningKey::from_bytes(&hex_decode(&value, SIGNING_KEY_ENV)?),
-            false,
-        ));
-    }
-    let mut key = [0u8; 32];
-    getrandom::fill(&mut key).context("generating support-bundle signing key")?;
-    Ok((SigningKey::from_bytes(&key), true))
-}
-
-fn trusted_signer(bundle_path: &Path) -> Result<[u8; 32]> {
-    if let Ok(value) = std::env::var(TRUSTED_SIGNER_ENV) {
-        return hex_decode(&value, TRUSTED_SIGNER_ENV);
-    }
-    if let Ok(value) = std::env::var(SIGNING_KEY_ENV) {
-        let signing = SigningKey::from_bytes(&hex_decode(&value, SIGNING_KEY_ENV)?);
-        return Ok(*signing.verifying_key().as_bytes());
-    }
-    let path = signer_path(bundle_path);
-    let value = std::fs::read_to_string(&path).with_context(|| {
-        format!(
-            "reading {}; set {TRUSTED_SIGNER_ENV} when the signer key was transferred separately",
-            path.display()
-        )
-    })?;
-    hex_decode(value.trim(), "trusted signer file")
-}
-
-fn read_import_key(bundle_path: &Path) -> Result<[u8; 32]> {
-    if let Ok(value) = std::env::var(ENCRYPTION_KEY_ENV) {
-        return hex_decode(&value, ENCRYPTION_KEY_ENV);
-    }
-    let path = key_path(bundle_path);
-    let value = std::fs::read_to_string(&path).with_context(|| {
-        format!(
-            "reading {}; set {ENCRYPTION_KEY_ENV} when the key was transferred separately",
-            path.display()
-        )
-    })?;
-    hex_decode(value.trim(), "bundle key file")
-}
-
-fn write_private_key(path: &Path, key: &[u8; 32]) -> Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("creating {}", path.display()))?;
-    writeln!(file, "{}", hex_encode(key))?;
-    file.sync_all()?;
-    Ok(())
-}
-
-fn key_path(bundle_path: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.key", bundle_path.display()))
-}
-
-fn signer_path(bundle_path: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.signer", bundle_path.display()))
-}
-
-fn occurrence_id(args: &CollectArgs, artifacts: &[EvidenceArtifact]) -> String {
-    let mut digest = Sha256::new();
-    digest.update(args.product.as_bytes());
-    digest.update([0]);
-    digest.update(args.component.as_bytes());
-    digest.update([0]);
-    digest.update(args.summary.as_bytes());
-    for artifact in artifacts {
-        digest.update(artifact.id.as_bytes());
-    }
-    format!("occ_{}", &hex_encode(&digest.finalize())[..20])
-}
-
-fn artifact_kind(path: &Path) -> EvidenceArtifactKind {
-    match path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "dmp" | "mdmp" => EvidenceArtifactKind::CrashDump,
-        "core" => EvidenceArtifactKind::CoreDump,
-        "json" | "jsonl" => EvidenceArtifactKind::StructuredLog,
-        "log" | "txt" => EvidenceArtifactKind::TextLog,
-        "trace" | "otlp" => EvidenceArtifactKind::TraceGraph,
-        "png" | "jpg" | "jpeg" => EvidenceArtifactKind::Screenshot,
-        "mp4" | "mov" | "webm" => EvidenceArtifactKind::Recording,
-        _ => EvidenceArtifactKind::Other,
-    }
-}
-
-fn media_type(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "json" => "application/json",
-        "jsonl" => "application/x-ndjson",
-        "log" | "txt" => "text/plain",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "mp4" => "video/mp4",
-        _ => "application/octet-stream",
-    }
-}
-
-fn protocol_error(error: reproit_protocol::ProtocolError) -> anyhow::Error {
-    anyhow::anyhow!("{error}")
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    hex_encode(&Sha256::digest(bytes))
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write;
-        write!(&mut output, "{byte:02x}").unwrap();
-    }
-    output
-}
-
-fn hex_decode<const N: usize>(value: &str, field: &str) -> Result<[u8; N]> {
-    if value.len() != N * 2 {
-        anyhow::bail!("{field} must contain exactly {} hexadecimal bytes", N);
-    }
-    let decoded = (0..N)
-        .map(|index| {
-            u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
-                .with_context(|| format!("decoding {field}"))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    decoded
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("{field} has the wrong length"))
 }
 
 #[cfg(test)]

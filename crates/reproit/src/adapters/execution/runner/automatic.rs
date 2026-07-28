@@ -56,7 +56,7 @@ pub(crate) fn compile_package_automatically(
                 .into(),
         }]));
     }
-    let catalog = load_catalog(root, None)?;
+    let catalog = load_catalog(root, None, None)?;
     let mut requested_bindings = BTreeMap::new();
     let mut blockers = Vec::new();
     for requirement in package

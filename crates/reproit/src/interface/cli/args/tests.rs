@@ -395,6 +395,8 @@ fn capture_routes_ui_and_command_sources_through_one_public_verb() {
         "reproit",
         "capture",
         "--include-output",
+        "--identity",
+        "doctor:blank-backend-project-root",
         "--",
         "sh",
         "-c",
@@ -405,9 +407,11 @@ fn capture_routes_ui_and_command_sources_through_one_public_verb() {
         command.command,
         Cmd::CaptureCommand {
             include_output: true,
+            ref identity,
             command,
             ..
         } if command == ["sh", "-c", "exit 7"]
+            && identity.as_deref() == Some("doctor:blank-backend-project-root")
     ));
 
     let bundle =
