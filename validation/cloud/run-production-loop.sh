@@ -51,12 +51,26 @@ PY
   fi
 }
 
+retain_chain() {
+  [[ -n "${REPROIT_PRODUCTION_RETAIN:-}" ]] || return 0
+  node "$ROOT/validation/cloud/retain-production-chain.mjs" \
+    "$WORK" "$REPROIT_PRODUCTION_RETAIN" \
+    --qualification "${REPROIT_PRODUCTION_QUALIFICATION:-FixtureQualified}" \
+    --origin "hosted Cloud disposable project ingesting strict protocol-v1 production findings through the real SDK boundary, replayed locally from the returned bucket" \
+    || echo "warning: production chain retention failed" >&2
+}
+
 cleanup() {
   if [[ -n "$SERVER_PID" ]]; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   if [[ "$DELETED" != true ]]; then delete_project; fi
+  # Retain after deletion so the record carries the deletion lineage, but
+  # before $WORK is removed. A run that fails mid-chain still produces
+  # evidence; the retention tool records the missing stages and marks the
+  # record Unqualified rather than inventing a pass.
+  retain_chain
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -189,6 +203,7 @@ grep -q 'REPRODUCED:' "$WORK/direct-replay.log" || {
 
 delete_project
 [[ "$DELETED" == true || "${REPROIT_KEEP_CONTRACT_PROJECT:-}" == "1" ]] || exit 1
+
 mkdir -p "$(dirname "$RESULTS_OUT")"
 python3 - "$WORK/hosted.json" "$RESULTS_OUT" "$REPLAY_MS" "$DIRECT_MS" "$DELETED" <<'PY'
 import datetime, json, sys
