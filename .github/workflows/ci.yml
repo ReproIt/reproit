@@ -41,6 +41,26 @@ jobs:
         run: cargo build --workspace --locked
       - name: Test (incl. determinism replay)
         run: cargo test --workspace --locked
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      # Changed guards first for fast feedback, then the complete required
+      # corpus. --strict makes a quarantined failure block too, so a guard
+      # cannot be silently downgraded into a passing suite.
+      - name: Replay changed Reproit self-dogfood guards first
+        env:
+          REPROIT_NO_UPDATE_CHECK: "1"
+        run: |
+          target/debug/reproit --json --yes check \
+            @self-dogfood-cli-backend-root --runs 3
+      - name: Replay the complete required self-dogfood guard corpus
+        env:
+          REPROIT_NO_UPDATE_CHECK: "1"
+        run: target/debug/reproit --json --yes check --strict --runs 3
+      - name: Test the self-dogfood bug-fix declaration policy
+        run: python3 validation/self-dogfood/test_check_fix_policy.py
+      - name: Test production-to-local chain retention and redaction
+        run: node --test validation/cloud/retain-production-chain.test.mjs
       - name: Test native release evidence validation
         run: python3 validation/release/test_check_native_evidence.py
       - name: Test bounded backend process lifecycle
@@ -61,6 +81,26 @@ jobs:
         run: |
           cargo install cargo-audit --locked
           cargo audit
+
+  # Gate D4. Every commit that changes production source must declare how its
+  # defect is proven: a committed required guard, a typed eligibility
+  # exception with retained evidence, an explicit no-stable-reproduction
+  # explanation plus an independent regression test, or an explicit not-a-fix.
+  # A missing declaration fails; it is never an implicit exception. The same
+  # gate refuses any change that removes or downgrades a required guard
+  # without a declared, recorded retirement.
+  dogfood-policy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Enforce the self-dogfood bug-fix declaration policy
+        run: |
+          python3 validation/self-dogfood/check-fix-policy.py \
+            --base "origin/${{ github.base_ref }}" \
+            --head "${{ github.event.pull_request.head.sha }}"
 
   # The Windows desktop runner (`reproit __uia`, cfg(windows)) only compiles on
   # a Windows host, so the ubuntu `rust` job above never touches uia.rs. Compile
