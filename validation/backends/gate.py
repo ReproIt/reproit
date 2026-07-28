@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "validation/backends/evidence.json"
 DEFAULT_OUTPUT_DIR = ROOT / "target/reproit-validation"
 MAX_CAPTURE_BYTES = 16 * 1024 * 1024
+PROCESS_TERMINATION_GRACE_SECONDS = 5
 
 
 def load_gate(gate_id: str) -> dict[str, Any]:
@@ -98,9 +99,17 @@ def stop_process_group(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     if os.name == "nt":
-        process.kill()
+        process.terminate()
+        try:
+            process.wait(timeout=PROCESS_TERMINATION_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
         return
-    os.killpg(process.pid, signal.SIGKILL)
+    os.killpg(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=PROCESS_TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
 
 
 def execute(command: list[str], timeout_seconds: int) -> tuple[str, int | None, bytes]:
@@ -135,6 +144,8 @@ def execute(command: list[str], timeout_seconds: int) -> tuple[str, int | None, 
         if reader.is_alive():
             process.stdout.close()
             reader.join(timeout=1)
+        else:
+            process.stdout.close()
     exit_code = process.returncode if status != "timed-out" else None
     return status, exit_code, capture.output()
 
