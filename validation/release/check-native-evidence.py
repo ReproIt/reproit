@@ -7,7 +7,7 @@ import argparse
 import hashlib
 import json
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "validation/backends/evidence.json"
@@ -110,7 +110,7 @@ def validate_result(gate_id: str, directory: Path, commit: str) -> dict[str, obj
         raise ValueError(f"{gate_id}: executor does not match schema 1")
     if not all(isinstance(value, str) and value for value in executor.values()):
         raise ValueError(f"{gate_id}: executor values must be non-empty strings")
-    if Path(str(result.get("logPath"))).name != log_path.name:
+    if PureWindowsPath(str(result.get("logPath"))).name != log_path.name:
         raise ValueError(f"{gate_id}: logPath does not name the captured log")
     checks = result.get("checks")
     if not isinstance(checks, dict) or set(checks) != set(gate["requiredOutput"]):

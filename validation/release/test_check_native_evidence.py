@@ -61,6 +61,15 @@ class NativeEvidenceTests(unittest.TestCase):
         result = MODULE.validate_result("macos-ax", self.directory, self.commit)
         self.assertEqual(result["gateId"], "macos-ax")
 
+    def test_accepts_windows_log_path_on_non_windows_host(self) -> None:
+        self.write_result("windows-uia")
+        result_path = self.directory / "windows-uia.json"
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        result["logPath"] = r"C:\lab\evidence\windows-uia.log"
+        result_path.write_text(json.dumps(result), encoding="utf-8")
+        validated = MODULE.validate_result("windows-uia", self.directory, self.commit)
+        self.assertEqual(validated["gateId"], "windows-uia")
+
     def test_rejects_tampered_log(self) -> None:
         self.write_result("windows-uia")
         (self.directory / "windows-uia.log").write_bytes(b"tampered\n")
