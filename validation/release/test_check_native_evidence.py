@@ -121,7 +121,7 @@ class SupportManifestTests(unittest.TestCase):
     def test_support_manifest_is_well_formed(self) -> None:
         support = json.loads(MODULE.SUPPORT.read_text(encoding="utf-8"))
         known = set(json.loads(MODULE.MANIFEST.read_text(encoding="utf-8"))["gates"])
-        self.assertEqual(support["schema"], 2)
+        self.assertEqual(support["schema"], 3)
         for target_id, target in support["targets"].items():
             self.assertIn(target["maturity"], {"stable", "preview", "experimental"}, target_id)
             self.assertTrue(target["scope"], target_id)
@@ -136,12 +136,13 @@ class SupportManifestTests(unittest.TestCase):
                 set(target["ownedGates"]),
                 f"{target_id}: every owned gate must authorize releases",
             )
-            benchmark_path = target.get("fieldBenchmark")
+            promotion = target["promotion"]
+            benchmark_path = promotion["fieldBenchmark"]
             if target["maturity"] != "stable":
                 self.assertIsNone(benchmark_path, target_id)
-                self.assertTrue(target["promotionBlockers"], target_id)
+                self.assertTrue(promotion["blockers"], target_id)
                 continue
-            self.assertEqual(target["promotionBlockers"], [], target_id)
+            self.assertEqual(promotion["blockers"], [], target_id)
             self.assertIsInstance(benchmark_path, str, target_id)
             benchmark = json.loads(
                 (MODULE.ROOT / benchmark_path).read_text(encoding="utf-8")

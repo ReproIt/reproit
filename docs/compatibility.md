@@ -25,8 +25,57 @@ An atomic target becomes Stable only when it has:
 8. retained runtime, architecture, reset, cleanup, and artifact digests; and
 9. a confirmed manual review.
 
+Targets on the schema-3 promotion standard additionally require a clean
+corpus, an adversarial corpus, a clean installation of the distributed package,
+and a confirmed manual review. The four targets promoted before that standard
+existed are recorded as `schema-2` in the manifest; that set is frozen and can
+only shrink.
+
 Families do not promote as a unit. Browsers, operating systems, desktop
 toolkits, mobile frameworks, and webview hosts qualify independently.
+
+## Production-to-local qualification
+
+`maturity` and `productionToLocal` are independent fields. Stable is an atomic
+compatibility claim. `productionToLocal` is the separate, stronger designation
+that a real production occurrence on that target reproduces locally, and it
+moves through Unqualified, FixtureQualified, and IndependentQualified.
+
+## Current promotion state
+
+<!-- generated:promotion-state -->
+
+Stable atomic targets: 4. Preview: 17. Experimental: 0.
+
+| Target | Maturity | Standard | OS | Architectures | Blockers |
+|---|---|---|---|---|---|
+| Backend contracts | Preview | schema-3 | linux | x86_64 | 3 |
+| Jetpack Compose Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
+| Electron Linux | Preview | schema-3 | linux | x86_64 | 3 |
+| Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
+| Flutter iOS | Preview | schema-3 | ios-simulator | arm64 | 3 |
+| Linux GTK | Preview | schema-3 | linux-container | x86_64 | 3 |
+| Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 3 |
+| Linux Qt Widgets | Preview | schema-3 | linux-container | x86_64 | 3 |
+| Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 3 |
+| macOS Accessibility | Preview | schema-3 | macos | arm64 | 5 |
+| React Native Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
+| React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 3 |
+| SwiftUI iOS | Preview | schema-3 | ios-simulator | arm64 | 4 |
+| Tauri Linux | Preview | schema-3 | linux | x86_64 | 3 |
+| Terminal UI | Stable | schema-2 | linux | x86_64 | 0 |
+| Web Chromium | Stable | schema-2 | linux | x86_64 | 0 |
+| Web Firefox | Stable | schema-2 | linux | x86_64 | 0 |
+| Web WebKit | Stable | schema-2 | linux | x86_64 | 0 |
+| Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
+| Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
+| Windows WPF | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
+
+Every blocker, with its typed code and exact detail, is listed in
+[the generated status](../validation/compatibility/STATUS.md).
+
+<!-- /generated:promotion-state -->
+
 
 ## Stable 1.x surface
 

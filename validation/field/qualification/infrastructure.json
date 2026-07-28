@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "gate": "S2-infrastructure-qualification",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "probes": [
+    {
+      "id": "ios-simulator",
+      "summary": "disposable iOS simulator through Xcode and xcrun simctl",
+      "targets": [
+        "flutter-ios",
+        "react-native-ios",
+        "swiftui-ios"
+      ],
+      "command": "xcrun simctl list devices available",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 152,
+      "outputSha256": "sha256:85eefb64d4c2f4f7b99e263a46e53d12e198a537a07b4c2dec2e4d15aaa8cbe1",
+      "outputExcerpt": "== Devices ==\n-- iOS 18.5 --\n    iPhone 16 Pro (31900D16-AB02-4845-A71F-5B3370D4FD65) (Booted) \n    iPhone 16 Pro Max (9628F13D-CE68-449C-B04A-E489A2FB674D) (Shutdown) \n    iPhone 16e (18D4FF57-3F58-4F92-9303-5B0765D7B367) (Shutdown) \n    iPhone 16 (F2C72411-59BA-485A-B199-D1EAF42CC399) (Shutdown) ",
+      "blockerCode": null
+    },
+    {
+      "id": "android-emulator",
+      "summary": "reset Android Studio AVD through the installed SDK",
+      "targets": [
+        "flutter-android",
+        "react-native-android",
+        "compose-android"
+      ],
+      "command": "/Users/obsidian/Library/Android/sdk/emulator/emulator -list-avds",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 43,
+      "outputSha256": "sha256:8852d42d09311114a355ae50c2c37933e0bace00579f5476cfa7e68e743959ff",
+      "outputExcerpt": "Medium_Phone_API_36.0\nPixel_9_Pro\nPixel_9a\nReproitValidation_API30\nReproitValidation_API36\nXR_Headset",
+      "blockerCode": null
+    },
+    {
+      "id": "appium",
+      "summary": "Appium server for UiAutomator2 and XCUITest drivers",
+      "targets": [
+        "react-native-ios",
+        "react-native-android",
+        "compose-android",
+        "swiftui-ios"
+      ],
+      "command": "appium --version",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 336,
+      "outputSha256": "sha256:36e68867ce939b2464649670eb1b3f9759d1a99e7326dac3c79d0942e01f5d65",
+      "outputExcerpt": "3.5.2",
+      "blockerCode": null
+    },
+    {
+      "id": "flutter-toolchain",
+      "summary": "Flutter SDK for flutter drive and the Dart VM service",
+      "targets": [
+        "flutter-ios",
+        "flutter-android"
+      ],
+      "command": "flutter --version",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 233,
+      "outputSha256": "sha256:de711c04381d733111ed0ab95008e5502b2f48951fce833552c40e41eb6c1ae9",
+      "outputExcerpt": "Flutter 3.44.2 • channel stable • https://github.com/flutter/flutter.git\nFramework • revision c9a6c48423 (7 weeks ago) • 2026-06-10 15:52:41 -0700\nEngine • hash 04efd7c093d4e9281d5526ebcad6ecc60ba8badf (revision 77e2e94772) (1 months ago) • 2026-06-10 19:59:06.000Z\nTools • Dart 3.12.2 • DevTools 2.57.0",
+      "blockerCode": null
+    },
+    {
+      "id": "linux-containers",
+      "summary": "Docker Linux workers with display and AT-SPI services",
+      "targets": [
+        "linux-gtk",
+        "linux-qt-widgets",
+        "linux-qt-quick",
+        "linux-wxwidgets",
+        "tauri-linux"
+      ],
+      "command": "docker version --format '{{.Server.Version}}'",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 28,
+      "outputSha256": "sha256:af4d57fbab98c45fb41bb573763dd479271377c22faef4dcf20666bc6dc5f51b",
+      "outputExcerpt": "29.4.1",
+      "blockerCode": null
+    },
+    {
+      "id": "linux-hosted",
+      "summary": "Docker Linux worker for hosted Electron and backend gates",
+      "targets": [
+        "electron-linux",
+        "backend-contract"
+      ],
+      "command": "docker version --format '{{.Server.Version}}'",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 23,
+      "outputSha256": "sha256:af4d57fbab98c45fb41bb573763dd479271377c22faef4dcf20666bc6dc5f51b",
+      "outputExcerpt": "29.4.1",
+      "blockerCode": null
+    },
+    {
+      "id": "macos-ax",
+      "summary": "permissioned macOS Accessibility worker on this host",
+      "targets": [
+        "macos-ax"
+      ],
+      "command": "osascript -e 'tell application \"System Events\" to launch' -e 'tell application \"System Events\" to return count of processes'",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 147,
+      "outputSha256": "sha256:f10f7170eeb4986f69d764a4cb97c3f8e9337963222188a647fc4c0ac289d0e4",
+      "outputExcerpt": "118",
+      "blockerCode": null
+    },
+    {
+      "id": "windows-vm",
+      "summary": "native x86_64 Windows guest through ssh black@zgx-5a09.local -> ssh strix -> ssh -p 2223 reproit@localhost",
+      "targets": [
+        "windows-wpf",
+        "windows-avalonia",
+        "windows-winui"
+      ],
+      "command": "ssh -o BatchMode=yes -o ConnectTimeout=10 black@zgx-5a09.local 'ssh -o BatchMode=yes -o ConnectTimeout=10 strix \"ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/winlab/vmkey -p 2223 reproit@localhost \\\"echo REPROIT_WINDOWS_GUEST_OK\\\"\"'",
+      "reachable": true,
+      "exitCode": 0,
+      "timedOut": false,
+      "durationMs": 928,
+      "outputSha256": "sha256:e5143ce89e57e0a6c868013295dccfbf128f4a5aef4b1b07f1156c84437bdf19",
+      "outputExcerpt": "REPROIT_WINDOWS_GUEST_OK",
+      "blockerCode": null
+    }
+  ],
+  "byTarget": {
+    "flutter-ios": {
+      "reachable": [
+        "ios-simulator",
+        "flutter-toolchain"
+      ],
+      "unreachable": []
+    },
+    "react-native-ios": {
+      "reachable": [
+        "ios-simulator",
+        "appium"
+      ],
+      "unreachable": []
+    },
+    "swiftui-ios": {
+      "reachable": [
+        "ios-simulator",
+        "appium"
+      ],
+      "unreachable": []
+    },
+    "flutter-android": {
+      "reachable": [
+        "android-emulator",
+        "flutter-toolchain"
+      ],
+      "unreachable": []
+    },
+    "react-native-android": {
+      "reachable": [
+        "android-emulator",
+        "appium"
+      ],
+      "unreachable": []
+    },
+    "compose-android": {
+      "reachable": [
+        "android-emulator",
+        "appium"
+      ],
+      "unreachable": []
+    },
+    "linux-gtk": {
+      "reachable": [
+        "linux-containers"
+      ],
+      "unreachable": []
+    },
+    "linux-qt-widgets": {
+      "reachable": [
+        "linux-containers"
+      ],
+      "unreachable": []
+    },
+    "linux-qt-quick": {
+      "reachable": [
+        "linux-containers"
+      ],
+      "unreachable": []
+    },
+    "linux-wxwidgets": {
+      "reachable": [
+        "linux-containers"
+      ],
+      "unreachable": []
+    },
+    "tauri-linux": {
+      "reachable": [
+        "linux-containers"
+      ],
+      "unreachable": []
+    },
+    "electron-linux": {
+      "reachable": [
+        "linux-hosted"
+      ],
+      "unreachable": []
+    },
+    "backend-contract": {
+      "reachable": [
+        "linux-hosted"
+      ],
+      "unreachable": []
+    },
+    "macos-ax": {
+      "reachable": [
+        "macos-ax"
+      ],
+      "unreachable": []
+    },
+    "windows-wpf": {
+      "reachable": [
+        "windows-vm"
+      ],
+      "unreachable": []
+    },
+    "windows-avalonia": {
+      "reachable": [
+        "windows-vm"
+      ],
+      "unreachable": []
+    },
+    "windows-winui": {
+      "reachable": [
+        "windows-vm"
+      ],
+      "unreachable": []
+    }
+  },
+  "reachableProbes": 8,
+  "totalProbes": 8
+}

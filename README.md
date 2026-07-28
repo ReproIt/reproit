@@ -71,18 +71,33 @@ production.
 
 ## Compatibility
 
-| Platform | Compatibility | Backend |
-|---|---|---|
-| Web DOM apps, Chromium | Stable | Playwright Chromium |
-| Web DOM apps, Firefox and WebKit | Stable | Playwright |
-| Flutter | Preview | flutter drive and VM service |
-| React Native and native mobile | Preview | Appium |
-| macOS native | Preview | Accessibility, validated with SwiftUI |
-| Windows native | Preview | UI Automation, validated with WPF, Avalonia, WinUI 3 |
-| Linux native | Preview | AT-SPI, validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets |
-| Terminal UIs | Stable | PTY and VT parser |
-| Electron | Preview | Chromium and CDP |
-| Tauri | Preview | system webview through tauri-driver |
+<!-- generated:compatibility -->
+
+| Target | Compatibility | Backend | Production-to-local |
+|---|---|---|---|
+| Backend contracts | Preview | HTTP, OpenAPI | Unqualified |
+| Jetpack Compose Android | Preview | ART, Appium UiAutomator2 | Unqualified |
+| Electron Linux | Preview | Chromium, Node.js, CDP | Unqualified |
+| Flutter Android | Preview | Dart VM service, flutter drive | Unqualified |
+| Flutter iOS | Preview | Dart VM service, flutter drive | Unqualified |
+| Linux GTK | Preview | AT-SPI 2, GLib main loop | Unqualified |
+| Linux Qt Quick/QML | Preview | AT-SPI 2, Qt 6, QML engine | Unqualified |
+| Linux Qt Widgets | Preview | AT-SPI 2, Qt 6 | Unqualified |
+| Linux wxWidgets | Preview | AT-SPI 2, GTK backend | Unqualified |
+| macOS Accessibility | Preview | Swift runtime, Accessibility API | Unqualified |
+| React Native Android | Preview | Hermes, Appium UiAutomator2 | Unqualified |
+| React Native iOS | Preview | Hermes, Appium XCUITest | Unqualified |
+| SwiftUI iOS | Preview | Swift runtime, Appium XCUITest | Unqualified |
+| Tauri Linux | Preview | WebKitGTK, tauri-driver | Unqualified |
+| Terminal UI | Stable | PTY, VT parser | Unqualified |
+| Web Chromium | Stable | Node.js 20+, Playwright CDP | Unqualified |
+| Web Firefox | Stable | Node.js 20+, Playwright | Unqualified |
+| Web WebKit | Stable | Node.js 20+, Playwright | Unqualified |
+| Windows Avalonia | Preview | .NET, UI Automation | Unqualified |
+| Windows WinUI 3 | Preview | .NET, UI Automation, WinAppSDK | Unqualified |
+| Windows WPF | Preview | .NET, UI Automation | Unqualified |
+
+<!-- /generated:compatibility -->
 
 Compatibility is atomic. A target becomes Stable only after two independent
 affected-versus-fixed application campaigns, repeated clean runs, exact identity

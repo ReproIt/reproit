@@ -14,3 +14,20 @@ The supported platform and evidence tiers are listed in
 [docs/compatibility.md](docs/compatibility.md). A platform outside that matrix
 may work, but it is not a 1.0 release commitment until native evidence is part
 of the release gate.
+
+The claim below is generated from `validation/support-manifest.json`. Editing
+this section by hand cannot promote a target.
+
+<!-- generated:support-claim -->
+
+Stable (4): Terminal UI, Web Chromium, Web Firefox, Web WebKit.
+
+Preview (17): Backend contracts, Jetpack Compose Android, Electron Linux, Flutter Android, Flutter iOS, Linux GTK, Linux Qt Quick/QML, Linux Qt Widgets, Linux wxWidgets, macOS Accessibility, React Native Android, React Native iOS, SwiftUI iOS, Tauri Linux, Windows Avalonia, Windows WinUI 3, Windows WPF.
+
+Production-to-local qualified: none.
+
+Stable is an atomic compatibility claim. It does not by itself claim
+that every production occurrence on that target reproduces locally;
+that is the separate production-to-local qualification above.
+
+<!-- /generated:support-claim -->

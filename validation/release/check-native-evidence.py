@@ -22,7 +22,7 @@ def release_gates() -> dict[str, str]:
     directory so one exact-commit result remains canonical.
     """
     support = json.loads(SUPPORT.read_text(encoding="utf-8"))
-    if support.get("schema") != 2:
+    if support.get("schema") != 3:
         raise ValueError("unsupported support manifest schema")
     gates: dict[str, str] = {}
     for target_id, target in support["targets"].items():

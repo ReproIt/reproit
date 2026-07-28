@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "policy": {
     "stableMinIndependentApplications": 2,
     "affectedReproductionsPerApplication": 3,
@@ -7,12 +7,24 @@
     "requireExactIdentity": true,
     "requireMinimizedTrigger": true,
     "requireNeighboringLegalBehavior": true,
-    "requireExactCommitNativeEvidence": true
+    "requireExactCommitNativeEvidence": true,
+    "newPromotionStandard": "schema-3",
+    "grandfatheredStableTargets": [
+      "tui",
+      "web-chromium",
+      "web-firefox",
+      "web-webkit"
+    ]
   },
   "counts": {
     "stable": 4,
     "preview": 17,
     "experimental": 0
+  },
+  "productionToLocalCounts": {
+    "FixtureQualified": 0,
+    "IndependentQualified": 0,
+    "Unqualified": 21
   },
   "targets": [
     {
@@ -24,10 +36,43 @@
       "nativeGates": [
         "backend-contract"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "ci-gate",
+        "adversarialCorpus": "ci-gate",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "HTTP",
+          "OpenAPI"
+        ],
+        "framework": [
+          "Backend services"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete",
-        "production-to-local occurrence evidence corpus is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -39,9 +84,43 @@
       "nativeGates": [
         "compose-android"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "android-emulator"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "ART",
+          "Appium UiAutomator2"
+        ],
+        "framework": [
+          "Jetpack Compose"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -53,9 +132,44 @@
       "nativeGates": [
         "electron"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "Chromium",
+          "Node.js",
+          "CDP"
+        ],
+        "framework": [
+          "Electron"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -67,9 +181,43 @@
       "nativeGates": [
         "flutter-android"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "android-emulator"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "Dart VM service",
+          "flutter drive"
+        ],
+        "framework": [
+          "Flutter"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -81,9 +229,43 @@
       "nativeGates": [
         "flutter-ios"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "ios-simulator"
+        ],
+        "arch": [
+          "arm64"
+        ],
+        "runtime": [
+          "Dart VM service",
+          "flutter drive"
+        ],
+        "framework": [
+          "Flutter"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -95,9 +277,44 @@
       "nativeGates": [
         "linux-atspi-gtk"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux-container"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "AT-SPI 2",
+          "GLib main loop"
+        ],
+        "framework": [
+          "GTK 3",
+          "GTK 4"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -109,9 +326,44 @@
       "nativeGates": [
         "linux-atspi-toolkits"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux-container"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "AT-SPI 2",
+          "Qt 6",
+          "QML engine"
+        ],
+        "framework": [
+          "Qt Quick/QML"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -123,9 +375,43 @@
       "nativeGates": [
         "linux-atspi-toolkits"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux-container"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "AT-SPI 2",
+          "Qt 6"
+        ],
+        "framework": [
+          "Qt Widgets"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -137,9 +423,43 @@
       "nativeGates": [
         "linux-atspi-toolkits"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux-container"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "AT-SPI 2",
+          "GTK backend"
+        ],
+        "framework": [
+          "wxWidgets"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -151,10 +471,52 @@
       "nativeGates": [
         "macos-ax"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "missing",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "macos"
+        ],
+        "arch": [
+          "arm64"
+        ],
+        "runtime": [
+          "Swift runtime",
+          "Accessibility API"
+        ],
+        "framework": [
+          "SwiftUI",
+          "AppKit"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "exact-commit evidence from the permissioned macOS AX runner is not yet recorded",
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "incomplete-evidence",
+          "detail": "no exact-commit evidence is recorded for the macos-ax native gate. The execution infrastructure is proven reachable on this host (macos-ax); the gate has simply not been run and retained against the candidate commit"
+        },
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        },
+        {
+          "code": "product-coverage-missing",
+          "detail": "no distributed package for this target has a clean installation gate in CI"
+        }
       ]
     },
     {
@@ -166,9 +528,43 @@
       "nativeGates": [
         "react-native-android"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "android-emulator"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "Hermes",
+          "Appium UiAutomator2"
+        ],
+        "framework": [
+          "React Native"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -180,9 +576,43 @@
       "nativeGates": [
         "react-native-ios"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "ios-simulator"
+        ],
+        "arch": [
+          "arm64"
+        ],
+        "runtime": [
+          "Hermes",
+          "Appium XCUITest"
+        ],
+        "framework": [
+          "React Native"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -194,9 +624,47 @@
       "nativeGates": [
         "swiftui-ios"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "missing",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "ios-simulator"
+        ],
+        "arch": [
+          "arm64"
+        ],
+        "runtime": [
+          "Swift runtime",
+          "Appium XCUITest"
+        ],
+        "framework": [
+          "SwiftUI"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        },
+        {
+          "code": "product-coverage-missing",
+          "detail": "no distributed package for this target has a clean installation gate in CI"
+        }
       ]
     },
     {
@@ -208,9 +676,43 @@
       "nativeGates": [
         "tauri"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "WebKitGTK",
+          "tauri-driver"
+        ],
+        "framework": [
+          "Tauri"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -222,7 +724,32 @@
       "nativeGates": [
         "tui-pty"
       ],
+      "promotionStandard": "schema-2",
       "fieldBenchmark": "validation/field/tui.json",
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "PTY",
+          "VT parser"
+        ],
+        "framework": [
+          "Go",
+          "TypeScript",
+          "Python terminal apps"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": []
     },
     {
@@ -234,7 +761,30 @@
       "nativeGates": [
         "web-chromium"
       ],
+      "promotionStandard": "schema-2",
       "fieldBenchmark": "validation/field/benchmark.json",
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "Node.js 20+",
+          "Playwright CDP"
+        ],
+        "framework": [
+          "DOM applications"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": []
     },
     {
@@ -246,7 +796,30 @@
       "nativeGates": [
         "web-engines"
       ],
+      "promotionStandard": "schema-2",
       "fieldBenchmark": "validation/field/web-firefox.json",
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "Node.js 20+",
+          "Playwright"
+        ],
+        "framework": [
+          "DOM applications"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": []
     },
     {
@@ -258,7 +831,30 @@
       "nativeGates": [
         "web-engines"
       ],
+      "promotionStandard": "schema-2",
       "fieldBenchmark": "validation/field/web-webkit.json",
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "linux"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          "Node.js 20+",
+          "Playwright"
+        ],
+        "framework": [
+          "DOM applications"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": []
     },
     {
@@ -270,10 +866,47 @@
       "nativeGates": [
         "windows-uia"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "windows-x86_64-interactive"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          ".NET",
+          "UI Automation"
+        ],
+        "framework": [
+          "Avalonia"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "exact-commit evidence from the native interactive Windows VM is not yet recorded",
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "incomplete-evidence",
+          "detail": "no exact-commit evidence is recorded for the windows-uia native gate. The execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not been run and retained against the candidate commit"
+        },
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -285,10 +918,48 @@
       "nativeGates": [
         "windows-uia"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "windows-x86_64-interactive"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          ".NET",
+          "UI Automation",
+          "WinAppSDK"
+        ],
+        "framework": [
+          "WinUI 3"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "exact-commit evidence from the native interactive Windows VM is not yet recorded",
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "incomplete-evidence",
+          "detail": "no exact-commit evidence is recorded for the windows-uia native gate. The execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not been run and retained against the candidate commit"
+        },
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     },
     {
@@ -300,10 +971,47 @@
       "nativeGates": [
         "windows-uia"
       ],
+      "promotionStandard": "schema-3",
       "fieldBenchmark": null,
+      "qualifications": {
+        "cleanCorpus": "missing",
+        "adversarialCorpus": "missing",
+        "packageInstall": "ci-gate",
+        "manualReview": "field-benchmark"
+      },
+      "bounds": {
+        "os": [
+          "windows-x86_64-interactive"
+        ],
+        "arch": [
+          "x86_64"
+        ],
+        "runtime": [
+          ".NET",
+          "UI Automation"
+        ],
+        "framework": [
+          "WPF"
+        ]
+      },
+      "productionToLocal": "Unqualified",
       "promotionBlockers": [
-        "exact-commit evidence from the native interactive Windows VM is not yet recorded",
-        "independent affected-versus-fixed field benchmark is incomplete"
+        {
+          "code": "incomplete-evidence",
+          "detail": "no exact-commit evidence is recorded for the windows-uia native gate. The execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not been run and retained against the candidate commit"
+        },
+        {
+          "code": "product-coverage-missing",
+          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
+        },
+        {
+          "code": "incomplete-evidence",
+          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        }
       ]
     }
   ]
