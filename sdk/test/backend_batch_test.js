@@ -9,7 +9,7 @@
  *   4. obvious secret-shaped fields are structurally redacted before upload.
  *
  * Run: node sdk/test/backend_batch_test.js
- * (The Python sample needs `uv` on PATH; the Go sample needs `go`.)
+ * (The Python sample needs `python3` on PATH; the Go sample needs `go`.)
  */
 'use strict';
 
@@ -134,11 +134,18 @@ function pythonSample() {
     '                  "headerName": "x-reproit-events"}))',
   ].join('\n');
   var result = child_process.spawnSync(
-    'uv',
-    ['run', '--project', path.join(root, 'reproit-backend-py'), 'python', '-c', script],
-    { encoding: 'utf8' },
+    'python3',
+    ['-c', script],
+    {
+      cwd: path.join(root, 'reproit-backend-py'),
+      encoding: 'utf8',
+    },
   );
-  assert.strictEqual(result.status, 0, 'python sample failed: ' + result.stderr);
+  assert.strictEqual(
+    result.status,
+    0,
+    'python sample failed: ' + (result.error || result.stderr),
+  );
   var lines = result.stdout.trim().split('\n');
   return JSON.parse(lines[lines.length - 1]);
 }

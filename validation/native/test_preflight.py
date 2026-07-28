@@ -1,4 +1,6 @@
 import importlib.util
+import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +21,15 @@ class PreflightTest(unittest.TestCase):
     @patch.object(MODULE, "output", return_value="v24.9.0")
     def test_node_major_is_pinned(self, _output: object) -> None:
         MODULE.validate_versions("linux-hosted", {"rust": "v24.9.0", "nodeMajor": 24})
+
+    @patch.object(MODULE.shutil, "which", return_value=None)
+    def test_adb_is_found_under_android_home(self, _which: object) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Path(directory) / "platform-tools/adb"
+            adb.parent.mkdir()
+            adb.touch()
+            with patch.dict(os.environ, {"ANDROID_HOME": directory}, clear=False):
+                self.assertEqual(MODULE.prerequisite_path("adb"), adb)
 
     @patch.object(
         MODULE,

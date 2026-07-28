@@ -11,7 +11,11 @@
     },
     "androidApi": 30,
     "androidArchitecture": "x86_64",
-    "xcodeMajor": 26
+    "xcodeByProfile": {
+      "macos-appium": "16.4",
+      "macos-flutter": "16.4",
+      "macos-ax": "26.2"
+    }
   },
   "profiles": {
     "linux-hosted": ["python3", "node", "npm", "cargo", "rustc"],

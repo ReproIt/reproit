@@ -16,6 +16,25 @@ MANIFEST = ROOT / "validation/native/toolchains.json"
 COMMAND_TIMEOUT_SECONDS = 20
 
 
+def prerequisite_path(command: str) -> Path | None:
+    located = shutil.which(command)
+    if located:
+        return Path(located)
+    if command != "adb":
+        return None
+    roots = [
+        os.environ.get("ANDROID_SDK_ROOT"),
+        os.environ.get("ANDROID_HOME"),
+        str(Path.home() / "Library/Android/sdk"),
+        "/usr/local/lib/android/sdk",
+        "/opt/android-sdk",
+    ]
+    for root in roots:
+        if root and (candidate := Path(root) / "platform-tools/adb").is_file():
+            return candidate
+    return None
+
+
 def output(command: list[str]) -> str:
     result = subprocess.run(
         command,
@@ -63,7 +82,8 @@ def validate_versions(profile: str, pins: dict[str, object]) -> None:
         require_appium_driver(profile, pins)
     if profile.startswith("macos"):
         xcode = output(["xcodebuild", "-version"])
-        require_version("Xcode", xcode, f"Xcode {pins['xcodeMajor']}.")
+        xcode_version = pins["xcodeByProfile"][profile]
+        require_version("Xcode", xcode, f"Xcode {xcode_version}\n")
 
 
 def main() -> int:
@@ -81,7 +101,7 @@ def main() -> int:
     missing = [
         command
         for command in manifest["profiles"][args.profile]
-        if shutil.which(command) is None
+        if prerequisite_path(command) is None
     ]
     if missing:
         raise ValueError(f"{args.profile} is missing prerequisites: {', '.join(missing)}")
