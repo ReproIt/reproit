@@ -1,6 +1,6 @@
 //! Recording, capture shrinking, and video playback workflows.
 
-use super::repro::{adopt_simplified, check_repro};
+use super::repro::{adopt_simplified, check_repro, load_repro_actions};
 use super::*;
 use crate::domain::repro;
 use serde::Serialize;

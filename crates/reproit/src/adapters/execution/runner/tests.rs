@@ -213,6 +213,128 @@ async fn imported_process_occurrence_compiles_and_reproduces_without_ui() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn automatic_compilation_uses_only_an_unambiguous_trusted_provider() {
+    let root = temporary_root("automatic-compile");
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        providers: BTreeMap::from([("service-start".into(), provider())]),
+    };
+    std::fs::write(
+        root.join("reproit.execution.yaml"),
+        serde_yaml::to_string(&catalog).unwrap(),
+    )
+    .unwrap();
+    let package = incomplete_process_package();
+
+    let AutomaticCompilation::Compiled(compiled) =
+        compile_package_automatically(&root, &package).unwrap()
+    else {
+        panic!("one compatible provider should compile automatically");
+    };
+    let binding = &compiled.plan.as_ref().unwrap().bindings[0];
+    assert_eq!(binding.requirement_id, "req_process_launch");
+    assert_eq!(binding.provider_id, "service-start");
+    assert_eq!(
+        binding.mechanism_authority,
+        MechanismAuthority::TrustedCheckout
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn automatic_compilation_refuses_ambiguous_providers() {
+    let root = temporary_root("ambiguous-compile");
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        providers: BTreeMap::from([
+            ("service-start".into(), provider()),
+            ("service-start-copy".into(), provider()),
+        ]),
+    };
+    std::fs::write(
+        root.join("reproit.execution.yaml"),
+        serde_yaml::to_string(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let AutomaticCompilation::Blocked(blockers) =
+        compile_package_automatically(&root, &incomplete_process_package()).unwrap()
+    else {
+        panic!("ambiguous providers must not compile automatically");
+    };
+    assert_eq!(blockers.len(), 1);
+    assert!(blockers[0].contains("ambiguous"));
+    assert!(blockers[0].contains("service-start"));
+    assert!(blockers[0].contains("service-start-copy"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn incomplete_process_package() -> ReproductionPackage {
+    use reproit_protocol::{
+        ConsentClass, EvidencePolicy, EvidenceSource, FailureObservation, OccurrenceEnvelope,
+        SubjectIdentity, UnresolvedRequirement, UnresolvedRequirementReason, OCCURRENCE_VERSION,
+        PACKAGE_VERSION,
+    };
+    let occurrence = OccurrenceEnvelope {
+        version: OCCURRENCE_VERSION,
+        occurrence_id: "occ_process_automatic_test".into(),
+        source: EvidenceSource::SupportBundle,
+        subject: SubjectIdentity {
+            product: "suite".into(),
+            component: "service".into(),
+            platform: None,
+        },
+        observed_at: "2026-07-27T00:00:00Z".into(),
+        received_at: "2026-07-27T00:00:01Z".into(),
+        deployment: None,
+        observations: vec![FailureObservation {
+            kind: ObservationKind::Exit,
+            authority: ObservationAuthority::SourceClaim,
+            summary: "service startup failed".into(),
+            signature: Some("service-start-failure".into()),
+            observation_point: Some("service/start".into()),
+            artifact_ids: vec![],
+        }],
+        artifacts: vec![],
+        capture_defects: vec![],
+        policy: EvidencePolicy {
+            consent: ConsentClass::SupportExport,
+            retention_class: "test".into(),
+        },
+    };
+    let requirement = ReproductionRequirement {
+        id: "req_process_launch".into(),
+        level: RequirementLevel::Required,
+        requirement: RequirementKind::Process {
+            role: "service".into(),
+            operation: ProcessOperation::Launch,
+        },
+        evidence_artifact_ids: vec![],
+    };
+    let assessment = CapabilityAssessment {
+        occurrence_id: occurrence.occurrence_id.clone(),
+        status: AssessmentStatus::Incomplete,
+        requirements: vec![requirement.clone()],
+        unresolved: vec![UnresolvedRequirement {
+            requirement_id: requirement.id,
+            reason: UnresolvedRequirementReason::MissingEvidence,
+            detail: "bind a trusted process".into(),
+        }],
+    };
+    let mut package = ReproductionPackage {
+        version: PACKAGE_VERSION,
+        id: String::new(),
+        occurrence,
+        assessment,
+        plan: None,
+        capsule: None,
+        legacy: None,
+    };
+    package.finalize_id().unwrap();
+    package
+}
+
 fn temporary_root(label: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "reproit-execution-{label}-{}-{}",

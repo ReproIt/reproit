@@ -11,15 +11,16 @@ the command list, jump to [Reference](#reference).
 
 reproit has two entry paths into one verification loop:
 
-`reproit --help` lists the loop, not every command. Nineteen specialist, cloud, and one-shot
-commands are still supported and still documented here; they are hidden from the top-level help so
-a first reader sees the product rather than thirty-five peers. `reproit help <command>` works for
-every one of them.
+`reproit --help` lists the outcome-oriented loop. Specialist and compatibility
+commands remain supported and documented here, but they stay out of the
+top-level help. `reproit help <command>` works for every one of them.
 
 ```sh
-reproit scan    # audit visible bugs on every reachable screen
-reproit fuzz    # find deeper sequence-dependent bugs
-reproit check   # verify replayable bugs from fuzz/keep
+reproit capture # preserve a known UI or command failure
+reproit find    # surface pass, deep exploration, confirmation, minimization
+reproit <id>    # reproduce one exact failure
+reproit keep    # retain it as a permanent regression guard
+reproit check   # prove saved failures remain fixed
 ```
 
 Production and command failures use the same loop:
@@ -37,13 +38,13 @@ or job green. Evidence collected elsewhere enters through the offline bundle pat
 ```sh
 reproit collect ...       # create a signed, encrypted offline support bundle
 reproit inspect case.rpb  # verify its manifest and inspect metadata without decrypting
-reproit import case.rpb   # decrypt and store an immutable occurrence
-reproit occ_...           # execute it, or print exact missing requirements
-reproit plan occ_... ...  # bind requirements to trusted checkout providers
+reproit capture --bundle case.rpb
+reproit occ_...           # compile and execute, or print exact planning blockers
 ```
 
-`scan` is the fast audit pass; `fuzz` emits replayable `fnd_...` findings you can `check` and
-`keep`. Both maintain the internal app model automatically.
+`find` stages the fast `scan` engine and the deep `fuzz` engine. The phase
+commands remain available for existing scripts and specialist control. Both
+maintain the internal app model automatically.
 
 Two things make it different:
 
@@ -109,21 +110,19 @@ execution:
         timeoutMs: 30000
 ```
 
-Compile and run the occurrence:
+Run the occurrence:
 
 ```sh
-reproit plan occ_... \
-  --bind req_current_checkout_process=index-start \
-  --identity index-service-start-failure
-
 reproit occ_...
 reproit check
 ```
 
-The initial trusted provider is a bounded command provider. It covers current-checkout tests,
+Reproit selects a provider automatically only when exactly one trusted provider
+matches every required phase and the exact observation identity. Ambiguity
+remains a typed blocker. The initial trusted provider is a bounded command provider. It covers current-checkout tests,
 startup failures, installers, migrations, service harnesses, and command-driven requests. Typed
 native providers for databases, queues, HTTP, Compose, devices, VMs, clocks, and concurrency remain
-separate capability work. Until one is implemented and bound, Reproit reports the requirement as
+separate capability work. Until one is implemented and available, Reproit reports the requirement as
 incomplete or unsupported.
 
 ## Your first run
@@ -662,9 +661,17 @@ cloud view is backed by exportable raw data.
 ## All commands
 
 ```
-reproit                       help: the scan -> fuzz -> check -> keep story
-reproit scan [target]         scan every screen for visible bugs (--record-video for clips)
-reproit fuzz [target]         find deeper interaction bugs
+reproit                       help: capture/find -> reproduce -> keep -> check
+reproit capture               demonstrate a configured application failure
+reproit capture -- <command>  capture a bounded command failure
+reproit find [target]         staged surface and deep confirmed discovery
+reproit find --quick          run only the fast surface pass
+reproit find --deep           run only deep exploration
+reproit list                  list saved local guards
+reproit list --state candidates  list exact promotion blockers
+reproit list --state bugs     list confirmed production bugs
+reproit scan [target]         compatible explicit surface-phase command
+reproit fuzz [target]         compatible explicit deep-phase command
 reproit init <schema-url>     backend projects: snapshot a served schema and set the target
                               (see docs/backend-quickstart.md, incl. target precedence)
 reproit init --learn          backend projects without a schema: derive a DRAFT openapi.yaml

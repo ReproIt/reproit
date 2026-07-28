@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "target": "web-chromium",
   "status": "complete",
   "applications": [
@@ -11,10 +11,15 @@
       "fixedRevision": "a8386ee3f1efc40c37828f780e75cb3a8df4b12b",
       "authority": "authored-contract",
       "expectedIdentity": "route:/about:missing-text:Why VERT?",
-      "reproductions": [
-        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true},
-        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true},
-        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true}
+      "affectedReproductions": [
+        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true, "observationReached": true},
+        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true, "observationReached": true},
+        {"status": "reproduced", "identity": "route:/about:missing-text:Why VERT?", "cleanLaunch": true, "observationReached": true}
+      ],
+      "fixedReproductions": [
+        {"status": "not_reproduced", "identity": null, "cleanLaunch": true, "observationReached": true},
+        {"status": "not_reproduced", "identity": null, "cleanLaunch": true, "observationReached": true},
+        {"status": "not_reproduced", "identity": null, "cleanLaunch": true, "observationReached": true}
       ],
       "minimized": true,
       "controls": ["fixed-revision", "neighboring-legal-behavior"],
@@ -33,10 +38,15 @@
       "fixedRevision": "7d7aad8d2e0c3117227ed8e8840439723568c1ae",
       "authority": "platform",
       "expectedIdentity": "navigation:/15->/16:on-space-in-monaco",
-      "reproductions": [
-        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true},
-        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true},
-        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true}
+      "affectedReproductions": [
+        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true, "observationReached": true},
+        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true, "observationReached": true},
+        {"status": "reproduced", "identity": "navigation:/15->/16:on-space-in-monaco", "cleanLaunch": true, "observationReached": true}
+      ],
+      "fixedReproductions": [
+        {"status": "not_reproduced", "identity": null, "cleanLaunch": true, "observationReached": true},
+        {"status": "not_reproduced", "identity": null, "cleanLaunch": true, "observationReached": true},
+        {"status": "not_reproduced", "identity": null, "cleanLaunch": true, "observationReached": true}
       ],
       "minimized": true,
       "controls": ["fixed-revision", "neighboring-legal-behavior"],

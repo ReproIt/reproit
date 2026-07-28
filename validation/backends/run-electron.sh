@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cp -R "$ROOT/examples/electron-fixture/." "$WORK/app"
+# A developer checkout may contain ignored host dependencies. The Linux gate
+# must install its own pinned runtime, never reuse a macOS or Windows binary.
+rm -rf "$WORK/app/node_modules"
 printf '{"budget":4}' > "$WORK/fuzz.json"
 
 # The fixture deliberately does not vendor Electron. Pin the runtime used by

@@ -11,26 +11,22 @@ mod actions;
 
 pub(crate) use actions::*;
 
-/// The listed commands are the loop. Everything else still works and is still
-/// documented; it is hidden so a first reader sees the product rather than
-/// thirty-five peers.
+/// The listed commands are the product loop. Compatibility aliases and
+/// specialist operations remain available through `reproit help <command>`.
 const AFTER_HELP: &str = concat!(
-    "Production failure to permanent guard:\n",
-    "  reproit login\n",
-    "  reproit occ_<id>  pull the evidence, compile it against this checkout, and run it\n",
-    "  reproit check     block CI if a fixed failure returns\n",
+    "Known failure:\n",
+    "  reproit capture       preserve a UI or command failure\n",
+    "  reproit occ_<id>      reproduce a production occurrence locally\n",
     "\nCapture or discover failures:\n",
-    "  reproit capture -- <command>\n",
-    "  reproit init && reproit scan\n",
-    "  reproit fuzz\n",
-    "\nRun any saved repro:\n",
-    "  reproit fnd_<id>\n",
-    "  reproit @saved-name\n",
-    "  reproit @saved-name --record-video\n",
-    "\nAlso available (`reproit help <command>`, or docs/cli.md):\n",
-    "  cloud       login, push, bugs, triage, timeline, diagnose, resolution-events\n",
-    "  evidence    create, keep, repros, proof, candidates, watch, baseline\n",
-    "  ui          journey, screenshots, import, devices, platforms, skills",
+    "  reproit init          configure the current application\n",
+    "  reproit find          run staged surface and deep discovery\n",
+    "\nProve and retain:\n",
+    "  reproit <id>          reproduce one exact failure\n",
+    "  reproit keep <id>     preserve it as a regression guard\n",
+    "  reproit check         prove saved failures remain fixed\n",
+    "  reproit list          show local guards\n",
+    "\nUtilities: doctor, login, reset, update. Existing scan, fuzz, collect,\n",
+    "create, verify, and specialist commands remain compatible.",
 );
 
 #[derive(Parser)]
@@ -239,6 +235,53 @@ pub(crate) struct FuzzArgs {
     pub(crate) device: Option<String>,
 }
 
+/// One outcome-oriented discovery command over the existing scan and fuzz
+/// engines. The explicit modes keep work bounded while the default exercises
+/// both layers.
+#[derive(Args)]
+pub(crate) struct FindArgs {
+    /// URL, schema, terminal executable, journey, or configured target.
+    #[arg(value_name = "TARGET")]
+    pub(crate) target: Option<String>,
+    /// Run only the fast surface pass.
+    #[arg(long, conflicts_with_all = ["deep", "exhaustive"])]
+    pub(crate) quick: bool,
+    /// Run only deep interaction exploration.
+    #[arg(long, conflicts_with_all = ["quick", "exhaustive"])]
+    pub(crate) deep: bool,
+    /// Run the staged pass with the larger bounded campaign budget.
+    #[arg(long, conflicts_with_all = ["quick", "deep"])]
+    pub(crate) exhaustive: bool,
+    /// Override the number of deep exploration seeds.
+    #[arg(long)]
+    pub(crate) runs: Option<u32>,
+    /// Override the per-pass action budget.
+    #[arg(long)]
+    pub(crate) budget: Option<u32>,
+    /// Disposable backend service URL.
+    #[arg(long)]
+    pub(crate) service: Option<String>,
+    /// Force URL routing through `web` or `backend`.
+    #[arg(long)]
+    pub(crate) platform: Option<String>,
+    /// Same-origin reset endpoint for exact backend replay.
+    #[arg(long)]
+    pub(crate) reset: Option<String>,
+    /// Record surface findings as short clips.
+    #[arg(long)]
+    pub(crate) record_video: bool,
+    /// Extra browser header, repeatable as `"Name: value"`.
+    #[arg(long = "header", value_name = "NAME: VALUE")]
+    pub(crate) headers: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ListState {
+    Guards,
+    Candidates,
+    Bugs,
+}
+
 // A clap subcommand enum: variants carry their flags by value and are
 // instantiated once at startup, so the size spread between variants is
 // irrelevant (and unavoidable for a rich CLI).
@@ -246,7 +289,7 @@ pub(crate) struct FuzzArgs {
 #[derive(Subcommand)]
 pub(crate) enum Cmd {
     /// Detect the current app and create the smallest working reproit setup.
-    /// After initialization, use `reproit scan` or `reproit fuzz`.
+    /// After initialization, use `reproit find`.
     Init {
         /// Running web app to initialize. A URL always selects the web UI
         /// workflow.
@@ -269,13 +312,26 @@ pub(crate) enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Find unknown failures through a fast surface pass followed by bounded
+    /// deep exploration and exact confirmation.
+    Find(FindArgs),
+    /// List local guards, blocked candidates, or confirmed production bugs.
+    List {
+        #[arg(long, value_enum, default_value = "guards")]
+        state: ListState,
+        /// Filter production bugs by message, identity, or bucket id.
+        #[arg(long)]
+        query: Option<String>,
+    },
     /// Print the HTTP surface a backend serves, read from its source, and
     /// write nothing. Works with no schema, no running service and no
     /// credentials, and reports each service of a monorepo separately. Where a
     /// schema is declared it also says where schema and source disagree.
+    #[command(hide = true)]
     Surface,
     /// Reset Reproit state for this project. The default removes only
     /// regenerable state; --all also removes saved evidence and configuration.
+    #[command(hide = true)]
     Reset {
         /// Remove all project-local Reproit state and reproit.yaml. This
         /// requires confirmation and never removes application source files.
@@ -289,6 +345,7 @@ pub(crate) enum Cmd {
         platform: Option<String>,
     },
     /// Check for or install the latest ReproIt CLI release.
+    #[command(hide = true)]
     Update {
         /// Report whether an update is available without installing it.
         #[arg(long)]
@@ -296,6 +353,7 @@ pub(crate) enum Cmd {
     },
     /// Advanced diagnostics. Normal scan/fuzz/check workflows maintain their
     /// internal app model automatically.
+    #[command(hide = true)]
     Debug {
         #[command(subcommand)]
         action: DebugAction,
@@ -376,6 +434,7 @@ pub(crate) enum Cmd {
     /// Open one repro on its configured platform, step through its actions, and
     /// write a structured fix packet. Inspection is diagnostic and never
     /// promotes or updates the saved guard.
+    #[command(hide = true)]
     Inspect {
         /// Saved repro id or alias, or a production bucket id to pull first.
         /// Backend projects also accept a finding id or a captured-production
@@ -388,6 +447,7 @@ pub(crate) enum Cmd {
         offline: bool,
     },
     /// Collect a signed, encrypted offline support bundle from bounded files.
+    #[command(hide = true)]
     Collect {
         /// Destination `.rpb` file. The command refuses to overwrite it.
         #[arg(long, short)]
@@ -415,10 +475,14 @@ pub(crate) enum Cmd {
         #[arg(long, default_value = "support-30d")]
         retention_class: String,
     },
-    /// Capture one command and its bounded causal evidence. A failing command
-    /// becomes a directly executable occurrence.
+    /// Capture a known failure from a configured app, a command, or a signed
+    /// offline support bundle.
     #[command(name = "capture", trailing_var_arg = true)]
     CaptureCommand {
+        /// Signed offline support bundle to verify and import as an immutable
+        /// occurrence.
+        #[arg(long, value_name = "FILE")]
+        bundle: Option<PathBuf>,
         /// Project identity used by Cloud grouping. Defaults to the checkout
         /// directory name.
         #[arg(long)]
@@ -435,14 +499,36 @@ pub(crate) enum Cmd {
         /// Keep the capture on this machine even when Cloud credentials exist.
         #[arg(long)]
         local_only: bool,
+        /// Capture an already-running configured application.
+        #[arg(long)]
+        attach: bool,
+        /// Short description for an application demonstration.
+        #[arg(long)]
+        title: Option<String>,
+        /// SDK action/state export for an application demonstration.
+        #[arg(long)]
+        actions_file: Option<PathBuf>,
+        /// Record screen video with an application demonstration.
+        #[arg(long)]
+        record_video: bool,
+        /// Review and push the application demonstration to Cloud.
+        #[arg(long)]
+        push: bool,
+        /// Print the Cloud review URL instead of opening it.
+        #[arg(long, requires = "push")]
+        no_open: bool,
+        /// Optional configured application sub-variant.
+        #[arg(long)]
+        kind: Option<String>,
         /// Command and arguments. Use `--` before command flags.
-        #[arg(required = true, allow_hyphen_values = true, num_args = 1..)]
+        #[arg(allow_hyphen_values = true, num_args = 0..)]
         command: Vec<OsString>,
     },
     /// Internal direct occurrence route used by `reproit occ_...`.
     #[command(name = "__occurrence", hide = true)]
     Occurrence { reference: String },
     /// Compile an imported occurrence against checkout-owned execution providers.
+    #[command(hide = true)]
     Plan {
         occurrence: String,
         /// Bind one assessed requirement to a trusted provider, `REQ=PROVIDER`.
@@ -523,7 +609,7 @@ pub(crate) enum Cmd {
         #[arg(long)]
         update: bool,
     },
-    /// Keep a repro from the latest fuzz run in the committed suite. The
+    /// Keep a repro from the latest discovery run in the committed suite. The
     /// store dir is the repro's CONTENT HASH (.reproit/repros/<id>/), stable
     /// across machines and self-deduping. `--as` assigns a human alias.
     Keep {
@@ -540,6 +626,7 @@ pub(crate) enum Cmd {
     },
     /// Advanced operations on an existing repro: `simplify` (verify + adopt a
     /// shorter action sequence) and `why` (rank suspect code for the failure).
+    #[command(hide = true)]
     Repro {
         #[command(subcommand)]
         action: ReproAction,
@@ -554,6 +641,7 @@ pub(crate) enum Cmd {
     /// Replay every persisted backend finding against the live target and assert
     /// none still reproduces: a durable regression suite and batch proof-of-fix.
     /// Exits non-zero if any finding reproduces. Pass ids to verify only those.
+    #[command(hide = true)]
     Verify {
         /// Finding ids to verify (default: all persisted findings).
         ids: Vec<String>,
@@ -567,6 +655,7 @@ pub(crate) enum Cmd {
     /// Accept one backend finding so the CI gate stops blocking on it, with a
     /// stated reason and an optional expiry. Unlike `check --update-baseline`,
     /// this accepts ONLY the findings you name; everything else keeps blocking.
+    #[command(hide = true)]
     Accept {
         /// Finding ids to accept.
         ids: Vec<String>,
@@ -690,13 +779,16 @@ pub(crate) enum Cmd {
     /// are reported when their oracle predicate holds.
     /// `--record-video` saves quick audit clips; use
     /// `reproit <id> --record-video` for a fuzz repro.
+    #[command(hide = true)]
     Scan(ScanArgs),
     /// Find confirmed, replayable bugs through deeper interaction exploration.
     /// ReproIt learns and refreshes its internal app model automatically.
     /// Stable, objective detectors are on by default. Specialist detectors are
     /// opt-in with `--only`; `--soak` runs the leak cycle.
+    #[command(hide = true)]
     Fuzz(FuzzArgs),
     /// Serve reproit as an MCP server (stdio) for coding agents
+    #[command(hide = true)]
     Mcp,
     /// Show the platform support matrix: which UI frameworks map to which
     /// introspection backend and capability source
@@ -714,6 +806,7 @@ pub(crate) enum Cmd {
     Doctor,
     /// Configure and verify one test login. `auth verify <account>` replays the
     /// contract directly; `auth discover <account>` regenerates it first.
+    #[command(hide = true)]
     Auth {
         account: String,
         #[arg(long, value_enum)]
@@ -782,6 +875,7 @@ pub(crate) enum Cmd {
         path_template: Option<String>,
     },
     /// Import an offline `.rpb` support bundle or a flow from another tool.
+    #[command(hide = true)]
     Import {
         /// Bundle path, or source tool (`maestro`) when a second path follows.
         source: String,
@@ -803,7 +897,6 @@ pub(crate) enum Cmd {
     /// Sign in to ReproIt Cloud in your browser, then discover and select a
     /// project. Hosted Cloud is assumed; --cloud is only for a self-hosted
     /// deployment.
-    #[command(hide = true)]
     Login {
         /// Cloud base URL (default: https://cloud.reproit.com).
         #[arg(long)]

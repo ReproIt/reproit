@@ -6,6 +6,9 @@ use crate::domain::repro;
 use crate::workflows::fuzz;
 use std::path::PathBuf;
 
+mod fault_localization;
+pub(super) use fault_localization::why;
+
 /// A human label for a repro in CLI output: `<id> (<alias>)` when an alias is
 /// set, else just the id.
 pub(super) fn repro_label(m: &repro::Meta) -> String {

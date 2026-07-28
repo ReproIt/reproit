@@ -26,7 +26,33 @@
         "All tests passed",
         "iOS simulator cleanup: deleted "
       ],
-      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "macos-flutter"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "macos-flutter"}
+    },
+    "flutter-android": {
+      "platforms": ["flutter"],
+      "backend": "flutter-drive",
+      "command": [
+        "bash",
+        "validation/backends/run-flutter-drive-android.sh"
+      ],
+      "fixture": "examples/flutter-fixture",
+      "targetOs": "android-emulator",
+      "architectures": ["x86_64"],
+      "tier": "release",
+      "timeoutSeconds": 1200,
+      "resetStrategy": "fresh generated application on a boot-complete reset emulator",
+      "cleanupStrategy": "remove the generated application and temporary fuzz configuration",
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "android-hosted"
+      }
     },
     "web-chromium": {
       "platforms": ["web"],
@@ -40,7 +66,7 @@
       "resetStrategy": "disposable HTTP server and fuzz configuration",
       "cleanupStrategy": "server terminated and temporary directory removed by EXIT trap",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
     },
     "web-engines": {
       "platforms": ["web"],
@@ -54,7 +80,7 @@
       "resetStrategy": "fresh server and runner state per browser engine",
       "cleanupStrategy": "each engine gate owns bounded temporary state and server cleanup",
       "requiredOutput": ["Playwright Firefox/WebKit browser runtime matrix passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
     },
     "electron": {
       "platforms": ["electron"],
@@ -68,7 +94,7 @@
       "resetStrategy": "fresh copied fixture with pinned Electron runtime",
       "cleanupStrategy": "temporary application directory removed by EXIT trap",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
     },
     "tauri": {
       "platforms": ["tauri"],
@@ -82,7 +108,7 @@
       "resetStrategy": "fresh pinned container and copied fixture",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
     },
     "react-native-android": {
       "platforms": ["react-native"],
@@ -101,7 +127,39 @@
       "resetStrategy": "fresh pinned release application install on a boot-complete emulator",
       "cleanupStrategy": "generated application directory removed by EXIT trap",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "android-hosted"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "android-hosted"}
+    },
+    "react-native-ios": {
+      "platforms": ["react-native"],
+      "backend": "appium",
+      "command": [
+        "bash",
+        "validation/backends/with-appium.sh",
+        "bash",
+        "validation/backends/with-ios-simulator.sh",
+        "bash",
+        "validation/backends/run-react-native-ios.sh"
+      ],
+      "fixture": "examples/react-native-fixture",
+      "targetOs": "ios-simulator",
+      "architectures": ["arm64"],
+      "tier": "release",
+      "timeoutSeconds": 3600,
+      "resetStrategy": "fresh pinned release application on a disposable iPhone simulator",
+      "cleanupStrategy": "delete the simulator and remove generated application state",
+      "requiredOutput": [
+        "iOS simulator reset: created ",
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed",
+        "iOS simulator cleanup: deleted "
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "macos-swiftui"
+      }
     },
     "compose-android": {
       "platforms": ["android"],
@@ -120,7 +178,7 @@
       "resetStrategy": "fixture rebuild, reinstall, force-stop, and explicit launch",
       "cleanupStrategy": "temporary fuzz configuration removed by EXIT trap",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "android-hosted"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "android-hosted"}
     },
     "swiftui-ios": {
       "platforms": ["swift-ios"],
@@ -148,7 +206,7 @@
         "All tests passed",
         "iOS simulator cleanup: deleted "
       ],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "macos-swiftui"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "macos-swiftui"}
     },
     "macos-ax": {
       "platforms": ["swift-macos"],
@@ -190,7 +248,7 @@
       "resetStrategy": "fresh pinned container, display, accessibility bus, and actor processes",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
       "requiredOutput": ["atspi-scenario-e2e: all assertions passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
     },
     "linux-atspi-toolkits": {
       "platforms": ["qt", "wxwidgets"],
@@ -204,7 +262,7 @@
       "resetStrategy": "fresh pinned container and toolkit builds",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
       "requiredOutput": ["All tests passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
     },
     "tui-pty": {
       "platforms": ["tui"],
@@ -218,7 +276,7 @@
       "resetStrategy": "fresh PTY process and fixed fuzz input",
       "cleanupStrategy": "child process ownership plus temporary directory cleanup",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "scheduled", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
     },
     "backend-contract": {
       "platforms": [],
@@ -233,16 +291,16 @@
       "cleanupStrategy": "owned service process and Reproit state removed by EXIT trap",
       "requiredOutput": ["real reproit scan backend contract gate passed"],
       "automation": {
-        "mode": "scheduled",
+        "mode": "required-ci",
         "workflow": ".github/workflows/native-gates.yml",
         "job": "linux-hosted"
       }
     }
   },
   "platforms": {
-    "flutter": ["flutter-ios"],
+    "flutter": ["flutter-ios", "flutter-android"],
     "web": ["web-chromium", "web-engines"],
-    "react-native": ["react-native-android"],
+    "react-native": ["react-native-android", "react-native-ios"],
     "electron": ["electron"],
     "tauri": ["tauri"],
     "swift-ios": ["swiftui-ios"],

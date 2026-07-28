@@ -33,9 +33,11 @@ mod cloud;
 mod create_command;
 mod device;
 mod doctor;
+mod find_command;
 mod fuzz_command;
 pub(crate) mod init_command;
 mod inspect;
+mod list;
 mod map;
 mod platforms;
 mod proof;
@@ -53,11 +55,11 @@ use crate::adapters::scoped_env::ScopedEnv;
 use crate::adapters::uia;
 use crate::adapters::{config, crash_reporter as crashreporter, project_scaffold, update};
 use crate::adapters::{orchestrator, platform, simctl, tui};
+use crate::domain::appmap;
 use crate::domain::capsule;
-use crate::domain::{appmap, fault};
 use crate::interface::cli::args::{
-    AuthAction, AuthStrategyArg, Cli, CloudAction, Cmd, DebugAction, JourneyAction, MapAction,
-    ReproAction, SkillsAction,
+    AuthAction, AuthStrategyArg, Cli, CloudAction, Cmd, DebugAction, JourneyAction, ListState,
+    MapAction, ReproAction, SkillsAction,
 };
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
 use crate::interface::mcp;
@@ -85,7 +87,7 @@ use repro::{
     build_simplified_replay, find_finding_by_id, parse_fuzz_finding_id, parse_fuzz_oracle,
     parse_fuzz_report, Finding,
 };
-use repro::{keep_repro, load_repro_actions, repro_label, simplify_repro};
+use repro::{keep_repro, repro_label, simplify_repro};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -98,8 +100,6 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString>,
 {
-    use crate::domain::repro;
-
     let cli = Cli::parse_args(args);
     let ctx = cli.ctx();
     if !matches!(&cli.command, Cmd::Update { .. } | Cmd::UpdateCheck) {
@@ -113,6 +113,30 @@ where
             learn_target,
             force,
         } => init_command::run(&ctx, target, platform, learn, learn_target, force).await,
+        Cmd::Find(args) => find_command::run(&ctx, cli.config.as_deref(), args).await,
+        Cmd::List { state, query } => match state {
+            ListState::Guards => {
+                if query.is_some() {
+                    anyhow::bail!("--query applies only to `reproit list --state bugs`");
+                }
+                let loaded = config::load(cli.config.as_deref())?;
+                list::guards(&ctx, &loaded, "list")
+            }
+            ListState::Candidates => {
+                if query.is_some() {
+                    anyhow::bail!("--query applies only to `reproit list --state bugs`");
+                }
+                let loaded = config::load(cli.config.as_deref())?;
+                list_candidates(&ctx, &loaded)?;
+                Ok(ExitCode::SUCCESS)
+            }
+            ListState::Bugs => {
+                let app = cloud_app_id(None)?;
+                let (cloud, key) = cloud_creds(None, None);
+                triage::buckets(&app, query.as_deref(), ctx.json, cloud, key).await?;
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Cmd::Surface => backend_learn::surface(&ctx, &std::env::current_dir()?),
         Cmd::Reset {
             all,
@@ -311,13 +335,78 @@ where
             Ok(ExitCode::SUCCESS)
         }
         Cmd::CaptureCommand {
+            bundle,
             project,
             component,
             timeout_ms,
             include_output,
             local_only,
+            attach,
+            title,
+            actions_file,
+            record_video,
+            push,
+            no_open,
+            kind,
             command,
         } => {
+            if let Some(bundle_path) = bundle {
+                if !command.is_empty()
+                    || project.is_some()
+                    || component.is_some()
+                    || include_output
+                    || local_only
+                    || attach
+                    || title.is_some()
+                    || actions_file.is_some()
+                    || record_video
+                    || push
+                    || no_open
+                    || kind.is_some()
+                {
+                    anyhow::bail!("--bundle cannot be combined with another capture source");
+                }
+                bundle::import(&ctx, &bundle_path)?;
+                return Ok(ExitCode::SUCCESS);
+            }
+            if command.is_empty() {
+                if project.is_some() || component.is_some() || include_output || local_only {
+                    anyhow::bail!(
+                        "--project, --component, --include-output, and --local-only require \
+                         `reproit capture -- <command>`"
+                    );
+                }
+                return create_command::run(
+                    &ctx,
+                    CreateArgs {
+                        config_path: cli.config,
+                        cloud_tester: false,
+                        attach,
+                        title,
+                        actions_file,
+                        record_video,
+                        push,
+                        no_open,
+                        app: None,
+                        timeout_seconds: 1800,
+                        kind,
+                    },
+                )
+                .await;
+            }
+            if attach
+                || title.is_some()
+                || actions_file.is_some()
+                || record_video
+                || push
+                || no_open
+                || kind.is_some()
+            {
+                anyhow::bail!(
+                    "application capture options cannot be combined with \
+                     `reproit capture -- <command>`"
+                );
+            }
             command_capture::run(
                 &ctx,
                 command_capture::CommandCaptureArgs {
@@ -390,48 +479,7 @@ where
             action: ReproAction::List,
         } => {
             let loaded = config::load(cli.config.as_deref())?;
-            let metas = repro::list(&loaded.root);
-            if ctx.json {
-                let items: Vec<serde_json::Value> = metas
-                    .iter()
-                    .map(|m| {
-                        // The action sequence too, so an agent can see what to
-                        // simplify (reproit_simplify) without a second call.
-                        let actions = load_repro_actions(&loaded, &m.id).unwrap_or_default();
-                        serde_json::json!({
-                            "id": repro::display_repro_id(&m.id),
-                            "kind": "repro",
-                            "alias": m.alias,
-                            "status": m.status.as_str(),
-                            "seed": m.seed,
-                            "created": m.created,
-                            "last_checked": m.last_checked,
-                            "last_result": m.last_result,
-                            "actions": actions,
-                        })
-                    })
-                    .collect();
-                ctx.emit(&serde_json::json!({ "command": "repros", "repros": items }));
-                return Ok(ExitCode::SUCCESS);
-            }
-            if metas.is_empty() {
-                ctx.say("no saved repros. Find some with `reproit fuzz`, then `reproit keep`.");
-            } else {
-                ctx.say(format!(
-                    "  {:<14} {:<18} {:<12} {}",
-                    "ID", "ALIAS", "STATUS", "LAST CHECK"
-                ));
-                for m in &metas {
-                    ctx.say(format!(
-                        "  {:<14} {:<18} {:<12} {}",
-                        repro::display_repro_id(&m.id),
-                        m.alias.as_deref().unwrap_or("-"),
-                        m.status.as_str(),
-                        m.last_result.as_deref().unwrap_or("never"),
-                    ));
-                }
-            }
-            Ok(ExitCode::SUCCESS)
+            list::guards(&ctx, &loaded, "repros")
         }
         Cmd::Bugs { query } => {
             let app = cloud_app_id(None)?;
@@ -864,39 +912,7 @@ where
         Cmd::Repro {
             action: ReproAction::Why { dir, top },
         } => {
-            let mut files = Vec::new();
-            collect_cov_files(std::path::Path::new(&dir), &mut files);
-            let runs: Vec<fault::RunCoverage> = files
-                .iter()
-                .filter_map(|p| {
-                    let v: serde_json::Value =
-                        serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
-                    Some(fault::RunCoverage {
-                        passed: v.get("passed").and_then(|x| x.as_bool()).unwrap_or(true),
-                        covered: v
-                            .get("covered")
-                            .and_then(|x| x.as_array())
-                            .map(|a| {
-                                a.iter()
-                                    .filter_map(|s| s.as_str().map(String::from))
-                                    .collect()
-                            })
-                            .unwrap_or_default(),
-                    })
-                })
-                .collect();
-            let failed = runs.iter().filter(|r| !r.passed).count();
-            println!(
-                "fault localization over {} coverage snapshot(s) ({failed} failing):",
-                runs.len()
-            );
-            let ranked = fault::ochiai(&runs);
-            if ranked.is_empty() {
-                println!("  nothing to localize (no failing runs, or no coverage)");
-            }
-            for (elem, susp) in ranked.into_iter().take(top) {
-                println!("  {susp:.3}  {elem}");
-            }
+            repro::why(&dir, top);
             Ok(ExitCode::SUCCESS)
         }
     }
@@ -957,23 +973,6 @@ fn journey_cmd(
         }
     }
     Ok(())
-}
-
-/// Recursively collect files ending in `.cov.json` under `dir` (coverage
-/// snapshots written by instrumented runs). Best-effort: unreadable dirs are
-/// skipped.
-fn collect_cov_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect_cov_files(&p, out);
-        } else if p.to_string_lossy().ends_with(".cov.json") {
-            out.push(p);
-        }
-    }
 }
 
 #[cfg(test)]

@@ -18,8 +18,10 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+mod automatic;
 mod model;
 mod process;
+pub(crate) use automatic::{compile_package_automatically, AutomaticCompilation};
 pub(crate) use model::PlanRun;
 use model::*;
 use process::*;
@@ -739,11 +741,15 @@ pub(crate) fn compile_automatic_package(
             assessment.status
         );
     }
-    let identity = occurrence
+    let identities: BTreeSet<_> = occurrence
         .observations
         .iter()
-        .find_map(|observation| observation.signature.as_deref())
-        .context("Cloud occurrence has no exact failure signature")?;
+        .filter_map(|observation| observation.signature.as_deref())
+        .collect();
+    if identities.len() != 1 {
+        anyhow::bail!("Cloud occurrence must have exactly one exact failure signature");
+    }
+    let identity = identities.into_iter().next().unwrap();
     let observation_kind = occurrence
         .observations
         .first()
@@ -757,7 +763,7 @@ pub(crate) fn compile_automatic_package(
         .filter(|requirement| requirement.level == RequirementLevel::Required)
     {
         let phase = requirement_phase(requirement);
-        let mut candidates = catalog
+        let candidates = catalog
             .providers
             .iter()
             .filter(|(_, provider)| provider.phase == phase)
@@ -768,17 +774,6 @@ pub(crate) fn compile_automatic_package(
                     .is_none_or(|observation| observation.identity == identity)
             })
             .collect::<Vec<_>>();
-        if candidates.len() > 1 {
-            let hint = requirement_hint(requirement);
-            let matching = candidates
-                .iter()
-                .copied()
-                .filter(|(provider_id, _)| provider_id.contains(&hint))
-                .collect::<Vec<_>>();
-            if matching.len() == 1 {
-                candidates = matching;
-            }
-        }
         let [(provider_id, provider)] = candidates.as_slice() else {
             let names = candidates
                 .iter()
@@ -840,28 +835,6 @@ pub(crate) fn compile_automatic_package(
         .validate()
         .map_err(|error| anyhow::anyhow!("invalid automatic package: {error}"))?;
     Ok(package)
-}
-
-fn requirement_hint(requirement: &ReproductionRequirement) -> String {
-    let raw = match &requirement.requirement {
-        RequirementKind::Process { role, .. } => role,
-        RequirementKind::Trigger { subject, .. }
-        | RequirementKind::State { subject, .. }
-        | RequirementKind::Dependency { subject, .. }
-        | RequirementKind::Observation { subject, .. } => subject,
-        RequirementKind::Environment { .. } | RequirementKind::Debugger { .. } => {
-            return String::new();
-        }
-    };
-    raw.chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect()
 }
 
 pub(crate) fn compile_package(

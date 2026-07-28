@@ -53,7 +53,7 @@ jobs:
               echo "CHANGELOG.md must date the ${VERSION} release before publication" >&2
               exit 1
             }
-            python3 validation/field/check-benchmark.py validation/field/benchmark.json
+            python3 validation/compatibility/check.py --check-generated
             git rev-parse "$TAG" >/dev/null 2>&1 && {
               echo "$TAG already exists" >&2
               exit 1

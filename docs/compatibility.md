@@ -1,54 +1,60 @@
-# ReproIt 1.x compatibility
+# Reproit 1.x compatibility
 
-ReproIt uses three product support tiers:
+Reproit separates release availability from Stable compatibility.
 
-- Stable: covered by the 1.x compatibility promise and release-gated against
-  owned fixtures plus the published independent-application field gate.
-- Preview: built, tested, and exercised against an owned native fixture, but
-  not covered by the 1.x field-compatibility promise.
-- Experimental: available for evaluation, but not covered by the 1.x stability
-  promise.
+- Stable targets are covered by the 1.x compatibility promise and pass native,
+  independent-application, affected-versus-fixed, minimization, and clean-corpus
+  gates.
+- Preview targets ship for evaluation and pass their named owned fixture gates,
+  but remain outside the field-compatibility promise.
+- Experimental targets are explicitly invoked specialist surfaces.
 
-These tiers establish that Reproit's adapter works with a controlled application
-on the named runtime. They are not a claim that arbitrary third-party
-applications have been validated. Stable field compatibility requires clean
-evidence from at least two independent real applications per target. Every
-target below is released in 1.0 as a checksummed artifact. Every owned adapter
-gate is required on the exact release commit. Chromium web is the focused 1.0
-stable compatibility target. Every other released adapter remains preview
-compatibility until its field gate closes without weakening its native fixture
-gate. The manifest validator rejects a stable target without a complete
-two-application field benchmark.
+`validation/support-manifest.json` is the canonical atomic contract.
+`validation/compatibility/check.py` validates it and generates the complete
+[qualification status](../validation/compatibility/STATUS.md). Documentation
+cannot promote a target.
 
-| Target | 1.0 support | Native fixture evidence | Field evidence |
-| --- | --- | --- | --- |
-| Web Chromium | stable | Chromium gate and captured log | VERT and Slidev gate complete |
-| Web Firefox and WebKit | preview | Playwright engine gates | two-app matrix open |
-| React Native Android | preview | reset emulator, Appium, UiAutomator2 | two-app matrix open |
-| Jetpack Compose Android | preview | reset emulator, Appium, UiAutomator2 | two-app matrix open |
-| Flutter iOS | preview | disposable simulator and Flutter drive | two-app matrix open |
-| SwiftUI iOS | preview | disposable simulator, Appium, XCUITest | two-app matrix open |
-| Windows desktop | preview | native x86_64 UIA on WPF, Avalonia, WinUI 3 | two-app matrix open |
-| Linux desktop | preview | x86_64 containers with AT-SPI fixtures | two-app matrix open |
-| Terminal UI | preview | real PTY and VT parser gate | two-app matrix open |
-| Electron and Tauri | preview | packaged fixtures on Linux workers | two-app matrix open |
-| macOS AX | preview | permissioned SwiftUI fixture and captured log | two-app matrix open |
-| Backend capture and recorders | preview | current-server runtime gate | two-app matrix open |
-| Experimental specialist oracles | experimental | explicit invocation only | not promised |
+## Stable qualification
 
-The public-issue ledger in `docs/issue-reproduction-audit.md` is deliberately
-negative evidence: reviewed reports do not become Reproit findings until the
-application was run and the result was cleanly reproduced. Legacy evidence is a
-candidate only and must be reverified before it can enter the field matrix.
+An atomic target becomes Stable only when the exact release commit proves:
 
-Release archives are produced for macOS arm64 and x86_64, Linux arm64 and
-x86_64, and Windows arm64 and x86_64. Native behavior evidence may use a single
-documented architecture when the platform API is architecture-independent;
-archive build and installer smoke still run on every shipped architecture.
+1. Every owned native fixture gate passed in required CI.
+2. At least two independent real applications have pinned affected and fixed
+   revisions.
+3. Each affected revision reproduced the exact identity in three clean runs.
+4. Each fixed revision reached the observation point without that identity in
+   three clean runs.
+5. Minimization preserved the exact identity.
+6. Neighboring legal behavior remained functional.
+7. The clean and adversarial corpora produced no confirmed false positives.
+8. Evidence retained the commit, architecture, runtime, reset, cleanup, and
+   artifact digests.
 
-Supported host prerequisites:
+Broad families never become Stable from one narrow fixture. Firefox and WebKit,
+mobile operating systems, Windows toolkits, Linux toolkits, Electron hosts, and
+Tauri webviews qualify as atomic targets before a family-level claim can roll
+them up.
+
+## Current status
+
+Chromium web is Stable. All exact Preview scopes and their remaining promotion
+blockers are generated in the
+[atomic status](../validation/compatibility/STATUS.md).
+
+The public-issue ledger in `docs/issue-reproduction-audit.md` remains negative
+evidence. Reviewed reports do not become field cases until the application was
+executed, the exact identity reproduced, the fixed control passed, and the
+retained artifacts validated.
+
+## Host prerequisites
 
 - Node.js 18 or later for the web runner.
 - Current stable Rust for source builds.
-- Platform SDKs and simulators named by `reproit doctor` for mobile targets.
-- PostgreSQL for ReproIt Cloud. SQLite and MySQL are not supported Cloud stores.
+- The platform SDKs and simulators named by `reproit doctor` for native targets.
+- PostgreSQL for Reproit Cloud. SQLite and MySQL are not supported Cloud stores.
+
+Release archives are built and installer-smoked for macOS arm64 and x86_64,
+Linux arm64 and x86_64, and Windows arm64 and x86_64. Native behavior evidence
+records the exact architecture it exercised. Architecture-independent APIs may
+use one documented behavior architecture only when archive and installer gates
+still cover every shipped architecture.

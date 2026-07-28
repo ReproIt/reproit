@@ -16,6 +16,9 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod verification;
+use verification::{guard_verification_summary, plan_verification_summary};
+
 pub(super) struct CheckArgs {
     pub(super) repro: Option<String>,
     pub(super) devices: usize,
@@ -226,6 +229,7 @@ async fn run_execution_plan(
         results.push(result);
     }
     let outcome = aggregate_plan_runs(&results);
+    let verification = plan_verification_summary(&results);
     let promoted = !args.inspect
         && outcome == repro::Outcome::Pass
         && meta.status == repro::Status::Quarantined;
@@ -245,6 +249,7 @@ async fn run_execution_plan(
         "occurrence": package.occurrence.occurrence_id,
         "outcome": outcome.as_str(),
         "verdicts": results.iter().map(|result| result.verdict).collect::<Vec<_>>(),
+        "verification": verification,
         "runs": results,
         "promoted": promoted,
     }));
@@ -636,6 +641,7 @@ async fn execute_case(
         "exit": outcome.exit_code(),
         "evidence": run_dir.to_string_lossy(),
         "videoFlicker": video_flicker,
+        "verification": guard_verification_summary(&result),
     });
     Ok(CaseExecution {
         effective,
@@ -729,6 +735,7 @@ async fn execute_plan_guard(
         "evidence": evidence,
         "plan": package.plan.as_ref().map(|plan| &plan.id),
         "verdicts": runs.iter().map(|run| run.verdict).collect::<Vec<_>>(),
+        "verification": plan_verification_summary(&runs),
     });
     ctx.say(format!(
         "  {} {} ({rate}){}",
@@ -926,5 +933,37 @@ mod tests {
         repro::save_meta(&root, &meta).unwrap();
         assert!(!routes_to_capture_file(&loaded, &reference));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn verification_summary_distinguishes_exact_and_clean_runs() {
+        let reproduced = repro::CheckResult {
+            outcome: repro::Outcome::Fail,
+            green: 0,
+            total: 3,
+        };
+        assert_eq!(
+            guard_verification_summary(&reproduced),
+            json!({
+                "contract": "exact-observation-v1",
+                "cleanLaunchRuns": 3,
+                "observationReachedRuns": 3,
+                "exactIdentityRuns": 3,
+            })
+        );
+        let fixed = repro::CheckResult {
+            outcome: repro::Outcome::Pass,
+            green: 3,
+            total: 3,
+        };
+        assert_eq!(
+            guard_verification_summary(&fixed),
+            json!({
+                "contract": "exact-observation-v1",
+                "cleanLaunchRuns": 3,
+                "observationReachedRuns": 3,
+                "exactIdentityRuns": 0,
+            })
+        );
     }
 }

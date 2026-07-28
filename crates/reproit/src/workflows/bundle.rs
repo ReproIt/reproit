@@ -53,6 +53,13 @@ struct CollectedArtifacts {
     contents: Vec<(String, Vec<u8>)>,
 }
 
+struct PersistedCompilation {
+    package: ReproductionPackage,
+    capsule_id: String,
+    capsule_directory: PathBuf,
+    repro_id: String,
+}
+
 mod cloud;
 
 pub(crate) fn collect(ctx: &Ctx, args: CollectArgs) -> Result<()> {
@@ -275,7 +282,8 @@ pub(crate) fn import(ctx: &Ctx, path: &Path) -> Result<String> {
     }));
     ctx.say(format!("Imported occurrence {occurrence_id}"));
     ctx.say(format!("  evidence: {}", directory.display()));
-    ctx.say("  missing:  bind a trusted current-checkout process provider before execution");
+    ctx.say(format!("  reproduce: reproit {occurrence_id}"));
+    ctx.say("  planning:  automatic when exactly one trusted provider matches");
     Ok(occurrence_id.clone())
 }
 
@@ -286,30 +294,26 @@ pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCod
     let (root, directory) = find_occurrence(reference)
         .with_context(|| format!("no local or Cloud occurrence `{reference}` is available"))?;
     let package_path = directory.join("package.json");
-    let package: ReproductionPackage = serde_json::from_slice(
+    let mut package: ReproductionPackage = serde_json::from_slice(
         &std::fs::read(&package_path)
             .with_context(|| format!("reading {}", package_path.display()))?,
     )
     .with_context(|| format!("parsing {}", package_path.display()))?;
     package.validate().map_err(protocol_error)?;
-    let missing = &package.assessment.unresolved;
+    let mut automatic_plan_id = None;
     if package.assessment.status != AssessmentStatus::Eligible || package.plan.is_none() {
-        ctx.emit(&serde_json::json!({
-            "command": "occurrence",
-            "occurrenceId": package.occurrence.occurrence_id,
-            "status": package.assessment.status,
-            "missing": missing,
-            "evidence": directory,
-        }));
-        ctx.say(format!("Occurrence {}", package.occurrence.occurrence_id));
-        ctx.say(format!("  status:   {:?}", package.assessment.status));
-        for unresolved in missing {
-            ctx.say(format!(
-                "  missing:  {}: {}",
-                unresolved.requirement_id, unresolved.detail
-            ));
+        use crate::adapters::execution::AutomaticCompilation;
+        match crate::adapters::execution::compile_package_automatically(&root, &package)? {
+            AutomaticCompilation::Compiled(compiled) => {
+                let persisted = persist_compiled_package(&root, &directory, reference, *compiled)?;
+                automatic_plan_id = persisted.package.plan.as_ref().map(|plan| plan.id.clone());
+                package = persisted.package;
+                ctx.say("  plan:     compiled from one unambiguous trusted provider");
+            }
+            AutomaticCompilation::Blocked(blockers) => {
+                return report_incomplete_occurrence(ctx, &directory, &package, &blockers);
+            }
         }
-        return Ok(exit_with(Exit::Stale));
     }
 
     let run = crate::adapters::execution::execute(&root, &package).await?;
@@ -319,6 +323,7 @@ pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCod
     ctx.emit(&serde_json::json!({
         "command": "occurrence",
         "occurrenceId": package.occurrence.occurrence_id,
+        "automaticPlanId": automatic_plan_id,
         "verdict": run.verdict,
         "run": run,
     }));
@@ -337,6 +342,37 @@ pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCod
     Ok(exit_with(exit))
 }
 
+fn report_incomplete_occurrence(
+    ctx: &Ctx,
+    directory: &Path,
+    package: &ReproductionPackage,
+    planning_blockers: &[String],
+) -> Result<ExitCode> {
+    let missing = &package.assessment.unresolved;
+    ctx.emit(&serde_json::json!({
+        "command": "occurrence",
+        "occurrenceId": package.occurrence.occurrence_id,
+        "status": package.assessment.status,
+        "missing": missing,
+        "planningBlockers": planning_blockers,
+        "evidence": directory,
+    }));
+    ctx.say(format!("Occurrence {}", package.occurrence.occurrence_id));
+    ctx.say(format!("  status:   {:?}", package.assessment.status));
+    for blocker in planning_blockers {
+        ctx.say(format!("  blocked:  {blocker}"));
+    }
+    if planning_blockers.is_empty() {
+        for unresolved in missing {
+            ctx.say(format!(
+                "  missing:  {}: {}",
+                unresolved.requirement_id, unresolved.detail
+            ));
+        }
+    }
+    Ok(exit_with(Exit::Stale))
+}
+
 pub(crate) fn compile(
     ctx: &Ctx,
     reference: &str,
@@ -349,13 +385,48 @@ pub(crate) fn compile(
     let package_path = occurrence_directory.join("package.json");
     let package: ReproductionPackage = serde_json::from_slice(&std::fs::read(&package_path)?)?;
     let bindings = parse_bindings(raw_bindings)?;
-    let mut compiled =
+    let compiled =
         crate::adapters::execution::compile_package(&root, &package, &bindings, identity)?;
+    let persisted = persist_compiled_package(&root, &occurrence_directory, reference, compiled)?;
+    let plan = persisted
+        .package
+        .plan
+        .as_ref()
+        .context("compiled package omitted its plan")?;
+    ctx.emit(&serde_json::json!({
+        "command": "plan",
+        "occurrenceId": reference,
+        "packageId": persisted.package.id,
+        "planId": plan.id,
+        "capsuleId": persisted.capsule_id,
+        "reproId": crate::domain::repro::display_repro_id(&persisted.repro_id),
+        "providerCatalog": root.join("reproit.yaml"),
+        "capsuleDirectory": persisted.capsule_directory,
+    }));
+    ctx.say(format!("Compiled occurrence {reference}"));
+    ctx.say(format!("  plan:     {}", plan.id));
+    ctx.say(format!("  capsule:  {}", persisted.capsule_id));
+    ctx.say(format!(
+        "  guard:    {} (alias @{reference})",
+        crate::domain::repro::display_repro_id(&persisted.repro_id)
+    ));
+    ctx.say(format!("  run:      reproit {reference}"));
+    Ok(persisted.repro_id)
+}
+
+fn persist_compiled_package(
+    root: &Path,
+    occurrence_directory: &Path,
+    reference: &str,
+    mut compiled: ReproductionPackage,
+) -> Result<PersistedCompilation> {
+    let package_path = occurrence_directory.join("package.json");
     let plan = compiled
         .plan
         .as_ref()
         .context("compiled package omitted its plan")?
         .clone();
+    let identity = &plan.observation.identity;
     let observation = compiled
         .occurrence
         .observations
@@ -370,20 +441,20 @@ pub(crate) fn compile(
             message: observation.summary.clone(),
             frame: observation.observation_point.clone().unwrap_or_default(),
             trigger: plan.target.clone(),
-            boundary: Some(identity.to_string()),
+            boundary: Some(identity.clone()),
         },
     );
     capsule.occurrence = Some(compiled.occurrence.clone());
     capsule.assessment = Some(compiled.assessment.clone());
     capsule.reproduction_plan = Some(plan.clone());
-    let capsule_directory = capsule.persist(&root)?;
+    let capsule_directory = capsule.persist(root)?;
     compiled.capsule = Some(serde_json::to_value(&capsule)?);
     compiled.finalize_id().map_err(protocol_error)?;
     compiled.validate().map_err(protocol_error)?;
     write_json_atomically(&package_path, &compiled)?;
 
     let repro_id = crate::domain::repro::repro_id(0, &[format!("plan:{}", plan.id)]);
-    let repro_directory = crate::domain::repro::repro_dir(&root, &repro_id);
+    let repro_directory = crate::domain::repro::repro_dir(root, &repro_id);
     std::fs::create_dir_all(&repro_directory)?;
     let meta = crate::domain::repro::Meta {
         id: repro_id.clone(),
@@ -394,14 +465,14 @@ pub(crate) fn compile(
         last_checked: None,
         last_result: None,
         trigger_index: Some(0),
-        trigger_sig: Some(identity.to_string()),
+        trigger_sig: Some(identity.clone()),
         trigger_selector: None,
         trigger_fingerprint: None,
         oracle: Some("exact-occurrence".into()),
         record_url: None,
         record_action: None,
     };
-    crate::domain::repro::save_meta(&root, &meta)?;
+    crate::domain::repro::save_meta(root, &meta)?;
     write_json_atomically(
         &repro_directory.join("replay.json"),
         &serde_json::json!({"seed": 0, "replay": []}),
@@ -409,26 +480,12 @@ pub(crate) fn compile(
     write_json_atomically(&repro_directory.join("package.json"), &compiled)?;
     write_json_atomically(&repro_directory.join("plan.json"), &plan)?;
     std::fs::write(repro_directory.join("capsule-id"), &capsule.id)?;
-
-    ctx.emit(&serde_json::json!({
-        "command": "plan",
-        "occurrenceId": reference,
-        "packageId": compiled.id,
-        "planId": plan.id,
-        "capsuleId": capsule.id,
-        "reproId": crate::domain::repro::display_repro_id(&repro_id),
-        "providerCatalog": root.join("reproit.yaml"),
-        "capsuleDirectory": capsule_directory,
-    }));
-    ctx.say(format!("Compiled occurrence {reference}"));
-    ctx.say(format!("  plan:     {}", plan.id));
-    ctx.say(format!("  capsule:  {}", capsule.id));
-    ctx.say(format!(
-        "  guard:    {} (alias @{reference})",
-        crate::domain::repro::display_repro_id(&repro_id)
-    ));
-    ctx.say(format!("  run:      reproit {reference}"));
-    Ok(repro_id)
+    Ok(PersistedCompilation {
+        package: compiled,
+        capsule_id: capsule.id,
+        capsule_directory,
+        repro_id,
+    })
 }
 
 fn parse_bindings(raw_bindings: &[String]) -> Result<BTreeMap<String, String>> {

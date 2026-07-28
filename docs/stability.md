@@ -5,9 +5,11 @@ Compatibility applies to the documented flags, exit behavior, JSON fields, and
 persisted formats used by this surface on the stable Chromium web target:
 
 - `init`, `doctor`, and `auth`;
-- `scan` and `fuzz` with the default authoritative oracle set;
+- `capture` for application demonstrations and bounded commands;
+- `find`, plus the compatible `scan` and `fuzz` phase commands;
 - direct `fnd_...`, `rep_...`, `bkt_...`, and `@saved-name` replay;
-- `proof`, `candidates`, `keep`, `repros`, and `check`;
+- direct proof, inspection, playback, and simplification flags;
+- `list`, `keep`, and `check`, plus their existing compatibility aliases;
 - `login`, `bugs`, `triage`, `timeline`, and `resolution-events`;
 - `reproit.yaml`, saved repros, event protocol version 1, and published release
   archives; and
@@ -41,7 +43,9 @@ at least two independent uses:
 Experimental behavior must fail closed, remain explicitly labeled, and cannot
 silently promote a candidate into a confirmed regression guard.
 
-`validation/support-manifest.json` is the canonical maturity contract. Every
-owned platform gate is release-required. A stable entry must also name a
-complete field benchmark with at least two independent applications; changing a
-documentation table cannot bypass those checks.
+`validation/support-manifest.json` is the canonical atomic maturity contract.
+`validation/compatibility/check.py` validates it and generates the reviewable
+status. Every owned platform gate is release-required. A Stable entry must name
+a complete field benchmark with at least two independent applications, three
+clean affected runs, three reached-observation fixed controls, exact identity,
+and verified minimization. Changing documentation cannot bypass those checks.

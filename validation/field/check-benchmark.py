@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the independent-application field gate for the stable 1.0 target."""
+"""Validate one atomic target's independent-application field gate."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ import json
 import re
 from pathlib import Path
 
-SUPPORT = Path(__file__).resolve().parents[2] / "validation/support-manifest.json"
+ROOT = Path(__file__).resolve().parents[2]
+SUPPORT = ROOT / "validation/support-manifest.json"
 MAX_BYTES = 1_048_576
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HTTPS_GITHUB = re.compile(r"^https://github\.com/[^/]+/[^/]+(?:\.git)?$")
 HTTPS_ISSUE = re.compile(r"^https://github\.com/[^/]+/[^/]+/issues/[1-9][0-9]*$")
 REQUIRED_CONTROLS = {"fixed-revision", "neighboring-legal-behavior"}
+REQUIRED_RUNS = 3
 
 
 def require(condition: bool, message: str) -> None:
@@ -26,15 +28,76 @@ def exact_keys(value: dict, expected: set[str], label: str) -> None:
     require(actual == expected, f"{label} keys: expected {sorted(expected)}, got {sorted(actual)}")
 
 
-def validate_application(application: object, index: int) -> None:
+def validate_evidence_record(application: dict, label: str, root: Path) -> None:
+    json_paths = [path for path in application["evidence"] if path.endswith(".json")]
+    require(len(json_paths) == 1, f"{label} must name exactly one structured evidence record")
+    record_path = root / json_paths[0]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    require(isinstance(record, dict), f"{label} structured evidence must be an object")
+    expected = {
+        "issue": application["issueUrl"],
+        "affectedRevision": application["affectedRevision"],
+        "fixedRevision": application["fixedRevision"],
+        "identity": application["expectedIdentity"],
+    }
+    for field, value in expected.items():
+        require(record.get(field) == value, f"{label} evidence {field} disagrees with benchmark")
+    for revision in ("affected", "fixed"):
+        runs = record.get(revision)
+        require(
+            isinstance(runs, list) and len(runs) == REQUIRED_RUNS,
+            f"{label} evidence needs exactly {REQUIRED_RUNS} {revision} runs",
+        )
+        for run_index, run in enumerate(runs, start=1):
+            require(
+                isinstance(run, dict)
+                and run.get("run") == run_index
+                and run.get("cleanLaunch") is True
+                and run.get("exceptions") == [],
+                f"{label} evidence {revision} run {run_index} is not clean",
+            )
+            require(
+                isinstance(run.get("jsHeapMiB"), (int, float))
+                and not isinstance(run.get("jsHeapMiB"), bool),
+                f"{label} evidence {revision} run {run_index} has invalid jsHeapMiB",
+            )
+            require(
+                isinstance(run.get("elapsedSeconds"), (int, float))
+                and not isinstance(run.get("elapsedSeconds"), bool),
+                f"{label} evidence {revision} run {run_index} has invalid elapsedSeconds",
+            )
+    require(
+        isinstance(record.get("neighboringLegalBehavior"), str)
+        and record["neighboringLegalBehavior"].strip(),
+        f"{label} evidence has no neighboring legal behavior",
+    )
+    require(
+        isinstance(record.get("minimizedAction"), str) and record["minimizedAction"].strip(),
+        f"{label} evidence has no minimized action",
+    )
+    all_runs = record["affected"] + record["fixed"]
+    peak_memory = max(run["jsHeapMiB"] for run in all_runs)
+    replay_p95 = max(run["elapsedSeconds"] for run in record["affected"])
+    require(
+        application["metrics"]["peakMemoryMiB"] == peak_memory,
+        f"{label} peak memory metric disagrees with evidence",
+    )
+    require(
+        application["metrics"]["replaySecondsP95"] == replay_p95,
+        f"{label} replay p95 metric disagrees with evidence",
+    )
+
+
+def validate_application(application: object, index: int, root: Path = ROOT) -> None:
     label = f"applications[{index}]"
     require(isinstance(application, dict), f"{label} must be an object")
     exact_keys(
         application,
         {
             "id", "repository", "issueUrl", "affectedRevision", "fixedRevision",
-            "authority", "expectedIdentity", "reproductions", "minimized",
-            "controls", "manualReview", "metrics", "evidence",
+            "authority", "expectedIdentity", "affectedReproductions",
+            "fixedReproductions", "minimized", "controls", "manualReview",
+            "metrics", "evidence",
         },
         label,
     )
@@ -57,16 +120,37 @@ def validate_application(application: object, index: int) -> None:
             and 1 <= len(application["expectedIdentity"]) <= 256,
             f"{label}.expectedIdentity is invalid")
 
-    reproductions = application["reproductions"]
-    require(isinstance(reproductions, list) and 3 <= len(reproductions) <= 10,
-            f"{label} needs 3 to 10 affected-revision reproductions")
-    for run in reproductions:
-        require(isinstance(run, dict) and set(run) == {"status", "identity", "cleanLaunch"},
-                f"{label} reproduction shape is invalid")
+    affected = application["affectedReproductions"]
+    require(isinstance(affected, list) and len(affected) == REQUIRED_RUNS,
+            f"{label} needs exactly {REQUIRED_RUNS} affected-revision reproductions")
+    for run in affected:
+        require(
+            isinstance(run, dict)
+            and set(run) == {"status", "identity", "cleanLaunch", "observationReached"},
+            f"{label} affected reproduction shape is invalid",
+        )
         require(run["status"] == "reproduced" and run["cleanLaunch"] is True,
-                f"{label} reproduction did not complete from a clean launch")
+                f"{label} affected reproduction did not complete from a clean launch")
+        require(run["observationReached"] is True,
+                f"{label} affected reproduction did not reach its observation point")
         require(run["identity"] == application["expectedIdentity"],
-                f"{label} reproduction identity drifted")
+                f"{label} affected reproduction identity drifted")
+
+    fixed = application["fixedReproductions"]
+    require(isinstance(fixed, list) and len(fixed) == REQUIRED_RUNS,
+            f"{label} needs exactly {REQUIRED_RUNS} fixed-revision controls")
+    for run in fixed:
+        require(
+            isinstance(run, dict)
+            and set(run) == {"status", "identity", "cleanLaunch", "observationReached"},
+            f"{label} fixed reproduction shape is invalid",
+        )
+        require(run["status"] == "not_reproduced" and run["cleanLaunch"] is True,
+                f"{label} fixed control did not complete from a clean launch")
+        require(run["observationReached"] is True,
+                f"{label} fixed control did not reach its observation point")
+        require(run["identity"] is None,
+                f"{label} fixed control still observed a failure identity")
     require(application["minimized"] is True, f"{label} was not minimized and reverified")
     require(set(application["controls"]) == REQUIRED_CONTROLS,
             f"{label} negative controls are incomplete")
@@ -91,13 +175,14 @@ def validate_application(application: object, index: int) -> None:
         require(isinstance(path, str) and path.startswith("validation/field/evidence/")
                 and ".." not in path and len(path) <= 240,
                 f"{label} has an unsafe evidence path")
-        require(Path(path).is_file(), f"{label} evidence is missing: {path}")
+        require((root / path).is_file(), f"{label} evidence is missing: {path}")
+    validate_evidence_record(application, label, root)
 
 
-def validate(document: object, allow_pending: bool = False) -> None:
+def validate(document: object, allow_pending: bool = False, root: Path = ROOT) -> None:
     require(isinstance(document, dict), "benchmark root must be an object")
     exact_keys(document, {"schemaVersion", "target", "status", "applications"}, "benchmark")
-    require(document["schemaVersion"] == 1, "unsupported benchmark schemaVersion")
+    require(document["schemaVersion"] == 2, "unsupported benchmark schemaVersion")
     targets = json.loads(SUPPORT.read_text(encoding="utf-8"))["targets"]
     require(document["target"] in targets,
             f"benchmark target must be a support-manifest target, got {document['target']!r}")
@@ -110,7 +195,7 @@ def validate(document: object, allow_pending: bool = False) -> None:
     require(document["status"] == "complete", "field benchmark is still pending")
     require(len(applications) == 2, "complete benchmark requires exactly two applications")
     for index, application in enumerate(applications):
-        validate_application(application, index)
+        validate_application(application, index, root)
     repositories = {application["repository"] for application in applications}
     require(len(repositories) == 2, "benchmark applications must use independent repositories")
 

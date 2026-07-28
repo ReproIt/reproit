@@ -93,11 +93,13 @@ class SupportManifestTests(unittest.TestCase):
                 "backend-contract": "linux-hosted",
                 "compose-android": "android",
                 "electron": "linux-hosted",
+                "flutter-android": "android",
                 "flutter-ios": "flutter",
                 "linux-atspi-gtk": "linux-containers",
                 "linux-atspi-toolkits": "linux-containers",
                 "macos-ax": "macos",
                 "react-native-android": "android",
+                "react-native-ios": "swiftui",
                 "swiftui-ios": "swiftui",
                 "tauri": "linux-containers",
                 "tui-pty": "linux-hosted",
@@ -110,10 +112,12 @@ class SupportManifestTests(unittest.TestCase):
     def test_support_manifest_is_well_formed(self) -> None:
         support = json.loads(MODULE.SUPPORT.read_text(encoding="utf-8"))
         known = set(json.loads(MODULE.MANIFEST.read_text(encoding="utf-8"))["gates"])
-        self.assertEqual(support["schema"], 1)
+        self.assertEqual(support["schema"], 2)
         for target_id, target in support["targets"].items():
             self.assertIn(target["maturity"], {"stable", "preview", "experimental"}, target_id)
             self.assertTrue(target["scope"], target_id)
+            self.assertTrue(target["displayName"], target_id)
+            self.assertTrue(target["family"], target_id)
             for gate_id in target["ownedGates"]:
                 self.assertIn(gate_id, known, target_id)
             for gate_id in target["releaseGates"]:
@@ -126,7 +130,9 @@ class SupportManifestTests(unittest.TestCase):
             benchmark_path = target.get("fieldBenchmark")
             if target["maturity"] != "stable":
                 self.assertIsNone(benchmark_path, target_id)
+                self.assertTrue(target["promotionBlockers"], target_id)
                 continue
+            self.assertEqual(target["promotionBlockers"], [], target_id)
             self.assertIsInstance(benchmark_path, str, target_id)
             benchmark = json.loads(
                 (MODULE.ROOT / benchmark_path).read_text(encoding="utf-8")

@@ -6,6 +6,5 @@ set -euo pipefail
 export REPROIT_GATE_OUTPUT_DIR="${RUNNER_TEMP}/native-gates"
 
 python3 validation/backends/gate.py compose-android
-if [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]]; then
-  python3 validation/backends/gate.py react-native-android
-fi
+python3 validation/backends/gate.py flutter-android
+python3 validation/backends/gate.py react-native-android

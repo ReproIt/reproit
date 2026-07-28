@@ -29,9 +29,11 @@ recomputes each log's SHA-256. The verified results are shipped as
 Release gating and compatibility maturity are separate. Exact-commit native
 evidence proves the owned integration still works. A target becomes stable only
 after its `fieldBenchmark` names a complete, validated benchmark with at least
-two independent real applications. The support-manifest tests reject a stable
-target without that field benchmark and reject an owned gate that does not
-authorize releases.
+two independent real applications. Each application records three clean exact
+affected reproductions and three fixed controls that reached the same
+observation point. The compatibility validator rejects a Stable target with
+blockers, incomplete native CI, identity drift, missing minimization, or an
+incomplete field benchmark.
 
 The CI command lines used by the composite Action and reusable workflow are recorded in
 `validation/release/ci-invocations.txt`. The Rust test suite parses every entry with the production

@@ -40,6 +40,43 @@ pub(crate) fn expand_direct_reference_arg(
         .strip_prefix('@')
         .filter(|alias| !alias.is_empty())
         .map(str::to_owned);
+    let normalized_reference = direct_alias.clone().unwrap_or_else(|| first.to_string());
+    let local_repro =
+        first.starts_with("fnd_") || first.starts_with("rep_") || direct_alias.is_some();
+    let inspectable = local_repro || first.starts_with("bkt_") || first.starts_with("occ_");
+    let direct_modes = [
+        ("--proof", "proof"),
+        ("--inspect", "inspect"),
+        ("--watch", "watch"),
+        ("--simplify", "simplify"),
+    ]
+    .into_iter()
+    .filter_map(|(flag, mode)| {
+        args.iter()
+            .position(|arg| arg == flag)
+            .map(|position| (position, mode))
+    })
+    .collect::<Vec<_>>();
+    if direct_modes.len() == 1 {
+        let (position, mode) = direct_modes[0];
+        let supported = match mode {
+            "proof" | "inspect" => inspectable,
+            "watch" | "simplify" => local_repro,
+            _ => false,
+        };
+        if supported {
+            args.remove(position);
+            if mode == "simplify" {
+                args[index] = "repro".into();
+                args.insert(index + 1, "simplify".into());
+                args.insert(index + 2, normalized_reference.into());
+            } else {
+                args[index] = mode.into();
+                args.insert(index + 1, normalized_reference.into());
+            }
+            return args;
+        }
+    }
     let command = if first.starts_with("bkt_") {
         Some(("__replay-bucket", None))
     } else if first.starts_with("occ_") {
@@ -111,6 +148,49 @@ mod tests {
         );
         assert_eq!(expand(&["reproit", "scan"]), ["reproit", "scan"]);
         assert_eq!(expand(&["reproit", "@"]), ["reproit", "@"]);
+    }
+
+    #[test]
+    fn direct_repro_operations_need_no_secondary_command_vocabulary() {
+        let expand = |args: &[&str]| {
+            expand_direct_reference_arg(args.iter().map(std::ffi::OsString::from).collect())
+                .into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            expand(&["reproit", "fnd_deadbeef0001", "--proof"]),
+            ["reproit", "proof", "fnd_deadbeef0001"]
+        );
+        assert_eq!(
+            expand(&["reproit", "@checkout-crash", "--inspect"]),
+            ["reproit", "inspect", "checkout-crash"]
+        );
+        assert_eq!(
+            expand(&["reproit", "rep_deadbeef0001", "--watch"]),
+            ["reproit", "watch", "rep_deadbeef0001"]
+        );
+        assert_eq!(
+            expand(&[
+                "reproit",
+                "rep_deadbeef0001",
+                "--simplify",
+                "--to",
+                "[\"tap:key:add\"]",
+            ]),
+            [
+                "reproit",
+                "repro",
+                "simplify",
+                "rep_deadbeef0001",
+                "--to",
+                "[\"tap:key:add\"]",
+            ]
+        );
+        assert_eq!(
+            expand(&["reproit", "bkt_deadbeef0001", "--inspect"]),
+            ["reproit", "inspect", "bkt_deadbeef0001"]
+        );
     }
 
     #[test]

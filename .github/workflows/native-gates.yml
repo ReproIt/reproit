@@ -1,6 +1,9 @@
 name: native-backend-gates
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   schedule:
     - cron: "17 7 * * 1"
   workflow_dispatch:
@@ -76,12 +79,15 @@ jobs:
 
   android-hosted:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
       - name: Install Appium and runner dependencies
         run: |
           npm ci --prefix runners/rn
@@ -111,7 +117,7 @@ jobs:
 
   macos-swiftui:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -124,7 +130,7 @@ jobs:
           npm ci --prefix runners/rn
           npm install -g appium
           appium driver install xcuitest
-      - name: Run SwiftUI through Appium
+      - name: Run SwiftUI and React Native through Appium
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
         run: bash .github/scripts/run-swiftui-native-gate.sh
@@ -136,7 +142,7 @@ jobs:
           if-no-files-found: error
 
   macos-flutter:
-    if: github.event_name == 'schedule' || inputs.run_flutter_ios
+    if: github.event_name != 'workflow_dispatch' || inputs.run_flutter_ios
     runs-on: macos-15
     timeout-minutes: 25
     steps:

@@ -355,3 +355,100 @@ fn create_is_distinct_from_video_and_push_is_explicit() {
     let cli = Cli::try_parse_from(["reproit", "push", "cap_deadbeef00000000"]).unwrap();
     assert!(matches!(cli.command, Cmd::Push { .. }));
 }
+
+#[test]
+fn primary_help_contains_only_the_outcome_oriented_surface() {
+    let visible = Cli::command()
+        .get_subcommands()
+        .filter(|command| !command.is_hide_set())
+        .map(|command| command.get_name().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        visible,
+        ["init", "find", "list", "check", "capture", "keep", "doctor", "login"]
+    );
+}
+
+#[test]
+fn capture_routes_ui_and_command_sources_through_one_public_verb() {
+    let ui = Cli::try_parse_from([
+        "reproit",
+        "capture",
+        "--attach",
+        "--title",
+        "menu bug",
+        "--record-video",
+    ])
+    .unwrap();
+    assert!(matches!(
+        ui.command,
+        Cmd::CaptureCommand {
+            attach: true,
+            title: Some(ref title),
+            record_video: true,
+            ref command,
+            ..
+        } if title == "menu bug" && command.is_empty()
+    ));
+
+    let command = Cli::try_parse_from([
+        "reproit",
+        "capture",
+        "--include-output",
+        "--",
+        "sh",
+        "-c",
+        "exit 7",
+    ])
+    .unwrap();
+    assert!(matches!(
+        command.command,
+        Cmd::CaptureCommand {
+            include_output: true,
+            command,
+            ..
+        } if command == ["sh", "-c", "exit 7"]
+    ));
+
+    let bundle =
+        Cli::try_parse_from(["reproit", "capture", "--bundle", "customer-case.rpb"]).unwrap();
+    assert!(matches!(
+        bundle.command,
+        Cmd::CaptureCommand {
+            bundle: Some(ref path),
+            ref command,
+            ..
+        } if path == std::path::Path::new("customer-case.rpb") && command.is_empty()
+    ));
+}
+
+#[test]
+fn find_and_list_parse_as_the_primary_discovery_and_inventory_commands() {
+    let find = Cli::try_parse_from([
+        "reproit",
+        "find",
+        "https://example.test",
+        "--exhaustive",
+        "--runs",
+        "4",
+    ])
+    .unwrap();
+    assert!(matches!(
+        find.command,
+        Cmd::Find(FindArgs {
+            target: Some(ref target),
+            exhaustive: true,
+            runs: Some(4),
+            ..
+        }) if target == "https://example.test"
+    ));
+
+    let list = Cli::try_parse_from(["reproit", "list", "--state", "candidates"]).unwrap();
+    assert!(matches!(
+        list.command,
+        Cmd::List {
+            state: ListState::Candidates,
+            query: None,
+        }
+    ));
+}

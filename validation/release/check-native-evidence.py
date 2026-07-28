@@ -15,15 +15,23 @@ SUPPORT = ROOT / "validation/support-manifest.json"
 
 
 def release_gates() -> dict[str, str]:
-    """Map each release-required gate id to its evidence directory name."""
+    """Map release-required gate ids to evidence directories.
+
+    Atomic compatibility targets may share one native gate when the gate
+    exercises all named toolkits. Shared mappings must agree on the evidence
+    directory so one exact-commit result remains canonical.
+    """
     support = json.loads(SUPPORT.read_text(encoding="utf-8"))
-    if support.get("schema") != 1:
+    if support.get("schema") != 2:
         raise ValueError("unsupported support manifest schema")
     gates: dict[str, str] = {}
     for target_id, target in support["targets"].items():
         for gate_id, directory in target["releaseGates"].items():
-            if gate_id in gates:
-                raise ValueError(f"{target_id}: gate {gate_id} is release-mapped twice")
+            prior = gates.get(gate_id)
+            if prior is not None and prior != directory:
+                raise ValueError(
+                    f"{target_id}: gate {gate_id} maps to both {prior!r} and {directory!r}"
+                )
             gates[gate_id] = directory
     if not gates:
         raise ValueError("support manifest names no release-required gates")

@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "stableMinIndependentApplications": 2,
+    "affectedReproductionsPerApplication": 3,
+    "fixedControlsPerApplication": 3,
+    "requireExactIdentity": true,
+    "requireMinimizedTrigger": true,
+    "requireNeighboringLegalBehavior": true,
+    "requireExactCommitNativeEvidence": true
+  },
+  "counts": {
+    "stable": 1,
+    "preview": 20,
+    "experimental": 0
+  },
+  "targets": [
+    {
+      "id": "backend-contract",
+      "displayName": "Backend contracts",
+      "family": "backend",
+      "maturity": "preview",
+      "scope": "Bounded backend scan, fuzz, replay, proof, and runtime capture",
+      "nativeGates": [
+        "backend-contract"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete",
+        "production-to-local occurrence evidence corpus is incomplete"
+      ]
+    },
+    {
+      "id": "compose-android",
+      "displayName": "Jetpack Compose Android",
+      "family": "native-mobile",
+      "maturity": "preview",
+      "scope": "Jetpack Compose on a reset Android emulator through Appium UiAutomator2",
+      "nativeGates": [
+        "compose-android"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "electron-linux",
+      "displayName": "Electron Linux",
+      "family": "desktop-webview",
+      "maturity": "preview",
+      "scope": "Packaged Electron applications on Linux workers",
+      "nativeGates": [
+        "electron"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "flutter-android",
+      "displayName": "Flutter Android",
+      "family": "flutter",
+      "maturity": "preview",
+      "scope": "Flutter on a reset Android emulator",
+      "nativeGates": [
+        "flutter-android"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "flutter-ios",
+      "displayName": "Flutter iOS",
+      "family": "flutter",
+      "maturity": "preview",
+      "scope": "Flutter on a disposable iOS simulator through flutter drive",
+      "nativeGates": [
+        "flutter-ios"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "linux-gtk",
+      "displayName": "Linux GTK",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "x86_64 Linux container with AT-SPI on GTK",
+      "nativeGates": [
+        "linux-atspi-gtk"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "linux-qt-quick",
+      "displayName": "Linux Qt Quick/QML",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "x86_64 Linux container with AT-SPI on Qt Quick/QML",
+      "nativeGates": [
+        "linux-atspi-toolkits"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "linux-qt-widgets",
+      "displayName": "Linux Qt Widgets",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "x86_64 Linux container with AT-SPI on Qt Widgets",
+      "nativeGates": [
+        "linux-atspi-toolkits"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "linux-wxwidgets",
+      "displayName": "Linux wxWidgets",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "x86_64 Linux container with AT-SPI on wxWidgets",
+      "nativeGates": [
+        "linux-atspi-toolkits"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "macos-ax",
+      "displayName": "macOS Accessibility",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "Permissioned macOS accessibility on SwiftUI",
+      "nativeGates": [
+        "macos-ax"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "native gate still requires an explicitly permissioned runner",
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "react-native-android",
+      "displayName": "React Native Android",
+      "family": "native-mobile",
+      "maturity": "preview",
+      "scope": "React Native on a reset Android emulator through Appium UiAutomator2",
+      "nativeGates": [
+        "react-native-android"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "react-native-ios",
+      "displayName": "React Native iOS",
+      "family": "native-mobile",
+      "maturity": "preview",
+      "scope": "React Native on a disposable iOS simulator through Appium XCUITest",
+      "nativeGates": [
+        "react-native-ios"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "swiftui-ios",
+      "displayName": "SwiftUI iOS",
+      "family": "native-mobile",
+      "maturity": "preview",
+      "scope": "SwiftUI on a disposable iOS simulator through Appium XCUITest",
+      "nativeGates": [
+        "swiftui-ios"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "tauri-linux",
+      "displayName": "Tauri Linux",
+      "family": "desktop-webview",
+      "maturity": "preview",
+      "scope": "Tauri on Linux WebKitGTK workers",
+      "nativeGates": [
+        "tauri"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "tui",
+      "displayName": "Terminal UI",
+      "family": "tui",
+      "maturity": "preview",
+      "scope": "Terminal applications on a real PTY with the VT parser",
+      "nativeGates": [
+        "tui-pty"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "web-chromium",
+      "displayName": "Web Chromium",
+      "family": "web",
+      "maturity": "stable",
+      "scope": "Chromium web through Playwright CDP on Linux",
+      "nativeGates": [
+        "web-chromium"
+      ],
+      "fieldBenchmark": "validation/field/benchmark.json",
+      "promotionBlockers": []
+    },
+    {
+      "id": "web-firefox",
+      "displayName": "Web Firefox",
+      "family": "web",
+      "maturity": "preview",
+      "scope": "Firefox through Playwright on Linux",
+      "nativeGates": [
+        "web-engines"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "web-webkit",
+      "displayName": "Web WebKit",
+      "family": "web",
+      "maturity": "preview",
+      "scope": "WebKit through Playwright on Linux",
+      "nativeGates": [
+        "web-engines"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "windows-avalonia",
+      "displayName": "Windows Avalonia",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "Native x86_64 Windows UI Automation on Avalonia",
+      "nativeGates": [
+        "windows-uia"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "native gate still requires the interactive Windows VM",
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "windows-winui",
+      "displayName": "Windows WinUI 3",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "Native x86_64 Windows UI Automation on WinUI 3",
+      "nativeGates": [
+        "windows-uia"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "native gate still requires the interactive Windows VM",
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    },
+    {
+      "id": "windows-wpf",
+      "displayName": "Windows WPF",
+      "family": "desktop",
+      "maturity": "preview",
+      "scope": "Native x86_64 Windows UI Automation on WPF",
+      "nativeGates": [
+        "windows-uia"
+      ],
+      "fieldBenchmark": null,
+      "promotionBlockers": [
+        "native gate still requires the interactive Windows VM",
+        "independent affected-versus-fixed field benchmark is incomplete"
+      ]
+    }
+  ]
+}

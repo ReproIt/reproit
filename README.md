@@ -4,6 +4,7 @@
 
 [**reproit.com**](https://reproit.com) · [CLI guide](docs/cli.md) ·
 [production SDKs](sdk/README.md) · [compatibility](docs/compatibility.md) ·
+[local reproduction contract](docs/universal-local-reproduction.md) ·
 [1.x stability](docs/stability.md) · [support](SUPPORT.md)
 
 ![reproit finds a bug and reproduces it every run](docs/demo.gif)
@@ -19,8 +20,7 @@ The small loop is:
 reproit init           # detect the app and create the smallest working setup
 reproit doctor         # check local setup for this app and platform
 reproit auth <account> --email ... --password ...  # configure + verify once
-reproit scan --only route-access  # check an authored browser access matrix
-reproit fuzz --all     # find deeper, confirmed interaction bugs
+reproit find           # fast surface pass, then deep confirmed discovery
 reproit fnd_...        # reproduce that finding
 reproit keep fnd_...   # keep it as a regression guard
 reproit check          # run the saved suite after the fix
@@ -35,22 +35,16 @@ reproit collect --output support.rpb \
   --summary "index service exits during startup" \
   --artifact service.log --artifact crash.dmp
 
-reproit inspect support.rpb
-reproit import support.rpb
-reproit occ_...  # reports the exact missing capability until the case is eligible
-
-reproit plan occ_... \
-  --bind req_current_checkout_process=index-start \
-  --identity index-service-start-failure
-
-reproit occ_...  # executes the trusted current-checkout provider
+reproit capture --bundle support.rpb
+reproit occ_...  # compiles one unambiguous trusted provider, then executes it
 reproit check    # includes the actionless production-derived guard
 ```
 
 Executable mechanisms live under `execution:` in the checkout-owned `reproit.yaml`. Imported evidence can
 name requirements and supply bounded artifacts, but it cannot supply commands, working
 directories, environment variables, timeouts, or cleanup actions. The plan records the SHA-256
-digest of each trusted provider and refuses execution if the provider definition changes.
+digest of each trusted provider and refuses execution if the provider definition changes. Automatic
+planning never guesses: zero or multiple compatible providers produce an exact blocker.
 
 Install the bundled agent playbook when you want a coding agent to configure that loop for the
 application:
@@ -69,11 +63,14 @@ reviewable suggestion outside `reproit.yaml`. Reproit remains the deterministic 
 state and configuration before initializing again. Neither reset mode removes application source
 or journeys.
 
-`reproit scan` audits visible screen-level problems. `reproit fuzz` explores deeper action
-sequences. The default confirmed set is deliberately small: objective crashes, explicit structural
-contracts, and explicitly declared indicator relationships. Built-in layout, content, routing,
-timing, accessibility, and lifecycle detectors remain available explicitly with `--only`, but are
-specialist signals unless application-owned intent makes the result authoritative.
+`reproit find` runs the fast surface pass and bounded deep exploration as one
+workflow. The existing `scan` and `fuzz` commands remain compatible specialist
+controls for automation that needs one phase. The default confirmed set is
+deliberately exact: objective crashes, explicit structural contracts, and
+explicitly declared indicator relationships. Built-in layout, content, routing,
+timing, accessibility, and lifecycle detectors remain available explicitly,
+but are specialist signals unless application-owned intent makes the result
+authoritative.
 
 ReproIt maintains its internal screen graph automatically. Before a command uses it, reproit
 fingerprints the actual source, configuration, lockfiles, and CLI version; changed inputs trigger a
@@ -82,24 +79,13 @@ correctly too.
 
 ## Supported platforms
 
-Reproit 1.0 releases the complete bug-to-regression workflow and checksummed SDK archives for the
-platforms below. Release availability and compatibility maturity are separate: Chromium has closed
-its independent-application field gate, while the other released adapters remain outside the 1.x
-field-compatibility promise until their own published gates close. Every adapter fails closed and
-runs in the native release matrix.
-
-| Platform                      | 1.0 release | Compatibility | Backend                                                          |
-| ----------------------------- | ----------- | ------------- | ---------------------------------------------------------------- |
-| Web (DOM apps), Chromium      | Released    | Stable        | Playwright Chromium                                              |
-| Web (DOM apps), other engines | Released    | Preview       | Playwright Firefox and WebKit                                    |
-| Flutter                       | Released    | Preview       | flutter drive + VM service                                       |
-| React Native / native mobile  | Released    | Preview       | Appium                                                           |
-| macOS native                  | Released    | Preview       | AX (validated with SwiftUI)                                      |
-| Windows native                | Released    | Preview       | UI Automation (validated with WPF, Avalonia, WinUI 3)            |
-| Linux native                  | Released    | Preview       | AT-SPI (validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets) |
-| Terminal UIs                  | Released    | Preview       | PTY + VT parser                                                  |
-| Electron                      | Released    | Preview       | Chromium/CDP                                                     |
-| Tauri                         | Released    | Preview       | system WebKit webview through `tauri-driver`                     |
+Release availability and Stable compatibility are separate. Chromium has
+closed its independent-application field gate. Every other target remains
+Preview until its exact native and affected-versus-fixed field evidence passes.
+The atomic, generated qualification status is
+[`validation/compatibility/STATUS.md`](validation/compatibility/STATUS.md).
+Broad families such as Windows, Linux, web engines, and native mobile are never
+promoted from one toolkit or operating-system fixture.
 
 `reproit platforms` prints the routing matrix. The exact native fixtures, commands, and pass
 contract are documented in [`validation/backends/README.md`](validation/backends/README.md);
@@ -145,8 +131,7 @@ cd <your-app>
 reproit init                           # detect the app and create the smallest working setup
 reproit doctor                         # see missing platform setup before the run
 reproit auth <account> --email ... --password ...  # optional logged-in flows
-reproit scan --record-video            # fast visible-bug audit + clips
-reproit fuzz --all                     # find confirmed bugs with fnd_... ids
+reproit find --record-video            # surface clips + deep confirmed discovery
 reproit fnd_...                        # reproduce that finding
 reproit keep fnd_...                   # keep it as a regression guard
 reproit check                          # verify the suite after the fix
