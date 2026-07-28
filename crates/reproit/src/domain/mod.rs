@@ -8,6 +8,7 @@ pub(crate) mod candidate;
 pub(crate) mod capsule;
 pub(crate) mod contracts;
 pub(crate) mod evidence;
+pub(crate) mod execution;
 pub(crate) mod fault;
 pub(crate) mod fixture;
 pub(crate) mod hash;

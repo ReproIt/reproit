@@ -6,11 +6,13 @@ use super::repro::{
     check_label, check_repro, find_finding_by_id, public_json_id, public_json_kind,
 };
 use crate::adapters::config;
+use crate::adapters::execution;
+use crate::domain::execution::ExecutionVerdict;
 use crate::domain::repro;
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
 use crate::interface::junit;
 use crate::workflows::{a2ui, backend_headless, flicker, journey};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -39,6 +41,16 @@ pub(super) async fn run(
 ) -> Result<ExitCode> {
     if args.inspect && args.repro.is_none() {
         anyhow::bail!("inspection needs exactly one saved repro");
+    }
+    if let Some(reference) = args.repro.as_deref() {
+        if let Some((root, meta, package)) = execution::locate_package(config_path, reference) {
+            return run_execution_plan(ctx, &root, &meta, &package, &args).await;
+        }
+    }
+    if args.repro.is_none() && config_path.is_none() {
+        if let Some((root, metas)) = source_neutral_suite() {
+            return run_source_neutral_suite(ctx, &root, &args, &metas).await;
+        }
     }
     if let Some(id) = args.repro.as_deref() {
         if let Some(code) = backend_headless::try_replay(ctx, id).await? {
@@ -122,6 +134,180 @@ pub(super) async fn run(
         metas = super::change_selection::prioritize(ctx, &loaded.root, metas, base);
     }
     run_repro_matrix(ctx, &loaded, &args, times, &metas).await
+}
+
+fn source_neutral_suite() -> Option<(PathBuf, Vec<repro::Meta>)> {
+    let mut root = std::env::current_dir().ok()?;
+    loop {
+        let metas = repro::list(&root)
+            .into_iter()
+            .filter(|meta| {
+                repro::repro_dir(&root, &meta.id)
+                    .join("package.json")
+                    .is_file()
+            })
+            .collect::<Vec<_>>();
+        let has_config =
+            root.join("reproit.yaml").is_file() || root.join(".reproit/reproit.yaml").is_file();
+        if !metas.is_empty() && !has_config {
+            return Some((root, metas));
+        }
+        if !root.pop() {
+            return None;
+        }
+    }
+}
+
+async fn run_source_neutral_suite(
+    ctx: &Ctx,
+    root: &Path,
+    args: &CheckArgs,
+    metas: &[repro::Meta],
+) -> Result<ExitCode> {
+    let times = args.runs.unwrap_or(1).max(1);
+    let mut cases = Vec::new();
+    let mut results = Vec::new();
+    let mut worst = repro::Outcome::Pass;
+    for meta in metas {
+        let execution = execute_plan_guard(ctx, root, args, times, meta, None).await?;
+        worst = worst.max(execution.effective);
+        cases.push(execution.case);
+        results.push(execution.json);
+    }
+    write_junit(ctx, args.junit.as_deref(), &cases);
+    ctx.emit(&serde_json::json!({
+        "command": "check",
+        "repros": results,
+        "outcome": worst.as_str(),
+        "exit": worst.exit_code(),
+    }));
+    ctx.say(format!(
+        "\ncheck: {} ({} repro(s))",
+        worst.as_str().to_uppercase(),
+        metas.len()
+    ));
+    Ok(exit_with(Exit::from(worst)))
+}
+
+async fn run_execution_plan(
+    ctx: &Ctx,
+    root: &Path,
+    meta: &repro::Meta,
+    package: &reproit_protocol::ReproductionPackage,
+    args: &CheckArgs,
+) -> Result<ExitCode> {
+    if args.record_video {
+        anyhow::bail!("this source-neutral reproduction plan does not produce screen video");
+    }
+    if args.locale.is_some() || args.device.is_some() || args.target.is_some() {
+        anyhow::bail!(
+            "locale, device, and target overrides are not valid for a compiled reproduction plan"
+        );
+    }
+    let runs = if args.inspect {
+        1
+    } else {
+        args.runs.unwrap_or(1).max(1)
+    };
+    if runs > 100 {
+        anyhow::bail!("plan execution is bounded to 100 runs");
+    }
+
+    let mut results = Vec::with_capacity(runs as usize);
+    for run_index in 0..runs {
+        ctx.say(format!(
+            "check {} plan run {}/{}",
+            super::repro::check_label(meta),
+            run_index + 1,
+            runs
+        ));
+        let result = execution::execute(root, package).await?;
+        retain_plan_run(root, meta, run_index, &result)?;
+        results.push(result);
+    }
+    let outcome = aggregate_plan_runs(&results);
+    let promoted = !args.inspect
+        && outcome == repro::Outcome::Pass
+        && meta.status == repro::Status::Quarantined;
+    if !args.inspect {
+        let mut updated = meta.clone();
+        updated.last_checked = Some(chrono::Local::now().to_rfc3339());
+        updated.last_result = Some(outcome.as_str().to_string());
+        if promoted {
+            updated.status = repro::Status::Required;
+        }
+        repro::save_meta(root, &updated)?;
+    }
+    ctx.emit(&serde_json::json!({
+        "command": if args.inspect { "inspect" } else { "check" },
+        "id": repro::display_repro_id(&meta.id),
+        "plan": package.plan.as_ref().map(|plan| &plan.id),
+        "occurrence": package.occurrence.occurrence_id,
+        "outcome": outcome.as_str(),
+        "verdicts": results.iter().map(|result| result.verdict).collect::<Vec<_>>(),
+        "runs": results,
+        "promoted": promoted,
+    }));
+    ctx.say(format!(
+        "  {} {} ({} run(s)){}",
+        outcome.as_str().to_uppercase(),
+        super::repro::check_label(meta),
+        runs,
+        if promoted {
+            "  promoted -> required"
+        } else {
+            ""
+        }
+    ));
+    Ok(exit_with(Exit::from(outcome)))
+}
+
+fn aggregate_plan_runs(runs: &[execution::PlanRun]) -> repro::Outcome {
+    let reproduced = runs
+        .iter()
+        .filter(|run| run.verdict == ExecutionVerdict::Reproduced)
+        .count();
+    let clean = runs
+        .iter()
+        .filter(|run| run.verdict == ExecutionVerdict::NotReproduced)
+        .count();
+    if reproduced > 0 && clean > 0 {
+        return repro::Outcome::Flaky;
+    }
+    if reproduced == runs.len() {
+        return repro::Outcome::Fail;
+    }
+    if clean == runs.len() {
+        return repro::Outcome::Pass;
+    }
+    repro::Outcome::Stale
+}
+
+fn retain_plan_run(
+    root: &Path,
+    meta: &repro::Meta,
+    run_index: u32,
+    result: &execution::PlanRun,
+) -> Result<()> {
+    const MAX_RETAINED_RUNS: usize = 32;
+
+    let directory = repro::repro_dir(root, &meta.id).join("plan-runs");
+    std::fs::create_dir_all(&directory)?;
+    let timestamp_ms = chrono::Utc::now().timestamp_millis();
+    let path = directory.join(format!("{timestamp_ms}-{run_index:03}.json"));
+    std::fs::write(&path, serde_json::to_vec_pretty(result)?)
+        .with_context(|| format!("writing {}", path.display()))?;
+    let mut retained = std::fs::read_dir(&directory)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .collect::<Vec<_>>();
+    retained.sort_by_key(|entry| entry.file_name());
+    let remove_count = retained.len().saturating_sub(MAX_RETAINED_RUNS);
+    for entry in retained.into_iter().take(remove_count) {
+        std::fs::remove_file(entry.path())
+            .with_context(|| format!("removing old plan run {}", entry.path().display()))?;
+    }
+    Ok(())
 }
 
 /// Whether a check reference routes to the backend capture-file re-evaluation.
@@ -360,6 +546,12 @@ async fn execute_case(
     meta: &repro::Meta,
     locale: Option<&str>,
 ) -> Result<CaseExecution> {
+    if repro::repro_dir(&loaded.root, &meta.id)
+        .join("package.json")
+        .is_file()
+    {
+        return execute_plan_guard(ctx, &loaded.root, args, times, meta, locale).await;
+    }
     let label = locale.map_or_else(
         || check_label(meta),
         |locale| format!("{} @{locale}", check_label(meta)),
@@ -445,6 +637,109 @@ async fn execute_case(
         "evidence": run_dir.to_string_lossy(),
         "videoFlicker": video_flicker,
     });
+    Ok(CaseExecution {
+        effective,
+        failed: outcome != repro::Outcome::Pass,
+        case,
+        json,
+    })
+}
+
+async fn execute_plan_guard(
+    ctx: &Ctx,
+    root: &Path,
+    args: &CheckArgs,
+    times: u32,
+    meta: &repro::Meta,
+    locale: Option<&str>,
+) -> Result<CaseExecution> {
+    if locale.is_some() {
+        anyhow::bail!("locale matrices cannot override a compiled reproduction plan");
+    }
+    if args.record_video {
+        anyhow::bail!("this source-neutral reproduction plan does not produce screen video");
+    }
+    let package_path = repro::repro_dir(root, &meta.id).join("package.json");
+    let package: reproit_protocol::ReproductionPackage =
+        serde_json::from_slice(&std::fs::read(&package_path)?)?;
+    package.validate().map_err(|error| {
+        anyhow::anyhow!(
+            "saved reproduction package {} is invalid: {error}",
+            package_path.display()
+        )
+    })?;
+    let label = super::repro::check_label(meta);
+    let mut runs = Vec::with_capacity(times as usize);
+    for run_index in 0..times {
+        ctx.say(format!(
+            "check {label} plan run {}/{}",
+            run_index + 1,
+            times
+        ));
+        let run = execution::execute(root, &package).await?;
+        retain_plan_run(root, meta, run_index, &run)?;
+        runs.push(run);
+    }
+    let outcome = aggregate_plan_runs(&runs);
+    let green = runs
+        .iter()
+        .filter(|run| run.verdict == ExecutionVerdict::NotReproduced)
+        .count();
+    let rate = format!("{green}/{}", runs.len());
+    let blocks = args.strict || args.repro.is_some() || meta.status != repro::Status::Quarantined;
+    let effective = if blocks {
+        outcome
+    } else {
+        repro::Outcome::Pass
+    };
+    let promoted = !args.inspect
+        && outcome == repro::Outcome::Pass
+        && meta.status == repro::Status::Quarantined;
+    let mut updated = meta.clone();
+    if !args.inspect {
+        updated.last_checked = Some(chrono::Utc::now().to_rfc3339());
+        updated.last_result = Some(outcome.as_str().to_string());
+        if promoted {
+            updated.status = repro::Status::Required;
+        }
+        repro::save_meta(root, &updated)?;
+    }
+    let evidence = repro::repro_dir(root, &meta.id).join("plan-runs");
+    let case = junit::Case {
+        name: format!("check {label}"),
+        passed: outcome == repro::Outcome::Pass,
+        time_s: 0.0,
+        message: format!(
+            "{} ({rate}); evidence: {}",
+            outcome.as_str(),
+            evidence.display()
+        ),
+    };
+    let json = serde_json::json!({
+        "id": public_json_id(meta),
+        "kind": public_json_kind(meta),
+        "alias": meta.alias,
+        "outcome": outcome.as_str(),
+        "rate": rate,
+        "green": green,
+        "total": runs.len(),
+        "status": updated.status.as_str(),
+        "promoted": promoted,
+        "exit": outcome.exit_code(),
+        "evidence": evidence,
+        "plan": package.plan.as_ref().map(|plan| &plan.id),
+        "verdicts": runs.iter().map(|run| run.verdict).collect::<Vec<_>>(),
+    });
+    ctx.say(format!(
+        "  {} {} ({rate}){}",
+        outcome.as_str().to_uppercase(),
+        label,
+        if promoted {
+            "  promoted -> required"
+        } else {
+            ""
+        }
+    ));
     Ok(CaseExecution {
         effective,
         failed: outcome != repro::Outcome::Pass,

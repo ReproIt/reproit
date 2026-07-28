@@ -119,8 +119,12 @@ jobs:
           }
           gh run download "$selected_run" --name native-gates-linux-hosted \
             --dir native/linux-hosted
+          gh run download "$selected_run" --name native-gates-linux-containers \
+            --dir native/linux-containers
           gh run download "$selected_run" --name native-gates-android \
             --dir native/android
+          gh run download "$selected_run" --name native-gates-macos-swiftui \
+            --dir native/macos-swiftui
           gh run download "$selected_run" --name native-gates-macos-flutter \
             --dir native/macos-flutter
       - name: Download private Windows UIA evidence bundle
@@ -156,8 +160,10 @@ jobs:
           python3 validation/release/check-native-evidence.py \
             --commit "$GITHUB_SHA" \
             --dir linux-hosted=native/linux-hosted \
+            --dir linux-containers=native/linux-containers \
             --dir android=native/android \
             --dir flutter=native/macos-flutter \
+            --dir swiftui=native/macos-swiftui \
             --dir macos=native/macos \
             --dir windows=native/windows \
             --out reproit-native-evidence.json

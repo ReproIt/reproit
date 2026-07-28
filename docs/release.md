@@ -15,14 +15,23 @@ Publication also requires successful `ci.yml` and native evidence for the exact
 commit being released. A success from another commit is not accepted.
 The native workflow includes Linux host and container gates, a reset Android
 emulator, and iOS simulators. Publication recomputes the captured log digests
-for every release-tier gate: Web Chromium, React Native Android, Flutter iOS,
-macOS AX, and Windows UIA. Native Windows UIA runs through the private
-interactive x86_64 VM chain, and macOS AX runs in a permissioned desktop
-session. Publication downloads the macOS AX result and captured log from the
-exact-commit workflow artifacts. It downloads the Windows result and captured log
-from a short-lived private evidence bundle, validates both manifests against the
-registered gates, and recomputes each log's SHA-256. The verified results are
-shipped as `reproit-native-evidence.json` in the release.
+for every owned adapter gate: Chromium, Firefox, WebKit, Electron, Tauri,
+React Native Android, Compose Android, Flutter iOS, SwiftUI iOS, macOS AX,
+Windows UIA, Linux AT-SPI, terminal PTY, and the backend contract runtime.
+Native Windows UIA runs through the private interactive x86_64 VM chain, and
+macOS AX runs in a permissioned desktop session. Publication downloads the
+macOS AX result and captured log from the exact-commit workflow artifacts. It
+downloads the Windows result and captured log from a short-lived private
+evidence bundle, validates every manifest against the registered gates, and
+recomputes each log's SHA-256. The verified results are shipped as
+`reproit-native-evidence.json` in the release.
+
+Release gating and compatibility maturity are separate. Exact-commit native
+evidence proves the owned integration still works. A target becomes stable only
+after its `fieldBenchmark` names a complete, validated benchmark with at least
+two independent real applications. The support-manifest tests reject a stable
+target without that field benchmark and reject an owned gate that does not
+authorize releases.
 
 The CI command lines used by the composite Action and reusable workflow are recorded in
 `validation/release/ci-invocations.txt`. The Rust test suite parses every entry with the production

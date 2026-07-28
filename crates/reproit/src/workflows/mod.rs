@@ -5,6 +5,8 @@ pub(crate) mod accessibility;
 pub(crate) mod analyze;
 pub(crate) mod backend_headless;
 pub(crate) mod barrier;
+pub(crate) mod bundle;
+pub(crate) mod command_capture;
 pub(crate) mod deliver;
 pub(crate) mod fix;
 pub(crate) mod flicker;
@@ -35,12 +37,14 @@ mod fuzz_command;
 pub(crate) mod init_command;
 mod inspect;
 mod map;
+mod platforms;
 mod proof;
 mod record;
 mod repro;
 mod reset;
 mod route_access;
 mod scan_command;
+mod tui_safety;
 
 #[cfg(all(target_os = "linux", feature = "linux-atspi"))]
 use crate::adapters::atspi;
@@ -84,33 +88,6 @@ use repro::{
 use repro::{keep_repro, load_repro_actions, repro_label, simplify_repro};
 use std::path::Path;
 use std::process::ExitCode;
-
-/// SAFETY gate for a zero-config TUI fuzz: it drives a REAL process with REAL
-/// side effects (synthetic keystrokes can send messages, run shell commands,
-/// write/delete files), so confirm before launching. Always warns; proceeds on
-/// `--yes`, else prompts on a TTY, else refuses (CI must pass `--yes`).
-fn confirm_tui_fuzz(ctx: &Ctx, exe: &str) -> bool {
-    eprintln!(
-        "  WARNING: reproit will drive `{exe}` in a PTY by sending SYNTHETIC KEYSTROKES.\n  A \
-         real terminal app can have real side effects (send messages, run shell\n  commands, \
-         write or delete files). Point it at a THROWAWAY / sandboxed instance."
-    );
-    if ctx.yes {
-        return true;
-    }
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        eprintln!("  Refusing without confirmation. Re-run with --yes to proceed.");
-        return false;
-    }
-    use std::io::Write;
-    eprint!("  Proceed? [y/N] ");
-    let _ = std::io::stderr().flush();
-    let mut line = String::new();
-    if std::io::stdin().read_line(&mut line).is_err() {
-        return false;
-    }
-    matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
-}
 
 /// Run the CLI from an explicit argument sequence.
 ///
@@ -300,8 +277,66 @@ where
             .await
         }
         Cmd::Inspect { reference, offline } => {
-            inspect::run(&ctx, cli.config.as_deref(), &reference, offline).await
+            if reference.ends_with(".rpb") {
+                if offline {
+                    anyhow::bail!("support-bundle inspection is already offline");
+                }
+                bundle::inspect(&ctx, Path::new(&reference))?;
+                Ok(ExitCode::SUCCESS)
+            } else {
+                inspect::run(&ctx, cli.config.as_deref(), &reference, offline).await
+            }
         }
+        Cmd::Collect {
+            output,
+            product,
+            component,
+            platform,
+            summary,
+            artifacts,
+            exportable,
+            retention_class,
+        } => {
+            let args = bundle::CollectArgs {
+                output,
+                product,
+                component,
+                platform,
+                summary,
+                artifacts,
+                exportable,
+                retention_class,
+            };
+            bundle::collect(&ctx, args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Cmd::CaptureCommand {
+            project,
+            component,
+            timeout_ms,
+            include_output,
+            local_only,
+            command,
+        } => {
+            command_capture::run(
+                &ctx,
+                command_capture::CommandCaptureArgs {
+                    project,
+                    component,
+                    timeout_ms,
+                    include_output,
+                    local_only,
+                    command,
+                },
+            )
+            .await
+        }
+        Cmd::Occurrence { reference } => bundle::run_occurrence(&ctx, &reference).await,
+        Cmd::Plan {
+            occurrence,
+            bindings,
+            identity,
+        } => bundle::compile(&ctx, &occurrence, &bindings, &identity).map(|_| ExitCode::SUCCESS),
         Cmd::Proof { reference } => {
             let loaded = config::load(cli.config.as_deref())?;
             show_proof(&ctx, &loaded, &reference)?;
@@ -437,7 +472,7 @@ where
             .await?;
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Capture {
+        Cmd::OriginalCapture {
             capture,
             watch,
             open,
@@ -522,7 +557,7 @@ where
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Platforms => {
-            print_platforms();
+            platforms::print();
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Skills { action } => {
@@ -731,14 +766,31 @@ where
             })
         }
         Cmd::Import {
-            tool,
+            source,
             path,
             name,
             out,
         } => {
-            let loaded = config::load(cli.config.as_deref())?;
-            ensure_app_map(&ctx, &loaded, "explore").await?;
-            import::run(&ctx, &tool, &path, name, out.as_deref())?;
+            if let Some(path) = path {
+                let loaded = config::load(cli.config.as_deref())?;
+                ensure_app_map(&ctx, &loaded, "explore").await?;
+                import::run(&ctx, &source, &path, name, out.as_deref())?;
+            } else {
+                if name.is_some() || out.is_some() {
+                    anyhow::bail!("--name and --out apply only to tool flow imports");
+                }
+                let bundle_path = Path::new(&source);
+                if bundle_path
+                    .extension()
+                    .is_none_or(|extension| extension != "rpb")
+                {
+                    anyhow::bail!(
+                        "single-argument import expects a `.rpb` support bundle; \
+                         use `reproit import maestro FLOW` for a tool flow"
+                    );
+                }
+                bundle::import(&ctx, bundle_path)?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         Cmd::Cloud { action } => {
@@ -850,21 +902,6 @@ where
     }
 }
 
-/// Print the platform support matrix: every registered UI framework and the
-/// backend it routes to.
-fn print_platforms() {
-    println!("Platform support matrix (UI framework -> introspection backend)\n");
-    println!("  {:<16} {:<26} CAPABILITY", "PLATFORM", "BACKEND");
-    for p in platform::all() {
-        println!("  {:<16} {:<26} {}", p.id, p.backend.as_str(), p.note);
-    }
-    println!(
-        "\n  All listed platform IDs are live. Local readiness still depends on `reproit doctor` \
-         and host tooling.\n\n  The point: Qt/GTK/WinUI/Avalonia/wxWidgets share ONE backend per \
-         OS\n(they publish to the OS accessibility API), Electron/Tauri reuse the\nweb backend, \
-         Appium covers native mobile, and TUI uses a PTY."
-    );
-}
 fn journey_cmd(
     config_path: Option<&std::path::Path>,
     action: JourneyAction,

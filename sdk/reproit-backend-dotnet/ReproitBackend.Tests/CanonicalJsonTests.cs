@@ -2,6 +2,7 @@
 // Node SDK's canonicalJson (the family's verified wire reference) on a shared fixture.
 
 using System.Diagnostics;
+using System.Text;
 using Xunit;
 
 namespace ReproitBackend.Tests;
@@ -38,6 +39,9 @@ public class CanonicalJsonTests
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = new UTF8Encoding(false),
+            StandardOutputEncoding = new UTF8Encoding(false),
+            StandardErrorEncoding = new UTF8Encoding(false),
         };
         start.ArgumentList.Add("-e");
         start.ArgumentList.Add(script);
@@ -46,8 +50,9 @@ public class CanonicalJsonTests
         process.StandardInput.Write(Fixture);
         process.StandardInput.Close();
         var expected = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(15000), "node did not exit");
-        Assert.Equal(0, process.ExitCode);
+        Assert.True(process.ExitCode == 0, "node failed: " + error);
         Assert.Equal(expected, Json.Canonical(Json.Parse(Fixture)));
     }
 

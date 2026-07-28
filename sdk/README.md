@@ -1,26 +1,49 @@
-# ReproIt production SDKs
+# ReproIt capture SDKs
 
-ReproIt SDKs capture the structural path to a real production crash so the same bug can be replayed
-locally with one command. They do not send typed values, passwords, hidden fields, or source code.
+ReproIt has one source-neutral capture contract for all software. A runtime SDK is one emitter.
+Host collectors, crash reporters, OpenTelemetry adapters, browser SDKs, device adapters, and
+offline support bundles emit the same causal facts.
+
+The SDK does not promise that telemetry alone can recreate every failure. It records what happened,
+marks every incomplete capability, and lets Cloud compile the highest-fidelity reproduction that
+the evidence and authorized execution environment permit.
 
 ## The complete path
 
 1. Create a project at [cloud.reproit.com](https://cloud.reproit.com).
 2. Copy its write-only `pk_live_...` SDK key.
 3. Add the SDK for your platform and initialize it in the release build.
-4. Deploy normally. ReproIt groups genuine production crashes into `bkt_...` bugs.
+4. Deploy normally. ReproIt groups genuine failure occurrences.
 5. On a development machine, run:
 
 ```sh
 reproit login
-reproit bugs
-reproit bkt_...
-reproit bkt_... --record-video
+reproit occ_...
 ```
 
-`reproit login` opens the browser and discovers every project you can access. The bucket command
-downloads the structural actions and failure signature, then runs them against the app configuration
-in the current directory. ReproIt never downloads your source.
+`reproit occ_...` downloads the immutable occurrence and exportable resources into the current
+checkout. It then binds only checkout-owned execution providers and runs locally, in Compose, on a
+device or VM, in customer CI, or on an authorized private worker. ReproIt never accepts executable
+commands from evidence and never downloads source from Cloud.
+
+## Universal recorder
+
+The reference recorder core is available for Rust in
+`crates/reproit-recorder` and for Node in
+[`reproit-recorder-node`](reproit-recorder-node/README.md). Semantic adapters record:
+
+- process start and exit;
+- operation start and end;
+- command, request, RPC, message, timer, job, installer, migration, device, or UI triggers;
+- replayable inputs or explicit structural-only and environment-bound values;
+- filesystem, registry, database, cache, queue, object, application, and device state;
+- dependency calls and returns;
+- persistent effects and observation checkpoints;
+- exact failure observations and capture defects.
+
+Recorder buffers, queues, artifacts, retries, payloads, and work per flush are bounded. Values are
+classified at capture time as `structural`, `replayable`, `artifact`, or `environment-bound`.
+Unredacted restricted data cannot be marked exportable.
 
 ## Choose your platform
 
@@ -57,13 +80,17 @@ Use the key intended for the environment:
 - `reproit login` is preferred for developer machines and removes the need to copy either key into a
   shell command.
 
-The web SDK accepts the exact POST target:
+Universal capture batches use:
 
 ```text
-https://ingest.reproit.com/v1/events
+https://ingest.reproit.com/v1/capture-batches
 ```
 
-Native SDKs append `/v1/events` and therefore receive the base URL:
+Exportable artifact bytes are digest-verified and uploaded before the batch. Local-analysis and
+environment-bound bytes never leave their authorized worker. Existing platform SDKs may continue
+using `/v1/events`; Cloud translates that v1 stream into the universal model while they migrate.
+
+Platform SDKs that append their own route receive the base URL:
 
 ```text
 https://ingest.reproit.com
@@ -91,43 +118,65 @@ redactLabels:  true when visible control labels must not leave the app
 
 Each platform guide provides the native spelling for these fields.
 
-## Wire protocol
+## Universal wire protocol
 
-Every SDK normalizes its platform capture records into the same strict version 1 event batch:
+New SDKs normalize their records into the strict universal capture batch:
 
 ```json
 {
   "version": 1,
-  "batchId": "sdk-1717939200123-1",
-  "appId": "app_...",
+  "batchId": "cb_...",
+  "projectId": "app_...",
+  "sessionId": "session_...",
+  "emitter": {
+    "id": "orders-api",
+    "kind": "runtime-sdk",
+    "component": "orders",
+    "runtime": "node"
+  },
   "deployment": { "version": "1.0.0", "commit": "abc123" },
-  "frames": [
+  "observedAt": "2026-07-27T12:00:00Z",
+  "policy": {
+    "consent": "application-telemetry",
+    "retentionClass": "standard"
+  },
+  "capabilities": [
+    { "capability": "http", "completeness": "complete" }
+  ],
+  "events": [
     {
-      "runId": "sdk-1717939200123-1",
+      "id": "evt_orders-api_1",
       "sequence": 1,
-      "scope": { "domain": "shared" },
-      "event": { "kind": "graph-edge", "from": "a", "action": "tap", "to": "b" }
+      "monotonicNs": 1,
+      "causalParentIds": [],
+      "event": {
+        "kind": "trigger",
+        "trigger": "http-request",
+        "subject": "POST /orders",
+        "value": {
+          "representation": "replayable",
+          "value": { "body": { "sku": "widget" } },
+          "redaction": "redacted-at-source"
+        }
+      }
     }
   ],
-  "evidence": []
+  "artifacts": []
 }
 ```
 
-`deployment` identifies the release for the whole batch, including clean batches, so production
-traffic can confirm whether a fix has seen enough use. The allowed event kinds are `action`,
-`observation`, `backend`, `graph-edge`, `finding`, and
-`stream-defect`. A finding contains its identity, minimized path, and PII-safe context. Unknown or
-unrepresentable capture records become an explicit `stream-defect`; they are never silently
-dropped or treated as clean evidence. The shared protocol implementation owns validation, size
-limits, reason codes, and tri-state evaluation semantics. The canonical complete fixture is
-[`event-batch-v1.json`](event-batch-v1.json), and the shared Rust protocol parses and validates it
-in its test suite.
+Unknown or unrepresentable facts become explicit defect events. They are never silently dropped or
+treated as clean evidence. The canonical fixture is
+[`capture-batch-v1.json`](capture-batch-v1.json), which the shared Rust protocol parses and
+compiles in its test suite. [`event-batch-v1.json`](event-batch-v1.json) remains the compatibility
+fixture for SDKs still on the earlier UI and backend event stream.
 
 ## What is captured
 
-The SDK records structural state signatures, stable control selectors, the action path, the finding
-identity, build identity, and bounded derived input properties such as length or Unicode class. It
-does not record raw input values.
+The SDK records only values allowed by the application's capture policy. Inputs can be replayable
+after source redaction, structural-only, content-addressed artifacts, or environment-bound
+references. Passwords, credentials, hidden values, and restricted customer data must never be
+classified as replayable or exportable.
 
 Read [data handling and privacy](../docs/data-handling.md) for the complete wire contract and
 [structural signatures](../docs/signature.md) for the cross-platform identity contract.

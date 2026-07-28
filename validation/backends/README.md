@@ -33,21 +33,19 @@ a single gate covers multiple architectures.
 python3 validation/backends/gate.py compose-android --architecture arm64
 ```
 
-| Backend         | Native runtime evidence                      | Command                                             |
-| --------------- | -------------------------------------------- | --------------------------------------------------- |
-| `flutter-drive` | Flutter app on an iOS simulator              | `validation/backends/run-flutter-drive.sh`          |
-| `web-cdp`       | Chromium DOM                                 | `validation/backends/run-web-cdp.sh`                |
-| `web-cdp`       | Firefox and WebKit DOM through Playwright    | `validation/backends/run-web-engines.sh`            |
-| `web-cdp`       | Electron/Chromium                            | `validation/backends/run-electron.sh`               |
-| `web-cdp`       | Tauri v2/WebKitGTK through `tauri-driver`    | `validation/backends/run-tauri.sh`                  |
-| `appium`        | React Native Android release app             | `validation/backends/run-react-native-android.sh`   |
-| `appium`        | Jetpack Compose Android app                  | `examples/compose-fixture/compose-appium-smoke.sh`  |
-| `appium`        | SwiftUI iOS app                              | `.github/scripts/appium-ios-swiftui-smoke.sh`       |
-| `desktop-ax`    | SwiftUI macOS app                            | `validation/backends/run-macos-ax.sh`               |
-| `desktop-uia`   | WPF, Avalonia, and WinUI 3 apps              | `validation/backends/run-windows-desktop.ps1`       |
-| `desktop-atspi` | GTK multi-actor app                          | `.github/scripts/atspi-scenario-e2e.sh`             |
-| `desktop-atspi` | Qt Widgets, Qt Quick/QML, and wxWidgets apps | `examples/qt-fixture/qt-atspi-e2e.sh`               |
-| `tui-pty`       | Real curses app in a PTY                     | `validation/backends/run-tui.sh`                    |
+Registered runtime gates:
+
+- `flutter-drive`: Flutter app on an iOS simulator.
+- `web-cdp`: Chromium, Firefox, WebKit, Electron, and Tauri fixtures.
+- `appium`: React Native Android, Compose Android, and SwiftUI iOS fixtures.
+- `desktop-ax`: SwiftUI macOS fixture.
+- `desktop-uia`: WPF, Avalonia, and WinUI 3 fixtures.
+- `desktop-atspi`: GTK, Qt Widgets, Qt Quick/QML, and wxWidgets fixtures.
+- `tui-pty`: real curses app in a PTY.
+- `backend-contract`: current-server scan, fuzz, replay, and proof.
+
+The exact command for every entry is canonical in `evidence.json`; documentation
+and release validation do not maintain a second command registry.
 
 The Appium commands require a running server with XCUITest or UiAutomator2 as appropriate.
 `run-react-native-android.sh` accepts `REPROIT_ANDROID_UDID`; it pins React Native 0.76.9 and builds
@@ -55,6 +53,8 @@ a bundled release APK so Metro is not part of the result. Run the Windows comman
 native interactive Windows session. A noninteractive service session is not valid UI Automation
 evidence.
 
-Linux desktop and Tauri gates build inside pinned containers. macOS, iOS, Flutter, Android, and
-Windows gates use their native host tools. No gate treats a mocked marker stream as backend
-operability evidence.
+Linux desktop and Tauri gates build inside pinned containers. macOS, iOS,
+Flutter, Android, and Windows gates use their native host tools. The backend
+contract gate launches an owned loopback service and exercises the production
+CLI against it. No gate treats a mocked marker stream as backend operability
+evidence.

@@ -1,6 +1,6 @@
 # reproit
 
-**Find a UI bug once, reproduce it forever.**
+**Turn a software failure into an executable regression guard.**
 
 [**reproit.com**](https://reproit.com) · [CLI guide](docs/cli.md) ·
 [production SDKs](sdk/README.md) · [compatibility](docs/compatibility.md) ·
@@ -8,9 +8,10 @@
 
 ![reproit finds a bug and reproduces it every run](docs/demo.gif)
 
-reproit drives your app like a user, finds bugs your tests missed, and gives you a replayable repro:
-the exact steps needed to make the bug happen again. That turns "cannot reproduce" into a local
-command you can run before and after the fix.
+Reproit accepts failures from applications, services, commands, support bundles, and production
+telemetry. It identifies the evidence required to reproduce the exact failure, runs eligible cases
+against the current checkout through trusted local providers, and retains every fixed case as a
+regression guard. UI driving is one trigger provider, not the product's internal data model.
 
 The small loop is:
 
@@ -24,6 +25,32 @@ reproit fnd_...        # reproduce that finding
 reproit keep fnd_...   # keep it as a regression guard
 reproit check          # run the saved suite after the fix
 ```
+
+For customer-installed, disconnected, service, startup, migration, or command failures, the loop
+starts from a source-neutral occurrence:
+
+```sh
+reproit collect --output support.rpb \
+  --product suite --component indexer \
+  --summary "index service exits during startup" \
+  --artifact service.log --artifact crash.dmp
+
+reproit inspect support.rpb
+reproit import support.rpb
+reproit occ_...  # reports the exact missing capability until the case is eligible
+
+reproit plan occ_... \
+  --bind req_current_checkout_process=index-start \
+  --identity index-service-start-failure
+
+reproit occ_...  # executes the trusted current-checkout provider
+reproit check    # includes the actionless production-derived guard
+```
+
+Executable mechanisms live under `execution:` in the checkout-owned `reproit.yaml`. Imported evidence can
+name requirements and supply bounded artifacts, but it cannot supply commands, working
+directories, environment variables, timeouts, or cleanup actions. The plan records the SHA-256
+digest of each trusted provider and refuses execution if the provider definition changes.
 
 Install the bundled agent playbook when you want a coding agent to configure that loop for the
 application:

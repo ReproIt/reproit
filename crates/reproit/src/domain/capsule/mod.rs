@@ -17,6 +17,7 @@ mod crypto;
 mod environment;
 mod matching;
 mod redaction;
+mod typed;
 use crypto::{
     capsule_key, decrypt, decrypt_with_key, encrypt, encrypt_with_key, hex_sha256, write_private,
 };
@@ -69,9 +70,18 @@ fn capability_rank(status: &CaptureStatus) -> u8 {
 #[serde(rename_all = "snake_case")]
 pub enum CauseCategory {
     ApplicationLaunch,
+    ProcessLifecycle,
     UserAction,
     HttpTransaction,
+    Command,
+    Message,
     TimerOrBackgroundEvent,
+    InstallerOrUpgrade,
+    Migration,
+    FilesystemEvent,
+    ResourcePressure,
+    ConcurrencySchedule,
+    DeviceInteraction,
     EnvironmentChange,
     #[default]
     Unclassified,
@@ -81,9 +91,18 @@ impl CauseCategory {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ApplicationLaunch => "application launch",
+            Self::ProcessLifecycle => "process lifecycle",
             Self::UserAction => "user action",
             Self::HttpTransaction => "HTTP transaction",
+            Self::Command => "command",
+            Self::Message => "message",
             Self::TimerOrBackgroundEvent => "timer or background event",
+            Self::InstallerOrUpgrade => "installer or upgrade",
+            Self::Migration => "migration",
+            Self::FilesystemEvent => "filesystem event",
+            Self::ResourcePressure => "resource pressure",
+            Self::ConcurrencySchedule => "concurrency schedule",
+            Self::DeviceInteraction => "device interaction",
             Self::EnvironmentChange => "environment change",
             Self::Unclassified => "unclassified",
         }
@@ -189,6 +208,22 @@ pub struct Capsule {
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub capabilities: BTreeMap<String, Capability>,
+    /// Immutable source occurrence. Legacy capsules omit this until they are
+    /// migrated from a typed reproduction package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occurrence: Option<reproit_protocol::OccurrenceEnvelope>,
+    /// Evidence adequacy at the point this capsule was compiled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<reproit_protocol::CapabilityAssessment>,
+    /// Trusted-provider bindings used to execute this capsule. Evidence can
+    /// reference these bindings but cannot supply their mechanisms.
+    #[serde(
+        default,
+        rename = "reproductionPlan",
+        alias = "reproduction_plan",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reproduction_plan: Option<reproit_protocol::ReproductionPlan>,
     /// The event class whose replay is required to reproduce this finding.
     /// Legacy capsules omit this field and are classified from their captured
     /// executable inputs when loaded or finalized.
@@ -225,6 +260,9 @@ impl Capsule {
             builds: BTreeMap::new(),
             environment: BTreeMap::new(),
             capabilities: BTreeMap::new(),
+            occurrence: None,
+            assessment: None,
+            reproduction_plan: None,
             cause: CauseCategory::Unclassified,
             actions: Vec::new(),
             exchanges: Vec::new(),
@@ -245,6 +283,7 @@ impl Capsule {
         self.exchanges
             .sort_by_key(|e| (e.action_index, e.ordinal, e.id.clone()));
         self.causal_graph = causal_graph::build(self)?;
+        self.validate_integrity()?;
         self.id.clear();
         let bytes = serde_json::to_vec(self)?;
         self.id = format!("cap_{}", &hex_sha256(&bytes)[..16]);
@@ -253,13 +292,19 @@ impl Capsule {
 
     fn classify_cause(&mut self) {
         if self.cause == CauseCategory::Unclassified {
-            self.cause = if self.exchanges.iter().any(|exchange| exchange.required) {
-                CauseCategory::HttpTransaction
-            } else if self.actions.is_empty() {
-                CauseCategory::ApplicationLaunch
-            } else {
-                CauseCategory::UserAction
-            };
+            self.cause = self
+                .assessment
+                .as_ref()
+                .and_then(typed::cause_from_assessment)
+                .unwrap_or_else(|| {
+                    if self.exchanges.iter().any(|exchange| exchange.required) {
+                        CauseCategory::HttpTransaction
+                    } else if self.actions.is_empty() {
+                        CauseCategory::ApplicationLaunch
+                    } else {
+                        CauseCategory::UserAction
+                    }
+                });
         }
         if self.exchanges.is_empty() && !matches!(self.cause, CauseCategory::HttpTransaction) {
             self.capabilities.insert(
@@ -283,6 +328,13 @@ impl Capsule {
         if self.cause != CauseCategory::Unclassified {
             return self.cause;
         }
+        if let Some(cause) = self
+            .assessment
+            .as_ref()
+            .and_then(typed::cause_from_assessment)
+        {
+            return cause;
+        }
         if self.exchanges.iter().any(|exchange| exchange.required) {
             CauseCategory::HttpTransaction
         } else if self.actions.is_empty() {
@@ -295,10 +347,20 @@ impl Capsule {
     /// Required capabilities are derived from actual causal inputs. An absent
     /// transport can never silently degrade into a confirmed reproduction.
     pub fn missing_required_capabilities(&self) -> Vec<String> {
+        if let Some(assessment) = &self.assessment {
+            return assessment
+                .unresolved
+                .iter()
+                .map(|unresolved| format!("{}: {}", unresolved.requirement_id, unresolved.detail))
+                .collect();
+        }
         let mut required = BTreeSet::new();
         match self.cause_category() {
             CauseCategory::ApplicationLaunch | CauseCategory::UserAction => {
                 required.insert("ui_actions");
+            }
+            CauseCategory::ProcessLifecycle => {
+                required.insert("process");
             }
             CauseCategory::HttpTransaction => {
                 required.insert("http");
@@ -308,6 +370,30 @@ impl Capsule {
             }
             CauseCategory::TimerOrBackgroundEvent => {
                 required.insert("background_events");
+            }
+            CauseCategory::Command => {
+                required.insert("command");
+            }
+            CauseCategory::Message => {
+                required.insert("message");
+            }
+            CauseCategory::InstallerOrUpgrade => {
+                required.insert("installer");
+            }
+            CauseCategory::Migration => {
+                required.insert("migration");
+            }
+            CauseCategory::FilesystemEvent => {
+                required.insert("filesystem");
+            }
+            CauseCategory::ResourcePressure => {
+                required.insert("resource_pressure");
+            }
+            CauseCategory::ConcurrencySchedule => {
+                required.insert("concurrency_schedule");
+            }
+            CauseCategory::DeviceInteraction => {
+                required.insert("device");
             }
             CauseCategory::EnvironmentChange => {
                 required.insert("environment");
@@ -356,18 +442,64 @@ impl Capsule {
             bail!("capsule environment exceeds the bounded proof capacity");
         }
         self.environment_envelope.validate(&self.environment)?;
+        match (&self.occurrence, &self.assessment, &self.reproduction_plan) {
+            (None, None, None) => {}
+            (Some(occurrence), Some(assessment), Some(plan)) => {
+                occurrence
+                    .validate()
+                    .map_err(|error| anyhow::anyhow!("invalid capsule occurrence: {error}"))?;
+                assessment
+                    .validate(occurrence)
+                    .map_err(|error| anyhow::anyhow!("invalid capsule assessment: {error}"))?;
+                plan.validate(occurrence, assessment)
+                    .map_err(|error| anyhow::anyhow!("invalid capsule plan: {error}"))?;
+            }
+            _ => {
+                bail!("typed capsule execution requires occurrence, assessment, and plan together")
+            }
+        }
         Ok(())
     }
 
     pub fn missing_required_replay_capabilities(&self) -> Vec<String> {
+        if self.reproduction_plan.is_some() {
+            return Vec::new();
+        }
         let mut required = BTreeSet::new();
         match self.cause_category() {
             CauseCategory::ApplicationLaunch | CauseCategory::UserAction => {}
+            CauseCategory::ProcessLifecycle => {
+                required.insert("process_replay");
+            }
             CauseCategory::HttpTransaction => {
                 required.insert("http_replay");
             }
             CauseCategory::TimerOrBackgroundEvent => {
                 required.insert("background_events_replay");
+            }
+            CauseCategory::Command => {
+                required.insert("command_replay");
+            }
+            CauseCategory::Message => {
+                required.insert("message_replay");
+            }
+            CauseCategory::InstallerOrUpgrade => {
+                required.insert("installer_replay");
+            }
+            CauseCategory::Migration => {
+                required.insert("migration_replay");
+            }
+            CauseCategory::FilesystemEvent => {
+                required.insert("filesystem_replay");
+            }
+            CauseCategory::ResourcePressure => {
+                required.insert("resource_pressure_replay");
+            }
+            CauseCategory::ConcurrencySchedule => {
+                required.insert("concurrency_schedule_replay");
+            }
+            CauseCategory::DeviceInteraction => {
+                required.insert("device_replay");
             }
             CauseCategory::EnvironmentChange => {
                 required.insert("environment_replay");

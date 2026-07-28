@@ -52,6 +52,14 @@ use setup::{parse_git_remote_slug, REPRO_WORKFLOW};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reproit_protocol::{
+        AssessmentStatus, CapabilityAssessment, ConsentClass, EvidencePolicy, EvidenceSource,
+        ExecutionDestination, FailureObservation, MechanismAuthority, ObservationAuthority,
+        ObservationKind, ObservationTarget, OccurrenceEnvelope, PlanBinding, ProcessOperation,
+        ReproductionPackage, ReproductionPlan, ReproductionRequirement, RequirementKind,
+        RequirementLevel, SubjectIdentity, UnresolvedRequirement, UnresolvedRequirementReason,
+        OCCURRENCE_VERSION, PACKAGE_VERSION, PLAN_VERSION,
+    };
 
     #[test]
     fn generated_workflow_verifies_prs_and_reports_the_head_commit() {
@@ -277,6 +285,142 @@ mod tests {
         // A package with no executable actions cannot become a check-able repro.
         let pkg = json!({ "replay": [], "crashSig": "x" });
         assert!(materialize_pull(&pkg, "x", "t").is_err());
+    }
+
+    fn process_occurrence() -> OccurrenceEnvelope {
+        OccurrenceEnvelope {
+            version: OCCURRENCE_VERSION,
+            occurrence_id: "occ_cli_process_start".into(),
+            source: EvidenceSource::SupportBundle,
+            subject: SubjectIdentity {
+                product: "desktop-suite".into(),
+                component: "index-service".into(),
+                platform: Some("windows".into()),
+            },
+            observed_at: "2026-07-27T12:00:00Z".into(),
+            received_at: "2026-07-27T12:01:00Z".into(),
+            deployment: None,
+            observations: vec![FailureObservation {
+                kind: ObservationKind::Exception,
+                authority: ObservationAuthority::RuntimeDiagnosis,
+                summary: "index service failed during startup".into(),
+                signature: Some("InvalidOperationException:index-start".into()),
+                observation_point: Some("index-service/startup".into()),
+                artifact_ids: vec![],
+            }],
+            artifacts: vec![],
+            capture_defects: vec![],
+            policy: EvidencePolicy {
+                consent: ConsentClass::SupportExport,
+                retention_class: "support-30d".into(),
+            },
+        }
+    }
+
+    fn process_requirement() -> ReproductionRequirement {
+        ReproductionRequirement {
+            id: "req_process_launch".into(),
+            level: RequirementLevel::Required,
+            requirement: RequirementKind::Process {
+                role: "index-service".into(),
+                operation: ProcessOperation::Launch,
+            },
+            evidence_artifact_ids: vec![],
+        }
+    }
+
+    #[test]
+    fn materialize_pull_reports_exact_missing_non_ui_capability() {
+        let occurrence = process_occurrence();
+        let requirement = process_requirement();
+        let assessment = CapabilityAssessment {
+            occurrence_id: occurrence.occurrence_id.clone(),
+            status: AssessmentStatus::Incomplete,
+            requirements: vec![requirement.clone()],
+            unresolved: vec![UnresolvedRequirement {
+                requirement_id: requirement.id,
+                reason: UnresolvedRequirementReason::MissingEvidence,
+                detail: "collect the service configuration inventory".into(),
+            }],
+        };
+        let mut package = ReproductionPackage {
+            version: PACKAGE_VERSION,
+            id: String::new(),
+            occurrence,
+            assessment,
+            plan: None,
+            capsule: None,
+            legacy: None,
+        };
+        package.finalize_id().unwrap();
+
+        let error = materialize_pull(
+            &json!({"reproductionPackage": package}),
+            "service-start",
+            "t",
+        )
+        .err()
+        .expect("incomplete evidence must abstain");
+        let message = error.to_string();
+        assert!(message.contains("occ_cli_process_start"));
+        assert!(message.contains("collect the service configuration inventory"));
+    }
+
+    #[test]
+    fn materialize_pull_accepts_trusted_non_ui_process_plan() {
+        let occurrence = process_occurrence();
+        let requirement = process_requirement();
+        let assessment = CapabilityAssessment {
+            occurrence_id: occurrence.occurrence_id.clone(),
+            status: AssessmentStatus::Eligible,
+            requirements: vec![requirement.clone()],
+            unresolved: vec![],
+        };
+        let mut plan = ReproductionPlan {
+            version: PLAN_VERSION,
+            id: String::new(),
+            occurrence_id: occurrence.occurrence_id.clone(),
+            target: "current-checkout".into(),
+            destination: ExecutionDestination::LocalVm {
+                platform: "windows-x86_64".into(),
+            },
+            bindings: vec![PlanBinding {
+                requirement_id: requirement.id,
+                provider_id: "trusted-dotnet-service".into(),
+                mechanism_authority: MechanismAuthority::TrustedCheckout,
+                template_digest: format!("sha256:{}", "a".repeat(64)),
+                evidence_artifact_ids: vec![],
+            }],
+            observation: ObservationTarget {
+                observation: ObservationKind::Exception,
+                identity: "InvalidOperationException:index-start".into(),
+                authority: ObservationAuthority::RuntimeDiagnosis,
+            },
+        };
+        plan.finalize_id().unwrap();
+        let mut package = ReproductionPackage {
+            version: PACKAGE_VERSION,
+            id: String::new(),
+            occurrence,
+            assessment,
+            plan: Some(plan.clone()),
+            capsule: None,
+            legacy: None,
+        };
+        package.finalize_id().unwrap();
+
+        let pulled = materialize_pull(
+            &json!({"reproductionPackage": package}),
+            "service-start",
+            "t",
+        )
+        .unwrap();
+        assert!(pulled.actions.is_empty());
+        assert_eq!(pulled.plan.as_ref().map(|value| &value.id), Some(&plan.id));
+        assert_eq!(
+            pulled.meta.id,
+            repro::repro_id(0, &[format!("plan:{}", plan.id)])
+        );
     }
 
     #[test]

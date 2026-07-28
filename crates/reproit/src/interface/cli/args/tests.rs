@@ -173,7 +173,7 @@ fn parser_boundary_applies_direct_bug_id_rewriting() {
     let cli = Cli::parse_args(["reproit", "cap_deadbeef00000000", "--watch"]);
     assert!(matches!(
         cli.command,
-        Cmd::Capture {
+        Cmd::OriginalCapture {
             ref capture,
             watch: true,
             ..

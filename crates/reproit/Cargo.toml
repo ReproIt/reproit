@@ -48,6 +48,7 @@ reqwest = { workspace = true, features = ["multipart", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reproit-protocol = { workspace = true }
+reproit-recorder = { path = "../reproit-recorder" }
 serde_yaml = "0.9"
 # decode the `x-reproit-events` adapter response header (base64url no-pad JSON),
 # same crate family the backend SDK uses to encode it.
@@ -66,11 +67,14 @@ tokio-util = { version = "0.7", features = ["io"] }
 # auth vault + TOTP. getrandom is the OS CSPRNG primitive for salt/nonce/keyfile
 # bytes (rand 0.10 dropped rand::rngs::OsRng; getrandom is the canonical source).
 aes-gcm = "0.11.0"
+chacha20poly1305 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 # Argon2id KDF for passphrase-derived vault keys (REPROIT_VAULT_KEY). A single
 # SHA256 is fine for the random keyfile but brute-forceable for a human secret.
 # Pinned to 0.5 to match the cloud crate's argon2 version.
 argon2 = "0.5.3"
 getrandom = "0.4.3"
+libc = "0.2"
 hmac = "0.13.0"
 sha1 = "0.11.0"
 sha2 = "0.11.0"

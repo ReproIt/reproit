@@ -1,14 +1,15 @@
 # Using the reproit CLI
 
-reproit drives your app like a user, finds bugs, and hands each one back as a **repro**: a saved
-case that fails the same way every single time. No more "cannot reproduce."
+reproit turns software failures into **repros**: saved executable cases with exact observations.
+A browser action, service startup, request, command, message, migration, and device event are
+different trigger types under the same occurrence, plan, capsule, proof, and guard model.
 
 This guide gets you from zero to a saved regression guard, then covers the rest. If you just want
 the command list, jump to [Reference](#reference).
 
 ## The idea in 30 seconds
 
-reproit has three core workflows:
+reproit has two entry paths into one verification loop:
 
 `reproit --help` lists the loop, not every command. Nineteen specialist, cloud, and one-shot
 commands are still supported and still documented here; they are hidden from the top-level help so
@@ -21,19 +22,109 @@ reproit fuzz    # find deeper sequence-dependent bugs
 reproit check   # verify replayable bugs from fuzz/keep
 ```
 
+Production and command failures use the same loop:
+
+```sh
+reproit capture -- ./failing-command
+reproit login
+reproit occ_...           # Cloud pulls evidence and compiles it against this checkout
+reproit check
+```
+
+`capture` preserves the wrapped command's exit status, so adding capture never turns a failed build
+or job green. Evidence collected elsewhere enters through the offline bundle path:
+
+```sh
+reproit collect ...       # create a signed, encrypted offline support bundle
+reproit inspect case.rpb  # verify its manifest and inspect metadata without decrypting
+reproit import case.rpb   # decrypt and store an immutable occurrence
+reproit occ_...           # execute it, or print exact missing requirements
+reproit plan occ_... ...  # bind requirements to trusted checkout providers
+```
+
 `scan` is the fast audit pass; `fuzz` emits replayable `fnd_...` findings you can `check` and
 `keep`. Both maintain the internal app model automatically.
 
 Two things make it different:
 
-- **It's deterministic.** A bug is captured as a seed plus an exact list of actions. Replay it and
-  you get the identical failure, on any machine. That captured case is called a _repro_.
+- **It proves what it can execute.** A confirmed repro retains the exact failure identity and the
+  capabilities needed to observe it again. Reproit runs it in the closest authorized environment
+  that satisfies those capabilities, and abstains when required evidence or infrastructure is
+  missing.
 - **There is no AI inside it.** The engine that finds and replays bugs is plain, offline, and
   key-free. AI (your coding agent) plugs in from the outside over
   [MCP](#use-it-with-your-ai-agent-mcp) to read repros and fix them. reproit then proves the fix.
 
 It also never relies on on-screen text to identify a screen, so the same app in English or German is
 the same graph, and your repros survive copy edits and translations.
+
+## Offline and non-UI failures
+
+`collect` accepts bounded regular files such as logs, structured events, traces, dumps, diagnostic
+reports, screenshots, and recordings. It hashes each artifact, creates an immutable
+`OccurrenceEnvelope`, archives at most 64 MiB, encrypts the payload with XChaCha20-Poly1305, and
+signs the manifest with Ed25519. If `REPROIT_BUNDLE_ENCRYPTION_KEY` is absent, Reproit creates a
+random key in `<bundle>.key` with mode 0600. If `REPROIT_BUNDLE_SIGNING_KEY` is absent, it also
+creates `<bundle>.signer`. Transfer both files separately from the bundle. Import and inspection
+refuse an embedded signer unless it matches the separately supplied signer key.
+
+```sh
+reproit collect --output customer-support.rpb \
+  --product desktop-suite \
+  --component index-service \
+  --platform windows \
+  --summary "service exits while opening the index" \
+  --artifact service.log \
+  --artifact service.dmp
+
+reproit inspect customer-support.rpb
+reproit import customer-support.rpb
+```
+
+Without `--exportable`, artifacts are marked `local-analysis-only` and
+`unredacted-restricted`. `--exportable` is an explicit assertion that every included artifact was
+redacted at source and may cross the collection boundary. Encryption does not change an artifact's
+policy classification.
+
+Import never treats evidence as code. It creates an incomplete assessment with a precise
+requirement. A checkout opts into execution in its existing `reproit.yaml`:
+
+```yaml
+execution:
+  version: 1
+  providers:
+    index-start:
+      authority: trusted-checkout
+      phase: launch
+      argv: [dotnet, run, --project, src/IndexService]
+      workingDirectory: .
+      timeoutMs: 30000
+      cleanExitCodes: [0]
+      observation:
+        identity: index-service-start-failure
+        kind: stderr-contains
+        value: "INDEX_START_FAILURE"
+      cleanup:
+        argv: [dotnet, run, --project, tools/Cleanup]
+        timeoutMs: 30000
+```
+
+Compile and run the occurrence:
+
+```sh
+reproit plan occ_... \
+  --bind req_current_checkout_process=index-start \
+  --identity index-service-start-failure
+
+reproit occ_...
+reproit check
+```
+
+The initial trusted provider is a bounded command provider. It covers current-checkout tests,
+startup failures, installers, migrations, service harnesses, and command-driven requests. Typed
+native providers for databases, queues, HTTP, Compose, devices, VMs, clocks, and concurrency remain
+separate capability work. Until one is implemented and bound, Reproit reports the requirement as
+incomplete or unsupported.
 
 ## Your first run
 

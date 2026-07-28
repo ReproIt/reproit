@@ -18,6 +18,14 @@ adb_run get-state | grep -q device || {
   echo "Android device $ANDROID_UDID is not ready" >&2
   exit 1
 }
+DEVICE_ABI="$(adb_run shell getprop ro.product.cpu.abi | tr -d '\r')"
+case "$DEVICE_ABI" in
+  arm64-v8a | x86_64) ;;
+  *)
+    echo "unsupported Android device ABI: $DEVICE_ABI" >&2
+    exit 1
+    ;;
+esac
 curl -fsS "$APPIUM_URL/status" >/dev/null || {
   echo "Appium is not ready at $APPIUM_URL" >&2
   exit 1
@@ -33,7 +41,7 @@ sed -i.bak 's/^newArchEnabled=true$/newArchEnabled=false/' "$WORK/app/android/gr
 
 npm install --prefix "$WORK/app" --no-audit --no-fund
 (cd "$WORK/app/android" && ./gradlew --no-daemon \
-  -PreactNativeArchitectures=arm64-v8a :app:assembleRelease)
+  -PreactNativeArchitectures="$DEVICE_ABI" :app:assembleRelease)
 
 APK="$WORK/app/android/app/build/outputs/apk/release/app-release.apk"
 adb_run install -r "$APK" >/dev/null
@@ -45,12 +53,12 @@ test "$(adb_run shell getprop sys.boot_completed | tr -d '\r')" = "1"
 
 printf '{"budget":1}' > "$WORK/fuzz.json"
 export REPROIT_APPIUM_URL="$APPIUM_URL"
-REPROIT_APPIUM_CAPS='{"platformName":"Android","appium:automationName":"UiAutomator2",'
-REPROIT_APPIUM_CAPS+="\"appium:udid\":\"$ANDROID_UDID\",\"appium:noReset\":true,"
-REPROIT_APPIUM_CAPS+='"appium:newCommandTimeout":600,'
-REPROIT_APPIUM_CAPS+='"appium:appPackage":"com.reproitrnfixture",'
-REPROIT_APPIUM_CAPS+='"appium:appActivity":".MainActivity"}'
 export REPROIT_APPIUM_CAPS
+printf -v REPROIT_APPIUM_CAPS '%s%s%s%s' \
+  '{"platformName":"Android","appium:automationName":"UiAutomator2",' \
+  "\"appium:udid\":\"$ANDROID_UDID\",\"appium:noReset\":true," \
+  '"appium:newCommandTimeout":600,"appium:appPackage":"com.reproitrnfixture",' \
+  '"appium:appActivity":".MainActivity"}'
 export REPROIT_FUZZ_CONFIG="$WORK/fuzz.json"
 
 node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/run.log"
@@ -61,5 +69,7 @@ grep -Eq 'key:(toggle|com\.reproitrnfixture:id/toggle)' "$WORK/run.log"
 grep -q 'Detail revealed' "$WORK/run.log"
 grep -q '^JOURNEY DONE$' "$WORK/run.log"
 grep -q '^All tests passed$' "$WORK/run.log"
-! grep -q 'EXCEPTION CAUGHT BY RN RUNNER' "$WORK/run.log"
+if grep -q 'EXCEPTION CAUGHT BY RN RUNNER' "$WORK/run.log"; then
+  exit 1
+fi
 echo 'Appium backend passed native React Native Android runtime'

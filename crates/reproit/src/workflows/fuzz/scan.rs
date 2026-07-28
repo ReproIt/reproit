@@ -186,6 +186,21 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
     for items in by_screen.values_mut() {
         collapse_related_findings(items);
     }
+    let mut occurrences = std::collections::BTreeMap::new();
+    for (route, items) in &by_screen {
+        for (oracle, classification, detail) in items {
+            let occurrence_id = persist_scan_occurrence(cfg, root, route, oracle, detail)?;
+            occurrences.insert(
+                (
+                    route.clone(),
+                    oracle.clone(),
+                    classification.clone(),
+                    detail.clone(),
+                ),
+                occurrence_id,
+            );
+        }
+    }
 
     let issues: usize = by_screen.values().map(|s| s.len()).sum();
     let unreported_violations = by_screen
@@ -220,7 +235,17 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
                     "findings": items
                         .iter()
                         .map(|(o, c, d)| {
-                            json!({"oracle": o, "classification": c, "detail": d})
+                            json!({
+                                "oracle": o,
+                                "classification": c,
+                                "detail": d,
+                                "occurrenceId": occurrences.get(&(
+                                    route.clone(),
+                                    o.clone(),
+                                    c.clone(),
+                                    d.clone(),
+                                )),
+                            })
                         })
                         .collect::<Vec<_>>(),
                 })
@@ -261,6 +286,14 @@ pub async fn scan(cfg: &Config, root: &Path, args: &ScanArgs) -> Result<ScanSumm
         say(json, format!("\n  {route}"));
         for (oracle, classification, detail) in items {
             say(json, format!("    {oracle:16} [{classification}] {detail}"));
+            if let Some(occurrence_id) = occurrences.get(&(
+                route.clone(),
+                oracle.clone(),
+                classification.clone(),
+                detail.clone(),
+            )) {
+                say(json, format!("      occurrence: {occurrence_id}"));
+            }
         }
     }
     let (boxed_clips, diagnostic_clips) = clip_visualization_counts(&clips);

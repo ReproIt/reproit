@@ -1,0 +1,11 @@
+[package]
+name = "reproit-recorder"
+version = "1.0.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Bounded causal flight recorder shared by Reproit SDKs"
+
+[dependencies]
+reproit-protocol = { workspace = true }
+serde_json = { workspace = true }

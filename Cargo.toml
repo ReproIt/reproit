@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/llm",
   "crates/reproit-protocol",
+  "crates/reproit-recorder",
   "crates/reproit",
   "crates/tui-sig",
   "sdk/reproit-backend-rs",
@@ -24,6 +25,7 @@ tokio = { version = "1.52.3", features = [
   "macros",
   "rt-multi-thread",
   "process",
+  "signal",
   "time",
   "io-util",
   "fs",

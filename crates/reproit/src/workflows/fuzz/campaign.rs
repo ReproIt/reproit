@@ -626,9 +626,12 @@ pub(super) async fn fuzz_one_locale(
                             "identity": capsule.finding,
                         }))?,
                     )?;
+                    let occurrence_id =
+                        persist_preproduction_occurrence(cfg, root, &repro_id, &capsule)?;
                     promote_finding(root, provisional_id.as_deref(), &repro_id, &report_dir)?;
                     confirmed_findings.push(super::ConfirmedFinding {
                         id: finding_id.clone(),
+                        occurrence_id,
                         cause: capsule.cause_category(),
                         action_count: capsule.actions.len(),
                         seed,

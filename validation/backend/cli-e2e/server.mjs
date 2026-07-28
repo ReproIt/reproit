@@ -2,8 +2,21 @@ import { createServer } from 'node:http';
 import { beginBackendTrace } from '../sdk-node.mjs';
 
 const port = Number(process.env.PORT ?? 19877);
+const maxBodyBytes = 64 * 1024;
 let statefulUser = null;
-createServer((request, response) => {
+
+async function readJsonBody(request) {
+  const chunks = [];
+  let bodyBytes = 0;
+  for await (const chunk of request) {
+    bodyBytes += chunk.length;
+    if (bodyBytes > maxBodyBytes) throw new Error('request body is too large');
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+createServer(async (request, response) => {
   if (request.url === '/proof' && request.method === 'GET') {
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end(`<!doctype html><html lang="en">
@@ -48,7 +61,18 @@ createServer((request, response) => {
     return;
   }
   if (request.url === '/stateful-users' && request.method === 'POST') {
-    statefulUser = { id: 'user-42', name: 'Reproit' };
+    let input;
+    try {
+      input = await readJsonBody(request);
+    } catch {
+      response.writeHead(400).end();
+      return;
+    }
+    if (!input || typeof input !== 'object' || typeof input.name !== 'string') {
+      response.writeHead(400).end();
+      return;
+    }
+    statefulUser = { id: 'user-42', name: input.name };
     response.writeHead(201, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ id: statefulUser.id }));
     return;

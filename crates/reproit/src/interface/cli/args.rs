@@ -4,6 +4,7 @@ use super::context::Ctx;
 use super::rewrite;
 use crate::VERSION;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod actions;
@@ -14,13 +15,15 @@ pub(crate) use actions::*;
 /// documented; it is hidden so a first reader sees the product rather than
 /// thirty-five peers.
 const AFTER_HELP: &str = concat!(
-    "The loop:\n",
-    "  reproit init      set up from a schema or the app\n",
-    "  reproit scan      audit what is reachable now\n",
-    "  reproit fuzz      find deeper, sequence-dependent bugs\n",
-    "  reproit check     the CI gate: block on new or regressed findings\n",
-    "  reproit verify    prove a fix against the recorded repro\n",
-    "\nRun one repro:\n",
+    "Production failure to permanent guard:\n",
+    "  reproit login\n",
+    "  reproit occ_<id>  pull the evidence, compile it against this checkout, and run it\n",
+    "  reproit check     block CI if a fixed failure returns\n",
+    "\nCapture or discover failures:\n",
+    "  reproit capture -- <command>\n",
+    "  reproit init && reproit scan\n",
+    "  reproit fuzz\n",
+    "\nRun any saved repro:\n",
     "  reproit fnd_<id>\n",
     "  reproit @saved-name\n",
     "  reproit @saved-name --record-video\n",
@@ -34,7 +37,7 @@ const AFTER_HELP: &str = concat!(
 #[command(
     name = "reproit",
     version = VERSION,
-    about = "Find real bugs in a UI or a backend, and keep every one reproducible",
+    about = "Make software failures executable, prove fixes, and keep them from returning",
     after_help = AFTER_HELP
 )]
 pub(crate) struct Cli {
@@ -384,6 +387,71 @@ pub(crate) enum Cmd {
         #[arg(long)]
         offline: bool,
     },
+    /// Collect a signed, encrypted offline support bundle from bounded files.
+    Collect {
+        /// Destination `.rpb` file. The command refuses to overwrite it.
+        #[arg(long, short)]
+        output: PathBuf,
+        /// Product identity recorded in the immutable occurrence envelope.
+        #[arg(long)]
+        product: String,
+        /// Component that observed the failure.
+        #[arg(long)]
+        component: String,
+        /// Optional operating system or runtime platform.
+        #[arg(long)]
+        platform: Option<String>,
+        /// Human failure observation. This is a source claim, not an oracle.
+        #[arg(long)]
+        summary: String,
+        /// Evidence file to include. Repeat for logs, dumps, traces, or reports.
+        #[arg(long = "artifact", value_name = "FILE")]
+        artifacts: Vec<PathBuf>,
+        /// Assert that every included artifact was redacted at source and may
+        /// cross the collection boundary.
+        #[arg(long)]
+        exportable: bool,
+        /// Retention policy label carried with the occurrence.
+        #[arg(long, default_value = "support-30d")]
+        retention_class: String,
+    },
+    /// Capture one command and its bounded causal evidence. A failing command
+    /// becomes a directly executable occurrence.
+    #[command(name = "capture", trailing_var_arg = true)]
+    CaptureCommand {
+        /// Project identity used by Cloud grouping. Defaults to the checkout
+        /// directory name.
+        #[arg(long)]
+        project: Option<String>,
+        /// Component identity. Defaults to the executable name.
+        #[arg(long)]
+        component: Option<String>,
+        /// Stop the command after this many milliseconds.
+        #[arg(long, default_value_t = 300_000)]
+        timeout_ms: u64,
+        /// Retain bounded stdout and stderr as local-only restricted artifacts.
+        #[arg(long)]
+        include_output: bool,
+        /// Keep the capture on this machine even when Cloud credentials exist.
+        #[arg(long)]
+        local_only: bool,
+        /// Command and arguments. Use `--` before command flags.
+        #[arg(required = true, allow_hyphen_values = true, num_args = 1..)]
+        command: Vec<OsString>,
+    },
+    /// Internal direct occurrence route used by `reproit occ_...`.
+    #[command(name = "__occurrence", hide = true)]
+    Occurrence { reference: String },
+    /// Compile an imported occurrence against checkout-owned execution providers.
+    Plan {
+        occurrence: String,
+        /// Bind one assessed requirement to a trusted provider, `REQ=PROVIDER`.
+        #[arg(long = "bind", value_name = "REQ=PROVIDER", required = true)]
+        bindings: Vec<String>,
+        /// Exact failure identity confirmed by the trusted provider.
+        #[arg(long)]
+        identity: String,
+    },
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified
     /// detector result.
@@ -557,7 +625,7 @@ pub(crate) enum Cmd {
     },
     /// Internal route for the direct `reproit cap_...` form.
     #[command(name = "__capture", hide = true)]
-    Capture {
+    OriginalCapture {
         /// Immutable original capture id (cap_...).
         capture: String,
         /// Open the original local video.
@@ -713,14 +781,12 @@ pub(crate) enum Cmd {
         #[arg(long)]
         path_template: Option<String>,
     },
-    /// Import a flow from another tool into a reproit journey (switching cost
-    /// ~0). Currently supports Maestro: `reproit import maestro flow.yaml`.
-    #[command(hide = true)]
+    /// Import an offline `.rpb` support bundle or a flow from another tool.
     Import {
-        /// Source tool. Currently: maestro.
-        tool: String,
-        /// Path to the source flow file.
-        path: PathBuf,
+        /// Bundle path, or source tool (`maestro`) when a second path follows.
+        source: String,
+        /// Source flow file for tool imports.
+        path: Option<PathBuf>,
         /// Journey name (default: the source file stem).
         #[arg(long)]
         name: Option<String>,

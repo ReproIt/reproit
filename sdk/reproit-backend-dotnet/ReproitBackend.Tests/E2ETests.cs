@@ -22,7 +22,7 @@ public class E2ETests
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
-        app.MapPost("/v1/events", async context =>
+        app.MapPost("/v1/capture-batches", async context =>
         {
             using var reader = new StreamReader(context.Request.Body, Encoding.UTF8);
             var body = await reader.ReadToEndAsync();
@@ -37,7 +37,7 @@ public class E2ETests
         });
         app.Urls.Add("http://127.0.0.1:0");
         await app.StartAsync();
-        return (app, app.Urls.First() + "/v1/events", received);
+        return (app, app.Urls.First() + "/v1/capture-batches", received);
     }
 
     private static async Task<(WebApplication App, string BaseUrl)> StartHostApp(
@@ -67,34 +67,33 @@ public class E2ETests
         Assert.Single(received);
         Assert.Equal("Bearer sk_live_test", received[0].Authorization);
         var batch = (Dictionary<string, object?>)received[0].Batch!;
-        EventBatchV1.ValidateEventBatch(batch);
-        Assert.Equal("app-e2e", batch["appId"]);
+        Assert.Equal(1L, batch["version"]);
+        Assert.Equal("app-e2e", batch["projectId"]);
         Assert.Equal("9.9.9",
             ((Dictionary<string, object?>)batch["deployment"]!)["version"]);
-        var findings = ((List<object?>)batch["frames"]!)
-            .Select(frame => (Dictionary<string, object?>)
-                ((Dictionary<string, object?>)frame!)["event"]!)
-            .Where(evt => (evt["kind"] as string) == "finding")
+        var events = ((List<object?>)batch["events"]!)
+            .Select(captured => (Dictionary<string, object?>)
+                ((Dictionary<string, object?>)captured!)["event"]!)
             .ToList();
-        var finding = Assert.Single(findings);
-        var identity = (Dictionary<string, object?>)finding["identity"]!;
-        Assert.Equal(Capture.ServerErrorOracle, identity["oracle"]);
-        var context = (Dictionary<string, object?>)finding["context"]!;
-        Assert.Equal(Capture.SdkName, context["capture"]);
-        var capture = (Dictionary<string, object?>)context["reproitCapture"]!;
-        Assert.Equal(Capture.CaptureFormat, capture["format"]);
-        Assert.Equal(Capture.ServerErrorOracle, capture["oracle"]);
-        var events = ((List<object?>)capture["events"]!)
-            .Select(evt => (Dictionary<string, object?>)evt!)
-            .ToList();
-        Assert.Equal(new[] { "start", "effect", "return" },
+        Assert.Equal(
+            new[]
+            {
+                "operation-start",
+                "trigger",
+                "state-access",
+                "operation-end",
+                "observation",
+            },
             events.Select(evt => (string)evt["kind"]!).ToArray());
-        Assert.Equal("orders", events[1]["resource"]);
-        Assert.Equal(500L, events[2]["status"]);
-        Assert.Equal(false, events[2]["success"]);
+        Assert.Equal("orders", events[2]["subject"]);
+        var failure = (Dictionary<string, object?>)events[^1]["failure"]!;
+        Assert.Equal("backend:POST /boom", failure["signature"]);
         // The secret-shaped input field was structurally redacted before upload.
+        var triggerValue = (Dictionary<string, object?>)events[1]["value"]!;
+        Assert.Equal("replayable", triggerValue["representation"]);
+        var input = (Dictionary<string, object?>)triggerValue["value"]!;
         var body = (Dictionary<string, object?>)
-            ((Dictionary<string, object?>)events[0]["input"]!)["body"]!;
+            input["body"]!;
         var redacted = (Dictionary<string, object?>)
             ((Dictionary<string, object?>)body["apiKey"]!)["$reproit"]!;
         Assert.Equal(true, redacted["redacted"]);

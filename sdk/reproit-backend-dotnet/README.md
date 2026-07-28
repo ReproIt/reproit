@@ -29,7 +29,7 @@ using ReproitBackend;
 
 var capture = Capture.Create(new CaptureConfig
 {
-    Endpoint = "https://cloud.example.com/v1/events", // ingest endpoint
+    Endpoint = "https://cloud.example.com/v1/capture-batches",
     ApiKey = "sk_live_...",                           // project API key (Authorization: Bearer)
     AppId = "app-id",                                 // Cloud project app id
     Build = "1.4.2",                                  // optional deployment identity
@@ -53,25 +53,27 @@ config-gated: nothing leaves the process unless the host constructs a `Capture`.
 `Capture.Create(config)` returns `null` (capture disabled, host unaffected) when the config is
 unusable. `capture.Record(trace)` never blocks, never throws, and never surfaces errors.
 
-Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured;
-healthy operations are captured only under `HealthySamplePerMille` (default 0, backend frames
-only, no finding). A 5xx capture is posted as an event-batch-v1 batch: every trace event as a
-`backend` frame plus one `finding` frame tagged with the first-class `backend-server-error`
-oracle id, whose `context.reproitCapture` object carries the full redacted start/effects/return
-sequence for deterministic local replay:
+Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured.
+Healthy operations are captured only under `HealthySamplePerMille` (default 0). Each operation
+becomes one universal source-neutral capture batch with typed request, state, dependency, effect,
+and failure events:
 
 ```sh
-# fetch the finding from /v1/errors/:app, save context.reproitCapture as capture.json, then:
-reproit debug replay-capture capture.json
+reproit occ_...
 ```
 
-Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), 16 operations per batch,
-48 KB capture payload (trailing effect events dropped first, `captureDroppedEffects` counts
-them), bounded flush interval (floor 100 ms), per-request timeout, and at most `RetryLimit`
-(cap 5) retries; 4xx responses are never retried. Redaction runs in `Begin`/`Effect`/`Finish`,
-before anything is queued. Uploads run on one background thread over a shared HttpClient, off
-the request path. `sdk/test/oracle_contract_test.js` pins the `backend-server-error` tagging
-contract.
+Bounds are fixed: queue depth 64 operations with drop-oldest overflow, one operation per batch,
+1,024 causal events per operation, bounded flush interval, per-request timeout, and at most
+`RetryLimit` (cap 5) retries. A 4xx response is never retried. Redaction runs in
+`Begin`/`Effect`/`Finish`, before anything is queued. Uploads run on one background thread over a
+shared HttpClient, off the request path.
+
+`UniversalRecorder` is the framework-neutral API for Windows services, desktop applications,
+installers, migrations, scheduled jobs, commands, messages, and other .NET software. Its semantic
+methods match the Node and Rust recorder cores. `CaptureValues.Replayable`, `Structural`, and
+`EnvironmentBound` preserve the portability boundary at the call site. External session, trace,
+span, and actor identifiers that do not fit the wire token grammar become deterministic SHA-256
+correlation tokens instead of being dropped.
 
 ## Tests
 

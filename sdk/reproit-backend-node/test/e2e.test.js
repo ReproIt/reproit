@@ -1,6 +1,6 @@
 // Functional end-to-end test: real Express and Fastify servers with a planted
 // 500, real HTTP requests, and a local stub ingest server. Asserts the finding
-// batch arrives correctly tagged with the reproitCapture sequence, and that a
+// source-neutral batch arrives with the causal sequence, and that a
 // scan-time request round-trips the x-reproit-events header.
 //
 // Run explicitly (needs devDependencies): npm install && npm run test:e2e
@@ -10,8 +10,7 @@ const assert = require('node:assert');
 const http = require('node:http');
 const test = require('node:test');
 
-const { Capture, SERVER_ERROR_ORACLE, CAPTURE_FORMAT } = require('../index.js');
-const { validateEventBatch } = require('../../test/event_batch_v1.js');
+const { Capture } = require('../index.js');
 
 function startStubIngest() {
   const received = [];
@@ -26,35 +25,31 @@ function startStubIngest() {
   });
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
-      const url = 'http://127.0.0.1:' + server.address().port + '/v1/events';
+      const url = 'http://127.0.0.1:' + server.address().port + '/v1/capture-batches';
       resolve({ received, server, url });
     });
   });
 }
 
-function assertServerErrorBatch(received, sdkName) {
+function assertServerErrorBatch(received) {
   assert.strictEqual(received.length, 1);
   const { authorization, batch } = received[0];
   assert.strictEqual(authorization, 'Bearer sk_live_test');
-  validateEventBatch(batch);
-  assert.strictEqual(batch.appId, 'app-e2e');
+  assert.strictEqual(batch.version, 1);
+  assert.strictEqual(batch.projectId, 'app-e2e');
   assert.strictEqual(batch.deployment.version, '9.9.9');
-  const findings = batch.frames.filter((frame) => frame.event.kind === 'finding');
-  assert.strictEqual(findings.length, 1);
-  const finding = findings[0].event;
-  assert.strictEqual(finding.identity.oracle, SERVER_ERROR_ORACLE);
-  assert.strictEqual(finding.context.capture, sdkName);
-  const capture = finding.context.reproitCapture;
-  assert.strictEqual(capture.format, CAPTURE_FORMAT);
-  assert.strictEqual(capture.oracle, SERVER_ERROR_ORACLE);
-  const kinds = capture.events.map((event) => event.kind);
-  assert.deepStrictEqual(kinds, ['start', 'effect', 'return']);
-  assert.strictEqual(capture.events[1].resource, 'orders');
-  assert.strictEqual(capture.events[2].status, 500);
-  assert.strictEqual(capture.events[2].success, false);
+  assert.strictEqual(batch.emitter.id, 'backend-node');
+  const events = batch.events.map((captured) => captured.event);
+  assert.deepStrictEqual(
+    events.map((event) => event.kind),
+    ['operation-start', 'trigger', 'state-access', 'operation-end', 'observation'],
+  );
+  assert.strictEqual(events[2].subject, 'orders');
+  assert.match(events.at(-1).failure.signature, /^backend:/);
   // The secret-shaped input field was structurally redacted before upload.
-  assert.strictEqual(capture.events[0].input.body.apiKey.$reproit.redacted, true);
-  assert.strictEqual(capture.events[0].input.body.item, 'widget');
+  assert.strictEqual(events[1].value.representation, 'replayable');
+  assert.strictEqual(events[1].value.value.body.apiKey.$reproit.redacted, true);
+  assert.strictEqual(events[1].value.value.body.item, 'widget');
 }
 
 async function assertScanHeader(baseUrl) {
@@ -102,7 +97,7 @@ test('express: planted 500 ships a tagged finding batch to the stub ingest', asy
     });
     assert.strictEqual(boom.status, 500);
     assert.strictEqual(await capture.flush(5000), true);
-    assertServerErrorBatch(ingest.received, 'reproit-backend-node');
+    assertServerErrorBatch(ingest.received);
     await assertScanHeader(baseUrl);
     // The healthy scan-time request must not have been captured.
     assert.strictEqual(capture.stats().capturedOperations, 1);
@@ -141,7 +136,7 @@ test('fastify: planted 500 ships a tagged finding batch to the stub ingest', asy
     });
     assert.strictEqual(boom.status, 500);
     assert.strictEqual(await capture.flush(5000), true);
-    assertServerErrorBatch(ingest.received, 'reproit-backend-node');
+    assertServerErrorBatch(ingest.received);
     await assertScanHeader(baseUrl);
     assert.strictEqual(capture.stats().capturedOperations, 1);
   } finally {

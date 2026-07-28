@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "batchId": "cb_conformance",
+  "projectId": "orders",
+  "sessionId": "session_conformance",
+  "emitter": {
+    "id": "orders-api",
+    "kind": "runtime-sdk",
+    "component": "orders",
+    "runtime": "node"
+  },
+  "deployment": {
+    "version": "1.2.3",
+    "commit": "abc123"
+  },
+  "observedAt": "2026-07-27T12:00:00Z",
+  "policy": {
+    "consent": "application-telemetry",
+    "retentionClass": "standard"
+  },
+  "capabilities": [
+    {
+      "capability": "http",
+      "completeness": "complete"
+    }
+  ],
+  "events": [
+    {
+      "id": "evt_orders-api_1",
+      "sequence": 1,
+      "monotonicNs": 1,
+      "causalParentIds": [],
+      "traceId": "trace-1",
+      "event": {
+        "kind": "operation-start",
+        "name": "create-order"
+      }
+    },
+    {
+      "id": "evt_orders-api_2",
+      "sequence": 2,
+      "monotonicNs": 2,
+      "causalParentIds": [
+        "evt_orders-api_1"
+      ],
+      "traceId": "trace-1",
+      "event": {
+        "kind": "trigger",
+        "trigger": "http-request",
+        "subject": "POST /orders",
+        "value": {
+          "representation": "replayable",
+          "value": {
+            "body": {
+              "quantity": 2,
+              "sku": "widget"
+            }
+          },
+          "redaction": "redacted-at-source"
+        }
+      }
+    },
+    {
+      "id": "evt_orders-api_3",
+      "sequence": 3,
+      "monotonicNs": 3,
+      "causalParentIds": [
+        "evt_orders-api_2"
+      ],
+      "traceId": "trace-1",
+      "event": {
+        "kind": "operation-end",
+        "name": "create-order",
+        "outcome": "failed"
+      }
+    },
+    {
+      "id": "evt_orders-api_4",
+      "sequence": 4,
+      "monotonicNs": 4,
+      "causalParentIds": [
+        "evt_orders-api_3"
+      ],
+      "traceId": "trace-1",
+      "event": {
+        "kind": "observation",
+        "failure": {
+          "observation": "exception",
+          "authority": "runtime-diagnosis",
+          "summary": "order creation failed",
+          "signature": "orders:create:unique-violation",
+          "observationPoint": "orders.create",
+          "artifactIds": []
+        }
+      }
+    }
+  ],
+  "artifacts": []
+}

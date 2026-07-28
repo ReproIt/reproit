@@ -21,16 +21,17 @@ allows them.
 
 ## Preview and experimental surfaces
 
-The following remain available, but are outside the 1.x compatibility promise
-until their contracts have field evidence from at least two independent uses:
+The following remain available and exact-commit release-gated, but are outside
+the 1.x compatibility promise until their contracts have field evidence from
+at least two independent uses:
 
 - Firefox, WebKit, mobile, desktop, terminal, Electron, and Tauri adapters;
-- the entire backend pillar: contract oracles, production capture mode, the
-  `reproit-backend-*` SDKs, and backend `inspect`. All eight SDKs are 0.0.0,
-  unpublished and not install-smoked; the version number is not a claim that a
-  release exists. The Rust one additionally carries a README and crate metadata,
-  so publishing it is a decision plus a version, not a packaging exercise. Backend is opt-in and its
-  contracts may change before it is promoted to the stable surface;
+- backend contract oracles, runtime capture, and backend `inspect`. The real
+  backend release gate executes current-server scan, fuzz, exact replay,
+  server-error, authored-invariant, stateful, and proof controls. Legacy
+  `reproit-backend-*` packages that remain at 0.0.0 are unpublished and are not
+  install claims. The source-neutral Rust, Node, and .NET recorders use the
+  universal capture contract documented under `sdk/`;
 - specialist oracles selected explicitly with `--only`;
 - `debug map` analysis and contract suggestions;
 - `baseline`, `screenshots`, and `import maestro`;
@@ -39,3 +40,8 @@ until their contracts have field evidence from at least two independent uses:
 
 Experimental behavior must fail closed, remain explicitly labeled, and cannot
 silently promote a candidate into a confirmed regression guard.
+
+`validation/support-manifest.json` is the canonical maturity contract. Every
+owned platform gate is release-required. A stable entry must also name a
+complete field benchmark with at least two independent applications; changing a
+documentation table cannot bypass those checks.

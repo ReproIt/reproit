@@ -38,8 +38,8 @@ run_case() {
 run_case 1 0
 printf '%s\n' "$OUTPUT" | grep -q '"issues":0'
 run_case 0 1
-printf '%s\n' "$OUTPUT" | grep -q 'backend-contract'
-printf '%s\n' "$OUTPUT" | grep -q '\$output.id is required'
+printf '%s\n' "$OUTPUT" | grep -q 'backend-response-shape'
+printf '%s\n' "$OUTPUT" | grep -Fq "\$output.id is required"
 
 run_headless_case() {
   local valid="$1" expected="$2"
@@ -88,7 +88,7 @@ printf '%s\n' "$OUTPUT" |
   jq -e '.complete == true and .findings == [] and .exercised == 1' >/dev/null
 run_headless_case 0 1
 printf '%s\n' "$OUTPUT" | jq -e '.findings | length == 1' >/dev/null
-printf '%s\n' "$OUTPUT" | grep -q '\$output.id is required'
+printf '%s\n' "$OUTPUT" | grep -Fq "\$output.id is required"
 
 run_server_error_case() {
   rm -rf "$FIXTURE/.reproit"
@@ -189,10 +189,14 @@ run_stateful_fuzz_case() {
 
 run_stateful_fuzz_case 1 0
 printf '%s\n' "$OUTPUT" |
-  jq -e '.complete == true and .findings == [] and .exercised == 2' >/dev/null
+  jq -e \
+    '.complete == true and .findings == [] and .exercised == 3 and .rejected == 1' \
+    >/dev/null
 run_stateful_fuzz_case 0 1
-printf '%s\n' "$OUTPUT" | jq -e '.findings | length == 1' >/dev/null
-printf '%s\n' "$OUTPUT" | grep -q '\$output.name is required'
+printf '%s\n' "$OUTPUT" |
+  jq -e '.exercised == 3 and .rejected == 1 and (.findings | length) == 1' \
+    >/dev/null
+printf '%s\n' "$OUTPUT" | grep -Fq "\$output.name is required"
 
 run_proof_case() {
   local valid="$1" expected="$2"
@@ -226,10 +230,11 @@ printf '%s\n' "$OUTPUT" | jq -e \
   '.command == "scan" and .complete == true and .issues == 1 and
    (.results | length) == 1 and .results[0].screen == "backend:getOrder" and
    (.results[0].findings | length) == 1 and
-   .results[0].findings[0].oracle == "backend-contract"' >/dev/null
+   .results[0].findings[0].oracle == "backend-authorization-matrix"' >/dev/null
 PROOF_EVIDENCE=("$FIXTURE"/.reproit/runs/*/backend-evidence.json)
 [[ -f "${PROOF_EVIDENCE[0]}" ]]
 jq -s -e \
-  '[.[].violations[] | select(.oracle == "authorization-matrix")] | length >= 1' \
+  '[.[] | .nodes[]? | .payload.violations[]? |
+    select(.oracle == "authorization-matrix")] | length >= 1' \
   "${PROOF_EVIDENCE[@]}" >/dev/null
 echo "real reproit scan backend contract gate passed"

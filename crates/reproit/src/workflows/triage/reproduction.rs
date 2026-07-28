@@ -323,6 +323,8 @@ pub struct PulledRepro {
     pub actions: Vec<String>,
     pub fixture: crate::domain::fixture::Fixture,
     pub capsule: Option<crate::domain::capsule::Capsule>,
+    pub plan: Option<reproit_protocol::ReproductionPlan>,
+    pub package: Option<reproit_protocol::ReproductionPackage>,
 }
 
 /// Build the replay.json a pulled (or kept) repro stores on disk, in the EXACT
@@ -373,13 +375,47 @@ pub fn build_replay_json(
 ///   - `oracle`      -> the package finding identity or stored oracle category.
 ///   - `status`      -> quarantined (a fresh save, like a fresh keep).
 pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<PulledRepro> {
+    let typed_package: Option<reproit_protocol::ReproductionPackage> = pkg
+        .get("reproductionPackage")
+        .filter(|value| value.is_object())
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()
+        .context("cloud package contains an invalid typed reproduction package")?;
+    if let Some(package) = &typed_package {
+        package
+            .validate()
+            .map_err(|error| anyhow::anyhow!("cloud reproduction package is invalid: {error}"))?;
+        if package.assessment.status != reproit_protocol::AssessmentStatus::Eligible {
+            let blockers = package
+                .assessment
+                .unresolved
+                .iter()
+                .map(|unresolved| {
+                    format!(
+                        "{}: {}",
+                        unresolved.requirement_id,
+                        unresolved.detail.trim()
+                    )
+                })
+                .collect::<Vec<_>>();
+            anyhow::bail!(
+                "occurrence {} is {:?}; missing reproduction input: {}",
+                package.occurrence.occurrence_id,
+                package.assessment.status,
+                blockers.join("; ")
+            );
+        }
+    }
     let oracle = pkg["findingIdentity"]["oracle"]
         .as_str()
         .or_else(|| pkg["context"]["oracle"].as_str())
         .unwrap_or("crash")
         .to_string();
-    let mut capsule: Option<crate::domain::capsule::Capsule> = pkg
-        .get("capsule")
+    let capsule_value = typed_package
+        .as_ref()
+        .and_then(|package| package.capsule.as_ref())
+        .or_else(|| pkg.get("capsule"));
+    let mut capsule: Option<crate::domain::capsule::Capsule> = capsule_value
         .filter(|value| value.is_object())
         .map(|value| serde_json::from_value(value.clone()))
         .transpose()
@@ -405,12 +441,17 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
             );
         }
     }
-    let mut actions: Vec<String> = pkg["replay"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str().map(String::from))
-                .collect()
+    let mut actions: Vec<String> = typed_package
+        .as_ref()
+        .and_then(|package| package.legacy.as_ref())
+        .map(|legacy| legacy.actions.clone())
+        .or_else(|| {
+            pkg["replay"].as_array().map(|actions| {
+                actions
+                    .iter()
+                    .filter_map(|action| action.as_str().map(String::from))
+                    .collect()
+            })
         })
         .unwrap_or_default();
     if actions.is_empty() {
@@ -422,18 +463,35 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
                 .collect();
         }
     }
-    if actions.is_empty() && oracle != "tester-capture" {
+    let plan = typed_package
+        .as_ref()
+        .and_then(|package| package.plan.clone());
+    if actions.is_empty() && plan.is_none() && oracle != "tester-capture" {
         anyhow::bail!(
-            "the cloud package has no executable replay actions (its `replay` is empty); there is \
-             nothing to reproduce locally"
+            "the cloud package has neither a trusted reproduction plan nor legacy replay actions"
         );
     }
     let seed = pkg["seed"].as_u64().unwrap_or(0);
-    let id = repro::repro_id(seed, &actions);
+    let identity_actions = if actions.is_empty() {
+        vec![format!(
+            "plan:{}",
+            plan.as_ref()
+                .map(|plan| plan.id.as_str())
+                .unwrap_or("capture")
+        )]
+    } else {
+        actions.clone()
+    };
+    let id = repro::repro_id(seed, &identity_actions);
     // The crash signature re-confirms the SAME finding on replay; fall back to the
     // session's start sig, then None (the trigger_index does the work alone).
-    let trigger_sig = pkg["crashSig"]
-        .as_str()
+    let typed_legacy = typed_package
+        .as_ref()
+        .and_then(|package| package.legacy.as_ref());
+    let trigger_sig = typed_legacy
+        .and_then(|legacy| legacy.crash_signature.as_deref())
+        .or_else(|| typed_legacy.and_then(|legacy| legacy.start_signature.as_deref()))
+        .or_else(|| pkg["crashSig"].as_str())
         .or_else(|| pkg["startSig"].as_str())
         .map(String::from)
         .filter(|s| !s.is_empty());
@@ -458,12 +516,17 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
     // data-dependent prod bug (a 312-char unicode name, an RTL field, a specific
     // locale/role/plan) actually reproduces under a later `check`. Empty spec ->
     // empty fixture (a path-only repro), so this is inert for non-data bugs.
-    let fixture = crate::domain::fixture::synthesize(&pkg["fixtureSpec"]);
+    let fixture_value = typed_legacy
+        .map(|legacy| &legacy.fixture)
+        .unwrap_or(&pkg["fixtureSpec"]);
+    let fixture = crate::domain::fixture::synthesize(fixture_value);
     Ok(PulledRepro {
         meta,
         actions,
         fixture,
         capsule,
+        plan,
+        package: typed_package,
     })
 }
 
@@ -597,6 +660,17 @@ fn persist_pulled_package(
             anyhow::bail!("failed to materialize cloud causal capsule");
         }
     }
+    if let Some(plan) = &pulled.plan {
+        std::fs::write(dir.join("plan.json"), serde_json::to_string_pretty(plan)?)
+            .with_context(|| format!("writing {}", dir.join("plan.json").display()))?;
+    }
+    if let Some(package) = &pulled.package {
+        std::fs::write(
+            dir.join("package.json"),
+            serde_json::to_string_pretty(package)?,
+        )
+        .with_context(|| format!("writing {}", dir.join("package.json").display()))?;
+    }
 
     if json {
         println!(
@@ -613,6 +687,7 @@ fn persist_pulled_package(
                 "expected": expected,
                 "signature": meta.trigger_sig,
                 "actions": pulled.actions,
+                "plan": pulled.plan.as_ref().map(|plan| &plan.id),
                 "fixture": (!pulled.fixture.is_empty()).then(|| pulled.fixture.summary()),
                 "dir": dir.to_string_lossy(),
             }))?
@@ -627,7 +702,12 @@ fn persist_pulled_package(
     if let Some(sig) = &meta.trigger_sig {
         println!("  signature: {sig}");
     }
-    println!("  replay:    {}", pulled.actions.join(" -> "));
+    if let Some(plan) = &pulled.plan {
+        println!("  plan:      {} ({:?})", plan.id, plan.destination);
+    }
+    if !pulled.actions.is_empty() {
+        println!("  replay:    {}", pulled.actions.join(" -> "));
+    }
     if !pulled.fixture.is_empty() {
         println!("  fixture:   {}", pulled.fixture.summary());
     }

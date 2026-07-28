@@ -13,10 +13,12 @@ These tiers establish that Reproit's adapter works with a controlled application
 on the named runtime. They are not a claim that arbitrary third-party
 applications have been validated. Stable field compatibility requires clean
 evidence from at least two independent real applications per target. Every
-target below is released in 1.0 as a checksummed artifact. Chromium web is the
-focused 1.0 stable compatibility target. Every other released adapter remains
-preview compatibility until its field gate closes without weakening its native
-fixture gate.
+target below is released in 1.0 as a checksummed artifact. Every owned adapter
+gate is required on the exact release commit. Chromium web is the focused 1.0
+stable compatibility target. Every other released adapter remains preview
+compatibility until its field gate closes without weakening its native fixture
+gate. The manifest validator rejects a stable target without a complete
+two-application field benchmark.
 
 | Target | 1.0 support | Native fixture evidence | Field evidence |
 | --- | --- | --- | --- |
@@ -28,10 +30,10 @@ fixture gate.
 | SwiftUI iOS | preview | disposable simulator, Appium, XCUITest | two-app matrix open |
 | Windows desktop | preview | native x86_64 UIA on WPF, Avalonia, WinUI 3 | two-app matrix open |
 | Linux desktop | preview | x86_64 containers with AT-SPI fixtures | two-app matrix open |
-| Terminal UI | preview | real PTY and VT parser gate | clean reverification open |
+| Terminal UI | preview | real PTY and VT parser gate | two-app matrix open |
 | Electron and Tauri | preview | packaged fixtures on Linux workers | two-app matrix open |
 | macOS AX | preview | permissioned SwiftUI fixture and captured log | two-app matrix open |
-| Backend oracles, capture, and SDKs | preview | owned-fixture capture and replay proven | no third-party production case yet |
+| Backend capture and recorders | preview | current-server runtime gate | two-app matrix open |
 | Experimental specialist oracles | experimental | explicit invocation only | not promised |
 
 The public-issue ledger in `docs/issue-reproduction-audit.md` is deliberately

@@ -1,0 +1,25 @@
+{
+  "name": "reproit-recorder",
+  "version": "0.1.0",
+  "description": "Bounded source-neutral causal recorder for Reproit",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReproIt/reproit.git",
+    "directory": "sdk/reproit-recorder-node"
+  },
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/recorder.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

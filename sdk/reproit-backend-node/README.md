@@ -25,7 +25,7 @@ scan-time requests. Handlers record observed effects through `req.reproit` / `re
 ```js
 const { Capture } = require('reproit-backend-node');
 const capture = Capture.create({
-  endpoint: 'https://cloud.example.com/v1/events', // ingest endpoint
+  endpoint: 'https://cloud.example.com/v1/capture-batches',
   apiKey: 'sk_live_...', // project API key (Authorization: Bearer)
   appId: 'app-id', // Cloud project app id
   build: '1.4.2', // optional deployment identity
@@ -51,24 +51,21 @@ config-gated: nothing leaves the process unless the host constructs a `Capture`.
 `Capture.create(config)` returns `null` (capture disabled, host unaffected) when the config is
 unusable. `capture.record(trace)` never blocks, never throws, and never surfaces errors.
 
-Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured;
-healthy operations are captured only under `healthySamplePerMille` (default 0, backend frames
-only, no finding). A 5xx capture is posted as an event-batch-v1 batch: every trace event as a
-`backend` frame plus one `finding` frame tagged with the first-class `backend-server-error`
-oracle id, whose `context.reproitCapture` object carries the full redacted start/effects/return
-sequence for deterministic local replay:
+Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured.
+Healthy operations are captured only under `healthySamplePerMille` (default 0). Every operation
+becomes its own universal capture batch, so unrelated failures never share an occurrence identity.
+The trace becomes typed operation, request trigger, state, dependency, effect, and failure events.
+Cloud compiles these facts into an immutable occurrence and reports any missing reproduction input.
 
 ```sh
-# fetch the finding from /v1/errors/:app, save context.reproitCapture as capture.json, then:
-reproit debug replay-capture capture.json
+reproit occ_...
 ```
 
-Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), 16 operations per batch,
-48 KB capture payload (trailing effect events dropped first, `captureDroppedEffects` counts
-them), bounded flush interval (floor 100 ms), per-request timeout, and at most `retryLimit`
-(cap 5) retries; 4xx responses are never retried. Redaction runs in `begin`/`effect`/`finish`,
-before anything is queued. Uploads use global fetch on unref'd timers, off the request path.
-`sdk/test/oracle_contract_test.js` pins the `backend-server-error` tagging contract.
+Bounds are fixed: queue depth 64 operations with drop-oldest overflow, one operation per batch,
+1,024 causal events per operation, bounded flush interval, per-request timeout, and at most
+`retryLimit` (cap 5) retries. A 4xx response is never retried. Redaction runs in
+`begin`/`effect`/`finish`, before anything is queued. Uploads use global fetch on unref'd timers,
+off the request path.
 
 ## Tests
 

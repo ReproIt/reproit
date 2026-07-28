@@ -1,6 +1,4 @@
-// Capture-mode parity tests against sdk/reproit-backend-rs/src/capture.rs, mirroring
-// sdk/reproit-backend-node/test/capture.test.js. The batch round-trip validates through the
-// C# port of sdk/test/event_batch_v1.js.
+// Universal source-neutral capture tests, mirroring the Node recorder contract.
 
 using Xunit;
 
@@ -12,7 +10,7 @@ public class CaptureTests
     private static Capture NewCapture(string appId = "app", string? build = null) =>
         Capture.CreateInert(new CaptureConfig
         {
-            Endpoint = "http://c/v1/events",
+            Endpoint = "http://c/v1/capture-batches",
             ApiKey = "sk",
             AppId = appId,
             Build = build,
@@ -58,93 +56,97 @@ public class CaptureTests
         });
     }
 
-    private static List<object?> Frames(Dictionary<string, object?> batch) =>
-        (List<object?>)batch["frames"]!;
+    private static List<Dictionary<string, object?>> Events(
+        Dictionary<string, object?> batch) =>
+        (List<Dictionary<string, object?>>)batch["events"]!;
 
-    private static Dictionary<string, object?> FrameEvent(object? frame) =>
-        (Dictionary<string, object?>)((Dictionary<string, object?>)frame!)["event"]!;
+    private static Dictionary<string, object?> Event(
+        Dictionary<string, object?> captured) =>
+        (Dictionary<string, object?>)captured["event"]!;
 
     [Fact]
-    public void ServerErrorBatchIsAValidTaggedEventBatch()
+    public void ServerErrorBatchIsASourceNeutralCausalCapture()
     {
         var batch = BatchFor(500, false);
-        EventBatchV1.ValidateEventBatch(batch);
-        Assert.Equal(4, Frames(batch).Count);
-        var finding = FrameEvent(Frames(batch)[3]);
-        Assert.Equal("finding", finding["kind"]);
-        var identity = (Dictionary<string, object?>)finding["identity"]!;
-        Assert.Equal(Capture.ServerErrorOracle, identity["oracle"]);
-        var context = (Dictionary<string, object?>)finding["context"]!;
-        var capture = (Dictionary<string, object?>)context["reproitCapture"]!;
-        Assert.Equal(Capture.CaptureFormat, capture["format"]);
-        Assert.Equal("createOrder", capture["operation"]);
-        var events = (List<Dictionary<string, object?>>)capture["events"]!;
-        Assert.Equal(3, events.Count);
-        // Redaction happened before anything left the process boundary.
-        var input = (Dictionary<string, object?>)events[0]["input"]!;
-        Assert.Equal("widget", ((Dictionary<string, object?>)input["body"]!)["item"]);
+        Assert.Equal(1L, batch["version"]);
+        Assert.Equal("app-demo", batch["projectId"]);
+        var events = Events(batch);
+        Assert.Equal("operation-start", Event(events[0])["kind"]);
+        Assert.Equal("trigger", Event(events[1])["kind"]);
+        var observation = Event(events[^1]);
+        Assert.Equal("observation", observation["kind"]);
+        var failure = (Dictionary<string, object?>)observation["failure"]!;
+        Assert.Equal("backend:createOrder", failure["signature"]);
         Assert.Equal("1.2.3",
             ((Dictionary<string, object?>)batch["deployment"]!)["version"]);
     }
 
     [Fact]
-    public void HealthyOperationsShipBackendFramesWithoutAFinding()
+    public void HealthyOperationsShipFactsWithoutAFailureObservation()
     {
         var batch = BatchFor(201, true);
-        EventBatchV1.ValidateEventBatch(batch);
-        Assert.Equal(3, Frames(batch).Count);
-        Assert.All(Frames(batch), frame => Assert.Equal("backend", FrameEvent(frame)["kind"]));
+        Assert.DoesNotContain(Events(batch), captured =>
+            Event(captured)["kind"] as string == "observation");
     }
 
     [Fact]
-    public void OversizedCapturesDropTrailingEffectsFirst()
+    public void UnrelatedOperationsCannotShareAnOccurrenceBatch()
     {
-        var events = FinishedTrace(500, false).Events().ToList();
-        events.Insert(2, new Dictionary<string, object?>
+        var operation = new Capture.CapturedOperation
         {
-            ["kind"] = "effect",
-            ["effect"] = "write",
-            ["resource"] = new string('x', 48 * 1024),
-        });
-        var batch = NewCapture().BuildBatch(new List<Capture.CapturedOperation>
-        {
-            new() { Operation = "createOrder", Status = 500, Events = events },
-        });
-        EventBatchV1.ValidateEventBatch(batch);
-        var finding = FrameEvent(Frames(batch)[^1]);
-        var context = (Dictionary<string, object?>)finding["context"]!;
-        Assert.Equal(1L, context["captureDroppedEffects"]);
-        var kept = (List<Dictionary<string, object?>>)
-            ((Dictionary<string, object?>)context["reproitCapture"]!)["events"]!;
-        Assert.Equal(3, kept.Count);
-        Assert.Equal("effect", kept[1]["kind"]);
-        Assert.Equal("inventory", kept[1]["resource"]);
-    }
-
-    [Fact]
-    public void ACaptureThatCannotFitStartPlusReturnIsOmitted()
-    {
-        var events = new List<Dictionary<string, object?>>
-        {
-            new()
-            {
-                ["kind"] = "start",
-                ["operation"] = "op",
-                ["input"] = new Dictionary<string, object?>
-                {
-                    ["blob"] = new string('x', 48 * 1024),
-                },
-            },
-            new() { ["kind"] = "return", ["status"] = 500L, ["success"] = false },
+            Operation = "createOrder",
+            Status = 500,
+            Events = FinishedTrace(500, false).Events().ToList(),
         };
-        var batch = NewCapture().BuildBatch(new List<Capture.CapturedOperation>
+        Assert.Throws<ArgumentException>(() =>
+            NewCapture().BuildBatch(new List<Capture.CapturedOperation>
+            {
+                operation,
+                operation,
+            }));
+    }
+
+    [Fact]
+    public void UniversalRecorderReportsBoundedOverflow()
+    {
+        var recorder = new UniversalRecorder(new UniversalRecorderOptions
         {
-            new() { Operation = "op", Status = 500, Events = events },
+            ProjectId = "app",
+            EmitterId = "test",
+            Component = "worker",
+            MaxEvents = 3,
         });
-        var finding = FrameEvent(Frames(batch)[^1]);
-        var context = (Dictionary<string, object?>)finding["context"]!;
-        Assert.Equal(true, context["captureOmitted"]);
-        Assert.False(context.ContainsKey("reproitCapture"));
+        recorder.OperationStart("one");
+        recorder.OperationStart("two");
+        recorder.OperationEnd("two", "succeeded");
+        recorder.Effect("write", "result");
+        var batch = recorder.Finish()!;
+        Assert.Equal(3, Events(batch).Count);
+        Assert.Equal("defect", Event(Events(batch)[^1])["kind"]);
+    }
+
+    [Fact]
+    public void UniversalRecorderNormalizesExternalCorrelationIds()
+    {
+        var recorder = new UniversalRecorder(new UniversalRecorderOptions
+        {
+            ProjectId = "app",
+            EmitterId = "test",
+            Component = "worker",
+            SessionId = "session/with spaces",
+        });
+        recorder.OperationStart("POST /orders", new UniversalEventContext
+        {
+            Actor = "Ada Lovelace",
+            TraceId = "trace/with spaces",
+            SpanId = "trace/with spaces:POST /orders",
+        });
+        var batch = recorder.Finish()!;
+        var captured = Events(batch)[0];
+        Assert.StartsWith("sessionid:", batch["sessionId"] as string);
+        Assert.StartsWith("actor:", captured["actor"] as string);
+        Assert.StartsWith("traceid:", captured["traceId"] as string);
+        Assert.StartsWith("spanid:", captured["spanId"] as string);
     }
 
     [Fact]

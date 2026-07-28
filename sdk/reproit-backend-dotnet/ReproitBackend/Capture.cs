@@ -1,5 +1,5 @@
 // Production capture mode: config-gated self-sampling upload of finished operation traces to
-// the Reproit Cloud ingest endpoint (`/v1/events`).
+// the Reproit Cloud ingest endpoint (`/v1/capture-batches`).
 //
 // .NET port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays untouched: this
 // class only adds a place to hand a finished BackendTrace when no `x-reproit-trace` header
@@ -51,7 +51,7 @@ public sealed class Capture
     // Bounds. Queue overflow drops the OLDEST pending operation; an oversized capture payload
     // drops trailing effect events before it drops itself.
     public const int MaxQueueOperations = 64;
-    public const int MaxBatchOperations = 16;
+    public const int MaxBatchOperations = 1;
     public const int MaxCaptureJsonBytes = 48 * 1024;
     public const int MinFlushIntervalMs = 100;
     public const int MaxRetryLimit = 5;
@@ -301,79 +301,132 @@ public sealed class Capture
         }
     }
 
-    // Build one event-batch-v1 payload: every captured event ships as a `backend` frame, and
-    // each 5xx operation additionally ships a `finding` frame tagged `backend-server-error`
-    // whose context carries the full replayable capture object.
+    // Build one source-neutral causal capture. One operation per batch prevents unrelated
+    // failures from sharing an occurrence identity.
     internal Dictionary<string, object?> BuildBatch(List<CapturedOperation> operations)
     {
+        if (operations.Count != 1)
+        {
+            throw new ArgumentException(
+                "a universal capture batch must contain exactly one operation");
+        }
+        var operation = operations[0];
         var sequence = Interlocked.Increment(ref _batchSequence);
-        var batchId = "cap-" + NowMs() + "-" + sequence;
-        var frames = new List<object?>();
-        void Frame(Dictionary<string, object?> evt) => frames.Add(new Dictionary<string, object?>
+        var batchId = "cb-dotnet-" + NowMs() + "-" + sequence;
+        var first = operation.Events.FirstOrDefault() ?? new Dictionary<string, object?>();
+        var recorder = new UniversalRecorder(new UniversalRecorderOptions
         {
-            ["runId"] = batchId,
-            ["sequence"] = (long)frames.Count + 1,
-            ["scope"] = new Dictionary<string, object?> { ["domain"] = "shared" },
-            ["event"] = evt,
-        });
-        foreach (var operation in operations)
-        {
-            foreach (var evt in operation.Events)
+            BatchId = batchId,
+            SessionId = first.GetValueOrDefault("traceId") as string ?? batchId,
+            ProjectId = _appId,
+            EmitterId = "backend-dotnet",
+            Component = "backend",
+            Runtime = "dotnet",
+            BuildVersion = _build,
+            Capabilities = new List<Dictionary<string, object?>>
             {
-                Frame(new Dictionary<string, object?>
+                new()
                 {
-                    ["kind"] = "backend",
-                    ["evidence"] = evt,
-                });
+                    ["capability"] = "http",
+                    ["completeness"] = "complete",
+                },
+                new()
+                {
+                    ["capability"] = "database",
+                    ["completeness"] = "partial",
+                    ["detail"] =
+                        "effect records do not prove complete database state capture",
+                },
+            },
+        });
+        UniversalEventContext Context(
+            Dictionary<string, object?> evt,
+            string? parent = null) => new()
+        {
+            TraceId = evt.GetValueOrDefault("traceId") as string,
+            SpanId = evt.GetValueOrDefault("spanId") as string,
+            Actor = evt.GetValueOrDefault("actor") as string,
+            CausalParentIds = parent == null ? Array.Empty<string>() : new[] { parent },
+        };
+        var parent = recorder.OperationStart(operation.Operation, Context(first));
+        var input = first.TryGetValue("input", out var capturedInput)
+            ? CaptureValues.Replayable(capturedInput)
+            : CaptureValues.Structural(new Dictionary<string, object?>
+            {
+                ["type"] = "unknown",
+            });
+        parent = recorder.Trigger(
+            "http-request",
+            operation.Operation,
+            input,
+            Context(first, parent));
+        foreach (var evt in operation.Events)
+        {
+            if (evt.GetValueOrDefault("kind") as string != "effect") continue;
+            var effect = evt.GetValueOrDefault("effect") as string ?? "call";
+            var subject = EffectSubject(evt);
+            var value = EffectValue(evt);
+            if (effect == "call")
+            {
+                parent = recorder.Dependency(
+                    "service", "call", subject, value, Context(evt, parent));
             }
-            if (operation.Status is not >= 500) continue;
+            else if (effect is "read" or "write" or "delete")
+            {
+                parent = recorder.State(
+                    "database", effect, subject, value, Context(evt, parent));
+            }
+            else
+            {
+                parent = recorder.Effect(effect, subject, value, Context(evt, parent));
+            }
+        }
+        var returned = operation.Events.LastOrDefault(evt =>
+            evt.GetValueOrDefault("kind") as string == "return");
+        var success = returned?.GetValueOrDefault("success") as bool? == true;
+        parent = recorder.OperationEnd(
+            operation.Operation,
+            success ? "succeeded" : "failed",
+            Context(returned ?? first, parent));
+        if (operation.Status is >= 500)
+        {
             var signature = "backend:" + operation.Operation;
             var message = "backend operation " + operation.Operation +
                 " returned HTTP " + operation.Status;
-            var context = new Dictionary<string, object?> { ["capture"] = SdkName };
-            if (_build != null)
-            {
-                context["build"] = new Dictionary<string, object?> { ["version"] = _build };
-            }
-            var (payload, droppedEffects) = CapturePayload(operation);
-            if (payload == null) context["captureOmitted"] = true;
-            else
-            {
-                context["reproitCapture"] = payload;
-                if (droppedEffects > 0) context["captureDroppedEffects"] = (long)droppedEffects;
-            }
-            Frame(new Dictionary<string, object?>
-            {
-                ["kind"] = "finding",
-                ["signature"] = signature,
-                ["message"] = message,
-                ["identity"] = new Dictionary<string, object?>
-                {
-                    ["oracle"] = ServerErrorOracle,
-                    ["invariant"] = "backend:server-error",
-                    ["kind"] = "server-error",
-                    ["message"] = message,
-                    ["frame"] = "",
-                    ["trigger"] = signature,
-                    ["boundary"] = signature,
-                },
-                ["path"] = new List<object?>(),
-                ["context"] = context,
-            });
+            recorder.Failure(
+                "exception",
+                message,
+                signature,
+                observationPoint: operation.Operation,
+                context: Context(returned ?? first, parent));
         }
-        var batch = new Dictionary<string, object?>
+        return recorder.Finish() ??
+            throw new InvalidOperationException("universal recorder finished unexpectedly");
+    }
+
+    private static string EffectSubject(Dictionary<string, object?> evt)
+    {
+        foreach (var name in new[] { "resource", "event", "operation" })
         {
-            ["version"] = 1L,
-            ["batchId"] = batchId,
-            ["appId"] = _appId,
-            ["frames"] = frames,
-            ["evidence"] = new List<object?>(),
-        };
-        if (_build != null)
-        {
-            batch["deployment"] = new Dictionary<string, object?> { ["version"] = _build };
+            if (evt.TryGetValue(name, out var value) && value != null)
+            {
+                var text = value.ToString() ?? "backend-effect";
+                return text[..Math.Min(text.Length, 256)];
+            }
         }
-        return batch;
+        return "backend-effect";
+    }
+
+    private static Dictionary<string, object?>? EffectValue(
+        Dictionary<string, object?> evt)
+    {
+        var detail = new Dictionary<string, object?>();
+        foreach (var name in new[]
+            { "key", "effectTenant", "event", "before", "after", "payload" })
+        {
+            if (evt.TryGetValue(name, out var value)) detail[name] = value;
+        }
+        return detail.Count == 0 ? null : CaptureValues.Structural(detail);
     }
 
     // The replayable capture object (`reproit debug replay-capture` input). Trailing effect

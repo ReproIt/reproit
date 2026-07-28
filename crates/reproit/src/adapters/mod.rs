@@ -6,6 +6,7 @@ pub(crate) mod crash_reporter;
 pub(crate) mod credentials;
 pub(crate) mod device;
 pub(crate) mod drive;
+pub(crate) mod execution;
 pub(crate) mod frames;
 pub(crate) mod inspect_control;
 pub(crate) mod orchestrator;

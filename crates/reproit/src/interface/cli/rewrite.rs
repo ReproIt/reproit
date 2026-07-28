@@ -42,6 +42,8 @@ pub(crate) fn expand_direct_reference_arg(
         .map(str::to_owned);
     let command = if first.starts_with("bkt_") {
         Some(("__replay-bucket", None))
+    } else if first.starts_with("occ_") {
+        Some(("__occurrence", None))
     } else if first.starts_with("cap_") {
         Some(("__capture", None))
     } else if first.starts_with("fnd_") || first.starts_with("rep_") || direct_alias.is_some() {
@@ -80,6 +82,10 @@ mod tests {
         assert_eq!(
             expand(&["reproit", "bkt_deadbeef0001"]),
             ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
+        );
+        assert_eq!(
+            expand(&["reproit", "occ_deadbeef0001"]),
+            ["reproit", "__occurrence", "occ_deadbeef0001"]
         );
         assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001"]),

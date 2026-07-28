@@ -123,6 +123,56 @@ replay, and the accepted graph is regenerated from the executable capsule. Envir
 uses the same tri-state rule: only an exact reproduction permits relaxation, a reconfirmed baseline
 permits a required-dimension claim, and uncertainty remains `ABSTAIN`.
 
+## Source-neutral occurrences and trusted execution
+
+Evidence ingestion is independent from reproduction execution:
+
+```text
+evidence source
+  -> immutable occurrence
+  -> capability assessment
+  -> reproduction plan
+  -> executable capsule
+  -> trusted local or remote providers
+  -> exact verdict
+  -> regression guard
+```
+
+`reproit-protocol` owns the strict `OccurrenceEnvelope`, typed artifact inventory, capture defects,
+requirements, assessment, plan, package, and support-bundle manifest. Cloud and CLI compile the
+same definitions. Cloud retains its legacy bucket projection for compatibility, but every new error
+also receives an occurrence id and a typed reproduction package.
+
+The trust boundary is asymmetric by design. Evidence may describe facts, reference
+content-addressed artifacts, and identify required capabilities. It may not supply an executable
+mechanism. A plan binding accepts only these authorities: trusted checkout, built-in adapter,
+organization policy, or explicit local approval. The first local executor resolves bindings
+through `execution.providers` in the checkout-owned `reproit.yaml`, recomputes the provider digest, verifies its
+phase and exact observation, and only then launches it.
+
+The execution state machine is shared by actionless and action-driven failures:
+
+```text
+validate -> reserve -> reset -> build -> seed -> launch -> readiness
+         -> debug -> trigger -> observe -> retain -> cleanup
+```
+
+Every phase is explicit even when skipped. Commands have bounded argv, environment, timeout,
+working directory, and retained output. Working directories must remain inside the checkout.
+Output pipes are drained while only the first 1 MiB is retained. Cleanup is attempted in reverse
+provider order after success, a different failure, timeout, or infrastructure failure.
+
+Exact reproduction, clean non-reproduction, different failure, incomplete evidence, unsupported
+capability, infrastructure failure, stale execution, and flaky execution remain distinct. Only the
+exact observation is `reproduced`. Only a reached observation point without the exact identity is
+`not_reproduced`.
+
+Capsule schema version 2 remains wire-compatible. It now optionally carries the occurrence,
+assessment, and reproduction plan as an all-or-none typed group. Legacy action capsules keep their
+existing hashes and behavior because absent typed fields are not serialized. New typed capsules
+derive their cause from process, command, message, timer, installer, migration, filesystem,
+resource-pressure, concurrency, device, HTTP, or UI requirements.
+
 ## Finding-preservation rule
 
 Performance and storage changes must not broaden a finding predicate. A refactor is acceptable only

@@ -1,6 +1,7 @@
 /*!
  * Production capture mode: config-gated self-sampling upload of finished
- * operation traces to the Reproit Cloud ingest endpoint (`/v1/events`).
+ * operation traces to the source-neutral Reproit Cloud ingest endpoint
+ * (`/v1/capture-batches`).
  *
  * Node port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
  * untouched: this module only adds a place to hand a finished BackendTrace
@@ -29,6 +30,11 @@ const MAX_BATCH_OPERATIONS = 16;
 const MAX_CAPTURE_JSON_BYTES = 48 * 1024;
 const MIN_FLUSH_INTERVAL_MS = 100;
 const MAX_RETRY_LIMIT = 5;
+const {
+  Recorder,
+  replayable,
+  structural,
+} = require('../reproit-recorder-node');
 
 // Lazy to avoid a require cycle with index.js; resolved before first use.
 let core = null;
@@ -172,7 +178,9 @@ class Capture {
     this._sending = true;
     try {
       while (this._queue.length > 0) {
-        const operations = this._queue.splice(0, MAX_BATCH_OPERATIONS);
+        // One operation per immutable batch prevents unrelated failures from
+        // sharing one occurrence identity.
+        const operations = this._queue.splice(0, 1);
         const sent = await this._send(this._buildBatch(operations));
         if (sent) {
           this._stats.sentBatches += 1;
@@ -194,61 +202,111 @@ class Capture {
     }
   }
 
-  // Build one event-batch-v1 payload: every captured event ships as a
-  // `backend` frame, and each 5xx operation additionally ships a `finding`
-  // frame tagged `backend-server-error` whose context carries the full
-  // replayable capture object.
+  // Build one universal causal capture batch. Backend traces are a semantic
+  // adapter over the same source-neutral contract used by commands, messages,
+  // jobs, devices, and UI paths.
   _buildBatch(operations) {
-    const batchId = 'cap-' + Date.now() + '-' + this._batchSeq++;
-    const frames = [];
-    let sequence = 0;
-    const frame = (event) => {
-      sequence += 1;
-      frames.push({ runId: batchId, sequence, scope: { domain: 'shared' }, event });
-    };
+    if (!Array.isArray(operations) || operations.length !== 1) {
+      throw new TypeError('a universal capture batch must contain exactly one operation');
+    }
+    const operation = operations[0];
+    const batchId = 'cb-node-' + Date.now() + '-' + this._batchSeq++;
+    const recorder = new Recorder({
+      batchId,
+      projectId: this._config.appId,
+      sessionId: operation.events[0]?.traceId ?? batchId,
+      emitter: {
+        id: 'backend-node',
+        kind: 'runtime-sdk',
+        component: 'backend',
+        runtime: 'node',
+      },
+      deployment: this._config.build === null
+        ? null
+        : { version: this._config.build },
+      observedAt: new Date().toISOString(),
+      policy: {
+        consent: 'application-telemetry',
+        retentionClass: 'standard',
+      },
+      capabilities: [
+        { capability: 'http', completeness: 'complete' },
+        {
+          capability: 'database',
+          completeness: 'partial',
+          detail: 'effect records do not prove complete database state capture',
+        },
+      ],
+      maxEvents: 1024,
+      maxArtifacts: 16,
+    });
+    const context = (event, parents = []) => ({
+      traceId: event.traceId,
+      spanId: event.spanId,
+      actor: event.actor,
+      causalParentIds: parents,
+    });
+    const first = operation.events[0] ?? {};
+    let parent = recorder.operationStart(operation.operation, context(first));
+    const input = first.input == null ? structural({ type: 'unknown' }) : replayable(first.input);
+    parent = recorder.trigger(
+      'http-request',
+      operation.operation,
+      input,
+      context(first, parent === null ? [] : [parent]),
+    );
     for (const operation of operations) {
       for (const event of operation.events) {
-        frame({ kind: 'backend', evidence: event });
+        if (event.kind !== 'effect') continue;
+        const value = effectValue(event);
+        if (event.effect === 'call') {
+          parent = recorder.dependency(
+            'service',
+            'call',
+            effectSubject(event),
+            value,
+            context(event, parent === null ? [] : [parent]),
+          );
+        } else if (['read', 'write', 'delete'].includes(event.effect)) {
+          parent = recorder.state(
+            'database',
+            event.effect,
+            effectSubject(event),
+            value,
+            context(event, parent === null ? [] : [parent]),
+          );
+        } else {
+          parent = recorder.effect(
+            event.effect,
+            effectSubject(event),
+            value,
+            context(event, parent === null ? [] : [parent]),
+          );
+        }
       }
-      if (operation.status === null || operation.status < 500) continue;
+      const returned = [...operation.events].reverse().find((event) => event.kind === 'return');
+      parent = recorder.operationEnd(
+        operation.operation,
+        returned?.success === true ? 'succeeded' : 'failed',
+        context(returned ?? first, parent === null ? [] : [parent]),
+      );
+      if (operation.status === null || operation.status < 500) break;
       const signature = 'backend:' + operation.operation;
       const message =
         'backend operation ' + operation.operation + ' returned HTTP ' + operation.status;
-      const context = { capture: 'reproit-backend-node' };
-      if (this._config.build !== null) context.build = { version: this._config.build };
-      const payload = capturePayload(operation);
-      if (payload === null) {
-        context.captureOmitted = true;
-      } else {
-        context.reproitCapture = payload.value;
-        if (payload.droppedEffects > 0) context.captureDroppedEffects = payload.droppedEffects;
-      }
-      frame({
-        kind: 'finding',
-        signature,
-        message,
-        identity: {
-          oracle: SERVER_ERROR_ORACLE,
-          invariant: 'backend:server-error',
-          kind: 'server-error',
-          message,
-          frame: '',
-          trigger: signature,
-          boundary: signature,
+      recorder.failure(
+        {
+          observation: 'exception',
+          authority: 'runtime-diagnosis',
+          summary: message,
+          signature,
+          observationPoint: operation.operation,
+          artifactIds: [],
         },
-        path: [],
-        context,
-      });
+        context(returned ?? first, parent === null ? [] : [parent]),
+      );
     }
-    const batch = {
-      version: 1,
-      batchId,
-      appId: this._config.appId,
-      frames,
-      evidence: [],
-    };
-    if (this._config.build !== null) batch.deployment = { version: this._config.build };
-    return batch;
+    return recorder.finish();
   }
 
   async _send(batch) {
@@ -276,6 +334,18 @@ class Capture {
     }
     return false;
   }
+}
+
+function effectSubject(event) {
+  return String(event.resource ?? event.event ?? event.operation ?? 'backend-effect').slice(0, 256);
+}
+
+function effectValue(event) {
+  const detail = {};
+  for (const name of ['key', 'effectTenant', 'event', 'before', 'after', 'payload']) {
+    if (event[name] !== undefined) detail[name] = event[name];
+  }
+  return Object.keys(detail).length === 0 ? null : structural(detail);
 }
 
 // The replayable capture object (`reproit debug replay-capture` input).

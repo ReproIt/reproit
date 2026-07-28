@@ -40,6 +40,11 @@ pub struct Config {
     /// complete.
     #[serde(default)]
     pub backend: crate::domain::backend::BackendConfig,
+    /// Checkout-owned reproduction providers. The execution adapter performs
+    /// the strict typed validation because these values grant local process
+    /// authority.
+    #[serde(default, rename = "execution")]
+    pub _execution: Option<serde_yaml::Value>,
 }
 
 /// Login credentials for journeys, resolved at run time from the encrypted

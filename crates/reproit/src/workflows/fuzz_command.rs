@@ -1,8 +1,9 @@
 //! Fuzz command coordination across schemas, apps, journeys, devices, and locales.
 
+use super::backend_target;
 use super::device::{is_web_engines, pick_device_interactive, run_needs_device_pick, run_targets};
 use super::map::ensure_app_map;
-use super::{backend_target, confirm_tui_fuzz};
+use super::tui_safety::confirm_tui_fuzz;
 use crate::adapters::config;
 use crate::interface::cli::args::FuzzArgs;
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
@@ -361,6 +362,7 @@ fn fuzz_json(summary: &fuzz::FuzzSummary) -> serde_json::Value {
         .map(|finding| {
             serde_json::json!({
                 "id": finding.id,
+                "occurrenceId": finding.occurrence_id,
                 "cause": finding.cause.as_str(),
                 "causalHttpRequest": if matches!(
                     finding.cause,
@@ -397,6 +399,10 @@ fn fuzz_json(summary: &fuzz::FuzzSummary) -> serde_json::Value {
     if let Some(finding) = summary.confirmed_findings.last() {
         let object = output.as_object_mut().expect("fuzz output is an object");
         object.insert("id".into(), serde_json::Value::String(finding.id.clone()));
+        object.insert(
+            "occurrenceId".into(),
+            serde_json::Value::String(finding.occurrence_id.clone()),
+        );
         object.insert("kind".into(), serde_json::Value::String("finding".into()));
         object.insert("seed".into(), serde_json::Value::from(finding.seed));
         object.insert(
@@ -427,6 +433,7 @@ mod tests {
             confirmed_findings: vec![
                 fuzz::ConfirmedFinding {
                     id: "fnd_launch000001".into(),
+                    occurrence_id: "occ_launch000001".into(),
                     cause: CauseCategory::ApplicationLaunch,
                     action_count: 0,
                     seed: 1,
@@ -435,6 +442,7 @@ mod tests {
                 },
                 fuzz::ConfirmedFinding {
                     id: "fnd_http0000002".into(),
+                    occurrence_id: "occ_http0000002".into(),
                     cause: CauseCategory::HttpTransaction,
                     action_count: 3,
                     seed: 2,

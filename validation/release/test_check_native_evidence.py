@@ -90,10 +90,19 @@ class SupportManifestTests(unittest.TestCase):
         self.assertEqual(
             gates,
             {
-                "web-chromium": "linux-hosted",
-                "react-native-android": "android",
+                "backend-contract": "linux-hosted",
+                "compose-android": "android",
+                "electron": "linux-hosted",
                 "flutter-ios": "flutter",
+                "linux-atspi-gtk": "linux-containers",
+                "linux-atspi-toolkits": "linux-containers",
                 "macos-ax": "macos",
+                "react-native-android": "android",
+                "swiftui-ios": "swiftui",
+                "tauri": "linux-containers",
+                "tui-pty": "linux-hosted",
+                "web-chromium": "linux-hosted",
+                "web-engines": "linux-hosted",
                 "windows-uia": "windows",
             },
         )
@@ -109,6 +118,22 @@ class SupportManifestTests(unittest.TestCase):
                 self.assertIn(gate_id, known, target_id)
             for gate_id in target["releaseGates"]:
                 self.assertIn(gate_id, target["ownedGates"], target_id)
+            self.assertEqual(
+                set(target["releaseGates"]),
+                set(target["ownedGates"]),
+                f"{target_id}: every owned gate must authorize releases",
+            )
+            benchmark_path = target.get("fieldBenchmark")
+            if target["maturity"] != "stable":
+                self.assertIsNone(benchmark_path, target_id)
+                continue
+            self.assertIsInstance(benchmark_path, str, target_id)
+            benchmark = json.loads(
+                (MODULE.ROOT / benchmark_path).read_text(encoding="utf-8")
+            )
+            self.assertEqual(benchmark["target"], target_id)
+            self.assertEqual(benchmark["status"], "complete")
+            self.assertGreaterEqual(len(benchmark["applications"]), 2)
 
 
 if __name__ == "__main__":

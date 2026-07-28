@@ -51,7 +51,8 @@ pub(crate) use log::split_log_segments;
 use log::trace_in_log;
 use log::{marker_seed, split_seed_segments};
 use reporting::{
-    deliver_finding, persist_causal_capsule, persist_finding_report, promote_finding, write_report,
+    deliver_finding, persist_causal_capsule, persist_finding_report,
+    persist_preproduction_occurrence, persist_scan_occurrence, promote_finding, write_report,
     write_run_evidence_graph, RunEvidence,
 };
 use scan::state_present_footer;
@@ -191,6 +192,7 @@ pub struct FuzzSummary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfirmedFinding {
     pub id: String,
+    pub occurrence_id: String,
     pub cause: crate::domain::capsule::CauseCategory,
     pub action_count: usize,
     pub seed: u64,

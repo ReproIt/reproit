@@ -125,12 +125,14 @@ echo "appium-ios-smoke: simulator runtime iOS $IOS_VERSION"
 # whole WDA build + retries or webdriverio aborts POST /session at its 120s
 # default (exactly what the first CI run did).
 export REPROIT_APPIUM_CONNECT_TIMEOUT_MS=1200000
-REPROIT_APPIUM_CAPS='{"platformName":"iOS","appium:automationName":"XCUITest",'
-REPROIT_APPIUM_CAPS+="\"appium:platformVersion\":\"$IOS_VERSION\","
-REPROIT_APPIUM_CAPS+="\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\","
-REPROIT_APPIUM_CAPS+='"appium:noReset":true,"appium:newCommandTimeout":600,'
-REPROIT_APPIUM_CAPS+='"appium:wdaLaunchTimeout":300000,"appium:wdaStartupRetries":2}'
+WDA_PORT="${REPROIT_WDA_PORT:-18200}"
 export REPROIT_APPIUM_CAPS
+printf -v REPROIT_APPIUM_CAPS '%s%s%s%s%s' \
+  '{"platformName":"iOS","appium:automationName":"XCUITest",' \
+  "\"appium:platformVersion\":\"$IOS_VERSION\"," \
+  "\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\"," \
+  "\"appium:noReset\":true,\"appium:newCommandTimeout\":600,\"appium:wdaLocalPort\":$WDA_PORT," \
+  '"appium:wdaLaunchTimeout":300000,"appium:wdaStartupRetries":2}'
 
 # A small map-mode budget keeps the walk to a handful of taps.
 FUZZ="$(mktemp)"

@@ -5,8 +5,20 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod capture;
+mod capture_compiler;
 mod causal;
 mod environment;
+mod occurrence;
+mod reproduction;
+pub use capture::{
+    translate_event_batch, translate_event_batches, CaptureBatch, CaptureCapability,
+    CaptureCapabilityKind, CaptureCompleteness, CaptureEmitter, CaptureEmitterKind, CaptureEvent,
+    CaptureEventKind, CapturedValue, DependencyOperation, FailureRecord, OperationOutcome,
+    ProcessIdentity, StateOperation, CAPTURE_BATCH_VERSION, MAX_CAPTURE_ARTIFACTS,
+    MAX_CAPTURE_CAPABILITIES, MAX_CAPTURE_EVENTS, MAX_CAPTURE_EVENT_BYTES, MAX_CAUSAL_PARENTS,
+};
+pub use capture_compiler::{compile_capture_failure, CaptureAssessmentScope, CaptureCompilation};
 pub use causal::{
     CausalEdge, CausalEdgeKind, CausalGraph, CausalNode, CausalNodeKind, CausalTarget,
     CAUSAL_GRAPH_VERSION, MAX_CAUSAL_EDGES, MAX_CAUSAL_NODES,
@@ -14,6 +26,21 @@ pub use causal::{
 pub use environment::{
     EnvironmentEnvelope, EnvironmentOutcome, EnvironmentProof, EnvironmentTrial,
     ENVIRONMENT_ENVELOPE_VERSION, MAX_ENVIRONMENT_TRIALS,
+};
+pub use occurrence::{
+    ArtifactPolicy, CaptureDefect, CaptureDefectKind, CollectionMethod, ConsentClass,
+    EvidenceArtifact, EvidenceArtifactKind, EvidencePolicy, EvidenceSource, FailureObservation,
+    ObservationAuthority, ObservationKind, OccurrenceEnvelope, RedactionState, SubjectIdentity,
+    MAX_ARTIFACT_BYTES, MAX_OCCURRENCE_ARTIFACTS, OCCURRENCE_VERSION,
+};
+pub use reproduction::{
+    AssessmentStatus, BundleEncryption, BundleEncryptionAlgorithm, BundleSignature,
+    BundleSignatureAlgorithm, CapabilityAssessment, DebuggerKind, DependencyKind, EnvironmentKind,
+    ExecutionDestination, LegacyReplay, MechanismAuthority, ObservationTarget, PlanBinding,
+    ProcessOperation, ReproductionPackage, ReproductionPlan, ReproductionRequirement,
+    RequirementKind, RequirementLevel, StateKind, SupportBundleManifest, TriggerKind,
+    UnresolvedRequirement, UnresolvedRequirementReason, PACKAGE_VERSION, PLAN_VERSION,
+    SUPPORT_BUNDLE_VERSION,
 };
 
 pub const VERSION: u16 = 1;
@@ -793,7 +820,7 @@ pub struct ProtocolError {
 }
 
 impl ProtocolError {
-    fn new(reason: ReasonCode) -> Self {
+    pub(crate) fn new(reason: ReasonCode) -> Self {
         Self {
             reason,
             scope: None,
@@ -868,14 +895,14 @@ fn bounded_prefix(value: &str, max_bytes: usize) -> &str {
     &value[..end]
 }
 
-fn valid_hash(value: &str, length: usize) -> bool {
+pub(crate) fn valid_hash(value: &str, length: usize) -> bool {
     value.len() == length
         && value
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-fn validate_token(value: &str) -> Result<(), ProtocolError> {
+pub(crate) fn validate_token(value: &str) -> Result<(), ProtocolError> {
     if value.is_empty()
         || value.len() > MAX_TOKEN_BYTES
         || !value
@@ -887,7 +914,7 @@ fn validate_token(value: &str) -> Result<(), ProtocolError> {
     Ok(())
 }
 
-fn validate_lower_token(value: &str) -> Result<(), ProtocolError> {
+pub(crate) fn validate_lower_token(value: &str) -> Result<(), ProtocolError> {
     validate_token(value)?;
     if !value.bytes().all(|byte| {
         byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
@@ -897,18 +924,21 @@ fn validate_lower_token(value: &str) -> Result<(), ProtocolError> {
     Ok(())
 }
 
-fn validate_optional_token(value: &Option<String>) -> Result<(), ProtocolError> {
+pub(crate) fn validate_optional_token(value: &Option<String>) -> Result<(), ProtocolError> {
     value.as_deref().map(validate_token).transpose().map(drop)
 }
 
-fn validate_text(value: &str, max_bytes: usize) -> Result<(), ProtocolError> {
+pub(crate) fn validate_text(value: &str, max_bytes: usize) -> Result<(), ProtocolError> {
     if value.len() > max_bytes {
         return Err(ProtocolError::new(ReasonCode::InvalidEvent));
     }
     Ok(())
 }
 
-fn validate_optional_text(value: &Option<String>, max_bytes: usize) -> Result<(), ProtocolError> {
+pub(crate) fn validate_optional_text(
+    value: &Option<String>,
+    max_bytes: usize,
+) -> Result<(), ProtocolError> {
     value
         .as_deref()
         .map(|text| validate_text(text, max_bytes))
@@ -916,7 +946,7 @@ fn validate_optional_text(value: &Option<String>, max_bytes: usize) -> Result<()
         .map(drop)
 }
 
-fn validate_strings(
+pub(crate) fn validate_strings(
     values: &[String],
     max_count: usize,
     max_bytes: usize,
@@ -930,7 +960,7 @@ fn validate_strings(
     Ok(())
 }
 
-fn validate_value(value: &Value, max_bytes: usize) -> Result<(), ProtocolError> {
+pub(crate) fn validate_value(value: &Value, max_bytes: usize) -> Result<(), ProtocolError> {
     let bytes =
         serde_json::to_vec(value).map_err(|_| ProtocolError::new(ReasonCode::InvalidEvent))?;
     if bytes.len() > max_bytes {

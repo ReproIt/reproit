@@ -1,4 +1,12 @@
 use super::*;
+use reproit_protocol::{
+    compile_capture_failure, CaptureAssessmentScope, CaptureCapability, CaptureCapabilityKind,
+    CaptureCompleteness, CaptureEmitter, CaptureEmitterKind, CapturedValue, ConsentClass,
+    EvidencePolicy, FailureRecord, ObservationAuthority, ObservationKind, ReproductionPackage,
+    TriggerKind, PACKAGE_VERSION,
+};
+use reproit_recorder::{EventContext, Recorder, RecorderConfig};
+use sha2::{Digest, Sha256};
 
 pub(super) fn persist_causal_capsule(
     cfg: &Config,
@@ -179,6 +187,303 @@ pub(super) fn persist_finding_report(root: &Path, id: &str, report_dir: &Path) -
         std::fs::copy(evidence, dir.join("run-evidence.json"))?;
     }
     Ok(())
+}
+
+pub(super) fn persist_preproduction_occurrence(
+    cfg: &Config,
+    root: &Path,
+    finding_id: &str,
+    capsule: &crate::domain::capsule::Capsule,
+) -> Result<String> {
+    let observed_at = chrono::Utc::now().to_rfc3339();
+    let project_id = format!(
+        "preproduction-{}",
+        &hex_digest(Sha256::digest(target_identity(cfg).as_bytes()))[..16]
+    );
+    let emitter_component = protocol_token(&cfg.app.platform, "application");
+    let mut recorder = Recorder::new(RecorderConfig {
+        batch_id: format!("cb_{}", protocol_token(&capsule.id, "fuzz")),
+        project_id,
+        session_id: format!("session_{}", protocol_token(finding_id, "finding")),
+        emitter: CaptureEmitter {
+            id: "reproit-fuzz".into(),
+            kind: CaptureEmitterKind::PlatformAdapter,
+            component: emitter_component,
+            runtime: Some("preproduction".into()),
+            parent_id: None,
+        },
+        deployment: None,
+        observed_at: observed_at.clone(),
+        policy: EvidencePolicy {
+            consent: ConsentClass::Preproduction,
+            retention_class: "local".into(),
+        },
+        capabilities: vec![CaptureCapability {
+            capability: CaptureCapabilityKind::UserInterface,
+            completeness: CaptureCompleteness::Complete,
+            detail: None,
+        }],
+        max_events: (capsule.actions.len() + 4).clamp(4, 5_000),
+        max_artifacts: 1,
+    })?;
+    let mut parent = recorder.start_operation(
+        EventContext {
+            monotonic_ns: 1,
+            ..EventContext::default()
+        },
+        "preproduction-reproduction",
+    );
+    for (index, action) in capsule.actions.iter().enumerate() {
+        parent = recorder.trigger(
+            EventContext {
+                monotonic_ns: index as u64 + 2,
+                causal_parent_ids: vec![parent],
+                actor: Some(protocol_token(&action.actor, "actor")),
+                ..EventContext::default()
+            },
+            TriggerKind::UiAction,
+            action.action.clone(),
+            None,
+        );
+    }
+    let identity = capsule.finding.bug_id();
+    recorder.failure(
+        EventContext {
+            monotonic_ns: capsule.actions.len() as u64 + 2,
+            causal_parent_ids: vec![parent],
+            ..EventContext::default()
+        },
+        FailureRecord {
+            observation: finding_observation(capsule),
+            authority: ObservationAuthority::AuthoredContract,
+            summary: if capsule.finding.message.is_empty() {
+                format!("confirmed preproduction failure {identity}")
+            } else {
+                capsule.finding.message.clone()
+            },
+            signature: Some(identity.clone()),
+            observation_point: (!capsule.finding.frame.is_empty())
+                .then(|| capsule.finding.frame.clone()),
+            artifact_ids: vec![],
+        },
+    );
+    let batch = recorder.finish()?;
+    let compilation = compile_capture_failure(
+        &batch,
+        &observed_at,
+        CaptureAssessmentScope::SourceEnvironment,
+    )
+    .map_err(|error| anyhow::anyhow!("compiling preproduction occurrence: {error}"))?
+    .context("confirmed preproduction capture has no failure observation")?;
+    let executable = std::env::current_exe().context("resolving reproit executable")?;
+    let compiled = crate::adapters::execution::compile_local_command_package(
+        crate::adapters::execution::LocalCommandPlan {
+            root,
+            occurrence: compilation.occurrence,
+            assessment: compilation.assessment,
+            argv: vec![
+                executable.to_string_lossy().into_owned(),
+                "check".into(),
+                "--repro-id".into(),
+                crate::domain::repro::display_finding_id(finding_id),
+                "--json".into(),
+            ],
+            working_directory: root,
+            timeout_ms: 10 * 60 * 1_000,
+            identity: &identity,
+            observation: crate::adapters::execution::LocalCommandObservation::ExitCode(1),
+        },
+    )?;
+    let package = &compiled.package;
+    let occurrence_id = package.occurrence.occurrence_id.clone();
+    persist_occurrence_files(root, &occurrence_id, &batch, package)?;
+    compiled.install_provider(root)?;
+    let finding_directory = layout::finding_dir(root, finding_id);
+    std::fs::write(finding_directory.join("occurrence-id"), &occurrence_id)?;
+    Ok(occurrence_id)
+}
+
+pub(super) fn persist_scan_occurrence(
+    cfg: &Config,
+    root: &Path,
+    route: &str,
+    oracle: &str,
+    detail: &str,
+) -> Result<String> {
+    let observed_at = chrono::Utc::now().to_rfc3339();
+    let source = format!("{route}:{oracle}:{detail}:{observed_at}");
+    let source_hash = hex_digest(Sha256::digest(source.as_bytes()));
+    let mut recorder = Recorder::new(RecorderConfig {
+        batch_id: format!("cb_{}", &source_hash[..16]),
+        project_id: format!(
+            "preproduction-{}",
+            &hex_digest(Sha256::digest(target_identity(cfg).as_bytes()))[..16]
+        ),
+        session_id: format!("session_{}", &source_hash[16..32]),
+        emitter: CaptureEmitter {
+            id: "reproit-scan".into(),
+            kind: CaptureEmitterKind::PlatformAdapter,
+            component: protocol_token(&cfg.app.platform, "application"),
+            runtime: Some("preproduction".into()),
+            parent_id: None,
+        },
+        deployment: None,
+        observed_at: observed_at.clone(),
+        policy: EvidencePolicy {
+            consent: ConsentClass::Preproduction,
+            retention_class: "local".into(),
+        },
+        capabilities: vec![CaptureCapability {
+            capability: if route.starts_with("backend:") {
+                CaptureCapabilityKind::Http
+            } else {
+                CaptureCapabilityKind::UserInterface
+            },
+            completeness: CaptureCompleteness::Complete,
+            detail: None,
+        }],
+        max_events: 4,
+        max_artifacts: 1,
+    })?;
+    let trigger = recorder.trigger(
+        EventContext {
+            monotonic_ns: 1,
+            ..EventContext::default()
+        },
+        if route.starts_with("backend:") {
+            TriggerKind::HttpRequest
+        } else {
+            TriggerKind::UiAction
+        },
+        route,
+        Some(CapturedValue::Structural {
+            shape: serde_json::json!({"route": route}),
+        }),
+    );
+    let signature = format!("scan:{}", &source_hash[..32]);
+    recorder.failure(
+        EventContext {
+            monotonic_ns: 2,
+            causal_parent_ids: vec![trigger],
+            ..EventContext::default()
+        },
+        FailureRecord {
+            observation: scan_observation(oracle),
+            authority: ObservationAuthority::AuthoredContract,
+            summary: detail.to_string(),
+            signature: Some(signature),
+            observation_point: Some(route.to_string()),
+            artifact_ids: vec![],
+        },
+    );
+    let batch = recorder.finish()?;
+    let compilation = compile_capture_failure(
+        &batch,
+        &observed_at,
+        CaptureAssessmentScope::SourceEnvironment,
+    )
+    .map_err(|error| anyhow::anyhow!("compiling scan occurrence: {error}"))?
+    .context("scan capture has no failure observation")?;
+    if compilation.assessment.status == reproit_protocol::AssessmentStatus::Eligible {
+        anyhow::bail!("scan occurrence was eligible without a captured navigation path");
+    }
+    let mut package = ReproductionPackage {
+        version: PACKAGE_VERSION,
+        id: String::new(),
+        occurrence: compilation.occurrence,
+        assessment: compilation.assessment,
+        plan: None,
+        capsule: None,
+        legacy: None,
+    };
+    package
+        .finalize_id()
+        .map_err(|error| anyhow::anyhow!("finalizing scan package: {error}"))?;
+    package
+        .validate()
+        .map_err(|error| anyhow::anyhow!("invalid scan package: {error}"))?;
+    let occurrence_id = package.occurrence.occurrence_id.clone();
+    persist_occurrence_files(root, &occurrence_id, &batch, &package)?;
+    Ok(occurrence_id)
+}
+
+fn persist_occurrence_files(
+    root: &Path,
+    occurrence_id: &str,
+    batch: &reproit_protocol::CaptureBatch,
+    package: &reproit_protocol::ReproductionPackage,
+) -> Result<()> {
+    let parent = root.join(".reproit").join("occurrences");
+    std::fs::create_dir_all(&parent)?;
+    let final_directory = parent.join(occurrence_id);
+    if final_directory.exists() {
+        anyhow::bail!("preproduction occurrence {occurrence_id} already exists");
+    }
+    let staging = parent.join(format!(".{occurrence_id}.{}.staging", std::process::id()));
+    std::fs::create_dir(&staging)?;
+    let result = (|| -> Result<()> {
+        std::fs::write(
+            staging.join("capture.json"),
+            serde_json::to_vec_pretty(batch)?,
+        )?;
+        std::fs::write(
+            staging.join("package.json"),
+            serde_json::to_vec_pretty(package)?,
+        )?;
+        std::fs::rename(&staging, &final_directory)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn finding_observation(capsule: &crate::domain::capsule::Capsule) -> ObservationKind {
+    match capsule.finding.oracle.as_str() {
+        "crash" => ObservationKind::Crash,
+        "hang" => ObservationKind::Hang,
+        "performance" | "jank" => ObservationKind::Performance,
+        "contract" => ObservationKind::ContractViolation,
+        _ => ObservationKind::Exception,
+    }
+}
+
+fn scan_observation(oracle: &str) -> ObservationKind {
+    match oracle {
+        "performance" | "jank" => ObservationKind::Performance,
+        "contract" => ObservationKind::ContractViolation,
+        "data-corruption" => ObservationKind::DataCorruption,
+        _ => ObservationKind::Diagnostic,
+    }
+}
+
+fn protocol_token(value: &str, fallback: &str) -> String {
+    let encoded = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | ':' | '-') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .take(128)
+        .collect::<String>();
+    if encoded.is_empty() {
+        fallback.to_string()
+    } else {
+        encoded
+    }
+}
+
+fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
+    let mut output = String::with_capacity(bytes.as_ref().len() * 2);
+    for byte in bytes.as_ref() {
+        use std::fmt::Write;
+        write!(&mut output, "{byte:02x}").unwrap();
+    }
+    output
 }
 
 const MAX_PROMOTED_ALIASES: usize = 200;

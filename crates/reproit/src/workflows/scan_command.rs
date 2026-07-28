@@ -1,6 +1,7 @@
 //! Scan command coordination across structured, configured, and zero-config targets.
 
-use super::{backend_target, confirm_tui_fuzz};
+use super::backend_target;
+use super::tui_safety::confirm_tui_fuzz;
 use crate::adapters::config;
 use crate::interface::cli::args::{ScanArgs, ScanOnly};
 use crate::interface::cli::context::{exit_with, Ctx, Exit};

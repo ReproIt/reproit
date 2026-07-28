@@ -6,13 +6,14 @@
       "maturity": "stable",
       "scope": "Chromium web via CDP",
       "ownedGates": ["web-chromium"],
-      "releaseGates": {"web-chromium": "linux-hosted"}
+      "releaseGates": {"web-chromium": "linux-hosted"},
+      "fieldBenchmark": "validation/field/benchmark.json"
     },
     "web-firefox-webkit": {
       "maturity": "preview",
       "scope": "Firefox and WebKit via Playwright engines on Linux",
       "ownedGates": ["web-engines"],
-      "releaseGates": {}
+      "releaseGates": {"web-engines": "linux-hosted"}
     },
     "react-native-android": {
       "maturity": "preview",
@@ -24,7 +25,7 @@
       "maturity": "preview",
       "scope": "Jetpack Compose on a reset Android emulator via Appium UiAutomator2",
       "ownedGates": ["compose-android"],
-      "releaseGates": {}
+      "releaseGates": {"compose-android": "android"}
     },
     "flutter-ios": {
       "maturity": "preview",
@@ -36,7 +37,7 @@
       "maturity": "preview",
       "scope": "SwiftUI on the iOS simulator via Appium XCUITest",
       "ownedGates": ["swiftui-ios"],
-      "releaseGates": {}
+      "releaseGates": {"swiftui-ios": "swiftui"}
     },
     "windows-desktop": {
       "maturity": "preview",
@@ -48,25 +49,28 @@
       "maturity": "preview",
       "scope": "x86_64 Linux containers with AT-SPI on GTK, Qt, QML, and wxWidgets",
       "ownedGates": ["linux-atspi-gtk", "linux-atspi-toolkits"],
-      "releaseGates": {}
+      "releaseGates": {
+        "linux-atspi-gtk": "linux-containers",
+        "linux-atspi-toolkits": "linux-containers"
+      }
     },
     "tui": {
       "maturity": "preview",
       "scope": "Terminal UIs on a real PTY with the VT parser",
       "ownedGates": ["tui-pty"],
-      "releaseGates": {}
+      "releaseGates": {"tui-pty": "linux-hosted"}
     },
     "electron": {
       "maturity": "preview",
       "scope": "Packaged Electron applications on Linux workers",
       "ownedGates": ["electron"],
-      "releaseGates": {}
+      "releaseGates": {"electron": "linux-hosted"}
     },
     "tauri": {
       "maturity": "preview",
       "scope": "Tauri on Linux WebKitGTK workers",
       "ownedGates": ["tauri"],
-      "releaseGates": {}
+      "releaseGates": {"tauri": "linux-containers"}
     },
     "macos-ax": {
       "maturity": "preview",
@@ -75,10 +79,10 @@
       "releaseGates": {"macos-ax": "macos"}
     },
     "backend-contract": {
-      "maturity": "experimental",
-      "scope": "Bounded opt-in backend contract discovery",
-      "ownedGates": [],
-      "releaseGates": {}
+      "maturity": "preview",
+      "scope": "Bounded backend scan, fuzz, replay, proof, and runtime capture",
+      "ownedGates": ["backend-contract"],
+      "releaseGates": {"backend-contract": "linux-hosted"}
     }
   }
 }
