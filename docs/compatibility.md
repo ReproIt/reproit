@@ -1,66 +1,52 @@
-# Reproit 1.x compatibility
+# Compatibility and promotion
 
-Reproit separates release availability from Stable compatibility.
+`validation/support-manifest.json` is the canonical atomic compatibility
+contract. `validation/compatibility/check.py` validates it and generates the
+[current status](../validation/compatibility/STATUS.md). Documentation cannot
+promote a target.
 
-- Stable targets are covered by the 1.x compatibility promise and pass native,
-  independent-application, affected-versus-fixed, minimization, and clean-corpus
-  gates.
-- Preview targets ship for evaluation and pass their named owned fixture gates,
-  but remain outside the field-compatibility promise.
-- Experimental targets are explicitly invoked specialist surfaces.
+## Maturity
 
-`validation/support-manifest.json` is the canonical atomic contract.
-`validation/compatibility/check.py` validates it and generates the complete
-[qualification status](../validation/compatibility/STATUS.md). Documentation
-cannot promote a target.
+- Stable targets are covered by the 1.x compatibility promise and have complete
+  native and independent-application evidence.
+- Preview targets ship for evaluation and pass their named integration gates,
+  but lack one or more field-promotion requirements.
+- Experimental targets are explicitly selected specialist surfaces.
 
-## Stable qualification
+An atomic target becomes Stable only when it has:
 
-An atomic target becomes Stable only when the exact release commit proves:
+1. exact-commit evidence for every owned native gate;
+2. two independent real applications with pinned affected and fixed revisions;
+3. three clean exact affected reproductions per application;
+4. three clean fixed controls that reach the same observation point;
+5. a minimized trigger that preserves the identity;
+6. a passing neighboring-behavior control;
+7. no confirmed false positive in the clean and adversarial corpus;
+8. retained runtime, architecture, reset, cleanup, and artifact digests; and
+9. a confirmed manual review.
 
-1. Every owned native fixture gate passed in required CI.
-2. At least two independent real applications have pinned affected and fixed
-   revisions.
-3. Each affected revision reproduced the exact identity in three clean runs.
-4. Each fixed revision reached the observation point without that identity in
-   three clean runs.
-5. Minimization preserved the exact identity.
-6. Neighboring legal behavior remained functional.
-7. The clean and adversarial corpora produced no confirmed false positives.
-8. Evidence retained the commit, architecture, runtime, reset, cleanup, and
-   artifact digests.
-9. Independent affected and fixed application campaigns used distinct campaign
-   identities and the exact pinned revisions.
-10. The result reached every cumulative recall stage: observed, captured,
-    eligible, executed, exact, minimized, fixed, and guarded.
+Families do not promote as a unit. Browsers, operating systems, desktop
+toolkits, mobile frameworks, and webview hosts qualify independently.
 
-Broad families never become Stable from one narrow fixture. Firefox and WebKit,
-mobile operating systems, Windows toolkits, Linux toolkits, Electron hosts, and
-Tauri webviews qualify as atomic targets before a family-level claim can roll
-them up.
+## Stable 1.x surface
 
-## Current status
+For Stable targets, 1.x preserves documented flags, exit behavior, JSON field
+meaning, persisted formats, event protocol version 1, release archives, and the
+published SDK source APIs. Patch releases may add optional fields but do not
+remove fields, reinterpret results, or broaden a finding predicate.
 
-Chromium web is Stable. All exact Preview scopes and their remaining promotion
-blockers are generated in the
-[atomic status](../validation/compatibility/STATUS.md).
+Preview and Experimental adapters, specialist oracles, hidden diagnostics,
+advanced causal reduction, and unpublished registry coordinates remain outside
+that promise. They must fail closed and cannot silently create a regression
+guard.
 
-The public-issue ledger in `docs/issue-reproduction-audit.md` remains negative
-evidence. Reviewed reports do not become field cases until the application was
-executed, the exact identity reproduced, the fixed control passed, and the
-retained artifacts validated.
+## Host requirements
 
-## Host prerequisites
-
-- Node.js 18 or later for the web runner.
-- Current stable Rust for source builds.
-- The pinned platform SDKs, drivers, and simulators in
+- Node.js for browser-backed runners.
+- Rust for source builds.
+- The exact SDK, driver, simulator, and VM pins in
   `validation/native/toolchains.json`.
-- The actionable repairs named by `reproit doctor` for the selected target.
-- PostgreSQL for Reproit Cloud. SQLite and MySQL are not supported Cloud stores.
+- The repairs reported by `reproit doctor` for the selected target.
 
-Release archives are built and installer-smoked for macOS arm64 and x86_64,
-Linux arm64 and x86_64, and Windows arm64 and x86_64. Native behavior evidence
-records the exact architecture it exercised. Architecture-independent APIs may
-use one documented behavior architecture only when archive and installer gates
-still cover every shipped architecture.
+Release archives cover macOS, Linux, and Windows on arm64 and x86_64. Native
+behavior evidence records the architecture actually exercised.

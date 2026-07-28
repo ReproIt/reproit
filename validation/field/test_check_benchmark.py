@@ -12,8 +12,8 @@ CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
 
 
-def application(identifier, repository):
-    return {
+def application(identifier, repository, schema_version=2):
+    candidate = {
         "id": identifier,
         "repository": repository,
         "issueUrl": f"{repository}/issues/1",
@@ -45,15 +45,18 @@ def application(identifier, repository):
         "metrics": {"setupSeconds": 60, "replaySecondsP95": 3.5, "peakMemoryMiB": 256},
         "evidence": [],
     }
+    if schema_version == 3:
+        candidate["metrics"]["memoryMeasurement"] = "js-heap"
+    return candidate
 
 
-def write_evidence(root, candidate, stem):
+def write_evidence(root, candidate, stem, schema_version=2):
     evidence = root / "validation/field/evidence"
     evidence.mkdir(parents=True, exist_ok=True)
     record_path = evidence / f"{stem}.json"
     record_path.write_text(
         json.dumps(
-            {
+            ({
                 "issue": candidate["issueUrl"],
                 "affectedRevision": candidate["affectedRevision"],
                 "fixedRevision": candidate["fixedRevision"],
@@ -80,7 +83,11 @@ def write_evidence(root, candidate, stem):
                 ],
                 "neighboringLegalBehavior": "control passed",
                 "minimizedAction": "one action",
-            }
+            } | (
+                {"memoryMeasurement": candidate["metrics"]["memoryMeasurement"]}
+                if schema_version == 3
+                else {}
+            ))
         ),
         encoding="utf-8",
     )
@@ -146,6 +153,37 @@ class FieldBenchmarkTest(unittest.TestCase):
             evidence_path.write_text(json.dumps(record), encoding="utf-8")
             first["metrics"]["peakMemoryMiB"] = 257
             with self.assertRaisesRegex(ValueError, "peak memory"):
+                CHECK.validate(document, root=root)
+
+    def test_schema_three_records_unavailable_memory_without_inventing_a_value(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidates = [
+                application("first-app", "https://github.com/example/first", 3),
+                application("second-app", "https://github.com/example/second", 3),
+            ]
+            for index, candidate in enumerate(candidates):
+                candidate["metrics"]["memoryMeasurement"] = "unavailable"
+                candidate["metrics"]["peakMemoryMiB"] = None
+                write_evidence(root, candidate, str(index), 3)
+                evidence_path = root / candidate["evidence"][0]
+                record = json.loads(evidence_path.read_text(encoding="utf-8"))
+                for run in record["affected"] + record["fixed"]:
+                    run["jsHeapMiB"] = None
+                evidence_path.write_text(json.dumps(record), encoding="utf-8")
+            document = {
+                "schemaVersion": 3,
+                "target": "web-firefox",
+                "status": "complete",
+                "applications": candidates,
+            }
+            CHECK.validate(document, root=root)
+
+            evidence_path = root / candidates[0]["evidence"][0]
+            record = json.loads(evidence_path.read_text(encoding="utf-8"))
+            record["affected"][0]["jsHeapMiB"] = 0
+            evidence_path.write_text(json.dumps(record), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invents unavailable memory"):
                 CHECK.validate(document, root=root)
 
     def test_rejects_identity_drift_and_missing_controls(self):

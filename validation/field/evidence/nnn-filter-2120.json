@@ -1,0 +1,62 @@
+{
+  "application": "nnn",
+  "issue": "https://github.com/jarun/nnn/issues/2120",
+  "affectedRevision": "7184f7fe78ea7957f0582c797c33bd5cf3914dd7",
+  "fixedRevision": "c73600a0da993b4675a6e6c7357546d5de22b4d1",
+  "identity": "terminal:filter:nonmatching-rows-retained",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "nonmatchingRowsCleared": false,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.35
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "nonmatchingRowsCleared": false,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.35
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "nonmatchingRowsCleared": false,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.35
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "nonmatchingRowsCleared": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.34
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "nonmatchingRowsCleared": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.34
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "nonmatchingRowsCleared": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.34
+    }
+  ],
+  "neighboringLegalBehavior": "Filtering the three-file fixture by 'a' retained all three matching rows at each revision.",
+  "minimizedAction": "Type /al in a three-file directory from a fresh PTY."
+}

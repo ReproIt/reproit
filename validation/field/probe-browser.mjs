@@ -1,9 +1,18 @@
 #!/usr/bin/env node
 
-import { chromium } from '../../runners/web/node_modules/playwright/index.mjs';
+import {
+  chromium,
+  firefox,
+  webkit,
+} from '../../runners/web/node_modules/playwright/index.mjs';
 
 const RUNS = 3;
 const TIMEOUT_MS = 60_000;
+const browserTypes = { chromium, firefox, webkit };
+const engine = process.env.REPROIT_BROWSER_ENGINE || 'chromium';
+const browserType = browserTypes[engine];
+if (!browserType)
+  throw new Error(`unsupported browser engine: ${engine}`);
 
 function requireArgument(value, name) {
   if (!value)
@@ -14,7 +23,7 @@ function requireArgument(value, name) {
 async function probeVert(url) {
   const results = [];
   for (let run = 1; run <= RUNS; run += 1) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await browserType.launch({ headless: true });
     const page = await browser.newPage();
     const exceptions = [];
     page.on('pageerror', error => exceptions.push(String(error)));
@@ -42,7 +51,7 @@ async function probeSlidev(url, focus) {
     throw new Error('Slidev focus must be body or editor');
   const results = [];
   for (let run = 1; run <= RUNS; run += 1) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await browserType.launch({ headless: true });
     const page = await browser.newPage();
     const exceptions = [];
     page.on('pageerror', error => exceptions.push(String(error)));
@@ -76,7 +85,42 @@ async function probeSlidev(url, focus) {
   return results;
 }
 
+async function probeSlidevHash(url, action) {
+  if (!['next', 'direct'].includes(action))
+    throw new Error('Slidev hash action must be next or direct');
+  const results = [];
+  for (let run = 1; run <= RUNS; run += 1) {
+    const browser = await browserType.launch({ headless: true });
+    const page = await browser.newPage();
+    const exceptions = [];
+    page.on('pageerror', error => exceptions.push(String(error)));
+    const startedAt = performance.now();
+    const initialUrl = action === 'direct' ? new URL('#/2', url).href : url;
+    await page.goto(initialUrl, { waitUntil: 'networkidle', timeout: TIMEOUT_MS });
+    if (action === 'next') {
+      await page.keyboard.press('ArrowRight');
+      await page.waitForTimeout(500);
+    }
+    const body = await page.locator('body').innerText();
+    results.push({
+      run,
+      cleanLaunch: true,
+      action,
+      finalUrl: page.url(),
+      reachedSlide2: new URL(page.url()).hash === '#/2',
+      slide2ContentPresent: body.includes('What is Slidev?'),
+      exceptions,
+      jsHeapMiB: await heapMiB(page),
+      elapsedSeconds: elapsedSeconds(startedAt),
+    });
+    await browser.close();
+  }
+  return results;
+}
+
 async function heapMiB(page) {
+  if (engine !== 'chromium')
+    return null;
   return page.evaluate(() =>
     Math.ceil((performance.memory?.usedJSHeapSize || 0) / 1024 / 1024));
 }
@@ -92,12 +136,19 @@ if (mode === 'vert')
   results = await probeVert(url);
 else if (mode === 'slidev')
   results = await probeSlidev(url, process.argv[4] || 'editor');
+else if (mode === 'slidev-hash')
+  results = await probeSlidevHash(url, process.argv[4] || 'next');
 else
   throw new Error(`unknown mode: ${mode}`);
-process.stdout.write(`${JSON.stringify({ mode, chromium: await browserVersion(), results }, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({
+  mode,
+  engine,
+  browserVersion: await browserVersion(),
+  results,
+}, null, 2)}\n`);
 
 async function browserVersion() {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await browserType.launch({ headless: true });
   const version = browser.version();
   await browser.close();
   return version;

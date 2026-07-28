@@ -28,7 +28,12 @@ def exact_keys(value: dict, expected: set[str], label: str) -> None:
     require(actual == expected, f"{label} keys: expected {sorted(expected)}, got {sorted(actual)}")
 
 
-def validate_evidence_record(application: dict, label: str, root: Path) -> None:
+def validate_evidence_record(
+    application: dict,
+    label: str,
+    root: Path,
+    schema_version: int,
+) -> None:
     json_paths = [path for path in application["evidence"] if path.endswith(".json")]
     require(len(json_paths) == 1, f"{label} must name exactly one structured evidence record")
     record_path = root / json_paths[0]
@@ -42,6 +47,13 @@ def validate_evidence_record(application: dict, label: str, root: Path) -> None:
     }
     for field, value in expected.items():
         require(record.get(field) == value, f"{label} evidence {field} disagrees with benchmark")
+    memory_measurement = "js-heap"
+    if schema_version == 3:
+        memory_measurement = application["metrics"]["memoryMeasurement"]
+        require(
+            record.get("memoryMeasurement") == memory_measurement,
+            f"{label} evidence memory measurement disagrees with benchmark",
+        )
     for revision in ("affected", "fixed"):
         runs = record.get(revision)
         require(
@@ -56,11 +68,17 @@ def validate_evidence_record(application: dict, label: str, root: Path) -> None:
                 and run.get("exceptions") == [],
                 f"{label} evidence {revision} run {run_index} is not clean",
             )
-            require(
-                isinstance(run.get("jsHeapMiB"), (int, float))
-                and not isinstance(run.get("jsHeapMiB"), bool),
-                f"{label} evidence {revision} run {run_index} has invalid jsHeapMiB",
-            )
+            heap_mib = run.get("jsHeapMiB")
+            if memory_measurement == "js-heap":
+                require(
+                    isinstance(heap_mib, (int, float)) and not isinstance(heap_mib, bool),
+                    f"{label} evidence {revision} run {run_index} has invalid jsHeapMiB",
+                )
+            else:
+                require(
+                    heap_mib is None,
+                    f"{label} evidence {revision} run {run_index} invents unavailable memory",
+                )
             require(
                 isinstance(run.get("elapsedSeconds"), (int, float))
                 and not isinstance(run.get("elapsedSeconds"), bool),
@@ -76,19 +94,30 @@ def validate_evidence_record(application: dict, label: str, root: Path) -> None:
         f"{label} evidence has no minimized action",
     )
     all_runs = record["affected"] + record["fixed"]
-    peak_memory = max(run["jsHeapMiB"] for run in all_runs)
     replay_p95 = max(run["elapsedSeconds"] for run in record["affected"])
-    require(
-        application["metrics"]["peakMemoryMiB"] == peak_memory,
-        f"{label} peak memory metric disagrees with evidence",
-    )
+    if memory_measurement == "js-heap":
+        peak_memory = max(run["jsHeapMiB"] for run in all_runs)
+        require(
+            application["metrics"]["peakMemoryMiB"] == peak_memory,
+            f"{label} peak memory metric disagrees with evidence",
+        )
+    else:
+        require(
+            application["metrics"]["peakMemoryMiB"] is None,
+            f"{label} peak memory must be null when measurement is unavailable",
+        )
     require(
         application["metrics"]["replaySecondsP95"] == replay_p95,
         f"{label} replay p95 metric disagrees with evidence",
     )
 
 
-def validate_application(application: object, index: int, root: Path = ROOT) -> None:
+def validate_application(
+    application: object,
+    index: int,
+    root: Path = ROOT,
+    schema_version: int = 2,
+) -> None:
     label = f"applications[{index}]"
     require(isinstance(application, dict), f"{label} must be an object")
     exact_keys(
@@ -159,14 +188,32 @@ def validate_application(application: object, index: int, root: Path = ROOT) -> 
 
     metrics = application["metrics"]
     require(isinstance(metrics, dict), f"{label}.metrics must be an object")
-    exact_keys(metrics, {"setupSeconds", "replaySecondsP95", "peakMemoryMiB"}, f"{label}.metrics")
+    metric_keys = {"setupSeconds", "replaySecondsP95", "peakMemoryMiB"}
+    if schema_version == 3:
+        metric_keys.add("memoryMeasurement")
+    exact_keys(metrics, metric_keys, f"{label}.metrics")
     require(isinstance(metrics["setupSeconds"], int) and 1 <= metrics["setupSeconds"] <= 7200,
             f"{label}.metrics.setupSeconds is outside bounds")
     require(isinstance(metrics["replaySecondsP95"], (int, float))
             and 0 < metrics["replaySecondsP95"] <= 900,
             f"{label}.metrics.replaySecondsP95 is outside bounds")
-    require(isinstance(metrics["peakMemoryMiB"], int) and 1 <= metrics["peakMemoryMiB"] <= 32768,
-            f"{label}.metrics.peakMemoryMiB is outside bounds")
+    if schema_version == 3:
+        require(
+            metrics["memoryMeasurement"] in {"js-heap", "unavailable"},
+            f"{label}.metrics.memoryMeasurement is invalid",
+        )
+    memory_measurement = metrics.get("memoryMeasurement", "js-heap")
+    if memory_measurement == "js-heap":
+        require(
+            isinstance(metrics["peakMemoryMiB"], int)
+            and 1 <= metrics["peakMemoryMiB"] <= 32768,
+            f"{label}.metrics.peakMemoryMiB is outside bounds",
+        )
+    else:
+        require(
+            metrics["peakMemoryMiB"] is None,
+            f"{label}.metrics.peakMemoryMiB must be null when unavailable",
+        )
 
     evidence = application["evidence"]
     require(isinstance(evidence, list) and 2 <= len(evidence) <= 20,
@@ -176,13 +223,14 @@ def validate_application(application: object, index: int, root: Path = ROOT) -> 
                 and ".." not in path and len(path) <= 240,
                 f"{label} has an unsafe evidence path")
         require((root / path).is_file(), f"{label} evidence is missing: {path}")
-    validate_evidence_record(application, label, root)
+    validate_evidence_record(application, label, root, schema_version)
 
 
 def validate(document: object, allow_pending: bool = False, root: Path = ROOT) -> None:
     require(isinstance(document, dict), "benchmark root must be an object")
     exact_keys(document, {"schemaVersion", "target", "status", "applications"}, "benchmark")
-    require(document["schemaVersion"] == 2, "unsupported benchmark schemaVersion")
+    schema_version = document["schemaVersion"]
+    require(schema_version in {2, 3}, "unsupported benchmark schemaVersion")
     targets = json.loads(SUPPORT.read_text(encoding="utf-8"))["targets"]
     require(document["target"] in targets,
             f"benchmark target must be a support-manifest target, got {document['target']!r}")
@@ -195,7 +243,7 @@ def validate(document: object, allow_pending: bool = False, root: Path = ROOT) -
     require(document["status"] == "complete", "field benchmark is still pending")
     require(len(applications) == 2, "complete benchmark requires exactly two applications")
     for index, application in enumerate(applications):
-        validate_application(application, index, root)
+        validate_application(application, index, root, schema_version)
     repositories = {application["repository"] for application in applications}
     require(len(repositories) == 2, "benchmark applications must use independent repositories")
 

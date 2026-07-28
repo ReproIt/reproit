@@ -10,8 +10,8 @@
     "requireExactCommitNativeEvidence": true
   },
   "counts": {
-    "stable": 1,
-    "preview": 20,
+    "stable": 4,
+    "preview": 17,
     "experimental": 0
   },
   "targets": [
@@ -217,15 +217,13 @@
       "id": "tui",
       "displayName": "Terminal UI",
       "family": "tui",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Terminal applications on a real PTY with the VT parser",
       "nativeGates": [
         "tui-pty"
       ],
-      "fieldBenchmark": null,
-      "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
-      ]
+      "fieldBenchmark": "validation/field/tui.json",
+      "promotionBlockers": []
     },
     {
       "id": "web-chromium",
@@ -243,29 +241,25 @@
       "id": "web-firefox",
       "displayName": "Web Firefox",
       "family": "web",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Firefox through Playwright on Linux",
       "nativeGates": [
         "web-engines"
       ],
-      "fieldBenchmark": null,
-      "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
-      ]
+      "fieldBenchmark": "validation/field/web-firefox.json",
+      "promotionBlockers": []
     },
     {
       "id": "web-webkit",
       "displayName": "Web WebKit",
       "family": "web",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "WebKit through Playwright on Linux",
       "nativeGates": [
         "web-engines"
       ],
-      "fieldBenchmark": null,
-      "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
-      ]
+      "fieldBenchmark": "validation/field/web-webkit.json",
+      "promotionBlockers": []
     },
     {
       "id": "windows-avalonia",

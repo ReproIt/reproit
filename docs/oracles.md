@@ -155,7 +155,7 @@ screenshot.
 ## Backend oracles
 
 Backend support is a 1.0 preview: opt-in and outside the 1.x compatibility
-promise (see `docs/stability.md`). A finding requires a schema-owned or authored contract plus a
+promise (see `docs/compatibility.md`). A finding requires a schema-owned or authored contract plus a
 runtime event correlated to the exact operation. Framework names and function names are not evidence
 of intent.
 
@@ -308,11 +308,8 @@ mapping abstain instead of guessing.
 
 DynamicValue function results currently `ABSTAIN`. The v0.9 schema does not define recursive array
 evaluation, and React and Lit share the same executable function implementation, so ReproIt does
-not treat that implementation as independent proof of its own semantics. The implementation gate
-and fixture contract are documented in
-[`runners/a2ui/DYNAMIC_VALUE_CONFORMANCE.md`](../runners/a2ui/DYNAMIC_VALUE_CONFORMANCE.md).
-
-Detailed integration, conformance, and CI examples live in
+not treat that implementation as independent proof of its own semantics. Integration, conformance,
+and CI examples live in
 [`runners/a2ui/README.md`](../runners/a2ui/README.md).
 
 ## Scan, fuzz, shrink, and replay

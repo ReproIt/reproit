@@ -1,0 +1,76 @@
+{
+  "application": "Slidev",
+  "issue": "https://github.com/slidevjs/slidev/issues/1637",
+  "engine": "webkit",
+  "browserVersion": "26.5",
+  "affectedRevision": "33677a14d3fc892970015434ade875e57deb2f7a",
+  "fixedRevision": "8b7ccf13358b904636d476072a0b67a857115a10",
+  "identity": "navigation:#/1:stuck-on-arrow-right",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "finalUrl": "http://localhost:4322/#/1",
+      "reachedSlide2": false,
+      "slide2ContentPresent": false,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.753
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "finalUrl": "http://localhost:4322/#/1",
+      "reachedSlide2": false,
+      "slide2ContentPresent": false,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.816
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "finalUrl": "http://localhost:4322/#/1",
+      "reachedSlide2": false,
+      "slide2ContentPresent": false,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.851
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "finalUrl": "http://localhost:4323/#/2",
+      "reachedSlide2": true,
+      "slide2ContentPresent": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 3.007
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "finalUrl": "http://localhost:4323/#/2",
+      "reachedSlide2": true,
+      "slide2ContentPresent": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.815
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "finalUrl": "http://localhost:4323/#/2",
+      "reachedSlide2": true,
+      "slide2ContentPresent": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.776
+    }
+  ],
+  "neighboringLegalBehavior": "Directly opening #/2 rendered slide 2 in three clean runs at each revision.",
+  "minimizedAction": "Press ArrowRight once from slide #/1 with hash routing enabled."
+}

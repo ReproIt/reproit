@@ -132,12 +132,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Terminal UI
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Terminal applications on a real PTY with the VT parser
 - Native gates: tui-pty
-- Field benchmark: incomplete
+- Field benchmark: validation/field/tui.json
 - Promotion blockers:
-  - independent affected-versus-fixed field benchmark is incomplete
+  - None
 
 ## Web Chromium
 
@@ -150,21 +150,21 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Web Firefox
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Firefox through Playwright on Linux
 - Native gates: web-engines
-- Field benchmark: incomplete
+- Field benchmark: validation/field/web-firefox.json
 - Promotion blockers:
-  - independent affected-versus-fixed field benchmark is incomplete
+  - None
 
 ## Web WebKit
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: WebKit through Playwright on Linux
 - Native gates: web-engines
-- Field benchmark: incomplete
+- Field benchmark: validation/field/web-webkit.json
 - Promotion blockers:
-  - independent affected-versus-fixed field benchmark is incomplete
+  - None
 
 ## Windows Avalonia
 

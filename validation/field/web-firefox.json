@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 3,
+  "target": "web-firefox",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "vert-route-57",
+      "repository": "https://github.com/VERT-sh/VERT",
+      "issueUrl": "https://github.com/VERT-sh/VERT/issues/57",
+      "affectedRevision": "53085ca9bc520e4cbdd18f38900a8af4c0d09e96",
+      "fixedRevision": "a8386ee3f1efc40c37828f780e75cb3a8df4b12b",
+      "authority": "authored-contract",
+      "expectedIdentity": "route:/about:missing-text:Why VERT?",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "route:/about:missing-text:Why VERT?",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "route:/about:missing-text:Why VERT?",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "route:/about:missing-text:Why VERT?",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": ["fixed-revision", "neighboring-legal-behavior"],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 11,
+        "replaySecondsP95": 2.177,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/vert-route-57-firefox.json",
+        "validation/field/evidence/vert-route-57-firefox.md"
+      ]
+    },
+    {
+      "id": "slidev-hash-1637",
+      "repository": "https://github.com/slidevjs/slidev",
+      "issueUrl": "https://github.com/slidevjs/slidev/issues/1637",
+      "affectedRevision": "33677a14d3fc892970015434ade875e57deb2f7a",
+      "fixedRevision": "8b7ccf13358b904636d476072a0b67a857115a10",
+      "authority": "platform",
+      "expectedIdentity": "navigation:#/1:stuck-on-arrow-right",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "navigation:#/1:stuck-on-arrow-right",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "navigation:#/1:stuck-on-arrow-right",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "navigation:#/1:stuck-on-arrow-right",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": ["fixed-revision", "neighboring-legal-behavior"],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 277,
+        "replaySecondsP95": 2.162,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/slidev-hash-1637-firefox.json",
+        "validation/field/evidence/slidev-hash-1637-firefox.md"
+      ]
+    }
+  ]
+}

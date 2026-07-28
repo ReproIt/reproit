@@ -39,7 +39,7 @@ This crate is `0.0.0`, unpublished, and **outside the ReproIt 1.x compatibility
 promise**. There is no release: the version number is not a claim that one
 exists. Its contract may change before the backend pillar is promoted to the
 stable surface, which requires field evidence from at least two independent
-uses. See `docs/stability.md` in the main repository.
+uses. See `docs/compatibility.md` in the main repository.
 
 Capture mode is bounded by construction: a 64-item drop-oldest queue, 16
 operations per batch, a 48 KB payload cap, a 100 ms flush floor, and one worker

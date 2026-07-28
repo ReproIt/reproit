@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 3,
+  "target": "tui",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "fx-empty-343",
+      "repository": "https://github.com/antonmedv/fx",
+      "issueUrl": "https://github.com/antonmedv/fx/issues/343",
+      "affectedRevision": "290c9dae04506809d79c7e1a0d2357f65d04688a",
+      "fixedRevision": "14b2139b55627a823201aac8972699daf90076ce",
+      "authority": "platform",
+      "expectedIdentity": "terminal:empty-file:indexing-after-eof",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "terminal:empty-file:indexing-after-eof",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "terminal:empty-file:indexing-after-eof",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "terminal:empty-file:indexing-after-eof",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": ["fixed-revision", "neighboring-legal-behavior"],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 10,
+        "replaySecondsP95": 5.07,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/fx-empty-343.json",
+        "validation/field/evidence/fx-empty-343.md"
+      ]
+    },
+    {
+      "id": "nnn-filter-2120",
+      "repository": "https://github.com/jarun/nnn",
+      "issueUrl": "https://github.com/jarun/nnn/issues/2120",
+      "affectedRevision": "7184f7fe78ea7957f0582c797c33bd5cf3914dd7",
+      "fixedRevision": "c73600a0da993b4675a6e6c7357546d5de22b4d1",
+      "authority": "platform",
+      "expectedIdentity": "terminal:filter:nonmatching-rows-retained",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "terminal:filter:nonmatching-rows-retained",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "terminal:filter:nonmatching-rows-retained",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "terminal:filter:nonmatching-rows-retained",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": ["fixed-revision", "neighboring-legal-behavior"],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 1,
+        "replaySecondsP95": 2.35,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/nnn-filter-2120.json",
+        "validation/field/evidence/nnn-filter-2120.md"
+      ]
+    }
+  ]
+}

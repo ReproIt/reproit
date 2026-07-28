@@ -2,14 +2,14 @@
 
 All notable user-facing changes are recorded here. ReproIt follows semantic
 versioning for the stable CLI surface, saved repro contract, wire protocol, and
-versioned SDK source APIs documented in `docs/stability.md`.
+versioned SDK source APIs documented in `docs/compatibility.md`.
 
 ## 1.0.0 - 2026-07-24
 
 1.0 is tiered. The web (Chromium) UI workflow is the stable surface under the
 1.x compatibility promise. The backend pillar and the non-Chromium UI adapters
 ship in this release as opt-in previews outside that promise; see
-`docs/stability.md` and `docs/compatibility.md`.
+`docs/compatibility.md`.
 
 ### Added (stable)
 
@@ -62,7 +62,7 @@ ship in this release as opt-in previews outside that promise; see
 ### Stability contract
 
 - Existing 1.x `reproit.yaml` files, saved repros, event batches, and the command
-  behavior named in `docs/stability.md` remain compatible throughout 1.x unless
+  behavior named in `docs/compatibility.md` remain compatible throughout 1.x unless
   a security fix requires a narrowly documented exception.
 - The preview surfaces above (backend and non-Chromium UI adapters) are opt-in
   and outside the 1.x compatibility promise: their contracts may change before

@@ -1,70 +1,34 @@
 # Release contract
 
-Reproit 1.x releases use two Git tags with separate responsibilities:
+Immutable `v1.x.y` tags identify CLI archives and the matching SDK source tree.
+The moving `v1` GitHub Action tag advances only after the exact release commit
+passes publication.
 
-- `v1.0.0`, `v1.0.1`, and later immutable tags identify exact CLI archives and
-  the matching versioned SDK source tree.
-- `v1` is the moving GitHub Action tag. The release workflow moves it only after every binary,
-  checksum, installer, and installed-version gate passes.
+Publication requires:
 
-The release workflow builds and installer-smokes native archives for macOS arm64 and x86_64, Linux
-arm64 and x86_64, and Windows arm64 and x86_64. Installers require SHA-256 sidecars and reject a
-binary whose reported version differs from the requested tag.
+- green `ci.yml` and exact-commit native evidence;
+- checksummed installer smoke tests on macOS, Linux, and Windows for arm64 and
+  x86_64;
+- manifest, captured-log digest, reset, cleanup, and required-output validation;
+- a matching version across every published CLI, runner, and SDK manifest; and
+- successful parsing of every workflow command by the production CLI schema.
 
-Publication also requires successful `ci.yml` and native evidence for the exact
-commit being released. A success from another commit is not accepted.
-The native workflow includes Linux host and container gates, a reset Android
-emulator, and iOS simulators. Publication recomputes the captured log digests
-for every owned adapter gate: Chromium, Firefox, WebKit, Electron, Tauri,
-React Native Android, Compose Android, Flutter iOS, SwiftUI iOS, macOS AX,
-Windows UIA, Linux AT-SPI, terminal PTY, and the backend contract runtime.
-Native Windows UIA runs through the private interactive x86_64 VM chain, and
-macOS AX runs in a permissioned desktop session. Publication downloads the
-macOS AX result and captured log from the exact-commit workflow artifacts. It
-downloads the Windows result and captured log from a short-lived private
-evidence bundle, validates every manifest against the registered gates, and
-recomputes each log's SHA-256. The verified results are shipped as
-`reproit-native-evidence.json` in the release.
+The native evidence bundle covers all release-owned browser, mobile, desktop,
+terminal, webview, and backend gates. Permissioned macOS AX and Windows UIA
+evidence must come from their registered interactive environments.
 
-Release gating and compatibility maturity are separate. Exact-commit native
-evidence proves the owned integration still works. A target becomes stable only
-after its `fieldBenchmark` names a complete, validated benchmark with at least
-two independent real applications. Each application records three clean exact
-affected reproductions and three fixed controls that reached the same
-observation point. The compatibility validator rejects a Stable target with
-blockers, incomplete native CI, identity drift, missing minimization, or an
-incomplete field benchmark.
+Release availability and compatibility maturity are separate. Native evidence
+proves an integration works at one commit. Stable compatibility additionally
+requires the independent affected-versus-fixed campaigns in
+[compatibility.md](compatibility.md).
 
-The CI command lines used by the composite Action and reusable workflow are recorded in
-`validation/release/ci-invocations.txt`. The Rust test suite parses every entry with the production
-CLI schema and checks the workflow-owned flags against that schema. Confirmation and minimization
-are part of `reproit fuzz` by default; CI must not pass a separate compatibility flag for them.
-
-`validation/release/check-version-contract.sh` keeps every owned, published CLI, runner, and SDK
-manifest on the requested release version. The release workflow runs it before starting builds.
-Registry publication is a separate operation until a registry and its install
-smoke are explicitly listed in `sdk/README.md`; a manifest version alone does
-not claim that a package exists in a registry.
-
-To validate a release candidate without publishing it:
+Validate without publishing:
 
 ```sh
 gh workflow run release.yml -f version=1.0.0 -f publish=false
 ```
 
-Run the permissioned macOS gate through `native-gates.yml` with
-`run_macos_ax=true`. Run the Windows gate in the native interactive environment:
-
-```sh
-python3 validation/backends/gate.py windows-uia
-```
-
-Package exactly `windows-uia.json` and `windows-uia.log` into a ZIP, place it at
-a short-lived private URL, and set that URL as the repository secret
-`WINDOWS_UIA_EVIDENCE_URL`. The release workflow rejects extra archive members,
-the wrong commit, failed checks, manifest drift, or a log whose bytes do not
-match the recorded digest.
-
-After every gate succeeds for the same commit, rerun with `publish=true`.
-Publishing creates the immutable version tag, uploads the checksummed assets,
-marks the release latest, and then moves `v1` to the same commit.
+Run permissioned gates through `native-gates.yml`. The release workflow rejects
+evidence from another commit, unexpected archive members, failed checks,
+manifest drift, or mismatched log bytes. After every gate succeeds for the same
+commit, rerun with `publish=true`.

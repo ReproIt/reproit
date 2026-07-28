@@ -21,7 +21,10 @@ class CompatibilityContractTests(unittest.TestCase):
         status = CHECK.status_document(self.support)
         stable = [target["id"] for target in status["targets"]
                   if target["maturity"] == "stable"]
-        self.assertEqual(stable, ["web-chromium"])
+        self.assertEqual(
+            stable,
+            ["tui", "web-chromium", "web-firefox", "web-webkit"],
+        )
 
     def test_stable_target_cannot_keep_a_promotion_blocker(self):
         candidate = copy.deepcopy(self.support)
@@ -31,7 +34,7 @@ class CompatibilityContractTests(unittest.TestCase):
 
     def test_preview_target_must_name_its_exact_blockers(self):
         candidate = copy.deepcopy(self.support)
-        candidate["targets"]["tui"]["promotionBlockers"] = []
+        candidate["targets"]["flutter-ios"]["promotionBlockers"] = []
         with self.assertRaisesRegex(ValueError, "must name promotion blockers"):
             CHECK.validate_support(candidate, self.gates)
 

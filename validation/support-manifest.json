@@ -24,24 +24,22 @@
     "web-firefox": {
       "displayName": "Web Firefox",
       "family": "web",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Firefox through Playwright on Linux",
       "ownedGates": ["web-engines"],
       "releaseGates": {"web-engines": "linux-hosted"},
-      "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
-      ]
+      "fieldBenchmark": "validation/field/web-firefox.json",
+      "promotionBlockers": []
     },
     "web-webkit": {
       "displayName": "Web WebKit",
       "family": "web",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "WebKit through Playwright on Linux",
       "ownedGates": ["web-engines"],
       "releaseGates": {"web-engines": "linux-hosted"},
-      "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
-      ]
+      "fieldBenchmark": "validation/field/web-webkit.json",
+      "promotionBlockers": []
     },
     "flutter-ios": {
       "displayName": "Flutter iOS",
@@ -204,13 +202,12 @@
     "tui": {
       "displayName": "Terminal UI",
       "family": "tui",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Terminal applications on a real PTY with the VT parser",
       "ownedGates": ["tui-pty"],
       "releaseGates": {"tui-pty": "linux-hosted"},
-      "promotionBlockers": [
-        "independent affected-versus-fixed field benchmark is incomplete"
-      ]
+      "fieldBenchmark": "validation/field/tui.json",
+      "promotionBlockers": []
     },
     "electron-linux": {
       "displayName": "Electron Linux",

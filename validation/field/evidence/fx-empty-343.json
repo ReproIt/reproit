@@ -1,0 +1,62 @@
+{
+  "application": "fx",
+  "issue": "https://github.com/antonmedv/fx/issues/343",
+  "affectedRevision": "290c9dae04506809d79c7e1a0d2357f65d04688a",
+  "fixedRevision": "14b2139b55627a823201aac8972699daf90076ce",
+  "identity": "terminal:empty-file:indexing-after-eof",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "terminalObservation": "indexing",
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.06
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "terminalObservation": "indexing",
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.07
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "terminalObservation": "indexing",
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.07
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "terminalObservation": "0%",
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.06
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "terminalObservation": "0%",
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.07
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "terminalObservation": "0%",
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.07
+    }
+  ],
+  "neighboringLegalBehavior": "A one-object JSON file rendered its key in three clean runs at each revision.",
+  "minimizedAction": "Open one empty file in fx through a fresh PTY."
+}

@@ -1,41 +1,31 @@
 # Reproit
 
-Reproit turns a software failure into an exact local reproduction, then keeps the fixed case as a
-regression guard.
-
-The product goal has two separate measurements:
-
-- High recall: capture and attempt the broadest useful set of bugs developers actually face.
-- Exact reproduction: a reproduced result must match the original failure identity. A different
-  crash, timeout, or error is not a success.
-
-Reproit measures the complete funnel as `observed -> captured -> eligible -> executed -> exact ->
-minimized -> fixed -> guarded`. Work is prioritized by the largest measured drop-off, not by the
-number of unverified findings.
-
-## The core loop
+Reproit turns a software failure into an exact local reproduction, minimizes the
+trigger, and keeps the fixed case as a regression guard.
 
 ```sh
 reproit init
 reproit doctor
 reproit find
-reproit fnd_...
+reproit fnd_0123456789abcdef
 # fix the bug
-reproit keep fnd_...
+reproit keep fnd_0123456789abcdef --as checkout-freeze
 reproit check
 ```
 
-Four commands carry the normal workflows:
+## Product workflows
 
-- `capture` preserves a known failure from a configured app, command, or signed support bundle.
-- `find` discovers unknown failures, confirms exact identity, and minimizes successful cases.
-- `check` replays saved cases and distinguishes pass, exact failure, different failure, flaky,
-  stale, and infrastructure failure.
-- `list` shows guards, blocked candidates, or confirmed production bugs.
+- `capture` preserves a known failure from an application, bounded command, or
+  signed support bundle.
+- `find` discovers failures, confirms their identities, and minimizes successful
+  reproductions.
+- `check` replays saved cases and distinguishes an exact failure, a different
+  failure, flakiness, stale evidence, and infrastructure failure.
+- `list` shows guards, blocked candidates, and confirmed production bugs.
 
-Direct ids such as `fnd_...`, `occ_...`, and saved `@names` reproduce one exact case. `init`,
-`doctor`, `keep`, and `login` support the loop. Older specialist commands remain compatibility
-aliases for existing automation, but are not separate product workflows.
+Direct finding, occurrence, and saved-reproduction IDs run one exact case.
+`init`, `doctor`, `keep`, and `login` support the four workflows. Older
+specialist commands remain compatibility aliases, not separate product paths.
 
 ## Install
 
@@ -57,99 +47,70 @@ From source:
 cargo install --git https://github.com/ReproIt/reproit --locked reproit
 ```
 
-The first web run provisions its Playwright runner. Native targets need their platform toolchain.
-`reproit doctor` reports missing prerequisites and a concrete repair for each failed check.
+Run `reproit doctor` after installation. It checks the selected platform and
+reports concrete repairs for missing prerequisites.
 
-## Capture a known failure
+## Exactness and recall
 
-Capture a failing command:
+Reproit measures the full funnel:
 
-```sh
-reproit capture --include-output -- npm test -- checkout.test.ts
+```text
+observed -> captured -> eligible -> executed -> exact -> minimized -> fixed -> guarded
 ```
 
-Capture an already-running configured application:
+A result is `reproduced` only when a clean run reaches the observation point and
+matches the original failure identity. A similar crash, timeout, or error is a
+different failure. Missing evidence and unsupported capabilities produce typed
+blockers.
 
-```sh
-reproit capture --attach --title "checkout freezes" --record-video
-```
-
-Import a signed offline support bundle:
-
-```sh
-reproit capture --bundle support.rpb
-reproit occ_...
-```
-
-Evidence describes facts and requirements. It cannot provide an executable command. Commands,
-working directories, environment values, timeouts, and cleanup actions must come from a trusted
-adapter or the current checkout. Concurrency, distributed-system, performance, hardware, kernel,
-and environment-dependent requirements bind only to providers that explicitly declare that
-capability. Missing support produces a typed blocker.
-
-## Find, fix, and guard
-
-```sh
-reproit find --record-video
-reproit fnd_0123456789abcdef
-# edit the application
-reproit fnd_0123456789abcdef
-reproit keep fnd_0123456789abcdef --as checkout-freeze
-reproit check
-reproit list
-```
-
-Reproit does not count a clean run as a fix until the affected revision reproduces repeatedly, the
-fixed revision repeatedly does not reproduce, the exact observation point is reached in both
-campaigns, the case is minimized, and neighboring behavior remains intact.
+Evidence describes facts and requirements. Executable commands, directories,
+timeouts, environment values, and cleanup actions come only from trusted
+adapters or the current checkout. Local execution may use a host process,
+container, simulator, emulator, VM, or permissioned hardware without mutating
+production.
 
 ## Compatibility
 
-| Platform | 1.0 release | Compatibility | Backend |
-|---|---:|---|---|
-| Web DOM apps, Chromium | Released | Stable | Playwright Chromium |
-| Web DOM apps, Firefox and WebKit | Released | Preview | Playwright |
-| Flutter | Released | Preview | flutter drive and VM service |
-| React Native and native mobile | Released | Preview | Appium |
-| macOS native | Released | Preview | Accessibility, validated with SwiftUI |
-| Windows native | Released | Preview | UI Automation, validated with WPF, Avalonia, WinUI 3 |
-| Linux native | Released | Preview | AT-SPI, validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets |
-| Terminal UIs | Released | Preview | PTY and VT parser |
-| Electron | Released | Preview | Chromium and CDP |
-| Tauri | Released | Preview | system webview through tauri-driver |
+| Platform | Compatibility | Backend |
+|---|---|---|
+| Web DOM apps, Chromium | Stable | Playwright Chromium |
+| Web DOM apps, Firefox and WebKit | Stable | Playwright |
+| Flutter | Preview | flutter drive and VM service |
+| React Native and native mobile | Preview | Appium |
+| macOS native | Preview | Accessibility, validated with SwiftUI |
+| Windows native | Preview | UI Automation, validated with WPF, Avalonia, WinUI 3 |
+| Linux native | Preview | AT-SPI, validated with GTK, Qt Widgets, Qt Quick/QML, wxWidgets |
+| Terminal UIs | Stable | PTY and VT parser |
+| Electron | Preview | Chromium and CDP |
+| Tauri | Preview | system webview through tauri-driver |
 
-Preview is atomic. One passing toolkit does not promote a family. Promotion requires independent
-affected and fixed application campaigns, repeated clean resets, exact identity, minimization,
-neighbor checks, manual review, and exact-commit evidence from the native execution environment.
-The generated status is in
-[`validation/compatibility/STATUS.md`](validation/compatibility/STATUS.md).
+Compatibility is atomic. A target becomes Stable only after two independent
+affected-versus-fixed application campaigns, repeated clean runs, exact identity
+matching, minimization, neighboring-behavior checks, manual review, and
+exact-commit native evidence. The canonical state is generated from
+[`validation/support-manifest.json`](validation/support-manifest.json).
 
-## Shared causal capture contract
+## Causal capture
 
-All shipped SDKs register against one source-neutral `CaptureBatch` contract. The Rust owner
-generates its JSON Schema:
+Every shipped SDK registers against one generated `CaptureBatch` schema. CI
+checks semantic parsing, unknown-field rejection, SDK registration, and the
+canonical fixture bytes:
 
 ```sh
 cargo run -q -p reproit-protocol --bin capture-schema
 ```
 
-CI validates semantic parsing, unknown-field rejection, complete SDK registration, and the exact
-SHA-256 of the canonical fixture. See [the SDK guide](sdk/README.md).
+Captured values are classified and redacted before they become replayable or
+exportable. Work, retries, output, memory growth, and cleanup are bounded.
 
-## Evidence and privacy
-
-Reproit separates source claims from executable plans and from oracle verdicts. Restricted values
-must be redacted before they can become replayable or exportable. Every run is bounded by explicit
-timeouts, event limits, output limits, reset policy, and cleanup ownership.
-
-Read:
+## Documentation
 
 - [CLI reference](docs/cli.md)
 - [compatibility and promotion](docs/compatibility.md)
-- [causal capture and reproduction](docs/causal-capsules.md)
-- [data handling](docs/data-handling.md)
+- [causal capsules](docs/causal-capsules.md)
 - [architecture](docs/architecture.md)
-- [oracle authority](docs/oracles.md)
-- [1.x stability](docs/stability.md)
+- [oracle reference](docs/oracles.md)
+- [data handling](docs/data-handling.md)
+- [release contract](docs/release.md)
 
 Apache-2.0. See [SUPPORT.md](SUPPORT.md) for support and security reporting.
