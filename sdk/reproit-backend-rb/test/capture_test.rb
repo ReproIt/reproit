@@ -37,29 +37,28 @@ class CaptureTest < Minitest::Test
     handle.build_batch([operation])
   end
 
-  def test_server_error_batch_is_a_tagged_event_batch
+  def test_server_error_batch_uses_the_universal_causal_contract
     batch = batch_for(500, false)
     assert_equal 1, batch["version"]
+    assert_equal "app-demo", batch["projectId"]
     assert_equal({ "version" => "1.2.3" }, batch["deployment"])
-    frames = batch["frames"]
-    assert_equal 4, frames.length
-    assert_equal [1, 2, 3, 4], frames.map { |frame| frame["sequence"] }
-    finding = frames[3]["event"]
-    assert_equal "finding", finding["kind"]
-    assert_equal R::SERVER_ERROR_ORACLE, finding["identity"]["oracle"]
-    replay = finding["context"]["reproitCapture"]
-    assert_equal R::CAPTURE_FORMAT, replay["format"]
-    assert_equal "createOrder", replay["operation"]
-    assert_equal 3, replay["events"].length
+    events = batch["events"]
+    assert_equal [1, 2, 3, 4, 5], events.map { |event| event["sequence"] }
+    finding = events[4]["event"]
+    assert_equal "observation", finding["kind"]
+    assert_equal(
+      R::SERVER_ERROR_ORACLE + ":createOrder",
+      finding["failure"]["signature"]
+    )
     # Redaction happened before anything left the process boundary.
-    assert_equal "widget", replay["events"][0]["input"]["body"]["item"]
+    assert_equal "widget", events[1]["event"]["value"]["value"]["body"]["item"]
   end
 
-  def test_healthy_operations_ship_backend_frames_without_a_finding
+  def test_healthy_operations_ship_causal_events_without_an_observation
     batch = batch_for(201, true)
-    frames = batch["frames"]
-    assert_equal 3, frames.length
-    assert(frames.all? { |frame| frame["event"]["kind"] == "backend" })
+    events = batch["events"]
+    assert_equal 4, events.length
+    assert(events.none? { |event| event["event"]["kind"] == "observation" })
   end
 
   def test_oversized_captures_drop_trailing_effects_first
@@ -86,12 +85,6 @@ class CaptureTest < Minitest::Test
     ]
     payload, = R.capture_payload({ "operation" => "op", "status" => 500, "events" => events })
     assert_nil payload
-    batch = capture.build_batch(
-      [{ "operation" => "op", "status" => 500, "events" => events }]
-    )
-    finding = batch["frames"][-1]["event"]
-    assert_equal true, finding["context"]["captureOmitted"]
-    refute finding["context"].key?("reproitCapture")
   end
 
   def test_unusable_configs_disable_capture_instead_of_failing
@@ -122,21 +115,11 @@ class CaptureTest < Minitest::Test
     assert_equal 1, stats[:dropped_operations]
   end
 
-  def test_built_batch_passes_the_protocol_mirror_validator
-    # Batch-shape guarantee: round-trip the built batch through the JS mirror
-    # of reproit_protocol::EventBatch::validate (sdk/test/event_batch_v1.js).
-    mirror = File.expand_path("../../test/event_batch_v1.js", __dir__)
-    skip "protocol mirror not present" unless File.exist?(mirror)
-    script = "const {validateEventBatch}=require(process.argv[1]);" \
-      "let raw='';process.stdin.on('data',(c)=>raw+=c);" \
-      "process.stdin.on('end',()=>{validateEventBatch(JSON.parse(raw));" \
-      "process.stdout.write('valid')});"
-    [batch_for(500, false), batch_for(201, true)].each do |batch|
-      out, err, status = Open3.capture3(
-        "node", "-e", script, mirror, stdin_data: R.canonical_json(batch)
-      )
-      assert status.success?, "protocol mirror rejected the batch: " + err
-      assert_equal "valid", out
+  def test_built_batch_has_dense_causal_parentage
+    batch_for(500, false)["events"].each_with_index do |event, index|
+      assert_equal index + 1, event["sequence"]
+      expected = index.zero? ? [] : ["evt_backend-ruby_#{index}"]
+      assert_equal expected, event["causalParentIds"]
     end
   end
 end

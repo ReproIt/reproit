@@ -1,922 +1,125 @@
-# Using the reproit CLI
+# CLI reference
 
-reproit turns software failures into **repros**: saved executable cases with exact observations.
-A browser action, service startup, request, command, message, migration, and device event are
-different trigger types under the same occurrence, plan, capsule, proof, and guard model.
+The public CLI is organized around outcomes, not backend mechanisms.
 
-This guide gets you from zero to a saved regression guard, then covers the rest. If you just want
-the command list, jump to [Reference](#reference).
-
-## The idea in 30 seconds
-
-reproit has two entry paths into one verification loop:
-
-`reproit --help` lists the outcome-oriented loop. Specialist and compatibility
-commands remain supported and documented here, but they stay out of the
-top-level help. `reproit help <command>` works for every one of them.
+## Configure and diagnose
 
 ```sh
-reproit capture # preserve a known UI or command failure
-reproit find    # surface pass, deep exploration, confirmation, minimization
-reproit <id>    # reproduce one exact failure
-reproit keep    # retain it as a permanent regression guard
-reproit check   # prove saved failures remain fixed
+reproit init [URL] [--platform PLATFORM]
+reproit doctor
 ```
 
-Production and command failures use the same loop:
+`init` detects the project and writes the smallest usable configuration. It does not modify
+application source. `doctor` checks the selected platform, runner, target, credentials, and native
+toolchain. Every failed check includes a repair when Reproit knows a safe one. JSON output includes
+the same `detail` and `fix` fields:
 
 ```sh
-reproit capture -- ./failing-command
-reproit login
-reproit occ_...           # Cloud pulls evidence and compiles it against this checkout
-reproit check
+reproit --json doctor
 ```
 
-`capture` preserves the wrapped command's exit status, so adding capture never turns a failed build
-or job green. Evidence collected elsewhere enters through the offline bundle path:
+## Capture a known failure
 
 ```sh
-reproit collect ...       # create a signed, encrypted offline support bundle
-reproit inspect case.rpb  # verify its manifest and inspect metadata without decrypting
-reproit capture --bundle case.rpb
-reproit occ_...           # compile and execute, or print exact planning blockers
+reproit capture [OPTIONS] [-- COMMAND...]
 ```
 
-`find` stages the fast `scan` engine and the deep `fuzz` engine. The phase
-commands remain available for existing scripts and specialist control. Both
-maintain the internal app model automatically.
-
-Two things make it different:
-
-- **It proves what it can execute.** A confirmed repro retains the exact failure identity and the
-  capabilities needed to observe it again. Reproit runs it in the closest authorized environment
-  that satisfies those capabilities, and abstains when required evidence or infrastructure is
-  missing.
-- **There is no AI inside it.** The engine that finds and replays bugs is plain, offline, and
-  key-free. AI (your coding agent) plugs in from the outside over
-  [MCP](#use-it-with-your-ai-agent-mcp) to read repros and fix them. reproit then proves the fix.
-
-It also never relies on on-screen text to identify a screen, so the same app in English or German is
-the same graph, and your repros survive copy edits and translations.
-
-## Offline and non-UI failures
-
-`collect` accepts bounded regular files such as logs, structured events, traces, dumps, diagnostic
-reports, screenshots, and recordings. It hashes each artifact, creates an immutable
-`OccurrenceEnvelope`, archives at most 64 MiB, encrypts the payload with XChaCha20-Poly1305, and
-signs the manifest with Ed25519. If `REPROIT_BUNDLE_ENCRYPTION_KEY` is absent, Reproit creates a
-random key in `<bundle>.key` with mode 0600. If `REPROIT_BUNDLE_SIGNING_KEY` is absent, it also
-creates `<bundle>.signer`. Transfer both files separately from the bundle. Import and inspection
-refuse an embedded signer unless it matches the separately supplied signer key.
+Important forms:
 
 ```sh
-reproit collect --output customer-support.rpb \
-  --product desktop-suite \
-  --component index-service \
-  --platform windows \
-  --summary "service exits while opening the index" \
-  --artifact service.log \
-  --artifact service.dmp
-
-reproit inspect customer-support.rpb
-reproit import customer-support.rpb
+reproit capture --include-output -- cargo test failing_test
+reproit capture --attach --title "menu closes" --record-video
+reproit capture --bundle support.rpb
 ```
 
-Without `--exportable`, artifacts are marked `local-analysis-only` and
-`unredacted-restricted`. `--exportable` is an explicit assertion that every included artifact was
-redacted at source and may cross the collection boundary. Encryption does not change an artifact's
-policy classification.
+`--timeout-ms` bounds command execution. `--include-output` stores bounded stdout and stderr as
+restricted local evidence. `--local-only` prevents Cloud upload. Imported evidence cannot supply
+an executable mechanism.
 
-Import never treats evidence as code. It creates an incomplete assessment with a precise
-requirement. A checkout opts into execution in its existing `reproit.yaml`:
-
-```yaml
-execution:
-  version: 1
-  providers:
-    index-start:
-      authority: trusted-checkout
-      phase: launch
-      argv: [dotnet, run, --project, src/IndexService]
-      workingDirectory: .
-      timeoutMs: 30000
-      cleanExitCodes: [0]
-      observation:
-        identity: index-service-start-failure
-        kind: stderr-contains
-        value: "INDEX_START_FAILURE"
-      cleanup:
-        argv: [dotnet, run, --project, tools/Cleanup]
-        timeoutMs: 30000
-```
-
-Run the occurrence:
+## Find unknown failures
 
 ```sh
+reproit find [TARGET] [--record-video]
+```
+
+`find` runs a fast surface pass, then bounded deep exploration, exact replay confirmation, and
+minimization. A finding is emitted only when its oracle authority and exact identity are preserved.
+Incomplete coverage and unsupported capabilities remain explicit blockers.
+
+## Reproduce one case
+
+```sh
+reproit fnd_...
 reproit occ_...
-reproit check
+reproit @saved-name
 ```
 
-Reproit selects a provider automatically only when exactly one trusted provider
-matches every required phase and the exact observation identity. Ambiguity
-remains a typed blocker. The initial trusted provider is a bounded command provider. It covers current-checkout tests,
-startup failures, installers, migrations, service harnesses, and command-driven requests. Typed
-native providers for databases, queues, HTTP, Compose, devices, VMs, clocks, and concurrency remain
-separate capability work. Until one is implemented and available, Reproit reports the requirement as
-incomplete or unsupported.
+The result distinguishes:
 
-## Your first run
+- exact failure reproduced;
+- clean result;
+- a different failure;
+- flaky result;
+- stale or unsupported evidence;
+- infrastructure failure.
 
-From inside your app's project:
+A different failure never counts as a reproduction.
+
+## Guard a fix
 
 ```sh
-reproit scan --record-video   # audit visible bugs and save clips
-# -> 6 issues across 4 screens.  Next: reproit fuzz --all
-
-reproit fuzz --all            # hunt for confirmed, replayable bugs
-# -> 3 repros found.  id fnd_a3f2c1b8e0d5   reproduce: reproit fnd_a3f2c1b8e0d5
-
-reproit fnd_a3f2c1b8e0d5          # reproduce that finding
-# -> fail (3/3).  real bug, reproduced every run
-
-reproit proof fnd_a3f2c1b8e0d5    # explain authority, replay, minimization, and promotion
-
-reproit keep fnd_a3f2c1b8e0d5 --as login-crash   # keep it as a guard
-# -> saved (quarantined). Verify after the fix: reproit check
-
-# ...you (or your agent) fix the bug...
-
-reproit check                 # run the saved suite
-# -> 1 passed.  promoted to a required guard
+reproit keep fnd_... [--as NAME]
+reproit check [CAPTURE]
+reproit check --runs N
+reproit check --changed [BASE]
+reproit check --junit report.xml
 ```
 
-Every command ends by printing the exact next command to run, so you can follow the trail without
-memorizing anything.
+`keep` preserves a confirmed case. `check` runs all saved guards unless a single capture reference
+is supplied. `--changed` changes execution order only and never skips the rest of the suite.
+`--strict` makes quarantined failures block the exit code.
 
-The screen graph is internal lifecycle state. `scan`, `fuzz`, `check`, auth discovery, screenshots,
-imports, accessibility, coverage, and agent context ensure it exists and is current before use.
-ReproIt fingerprints relevant source files, lockfiles, journeys, configuration, and its own version.
-Any change causes an automatic refresh; Git commit and dirty state are recorded as provenance.
+Exit classifications are stable:
 
-## The core loop
+- pass: the exact failure is absent;
+- fail: the exact failure is present;
+- flaky: repeated runs disagree;
+- stale: the case cannot establish its required contract.
 
-### Internal app model
+Infrastructure and different-failure results are reported separately in structured output.
 
-ReproIt crawls the running app and records each screen plus the actions between them. Users do not
-maintain this graph or decide when it is stale.
+## List current work
 
 ```sh
-reproit debug map show                 # inspect the current graph
-reproit debug map structural --budget 20  # force a bounded rebuild
-reproit debug map verify               # force a full live drift audit
+reproit list
+reproit list --state candidates
+reproit list --state bugs [--query TEXT]
 ```
 
-The map is a directed graph, not a tree. Cycles are normal: tabs, back buttons, menus, and lists
-often return to known screens. The crawler records those edges, marks the state/action as tried, and
-spends the next step on another frontier instead of looping on the same cycle.
+The default lists local guards. Candidates include exact blockers. Bugs lists confirmed production
+identities, not unverified telemetry.
 
-On the first run reproit learns the model. If login blocks coverage, configure a test account with
-[`reproit auth`](#test-logins-auth).
-
-The crawl only reaches what it can actually get to (login walls and empty data limit it). Advanced
-diagnostic views remain under `reproit debug map`.
-
-### `scan`: scan every screen (the default find)
-
-`reproit scan` is the fast "what's wrong here". It does ONE coverage crawl, visiting every reachable
-screen once, and reports the bugs simply VISIBLE on each screen: broken content (`[object Object]`,
-a bare `undefined`), choice-anomalies (one option of a picker that shifts the layout), and verified
-broken routes. You get one finding per (screen x issue), grouped by screen, nothing collapsed.
-Every finding retains its `authoritative` or `specialist` classification; classification describes
-the oracle's policy boundary and never hides an observation whose predicate held.
+## Account selection
 
 ```sh
-reproit scan https://app.com  # zero-config: scan a deployed app, no setup
-reproit scan                  # scan the whole app (uses ./reproit.yaml)
-reproit scan login            # scope the crawl to one alias/node
-reproit scan ui.jsonl         # validate and render an A2UI v0.9 stream
-reproit scan --record-video   # also save an annotated clip per boxable finding
+reproit login
 ```
 
-`--record-video` (web) runs the path to each finding's screen and saves an annotated video with a
-red box on the bug, one clip per (screen x issue), into
-`.reproit/recordings/scan/<scan-run>/` (or `--out <dir>`). It clips the findings with an on-screen
-element (content, broken-route, choice-anomaly). Sequence-dependent hang, jank, leak, and crash
-findings remain in `fuzz`; they are not inferred from a single screen crawl.
+Login stores an account credential in the platform credential store and selects a project.
+Local-only capture and checking do not require login.
 
-Reach for `scan` first when auditing an app. It is deterministic (no action permutations) and
-surfaces every per-screen issue, where `fuzz` collapses to one finding per seed.
-`scan --record-video` is the fastest way to hand someone a clip of a visible bug. Use `fuzz` when
-you need a replayable `fnd_...` finding that can be checked and kept as a guard.
+## Global options
 
-### `fuzz`: find the deep, sequence-dependent bugs
-
-`reproit fuzz` combinatorially permutes action sequences to provoke replayable bugs: crashes, jank,
-hangs, leaks, and any invariant that reproduces from a stable action sequence. Each bug it finds
-becomes a candidate repro with a content-hash `fnd_...` id. For bugs simply visible on a screen, run
-`scan` first to audit and clip them; run `fuzz --all` when you want ids you can `check` and `keep`.
-
-```sh
-reproit fuzz                  # hunt the whole app (uses ./reproit.yaml)
-reproit fuzz login            # concentrate on one screen or flow
-reproit fuzz https://app.com  # zero-config: point at a deployed app, no setup
-reproit fuzz google.com       # a bare host works too (scheme is auto-added)
-reproit fuzz ui.jsonl         # schema-valid A2UI mutations across React and Lit
-reproit fuzz --all            # don't stop at the first bug; return every unique bug
+```text
+--config PATH   select reproit.yaml
+--json          machine-readable output
+--quiet         suppress human output
+--yes           disable prompts for CI
 ```
 
-The positional target is auto-detected: a URL (with or without a scheme, e.g. `google.com` or
-`localhost:3000`) runs zero-config against that deployed app (it synthesizes a web setup, builds the
-map, and fuzzes, no `reproit.yaml` needed); anything else is treated as an alias to scope the hunt
-to.
-
-An A2UI v0.9 JSON or JSONL target is detected structurally. ReproIt validates it against the
-official basic-catalog schemas, runs the official React and Lit renderers, and applies only
-schema-valid stream mutations. Every finding stores the smallest message stream that still produces
-the exact same signature, so `reproit fnd_...` replays without an A2UI checkout or a separate
-command.
-
-By default it stops at the first finding so you can fix it before hunting more. `--all` keeps going
-and groups duplicates (the same crash reached by different paths) into one bug each, with the
-shortest repro. That is the list your AI agent gets over MCP.
-
-Findings live in a throwaway artifact (gitignored). Nothing is added to your committed graph or
-suite until you choose to `keep` it.
-
-### Reproduce one bug; check the suite
-
-Run `reproit <id>` for one bug or `reproit @name` for a saved alias or journey. `reproit check`
-runs the whole saved suite. All three forms classify replay the same way:
-
-| Outcome   | Meaning                                                        | Exit code |
-| --------- | -------------------------------------------------------------- | --------- |
-| **pass**  | replayed, all green                                            | 0         |
-| **fail**  | replayed, still broken (a real regression)                     | 1         |
-| **flaky** | same actions, inconsistent result, so your app has a race      | 2         |
-| **stale** | the targeted element is gone (the UI changed), couldn't replay | 3         |
-
-```sh
-reproit rep_a3f2c1b8e0d5          # reproduce one saved repro (fnd_... works too)
-reproit @login-crash              # reproduce one saved repro by alias
-reproit proof rep_a3f2c1b8e0d5    # inspect its immutable proof ledger
-reproit candidates                # show candidates and exact promotion blockers
-reproit check                     # run your whole saved suite
-reproit check --changed [BASE]    # mapped repros first, then the full suite
-reproit create                # demonstrate a bug and preserve the original human capture
-reproit create --attach       # start from an already-running app
-reproit create --push         # create, review in browser, then push the original
-reproit create --cloud-tester # verify and shrink an SDK-marked Cloud capture
-reproit <id> --record-video   # run the bug and produce annotated video evidence
-reproit inspect @login-crash  # step through a repro on its configured platform
-```
-
-On a backend project `reproit check` is the CI gate: it runs a scan and exits non-zero only on
-new-or-regressed findings. Two flags shape that:
-
-```sh
-reproit check --service api/reproit.yaml --service worker/reproit.yaml   # gate a whole repo
-reproit accept fnd_<id> --reason "..." --until 2026-12-31                # live with one finding
-reproit accept fnd_<id> --remove                                          # and stop living with it
-```
-
-`--service` gates several services under one exit code, so a multi-service repo needs one CI step
-instead of N chained ones; a service whose gate cannot run counts as a failure, never a skip.
-`accept` is the per-finding alternative to `--update-baseline`, which accepts everything currently
-reproducing: an accept names one finding, requires a reason, and blocks again once `--until`
-passes. See `docs/backend-quickstart.md`.
-
-On a backend project, `reproit check <capture.json>` also accepts a captured-production payload
-file (the `reproit-backend-capture` JSON a backend SDK attaches to a production finding, the same
-artifact `reproit debug replay-capture` takes). The capture is re-evaluated deterministically
-against the backend oracles under check's verdict contract: still reproduces is a real regression
-(**fail**, exit 1); no longer reproduces is **pass** (exit 0). `reproit debug replay-capture
-<file>` is the same re-evaluation with a diagnostic report. If a saved repro or finding shares the
-file's name, the saved artifact wins and the file is not read.
-
-The repro video is paced and annotated: a caption names each action (the trigger step in red),
-and the clip ends with a red box around what broke - the crashing control, the overflowing element,
-the `[object Object]` text, the choice that shifts the layout. (Leak has no on-screen element, so no
-box.)
-
-`reproit inspect <repro>` is the interactive complement to a normal deterministic replay. It uses
-the configured execution surface: a browser for web, simulator or device for mobile, the native
-application window for desktop, and the rendered terminal session for TUI targets. Web displays
-the action controls in the page; other targets use the host prompt while the target remains visible.
-Every adapter pauses before the action, so the controller cannot change state signatures or oracle
-evidence. Human pacing makes the run diagnostic: inspection never updates or promotes the saved
-guard. When the replay finishes, ReproIt writes `fix-packet.md` for a person and
-`fix-packet.json` for an agent into the evidence run directory. A production `bkt_...` can be
-passed directly and is pulled first when it is not already saved locally.
-Flutter projects initialized by an older CLI must first refresh the generated explorer with
-`reproit init --platform flutter --force`; ReproIt reports this before launching and does not
-silently run an inspection without action pauses.
-
-On a backend project, `reproit inspect` steps through one operation sequence instead of one UI
-action sequence. It accepts a backend finding id (`fnd_...`), a production bucket id (`bkt_...`,
-pulled first when its package carries a `context.reproitCapture` payload), or a
-captured-production payload file (the same artifact `reproit debug replay-capture` accepts). Live
-re-execution is the default: ReproIt attaches to the configured target exactly like backend replay
-does and re-sends the recorded requests one step at a time (Enter runs the next step, C continues
-to failure, Q stops). After each step it shows the request, the response, the live effect trail
-from the SDK adapter's `x-reproit-events` header, a diff of live effects against the recorded
-sequence (matched, missing, unexpected), and which oracle predicates are mid-accumulation (a write
-awaiting its read-back, an idempotency pair half-matched). Overlapping calls covered by a
-`concurrent-update` proof advance together as one grouped multi-actor step. `--offline`, or the
-automatic fallback when no live target is configured or reachable, steps through the recorded
-events only. The verdict comes from the unchanged backend check engine over event-sequence
-prefixes and stops at the first step where the expected violation fires. The session writes
-`inspect-transcript.md` and a bounded `inspect-transcript.json` into
-`.reproit/runs/backend-inspect-*/`; re-sending recorded mutating requests is a replay, and the
-inspection never fuzzes, generates new inputs, or touches saved guards.
-
-`create` captures what the tester actually experienced. It launches the configured app
-by default; `--attach` begins from the current state of an app that is already running. The tester
-uses the app normally and returns to the terminal to stop. Repro It stores an immutable original in
-`.reproit/captures/cap_.../`. It does not need an oracle, replay the session, or remove actions.
-The manifest reports video, action, and state-graph channels independently, so a visual-only bug is
-still a valid capture and unavailable structural evidence is never invented. The default macOS
-path starts main-display video before launching the configured app after Screen Recording
-permission is granted. It does not passively infer actions or states. An instrumented SDK may
-export them to JSON while the capture runs; pass that
-live export path with `--actions-file` and Repro It reads and freezes it after you stop. Other hosts
-currently require such an SDK export. A capture with no finalized video and no action export fails
-closed and reports the private staging directory for review or deletion.
-
-Original captures remain local unless push is explicitly requested. `create --push` opens a
-browser review where the signed-in user selects the organization project, title, description,
-severity, and visibility. After approval, the CLI uploads each file and its SHA-256 hash, then the
-Cloud verifies every hash before publishing the private capture page. `--no-open` prints the review
-link for a headless terminal. The local original remains immutable. An interrupted upload can be
-resumed with `reproit push cap_...`.
-
-The capture id is also the direct command. Bare `reproit cap_...` shows its local summary,
-`--watch` opens the original video, `reproit push cap_...` starts or resumes browser review, and
-`--open` opens the completed Cloud capture page. Global `--json` returns the same status as
-structured output. A separate `inspect` command is unnecessary.
-
-Any later deterministic replay or minimized repro is a derived artifact and must reference its
-parent `cap_...`; it never
-replaces or mutates the original. The older SDK/Cloud tester workflow is available explicitly as
-`create --cloud-tester`: it pulls a marked rolling path, verifies the captured state, and derives a
-minimized repro only when verification succeeds.
-
-This is different from `scan --record-video`: scan clips are quick audit artifacts, one per visible
-issue. `<id> --record-video` is evidence for one replayable repro id (`fnd_...`, `rep_...`, or an
-alias), and is what `watch <id>` opens later.
-
-Because repros are stored by _structure_ (developer keys), a button that simply moved comes back as
-**stale**, not a false **fail**. The exit codes are the CI contract.
-
-### `keep`: turn a bug into a permanent guard
-
-```sh
-reproit keep fnd_a3f2c1b8e0d5 --as login-crash
-```
-
-`keep` saves a repro into your committed suite (`.reproit/repros/`). It is not a git commit; it
-writes a local file. A kept repro starts **quarantined** (reported but non-blocking) and is
-automatically promoted to a **required** guard the first time it passes (that is, once you've fixed
-the bug). Re-keeping the same case is harmless: it's content-addressed, so it maps to the same id
-and keeps its history.
-
-That's the whole loop: `scan` (audit and clips) -> `fuzz --all` (replayable ids) -> `reproit <id>`
-(confirm it's real) -> `keep` (guard it) -> `check` (prove the fix).
-
-## Saving and re-running bugs
-
-- `reproit repros` lists your saved repros with each one's last status and action sequence.
-- `reproit watch <id>` opens a repro's recorded video (make one with
-  `reproit <id> --record-video`).
-- `reproit repro simplify <id> --to '<actions>'` swaps in a shorter action sequence, but only if
-  reproit can verify it still reproduces the same bug. Fuzz-found repros are sometimes tangled; this
-  cleans them up safely. Your agent proposes a minimal sequence, reproit replays it, and adopts it
-  only if it still triggers the bug.
-- `reproit repro why [repro]` ranks the source code most likely to blame for a failure
-  (spectrum-based fault localization). It needs both passing and failing runs, which `fuzz`
-  produces, and is strongest on instrumented targets.
-
-## Going further
-
-### Journeys (scripted paths)
-
-A _journey_ is a short, declarative script through your app, stored as `journeys/<name>.yaml` and
-run with `reproit journey <name>`. Use journeys to pin important flows (login, checkout) and to give
-`fuzz` a deep starting point.
-
-Each step is one of: `do:` (an action), `goto:` (pathfind to a screen), `expect:` (assert
-state/text/count), or `fill:` (type into fields, with secrets pulled from the vault). A top-level
-`setup: login(alice)` handles auth.
-
-```yaml
-setup: login(alice)
-steps:
-  - { goto: checkout }
-  - { fill: { key:card: "4242424242424242" } }
-  - { do: tap:key:pay }
-  - { expect: { text: "Thank you" } }
-```
-
-Multi-user flows (one user posts, another sees it) are supported: add an `actors` block and tag each
-step with its actor. reproit runs one device per actor and coordinates them in order. See
-`reproit journey list` and `reproit journey create`.
-
-For concurrent exploration, the application owner may declare exact cross-actor action pairs that
-commute. Undeclared pairs remain dependent, so they are never reordered or pruned:
-
-```yaml
-actors: [alice, bob]
-independentActions:
-  - { left: "tap:key:refresh", right: "tap:key:open-settings" }
-steps:
-  - { actor: alice, do: "tap:key:refresh" }
-  - { actor: bob, do: "tap:key:open-settings" }
-```
-
-These declarations reduce equivalent schedules during search only. They do not create authority or
-change the contract and replay requirements for a confirmed finding.
-
-### Structural contracts
-
-Contracts express app-specific facts without matching English copy or writing runner code. Put them
-at the top level of `reproit.yaml` for scan and fuzz, or inside a journey for that flow. ReproIt
-evaluates them over normalized actions, actors, states, routes, visible text, oracle signals,
-network statuses, response shapes, and counts from every runner.
-
-```yaml
-contracts:
-  - id: peer-sees-message
-    authority: declared
-    when:
-      actor: alice
-      action: tap:key:testid:send
-    must:
-      eventually:
-        condition:
-          all:
-            - is: { actor: bob }
-            - is: { text: Message delivered }
-        withinSteps: 8
-```
-
-Formulas support `is`, `always`, `eventually`, `next`, `implies`, `all`, `any`, and `not`. The
-default `scope` is `trace`; use `scope: state` only when each single observation can prove or
-disprove the property. Contract action keys are fed back into exploration as hints. A discovered
-violation receives a stable fingerprint, exact replay confirmation, structural evidence, and shrink
-protection, so minimization cannot silently replace it with a different bug.
-
-`authority` is `declared`, `derived`, or `suggested`. Omitted authority remains `declared` for
-existing application-owned contracts. A suggested contract always returns `ABSTAIN` and does not
-steer exploration. Use `derived` only when a mechanical source proves the complete predicate.
-
-### Fuzz from a journey
-
-Reaching a deep screen is the expensive part of fuzzing. `reproit fuzz --from
-<journey>` replays a
-journey to its end and then explores outward from there, so a flow you already have becomes a
-launchpad for the bugs around it.
-
-For a journey with `actors`, the authored steps are an immutable shared-state checkpoint. ReproIt
-launches one isolated session per actor, verifies the whole checkpoint, then generates actor-aware
-interleavings using safe outgoing transitions from each actor's structural state. A candidate is
-replayed from a fresh checkpoint and minimized without deleting checkpoint steps. Confirmed repros
-are written as `journeys/multi-<id>.yaml`, so the handoff is one command:
-`reproit journey multi-<id>`.
-
-### Import existing tests
-
-`reproit import maestro flow.yaml` converts a Maestro flow into a reproit journey (switching cost is
-near zero). It maps the common commands, inlines sub-flows, unrolls loops, and prints an import
-summary; anything with no faithful equivalent is left as a clearly marked `# TODO` comment rather
-than dropped. When `.reproit/map/appmap.json` exists, text-only Maestro taps are resolved through
-the observed map if the label matches one unique actionable element; otherwise they stay TODOs until
-the app exposes a stable selector.
-
-### Screenshots
-
-`reproit screenshots <tour>` produces store and marketing screenshots by running a journey in
-capture mode, fanned across locales and devices. The same journey doubles as a `check` (where
-`shoot:` steps just navigate) and as a screenshot run (where they take pictures). Because screens
-are locale-invariant, one tour covers every language with no per-locale selectors. See the
-[screenshots reference](#screenshots-1).
-
-### Test logins (auth)
-
-Test credentials live in an encrypted local vault, never in the repo or in your journey YAML.
-
-Once an account exists, the normal path is simply:
-
-```sh
-reproit auth alice
-```
-
-ReproIt maps the unauthenticated UI when needed, recognizes semantic credential and OTP fields
-across screen transitions, generates `login-alice.yaml`, and accepts it only after a clean
-verification run. The explicit commands below are the advanced/configuration surface.
-
-Discovery is language independent. It uses the universal structural
-[`inputPurpose` contract](auth-contract.md), never visible labels.
-
-```sh
-# Password login: drive the UI with journeys/login.yaml.
-reproit auth alice --email alice@example.com --password "$ALICE_PASSWORD"
-
-# Phone OTP login: deterministic test-mode code.
-reproit auth driver --phone +15555550123 --otp 123456
-
-# Session/API-style auth: restore a saved authenticated state, skip the UI.
-reproit auth admin --session '{"localStorage":{"token":"test-token"}}'
-reproit auth service --strategy api --session '{"headers":{"Authorization":"Bearer test-token"}}'
-```
-
-`auth` writes non-secret account metadata under `auth.accounts`, stores provided values in the local
-vault. Journeys stay simple: `setup: login(alice)`. Inside the login journey, use `secret:email`,
-`secret:phone`, `secret:username`, `secret:password`, `secret:totp`, or `secret:otp`; the host
-resolves those values before the runner types them, and redacts them from logs. For stored-session
-or API-style accounts, use `setup: auth(admin)` or an actor binding like `{ auth: admin }`.
-
-### Browser route access
-
-Declare exact access outcomes when a browser route has an application-owned policy that ReproIt
-cannot infer safely:
-
-```yaml
-auth:
-  accounts:
-    - name: member
-      strategy: session
-      storageRef: member-session
-      validate: { route: /app }
-
-routeAccess:
-  - route: /login
-    authority:
-      anonymous: declared
-      member: declared
-    access:
-      anonymous: allow
-      member: { redirect: /app }
-  - route: /app
-    authority:
-      anonymous: declared
-      member: declared
-    access:
-      anonymous: { redirect: /login }
-      member: allow
-  - route: /admin
-    authority:
-      anonymous: declared
-      member: declared
-    access:
-      anonymous: { redirect: /login }
-      member: { status: 403 }
-```
-
-Run the bounded matrix with:
-
-```sh
-reproit scan --only route-access
-```
-
-Routes and redirects must be concrete same-origin paths without a query or fragment. A principal is
-either `anonymous` or the exact name of an `auth.accounts` entry. `allow` requires the requested
-route to remain active with a successful document response. `{ redirect: /path }` requires the
-exact final route, including client-side guards. `{ status: 403 }` requires that exact document
-response status.
-
-Authority is recorded per route/principal cell. A `suggested` cell returns `ABSTAIN` before ReproIt
-starts a browser context. An omitted cell authority is `declared`, preserving existing contracts.
-Use `derived` only when the cited mechanical source proves the exact access outcome.
-
-Every non-anonymous account needs `validate.text`, `validate.state`, or `validate.route` so ReproIt
-can prove the principal before probing the route. It runs each matrix cell in an isolated browser
-context and confirms a violation with identical evidence in a second clean context. Failed auth,
-external redirects, incomplete navigation, missing responses, and unstable results are `ABSTAIN`.
-They are never reported as access bugs.
-
-This contract covers browser document navigation. Use a backend `authorization-matrix` proof for
-API operations and protected response data.
-
-### Many platforms, many locales
-
-`fuzz` and `check` take cross-cutting flags:
-
-```sh
---target chromium,firefox,webkit   # run each and diff them (finds divergence bugs)
---target ios,android               # same idea across mobile platforms
---locale de,ar,ja                  # fuzz across languages (RTL, overflow, i18n)
---device "iPhone 16 Pro Max"       # otherwise you get an interactive picker
-```
-
-## Use it with your AI agent (MCP)
-
-reproit ships no built-in AI. Instead, `reproit mcp` exposes the engine to your coding agent so the
-agent can run the loop itself: fuzz, read the repro, fix the code, then `check` to prove it (a green
-check is deterministic, so the agent _knows_ it fixed the bug).
-
-Register it once:
-
-```sh
-claude mcp add reproit -- /path/to/reproit mcp     # Claude Code
-codex mcp add reproit -- /path/to/reproit mcp      # Codex
-```
-
-The agent gets tools like `reproit_fuzz`, `reproit_check`, `reproit_accessibility`, and
-`reproit_context` (a scoped graph plus the selectors it needs to act). Model maintenance is
-automatic and is deliberately not exposed as an agent decision. Authoring, triage, and fixing remain
-the agent's job; reproit is the ground truth and verifier. Full tool list in the
-[reference](#mcp-tools).
-
-## Cloud
-
-The same `reproit` binary runs on a fleet for the broad, parallel outer loop: fuzzing on every PR,
-and ingesting production crashes. The headline use case is reproducing a **real production crash on
-your own machine**: the SDK reports the session, and `reproit <bkt_...>` saves and reproduces it
-locally.
-
-```sh
-reproit login                                          # once: browser sign-in and project selection
-reproit bugs                                             # impact-ranked bucket ids
-reproit bkt_...                                          # reproduce locally
-reproit bkt_... --record-video                           # pull if needed and save video
-reproit triage bkt_... fixed --fixed-in-build 1.2.3
-reproit resolution-events
-```
-
-Login is account-scoped and can run anywhere. Reproduction is execution-scoped: it needs a
-`reproit.yaml` that can launch the target. That may be a source checkout, or a URL workspace created
-with `reproit init
-https://app.example.com`. From elsewhere, pass
-`--config /path/to/app/reproit.yaml`. ReproIt downloads the confirmed structural path and failure
-signature, then executes them with the configured browser, local runner, auth, device, or simulator.
-Bucket replay does not download a source tree or app graph. It executes the saved structural actions
-directly; scan and fuzz maintain the discovery graph automatically.
-
-Local is the fast inner loop in your worktree; cloud is the broad outer loop with history. Every
-cloud view is backed by exportable raw data.
-
----
-
-# Reference
-
-## All commands
-
-```
-reproit                       help: capture/find -> reproduce -> keep -> check
-reproit capture               demonstrate a configured application failure
-reproit capture -- <command>  capture a bounded command failure
-reproit find [target]         staged surface and deep confirmed discovery
-reproit find --quick          run only the fast surface pass
-reproit find --deep           run only deep exploration
-reproit list                  list saved local guards
-reproit list --state candidates  list exact promotion blockers
-reproit list --state bugs     list confirmed production bugs
-reproit scan [target]         compatible explicit surface-phase command
-reproit fuzz [target]         compatible explicit deep-phase command
-reproit init <schema-url>     backend projects: snapshot a served schema and set the target
-                              (see docs/backend-quickstart.md, incl. target precedence)
-reproit init --learn          backend projects without a schema: derive a DRAFT openapi.yaml
-                              from the framework's route definitions in source; add
-                              --target <url> to also record one observed response per
-                              parameterless GET route. The draft is a starting point to
-                              review, not a verified contract.
-reproit <fnd_|rep_|bkt_...>    reproduce one bug
-reproit @saved-name            reproduce one saved repro or journey by name
-reproit proof <id>             explain its immutable proof ledger
-reproit candidates             list candidates with exact promotion blockers
-reproit check                  verify the whole saved suite
-reproit check --changed [BASE] run mapped repros first, then the complete saved suite
-reproit check <capture.json>   re-evaluate a captured-production backend payload (fail 1 / pass 0)
-reproit reset                 remove only regenerable local project state
-reproit reset --all           remove all local Reproit state after confirmation
-reproit reset --all --init    remove all state and initialize the project again
-reproit keep [id] [--as name] keep a repro in your suite
-reproit create                preserve an immutable human-authored original
-reproit create --push         create, browser-review, and push the original
-reproit cap_...               show an immutable original capture
-reproit cap_... --watch       open its video
-reproit push cap_...          review and push it to Cloud
-reproit cap_... --open        open its completed Cloud page
-reproit create --cloud-tester verify/shrink an SDK-marked Cloud capture
-reproit <id> --record-video   annotated video of a repro (--flicker also scans it)
-reproit baseline [--update]   visual-regression diff vs the committed baseline
-reproit repros                list saved repros + last status (`repro list` is an alias)
-reproit repro simplify <id> --to ..  swap in a shorter, verified-equivalent sequence
-reproit repro why [repro]     rank suspect code for a failure (Ochiai)
-reproit watch <id>            open a repro's recorded video
-reproit journey list|save     manage scripted journeys
-reproit screenshots [tour]    store/marketing shots across locales + devices
-reproit import maestro <f>    convert a Maestro flow into a journey
-reproit auth <account>        configure, discover, and verify a test login
-reproit devices               list the simulators reproit manages (by configured name prefix)
-reproit mcp                   serve reproit to your coding agent (stdio)
-reproit skills install        install the configuration and debugging playbook
-reproit login                 connect production telemetry to this account
-reproit platforms             UI-framework -> backend matrix
-reproit update                verify and install the latest CLI release
-reproit debug map ...         advanced internal-model diagnostics
-```
-
-### Agent-assisted configuration
-
-Run `reproit skills install` in an application repository, then ask the coding agent to configure
-Reproit. The installed playbook separates candidate rules into declared, mechanically derived, and
-suggested classes. Suggested intent never enters executable configuration without explicit review.
-The agent validates the resulting setup with `reproit doctor` and narrow contract runs, but the
-deterministic CLI remains the only component that emits a pass, violation, or abstention.
-
-For access policy, the agent first produces a route/principal matrix with a source for each cell.
-A route name or visible label is not authority. Missing or contradictory policy remains uncovered
-instead of being guessed. See the
-[contract-authoring workflow](../skills/reproit/references/configuration.md).
-
-### Internal-model diagnostics
-
-Normal commands refresh the graph automatically. These advanced views explain or force its behavior:
-
-- `debug map show`: render the current graph.
-- `debug map model`: project the observed graph as an explicitly incomplete, non-authoritative
-  state machine with unknown actions.
-- `debug map budget`: report guidance-only campaign saturation and a bounded next action budget.
-- `debug map suggest-contracts`: emit local draft contracts from verified reversible transitions.
-  Drafts never become authority until an application owner reviews and adds them.
-- `debug map structural`: force a full crawl.
-- `debug map semantic`: an LLM reads your _source_ for the screens that _should_ exist, as a
-  worklist (the one optional model call; never an assertion target).
-- `debug map coverage`: diffs the screens your code declares against the screens the crawl actually
-  verified, so "not fully mapped" becomes a named list.
-- `debug map converge`: validates those candidates against the real map and prunes guesses.
-- `debug map verify`: re-walks the committed map and reports drift (exit 3).
-- `debug map accessibility`: the accessibility audit: which controls a mouse user can operate but a
-  keyboard / screen-reader user cannot, per screen, each located by selector and source file:line.
-  `--format md` prints an exportable, WCAG-cited report (redirect to a file); `--json` gives the
-  structured form; `--baseline <appmap.json>` reports only the gaps NEW vs that baseline and exits 1
-  if any appeared (a CI regression gate). See [docs/operability-graph.md](operability-graph.md).
-
-## Flags (on fuzz / check)
-
-See [Oracle reference](oracles.md) for the confirmed default set, specialist detectors, platform
-coverage, and `VIOLATION` / `SATISFIED` / `ABSTAIN` semantics.
-
-```
---target ios|android|web|all   multi (a,b,c) -> run each + diff for divergence
---device "<name>"              else an interactive picker (when a TTY)
---locale de,ar,ja              fuzz across locales (RTL / overflow / i18n)
---from <journey>               (fuzz) replay a journey, then explore from its end
---times N                      repeat, to surface flakiness
---only / --no crash,jank,leak  narrow the oracles (default: confirmed set)
---strict                       new repros block instead of starting quarantined
-```
-
-`check --changed [BASE]` is a safe ordering optimization. Repros with an exact saved source mapping
-to the git diff run first, followed by every other saved repro. If git or mapping evidence is
-missing, Reproit runs the normal full suite.
-
-## Globals (every command)
-
-```
---json     machine-readable output (CI, scripts, the MCP bridge)
---quiet    suppress human-readable output
---yes      never prompt (non-interactive / CI)
---config   path to reproit.yaml (default: ./reproit.yaml)
-```
-
-Precedence: flag > config > default.
-
-## Exit codes (the CI contract)
-
-```
-0  clean / all pass
-1  real regression (replayed, still broken)
-2  flaky (same actions, inconsistent result -> app race)
-3  stale (UI changed, couldn't replay -> re-record, not a failure)
-```
-
-## Oracles
-
-Findings are tagged so you can filter with `--only` / `--no`. The default set contains only
-categories with authoritative evidence and exact replay.
-
-- **crash** uncaught exceptions / process death
-- **jank** dropped frames past a threshold
-- **leak** heap growth over a repeating cycle
-- **visual** screenshot regression vs a baseline
-- **divergence** disagreement between targets (run with multiple `--target`)
-- **a11y** accessibility violations
-- **overflow** content outside an app-declared layout container in two settled samples. DOM apps
-  declare the container with `data-reproit-contain`; scrolling, truncation, transforms, missing
-  ownership, and unstable geometry abstain. The shared collector covers web, Electron, Tauri, and
-  DOM frameworks such as React, Vue, Svelte, and Angular. Use `--locale` to exercise long and RTL
-  strings.
-
-## MCP tools
-
-```
-reproit_context(target?)              scoped graph + screens + selectors for a target
-reproit_accessibility(state?, kind?)  UI-vs-a11y diff per screen, grounded by selector + file:line
-reproit_coverage()                    candidate map from source + coverage ledger + worklist
-reproit_scan(target?, record_video?)  default find: state-present bugs, one per (screen x issue)
-reproit_fuzz(target?, platform?)      deep sequence bugs (crash/jank/hang); deduped unique-bugs list
-reproit_check(repro?, changed?, record_video?, flicker?)  run and classify; changed only reorders
-reproit_baseline(update?)             visual-regression diff vs the committed baseline
-reproit_keep(id?, as?)                save a repro into the suite
-reproit_simplify(repro, actions)      adopt a shorter, verified-equivalent sequence
-reproit_repros()                      list saved repros + status + actions
-reproit_journeys()                    list authored journeys
-reproit_journey_save(name, journey)   author a journey (incl. multi-user actors)
-reproit_why(repro?)                   rank suspect code (Ochiai)
-reproit_cloud_buckets(app?, query?)              impact-ranked finding buckets
-reproit_cloud_blast_radius(bucket, app?)         who's affected (cohorts, %, versions)
-reproit_cloud_reproduce(bucket, as, run?, app?)  MCP tool: pull a real session + optionally replay
-reproit_cloud_pull(bucket?, top?, as, app?)      pull a bug as a first-class LOCAL repro
-reproit_cloud_triage(bucket, status?, fixed_in_build?, assignee?, app?)  read/set triage state
-reproit_cloud_resolution_events(app?)            recent prod-truth transitions (monitor regressions)
-reproit_cloud_timeline(bucket, app?)             per-bucket occurrence series + resolution
-```
-
-These `reproit_*` names are MCP tools served by `reproit mcp`, not CLI subcommands. In a
-terminal, the equivalent of `reproit_cloud_reproduce` is `reproit <bkt_...>` (pull a production
-bug and confirm it locally).
-
-`reproit login` persists the account credential and selected project. Bucket ids resolve across
-every project that account may access, so reproduction, recording, triage, and timelines never need
-an app id.
-
-The full production loop (manage + monitor, not just fix): `reproit_cloud_buckets` (impact-ranked)
--> `reproit_cloud_pull` the top -> `reproit_check` (reproduce) -> fix -> `reproit_check` (verify) ->
-`reproit_keep` -> `reproit_cloud_triage` status=fixed --fixed-in-build X (record the fix intent) ->
-watch `reproit_cloud_resolution_events` for a regression (prod contradicting the claim).
-
-## Production commands
-
-```
-reproit login                       sign in in the browser and select a discovered project
-reproit bugs [query]                impact-ranked confirmed production bugs
-reproit <bkt_...>                   pull and verify locally
-reproit <bkt_...> --record-video    pull if needed and save video of the exact repro
-reproit triage <bucket> <status>    update lifecycle state
-reproit timeline <bucket>           occurrence history and production resolution
-reproit diagnose <report>           match a report to a confirmed bug
-reproit resolution-events           recent confirmations and regressions
-```
-
-## screenshots
-
-```sh
-reproit screenshots [tour]
-  --locale de,ar,ja      # fan across locales (RTL / i18n)
-  --target ios,android   # fan across platforms / engines
-  --device "a,b"         # fan across devices
-  --out screenshots      # output root
-  --path-template "{locale}/{device}"   # override the auto layout
-  --no-verify            # skip the cross-screen verify gate (on by default)
-```
-
-Output is journey-led and collapses axes that don't vary:
-`<out>/<journey>[/<platform>][/<locale>][/<device>]/<name>.png`. The `platform` level appears only
-when you fan more than one. For exact control (e.g. the layout `fastlane deliver` expects) set a
-`--path-template` with `{journey}` `{platform}` `{locale}` `{device}`. Config lives under
-`screenshots:` in `reproit.yaml`; a runnable example tour is at `examples/journeys/marketing.yaml`.
-Capture works on every supported platform via that platform's native grab.
-
-## `.reproit/` layout
-
-The local project state is grouped by concept:
-
-```
-.reproit/
-  map/                  # appmap.json, visits.json, semantic candidates
-  runs/                 # raw evidence from scan/fuzz/check runs
-  recordings/
-    scan/               # quick audit clips from scan --record-video
-    repro/              # <id> --record-video videos opened by watch <id>
-  captures/             # immutable, private human-authored originals
-  repros/               # saved regression guards
-  tmp/                  # transient runner scratch
-  secrets.vault         # local auth vault
-```
-
-`runs/`, `recordings/`, `captures/`, `tmp/`, logs, and vault files are local-only. `repros/` is the
-guard suite; `map/` is the learned graph if you choose to review it.
-
-`reproit init` never clears existing state. `reproit reset` removes only `map/`, `runs/`,
-`recordings/`, `tmp/`, and `tools/`; it preserves configuration, repros, captures, findings,
-capsules, and secrets. `reproit reset --all` removes the complete `.reproit/` directory and the
-active project config after an interactive confirmation (or `--yes`). Add `--init` to initialize
-again after the full reset. Application source files and journeys are outside both reset scopes.
-
-## Config (reproit.yaml)
-
-Every field supports shell-style environment interpolation: `${VAR}` (empty if unset),
-`${VAR:-default}` (fallback), `${VAR:?message}` (required). A minimal, ready-to-copy config for each
-platform lives in `examples/configs/`, one file per platform (`reproit.web.yaml`,
-`reproit.winui.yaml`, `reproit.tui.yaml`, and so on).
-
-## Background
-
-- **Why screens are identified by structure, not text** (so the graph is locale-invariant and
-  survives copy edits): [docs/signature.md](signature.md).
-- **The accessibility audit** (the UI-vs-a11y-graph diff):
-  [docs/operability-graph.md](operability-graph.md).
-
-reproit ships no bundled LLM. Authoring, triage, and fixing live in your agent over MCP; reproit is
-the engine that finds, replays, and verifies.
+## Compatibility surface
+
+Older commands remain hidden compatibility routes while scripts migrate to `capture`, `find`,
+`check`, and `list`. They are covered by parser and workflow tests and are not removed until their
+observable contracts have equivalents in the core workflows. They are intentionally omitted from
+this product reference.

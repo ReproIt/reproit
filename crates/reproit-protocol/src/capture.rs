@@ -10,6 +10,7 @@ use crate::{
     EvidencePolicy, ObservationAuthority, ObservationKind, ProtocolError, ReasonCode,
     RedactionState, StateKind, TriggerKind, MAX_CONTEXT_BYTES, MAX_TEXT_BYTES,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -22,7 +23,9 @@ pub const MAX_CAPTURE_CAPABILITIES: usize = 128;
 pub const MAX_CAUSAL_PARENTS: usize = 32;
 pub const MAX_CAPTURE_EVENT_BYTES: usize = 128 * 1024;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureEmitterKind {
     HostCollector,
@@ -34,7 +37,7 @@ pub enum CaptureEmitterKind {
     ImportedEvidence,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureEmitter {
     pub id: String,
@@ -59,7 +62,9 @@ impl CaptureEmitter {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureCapabilityKind {
     ProcessTree,
@@ -86,7 +91,9 @@ pub enum CaptureCapabilityKind {
     OpenTelemetry,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureCompleteness {
     Complete,
@@ -94,7 +101,7 @@ pub enum CaptureCompleteness {
     Unavailable,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureCapability {
     pub capability: CaptureCapabilityKind,
@@ -115,7 +122,7 @@ impl CaptureCapability {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(tag = "representation", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum CapturedValue {
     Structural {
@@ -160,7 +167,9 @@ impl CapturedValue {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperationOutcome {
     Succeeded,
@@ -170,7 +179,9 @@ pub enum OperationOutcome {
     Unknown,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum StateOperation {
     Read,
@@ -183,7 +194,9 @@ pub enum StateOperation {
     Unlock,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum DependencyOperation {
     Call,
@@ -194,7 +207,7 @@ pub enum DependencyOperation {
     Disconnect,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProcessIdentity {
     pub process_id: u64,
@@ -221,7 +234,7 @@ impl ProcessIdentity {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FailureRecord {
     pub observation: ObservationKind,
@@ -253,7 +266,7 @@ impl FailureRecord {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum CaptureEventKind {
     ProcessStart {
@@ -404,7 +417,7 @@ impl CaptureEventKind {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureEvent {
     pub id: String,
@@ -458,7 +471,7 @@ impl CaptureEvent {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureBatch {
     pub version: u16,

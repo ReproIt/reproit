@@ -271,7 +271,7 @@ final class Capture
     private function drain(float $deadline): void
     {
         while ($this->queue !== [] && microtime(true) < $deadline) {
-            $operations = array_splice($this->queue, 0, MAX_BATCH_OPERATIONS);
+            $operations = array_splice($this->queue, 0, 1);
             if ($this->send($this->buildBatch($operations), $deadline)) {
                 $this->stats['sentBatches'] += 1;
             } else {
@@ -282,70 +282,123 @@ final class Capture
     }
 
     /**
-     * Build one event-batch-v1 payload: every captured event ships as a
-     * `backend` frame, and each 5xx operation additionally ships a `finding`
-     * frame tagged `backend-server-error` whose context carries the full
-     * replayable capture object. Public for tests; not a host-facing API.
+     * Build one source-neutral capture-batch-v1 payload.
      */
     public function buildBatch(array $operations): array
     {
-        $batchId = 'cap-' . (int) (microtime(true) * 1000) . '-' . $this->batchSeq++;
-        $frames = [];
-        $frame = function (array $event) use (&$frames, $batchId): void {
-            $frames[] = [
-                'runId' => $batchId,
-                'sequence' => \count($frames) + 1,
-                'scope' => ['domain' => 'shared'],
+        if (\count($operations) !== 1) {
+            throw new \InvalidArgumentException(
+                'a causal capture batch must contain exactly one operation'
+            );
+        }
+        $operation = $operations[0];
+        $batchId = 'cb-php-' . (int) (microtime(true) * 1000) . '-' . $this->batchSeq++;
+        $first = $operation['events'][0] ?? [];
+        $traceId = \is_string($first['traceId'] ?? null) ? $first['traceId'] : null;
+        $events = [];
+        $parent = null;
+        $add = function (array $event) use (&$events, &$parent, $traceId): void {
+            $sequence = \count($events) + 1;
+            $eventId = 'evt_backend-php_' . $sequence;
+            $item = [
+                'id' => $eventId,
+                'sequence' => $sequence,
+                'monotonicNs' => $sequence,
+                'causalParentIds' => $parent === null ? [] : [$parent],
                 'event' => $event,
             ];
-        };
-        foreach ($operations as $operation) {
-            foreach ($operation['events'] as $event) {
-                $frame(['kind' => 'backend', 'evidence' => $event]);
+            if ($traceId !== null) {
+                $item['traceId'] = $traceId;
             }
-            $status = $operation['status'];
-            if ($status === null || $status < 500) {
+            $events[] = $item;
+            $parent = $eventId;
+        };
+        $add(['kind' => 'operation-start', 'name' => $operation['operation']]);
+        $input = $first['input'] ?? null;
+        $capturedInput = $input === null
+            ? ['representation' => 'structural', 'shape' => ['type' => 'unknown']]
+            : [
+                'representation' => 'replayable',
+                'value' => $input,
+                'redaction' => 'redacted-at-source',
+            ];
+        $add([
+            'kind' => 'trigger',
+            'trigger' => 'http-request',
+            'subject' => $operation['operation'],
+            'value' => $capturedInput,
+        ]);
+        foreach ($operation['events'] as $source) {
+            if (($source['kind'] ?? null) !== 'effect') {
                 continue;
             }
-            $signature = 'backend:' . $operation['operation'];
+            $add([
+                'kind' => 'effect',
+                'effect' => $source['effect'] ?? 'backend-effect',
+                'subject' => $source['resource'] ?? $source['service']
+                    ?? $operation['operation'],
+                'value' => [
+                    'representation' => 'replayable',
+                    'value' => $source,
+                    'redaction' => 'redacted-at-source',
+                ],
+            ]);
+        }
+        $returned = [];
+        foreach (array_reverse($operation['events']) as $source) {
+            if (($source['kind'] ?? null) === 'return') {
+                $returned = $source;
+                break;
+            }
+        }
+        $add([
+            'kind' => 'operation-end',
+            'name' => $operation['operation'],
+            'outcome' => ($returned['success'] ?? false) === true ? 'succeeded' : 'failed',
+        ]);
+        $status = $operation['status'];
+        if ($status !== null && $status >= 500) {
+            $signature = SERVER_ERROR_ORACLE . ':' . $operation['operation'];
             $message = 'backend operation ' . $operation['operation']
                 . ' returned HTTP ' . $status;
-            $context = ['capture' => 'reproit-backend-php'];
-            if ($this->build !== null) {
-                $context['build'] = ['version' => $this->build];
-            }
-            [$payload, $droppedEffects] = capture_payload($operation);
-            if ($payload === null) {
-                $context['captureOmitted'] = true;
-            } else {
-                $context['reproitCapture'] = $payload;
-                if ($droppedEffects > 0) {
-                    $context['captureDroppedEffects'] = $droppedEffects;
-                }
-            }
-            $frame([
-                'kind' => 'finding',
-                'signature' => $signature,
-                'message' => $message,
-                'identity' => [
-                    'oracle' => SERVER_ERROR_ORACLE,
-                    'invariant' => 'backend:server-error',
-                    'kind' => 'server-error',
-                    'message' => $message,
-                    'frame' => '',
-                    'trigger' => $signature,
-                    'boundary' => $signature,
+            $add([
+                'kind' => 'observation',
+                'failure' => [
+                    'observation' => 'exception',
+                    'authority' => 'runtime-diagnosis',
+                    'summary' => $message,
+                    'signature' => $signature,
+                    'observationPoint' => $operation['operation'],
+                    'artifactIds' => [],
                 ],
-                'path' => [],
-                'context' => $context,
             ]);
         }
         $batch = [
             'version' => 1,
             'batchId' => $batchId,
-            'appId' => $this->appId,
-            'frames' => $frames,
-            'evidence' => [],
+            'projectId' => $this->appId,
+            'sessionId' => $traceId ?? $batchId,
+            'emitter' => [
+                'id' => 'backend-php',
+                'kind' => 'runtime-sdk',
+                'component' => 'backend',
+                'runtime' => 'php',
+            ],
+            'observedAt' => (string) (int) (microtime(true) * 1000),
+            'policy' => [
+                'consent' => 'application-telemetry',
+                'retentionClass' => 'standard',
+            ],
+            'capabilities' => [
+                ['capability' => 'http', 'completeness' => 'complete'],
+                [
+                    'capability' => 'database',
+                    'completeness' => 'partial',
+                    'detail' => 'effect records do not prove complete database state capture',
+                ],
+            ],
+            'events' => $events,
+            'artifacts' => [],
         ];
         if ($this->build !== null) {
             $batch['deployment'] = ['version' => $this->build];

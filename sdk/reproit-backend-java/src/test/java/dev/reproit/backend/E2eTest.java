@@ -127,32 +127,29 @@ class E2eTest {
             assertEquals(1, received.size());
             assertEquals("Bearer sk_live_test", received.get(0).authorization());
             Map<String, Object> batch = received.get(0).batch();
-            EventBatchV1.validateEventBatch(batch);
-            assertEquals("app-e2e", batch.get("appId"));
+            assertEquals("app-e2e", batch.get("projectId"));
             assertEquals("9.9.9", at(batch, "deployment").get("version"));
             List<Map<String, Object>> findings = new ArrayList<>();
-            for (Object frame : (List<?>) batch.get("frames")) {
+            for (Object frame : (List<?>) batch.get("events")) {
                 Map<String, Object> event = at(frame, "event");
-                if ("finding".equals(event.get("kind"))) findings.add(event);
+                if ("observation".equals(event.get("kind"))) findings.add(event);
             }
             assertEquals(1, findings.size());
             Map<String, Object> finding = findings.get(0);
-            assertEquals(Capture.SERVER_ERROR_ORACLE, at(finding, "identity").get("oracle"));
-            assertEquals("reproit-backend-java", at(finding, "context").get("capture"));
-            Map<String, Object> replay = at(finding, "context", "reproitCapture");
-            assertEquals(Capture.CAPTURE_FORMAT, replay.get("format"));
-            assertEquals(Capture.SERVER_ERROR_ORACLE, replay.get("oracle"));
-            List<?> events = (List<?>) replay.get("events");
+            assertEquals(
+                Capture.SERVER_ERROR_ORACLE + ":POST /boom",
+                at(finding, "failure").get("signature"));
+            List<?> events = (List<?>) batch.get("events");
             List<Object> kinds = new ArrayList<>();
-            for (Object event : events) kinds.add(((Map<?, ?>) event).get("kind"));
-            assertEquals(List.of("start", "effect", "return"), kinds);
-            assertEquals("orders", ((Map<?, ?>) events.get(1)).get("resource"));
-            assertEquals(500L, ((Map<?, ?>) events.get(2)).get("status"));
-            assertEquals(false, ((Map<?, ?>) events.get(2)).get("success"));
+            for (Object event : events) kinds.add(at(event, "event").get("kind"));
+            assertEquals(
+                List.of("operation-start", "trigger", "effect", "operation-end", "observation"),
+                kinds);
+            assertEquals("orders", at(events.get(2), "event").get("subject"));
             // The secret-shaped input field was structurally redacted before upload.
-            Map<String, Object> start = (Map<String, Object>) events.get(0);
-            assertEquals(true, at(start, "input", "body", "apiKey", "$reproit").get("redacted"));
-            assertEquals("widget", at(start, "input", "body").get("item"));
+            Map<String, Object> input = at(events.get(1), "event", "value", "value", "body");
+            assertEquals(true, at(input, "apiKey", "$reproit").get("redacted"));
+            assertEquals("widget", input.get("item"));
 
             // Scan-time request: header round-trip, no capture of the healthy call.
             HttpResponse<String> ok = client.send(

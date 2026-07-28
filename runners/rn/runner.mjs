@@ -2691,7 +2691,7 @@ export { parseInvariantMarker, scrapeInvariants, invariantEmitted };
 //  Appium's page source (above) is GRAPH 2: the accessibility tree, the subset
 //  of the UI a screen-reader / keyboard user reaches. It is structurally blind
 //  to a control that has an onPress but exposes NO a11y role/label, which is
-//  exactly the WCAG operability gap reproit hunts (docs/operability-graph.md).
+//  exactly the WCAG operability gap reproit hunts.
 //
 //  GRAPH 1 (ground truth) for React Native comes from the JS side: React's
 //  FIBER TREE knows every node that has a press/gesture handler

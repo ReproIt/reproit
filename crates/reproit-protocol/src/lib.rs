@@ -1,5 +1,6 @@
 //! Strict, bounded event and evidence types shared across process boundaries.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -100,7 +101,7 @@ impl EventBatch {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeploymentIdentity {
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -117,7 +117,7 @@
       "ownedGates": ["macos-ax"],
       "releaseGates": {"macos-ax": "macos"},
       "promotionBlockers": [
-        "native gate still requires an explicitly permissioned runner",
+        "exact-commit evidence from the permissioned macOS AX runner is not yet recorded",
         "independent affected-versus-fixed field benchmark is incomplete"
       ]
     },
@@ -129,7 +129,7 @@
       "ownedGates": ["windows-uia"],
       "releaseGates": {"windows-uia": "windows"},
       "promotionBlockers": [
-        "native gate still requires the interactive Windows VM",
+        "exact-commit evidence from the native interactive Windows VM is not yet recorded",
         "independent affected-versus-fixed field benchmark is incomplete"
       ]
     },
@@ -141,7 +141,7 @@
       "ownedGates": ["windows-uia"],
       "releaseGates": {"windows-uia": "windows"},
       "promotionBlockers": [
-        "native gate still requires the interactive Windows VM",
+        "exact-commit evidence from the native interactive Windows VM is not yet recorded",
         "independent affected-versus-fixed field benchmark is incomplete"
       ]
     },
@@ -153,7 +153,7 @@
       "ownedGates": ["windows-uia"],
       "releaseGates": {"windows-uia": "windows"},
       "promotionBlockers": [
-        "native gate still requires the interactive Windows VM",
+        "exact-commit evidence from the native interactive Windows VM is not yet recorded",
         "independent affected-versus-fixed field benchmark is incomplete"
       ]
     },

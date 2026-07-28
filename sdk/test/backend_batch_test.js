@@ -18,16 +18,10 @@ var child_process = require('child_process');
 var path = require('path');
 
 var root = path.join(__dirname, '..');
-var validateEventBatch = require('./event_batch_v1.js').validateEventBatch;
-
 var HEADER_NAME = 'x-reproit-events';
 
 function checkSdk(label, sample) {
-  if (Array.isArray(sample.batch.events)) {
-    checkCausalCapture(label, sample.batch);
-  } else {
-    checkEventBatch(label, sample.batch);
-  }
+  checkCausalCapture(label, sample.batch);
 
   assert.strictEqual(sample.headerName, HEADER_NAME, label + ': response header name');
   var padded = sample.header + '='.repeat((4 - (sample.header.length % 4)) % 4);
@@ -62,34 +56,35 @@ function checkCausalCapture(label, batch) {
     label + ': observation signature must preserve the backend-server-error identity',
   );
   assert.deepStrictEqual(
-    batch.events.map(function (event) {
+    batch.events.slice(0, 2).map(function (event) {
       return event.event.kind;
     }),
-    ['operation-start', 'trigger', 'state-access', 'operation-end', 'observation'],
-    label + ': causal capture sequence',
+    ['operation-start', 'trigger'],
+    label + ': causal capture prefix',
   );
-}
-
-function checkEventBatch(label, batch) {
-  validateEventBatch(batch);
-  var findings = batch.frames.filter(function (frame) {
-    return frame.event.kind === 'finding';
-  });
-  assert.strictEqual(findings.length, 1, label + ': expected exactly one finding frame');
-  var finding = findings[0].event;
-  assert.strictEqual(
-    finding.identity.oracle,
-    'backend-server-error',
-    label + ': finding must be tagged with the backend-server-error oracle',
-  );
-  var replay = finding.context.reproitCapture;
-  assert.strictEqual(replay.format, 'reproit-backend-capture', label + ': capture format');
   assert.deepStrictEqual(
-    replay.events.map(function (event) {
-      return event.kind;
+    batch.events.slice(-2).map(function (event) {
+      return event.event.kind;
     }),
-    ['start', 'effect', 'return'],
-    label + ': replay capture sequence',
+    ['operation-end', 'observation'],
+    label + ': causal capture suffix',
+  );
+  batch.events.forEach(function (event, index) {
+    assert.strictEqual(event.sequence, index + 1, label + ': dense event sequence');
+  });
+  var validation = child_process.spawnSync(
+    'cargo',
+    ['run', '-q', '-p', 'reproit-protocol', '--bin', 'capture-validate'],
+    {
+      cwd: path.join(root, '..'),
+      input: JSON.stringify(batch),
+      encoding: 'utf8',
+    },
+  );
+  assert.strictEqual(
+    validation.status,
+    0,
+    label + ': Rust semantic validator rejected the batch: ' + validation.stderr,
   );
 }
 
@@ -213,4 +208,4 @@ checkSdk('Go backend SDK', goSample());
 checkSdk('Ruby backend SDK', rubySample());
 checkSdk('PHP backend SDK', phpSample());
 
-console.log('PASS: backend SDK batches match event-batch-v1 and the oracle/redaction contract');
+console.log('PASS: backend SDK batches match capture-batch-v1 and the oracle/redaction contract');

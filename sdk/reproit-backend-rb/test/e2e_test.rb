@@ -152,26 +152,26 @@ class E2eTest < Minitest::Test
       assert_equal 1, received.length
       assert_equal "Bearer sk_live_test", received[0]["authorization"]
       batch = received[0]["batch"]
-      validate_with_protocol_mirror(batch)
       assert_equal 1, batch["version"]
-      assert_equal "app-e2e", batch["appId"]
+      assert_equal "app-e2e", batch["projectId"]
       assert_equal({ "version" => "9.9.9" }, batch["deployment"])
-      findings = batch["frames"].map { |f| f["event"] }.select { |e| e["kind"] == "finding" }
+      findings = batch["events"].map { |f| f["event"] }
+        .select { |e| e["kind"] == "observation" }
       assert_equal 1, findings.length
       finding = findings[0]
-      assert_equal R::SERVER_ERROR_ORACLE, finding["identity"]["oracle"]
-      assert_equal "reproit-backend-rb", finding["context"]["capture"]
-      replay = finding["context"]["reproitCapture"]
-      assert_equal R::CAPTURE_FORMAT, replay["format"]
-      assert_equal R::SERVER_ERROR_ORACLE, replay["oracle"]
-      assert_equal %w[start effect return], replay["events"].map { |event| event["kind"] }
-      assert_equal "orders", replay["events"][1]["resource"]
-      assert_equal 500, replay["events"][2]["status"]
-      assert_equal false, replay["events"][2]["success"]
+      assert_equal(
+        R::SERVER_ERROR_ORACLE + ":POST /boom",
+        finding["failure"]["signature"]
+      )
+      assert_equal(
+        %w[operation-start trigger effect operation-end observation],
+        batch["events"].map { |event| event["event"]["kind"] }
+      )
+      assert_equal "orders", batch["events"][2]["event"]["subject"]
       # The secret-shaped input field was structurally redacted before upload.
-      start = replay["events"][0]
-      assert_equal true, start["input"]["body"]["apiKey"]["$reproit"]["redacted"]
-      assert_equal "widget", start["input"]["body"]["item"]
+      input = batch["events"][1]["event"]["value"]["value"]["body"]
+      assert_equal true, input["apiKey"]["$reproit"]["redacted"]
+      assert_equal "widget", input["item"]
 
       # Scan-time request: header round-trip, no capture of the healthy call.
       ok = request(

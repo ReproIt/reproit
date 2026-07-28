@@ -13,7 +13,7 @@
 //! blocks or panics.
 
 use crate::BackendTrace;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -29,7 +29,7 @@ pub const SERVER_ERROR_ORACLE: &str = "backend-server-error";
 /// Bounds. Queue overflow drops the OLDEST pending operation; an oversized
 /// capture payload drops trailing effect events before it drops itself.
 const MAX_QUEUE_OPERATIONS: usize = 64;
-const MAX_BATCH_OPERATIONS: usize = 16;
+#[cfg(test)]
 const MAX_CAPTURE_JSON_BYTES: usize = 48 * 1024;
 const MIN_FLUSH_INTERVAL_MS: u64 = 100;
 const MAX_RETRY_LIMIT: u8 = 5;
@@ -304,7 +304,7 @@ impl Capture {
         loop {
             if !state.queue.is_empty() {
                 let deadline = Instant::now() + self.config.flush_interval;
-                while state.queue.len() < MAX_BATCH_OPERATIONS && !state.flush_now {
+                while state.queue.is_empty() && !state.flush_now {
                     let now = Instant::now();
                     if now >= deadline {
                         break;
@@ -320,7 +320,7 @@ impl Capture {
                     }
                 }
                 state.flush_now = false;
-                let take = state.queue.len().min(MAX_BATCH_OPERATIONS);
+                let take = state.queue.len().min(1);
                 state.sending = true;
                 return state.queue.drain(..take).collect();
             }
@@ -333,84 +333,142 @@ impl Capture {
         }
     }
 
-    /// Build one event-batch-v1 payload: every captured event ships as a
-    /// `backend` frame, and each 5xx operation additionally ships a `finding`
-    /// frame tagged `backend-server-error` whose context carries the full
-    /// replayable capture object.
+    /// Build one source-neutral capture-batch-v1 payload.
     fn build_batch(&self, operations: &[CapturedOperation]) -> Value {
+        assert_eq!(
+            operations.len(),
+            1,
+            "a causal capture batch must contain exactly one operation"
+        );
+        let operation = &operations[0];
         let batch_id = format!(
-            "cap-{}-{}",
+            "cb-rust-{}-{}",
             now_millis(),
             self.shared.batch_seq.fetch_add(1, Ordering::Relaxed)
         );
-        let mut frames = Vec::new();
-        let mut sequence = 0u64;
-        let frame = |sequence: &mut u64, event: Value| {
-            *sequence += 1;
-            json!({
-                "runId": batch_id,
-                "sequence": *sequence,
-                "scope": { "domain": "shared" },
+        let first = operation
+            .events
+            .first()
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let trace_id = first.get("traceId").and_then(Value::as_str);
+        let mut events = Vec::new();
+        let mut parent: Option<String> = None;
+        let mut push_event = |event: Value| {
+            let sequence = events.len() as u64 + 1;
+            let event_id = format!("evt_backend-rust_{sequence}");
+            let mut item = json!({
+                "id": event_id,
+                "sequence": sequence,
+                "monotonicNs": sequence,
+                "causalParentIds": parent.iter().collect::<Vec<_>>(),
                 "event": event,
-            })
-        };
-        for operation in operations {
-            for event in &operation.events {
-                frames.push(frame(
-                    &mut sequence,
-                    json!({ "kind": "backend", "evidence": event }),
-                ));
+            });
+            if let Some(trace_id) = trace_id {
+                item["traceId"] = json!(trace_id);
             }
-            let Some(status) = operation.status.filter(|status| *status >= 500) else {
+            parent = Some(event_id);
+            events.push(item);
+        };
+        push_event(json!({
+            "kind": "operation-start",
+            "name": operation.operation,
+        }));
+        let input = first.get("input").filter(|value| !value.is_null());
+        let captured_input = input.map_or_else(
+            || json!({"representation": "structural", "shape": {"type": "unknown"}}),
+            |value| {
+                json!({
+                    "representation": "replayable",
+                    "value": value,
+                    "redaction": "redacted-at-source",
+                })
+            },
+        );
+        push_event(json!({
+            "kind": "trigger",
+            "trigger": "http-request",
+            "subject": operation.operation,
+            "value": captured_input,
+        }));
+        for source in &operation.events {
+            if source.get("kind").and_then(Value::as_str) != Some("effect") {
                 continue;
-            };
-            let signature = format!("backend:{}", operation.operation);
+            }
+            let effect = source
+                .get("effect")
+                .and_then(Value::as_str)
+                .unwrap_or("backend-effect");
+            let subject = source
+                .get("resource")
+                .or_else(|| source.get("service"))
+                .and_then(Value::as_str)
+                .unwrap_or(&operation.operation);
+            push_event(json!({
+                "kind": "effect",
+                "effect": effect,
+                "subject": subject,
+                "value": {
+                    "representation": "replayable",
+                    "value": source,
+                    "redaction": "redacted-at-source",
+                },
+            }));
+        }
+        let succeeded = operation.events.iter().rev().find_map(|event| {
+            (event.get("kind").and_then(Value::as_str) == Some("return"))
+                .then(|| event.get("success").and_then(Value::as_bool))
+                .flatten()
+        }) == Some(true);
+        push_event(json!({
+            "kind": "operation-end",
+            "name": operation.operation,
+            "outcome": if succeeded { "succeeded" } else { "failed" },
+        }));
+        if let Some(status) = operation.status.filter(|status| *status >= 500) {
+            let signature = format!("{SERVER_ERROR_ORACLE}:{}", operation.operation);
             let message = format!(
                 "backend operation {} returned HTTP {status}",
                 operation.operation
             );
-            let mut context = Map::new();
-            context.insert("capture".into(), json!("reproit-backend-rs"));
-            if let Some(build) = &self.config.build {
-                context.insert("build".into(), json!({ "version": build }));
-            }
-            match capture_payload(operation) {
-                Some((payload, dropped_effects)) => {
-                    context.insert("reproitCapture".into(), payload);
-                    if dropped_effects > 0 {
-                        context.insert("captureDroppedEffects".into(), json!(dropped_effects));
-                    }
-                }
-                None => {
-                    context.insert("captureOmitted".into(), json!(true));
-                }
-            }
-            frames.push(frame(
-                &mut sequence,
-                json!({
-                    "kind": "finding",
+            push_event(json!({
+                "kind": "observation",
+                "failure": {
+                    "observation": "exception",
+                    "authority": "runtime-diagnosis",
+                    "summary": message,
                     "signature": signature,
-                    "message": message,
-                    "identity": {
-                        "oracle": SERVER_ERROR_ORACLE,
-                        "invariant": "backend:server-error",
-                        "kind": "server-error",
-                        "message": message,
-                        "frame": "",
-                        "trigger": signature,
-                        "boundary": signature,
-                    },
-                    "path": [],
-                    "context": context,
-                }),
-            ));
+                    "observationPoint": operation.operation,
+                    "artifactIds": [],
+                },
+            }));
         }
         let mut batch = json!({
             "version": 1,
             "batchId": batch_id,
-            "appId": self.config.app_id,
-            "frames": frames,
-            "evidence": [],
+            "projectId": self.config.app_id,
+            "sessionId": trace_id.unwrap_or(&batch_id),
+            "emitter": {
+                "id": "backend-rust",
+                "kind": "runtime-sdk",
+                "component": "backend",
+                "runtime": "rust",
+            },
+            "observedAt": now_millis().to_string(),
+            "policy": {
+                "consent": "application-telemetry",
+                "retentionClass": "standard",
+            },
+            "capabilities": [
+                {"capability": "http", "completeness": "complete"},
+                {
+                    "capability": "database",
+                    "completeness": "partial",
+                    "detail": "effect records do not prove complete database state capture",
+                },
+            ],
+            "events": events,
+            "artifacts": [],
         });
         if let Some(build) = &self.config.build {
             batch["deployment"] = json!({ "version": build });
@@ -443,6 +501,7 @@ impl Capture {
 /// Trailing effect events are dropped first when the payload exceeds the
 /// context budget; a payload that stays oversized with only start/return
 /// left is omitted entirely (`None`).
+#[cfg(test)]
 fn capture_payload(operation: &CapturedOperation) -> Option<(Value, usize)> {
     let mut events = operation.events.clone();
     let mut dropped = 0usize;
@@ -560,35 +619,34 @@ mod tests {
     }
 
     #[test]
-    fn server_error_batch_is_a_valid_tagged_event_batch() {
+    fn server_error_batch_uses_the_universal_causal_contract() {
         let batch = batch_for(500, false);
-        let parsed: reproit_protocol::EventBatch =
-            serde_json::from_value(batch.clone()).expect("batch matches event-batch-v1");
+        let parsed: reproit_protocol::CaptureBatch =
+            serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
         parsed.validate().expect("batch passes protocol validation");
-        let frames = batch["frames"].as_array().unwrap();
-        assert_eq!(frames.len(), 4);
-        let finding = &frames[3]["event"];
-        assert_eq!(finding["kind"], "finding");
-        assert_eq!(finding["identity"]["oracle"], SERVER_ERROR_ORACLE);
-        let capture = &finding["context"]["reproitCapture"];
-        assert_eq!(capture["format"], CAPTURE_FORMAT);
-        assert_eq!(capture["operation"], "createOrder");
-        assert_eq!(capture["events"].as_array().unwrap().len(), 3);
+        let events = batch["events"].as_array().unwrap();
+        assert_eq!(events.len(), 5);
+        let finding = &events[4]["event"];
+        assert_eq!(finding["kind"], "observation");
+        assert_eq!(
+            finding["failure"]["signature"],
+            format!("{SERVER_ERROR_ORACLE}:createOrder")
+        );
         // Redaction happened before anything left the process boundary.
         assert_eq!(
-            capture["events"][0]["input"]["body"]["item"],
+            events[1]["event"]["value"]["value"]["body"]["item"],
             json!("widget")
         );
     }
 
     #[test]
-    fn healthy_operations_ship_backend_frames_without_a_finding() {
+    fn healthy_operations_ship_causal_events_without_an_observation() {
         let batch = batch_for(201, true);
-        let frames = batch["frames"].as_array().unwrap();
-        assert_eq!(frames.len(), 3);
-        assert!(frames
+        let events = batch["events"].as_array().unwrap();
+        assert_eq!(events.len(), 4);
+        assert!(events
             .iter()
-            .all(|frame| frame["event"]["kind"] == "backend"));
+            .all(|event| event["event"]["kind"] != "observation"));
     }
 
     #[test]

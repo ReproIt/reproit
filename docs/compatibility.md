@@ -29,6 +29,10 @@ An atomic target becomes Stable only when the exact release commit proves:
 7. The clean and adversarial corpora produced no confirmed false positives.
 8. Evidence retained the commit, architecture, runtime, reset, cleanup, and
    artifact digests.
+9. Independent affected and fixed application campaigns used distinct campaign
+   identities and the exact pinned revisions.
+10. The result reached every cumulative recall stage: observed, captured,
+    eligible, executed, exact, minimized, fixed, and guarded.
 
 Broad families never become Stable from one narrow fixture. Firefox and WebKit,
 mobile operating systems, Windows toolkits, Linux toolkits, Electron hosts, and
@@ -50,7 +54,9 @@ retained artifacts validated.
 
 - Node.js 18 or later for the web runner.
 - Current stable Rust for source builds.
-- The platform SDKs and simulators named by `reproit doctor` for native targets.
+- The pinned platform SDKs, drivers, and simulators in
+  `validation/native/toolchains.json`.
+- The actionable repairs named by `reproit doctor` for the selected target.
 - PostgreSQL for Reproit Cloud. SQLite and MySQL are not supported Cloud stores.
 
 Release archives are built and installer-smoked for macOS arm64 and x86_64,

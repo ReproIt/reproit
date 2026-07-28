@@ -50,35 +50,32 @@ class CaptureTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> frames(Map<String, Object> batch) {
-        return (List<Map<String, Object>>) batch.get("frames");
+    private static List<Map<String, Object>> events(Map<String, Object> batch) {
+        return (List<Map<String, Object>>) batch.get("events");
     }
 
     @Test
-    void serverErrorBatchIsAValidTaggedEventBatch() {
+    void serverErrorBatchUsesUniversalCausalContract() {
         Map<String, Object> batch = batchFor(500, false);
-        EventBatchV1.validateEventBatch(batch);
+        assertEquals("app-demo", batch.get("projectId"));
         assertEquals(Map.of("version", "1.2.3"), batch.get("deployment"));
-        assertEquals(4, frames(batch).size());
-        Map<String, Object> finding = at(frames(batch).get(3), "event");
-        assertEquals("finding", finding.get("kind"));
-        assertEquals(Capture.SERVER_ERROR_ORACLE, at(finding, "identity").get("oracle"));
-        Map<String, Object> replay = at(finding, "context", "reproitCapture");
-        assertEquals(Capture.CAPTURE_FORMAT, replay.get("format"));
-        assertEquals("createOrder", replay.get("operation"));
-        assertEquals(3, ((List<?>) replay.get("events")).size());
+        assertEquals(5, events(batch).size());
+        Map<String, Object> finding = at(events(batch).get(4), "event");
+        assertEquals("observation", finding.get("kind"));
+        assertEquals(
+            Capture.SERVER_ERROR_ORACLE + ":createOrder",
+            at(finding, "failure").get("signature"));
         // Redaction happened before anything left the process boundary.
-        Map<String, Object> start = (Map<String, Object>) ((List<?>) replay.get("events")).get(0);
-        assertEquals("widget", at(start, "input", "body").get("item"));
+        Map<String, Object> trigger = at(events(batch).get(1), "event", "value", "value");
+        assertEquals("widget", at(trigger, "body").get("item"));
     }
 
     @Test
-    void healthyOperationsShipBackendFramesWithoutAFinding() {
+    void healthyOperationsShipCausalEventsWithoutObservation() {
         Map<String, Object> batch = batchFor(201, true);
-        EventBatchV1.validateEventBatch(batch);
-        assertEquals(3, frames(batch).size());
-        for (Map<String, Object> frame : frames(batch)) {
-            assertEquals("backend", at(frame, "event").get("kind"));
+        assertEquals(4, events(batch).size());
+        for (Map<String, Object> event : events(batch)) {
+            assertFalse("observation".equals(at(event, "event").get("kind")));
         }
     }
 
@@ -114,11 +111,6 @@ class CaptureTest {
         returned.put("success", false);
         Capture.Operation operation = new Capture.Operation("op", 500, List.of(start, returned));
         assertNull(Capture.capturePayload(operation));
-        Map<String, Object> batch = capture(null).buildBatch(List.of(operation));
-        List<Map<String, Object>> frames = frames(batch);
-        Map<String, Object> finding = at(frames.get(frames.size() - 1), "event");
-        assertEquals(true, at(finding, "context").get("captureOmitted"));
-        assertFalse(at(finding, "context").containsKey("reproitCapture"));
     }
 
     @Test

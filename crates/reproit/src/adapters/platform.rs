@@ -294,7 +294,10 @@ mod tests {
                     matches!(character, '\'' | '"' | '(' | ')' | '[' | ']' | ',' | ':')
                 })
             })
-            .filter(|token| token.starts_with(".github/scripts/") && token.ends_with(".sh"))
+            .filter(|token| {
+                (token.starts_with(".github/scripts/") || token.starts_with("validation/"))
+                    && token.ends_with(".sh")
+            })
             .any(|script| {
                 std::fs::read_to_string(repo.join(script))
                     .is_ok_and(|script_text| script_text.contains(&invocation))

@@ -91,7 +91,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: macos-ax
 - Field benchmark: incomplete
 - Promotion blockers:
-  - native gate still requires an explicitly permissioned runner
+  - exact-commit evidence from the permissioned macOS AX runner is not yet recorded
   - independent affected-versus-fixed field benchmark is incomplete
 
 ## React Native Android
@@ -173,7 +173,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: windows-uia
 - Field benchmark: incomplete
 - Promotion blockers:
-  - native gate still requires the interactive Windows VM
+  - exact-commit evidence from the native interactive Windows VM is not yet recorded
   - independent affected-versus-fixed field benchmark is incomplete
 
 ## Windows WinUI 3
@@ -183,7 +183,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: windows-uia
 - Field benchmark: incomplete
 - Promotion blockers:
-  - native gate still requires the interactive Windows VM
+  - exact-commit evidence from the native interactive Windows VM is not yet recorded
   - independent affected-versus-fixed field benchmark is incomplete
 
 ## Windows WPF
@@ -193,7 +193,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: windows-uia
 - Field benchmark: incomplete
 - Promotion blockers:
-  - native gate still requires the interactive Windows VM
+  - exact-commit evidence from the native interactive Windows VM is not yet recorded
   - independent affected-versus-fixed field benchmark is incomplete
 
 A Stable target requires exact-commit native evidence, two independent

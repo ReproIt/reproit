@@ -86,7 +86,9 @@ printf -v REPROIT_APPIUM_CAPS '%s%s%s%s%s' \
   "\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\"," \
   "\"appium:noReset\":true,\"appium:newCommandTimeout\":600," \
   "\"appium:wdaLocalPort\":$WDA_PORT,\"appium:wdaLaunchTimeout\":300000," \
-  '"appium:wdaStartupRetries":1,"appium:wdaStartupRetryInterval":1000}'
+  "\"appium:derivedDataPath\":\"$WORK/wda-derived\"," \
+  '"appium:useNewWDA":true,"appium:shouldUseSingletonTestManager":true,' \
+  '"appium:wdaStartupRetries":2,"appium:wdaStartupRetryInterval":2000}'
 export REPROIT_FUZZ_CONFIG="$WORK/fuzz.json"
 
 node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/run.log"

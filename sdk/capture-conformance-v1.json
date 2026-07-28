@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "schemaCommand": "cargo run -q -p reproit-protocol --bin capture-schema",
+  "fixture": "capture-batch-v1.json",
+  "fixtureSha256": "e387d3e1a0251e54683a9168e1c985b9a0dbb10be1bb761af727e1580ef68526",
+  "sdks": [
+    {
+      "id": "android",
+      "implementation": "reproit-android/src/main/kotlin/com/reproit/android/ReproIt.kt"
+    },
+    {
+      "id": "backend-dotnet",
+      "implementation": "reproit-backend-dotnet/ReproitBackend/UniversalRecorder.cs"
+    },
+    {
+      "id": "backend-go",
+      "implementation": "reproit-backend-go/capture.go"
+    },
+    {
+      "id": "backend-java",
+      "implementation": "reproit-backend-java/src/main/java/dev/reproit/backend/Capture.java"
+    },
+    {
+      "id": "backend-node",
+      "implementation": "reproit-backend-node/capture.js"
+    },
+    {
+      "id": "backend-php",
+      "implementation": "reproit-backend-php/capture.php"
+    },
+    {
+      "id": "backend-python",
+      "implementation": "reproit-backend-py/reproit_backend_py/capture.py"
+    },
+    {
+      "id": "backend-ruby",
+      "implementation": "reproit-backend-rb/lib/reproit_backend_rb/capture.rb"
+    },
+    {
+      "id": "backend-rust",
+      "implementation": "reproit-backend-rs/src/capture.rs"
+    },
+    {
+      "id": "ios-macos",
+      "implementation": "reproit-ios/Sources/ReproIt/Causal.swift"
+    },
+    {
+      "id": "linux",
+      "implementation": "reproit-linux/reproit_linux/capture.py"
+    },
+    {
+      "id": "react-native",
+      "implementation": "reproit-react-native/src/index.ts"
+    },
+    {
+      "id": "recorder-node",
+      "implementation": "reproit-recorder-node/index.js"
+    },
+    {
+      "id": "tauri",
+      "implementation": "reproit-tauri/src/init.js"
+    },
+    {
+      "id": "tui-go",
+      "implementation": "reproit-tui-go/causal.go"
+    },
+    {
+      "id": "tui-python",
+      "implementation": "reproit-tui-py/reproit_tui_py/causal.py"
+    },
+    {
+      "id": "tui-rust",
+      "implementation": "reproit-tui-rs/src/lib.rs"
+    },
+    {
+      "id": "tui-typescript",
+      "implementation": "reproit-tui-ts/index.ts"
+    },
+    {
+      "id": "web",
+      "implementation": "reproit-web.js"
+    },
+    {
+      "id": "windows",
+      "implementation": "reproit-windows/src/ReproIt.Windows/CausalHandler.cs"
+    }
+  ]
+}

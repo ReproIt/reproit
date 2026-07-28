@@ -266,7 +266,7 @@ async function launchBrowser(opts) {
   const engines = { chromium: pw.chromium, firefox: pw.firefox, webkit: pw.webkit };
   return (engines[ENGINE] || pw.chromium).launch(opts);
 }
-// Universal framebuffer-probe floor (PIECE 2, docs/operability-graph.md). OPT-IN
+// Universal framebuffer-probe floor. OPT-IN
 // because it is SIDE-EFFECTING + coarse: it synthesizes clicks at a small grid
 // and diffs screenshots to find operable regions with no a11y control (e.g. a
 // canvas/WebGL hit area). Off unless REPROIT_PROBE=1. See probe.mjs.

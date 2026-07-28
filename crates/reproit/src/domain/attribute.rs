@@ -6,8 +6,7 @@
 //! location of that id and returns `file:line` candidates, so a found gap is
 //! actionable.
 //!
-//! This is explicitly NOT a static graph (see docs/operability-graph.md "Why
-//! not static code analysis"): it never tries to decide what's on screen. It
+//! This is explicitly NOT a static graph: it never tries to decide what's on screen. It
 //! only locates an identifier that the RUNTIME already proved exists, across
 //! the common UI dialects:
 //!

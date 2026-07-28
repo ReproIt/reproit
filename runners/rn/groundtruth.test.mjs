@@ -2,7 +2,7 @@
 // Appium / emulator needed): feed it the flat fiber records the in-app bridge
 // would collect and assert the operability gaps it derives. Run: `node --test`.
 //
-// The motivating case (docs/operability-graph.md): a <TouchableOpacity onPress>
+// The motivating case: a <TouchableOpacity onPress>
 // with accessible={false} / no accessibilityRole is operable by finger but
 // invisible to AT -> a no_role gap. A button with a proper role + label is not.
 import { test } from 'node:test';

@@ -222,13 +222,13 @@ module ReproitBackendRb
         loop do
           if !@queue.empty?
             deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @flush_interval
-            while @queue.length < MAX_BATCH_OPERATIONS && !@flush_now
+            while @queue.length < 1 && !@flush_now
               remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
               break if remaining <= 0
               @signal.wait(@lock, remaining)
             end
             @flush_now = false
-            take = [@queue.length, MAX_BATCH_OPERATIONS].min
+            take = [@queue.length, 1].min
             @sending = true
             return @queue.shift(take)
           end
@@ -243,59 +243,110 @@ module ReproitBackendRb
     # frame tagged `backend-server-error` whose context carries the full
     # replayable capture object.
     def build_batch(operations)
+      unless operations.length == 1
+        raise ArgumentError, "a causal capture batch must contain exactly one operation"
+      end
+      operation = operations[0]
       seq = @lock.synchronize { @batch_seq += 1 }
-      batch_id = format("cap-%d-%d", (Time.now.to_f * 1000).to_i, seq)
-      frames = []
-      frame = lambda do |event|
-        frames << {
-          "runId" => batch_id,
-          "sequence" => frames.length + 1,
-          "scope" => { "domain" => "shared" },
+      batch_id = format("cb-ruby-%d-%d", (Time.now.to_f * 1000).to_i, seq)
+      first = operation["events"][0] || {}
+      trace_id = first["traceId"]
+      events = []
+      parent = nil
+      add = lambda do |event|
+        sequence = events.length + 1
+        event_id = "evt_backend-ruby_#{sequence}"
+        item = {
+          "id" => event_id,
+          "sequence" => sequence,
+          "monotonicNs" => sequence,
+          "causalParentIds" => parent.nil? ? [] : [parent],
           "event" => event,
         }
+        item["traceId"] = trace_id unless trace_id.nil?
+        events << item
+        parent = event_id
       end
-      operations.each do |operation|
-        operation["events"].each do |event|
-          frame.call({ "kind" => "backend", "evidence" => event })
-        end
-        status = operation["status"]
-        next if status.nil? || status < 500
-        signature = "backend:" + operation["operation"]
+      add.call({ "kind" => "operation-start", "name" => operation["operation"] })
+      input = first["input"]
+      captured_input = if input.nil?
+                         { "representation" => "structural", "shape" => { "type" => "unknown" } }
+                       else
+                         {
+                           "representation" => "replayable",
+                           "value" => input,
+                           "redaction" => "redacted-at-source",
+                         }
+                       end
+      add.call({
+        "kind" => "trigger",
+        "trigger" => "http-request",
+        "subject" => operation["operation"],
+        "value" => captured_input,
+      })
+      operation["events"].each do |source|
+        next unless source["kind"] == "effect"
+        add.call({
+          "kind" => "effect",
+          "effect" => source["effect"] || "backend-effect",
+          "subject" => source["resource"] || source["service"] || operation["operation"],
+          "value" => {
+            "representation" => "replayable",
+            "value" => source,
+            "redaction" => "redacted-at-source",
+          },
+        })
+      end
+      returned = operation["events"].reverse.find { |event| event["kind"] == "return" } || {}
+      add.call({
+        "kind" => "operation-end",
+        "name" => operation["operation"],
+        "outcome" => returned["success"] == true ? "succeeded" : "failed",
+      })
+      status = operation["status"]
+      unless status.nil? || status < 500
+        signature = SERVER_ERROR_ORACLE + ":" + operation["operation"]
         message = format(
           "backend operation %s returned HTTP %d", operation["operation"], status
         )
-        context = { "capture" => "reproit-backend-rb" }
-        context["build"] = { "version" => @build } unless @build.nil?
-        payload, dropped = ReproitBackendRb.capture_payload(operation)
-        if payload.nil?
-          context["captureOmitted"] = true
-        else
-          context["reproitCapture"] = payload
-          context["captureDroppedEffects"] = dropped if dropped > 0
-        end
-        frame.call({
-          "kind" => "finding",
-          "signature" => signature,
-          "message" => message,
-          "identity" => {
-            "oracle" => SERVER_ERROR_ORACLE,
-            "invariant" => "backend:server-error",
-            "kind" => "server-error",
-            "message" => message,
-            "frame" => "",
-            "trigger" => signature,
-            "boundary" => signature,
+        add.call({
+          "kind" => "observation",
+          "failure" => {
+            "observation" => "exception",
+            "authority" => "runtime-diagnosis",
+            "summary" => message,
+            "signature" => signature,
+            "observationPoint" => operation["operation"],
+            "artifactIds" => [],
           },
-          "path" => [],
-          "context" => context,
         })
       end
       batch = {
         "version" => 1,
         "batchId" => batch_id,
-        "appId" => @app_id,
-        "frames" => frames,
-        "evidence" => [],
+        "projectId" => @app_id,
+        "sessionId" => trace_id || batch_id,
+        "emitter" => {
+          "id" => "backend-ruby",
+          "kind" => "runtime-sdk",
+          "component" => "backend",
+          "runtime" => "ruby",
+        },
+        "observedAt" => (Time.now.to_f * 1000).to_i.to_s,
+        "policy" => {
+          "consent" => "application-telemetry",
+          "retentionClass" => "standard",
+        },
+        "capabilities" => [
+          { "capability" => "http", "completeness" => "complete" },
+          {
+            "capability" => "database",
+            "completeness" => "partial",
+            "detail" => "effect records do not prove complete database state capture",
+          },
+        ],
+        "events" => events,
+        "artifacts" => [],
       }
       batch["deployment"] = { "version" => @build } unless @build.nil?
       batch

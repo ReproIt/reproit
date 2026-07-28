@@ -1,13 +1,14 @@
 use super::*;
 use reproit_protocol::{
-    ExecutionDestination, ObservationAuthority, ObservationKind, ObservationTarget, PlanBinding,
-    ReproductionPlan, PLAN_VERSION,
+    DependencyKind, EnvironmentKind, ExecutionDestination, ObservationAuthority, ObservationKind,
+    ObservationTarget, PlanBinding, ReproductionPlan, TriggerKind, PLAN_VERSION,
 };
 
 fn provider() -> CommandProvider {
     CommandProvider {
         authority: MechanismAuthority::TrustedCheckout,
         phase: ExecutionPhase::Launch,
+        capabilities: BTreeSet::new(),
         argv: vec!["sh".into(), "-c".into(), "exit 17".into()],
         environment: BTreeMap::new(),
         working_directory: None,
@@ -264,9 +265,115 @@ fn automatic_compilation_refuses_ambiguous_providers() {
         panic!("ambiguous providers must not compile automatically");
     };
     assert_eq!(blockers.len(), 1);
-    assert!(blockers[0].contains("ambiguous"));
-    assert!(blockers[0].contains("service-start"));
-    assert!(blockers[0].contains("service-start-copy"));
+    assert_eq!(blockers[0].code, "ambiguous-trusted-provider");
+    assert_eq!(
+        blockers[0].reason,
+        reproit_protocol::UnresolvedRequirementReason::AmbiguousMapping
+    );
+    assert!(blockers[0].detail.contains("service-start"));
+    assert!(blockers[0].detail.contains("service-start-copy"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn advanced_requirements_map_to_explicit_trusted_capabilities() {
+    let requirement = |requirement| ReproductionRequirement {
+        id: "req_capability".into(),
+        level: RequirementLevel::Required,
+        requirement,
+        evidence_artifact_ids: vec![],
+    };
+    let cases = [
+        (
+            RequirementKind::Trigger {
+                trigger: TriggerKind::ConcurrencySchedule,
+                subject: "worker interleaving".into(),
+            },
+            TrustedCapability::Concurrency,
+        ),
+        (
+            RequirementKind::Dependency {
+                dependency: DependencyKind::DistributedSystem,
+                subject: "replicated service".into(),
+            },
+            TrustedCapability::DistributedSystems,
+        ),
+        (
+            RequirementKind::Observation {
+                observation: ObservationKind::Performance,
+                subject: "latency regression".into(),
+            },
+            TrustedCapability::Performance,
+        ),
+        (
+            RequirementKind::Environment {
+                environment: EnvironmentKind::Hardware,
+                required_value: Some("gpu".into()),
+            },
+            TrustedCapability::Hardware,
+        ),
+        (
+            RequirementKind::Environment {
+                environment: EnvironmentKind::Kernel,
+                required_value: Some("linux".into()),
+            },
+            TrustedCapability::Kernel,
+        ),
+        (
+            RequirementKind::Environment {
+                environment: EnvironmentKind::OperatingSystem,
+                required_value: Some("windows".into()),
+            },
+            TrustedCapability::Environment,
+        ),
+    ];
+    for (kind, expected) in cases {
+        assert_eq!(
+            required_trusted_capability(&requirement(kind)),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn automatic_compilation_returns_a_typed_blocker_for_an_untrusted_capability() {
+    let root = temporary_root("unsupported-capability");
+    let mut trigger_provider = provider();
+    trigger_provider.phase = ExecutionPhase::Trigger;
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        providers: BTreeMap::from([("concurrency-trigger".into(), trigger_provider)]),
+    };
+    std::fs::write(
+        root.join("reproit.execution.yaml"),
+        serde_yaml::to_string(&catalog).unwrap(),
+    )
+    .unwrap();
+    let mut package = incomplete_process_package();
+    package.assessment.requirements[0].id = "req_concurrency".into();
+    package.assessment.requirements[0].requirement = RequirementKind::Trigger {
+        trigger: TriggerKind::ConcurrencySchedule,
+        subject: "worker interleaving".into(),
+    };
+    package.assessment.unresolved[0].requirement_id = "req_concurrency".into();
+    package.id.clear();
+    package.finalize_id().unwrap();
+
+    let AutomaticCompilation::Blocked(blockers) =
+        compile_package_automatically(&root, &package).unwrap()
+    else {
+        panic!("a provider without the concurrency capability must not execute");
+    };
+    assert_eq!(blockers.len(), 1);
+    assert_eq!(blockers[0].code, "unsupported-trusted-capability");
+    assert_eq!(
+        blockers[0].requirement_id.as_deref(),
+        Some("req_concurrency")
+    );
+    assert_eq!(
+        blockers[0].reason,
+        reproit_protocol::UnresolvedRequirementReason::UnsupportedCapability
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

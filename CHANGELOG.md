@@ -57,7 +57,7 @@ ship in this release as opt-in previews outside that promise; see
   `backend-accepted-invalid-input`); `reproit inspect` for backend findings,
   capture-bearing buckets, and capture files (live effect-diff or `--offline`);
   `reproit check <capture.json>` and `reproit debug replay-capture`; and the
-  `reproit repro list` alias. See `docs/backend-quickstart.md`.
+  `reproit repro list` alias. The current workflow is documented in `docs/cli.md`.
 
 ### Stability contract
 

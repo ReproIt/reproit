@@ -346,7 +346,7 @@ fn report_incomplete_occurrence(
     ctx: &Ctx,
     directory: &Path,
     package: &ReproductionPackage,
-    planning_blockers: &[String],
+    planning_blockers: &[crate::adapters::execution::CompilationBlocker],
 ) -> Result<ExitCode> {
     let missing = &package.assessment.unresolved;
     ctx.emit(&serde_json::json!({

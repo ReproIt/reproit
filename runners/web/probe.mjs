@@ -1,5 +1,5 @@
 // Universal framebuffer-probe FLOOR for the operability graph (PIECE 2,
-// docs/operability-graph.md "universal floor"). DETERMINISTIC, NO ML / no vision
+// universal operability floor. DETERMINISTIC, NO ML / no vision
 // understanding: it is pixel-DIFF only, the exact machinery as reproit's flicker
 // oracle. The idea: synthesize a pointer click at a bounded GRID of points; diff
 // the framebuffer before vs after each click. A point whose click CHANGED pixels

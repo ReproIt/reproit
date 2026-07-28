@@ -294,12 +294,12 @@ func (c *Capture) nextBatch() []capturedOperation {
 	for {
 		if len(c.queue) > 0 {
 			deadline := time.Now().Add(c.config.FlushInterval)
-			for len(c.queue) < maxBatchOperations && !c.flushNow &&
+			for len(c.queue) < 1 && !c.flushNow &&
 				time.Now().Before(deadline) {
 				c.timedWait(time.Until(deadline))
 			}
 			c.flushNow = false
-			take := min(len(c.queue), maxBatchOperations)
+			take := min(len(c.queue), 1)
 			operations := append([]capturedOperation(nil), c.queue[:take]...)
 			c.queue = append(c.queue[:0], c.queue[take:]...)
 			c.sending = true
@@ -326,65 +326,129 @@ func (c *Capture) timedWait(limit time.Duration) {
 // `finding` frame tagged `backend-server-error` whose context carries the
 // full replayable capture object.
 func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
-	batchID := "cap-" + strconv.FormatInt(time.Now().UnixMilli(), 10) +
-		"-" + strconv.FormatUint(c.batchSeq.Add(1)-1, 10)
-	frames := []any{}
-	sequence := 0
-	frame := func(event map[string]any) {
-		sequence++
-		frames = append(frames, map[string]any{
-			"runId":    batchID,
-			"sequence": sequence,
-			"scope":    map[string]any{"domain": "shared"},
-			"event":    event,
-		})
+	if len(operations) != 1 {
+		panic("a causal capture batch must contain exactly one operation")
 	}
-	for _, operation := range operations {
-		for _, event := range operation.events {
-			frame(map[string]any{"kind": "backend", "evidence": event})
+	operation := operations[0]
+	batchID := "cb-go-" + strconv.FormatInt(time.Now().UnixMilli(), 10) +
+		"-" + strconv.FormatUint(c.batchSeq.Add(1)-1, 10)
+	events := []any{}
+	parent := ""
+	traceID := ""
+	first := map[string]any{}
+	if len(operation.events) > 0 {
+		first = operation.events[0]
+		traceID, _ = first["traceId"].(string)
+	}
+	add := func(event map[string]any) {
+		sequence := len(events) + 1
+		eventID := "evt_backend-go_" + strconv.Itoa(sequence)
+		parents := []any{}
+		if parent != "" {
+			parents = append(parents, parent)
 		}
-		if operation.status < 500 {
+		item := map[string]any{
+			"id": eventID, "sequence": sequence, "monotonicNs": sequence,
+			"causalParentIds": parents, "event": event,
+		}
+		if traceID != "" {
+			item["traceId"] = traceID
+		}
+		events = append(events, item)
+		parent = eventID
+	}
+	add(map[string]any{"kind": "operation-start", "name": operation.operation})
+	input, hasInput := first["input"]
+	var inputValue map[string]any
+	if hasInput && input != nil {
+		inputValue = map[string]any{
+			"representation": "replayable",
+			"value":          input,
+			"redaction":      "redacted-at-source",
+		}
+	} else {
+		inputValue = map[string]any{
+			"representation": "structural",
+			"shape":          map[string]any{"type": "unknown"},
+		}
+	}
+	add(map[string]any{
+		"kind": "trigger", "trigger": "http-request",
+		"subject": operation.operation, "value": inputValue,
+	})
+	for _, source := range operation.events {
+		if source["kind"] != "effect" {
 			continue
 		}
-		signature := "backend:" + operation.operation
+		effect, _ := source["effect"].(string)
+		if effect == "" {
+			effect = "backend-effect"
+		}
+		subject, _ := source["resource"].(string)
+		if subject == "" {
+			subject = operation.operation
+		}
+		add(map[string]any{
+			"kind": "effect", "effect": effect, "subject": subject,
+			"value": map[string]any{
+				"representation": "replayable",
+				"value":          source,
+				"redaction":      "redacted-at-source",
+			},
+		})
+	}
+	outcome := "failed"
+	for index := len(operation.events) - 1; index >= 0; index-- {
+		if operation.events[index]["kind"] == "return" {
+			if success, _ := operation.events[index]["success"].(bool); success {
+				outcome = "succeeded"
+			}
+			break
+		}
+	}
+	add(map[string]any{
+		"kind": "operation-end", "name": operation.operation, "outcome": outcome,
+	})
+	if operation.status >= 500 {
+		signature := ServerErrorOracle + ":" + operation.operation
 		message := "backend operation " + operation.operation +
 			" returned HTTP " + strconv.Itoa(operation.status)
-		context := map[string]any{"capture": "reproit-backend-go"}
-		if c.config.Build != "" {
-			context["build"] = map[string]any{"version": c.config.Build}
-		}
-		payload, droppedEffects, ok := capturePayload(operation)
-		if !ok {
-			context["captureOmitted"] = true
-		} else {
-			context["reproitCapture"] = payload
-			if droppedEffects > 0 {
-				context["captureDroppedEffects"] = droppedEffects
-			}
-		}
-		frame(map[string]any{
-			"kind":      "finding",
-			"signature": signature,
-			"message":   message,
-			"identity": map[string]any{
-				"oracle":    ServerErrorOracle,
-				"invariant": "backend:server-error",
-				"kind":      "server-error",
-				"message":   message,
-				"frame":     "",
-				"trigger":   signature,
-				"boundary":  signature,
+		add(map[string]any{
+			"kind": "observation",
+			"failure": map[string]any{
+				"observation":      "exception",
+				"authority":        "runtime-diagnosis",
+				"summary":          message,
+				"signature":        signature,
+				"observationPoint": operation.operation,
+				"artifactIds":      []any{},
 			},
-			"path":    []any{},
-			"context": context,
 		})
 	}
 	batch := map[string]any{
-		"version":  1,
-		"batchId":  batchID,
-		"appId":    c.config.AppID,
-		"frames":   frames,
-		"evidence": []any{},
+		"version": 1, "batchId": batchID, "projectId": c.config.AppID,
+		"sessionId": func() string {
+			if traceID != "" {
+				return traceID
+			}
+			return batchID
+		}(),
+		"emitter": map[string]any{
+			"id": "backend-go", "kind": "runtime-sdk",
+			"component": "backend", "runtime": "go",
+		},
+		"observedAt": strconv.FormatInt(time.Now().UnixMilli(), 10),
+		"policy": map[string]any{
+			"consent": "application-telemetry", "retentionClass": "standard",
+		},
+		"capabilities": []any{
+			map[string]any{"capability": "http", "completeness": "complete"},
+			map[string]any{
+				"capability": "database", "completeness": "partial",
+				"detail": "effect records do not prove complete database state capture",
+			},
+		},
+		"events": events, "artifacts": []any{},
 	}
 	if c.config.Build != "" {
 		batch["deployment"] = map[string]any{"version": c.config.Build}

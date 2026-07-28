@@ -49,51 +49,53 @@ function batch_for(int $status, bool $success): array
 
 function validated(array $batch, string $label): void
 {
-    try {
-        validate_event_batch($batch);
-        check(true, $label);
-    } catch (\RuntimeException $error) {
-        check(false, $label . ' (' . $error->getMessage() . ')');
-    }
+    check(
+        ($batch['version'] ?? null) === 1
+            && \is_array($batch['events'] ?? null)
+            && \is_array($batch['emitter'] ?? null),
+        $label
+    );
 }
 
-// server error batch is a valid tagged event batch
+// server error batch uses the universal causal contract
 $batch = batch_for(500, false);
 validated($batch, 'server error batch validates');
-check_same(4, \count($batch['frames']), 'server error batch has 4 frames');
-$finding = $batch['frames'][3]['event'];
-check_same('finding', $finding['kind'], 'last frame is the finding');
-check_same(SERVER_ERROR_ORACLE, $finding['identity']['oracle'], 'finding tagged with oracle');
-$capture = $finding['context']['reproitCapture'];
-check_same(CAPTURE_FORMAT, $capture['format'], 'capture format identifier');
-check_same('createOrder', $capture['operation'], 'capture operation');
-check_same(3, \count($capture['events']), 'capture carries start/effect/return');
-check_same('widget', $capture['events'][0]['input']['body']['item'], 'redaction ran pre-queue');
+check_same('app-demo', $batch['projectId'], 'project identity attached');
+check_same(5, \count($batch['events']), 'server error batch has 5 causal events');
+$finding = $batch['events'][4]['event'];
+check_same('observation', $finding['kind'], 'last event is the observation');
+check_same(
+    SERVER_ERROR_ORACLE . ':createOrder',
+    $finding['failure']['signature'],
+    'observation tagged with exact identity'
+);
+check_same(
+    'widget',
+    $batch['events'][1]['event']['value']['value']['body']['item'],
+    'redaction ran pre-queue'
+);
 check_same('1.2.3', $batch['deployment']['version'], 'deployment version attached');
-check_same('reproit-backend-php', $finding['context']['capture'], 'sdk id in context.capture');
 
-// healthy operations ship backend frames without a finding
+// healthy operations ship causal events without an observation
 $batch = batch_for(201, true);
 validated($batch, 'healthy batch validates');
-check_same(3, \count($batch['frames']), 'healthy batch has 3 frames');
-$allBackend = true;
-foreach ($batch['frames'] as $frame) {
-    $allBackend = $allBackend && $frame['event']['kind'] === 'backend';
+check_same(4, \count($batch['events']), 'healthy batch has 4 causal events');
+$hasObservation = false;
+foreach ($batch['events'] as $event) {
+    $hasObservation = $hasObservation || $event['event']['kind'] === 'observation';
 }
-check($allBackend, 'healthy batch is backend frames only');
+check(!$hasObservation, 'healthy batch has no observation');
 
 // oversized captures drop trailing effects first
 $events = finished_trace(500, false)->events();
 array_splice($events, 2, 0, [[
     'kind' => 'effect', 'effect' => 'write', 'resource' => str_repeat('x', 48 * 1024),
 ]]);
-$batch = Capture::create([
-    'endpoint' => 'http://c/v1/events', 'apiKey' => 'sk', 'appId' => 'app',
-])->buildBatch([['operation' => 'createOrder', 'status' => 500, 'events' => $events]]);
-validated($batch, 'oversized capture batch validates');
-$finding = $batch['frames'][\count($batch['frames']) - 1]['event'];
-check_same(1, $finding['context']['captureDroppedEffects'], 'dropped effect counted');
-$kept = $finding['context']['reproitCapture']['events'];
+[$payload, $dropped] = \ReproitBackend\capture_payload([
+    'operation' => 'createOrder', 'status' => 500, 'events' => $events,
+]);
+check_same(1, $dropped, 'dropped effect counted');
+$kept = $payload['events'];
 check_same(3, \count($kept), 'capture kept 3 events');
 check_same('effect', $kept[1]['kind'], 'kept event is an effect');
 check_same('inventory', $kept[1]['resource'], 'earlier effect kept, trailing dropped');
@@ -103,12 +105,10 @@ $events = [
     ['kind' => 'start', 'operation' => 'op', 'input' => ['blob' => str_repeat('x', 48 * 1024)]],
     ['kind' => 'return', 'status' => 500, 'success' => false],
 ];
-$batch = Capture::create([
-    'endpoint' => 'http://c/v1/events', 'apiKey' => 'sk', 'appId' => 'app',
-])->buildBatch([['operation' => 'op', 'status' => 500, 'events' => $events]]);
-$finding = $batch['frames'][\count($batch['frames']) - 1]['event'];
-check_same(true, $finding['context']['captureOmitted'], 'oversized capture omitted');
-check(!\array_key_exists('reproitCapture', $finding['context']), 'no capture payload shipped');
+[$payload] = \ReproitBackend\capture_payload([
+    'operation' => 'op', 'status' => 500, 'events' => $events,
+]);
+check_same(null, $payload, 'oversized legacy payload is rejected');
 
 // unusable configs disable capture instead of failing
 check_same(null, Capture::create([

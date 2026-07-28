@@ -98,55 +98,49 @@ func TestE2EPlanted500ShipsATaggedFindingBatch(t *testing.T) {
 		t.Fatalf("wrong authorization: %q", ingest.auth[0])
 	}
 	batch := ingest.batches[0]
-	if batch["appId"] != "app-e2e" {
-		t.Fatalf("wrong appId: %v", batch["appId"])
+	if batch["projectId"] != "app-e2e" {
+		t.Fatalf("wrong projectId: %v", batch["projectId"])
 	}
 	if batch["deployment"].(map[string]any)["version"] != "9.9.9" {
 		t.Fatal("deployment version lost")
 	}
 	var finding map[string]any
-	for _, item := range batch["frames"].([]any) {
+	for _, item := range batch["events"].([]any) {
 		event := item.(map[string]any)["event"].(map[string]any)
-		if event["kind"] == "finding" {
+		if event["kind"] == "observation" {
 			if finding != nil {
-				t.Fatal("expected exactly one finding frame")
+				t.Fatal("expected exactly one observation")
 			}
 			finding = event
 		}
 	}
 	if finding == nil {
-		t.Fatal("no finding frame in the batch")
+		t.Fatal("no observation in the batch")
 	}
-	if finding["identity"].(map[string]any)["oracle"] != ServerErrorOracle {
-		t.Fatal("finding not tagged backend-server-error")
+	if finding["failure"].(map[string]any)["signature"] !=
+		ServerErrorOracle+":POST /boom" {
+		t.Fatal("observation not tagged backend-server-error")
 	}
-	context := finding["context"].(map[string]any)
-	if context["capture"] != "reproit-backend-go" {
-		t.Fatal("capture origin missing")
-	}
-	payload := context["reproitCapture"].(map[string]any)
-	if payload["format"] != CaptureFormat || payload["oracle"] != ServerErrorOracle {
-		t.Fatalf("capture payload wrong: %v", payload)
-	}
-	events := payload["events"].([]any)
+	events := batch["events"].([]any)
 	kinds := make([]string, 0, len(events))
 	for _, item := range events {
-		kinds = append(kinds, item.(map[string]any)["kind"].(string))
+		kinds = append(
+			kinds,
+			item.(map[string]any)["event"].(map[string]any)["kind"].(string),
+		)
 	}
-	if len(kinds) != 3 || kinds[0] != "start" || kinds[1] != "effect" || kinds[2] != "return" {
+	if len(kinds) != 5 || kinds[0] != "operation-start" ||
+		kinds[1] != "trigger" || kinds[2] != "effect" ||
+		kinds[3] != "operation-end" || kinds[4] != "observation" {
 		t.Fatalf("capture sequence wrong: %v", kinds)
 	}
-	effect := events[1].(map[string]any)
-	if effect["resource"] != "orders" {
+	effect := events[2].(map[string]any)["event"].(map[string]any)
+	if effect["subject"] != "orders" {
 		t.Fatalf("effect resource wrong: %v", effect)
 	}
-	returned := events[2].(map[string]any)
-	if returned["status"].(float64) != 500 || returned["success"] != false {
-		t.Fatalf("return event wrong: %v", returned)
-	}
 	// The secret-shaped input field was structurally redacted before upload.
-	start := events[0].(map[string]any)
-	inputBody := start["input"].(map[string]any)["body"].(map[string]any)
+	trigger := events[1].(map[string]any)["event"].(map[string]any)
+	inputBody := trigger["value"].(map[string]any)["value"].(map[string]any)["body"].(map[string]any)
 	stub := inputBody["apiKey"].(map[string]any)["$reproit"].(map[string]any)
 	if stub["redacted"] != true {
 		t.Fatal("apiKey shipped unredacted")

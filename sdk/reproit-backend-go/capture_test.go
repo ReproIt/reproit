@@ -39,57 +39,45 @@ func batchFor(t *testing.T, status int, success bool) map[string]any {
 	}})
 }
 
-func TestServerErrorBatchIsATaggedEventBatch(t *testing.T) {
+func TestServerErrorBatchUsesUniversalCausalContract(t *testing.T) {
 	batch := batchFor(t, 500, false)
-	if batch["version"] != 1 || batch["appId"] != "app-demo" {
+	if batch["version"] != 1 || batch["projectId"] != "app-demo" {
 		t.Fatalf("batch envelope wrong: %v", batch)
 	}
 	deployment := batch["deployment"].(map[string]any)
 	if deployment["version"] != "1.2.3" {
 		t.Fatal("deployment version lost")
 	}
-	frames := batch["frames"].([]any)
-	if len(frames) != 4 {
-		t.Fatalf("expected 3 backend frames + 1 finding, got %d", len(frames))
+	events := batch["events"].([]any)
+	if len(events) != 5 {
+		t.Fatalf("expected 5 causal events, got %d", len(events))
 	}
-	finding := frames[3].(map[string]any)["event"].(map[string]any)
-	if finding["kind"] != "finding" {
-		t.Fatal("finding frame missing")
+	finding := events[4].(map[string]any)["event"].(map[string]any)
+	if finding["kind"] != "observation" {
+		t.Fatal("observation event missing")
 	}
-	identity := finding["identity"].(map[string]any)
-	if identity["oracle"] != ServerErrorOracle {
-		t.Fatalf("finding not tagged %s: %v", ServerErrorOracle, identity)
-	}
-	context := finding["context"].(map[string]any)
-	if context["capture"] != "reproit-backend-go" {
-		t.Fatal("capture origin missing")
-	}
-	payload := context["reproitCapture"].(map[string]any)
-	if payload["format"] != CaptureFormat || payload["operation"] != "createOrder" {
-		t.Fatalf("capture payload wrong: %v", payload)
-	}
-	events := payload["events"].([]any)
-	if len(events) != 3 {
-		t.Fatalf("expected full start/effect/return sequence, got %d", len(events))
+	failure := finding["failure"].(map[string]any)
+	if failure["signature"] != ServerErrorOracle+":createOrder" {
+		t.Fatalf("observation not tagged %s: %v", ServerErrorOracle, failure)
 	}
 	// Redaction happened before anything left the process boundary.
-	start := events[0].(map[string]any)
-	body := start["input"].(map[string]any)["body"].(map[string]any)
+	trigger := events[1].(map[string]any)["event"].(map[string]any)
+	body := trigger["value"].(map[string]any)["value"].(map[string]any)["body"].(map[string]any)
 	if body["item"] != "widget" {
 		t.Fatal("capture events lost the redacted start input")
 	}
 }
 
-func TestHealthyOperationsShipBackendFramesWithoutAFinding(t *testing.T) {
+func TestHealthyOperationsShipCausalEventsWithoutObservation(t *testing.T) {
 	batch := batchFor(t, 201, true)
-	frames := batch["frames"].([]any)
-	if len(frames) != 3 {
-		t.Fatalf("expected 3 backend frames, got %d", len(frames))
+	events := batch["events"].([]any)
+	if len(events) != 4 {
+		t.Fatalf("expected 4 causal events, got %d", len(events))
 	}
-	for _, item := range frames {
+	for _, item := range events {
 		event := item.(map[string]any)["event"].(map[string]any)
-		if event["kind"] != "backend" {
-			t.Fatalf("unexpected frame kind: %v", event["kind"])
+		if event["kind"] == "observation" {
+			t.Fatal("healthy operation emitted an observation")
 		}
 	}
 }
@@ -182,21 +170,21 @@ func TestConfigBoundsAreClamped(t *testing.T) {
 	}
 }
 
-func TestBatchSequencesAreDenseAndTyped(t *testing.T) {
+func TestCaptureEventSequencesAreDenseAndTyped(t *testing.T) {
 	batch := batchFor(t, 500, false)
 	encoded := CanonicalJSON(batch)
 	var decoded map[string]any
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("batch is not valid JSON: %v", err)
 	}
-	frames := decoded["frames"].([]any)
-	for index, item := range frames {
-		frame := item.(map[string]any)
-		if int(frame["sequence"].(float64)) != index+1 {
-			t.Fatalf("frame %d has sequence %v", index, frame["sequence"])
+	events := decoded["events"].([]any)
+	for index, item := range events {
+		event := item.(map[string]any)
+		if int(event["sequence"].(float64)) != index+1 {
+			t.Fatalf("event %d has sequence %v", index, event["sequence"])
 		}
-		if frame["runId"] != decoded["batchId"] {
-			t.Fatal("frame runId does not match batchId")
+		if event["id"] == "" {
+			t.Fatal("event id is missing")
 		}
 	}
 }

@@ -173,6 +173,8 @@ jobs:
       - name: SDK oracle contract (error events carry the crash oracle tag)
         working-directory: sdk
         run: node test/oracle_contract_test.js
+      - name: Backend SDK causal capture semantic conformance
+        run: node sdk/test/backend_batch_test.js
       - name: Web SDK performance and privacy ceiling
         env:
           REPROIT_WEB_BENCH_OUT: ${{ runner.temp }}/reproit-sdk-benchmark.json

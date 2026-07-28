@@ -1,5 +1,5 @@
 // In-process WPF operability agent: the WPF instance of reproit's two-graph
-// operability diff (docs/operability-graph.md, "In-process native agent").
+// operability diff from the in-process native agent.
 //
 // WHY in-process: externally, the Windows a11y surface (UIAutomation) is the
 // ONLY thing a driver can see, so a control that is operable by mouse but has

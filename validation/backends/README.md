@@ -22,8 +22,9 @@ The recorder applies the gate's timeout, bounds captured output to 16 MiB, check
 markers, and writes a log plus a `result.schema.json`-compatible result under
 `target/reproit-validation/`. Set `REPROIT_GATE_OUTPUT_DIR` to place CI artifacts elsewhere. The
 weekly and manually dispatched matrix lives in `.github/workflows/native-gates.yml`. Windows UIA
-remains explicitly manual because it requires a native interactive runner; its blocker is recorded
-in the manifest instead of being presented as hosted CI coverage.
+and macOS AX run only on permissioned self-hosted workers because they require native interactive
+sessions. Their protected environments and exact runner labels are recorded in the workflow and
+evidence manifest.
 
 The manifest records the architecture used by the scheduled gate. When a local target differs,
 pass `--architecture` so the evidence records what was actually exercised. Repeat the option when
@@ -47,11 +48,18 @@ Registered runtime gates:
 The exact command for every entry is canonical in `evidence.json`; documentation
 and release validation do not maintain a second command registry.
 
+Run `python3 validation/native/preflight.py <profile>` before a native gate. The
+preflight reads `validation/native/toolchains.json` and fails with an actionable
+repair when a pinned toolchain, driver, permission, or route is unavailable.
+Lifecycle scripts allocate dynamic ports and record process ownership, reset,
+and cleanup evidence.
+
 The Appium commands require a running server with XCUITest or UiAutomator2 as appropriate.
 `run-react-native-android.sh` accepts `REPROIT_ANDROID_UDID`; it pins React Native 0.76.9 and builds
-a bundled release APK so Metro is not part of the result. Run the Windows command directly in a
-native interactive Windows session. A noninteractive service session is not valid UI Automation
-evidence.
+a bundled release APK so Metro is not part of the result. Windows exact-commit
+evidence is collected through `validation/causal/run-windows-remote.sh` over the
+permissioned `black` to `strix` to native Windows guest route. A noninteractive
+Windows service session is not valid UI Automation evidence.
 
 Linux desktop and Tauri gates build inside pinned containers. macOS, iOS,
 Flutter, Android, and Windows gates use their native host tools. The backend

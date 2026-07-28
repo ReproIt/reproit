@@ -363,6 +363,44 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
                     );
                 }
                 platform::Backend::Appium => {
+                    let appium = exec::which("appium").await;
+                    doctor_push(
+                        &mut checks,
+                        "appium executable",
+                        appium,
+                        true,
+                        "required for React Native and native mobile automation",
+                        Some(
+                            "install the pinned Appium version from \
+                             validation/native/toolchains.json"
+                                .into(),
+                        ),
+                    );
+                    if appium {
+                        let drivers = exec::run("appium", &["driver", "list", "--installed"]).await;
+                        let required_driver = if cfg!(target_os = "macos") {
+                            "xcuitest"
+                        } else {
+                            "uiautomator2"
+                        };
+                        let installed = drivers.ok() && drivers.stdout.contains(required_driver);
+                        let detail = if drivers.stdout.is_empty() {
+                            drivers.stderr
+                        } else {
+                            drivers.stdout
+                        };
+                        doctor_push(
+                            &mut checks,
+                            format!("appium {required_driver} driver"),
+                            installed,
+                            true,
+                            detail,
+                            Some(format!(
+                                "install the pinned `{required_driver}` driver from \
+                                 validation/native/toolchains.json"
+                            )),
+                        );
+                    }
                     doctor_push(
                         &mut checks,
                         "appium url",
@@ -526,14 +564,41 @@ fn cloud_checks(checks: &mut Vec<DoctorCheck>, platform: Option<&str>) {
 
 fn finish(ctx: &Ctx, checks: Vec<DoctorCheck>) -> Result<()> {
     let ok = checks.iter().all(|c| c.ok || !c.required);
+    let repairs = checks
+        .iter()
+        .filter(|check| !check.ok)
+        .filter_map(|check| {
+            check.fix.as_ref().map(|fix| {
+                serde_json::json!({
+                    "check": check.name,
+                    "required": check.required,
+                    "action": fix,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
     if ctx.json {
         ctx.emit(&serde_json::json!({
             "command": "doctor",
             "ok": ok,
             "checks": checks,
+            "repairs": repairs,
         }));
     } else {
         render_doctor(&checks);
+        if !repairs.is_empty() {
+            println!("\nNext repairs:");
+            for (index, repair) in repairs.iter().enumerate() {
+                println!(
+                    "  {}. {}: {}",
+                    index + 1,
+                    repair["check"].as_str().unwrap_or("check"),
+                    repair["action"]
+                        .as_str()
+                        .unwrap_or("inspect the failed check")
+                );
+            }
+        }
         println!(
             "\n{}",
             if ok {

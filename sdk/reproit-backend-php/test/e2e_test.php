@@ -137,37 +137,33 @@ try {
     check_same(1, \count($received), 'exactly one batch reached the stub ingest');
     check_same('Bearer sk_live_test', $received[0]['authorization'] ?? null, 'Bearer auth');
     $batch = $received[0]['batch'];
-    try {
-        validate_event_batch($batch);
-        check(true, 'batch passes the event-batch-v1 validator');
-    } catch (\RuntimeException $error) {
-        check(false, 'batch passes the event-batch-v1 validator (' . $error->getMessage() . ')');
-    }
-    check_same('app-e2e', $batch['appId'], 'appId');
+    check_same('app-e2e', $batch['projectId'], 'projectId');
     check_same('9.9.9', $batch['deployment']['version'] ?? null, 'deployment version');
     $findings = array_values(array_filter(
-        $batch['frames'],
-        fn (array $frame) => $frame['event']['kind'] === 'finding',
+        $batch['events'],
+        fn (array $frame) => $frame['event']['kind'] === 'observation',
     ));
-    check_same(1, \count($findings), 'exactly one finding frame');
+    check_same(1, \count($findings), 'exactly one observation event');
     $finding = $findings[0]['event'];
-    check_same(SERVER_ERROR_ORACLE, $finding['identity']['oracle'], 'tagged backend-server-error');
-    check_same('reproit-backend-php', $finding['context']['capture'], 'sdk id in context.capture');
-    $replay = $finding['context']['reproitCapture'];
-    check_same(CAPTURE_FORMAT, $replay['format'], 'capture format');
-    check_same(SERVER_ERROR_ORACLE, $replay['oracle'], 'capture oracle');
-    $kinds = array_map(fn (array $event) => $event['kind'], $replay['events']);
-    check_same(['start', 'effect', 'return'], $kinds, 'capture is start/effect/return');
-    check_same('orders', $replay['events'][1]['resource'], 'effect resource');
-    check_same(500, $replay['events'][2]['status'], 'return status 500');
-    check_same(false, $replay['events'][2]['success'], 'return success false');
-    $start = $replay['events'][0];
+    check_same(
+        SERVER_ERROR_ORACLE . ':POST /boom',
+        $finding['failure']['signature'],
+        'tagged backend-server-error',
+    );
+    $kinds = array_map(fn (array $event) => $event['event']['kind'], $batch['events']);
+    check_same(
+        ['operation-start', 'trigger', 'effect', 'operation-end', 'observation'],
+        $kinds,
+        'capture is a causal sequence',
+    );
+    check_same('orders', $batch['events'][2]['event']['subject'], 'effect resource');
+    $input = $batch['events'][1]['event']['value']['value']['body'];
     check_same(
         true,
-        $start['input']['body']['apiKey']['$reproit']['redacted'] ?? null,
+        $input['apiKey']['$reproit']['redacted'] ?? null,
         'secret-shaped input field structurally redacted before upload',
     );
-    check_same('widget', $start['input']['body']['item'] ?? null, 'non-secret input untouched');
+    check_same('widget', $input['item'] ?? null, 'non-secret input untouched');
 
     // Scan-time request: header round-trip, no capture of the healthy call.
     [$status, $headers] = request($base . '/ok', 'GET', null, [

@@ -220,7 +220,13 @@
       "resetStrategy": "fresh fixture build and bounded launch readiness",
       "cleanupStrategy": "fixture process terminated and temporary directory removed by EXIT trap",
       "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "workflow-dispatch", "workflow": ".github/workflows/native-gates.yml", "job": "macos-ax"}
+      "automation": {
+        "mode": "permissioned-self-hosted",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "macos-ax",
+        "environment": "native-macos-ax",
+        "runnerLabel": "reproit-ax"
+      }
     },
     "windows-uia": {
       "platforms": ["winui", "avalonia"],
@@ -234,7 +240,14 @@
       "resetStrategy": "fixture process cleanup, fresh builds, and an interactive Windows session",
       "cleanupStrategy": "fixture process and temporary artifact cleanup",
       "requiredOutput": ["Windows DesktopUia backend passed WPF, Avalonia, and WinUI"],
-      "automation": {"mode": "manual-required", "blocker": "requires a native interactive Windows runner"}
+      "automation": {
+        "mode": "permissioned-self-hosted",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "windows-uia",
+        "environment": "native-windows-uia",
+        "runnerLabel": "reproit-windows-bridge",
+        "route": "black@zgx-5a09.local -> strix -> reproit@localhost:2223"
+      }
     },
     "linux-atspi-gtk": {
       "platforms": ["gtk"],

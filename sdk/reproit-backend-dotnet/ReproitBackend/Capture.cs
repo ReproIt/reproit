@@ -279,14 +279,14 @@ public sealed class Capture
                 if (_queue.Count > 0)
                 {
                     var deadline = Environment.TickCount64 + _flushIntervalMs;
-                    while (_queue.Count < MaxBatchOperations && !_flushNow)
+                    while (_queue.Count < 1 && !_flushNow)
                     {
                         var remaining = deadline - Environment.TickCount64;
                         if (remaining <= 0) break;
                         if (!Monitor.Wait(_signal, (int)remaining)) break;
                     }
                     _flushNow = false;
-                    var take = Math.Min(_queue.Count, MaxBatchOperations);
+                    var take = Math.Min(_queue.Count, 1);
                     _sending = true;
                     var operations = new List<CapturedOperation>(take);
                     for (var index = 0; index < take; index++)

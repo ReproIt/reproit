@@ -35,8 +35,7 @@ at least two independent uses:
   install claims. The source-neutral Rust, Node, and .NET recorders use the
   universal capture contract documented under `sdk/`;
 - specialist oracles selected explicitly with `--only`;
-- `debug map` analysis and contract suggestions;
-- `baseline`, `screenshots`, and `import maestro`;
+- hidden compatibility commands and internal diagnostic views;
 - multi-actor coordination and advanced causal environment reduction; and
 - registry package coordinates that are not listed as published in `sdk/README.md`.
 

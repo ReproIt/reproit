@@ -27,6 +27,10 @@ DEVICE_NAME="Reproit-Gate-$$"
 UDID="$(xcrun simctl create "$DEVICE_NAME" "$DEVICE_TYPE_ID" "$RUNTIME_ID")"
 
 cleanup() {
+  xcrun simctl terminate "$UDID" \
+    com.facebook.WebDriverAgentRunner.xctrunner >/dev/null 2>&1 || true
+  xcrun simctl terminate "$UDID" \
+    com.facebook.WebDriverAgentRunner.xctrunner.xctrunner >/dev/null 2>&1 || true
   xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
   xcrun simctl delete "$UDID" >/dev/null 2>&1 || true
   echo "iOS simulator cleanup: deleted $UDID"

@@ -275,13 +275,13 @@ public final class Capture {
             while (true) {
                 if (!queue.isEmpty()) {
                     long deadline = System.nanoTime() + flushIntervalMs * 1_000_000L;
-                    while (queue.size() < MAX_BATCH_OPERATIONS && !flushNow) {
+                    while (queue.size() < 1 && !flushNow) {
                         long remaining = deadline - System.nanoTime();
                         if (remaining <= 0) break;
                         if (signal.awaitNanos(remaining) <= 0) break;
                     }
                     flushNow = false;
-                    int take = Math.min(queue.size(), MAX_BATCH_OPERATIONS);
+                    int take = Math.min(queue.size(), 1);
                     List<Operation> operations = new ArrayList<>(take);
                     for (int index = 0; index < take; index++) {
                         operations.add(queue.removeFirst());
@@ -297,60 +297,114 @@ public final class Capture {
         }
     }
 
-    // Build one event-batch-v1 payload: every captured event ships as a
-    // `backend` frame, and each 5xx operation additionally ships a `finding`
-    // frame tagged `backend-server-error` whose context carries the full
-    // replayable capture object.
+    // Build one source-neutral capture-batch-v1 payload.
     Map<String, Object> buildBatch(List<Operation> operations) {
+        if (operations.size() != 1) {
+            throw new IllegalArgumentException(
+                "a causal capture batch must contain exactly one operation");
+        }
+        Operation operation = operations.get(0);
         String batchId =
-            "cap-" + System.currentTimeMillis() + "-" + batchSeq.getAndIncrement();
-        List<Map<String, Object>> frames = new ArrayList<>();
-        for (Operation operation : operations) {
-            for (Map<String, Object> event : operation.events()) {
-                Map<String, Object> backend = new LinkedHashMap<>();
-                backend.put("kind", "backend");
-                backend.put("evidence", event);
-                frames.add(frame(batchId, frames.size() + 1, backend));
+            "cb-java-" + System.currentTimeMillis() + "-" + batchSeq.getAndIncrement();
+        Map<String, Object> first = operation.events().isEmpty()
+            ? Map.of() : operation.events().get(0);
+        String traceId = first.get("traceId") instanceof String value ? value : null;
+        List<Map<String, Object>> events = new ArrayList<>();
+        class Builder {
+            String parent;
+
+            void add(Map<String, Object> event) {
+                int sequence = events.size() + 1;
+                String eventId = "evt_backend-java_" + sequence;
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", eventId);
+                item.put("sequence", (long) sequence);
+                item.put("monotonicNs", (long) sequence);
+                item.put("causalParentIds", parent == null ? List.of() : List.of(parent));
+                if (traceId != null) item.put("traceId", traceId);
+                item.put("event", event);
+                events.add(item);
+                parent = eventId;
             }
-            if (operation.status() == null || operation.status() < 500) continue;
-            String signature = "backend:" + operation.operation();
+        }
+        Builder builder = new Builder();
+        builder.add(new LinkedHashMap<>(Map.of(
+            "kind", "operation-start", "name", operation.operation())));
+        Object input = first.get("input");
+        Map<String, Object> value = new LinkedHashMap<>();
+        if (input == null) {
+            value.put("representation", "structural");
+            value.put("shape", Map.of("type", "unknown"));
+        } else {
+            value.put("representation", "replayable");
+            value.put("value", input);
+            value.put("redaction", "redacted-at-source");
+        }
+        Map<String, Object> trigger = new LinkedHashMap<>();
+        trigger.put("kind", "trigger");
+        trigger.put("trigger", "http-request");
+        trigger.put("subject", operation.operation());
+        trigger.put("value", value);
+        builder.add(trigger);
+        for (Map<String, Object> source : operation.events()) {
+            if (!"effect".equals(source.get("kind"))) continue;
+            String effect = source.get("effect") instanceof String text && !text.isEmpty()
+                ? text : "backend-effect";
+            String subject = source.get("resource") instanceof String text && !text.isEmpty()
+                ? text : operation.operation();
+            Map<String, Object> captured = new LinkedHashMap<>();
+            captured.put("representation", "replayable");
+            captured.put("value", source);
+            captured.put("redaction", "redacted-at-source");
+            Map<String, Object> causal = new LinkedHashMap<>();
+            causal.put("kind", "effect");
+            causal.put("effect", effect);
+            causal.put("subject", subject);
+            causal.put("value", captured);
+            builder.add(causal);
+        }
+        boolean success = operation.events().stream()
+            .filter(event -> "return".equals(event.get("kind")))
+            .reduce((left, right) -> right)
+            .map(event -> Boolean.TRUE.equals(event.get("success")))
+            .orElse(false);
+        builder.add(new LinkedHashMap<>(Map.of(
+            "kind", "operation-end",
+            "name", operation.operation(),
+            "outcome", success ? "succeeded" : "failed")));
+        if (operation.status() != null && operation.status() >= 500) {
+            String signature = SERVER_ERROR_ORACLE + ":" + operation.operation();
             String message = "backend operation " + operation.operation()
                 + " returned HTTP " + operation.status();
-            Map<String, Object> context = new LinkedHashMap<>();
-            context.put("capture", "reproit-backend-java");
-            if (build != null) context.put("build", Map.of("version", build));
-            Payload payload = capturePayload(operation);
-            if (payload == null) {
-                context.put("captureOmitted", Boolean.TRUE);
-            } else {
-                context.put("reproitCapture", payload.value());
-                if (payload.droppedEffects() > 0) {
-                    context.put("captureDroppedEffects", (long) payload.droppedEffects());
-                }
-            }
-            Map<String, Object> identity = new LinkedHashMap<>();
-            identity.put("oracle", SERVER_ERROR_ORACLE);
-            identity.put("invariant", "backend:server-error");
-            identity.put("kind", "server-error");
-            identity.put("message", message);
-            identity.put("frame", "");
-            identity.put("trigger", signature);
-            identity.put("boundary", signature);
-            Map<String, Object> finding = new LinkedHashMap<>();
-            finding.put("kind", "finding");
-            finding.put("signature", signature);
-            finding.put("message", message);
-            finding.put("identity", identity);
-            finding.put("path", List.of());
-            finding.put("context", context);
-            frames.add(frame(batchId, frames.size() + 1, finding));
+            Map<String, Object> failure = new LinkedHashMap<>();
+            failure.put("observation", "exception");
+            failure.put("authority", "runtime-diagnosis");
+            failure.put("summary", message);
+            failure.put("signature", signature);
+            failure.put("observationPoint", operation.operation());
+            failure.put("artifactIds", List.of());
+            builder.add(new LinkedHashMap<>(Map.of(
+                "kind", "observation", "failure", failure)));
         }
         Map<String, Object> batch = new LinkedHashMap<>();
         batch.put("version", 1);
         batch.put("batchId", batchId);
-        batch.put("appId", appId);
-        batch.put("frames", frames);
-        batch.put("evidence", List.of());
+        batch.put("projectId", appId);
+        batch.put("sessionId", traceId == null ? batchId : traceId);
+        batch.put("emitter", Map.of(
+            "id", "backend-java", "kind", "runtime-sdk",
+            "component", "backend", "runtime", "java"));
+        batch.put("observedAt", Long.toString(System.currentTimeMillis()));
+        batch.put("policy", Map.of(
+            "consent", "application-telemetry", "retentionClass", "standard"));
+        batch.put("capabilities", List.of(
+            Map.of("capability", "http", "completeness", "complete"),
+            Map.of(
+                "capability", "database",
+                "completeness", "partial",
+                "detail", "effect records do not prove complete database state capture")));
+        batch.put("events", events);
+        batch.put("artifacts", List.of());
         if (build != null) batch.put("deployment", Map.of("version", build));
         return batch;
     }

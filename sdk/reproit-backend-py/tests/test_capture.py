@@ -31,29 +31,25 @@ def _batch_for(status, success):
     return capture._build_batch([operation])
 
 
-def test_server_error_batch_is_a_tagged_event_batch():
+def test_server_error_batch_uses_the_universal_causal_contract():
     batch = _batch_for(500, False)
     assert batch["version"] == 1
+    assert batch["projectId"] == "app-demo"
     assert batch["deployment"] == {"version": "1.2.3"}
-    frames = batch["frames"]
-    assert len(frames) == 4
-    assert [frame["sequence"] for frame in frames] == [1, 2, 3, 4]
-    finding = frames[3]["event"]
-    assert finding["kind"] == "finding"
-    assert finding["identity"]["oracle"] == SERVER_ERROR_ORACLE
-    capture = finding["context"]["reproitCapture"]
-    assert capture["format"] == CAPTURE_FORMAT
-    assert capture["operation"] == "createOrder"
-    assert len(capture["events"]) == 3
+    events = batch["events"]
+    assert [item["sequence"] for item in events] == list(range(1, len(events) + 1))
+    finding = events[-1]["event"]
+    assert finding["kind"] == "observation"
+    assert finding["failure"]["signature"] == SERVER_ERROR_ORACLE + ":createOrder"
     # Redaction happened before anything left the process boundary.
-    assert capture["events"][0]["input"]["body"]["item"] == "widget"
+    assert events[1]["event"]["value"]["value"]["body"]["item"] == "widget"
 
 
-def test_healthy_operations_ship_backend_frames_without_a_finding():
+def test_healthy_operations_ship_causal_events_without_an_observation():
     batch = _batch_for(201, True)
-    frames = batch["frames"]
-    assert len(frames) == 3
-    assert all(frame["event"]["kind"] == "backend" for frame in frames)
+    assert [item["event"]["kind"] for item in batch["events"]] == [
+        "operation-start", "trigger", "effect", "operation-end"
+    ]
 
 
 def test_oversized_captures_drop_trailing_effects_first():
@@ -70,17 +66,13 @@ def test_oversized_captures_drop_trailing_effects_first():
     assert kept[1]["resource"] == "inventory"
 
 
-def test_capture_that_cannot_fit_start_plus_return_is_omitted():
+def test_legacy_capture_payload_that_cannot_fit_is_still_detected():
     events = [
         {"kind": "start", "operation": "op", "input": {"blob": "x" * MAX_CAPTURE_JSON_BYTES}},
         {"kind": "return", "status": 500, "success": False},
     ]
     payload, _ = _capture_payload({"operation": "op", "status": 500, "events": events})
     assert payload is None
-    batch = _capture()._build_batch([{"operation": "op", "status": 500, "events": events}])
-    finding = batch["frames"][-1]["event"]
-    assert finding["context"]["captureOmitted"] is True
-    assert "reproitCapture" not in finding["context"]
 
 
 def test_unusable_configs_disable_capture_instead_of_failing():

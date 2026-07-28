@@ -299,7 +299,7 @@ id  >  type+role  >  role + structural-index
 
 So `tap:<selector>` where the selector is `key:<id>` or `role:<role>#<idx>`. Elements with no stable
 id carry `nokey: true` in the emitted elements list (metadata only; it doesn't affect the hash), so
-`debug map show` can warn you to add one.
+`reproit doctor` can warn when the configured identity contract is incomplete.
 
 ## The full identity model
 
@@ -315,7 +315,7 @@ identity =
                          deterministic config (never runs in the hot loop)
 ```
 
-This is deterministic end to end (the LLM only emits frozen rules), tunable (`debug map show`
+This is deterministic end to end (the LLM only emits frozen rules), tunable (the generated map
 explains why two screens are the same or different, and config can add discriminators or merge
 rules), and self-correcting (a bad signature shows up as graph explosion or a behavior collision,
 which tells you to add a rule).

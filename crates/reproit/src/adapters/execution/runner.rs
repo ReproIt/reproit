@@ -21,7 +21,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 mod automatic;
 mod model;
 mod process;
-pub(crate) use automatic::{compile_package_automatically, AutomaticCompilation};
+pub(crate) use automatic::{
+    compile_package_automatically, AutomaticCompilation, CompilationBlocker,
+};
 pub(crate) use model::PlanRun;
 use model::*;
 use process::*;
@@ -635,6 +637,7 @@ pub(crate) fn compile_local_command_package(
     let provider = CommandProvider {
         authority: MechanismAuthority::ExplicitLocalApproval,
         phase: ExecutionPhase::Trigger,
+        capabilities: BTreeSet::new(),
         argv,
         environment: BTreeMap::new(),
         working_directory: (!relative_working_directory.as_os_str().is_empty())
@@ -884,6 +887,16 @@ pub(crate) fn compile_package(
                 requirement.id,
                 requirement_phase(requirement)
             );
+        }
+        if let Some(capability) = required_trusted_capability(requirement) {
+            if !provider.capabilities.contains(&capability) {
+                anyhow::bail!(
+                    "provider `{provider_id}` does not declare trusted capability \
+                     `{:?}` for requirement `{}`",
+                    capability,
+                    requirement.id
+                );
+            }
         }
         if let Some(observation) = &provider.observation {
             if observation.identity != identity {

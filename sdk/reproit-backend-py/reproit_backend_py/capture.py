@@ -254,79 +254,129 @@ class Capture:
             while True:
                 if self._queue:
                     deadline = time.monotonic() + self._flush_interval
-                    while len(self._queue) < MAX_BATCH_OPERATIONS and not self._flush_now:
+                    while len(self._queue) < 1 and not self._flush_now:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             break
                         if not self._signal.wait(remaining):
                             break
                     self._flush_now = False
-                    take = min(len(self._queue), MAX_BATCH_OPERATIONS)
+                    take = min(len(self._queue), 1)
                     self._sending = True
                     return [self._queue.popleft() for _ in range(take)]
                 self._flush_now = False
                 self._signal.wait()
 
     def _build_batch(self, operations):
-        """Build one event-batch-v1 payload: every captured event ships as a
-        `backend` frame, and each 5xx operation additionally ships a `finding`
-        frame tagged `backend-server-error` whose context carries the full
-        replayable capture object."""
-        batch_id = "cap-%d-%d" % (int(time.time() * 1000), next(self._batch_seq))
-        frames = []
+        """Build one source-neutral capture-batch-v1 payload."""
+        if len(operations) != 1:
+            raise ValueError("a causal capture batch must contain exactly one operation")
+        operation = operations[0]
+        batch_id = "cb-python-%d-%d" % (int(time.time() * 1000), next(self._batch_seq))
+        source_events = operation["events"]
+        first = source_events[0] if source_events else {}
+        session_id = first.get("traceId") or batch_id
+        events = []
+        parent = None
 
-        def frame(event):
-            frames.append(
-                {
-                    "runId": batch_id,
-                    "sequence": len(frames) + 1,
-                    "scope": {"domain": "shared"},
-                    "event": event,
-                }
-            )
+        def event(kind):
+            nonlocal parent
+            sequence = len(events) + 1
+            event_id = "evt_backend-python_%d" % sequence
+            item = {
+                "id": event_id,
+                "sequence": sequence,
+                "monotonicNs": sequence,
+                "causalParentIds": [] if parent is None else [parent],
+                "event": kind,
+            }
+            trace_id = first.get("traceId")
+            if isinstance(trace_id, str) and trace_id:
+                item["traceId"] = trace_id
+            events.append(item)
+            parent = event_id
 
-        for operation in operations:
-            for event in operation["events"]:
-                frame({"kind": "backend", "evidence": event})
-            status = operation["status"]
-            if status is None or status < 500:
+        event({"kind": "operation-start", "name": operation["operation"]})
+        input_value = first.get("input")
+        value = (
+            {"representation": "structural", "shape": {"type": "unknown"}}
+            if input_value is None
+            else {
+                "representation": "replayable",
+                "value": input_value,
+                "redaction": "redacted-at-source",
+            }
+        )
+        event({
+            "kind": "trigger",
+            "trigger": "http-request",
+            "subject": operation["operation"],
+            "value": value,
+        })
+        for source in source_events:
+            if source.get("kind") != "effect":
                 continue
-            signature = "backend:" + operation["operation"]
+            effect = source.get("effect") or "backend-effect"
+            subject = source.get("resource") or source.get("service") or operation["operation"]
+            event({
+                "kind": "effect",
+                "effect": effect,
+                "subject": subject,
+                "value": {
+                    "representation": "replayable",
+                    "value": source,
+                    "redaction": "redacted-at-source",
+                },
+            })
+        returned = next(
+            (item for item in reversed(source_events) if item.get("kind") == "return"),
+            {},
+        )
+        event({
+            "kind": "operation-end",
+            "name": operation["operation"],
+            "outcome": "succeeded" if returned.get("success") is True else "failed",
+        })
+        status = operation["status"]
+        if status is not None and status >= 500:
             message = "backend operation %s returned HTTP %d" % (operation["operation"], status)
-            context = {"capture": "reproit-backend-py"}
-            if self._build is not None:
-                context["build"] = {"version": self._build}
-            payload, dropped = _capture_payload(operation)
-            if payload is None:
-                context["captureOmitted"] = True
-            else:
-                context["reproitCapture"] = payload
-                if dropped > 0:
-                    context["captureDroppedEffects"] = dropped
-            frame(
-                {
-                    "kind": "finding",
-                    "signature": signature,
-                    "message": message,
-                    "identity": {
-                        "oracle": SERVER_ERROR_ORACLE,
-                        "invariant": "backend:server-error",
-                        "kind": "server-error",
-                        "message": message,
-                        "frame": "",
-                        "trigger": signature,
-                        "boundary": signature,
-                    },
-                    "path": [],
-                    "context": context,
-                }
-            )
+            event({
+                "kind": "observation",
+                "failure": {
+                    "observation": "exception",
+                    "authority": "runtime-diagnosis",
+                    "summary": message,
+                    "signature": SERVER_ERROR_ORACLE + ":" + operation["operation"],
+                    "observationPoint": operation["operation"],
+                    "artifactIds": [],
+                },
+            })
         batch = {
             "version": 1,
             "batchId": batch_id,
-            "appId": self._app_id,
-            "frames": frames,
-            "evidence": [],
+            "projectId": self._app_id,
+            "sessionId": session_id,
+            "emitter": {
+                "id": "backend-python",
+                "kind": "runtime-sdk",
+                "component": "backend",
+                "runtime": "python",
+            },
+            "observedAt": "%d" % int(time.time() * 1000),
+            "policy": {
+                "consent": "application-telemetry",
+                "retentionClass": "standard",
+            },
+            "capabilities": [
+                {"capability": "http", "completeness": "complete"},
+                {
+                    "capability": "database",
+                    "completeness": "partial",
+                    "detail": "effect records do not prove complete database state capture",
+                },
+            ],
+            "events": events,
+            "artifacts": [],
         }
         if self._build is not None:
             batch["deployment"] = {"version": self._build}

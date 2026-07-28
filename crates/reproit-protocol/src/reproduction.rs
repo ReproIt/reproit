@@ -8,6 +8,7 @@ use crate::{
     valid_hash, validate_optional_text, validate_text, validate_token, validate_value,
     OccurrenceEnvelope, ProtocolError, ReasonCode, MAX_CONTEXT_BYTES, MAX_TEXT_BYTES,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -29,7 +30,9 @@ pub enum ProcessOperation {
     Stop,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum TriggerKind {
     UiAction,
@@ -49,7 +52,9 @@ pub enum TriggerKind {
     DeviceInteraction,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum StateKind {
     Filesystem,
@@ -70,6 +75,7 @@ pub enum DependencyKind {
     ApprovedSandbox,
     DeterministicStub,
     EnvironmentBound,
+    DistributedSystem,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -88,6 +94,8 @@ pub enum EnvironmentKind {
     Driver,
     Graphics,
     Hardware,
+    Kernel,
+    Performance,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

@@ -152,6 +152,12 @@ def main() -> int:
         help="evidence directory for one release gate group; repeat per group",
     )
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--only-gate",
+        action="append",
+        default=[],
+        help="validate only the named gate; intended for remote evidence collectors",
+    )
     args = parser.parse_args()
     if len(args.commit) != 40 or any(ch not in "0123456789abcdef" for ch in args.commit):
         raise ValueError("--commit must be a full lowercase Git commit")
@@ -162,6 +168,12 @@ def main() -> int:
             raise ValueError(f"--dir must be a unique NAME=PATH pair, got {entry!r}")
         directories[name] = Path(path)
     required = release_gates()
+    if args.only_gate:
+        selected = set(args.only_gate)
+        unknown = selected.difference(required)
+        if unknown:
+            raise ValueError(f"unknown release gates: {sorted(unknown)}")
+        required = {gate: required[gate] for gate in sorted(selected)}
     required_names = set(required.values())
     if set(directories) != required_names:
         raise ValueError(

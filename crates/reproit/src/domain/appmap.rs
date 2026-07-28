@@ -82,7 +82,7 @@ pub struct State {
     /// Operability/accessibility gaps on this screen: the diff between the
     /// ground-truth operable set (graph 1, what a pointer user can do) and the
     /// accessibility/keyboard-operable set (graph 2). Populated from a runner's
-    /// `EXPLORE:GROUNDTRUTH` records; see docs/operability-graph.md.
+    /// `EXPLORE:GROUNDTRUTH` records.
     #[serde(default)]
     pub operability_gaps: OperabilityGaps,
 }

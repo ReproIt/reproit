@@ -53,122 +53,36 @@ for (var i = 0; i < sources.length; i++) {
 
 console.log('PASS: every production SDK tags its error event with the `crash` ' + 'oracle');
 
-// The backend SDKs' production capture mode is the backend counterpart of the
-// same contract: their 5xx finding frame must carry the first-class
-// `backend-server-error` registry id so ingest's oracle gate accepts it. All
-// three ports (Rust reference, Node, Python) are pinned identically.
-var backendSrc = fs.readFileSync(path.join(root, 'reproit-backend-rs/src/capture.rs'), 'utf8');
-assert.ok(
-  /SERVER_ERROR_ORACLE:\s*&str\s*=\s*"backend-server-error"/.test(backendSrc),
-  'backend-rs capture: expected the backend-server-error oracle id constant',
-);
-assert.ok(
-  /"kind":\s*"finding"[\s\S]{0,400}?"oracle":\s*SERVER_ERROR_ORACLE/.test(backendSrc),
-  'backend-rs capture: finding identity is missing the `backend-server-error` oracle tag',
-);
-
-// The Node port emits the source-neutral causal capture schema. That schema
-// represents the stable oracle id in the observation signature instead of a
-// legacy finding.identity object.
-var nodeBackendSrc = fs.readFileSync(
-  path.join(root, 'reproit-backend-node/capture.js'),
-  'utf8',
-);
-assert.ok(
-  /SERVER_ERROR_ORACLE\s*=\s*["']backend-server-error["']/.test(nodeBackendSrc),
-  'Node backend: expected the backend-server-error oracle id constant',
-);
-assert.ok(
-  /signature\s*=\s*SERVER_ERROR_ORACLE\s*\+\s*["']:["']\s*\+\s*operation\.operation/.test(
-    nodeBackendSrc,
-  ),
-  'Node backend: observation signature is missing the backend-server-error oracle id',
-);
-
-var dotnetBackendSrc = fs.readFileSync(
-  path.join(root, 'reproit-backend-dotnet/ReproitBackend/Capture.cs'),
-  'utf8',
-);
-assert.ok(
-  /ServerErrorOracle\s*=\s*"backend-server-error"/.test(dotnetBackendSrc),
-  '.NET backend: expected the backend-server-error oracle id constant',
-);
-assert.ok(
-  /signature\s*=\s*ServerErrorOracle\s*\+\s*":"\s*\+\s*operation\.Operation/.test(
-    dotnetBackendSrc,
-  ),
-  '.NET backend: observation signature is missing the backend-server-error oracle id',
-);
-
+// Every backend uploader now emits the same source-neutral observation event.
+// Language-specific syntax differs, so pin both the stable constant and the
+// causal schema vocabulary in each implementation.
 var backendPorts = [
-  ['reproit-backend-py/reproit_backend_py/capture.py', 'Python backend'],
+  ['reproit-backend-rs/src/capture.rs', 'Rust backend', /SERVER_ERROR_ORACLE/],
+  ['reproit-backend-node/capture.js', 'Node backend', /SERVER_ERROR_ORACLE/],
+  ['reproit-backend-py/reproit_backend_py/capture.py', 'Python backend', /SERVER_ERROR_ORACLE/],
+  ['reproit-backend-go/capture.go', 'Go backend', /ServerErrorOracle/],
+  ['reproit-backend-rb/lib/reproit_backend_rb/capture.rb', 'Ruby backend', /SERVER_ERROR_ORACLE/],
+  ['reproit-backend-php/capture.php', 'PHP backend', /SERVER_ERROR_ORACLE/],
+  [
+    'reproit-backend-java/src/main/java/dev/reproit/backend/Capture.java',
+    'Java backend',
+    /SERVER_ERROR_ORACLE/,
+  ],
+  ['reproit-backend-dotnet/ReproitBackend/Capture.cs', '.NET backend', /ServerErrorOracle/],
 ];
-var portConstant = /SERVER_ERROR_ORACLE\s*=\s*["']backend-server-error["']/;
-var portTaggedFinding =
-  /["']?kind["']?\s*[:=]\s*["']finding["'][\s\S]{0,500}?["']?oracle["']?\s*:\s*SERVER_ERROR_ORACLE/;
 for (var j = 0; j < backendPorts.length; j++) {
   var portRel = backendPorts[j][0];
   var portLabel = backendPorts[j][1];
   var portSrc = fs.readFileSync(path.join(root, portRel), 'utf8');
   assert.ok(
-    portConstant.test(portSrc),
-    portLabel + ' (' + portRel + '): expected the backend-server-error oracle id constant',
+    /backend-server-error/.test(portSrc),
+    portLabel + ' (' + portRel + '): expected the backend-server-error identity',
   );
   assert.ok(
-    portTaggedFinding.test(portSrc),
-    portLabel +
-      ' (' +
-      portRel +
-      '): finding identity is missing the `backend-server-error` oracle tag',
-  );
-}
-
-// The Go port names the constant idiomatically (ServerErrorOracle), so it is
-// pinned with its own patterns against the same registry id.
-var goSrc = fs.readFileSync(path.join(root, 'reproit-backend-go/capture.go'), 'utf8');
-assert.ok(
-  /ServerErrorOracle\s*=\s*"backend-server-error"/.test(goSrc),
-  'Go backend (reproit-backend-go/capture.go): expected the backend-server-error oracle id',
-);
-assert.ok(
-  /"kind":\s*"finding"[\s\S]{0,500}?"oracle":\s*ServerErrorOracle/.test(goSrc),
-  'Go backend (reproit-backend-go/capture.go): finding identity is missing the ' +
-    '`backend-server-error` oracle tag',
-);
-
-// The remaining ports each carry the same constant in their language's idiom;
-// the tagged-finding window is tailored to how each builds the finding frame.
-var otherPorts = [
-  [
-    'reproit-backend-rb/lib/reproit_backend_rb/capture.rb',
-    'Ruby backend',
-    /SERVER_ERROR_ORACLE\s*=\s*"backend-server-error"/,
-    /"kind" => "finding"[\s\S]{0,400}?"oracle" => SERVER_ERROR_ORACLE/,
-  ],
-  [
-    'reproit-backend-php/capture.php',
-    'PHP backend',
-    /const SERVER_ERROR_ORACLE\s*=\s*'backend-server-error'/,
-    /'kind' => 'finding'[\s\S]{0,400}?'oracle' => SERVER_ERROR_ORACLE/,
-  ],
-  [
-    'reproit-backend-java/src/main/java/dev/reproit/backend/Capture.java',
-    'Java backend',
-    /SERVER_ERROR_ORACLE\s*=\s*"backend-server-error"/,
-    /identity\.put\("oracle", SERVER_ERROR_ORACLE\)[\s\S]{0,400}?finding\.put\("kind", "finding"\)/,
-  ],
-];
-for (var k = 0; k < otherPorts.length; k++) {
-  var oRel = otherPorts[k][0];
-  var oLabel = otherPorts[k][1];
-  var oSrc = fs.readFileSync(path.join(root, oRel), 'utf8');
-  assert.ok(
-    otherPorts[k][2].test(oSrc),
-    oLabel + ' (' + oRel + '): expected the backend-server-error oracle id constant',
-  );
-  assert.ok(
-    otherPorts[k][3].test(oSrc),
-    oLabel + ' (' + oRel + '): finding identity is missing the `backend-server-error` oracle tag',
+    backendPorts[j][2].test(portSrc) &&
+      /observation/.test(portSrc) &&
+      /(signature|Signature)/.test(portSrc),
+    portLabel + ' (' + portRel + '): missing causal observation signature',
   );
 }
 

@@ -25,6 +25,7 @@ actix = ["dep:actix-web", "dep:futures-core"]
 [dependencies]
 base64 = "0.22"
 reqwest = { workspace = true, features = ["blocking"] }
+reproit-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
@@ -38,6 +39,5 @@ tower-service = { version = "0.3", optional = true }
 
 [dev-dependencies]
 axum = { version = "0.8", default-features = false, features = ["json"] }
-reproit-protocol.workspace = true
 tokio.workspace = true
 tower = { version = "0.5", features = ["util"] }

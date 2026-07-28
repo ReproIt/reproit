@@ -6,7 +6,32 @@ if [[ "$#" -eq 0 ]]; then
   exit 2
 fi
 
-readonly APPIUM_URL="http://127.0.0.1:4723"
+APPIUM_PORT="${REPROIT_APPIUM_PORT:-}"
+if [[ -z "$APPIUM_PORT" ]]; then
+  APPIUM_PORT="$(
+    python3 - <<'PY'
+import socket
+
+for port in range(4723, 4755):
+    with socket.socket() as candidate:
+        try:
+            candidate.bind(("127.0.0.1", port))
+        except OSError:
+            continue
+        print(port)
+        break
+else:
+    raise SystemExit("no free Appium port in bounded range 4723-4754")
+PY
+  )"
+fi
+if [[ ! "$APPIUM_PORT" =~ ^[0-9]+$ ]] \
+  || ((APPIUM_PORT < 1024 || APPIUM_PORT > 65535)); then
+  echo "with-appium: REPROIT_APPIUM_PORT must be an integer from 1024 to 65535" >&2
+  exit 2
+fi
+readonly APPIUM_PORT
+readonly APPIUM_URL="http://127.0.0.1:$APPIUM_PORT"
 APPIUM_LOG="$(mktemp "${TMPDIR:-/tmp}/reproit-appium.XXXXXX")"
 readonly APPIUM_LOG
 APPIUM_PID=""
@@ -24,12 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if curl --fail --silent "$APPIUM_URL/status" >/dev/null 2>&1; then
-  echo "with-appium: port 4723 is already owned by another Appium server" >&2
-  exit 1
-fi
-
-appium --address 127.0.0.1 --port 4723 --log-level debug \
+appium --address 127.0.0.1 --port "$APPIUM_PORT" --log-level debug \
   --relaxed-security >"$APPIUM_LOG" 2>&1 &
 APPIUM_PID=$!
 

@@ -1,7 +1,10 @@
 use crate::domain::execution::{ExecutionPhase, ExecutionVerdict, PhaseRecord};
-use reproit_protocol::MechanismAuthority;
+use reproit_protocol::{
+    DependencyKind, EnvironmentKind, MechanismAuthority, ObservationKind, ReproductionRequirement,
+    RequirementKind, TriggerKind,
+};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -16,6 +19,8 @@ pub(super) struct ProviderCatalog {
 pub(super) struct CommandProvider {
     pub(super) authority: MechanismAuthority,
     pub(super) phase: ExecutionPhase,
+    #[serde(default)]
+    pub(super) capabilities: BTreeSet<TrustedCapability>,
     pub(super) argv: Vec<String>,
     #[serde(default)]
     pub(super) environment: BTreeMap<String, String>,
@@ -29,6 +34,54 @@ pub(super) struct CommandProvider {
     pub(super) observation: Option<CommandObservation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) cleanup: Option<CommandTemplate>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(super) enum TrustedCapability {
+    Concurrency,
+    DistributedSystems,
+    Performance,
+    Hardware,
+    Kernel,
+    Environment,
+}
+
+pub(super) fn required_trusted_capability(
+    requirement: &ReproductionRequirement,
+) -> Option<TrustedCapability> {
+    match &requirement.requirement {
+        RequirementKind::Trigger {
+            trigger: TriggerKind::ConcurrencySchedule,
+            ..
+        } => Some(TrustedCapability::Concurrency),
+        RequirementKind::Trigger {
+            trigger: TriggerKind::ResourcePressure,
+            ..
+        }
+        | RequirementKind::Observation {
+            observation: ObservationKind::Performance,
+            ..
+        }
+        | RequirementKind::Environment {
+            environment: EnvironmentKind::Performance,
+            ..
+        } => Some(TrustedCapability::Performance),
+        RequirementKind::Dependency {
+            dependency: DependencyKind::DistributedSystem,
+            ..
+        } => Some(TrustedCapability::DistributedSystems),
+        RequirementKind::Environment {
+            environment: EnvironmentKind::Hardware,
+            ..
+        } => Some(TrustedCapability::Hardware),
+        RequirementKind::Environment {
+            environment: EnvironmentKind::Kernel,
+            ..
+        } => Some(TrustedCapability::Kernel),
+        RequirementKind::Environment { .. } => Some(TrustedCapability::Environment),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

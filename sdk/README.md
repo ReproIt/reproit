@@ -166,10 +166,18 @@ New SDKs normalize their records into the strict universal capture batch:
 ```
 
 Unknown or unrepresentable facts become explicit defect events. They are never silently dropped or
-treated as clean evidence. The canonical fixture is
-[`capture-batch-v1.json`](capture-batch-v1.json), which the shared Rust protocol parses and
-compiles in its test suite. [`event-batch-v1.json`](event-batch-v1.json) remains the compatibility
-fixture for SDKs still on the earlier UI and backend event stream.
+treated as clean evidence. Every shipped SDK is registered in
+[`capture-conformance-v1.json`](capture-conformance-v1.json) against the same semantic contract and
+canonical bytes in [`capture-batch-v1.json`](capture-batch-v1.json). Generate the JSON Schema from
+the owning Rust type with:
+
+```sh
+cargo run -q -p reproit-protocol --bin capture-schema
+```
+
+CI rejects an unregistered SDK, a missing implementation, invalid fixture semantics, unknown
+capture fields, or any byte-level drift in the canonical fixture. The older
+[`event-batch-v1.json`](event-batch-v1.json) exists only as an input compatibility fixture.
 
 ## What is captured
 

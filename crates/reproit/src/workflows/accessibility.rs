@@ -8,7 +8,7 @@
 //!
 //! No analysis happens here. The diff is computed deterministically by the
 //! engine when the map is built (`map::gaps_from_groundtruth`; see
-//! docs/operability-graph.md). This is a pure view that CLOSES THE LOOP for a
+//! the runtime operability model). This is a pure view that CLOSES THE LOOP for a
 //! fixer: each gap carries the selector that failed and which dimension(s),
 //! plus a static source location (file:line, via `attribute`) to fix it and the
 //! action path to reach its screen. find -> locate -> fix -> reproit_check.
@@ -293,7 +293,7 @@ fn markdown_report(
     out.push_str(&format!("# Accessibility report: {app}\n\n"));
     out.push_str(
         "Controls a pointer user can operate but the keyboard or assistive tech cannot, found by \
-         driving the app and comparing the two (deterministic; see docs/operability-graph.md).\n\n",
+         driving the app and comparing the two deterministically.\n\n",
     );
     out.push_str("## Summary\n\n");
     out.push_str("| Issue | WCAG | Count |\n| --- | --- | --- |\n");

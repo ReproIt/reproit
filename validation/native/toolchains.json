@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "pins": {
+    "rust": "1.88.0",
+    "nodeMajor": 24,
+    "flutter": "3.41.6",
+    "appium": "3.5.2",
+    "appiumDrivers": {
+      "uiautomator2": "8.0.0",
+      "xcuitest": "11.16.2"
+    },
+    "androidApi": 30,
+    "androidArchitecture": "x86_64",
+    "xcodeMajor": 26
+  },
+  "profiles": {
+    "linux-hosted": ["python3", "node", "npm", "cargo", "rustc"],
+    "linux-containers": ["python3", "docker"],
+    "android": [
+      "python3",
+      "node",
+      "npm",
+      "cargo",
+      "rustc",
+      "flutter",
+      "adb",
+      "appium"
+    ],
+    "macos-appium": [
+      "python3",
+      "node",
+      "npm",
+      "cargo",
+      "rustc",
+      "xcodebuild",
+      "xcrun",
+      "appium"
+    ],
+    "macos-flutter": ["python3", "cargo", "rustc", "flutter", "xcodebuild", "xcrun"],
+    "macos-ax": ["python3", "cargo", "rustc", "swift", "xcodebuild", "xcrun"],
+    "windows-bridge": ["git", "ssh", "base64", "python3"]
+  }
+}
