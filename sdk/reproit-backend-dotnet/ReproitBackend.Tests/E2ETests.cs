@@ -87,7 +87,7 @@ public class E2ETests
             events.Select(evt => (string)evt["kind"]!).ToArray());
         Assert.Equal("orders", events[2]["subject"]);
         var failure = (Dictionary<string, object?>)events[^1]["failure"]!;
-        Assert.Equal("backend:POST /boom", failure["signature"]);
+        Assert.Equal("backend-server-error:POST /boom", failure["signature"]);
         // The secret-shaped input field was structurally redacted before upload.
         var triggerValue = (Dictionary<string, object?>)events[1]["value"]!;
         Assert.Equal("replayable", triggerValue["representation"]);

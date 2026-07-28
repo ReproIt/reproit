@@ -43,7 +43,10 @@ test('server error batch is a source-neutral causal capture', () => {
   assert.strictEqual(batch.events[0].event.kind, 'operation-start');
   assert.strictEqual(batch.events[1].event.kind, 'trigger');
   assert.strictEqual(batch.events.at(-1).event.kind, 'observation');
-  assert.strictEqual(batch.events.at(-1).event.failure.signature, 'backend:createOrder');
+  assert.strictEqual(
+    batch.events.at(-1).event.failure.signature,
+    'backend-server-error:createOrder',
+  );
   assert.strictEqual(
     batch.events[1].event.value.value.body.item,
     'widget',

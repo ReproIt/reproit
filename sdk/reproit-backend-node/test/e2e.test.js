@@ -45,7 +45,10 @@ function assertServerErrorBatch(received) {
     ['operation-start', 'trigger', 'state-access', 'operation-end', 'observation'],
   );
   assert.strictEqual(events[2].subject, 'orders');
-  assert.match(events.at(-1).failure.signature, /^backend:/);
+  assert.strictEqual(
+    events.at(-1).failure.signature,
+    'backend-server-error:POST /boom',
+  );
   // The secret-shaped input field was structurally redacted before upload.
   assert.strictEqual(events[1].value.representation, 'replayable');
   assert.strictEqual(events[1].value.value.body.apiKey.$reproit.redacted, true);

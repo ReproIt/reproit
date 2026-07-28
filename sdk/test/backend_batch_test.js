@@ -23,23 +23,11 @@ var validateEventBatch = require('./event_batch_v1.js').validateEventBatch;
 var HEADER_NAME = 'x-reproit-events';
 
 function checkSdk(label, sample) {
-  validateEventBatch(sample.batch);
-  var findings = sample.batch.frames.filter(function (frame) {
-    return frame.event.kind === 'finding';
-  });
-  assert.strictEqual(findings.length, 1, label + ': expected exactly one finding frame');
-  var finding = findings[0].event;
-  assert.strictEqual(
-    finding.identity.oracle,
-    'backend-server-error',
-    label + ': finding must be tagged with the backend-server-error oracle',
-  );
-  var replay = finding.context.reproitCapture;
-  assert.strictEqual(replay.format, 'reproit-backend-capture', label + ': capture format');
-  var kinds = replay.events.map(function (event) {
-    return event.kind;
-  });
-  assert.deepStrictEqual(kinds, ['start', 'effect', 'return'], label + ': capture sequence');
+  if (Array.isArray(sample.batch.events)) {
+    checkCausalCapture(label, sample.batch);
+  } else {
+    checkEventBatch(label, sample.batch);
+  }
 
   assert.strictEqual(sample.headerName, HEADER_NAME, label + ': response header name');
   var padded = sample.header + '='.repeat((4 - (sample.header.length % 4)) % 4);
@@ -61,6 +49,50 @@ function checkSdk(label, sample) {
   console.log('PASS: ' + label + ' batch is valid, tagged, and redacted');
 }
 
+function checkCausalCapture(label, batch) {
+  assert.strictEqual(batch.version, 1, label + ': causal capture version');
+  assert.strictEqual(batch.projectId, 'app-demo', label + ': causal capture project');
+  var observations = batch.events.filter(function (event) {
+    return event.event.kind === 'observation';
+  });
+  assert.strictEqual(observations.length, 1, label + ': expected one failure observation');
+  assert.strictEqual(
+    observations[0].event.failure.signature,
+    'backend-server-error:createOrder',
+    label + ': observation signature must preserve the backend-server-error identity',
+  );
+  assert.deepStrictEqual(
+    batch.events.map(function (event) {
+      return event.event.kind;
+    }),
+    ['operation-start', 'trigger', 'state-access', 'operation-end', 'observation'],
+    label + ': causal capture sequence',
+  );
+}
+
+function checkEventBatch(label, batch) {
+  validateEventBatch(batch);
+  var findings = batch.frames.filter(function (frame) {
+    return frame.event.kind === 'finding';
+  });
+  assert.strictEqual(findings.length, 1, label + ': expected exactly one finding frame');
+  var finding = findings[0].event;
+  assert.strictEqual(
+    finding.identity.oracle,
+    'backend-server-error',
+    label + ': finding must be tagged with the backend-server-error oracle',
+  );
+  var replay = finding.context.reproitCapture;
+  assert.strictEqual(replay.format, 'reproit-backend-capture', label + ': capture format');
+  assert.deepStrictEqual(
+    replay.events.map(function (event) {
+      return event.kind;
+    }),
+    ['start', 'effect', 'return'],
+    label + ': replay capture sequence',
+  );
+}
+
 // One shared scenario per SDK: a scan-time trace (for the header) and a 5xx
 // capture batch built from a failed operation.
 
@@ -79,7 +111,7 @@ function nodeSample() {
   trace.effect('write', { resource: 'orders', key: '1' });
   trace.finish({ error: 'boom' }, 500, false, true);
   var capture = sdk.Capture.create({
-    endpoint: 'http://c/v1/events',
+    endpoint: 'http://c/v1/capture-batches',
     apiKey: 'sk',
     appId: 'app-demo',
     build: '1.2.3',

@@ -291,7 +291,7 @@ class Capture {
         context(returned ?? first, parent === null ? [] : [parent]),
       );
       if (operation.status === null || operation.status < 500) break;
-      const signature = 'backend:' + operation.operation;
+      const signature = SERVER_ERROR_ORACLE + ':' + operation.operation;
       const message =
         'backend operation ' + operation.operation + ' returned HTTP ' + operation.status;
       recorder.failure(

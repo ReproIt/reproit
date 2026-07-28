@@ -390,7 +390,7 @@ public sealed class Capture
             Context(returned ?? first, parent));
         if (operation.Status is >= 500)
         {
-            var signature = "backend:" + operation.Operation;
+            var signature = ServerErrorOracle + ":" + operation.Operation;
             var message = "backend operation " + operation.Operation +
                 " returned HTTP " + operation.Status;
             recorder.Failure(

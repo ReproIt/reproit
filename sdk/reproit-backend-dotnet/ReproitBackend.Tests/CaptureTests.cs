@@ -76,7 +76,7 @@ public class CaptureTests
         var observation = Event(events[^1]);
         Assert.Equal("observation", observation["kind"]);
         var failure = (Dictionary<string, object?>)observation["failure"]!;
-        Assert.Equal("backend:createOrder", failure["signature"]);
+        Assert.Equal("backend-server-error:createOrder", failure["signature"]);
         Assert.Equal("1.2.3",
             ((Dictionary<string, object?>)batch["deployment"]!)["version"]);
     }

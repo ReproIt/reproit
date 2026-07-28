@@ -67,8 +67,40 @@ assert.ok(
   'backend-rs capture: finding identity is missing the `backend-server-error` oracle tag',
 );
 
+// The Node port emits the source-neutral causal capture schema. That schema
+// represents the stable oracle id in the observation signature instead of a
+// legacy finding.identity object.
+var nodeBackendSrc = fs.readFileSync(
+  path.join(root, 'reproit-backend-node/capture.js'),
+  'utf8',
+);
+assert.ok(
+  /SERVER_ERROR_ORACLE\s*=\s*["']backend-server-error["']/.test(nodeBackendSrc),
+  'Node backend: expected the backend-server-error oracle id constant',
+);
+assert.ok(
+  /signature\s*=\s*SERVER_ERROR_ORACLE\s*\+\s*["']:["']\s*\+\s*operation\.operation/.test(
+    nodeBackendSrc,
+  ),
+  'Node backend: observation signature is missing the backend-server-error oracle id',
+);
+
+var dotnetBackendSrc = fs.readFileSync(
+  path.join(root, 'reproit-backend-dotnet/ReproitBackend/Capture.cs'),
+  'utf8',
+);
+assert.ok(
+  /ServerErrorOracle\s*=\s*"backend-server-error"/.test(dotnetBackendSrc),
+  '.NET backend: expected the backend-server-error oracle id constant',
+);
+assert.ok(
+  /signature\s*=\s*ServerErrorOracle\s*\+\s*":"\s*\+\s*operation\.Operation/.test(
+    dotnetBackendSrc,
+  ),
+  '.NET backend: observation signature is missing the backend-server-error oracle id',
+);
+
 var backendPorts = [
-  ['reproit-backend-node/capture.js', 'Node backend'],
   ['reproit-backend-py/reproit_backend_py/capture.py', 'Python backend'],
 ];
 var portConstant = /SERVER_ERROR_ORACLE\s*=\s*["']backend-server-error["']/;
@@ -125,12 +157,6 @@ var otherPorts = [
     /SERVER_ERROR_ORACLE\s*=\s*"backend-server-error"/,
     /identity\.put\("oracle", SERVER_ERROR_ORACLE\)[\s\S]{0,400}?finding\.put\("kind", "finding"\)/,
   ],
-  [
-    'reproit-backend-dotnet/ReproitBackend/Capture.cs',
-    '.NET backend',
-    /ServerErrorOracle\s*=\s*"backend-server-error"/,
-    /\["kind"\] = "finding"[\s\S]{0,500}?\["oracle"\] = ServerErrorOracle/,
-  ],
 ];
 for (var k = 0; k < otherPorts.length; k++) {
   var oRel = otherPorts[k][0];
@@ -147,6 +173,6 @@ for (var k = 0; k < otherPorts.length; k++) {
 }
 
 console.log(
-  'PASS: every backend SDK (Rust, Node, Python, Go, Ruby, PHP, Java, .NET) tags its ' +
-    'capture finding with `backend-server-error`',
+  'PASS: every backend SDK (Rust, Node, Python, Go, Ruby, PHP, Java, .NET) preserves ' +
+    'the `backend-server-error` identity',
 );
