@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "target": "electron-linux",
+  "gate": "S2-candidate-qualification",
+  "status": "in-progress",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/responsively-org/responsively-app",
+      "license": "AGPL-3.0",
+      "decision": "qualify",
+      "reason": "ships on Linux, runs offline, mutates nothing outside its own profile",
+      "candidateDefects": 12,
+      "buildQualified": true,
+      "buildEvidence": {
+        "revision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+        "container": "node:20-bookworm",
+        "arch": "arm64",
+        "command": "yarn install --frozen-lockfile && yarn run build",
+        "result": "build:main exit 0, build:renderer exit 0",
+        "note": "postinstall husky step fails in-container because .git is not mounted; it does not affect the built artifact"
+      }
+    },
+    {
+      "repository": "https://github.com/upscayl/upscayl",
+      "license": "AGPL-3.0",
+      "decision": "qualify",
+      "reason": "ships on Linux, local AI upscaling with no network dependency",
+      "candidateDefects": 7,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/TriliumNext/Trilium",
+      "license": "AGPL-3.0",
+      "decision": "qualify",
+      "reason": "ships on Linux, local note database, no external service required",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/oldj/SwitchHosts",
+      "license": "Apache-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "ships on Linux but writes /etc/hosts; only safe inside a disposable container",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/wulkano/Kap",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "macOS only; cannot produce Linux runtime evidence",
+      "candidateDefects": 26
+    },
+    {
+      "repository": "https://github.com/mihomo-party-org/clash-party",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "alters networking, remote hosts, and proxy state; trigger is not non-destructive",
+      "candidateDefects": 29
+    },
+    {
+      "repository": "https://github.com/docmirror/dev-sidecar",
+      "license": "MPL-2.0",
+      "decision": "reject",
+      "reason": "installs a proxy and rewrites certificate trust; trigger is not non-destructive",
+      "candidateDefects": 14
+    },
+    {
+      "repository": "https://github.com/Molunerfinn/PicGo",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "core flows upload to third-party image hosts; no offline trigger",
+      "candidateDefects": 6
+    },
+    {
+      "repository": "https://github.com/agalwood/Motrix",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "download manager; every core flow requires external network transfers",
+      "candidateDefects": 8
+    },
+    {
+      "repository": "https://github.com/desktop/desktop",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "no official Linux build; the Linux fork is a different artifact",
+      "candidateDefects": 14
+    },
+    {
+      "repository": "https://github.com/microsoft/vscode",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "framework-scale editor platform, already rejected in the repository review",
+      "candidateDefects": 14
+    },
+    {
+      "repository": "https://github.com/eclipse-theia/theia",
+      "license": "EPL-2.0",
+      "decision": "reject",
+      "reason": "IDE framework, not an end-user application",
+      "candidateDefects": 24
+    },
+    {
+      "repository": "https://github.com/electron/electron",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it",
+      "candidateDefects": 11
+    },
+    {
+      "repository": "https://github.com/microsoft/playwright",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "test infrastructure, not an end-user application",
+      "candidateDefects": 13
+    },
+    {
+      "repository": "https://github.com/quasarframework/quasar",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "UI framework, not an end-user application",
+      "candidateDefects": 8
+    },
+    {
+      "repository": "https://github.com/electron-react-boilerplate/electron-react-boilerplate",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "boilerplate, not an end-user application",
+      "candidateDefects": 8
+    },
+    {
+      "repository": "https://github.com/zulip/zulip",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "server product; the candidate defects are not in the Electron client",
+      "candidateDefects": 8
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "responsively-app-1454",
+      "application": "responsively-app",
+      "issueUrl": "https://github.com/responsively-org/responsively-app/issues/1441",
+      "issueTitle": "Typing 'F' in a text field attempts to full screen the page",
+      "affectedRevision": "48a6013c06c714fbacdfba9c3263f7622e672f75",
+      "fixedRevision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+      "whySuitable": "a keyboard action in a focused text field produces an observable window-state change, which exercises the Electron adapter's action path and window lifecycle observation rather than a pure DOM assertion",
+      "qualification": "build-qualified",
+      "remaining": [
+        "rebuild under linux/amd64 to match the declared x86_64 bound",
+        "reproduce the exact identity three times on the affected revision",
+        "reach the observation cleanly three times on the fixed revision",
+        "minimize the trigger and verify it preserves the identity",
+        "run the neighboring legal-behavior control"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "detail": "one application is build-qualified and only on arm64; the target needs two independent applications with full affected-versus-fixed campaigns on x86_64 Linux",
+      "command": null
+    }
+  ]
+}
