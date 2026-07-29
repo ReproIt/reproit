@@ -3,7 +3,7 @@
 
 `validation/support-manifest.json` is the single canonical promotion record.
 Every public compatibility surface is generated from it: the status JSON, the
-generated status document, the README compatibility table, the promotion
+generated status document, the README supported-platform list, the promotion
 section of `docs/compatibility.md`, the all-target stability plan, and the
 support claim in `SUPPORT.md`. Hand-edited prose cannot promote a target.
 """
@@ -1127,18 +1127,11 @@ def stability_plan(status: dict, gates: dict) -> str:
     return "\n".join(lines)
 
 
-def readme_table(status: dict) -> str:
-    lines = [
-        "| Target | Compatibility | Backend | Production-to-local |",
-        "|---|---|---|---|",
-    ]
-    for target in status["targets"]:
-        backend = ", ".join(target["bounds"]["runtime"])
-        lines.append(
-            f"| {target['displayName']} | {target['maturity'].title()} | "
-            f"{backend} | {target['productionToLocal']} |"
-        )
-    return "\n".join(lines)
+def readme_platforms(status: dict) -> str:
+    return "\n".join(
+        f"- {target['displayName']}"
+        for target in status["targets"]
+    )
 
 
 def compatibility_section(status: dict) -> str:
@@ -1214,7 +1207,7 @@ def render() -> dict[str, tuple[Path, str]]:
             STABILITY_PLAN_PATH,
             stability_plan(status, gate_document["gates"]),
         ),
-        "README.md": (README_PATH, splice(README_PATH, "compatibility", readme_table(status))),
+        "README.md": (README_PATH, splice(README_PATH, "platforms", readme_platforms(status))),
         "docs/compatibility.md": (
             COMPATIBILITY_DOC_PATH,
             splice(COMPATIBILITY_DOC_PATH, "promotion-state", compatibility_section(status)),

@@ -341,9 +341,12 @@ class CompatibilityContractTests(unittest.TestCase):
 
     def test_generated_surfaces_carry_every_target(self):
         status = CHECK.status_document(self.support)
-        table = CHECK.readme_table(status)
+        table = CHECK.readme_platforms(status)
         for target in status["targets"]:
             self.assertIn(target["displayName"], table)
+        self.assertNotIn("Compatibility", table)
+        self.assertNotIn("Production-to-local", table)
+        self.assertNotIn("Backend |", table)
         claim = CHECK.support_claim(status)
         self.assertIn("Stable is an atomic compatibility claim", claim)
 

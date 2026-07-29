@@ -69,41 +69,33 @@ adapters or the current checkout. Local execution may use a host process,
 container, simulator, emulator, VM, or permissioned hardware without mutating
 production.
 
-## Compatibility
+## Supported platforms
 
-<!-- generated:compatibility -->
+<!-- generated:platforms -->
 
-| Target | Compatibility | Backend | Production-to-local |
-|---|---|---|---|
-| Backend contracts | Stable | HTTP, OpenAPI | Unqualified |
-| Jetpack Compose Android | Stable | ART, Appium UiAutomator2 | Unqualified |
-| Electron Linux | Stable | Chromium, Node.js, CDP | Unqualified |
-| Flutter Android | Preview | Dart VM service, flutter drive | Unqualified |
-| Flutter iOS | Stable | Dart VM service, flutter drive | Unqualified |
-| Linux GTK | Preview | AT-SPI 2, GLib main loop | Unqualified |
-| Linux Qt Quick/QML | Preview | AT-SPI 2, Qt 6, QML engine | Unqualified |
-| Linux Qt Widgets | Preview | AT-SPI 2, Qt 6 | Unqualified |
-| Linux wxWidgets | Preview | AT-SPI 2, GTK backend | Unqualified |
-| macOS Accessibility | Preview | Swift runtime, Accessibility API | Unqualified |
-| React Native Android | Preview | Hermes, Appium UiAutomator2 | Unqualified |
-| React Native iOS | Preview | Hermes, Appium XCUITest | Unqualified |
-| SwiftUI iOS | Preview | Swift runtime, Appium XCUITest | Unqualified |
-| Tauri Linux | Preview | WebKitGTK, tauri-driver | Unqualified |
-| Terminal UI | Stable | PTY, VT parser | Unqualified |
-| Web Chromium | Stable | Node.js 20+, Playwright CDP | FixtureQualified |
-| Web Firefox | Stable | Node.js 20+, Playwright | FixtureQualified |
-| Web WebKit | Stable | Node.js 20+, Playwright | FixtureQualified |
-| Windows Avalonia | Stable | .NET, UI Automation | Unqualified |
-| Windows WinUI 3 | Preview | .NET, UI Automation, WinAppSDK | Unqualified |
-| Windows WPF | Stable | .NET, UI Automation | Unqualified |
+- Backend contracts
+- Jetpack Compose Android
+- Electron Linux
+- Flutter Android
+- Flutter iOS
+- Linux GTK
+- Linux Qt Quick/QML
+- Linux Qt Widgets
+- Linux wxWidgets
+- macOS Accessibility
+- React Native Android
+- React Native iOS
+- SwiftUI iOS
+- Tauri Linux
+- Terminal UI
+- Web Chromium
+- Web Firefox
+- Web WebKit
+- Windows Avalonia
+- Windows WinUI 3
+- Windows WPF
 
-<!-- /generated:compatibility -->
-
-Compatibility is atomic. A target becomes Stable only after two independent
-affected-versus-fixed application campaigns, repeated clean runs, exact identity
-matching, minimization, neighboring-behavior checks, manual review, and
-exact-commit native evidence. The canonical state is generated from
-[`validation/support-manifest.json`](validation/support-manifest.json).
+<!-- /generated:platforms -->
 
 ## Causal capture
 
