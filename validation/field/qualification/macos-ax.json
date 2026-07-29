@@ -54,9 +54,13 @@
     {
       "repository": "https://github.com/MacPass/MacPass",
       "license": "NOASSERTION",
+      "licenseNote": "resolved by reading LICENSE.txt: the file prepends a project preamble, which is why the API reports NOASSERTION, and then states that the program is free software under the GNU General Public License, either version 3 or, at the reader's option, any later version, followed by the verbatim GPL version 3 text. Treat as GPL-3.0-or-later",
       "decision": "qualify-with-containment",
-      "reason": "a real MacPass.xcodeproj Objective-C AppKit application with no LSUIElement, working entirely offline on a local kdbx database. Held back because the license is a GPL-family LICENSE.txt that the API cannot resolve and must be confirmed before use, its entitlements request AppleEvents automation for autotype, and any campaign must use a throwaway database",
-      "candidateDefects": null
+      "reason": "a real MacPass.xcodeproj Objective-C AppKit application with no LSUIElement, working entirely offline on a local kdbx database. Screening found it to be the richest defect tracker examined for this target, with nine closed issues carrying a fix commit whose observable is a menu item title, a checkbox value, a focus order or a table selection, and the README ships a team-free build recipe using CODE_SIGNING_REQUIRED=NO. Held back rather than mined because its entitlements request AppleEvents automation and a keychain access group for autotype, the AXIsProcessTrusted call sits behind an opt-in autotype doctor action that must be kept off the test path, the build needs Carthage, and any campaign must use a throwaway database. This is the strongest remaining inventory lead for this target",
+      "candidateDefects": 9,
+      "candidateDefectsBasis": "nine closed bug issues matched to a fix commit during screening; none of those revisions has been verified in a clone, because nothing is selected from this application yet",
+      "buildQualified": null,
+      "buildEvidence": null
     },
     {
       "repository": "https://github.com/MacDownApp/macdown",
@@ -71,6 +75,34 @@
       "decision": "qualify",
       "reason": "a real HexFiend_2.xcodeproj Objective-C AppKit NSDocument application whose default CODE_SIGN_IDENTITY is already ad-hoc, unsandboxed entitlements, no LSUIElement. Qualified as an application but useless as a defect source so far: its merged pull request history is dominated by binary template and framework-internal fixes, and the one accessibility-shaped candidate examined does not reproduce in the application itself",
       "candidateDefects": 86
+    },
+    {
+      "repository": "https://github.com/twostraws/ControlRoom",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "its entire purpose is mutating another application's state, driving iOS Simulators through xcrun simctl, and it ships a temporary-exception entitlement for AppleEvents to com.apple.terminal and its shell-script, settings and session variants. It also needs Xcode and downloaded simulator runtimes to do anything",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/milanvarady/Applite",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "native SwiftUI with a single benign entitlement, but it is a Homebrew cask front end: CaskDataLoader.swift fetches formulae.brew.sh cask and analytics JSON, and the application installs and manages Homebrew itself, so there is no offline flow",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/buresdv/Cork",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "LICENSE.md is a bespoke Commons Clause derivative that forbids building a competing product, so it is not an OSI license and fails the open source requirement outright. It is also a Homebrew front end and therefore not offline",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/DamascenoRafael/reminders-menubar",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "two independent disqualifiers: Info.plist sets LSUIElement true so there is no persistent inspectable window, and the application reads and writes Apple Reminders data, declaring NSRemindersFullAccessUsageDescription and the personal-information.calendars entitlement, which is both a permission grant and another application's state",
+      "candidateDefects": null
     },
     {
       "repository": "https://github.com/glushchenko/FSNotes",
@@ -89,9 +121,14 @@
     {
       "repository": "https://github.com/sveinbjornt/Platypus",
       "license": "BSD-3-Clause",
-      "decision": "reject",
-      "reason": "an accessibility-rich Objective-C AppKit main window, but it writes application bundles so it must be pointed at a temporary directory, and with three merged pull requests in total its defect supply is effectively zero",
-      "candidateDefects": 0
+      "decision": "qualify-with-containment",
+      "priorDecision": "reject",
+      "decisionCorrection": "the earlier rejection rested on a wrong number. Platypus has 14 merged pull requests and 241 closed issues, not three merged pull requests, counted with the GitHub search API. The maintainer fixes issues by direct commit rather than through pull requests, which is why almost every bug here links a commit rather than a pull request, and that is the same pattern already accepted for CotEditor and Maccy. The second half of the old reason, that it writes application bundles, is true of its bundle-generation flow but not of either selected defect, neither of which creates a bundle",
+      "reason": "an accessibility-rich Objective-C AppKit application verified at both candidate revisions: Application/Resources/Platypus-Info.plist declares NSPrincipalClass NSApplication with no LSUIElement key, Application/PlatypusWindowController.h line 34 declares PlatypusWindowController: NSWindowController, and MACOSX_DEPLOYMENT_TARGET is 10.9 and 10.11. It has the cleanest entitlement story in the pool after CodeEdit: no entitlements file exists anywhere in the tree at either revision, and no plist declares SMPrivilegedExecutables. Fully offline, no account. Containment: project.pbxproj pins CODE_SIGN_IDENTITY = \"Developer ID Application\" with DEVELOPMENT_TEAM = 5WX26Y89JP and ENABLE_HARDENED_RUNTIME, so the build must override to ad-hoc, exactly as for Maccy and vienna-rss; the Sparkle re-sign build phase self-disables when signing is not required. Any campaign must also keep off the bundle-generation flow, which writes to disk, and off the optional install-command-line-tool action, which raises an authorization prompt",
+      "candidateDefects": 2,
+      "candidateDefectsBasis": "five closed issues with fix commits shortlisted as accessibility-observable; two verified",
+      "buildQualified": null,
+      "buildEvidence": null
     },
     {
       "repository": "https://github.com/sveinbjornt/Sloth",
@@ -409,6 +446,73 @@
       ]
     },
     {
+      "id": "platypus-notifications-tooltip-230",
+      "application": "Platypus",
+      "issueUrl": "https://github.com/sveinbjornt/Platypus/issues/230",
+      "issueTitle": "Tool tip on \"Send notifications\" is that of \"Run in background\"",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/sveinbjornt/Platypus/commit/ddcb7912d56df4dda3c2be11dc7ef8913a2556b9",
+      "affectedRevision": "726175ad41da530d7e482f945811b54004530662",
+      "fixedRevision": "ddcb7912d56df4dda3c2be11dc7ef8913a2556b9",
+      "revisionDerivation": "ddcb7912 is a direct commit on the default branch whose subject names issue 230, and 726175ad is its only parent. Both were confirmed with git cat-file -t in a clone",
+      "frameworkEvidence": "native macOS application verified at the affected revision: Application/Resources/Platypus-Info.plist declares NSPrincipalClass NSApplication and contains no LSUIElement key, Application/PlatypusWindowController.h line 34 declares PlatypusWindowController: NSWindowController conforming to NSApplicationDelegate, MACOSX_DEPLOYMENT_TARGET is 10.9 and 10.11, and no entitlements file exists anywhere in the tree. The file the fix touches, Application/Resources/Platypus.xib, is the main window nib of that AppKit application",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "launch the application and read the attribute directly off the Send notifications AXCheckBox in the main window. No press and no state change is required",
+        "observation": "AXHelp on that checkbox: it reads \"Check this if you don't want your app to show up in the Dock\", which belongs to a different control, at the affected revision, and \"Check this if your app sends system notifications\" at the fixed revision",
+        "note": "the fix is a one-attribute change to the toolTip of button fRC-GZ-XE7 in Platypus.xib, whose cell title is Send notifications. AppKit publishes an NSView toolTip as the accessibility AXHelp attribute, so the defect and the observable are the same string"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "at this revision the project pins CODE_SIGN_IDENTITY = \"Developer ID Application\" with DEVELOPMENT_TEAM = 5WX26Y89JP and ENABLE_HARDENED_RUNTIME = YES, so the build must override to CODE_SIGN_IDENTITY=- and blank the team, but there is no entitlements file at all and no SMPrivilegedExecutables key, so nothing needs a provisioning profile. The Sparkle re-sign build phase begins with a guard that exits when CODE_SIGNING_REQUIRED is not YES",
+        "verified": false
+      },
+      "whySuitable": "it is the only candidate in the whole selection whose observable is AXHelp, and the only one that needs no action at all: the entire trigger is launch the application and read one accessibility attribute off one named control. That makes it the cleanest possible proof that the adapter reads attributes correctly, with no press path, no persistence and no timing anywhere in it, and it is a fifth independent application",
+      "qualification": "selected-not-executed",
+      "caveat": "the fix commit also bumps the version string in Platypus-Info.plist and edits Documentation/Credits.rtf. Neither is behavioral, but the campaign must state that the observable is the checkbox AXHelp and not the bundle version. The oracle also depends on AppKit continuing to publish toolTip as AXHelp, which must be confirmed on a built binary rather than assumed",
+      "remaining": [
+        "build both revisions with CODE_SIGN_IDENTITY=- and the team blanked, and record the exact command and result",
+        "dump the accessibility tree of the built application and confirm the Send notifications checkbox exposes AXHelp with the expected string",
+        "state the exact identity and authority for the observable, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: the Run in background checkbox must carry its own correct AXHelp on both builds"
+      ]
+    },
+    {
+      "id": "platypus-args-apply-focus-215",
+      "application": "Platypus",
+      "issueUrl": "https://github.com/sveinbjornt/Platypus/issues/215",
+      "issueTitle": "Arg is not applied unless it loses focus",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/sveinbjornt/Platypus/commit/f614a77d825deb60a14c2d15150874222dba8bd5",
+      "affectedRevision": "1efe658054c0cd3a0f9b94602cecc3bce1e91a00",
+      "fixedRevision": "f614a77d825deb60a14c2d15150874222dba8bd5",
+      "revisionDerivation": "f614a77d is a direct commit on the default branch whose subject names issue 215, and 1efe6580 is its only parent. Both were confirmed with git cat-file -t in a clone",
+      "frameworkEvidence": "native macOS application verified at the affected revision: the file the fix touches, Application/ArgsController.m, belongs to a class declared at Application/ArgsController.h line 34 as ArgsController: NSWindowController conforming to NSTableViewDataSource, NSTableViewDelegate, NSTableViewFirstResponderDelegate and NSMenuItemValidation, which is AppKit. The same revision has no entitlements file and no LSUIElement key, and Platypus-Info.plist declares NSPrincipalClass NSApplication",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "open the arguments sheet, type an argument into the AXTextField, then AXPress Apply without moving focus first",
+        "observation": "the argument is present in the arguments AXTable and in the command-string AXStaticText at the fixed revision, and absent at the affected revision because the pending edit was discarded",
+        "note": "the fix adds one line to apply: that makes the window's command text field resign first responder before NSApp stopModal, so the in-progress edit is committed, and a second line to show: that sets initial first responder on the table view"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "the same absent entitlements file and the same Developer ID and team pins that must be overridden to ad-hoc are present at this revision",
+        "verified": false
+      },
+      "whySuitable": "it is the counterpart to the tooltip candidate on the same application: that one is a pure attribute read with no action, this one is entirely about action fidelity across a focus boundary, which is the case an accessibility driver is most likely to get wrong because AXPress on the button must not implicitly commit the field the way a real mouse click through the window server does. It also exercises AXTable content rather than a single control",
+      "qualification": "selected-not-executed",
+      "caveat": "the observable depends on how the driver delivers text into the field and whether that itself commits the edit, so the typing mechanism becomes part of the identity and must be pinned. The fix commit also bumps the version string in Platypus-Info.plist, which is not behavioral. The arguments sheet is modal, so the campaign must confirm the driver can traverse into a sheet",
+      "remaining": [
+        "pin exactly how text is delivered into the argument field and prove that mechanism alone does not commit the edit on the affected build",
+        "confirm the driver can traverse into an application-modal sheet and act inside it",
+        "build both revisions with CODE_SIGN_IDENTITY=- and the team blanked",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence, resetting the preferences domain between runs",
+        "record neighboring legal behavior: an argument that has already lost focus before Apply must be applied on the affected build"
+      ]
+    },
+    {
       "id": "vienna-syncing-preferences-enabled-2054",
       "application": "vienna-rss",
       "issueUrl": null,
@@ -486,7 +590,7 @@
     },
     {
       "code": "product-coverage-missing",
-      "detail": "widened, not yet closed. CodeEdit was promoted from an application with no verified defect to a second multi-defect source, so the seven verified defects now come from four applications, CotEditor three, CodeEdit two, Maccy one and vienna-rss one, and CotEditor no longer supplies the majority. That is a margin of two applications over the two Stable requires. What remains is that CodeEdit is the only entry whose ad-hoc build needs no override at all, so if it fails to launch ad-hoc the concentration problem returns; MacPass, MacDown and HexFiend are still unmined",
+      "detail": "widened, not yet closed. CodeEdit was promoted from an application with no verified defect to a second multi-defect source, and Platypus was promoted out of rejection after its defect supply figure was found to be wrong, 14 merged pull requests and 241 closed issues rather than three merged pull requests. The nine verified defects now come from five applications, CotEditor three, CodeEdit two, Platypus two, Maccy one and vienna-rss one, so CotEditor supplies a third rather than a majority and the pool keeps a margin of three over the two Stable requires. What remains is that no application in the pool has been built, and MacPass, which screening found to be the richest tracker of all with a maintainer-documented unsigned build recipe, is still unmined. Three further leads were surfaced but not verified in a clone and are therefore not in the pool: git-up/GitUp, whose own CI builds with CODE_SIGNING_ALLOWED=NO on a stock runner, IvanMathy/Boop, whose release configuration already ships an ad-hoc identity and an empty team, and macvim-dev/macvim, which has no signing pins at all but whose editor view implements no NSAccessibility protocol, so only its menu bar and chrome would be assertable",
       "command": null,
       "evidence": []
     },

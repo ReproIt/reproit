@@ -238,13 +238,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - [incomplete-evidence] no exact-commit evidence is recorded for the macos-ax native gate. The
     execution infrastructure is proven reachable on this host (macos-ax); the gate has simply not
     been run and retained against the candidate commit
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 3
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed. 9 candidate defects across 5
+    independent applications are qualified with verified revisions, but none has three clean
+    affected reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [product-coverage-missing] no distributed package for this target has a clean installation gate
-    in CI
 
 ## React Native Android
 
@@ -312,13 +310,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: missing
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 6 candidate defects across 4
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed. 10 candidate defects across 6
+    independent applications are qualified with verified revisions, but none has three clean
+    affected reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [product-coverage-missing] no distributed package for this target has a clean installation gate
-    in CI
 
 ## Tauri Linux
 

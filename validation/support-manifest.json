@@ -468,7 +468,7 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 6 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. 10 candidate defects across 6 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
               "validation/field/qualification/swiftui-ios.json"
@@ -477,12 +477,6 @@
           {
             "code": "incomplete-evidence",
             "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          },
-          {
-            "code": "product-coverage-missing",
-            "detail": "no distributed package for this target has a clean installation gate in CI",
             "command": null,
             "evidence": []
           }
@@ -537,7 +531,7 @@
           },
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 3 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. 9 candidate defects across 5 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
               "validation/field/qualification/macos-ax.json"
@@ -546,12 +540,6 @@
           {
             "code": "incomplete-evidence",
             "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          },
-          {
-            "code": "product-coverage-missing",
-            "detail": "no distributed package for this target has a clean installation gate in CI",
             "command": null,
             "evidence": []
           }
