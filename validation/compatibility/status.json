@@ -12,8 +12,8 @@
     "grandfatheredStableTargets": []
   },
   "counts": {
-    "stable": 9,
-    "preview": 12,
+    "stable": 10,
+    "preview": 11,
     "experimental": 0
   },
   "productionToLocalCounts": {
@@ -782,16 +782,16 @@
       "id": "windows-avalonia",
       "displayName": "Windows Avalonia",
       "family": "desktop",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Native x86_64 Windows UI Automation on Avalonia",
       "nativeGates": [
         "windows-uia"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/windows-avalonia.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -812,20 +812,7 @@
       },
       "productionToLocal": "Unqualified",
       "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "no exact-commit evidence is recorded for the windows-uia native gate. The execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not been run and retained against the candidate commit"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
-        }
-      ]
+      "promotionBlockers": []
     },
     {
       "id": "windows-winui",

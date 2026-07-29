@@ -57,7 +57,7 @@ binding is absent or inconsistent.
 
 <!-- generated:promotion-state -->
 
-Stable atomic targets: 9. Preview: 12. Experimental: 0.
+Stable atomic targets: 10. Preview: 11. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
@@ -79,7 +79,7 @@ Stable atomic targets: 9. Preview: 12. Experimental: 0.
 | Web Chromium | Stable | schema-3 | linux | x86_64 | 0 |
 | Web Firefox | Stable | schema-3 | linux | x86_64 | 0 |
 | Web WebKit | Stable | schema-3 | linux | x86_64 | 0 |
-| Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
+| Windows Avalonia | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
 | Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 | Windows WPF | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
 

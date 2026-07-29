@@ -430,11 +430,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Windows Avalonia
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Native x86_64 Windows UI Automation on Avalonia
 - Promotion standard: schema-3
 - Native gates: windows-uia
-- Field benchmark: incomplete
+- Field benchmark: validation/field/windows-avalonia.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: windows-x86_64-interactive
@@ -442,19 +442,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: .NET, UI Automation
 - Frameworks: Avalonia
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no exact-commit evidence is recorded for the windows-uia native gate. The
-    execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not
-    been run and retained against the candidate commit
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Windows WinUI 3
 
