@@ -23,6 +23,11 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const QUALIFICATIONS = new Set(['FixtureQualified', 'IndependentQualified']);
 const REVISION_PATTERN = /^(?:git:[a-f0-9]{40}|sha256:[a-f0-9]{64})$/;
+const WEB_ENGINES = new Map([
+  ['web-chromium', 'chromium'],
+  ['web-firefox', 'firefox'],
+  ['web-webkit', 'webkit'],
+]);
 
 // The chain, in order. `required` stages must all be present for the record to
 // qualify; the rest are retained when the harness produced them.
@@ -146,6 +151,15 @@ function qualificationContract(contract, qualification) {
 
   requireValue(nonEmpty(contract.local?.provider), 'local.provider');
   requireValue(contract.local?.trusted === true, 'local.trusted');
+
+  const expectedWebEngine = WEB_ENGINES.get(contract.targetId);
+  if (expectedWebEngine) {
+    requireValue(contract.execution?.adapter?.kind === 'playwright', 'execution.adapter.kind');
+    requireValue(
+      contract.execution?.adapter?.engine === expectedWebEngine,
+      'execution.adapter.engine',
+    );
+  }
 
   const commands = contract.execution?.commands;
   requireValue(Array.isArray(commands) && commands.length > 0, 'execution.commands');

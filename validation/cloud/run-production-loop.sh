@@ -12,11 +12,28 @@ PORT="${REPROIT_CONTRACT_PORT:-18779}"
 PROJECT_NAME="${REPROIT_CONTRACT_PROJECT_NAME:-Release Gate $(date -u +%Y%m%d-%H%M%S)}"
 RESULTS_OUT="${REPROIT_CONTRACT_RESULTS:-$WORK/production-results.json}"
 ACCOUNT_KEY="${REPROIT_CLOUD_ACCOUNT_KEY:-}"
+TARGET_ID="${REPROIT_PRODUCTION_TARGET_ID:-web-chromium}"
 APP=""
 PROJECT_KEY=""
 PUBLISHABLE_KEY=""
 SERVER_PID=""
 DELETED=false
+
+case "$TARGET_ID" in
+  web-chromium) PLAYWRIGHT_ENGINE="chromium" ;;
+  web-firefox) PLAYWRIGHT_ENGINE="firefox" ;;
+  web-webkit) PLAYWRIGHT_ENGINE="webkit" ;;
+  *)
+    echo "unsupported production web target: $TARGET_ID" >&2
+    exit 1
+    ;;
+esac
+if [[ -n "${REPROIT_ENGINE:-}" && "$REPROIT_ENGINE" != "$PLAYWRIGHT_ENGINE" ]]; then
+  echo "REPROIT_ENGINE=$REPROIT_ENGINE does not match $TARGET_ID" >&2
+  exit 1
+fi
+export REPROIT_ENGINE="$PLAYWRIGHT_ENGINE"
+export REPROIT_PRODUCTION_TARGET_ID="$TARGET_ID"
 
 if [[ -z "$ACCOUNT_KEY" && -f "$HOME/.reproit/token" ]]; then
   ACCOUNT_KEY="$(python3 - "$HOME/.reproit/token" <<'PY'
@@ -155,6 +172,8 @@ with open(reset_path, "w", encoding="utf-8") as output:
         {
             "cleanWorkspace": True,
             "disposableProject": True,
+            "playwrightEngine": os.environ["REPROIT_ENGINE"],
+            "targetId": os.environ["REPROIT_PRODUCTION_TARGET_ID"],
             "workspaceOwner": "run-production-loop.sh",
         },
         output,
@@ -172,8 +191,10 @@ required_stages = [
     "direct-replay",
     "retention-and-deletion",
 ]
+engine = os.environ["REPROIT_ENGINE"]
+target_id = os.environ["REPROIT_PRODUCTION_TARGET_ID"]
 contract = {
-    "targetId": os.environ.get("REPROIT_PRODUCTION_TARGET_ID", "web-chromium"),
+    "targetId": target_id,
     "originKind": "fixture",
     "revisions": {
         "cli": os.environ.get("REPROIT_QUALIFICATION_CLI_REVISION", ""),
@@ -191,20 +212,32 @@ contract = {
         "trusted": True,
     },
     "execution": {
+        "adapter": {
+            "kind": "playwright",
+            "engine": engine,
+        },
         "commands": [
             {
                 "stage": stage,
                 "command": {
-                    "reset": "mktemp workspace and create disposable Cloud project",
+                    "reset": (
+                        "mktemp workspace, create disposable Cloud project, "
+                        f"and select Playwright {engine}"
+                    ),
                     "production-signal": "POST /v1/projects",
                     "cloud-ingestion": "validation/cloud/production-benchmark.py",
                     "local-materialization": "reproit BUCKET --no-run",
-                    "exact-local-reproduction": "reproit check --repro-id BUCKET --json",
-                    "direct-replay": "reproit BUCKET",
+                    "exact-local-reproduction": (
+                        f"REPROIT_ENGINE={engine} reproit check --repro-id BUCKET --json"
+                    ),
+                    "direct-replay": f"REPROIT_ENGINE={engine} reproit BUCKET",
                     "retention-and-deletion": "DELETE /v1/projects/APP",
                 }[stage],
                 "assertions": {
-                    "reset": ["workspace and project are disposable"],
+                    "reset": [
+                        "workspace and project are disposable",
+                        f"{target_id} selects Playwright {engine}",
+                    ],
                     "production-signal": ["project response is HTTP 201"],
                     "cloud-ingestion": ["strict SDK-shaped findings produce a bucket"],
                     "local-materialization": ["bucket package materializes locally"],

@@ -37,6 +37,10 @@ function contract(originKind = 'fixture') {
       trusted: true,
     },
     execution: {
+      adapter: {
+        kind: 'playwright',
+        engine: 'chromium',
+      },
       commands: REQUIRED_STAGES.map((stage) => ({
         stage,
         command: `run ${stage}`,
@@ -234,6 +238,22 @@ test('fixture evidence cannot claim independent qualification', async () => {
     }));
     assert.equal(record.qualification, 'Unqualified');
     assert.ok(record.qualificationBlockers.includes('originKind-for-qualification'));
+  } finally {
+    await area.dispose();
+  }
+});
+
+test('a web target cannot claim a different Playwright engine', async () => {
+  const area = await harnessWork();
+  const mismatched = contract();
+  mismatched.execution.adapter.engine = 'firefox';
+  try {
+    const record = await retainProductionChain(area.root, area.output, {
+      ...options(),
+      contract: mismatched,
+    });
+    assert.equal(record.qualification, 'Unqualified');
+    assert.ok(record.qualificationBlockers.includes('execution.adapter.engine'));
   } finally {
     await area.dispose();
   }
