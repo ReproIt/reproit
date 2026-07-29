@@ -277,14 +277,9 @@ DOCKER
           "chown -R 1000:1000 /repo/target /repo/runners/web/node_modules /evidence \
           >/dev/null 2>&1 || true" EXIT
         git config --global --add safe.directory /repo
-        engines=()
-        if [[ ",$REPROIT_HOSTED_GATES," == *",web-chromium,"* ||
-              ",$REPROIT_HOSTED_GATES," == *",electron,"* ]]; then
-          engines+=(chromium)
-        fi
-        if [[ ",$REPROIT_HOSTED_GATES," == *",web-engines,"* ]]; then
-          engines+=(firefox webkit)
-        fi
+        mapfile -t engines < <(
+          python3 validation/release/linux_hosted_engines.py "$REPROIT_HOSTED_GATES"
+        )
         (
           cd runners/web
           npm ci
