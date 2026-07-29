@@ -5,8 +5,8 @@
   "status": "candidates-selected",
   "declaredBounds": {
     "os": "android",
-    "arch": "arm64-v8a",
-    "device": "reset Android Studio AVD from the installed SDK",
+    "arch": "x86_64",
+    "device": "fresh pixel_6 AVD on system-images;android-36;google_apis;x86_64, with the AVD directory recreated and the emulator booted with -wipe-data -no-snapshot",
     "runtime": [
       "Hermes",
       "Appium UiAutomator2"
@@ -14,7 +14,7 @@
     "framework": [
       "React Native"
     ],
-    "networkPolicy": "no Google Play Services, no account, offline only"
+    "networkPolicy": "the Google APIs system image is installed, but campaign execution uses Docker network mode none and verifies that only container loopback exists; Android airplane mode is enabled and Wi-Fi plus mobile data are disabled; no account is configured"
   },
   "applicationPool": [
     {

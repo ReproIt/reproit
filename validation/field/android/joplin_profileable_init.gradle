@@ -1,0 +1,7 @@
+gradle.beforeProject { project ->
+    if (project.path == ':app') {
+        project.pluginManager.withPlugin('com.android.application') {
+            project.android.defaultConfig.manifestPlaceholders.usesCleartextTraffic = 'false'
+        }
+    }
+}

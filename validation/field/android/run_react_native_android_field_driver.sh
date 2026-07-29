@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+XVFB_PID=""
+
+stop_process() {
+    local process_id=$1
+
+    kill "$process_id" >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do
+        if ! kill -0 "$process_id" 2>/dev/null; then
+            wait "$process_id" >/dev/null 2>&1 || true
+            return
+        fi
+        sleep 1
+    done
+    kill -KILL "$process_id" >/dev/null 2>&1 || true
+    wait "$process_id" >/dev/null 2>&1 || true
+}
+
+cleanup() {
+    if [[ -n $XVFB_PID ]]; then
+        stop_process "$XVFB_PID"
+    fi
+}
+trap cleanup EXIT INT TERM
+
+case "${REPROIT_FIELD_APPLICATION:-}" in
+    joplin)
+        fixture_arguments=()
+        ;;
+    music)
+        fixture_arguments=(
+            --fixture-dir
+            "$REPROIT_FIELD_FIXTURE_DIRECTORY"
+        )
+        ;;
+    *)
+        echo "unsupported React Native application" >&2
+        exit 2
+        ;;
+esac
+
+if [[ ${REPROIT_CONTAINER_NETWORK:-} != none ]]; then
+    echo "React Native field driver requires Docker network mode none" >&2
+    exit 2
+fi
+
+corpus_arguments=()
+if [[ ${REPROIT_FIELD_WITH_CORPUS:-0} == 1 ]]; then
+    corpus_arguments=(--with-corpus)
+fi
+
+Xvfb :99 -screen 0 1280x800x24 >"$REPROIT_FIELD_EVIDENCE/xvfb.log" 2>&1 &
+XVFB_PID=$!
+export DISPLAY=:99
+ready=0
+for _ in $(seq 1 30); do
+    if glxinfo -B >"$REPROIT_FIELD_EVIDENCE/glxinfo.log" 2>&1; then
+        ready=1
+        break
+    fi
+    sleep 1
+done
+if [[ $ready != 1 ]]; then
+    echo "Xvfb did not expose a GL renderer within its bounded probe" >&2
+    exit 1
+fi
+
+python3 "$SCRIPT_DIRECTORY/react_native_android_campaign.py" \
+    --application "$REPROIT_FIELD_APPLICATION" \
+    --sdk /android-sdk \
+    --avd-home "$REPROIT_FIELD_AVD_HOME" \
+    --affected-apk "$REPROIT_FIELD_AFFECTED_APK" \
+    --fixed-apk "$REPROIT_FIELD_FIXED_APK" \
+    "${fixture_arguments[@]}" \
+    "${corpus_arguments[@]}" \
+    --evidence "$REPROIT_FIELD_EVIDENCE" \
+    --cli-commit "$REPROIT_FIELD_CLI_COMMIT" \
+    --runs "${REPROIT_FIELD_RUNS:-3}"
