@@ -75,7 +75,7 @@ Stable atomic targets: 10. Preview: 11. Experimental: 0.
 | Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 2 |
 | Linux Qt Widgets | Preview | schema-3 | linux-container | x86_64 | 2 |
 | Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 2 |
-| macOS Accessibility | Preview | schema-3 | macos | arm64 | 3 |
+| macOS Accessibility | Preview | schema-3 | macos | arm64 | 2 |
 | React Native Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
 | React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |
 | SwiftUI iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |

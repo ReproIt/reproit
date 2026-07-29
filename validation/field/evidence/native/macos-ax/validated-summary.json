@@ -1,0 +1,20 @@
+{
+  "commit": "0067bc1084498a3816147810a8169bebcbaed670",
+  "gates": [
+    {
+      "architectures": [
+        "arm64"
+      ],
+      "commit": "0067bc1084498a3816147810a8169bebcbaed670",
+      "executor": {
+        "architecture": "arm64",
+        "os": "darwin"
+      },
+      "finishedAt": "2026-07-29T21:44:21.035662Z",
+      "gateId": "macos-ax",
+      "logSha256": "1382a55c7b14895b22b4441e85d88b704d9aa917e17a290dff6b6130d74e27dd",
+      "startedAt": "2026-07-29T21:44:13.374822Z"
+    }
+  ],
+  "schema": 2
+}

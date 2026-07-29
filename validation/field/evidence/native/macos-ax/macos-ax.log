@@ -1,0 +1,19 @@
+JOURNEY claimed role=a
+FUZZ:OBS {"labels":["Reveal detail","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture"],"elements":[],"sig":"3fb8f697"}
+EXPLORE:STATE {"labels":["Reveal detail","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture"],"elements":[],"sig":"3fb8f697"}
+FUZZ:ACT tap:Reveal detail
+FUZZ:OBS {"labels":["Hide detail","Detail revealed","ReproItMacSwiftUIFixture","ReproIt SwiftUI Fixture"],"elements":[],"sig":"c6f43652"}
+EXPLORE:STATE {"labels":["Hide detail","Detail revealed","ReproItMacSwiftUIFixture","ReproIt SwiftUI Fixture"],"elements":[],"sig":"c6f43652"}
+EXPLORE:EDGE {"to":"c6f43652","action":"tap:Reveal detail","from":"3fb8f697"}
+FUZZ:ACT tap:Hide detail
+FUZZ:OBS {"labels":["ReproItMacSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[],"sig":"fb4b80b0"}
+EXPLORE:STATE {"labels":["ReproItMacSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[],"sig":"fb4b80b0"}
+EXPLORE:EDGE {"to":"fb4b80b0","action":"tap:Hide detail","from":"c6f43652"}
+FUZZ:ACT tap:Reveal detail
+FUZZ:OBS {"labels":["ReproIt SwiftUI Fixture","Hide detail","Detail revealed","ReproItMacSwiftUIFixture"],"elements":[],"sig":"c6f43652"}
+EXPLORE:EDGE {"to":"c6f43652","action":"tap:Reveal detail","from":"fb4b80b0"}
+FUZZ:ACT back
+JOURNEY[a] step: explored 3 states
+JOURNEY DONE
+All tests passed
+macOS DesktopAx backend passed native SwiftUI runtime

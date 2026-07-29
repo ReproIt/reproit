@@ -440,10 +440,6 @@
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
-          "detail": "no exact-commit evidence is recorded for the macos-ax native gate. The execution infrastructure is proven reachable on this host (macos-ax); the gate has simply not been run and retained against the candidate commit"
-        },
-        {
-          "code": "incomplete-evidence",
           "detail": "no application campaign has been executed. 9 candidate defects across 5 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
         },
         {

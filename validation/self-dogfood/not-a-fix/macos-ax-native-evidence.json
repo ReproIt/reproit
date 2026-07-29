@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "macos-ax-native-evidence",
+  "changeType": "maintenance",
+  "detail": "This commit retains exact-commit native qualification evidence and closes the corresponding compatibility blocker without changing runtime product behavior.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/native/macos-ax/validated-summary.json",
+      "sha256": "sha256:4ba6d9a151bab82acd92cec181764aa8c498233053bdfccca36f709b166551c2"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "gateId": "macos-ax",
+  "commit": "0067bc1084498a3816147810a8169bebcbaed670",
+  "startedAt": "2026-07-29T21:44:13.374822Z",
+  "finishedAt": "2026-07-29T21:44:21.035662Z",
+  "executor": {
+    "os": "darwin",
+    "architecture": "arm64"
+  },
+  "targetOs": "macos",
+  "architectures": [
+    "arm64"
+  ],
+  "fixture": "examples/macos-swiftui-fixture",
+  "command": [
+    "bash",
+    "validation/backends/run-macos-ax.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "EXPLORE:STATE ": true,
+    "EXPLORE:EDGE ": true,
+    "JOURNEY DONE": true,
+    "All tests passed": true
+  },
+  "resetStrategy": "fresh fixture build and bounded launch readiness",
+  "cleanupStrategy": "fixture process terminated and temporary directory removed by EXIT trap",
+  "logSha256": "1382a55c7b14895b22b4441e85d88b704d9aa917e17a290dff6b6130d74e27dd",
+  "logPath": "target/reproit-validation/macos-ax.log"
+}
