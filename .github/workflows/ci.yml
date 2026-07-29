@@ -35,6 +35,8 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
       - name: Format check
         run: cargo fmt --all --check
+      - name: Enforce source file size boundary
+        run: python3 validation/source-size-check.py
       - name: Clippy (warnings are errors)
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build
@@ -172,6 +174,11 @@ jobs:
           node-version: "24"
       - name: Install deps
         run: npm ci
+      - name: Verify generated single-file runner and SDK artifacts
+        run: |
+          node ../build-runner-bundles.mjs
+          node ../../sdk/build-reproit-web.mjs
+          git -C ../.. diff --exit-code -- runners sdk/reproit-web.js
       - name: Audit production runner dependencies
         run: node ../audit-production-deps.mjs
       - name: Install the Chromium the runner drives

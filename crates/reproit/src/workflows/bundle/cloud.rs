@@ -8,12 +8,20 @@ const MAX_CLOUD_ARTIFACT_BYTES: usize = 25 * 1024 * 1024;
 struct CloudOccurrence {
     occurrence: OccurrenceEnvelope,
     assessment: CapabilityAssessment,
-    capture: CaptureBatch,
+    #[serde(default)]
+    package: Option<ReproductionPackage>,
+    #[serde(default)]
+    capture: Option<CaptureBatch>,
 }
 
 struct DownloadedArtifact {
     filename: String,
     bytes: Vec<u8>,
+}
+
+struct LocalizedOccurrence {
+    package: ReproductionPackage,
+    capture: Option<CaptureBatch>,
 }
 
 pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<()> {
@@ -63,29 +71,41 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
         .assessment
         .validate(&downloaded.occurrence)
         .map_err(protocol_error)?;
-    downloaded.capture.validate().map_err(protocol_error)?;
-    let recomputed = compile_capture_failure(
-        &downloaded.capture,
-        &downloaded.occurrence.received_at,
-        CaptureAssessmentScope::Portable,
-    )
-    .map_err(protocol_error)?
-    .context("Cloud occurrence capture contains no failure")?;
-    if recomputed.occurrence != downloaded.occurrence
-        || recomputed.assessment != downloaded.assessment
-    {
-        anyhow::bail!("Cloud occurrence does not match its immutable capture batch");
+    if let Some(package) = &downloaded.package {
+        package.validate().map_err(protocol_error)?;
+        if package.occurrence != downloaded.occurrence
+            || package.assessment != downloaded.assessment
+        {
+            anyhow::bail!("Cloud package does not match its immutable occurrence");
+        }
     }
-    let artifacts = download_cloud_artifacts(
-        &client,
-        cloud.trim_end_matches('/'),
-        &key,
-        &downloaded.capture,
-    )
-    .await?;
+    if let Some(capture) = &downloaded.capture {
+        capture.validate().map_err(protocol_error)?;
+        let recomputed = compile_capture_failure(
+            capture,
+            &downloaded.occurrence.received_at,
+            CaptureAssessmentScope::Portable,
+        )
+        .map_err(protocol_error)?
+        .context("Cloud occurrence capture contains no failure")?;
+        if recomputed.occurrence != downloaded.occurrence
+            || recomputed.assessment != downloaded.assessment
+        {
+            anyhow::bail!("Cloud occurrence does not match its immutable capture batch");
+        }
+    }
+    if downloaded.package.is_none() && downloaded.capture.is_none() {
+        anyhow::bail!("Cloud occurrence has neither a package nor an immutable capture batch");
+    }
+    let artifacts = match &downloaded.capture {
+        Some(capture) => {
+            download_cloud_artifacts(&client, cloud.trim_end_matches('/'), &key, capture).await?
+        }
+        None => Vec::new(),
+    };
 
     let root = std::env::current_dir()?.canonicalize()?;
-    let package = localize_cloud_occurrence(&root, downloaded)?;
+    let localized = localize_cloud_occurrence(&root, downloaded)?;
     let parent = root.join(".reproit").join("occurrences");
     std::fs::create_dir_all(&parent)?;
     let directory = parent.join(reference);
@@ -98,8 +118,10 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
     let staging = parent.join(format!(".{reference}.{}.staging", std::process::id()));
     std::fs::create_dir(&staging)?;
     let persist_result = (|| -> Result<()> {
-        write_json_atomically(&staging.join("capture.json"), &package.1)?;
-        write_json_atomically(&staging.join("package.json"), &package.0)?;
+        if let Some(capture) = &localized.capture {
+            write_json_atomically(&staging.join("capture.json"), capture)?;
+        }
+        write_json_atomically(&staging.join("package.json"), &localized.package)?;
         if !artifacts.is_empty() {
             let artifact_directory = staging.join("artifacts");
             std::fs::create_dir(&artifact_directory)?;
@@ -206,13 +228,16 @@ async fn bounded_artifact_body(
 fn localize_cloud_occurrence(
     root: &Path,
     downloaded: CloudOccurrence,
-) -> Result<(ReproductionPackage, CaptureBatch)> {
+) -> Result<LocalizedOccurrence> {
     let CloudOccurrence {
         occurrence,
         mut assessment,
+        package,
         capture,
     } = downloaded;
-    let package = if assessment.status == AssessmentStatus::Eligible {
+    let package = if let Some(package) = package {
+        package
+    } else if assessment.status == AssessmentStatus::Eligible {
         match crate::adapters::execution::compile_automatic_package(
             root,
             occurrence.clone(),
@@ -237,7 +262,7 @@ fn localize_cloud_occurrence(
     } else {
         incomplete_download_package(occurrence, assessment)?
     };
-    Ok((package, capture))
+    Ok(LocalizedOccurrence { package, capture })
 }
 
 fn incomplete_download_package(

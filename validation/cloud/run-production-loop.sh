@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Production release gate: create a disposable Cloud project, ingest SDK-shaped
 # occurrences, prove raw values never enter the batch, measure the hosted path, reproduce
-# the bucket locally, then permanently delete the project.
+# the canonical occurrence locally, then permanently delete the project.
 set -euo pipefail
 
 BASE="${REPROIT_CLOUD_URL:-https://cloud.reproit.com}"
@@ -14,6 +14,7 @@ RESULTS_OUT="${REPROIT_CONTRACT_RESULTS:-$WORK/production-results.json}"
 ACCOUNT_KEY="${REPROIT_CLOUD_ACCOUNT_KEY:-}"
 TARGET_ID="${REPROIT_PRODUCTION_TARGET_ID:-web-chromium}"
 APP=""
+OCCURRENCE=""
 PROJECT_KEY=""
 PUBLISHABLE_KEY=""
 SERVER_PID=""
@@ -73,7 +74,7 @@ retain_chain() {
   local origin_summary
   origin_summary="hosted Cloud disposable project ingesting strict protocol-v1 "
   origin_summary+="production findings through the real SDK boundary, replayed "
-  origin_summary+="locally from the returned bucket"
+  origin_summary+="locally from the returned occurrence"
   if [[ -f "$WORK/qualification-contract.json" ]]; then
     node "$ROOT/validation/cloud/retain-production-chain.mjs" \
       "$WORK" "$REPROIT_PRODUCTION_RETAIN" \
@@ -208,7 +209,7 @@ contract = {
         "application": application_revision,
     },
     "local": {
-        "provider": "reproit-bucket-v1",
+        "provider": "reproit-occurrence-v1",
         "trusted": True,
     },
     "execution": {
@@ -228,9 +229,9 @@ contract = {
                     "cloud-ingestion": "validation/cloud/production-benchmark.py",
                     "local-materialization": "reproit BUCKET --no-run",
                     "exact-local-reproduction": (
-                        f"REPROIT_ENGINE={engine} reproit check --repro-id BUCKET --json"
+                        f"REPROIT_ENGINE={engine} reproit --json OCCURRENCE"
                     ),
-                    "direct-replay": f"REPROIT_ENGINE={engine} reproit BUCKET",
+                    "direct-replay": f"REPROIT_ENGINE={engine} reproit OCCURRENCE",
                     "retention-and-deletion": "DELETE /v1/projects/APP",
                 }[stage],
                 "assertions": {
@@ -240,7 +241,7 @@ contract = {
                     ],
                     "production-signal": ["project response is HTTP 201"],
                     "cloud-ingestion": ["strict SDK-shaped findings produce a bucket"],
-                    "local-materialization": ["bucket package materializes locally"],
+                    "local-materialization": ["occurrence package materializes locally"],
                     "exact-local-reproduction": ["outcome is fail and exit code is 1"],
                     "direct-replay": ["output contains REPRODUCED"],
                     "retention-and-deletion": ["project deletion response is HTTP 200"],
@@ -287,12 +288,21 @@ print(json.load(open(sys.argv[1]))["bucketId"])
 PY
 )"
 [[ "$BUCKET" == bkt_* ]] || { echo "contract bucket not found" >&2; exit 1; }
+OCCURRENCE="$(python3 - "$WORK/hosted.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))["occurrenceId"])
+PY
+)"
+[[ "$OCCURRENCE" == occ_* ]] || {
+  echo "canonical occurrence not found" >&2
+  exit 1
+}
 
 cd "$WORK"
 REPLAY_START="$(python3 -c 'import time; print(time.monotonic_ns())')"
-"$BIN" "$BUCKET" --no-run > "$WORK/pull.log"
+"$BIN" "$OCCURRENCE" --no-run > "$WORK/pull.log"
 set +e
-"$BIN" check --repro-id "$BUCKET" --json > "$WORK/check.json" 2> "$WORK/check.err"
+"$BIN" --json "$OCCURRENCE" > "$WORK/check.json" 2> "$WORK/check.err"
 CHECK_EXIT=$?
 set -e
 REPLAY_END="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -325,14 +335,17 @@ if d.get("outcome") != "fail":
 PY
 
 DIRECT_START="$(python3 -c 'import time; print(time.monotonic_ns())')"
-"$BIN" "$BUCKET" > "$WORK/direct-replay.log"
+set +e
+"$BIN" "$OCCURRENCE" > "$WORK/direct-replay.log"
+DIRECT_EXIT=$?
+set -e
 DIRECT_END="$(python3 -c 'import time; print(time.monotonic_ns())')"
 DIRECT_MS="$(( (DIRECT_END - DIRECT_START) / 1000000 ))"
-grep -q 'REPRODUCED:' "$WORK/direct-replay.log" || {
-  echo "direct bucket command did not confirm the production failure" >&2
+if [[ "$DIRECT_EXIT" -ne 1 ]] || ! grep -q 'FAIL' "$WORK/direct-replay.log"; then
+  echo "direct occurrence command did not confirm the production failure" >&2
   cat "$WORK/direct-replay.log" >&2
   exit 1
-}
+fi
 [[ "$DIRECT_MS" -lt 60000 ]] || {
   echo "direct production replay took ${DIRECT_MS}ms, above the 60s release ceiling" >&2
   exit 1
@@ -359,4 +372,4 @@ print(json.dumps(d, indent=2, sort_keys=True))
 PY
 
 echo "production gate passed: disposable project -> strict ingest -> redaction markers ->" \
-  "bkt replay -> deletion"
+  "occurrence replay -> deletion"

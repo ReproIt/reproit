@@ -40,6 +40,12 @@ for (var i = 0; i < sources.length; i++) {
   var rel = sources[i][0];
   var label = sources[i][1];
   var src = fs.readFileSync(path.join(root, rel), 'utf8');
+  if (rel === 'reproit_flutter/lib/reproit_flutter.dart') {
+    src += fs.readFileSync(
+      path.join(root, 'reproit_flutter/lib/src/runtime.dart'),
+      'utf8',
+    );
+  }
   assert.ok(kindError.test(src), label + ' (' + rel + '): expected an error event emit to scan');
   assert.ok(
     taggedError.test(src),

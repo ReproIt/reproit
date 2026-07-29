@@ -57,7 +57,6 @@ def percentile(values, percentile_value):
 path = [
     {"signature": "home", "action": "tap:key:testid:contract-crash", "label": None},
 ]
-occurrence_identities = []
 
 
 def event_batch(batch_label, finding_count):
@@ -66,7 +65,6 @@ def event_batch(batch_label, finding_count):
     sequence = 1
     for occurrence in range(finding_count):
         run_id = f"release-gate-{batch_label}-{occurrence}-{uuid.uuid4().hex}"
-        occurrence_identities.append(run_id)
         frames.append(
             {
                 "runId": run_id,
@@ -177,6 +175,13 @@ package, package_ms = request_json(
     f"/v1/apps/{APP}/buckets/{bucket_id}",
     os.environ.get("REPROIT_CLOUD_KEY", PROJECT_KEY),
 )
+occurrence_id = (
+    package.get("reproductionPackage", {})
+    .get("occurrence", {})
+    .get("occurrenceId", "")
+)
+if not occurrence_id.startswith("occ_"):
+    raise RuntimeError(f"bucket package omitted its canonical occurrence id: {package}")
 encoded_package = json.dumps(package, separators=(",", ":"))
 if SENTINEL in encoded_package:
     raise RuntimeError("raw sensitive sentinel escaped into the production replay package")
@@ -202,7 +207,7 @@ if maximum > MAX_CEILING_MS:
 result = {
     "base": BASE,
     "projectId": APP,
-    "occurrenceId": occurrence_identities[0],
+    "occurrenceId": occurrence_id,
     "batches": BATCHES,
     "errorsPerBatch": ERRORS_PER_BATCH,
     "occurrences": BATCHES * ERRORS_PER_BATCH,

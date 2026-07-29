@@ -33,7 +33,7 @@ function contract(originKind = 'fixture') {
       application: `sha256:${'c'.repeat(64)}`,
     },
     local: {
-      provider: 'reproit-bucket-v1',
+      provider: 'reproit-occurrence-v1',
       trusted: true,
     },
     execution: {

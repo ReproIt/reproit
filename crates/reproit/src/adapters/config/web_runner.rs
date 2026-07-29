@@ -148,12 +148,32 @@ const NATIVE_RUNNER_FILES: &[(&str, &str)] = &[
         include_str!("../../../../../runners/tauri.mjs"),
     ),
     (
+        "tauri-snapshot.mjs",
+        include_str!("../../../../../runners/tauri-snapshot.mjs"),
+    ),
+    (
         "inspect-control.mjs",
         include_str!("../../../../../runners/inspect-control.mjs"),
     ),
     (
         "macos-ax.swift",
         include_str!("../../../../../runners/macos-ax.swift"),
+    ),
+    (
+        "macos-ax/signature.swift",
+        include_str!("../../../../../runners/macos-ax/signature.swift"),
+    ),
+    (
+        "macos-ax/accessibility.swift",
+        include_str!("../../../../../runners/macos-ax/accessibility.swift"),
+    ),
+    (
+        "macos-ax/runtime.swift",
+        include_str!("../../../../../runners/macos-ax/runtime.swift"),
+    ),
+    (
+        "macos-ax/main.swift",
+        include_str!("../../../../../runners/macos-ax/main.swift"),
     ),
 ];
 
@@ -173,7 +193,12 @@ pub fn write_embedded_native_runner(dir: &Path) -> Result<()> {
     std::fs::create_dir_all(dir.join("web"))
         .with_context(|| format!("creating native runner dir {}", dir.display()))?;
     for (name, contents) in NATIVE_RUNNER_FILES {
-        std::fs::write(dir.join(name), contents)
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating native runner parent {}", parent.display()))?;
+        }
+        std::fs::write(&path, contents)
             .with_context(|| format!("writing embedded native runner {name}"))?;
     }
     for (name, contents) in WEB_RUNNER_FILES {

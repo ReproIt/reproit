@@ -424,7 +424,9 @@ where
             )
             .await
         }
-        Cmd::Occurrence { reference } => bundle::run_occurrence(&ctx, &reference).await,
+        Cmd::Occurrence { reference, no_run } => {
+            bundle::run_occurrence(&ctx, cli.config.as_deref(), &reference, no_run).await
+        }
         Cmd::Plan {
             occurrence,
             bindings,

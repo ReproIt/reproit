@@ -289,7 +289,12 @@ pub(crate) fn import(ctx: &Ctx, path: &Path) -> Result<String> {
     Ok(occurrence_id.clone())
 }
 
-pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCode> {
+pub(crate) async fn run_occurrence(
+    ctx: &Ctx,
+    config_path: Option<&Path>,
+    reference: &str,
+    no_run: bool,
+) -> Result<ExitCode> {
     if find_occurrence(reference).is_none() {
         cloud::pull_cloud_occurrence(ctx, reference).await?;
     }
@@ -302,6 +307,50 @@ pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCod
     )
     .with_context(|| format!("parsing {}", package_path.display()))?;
     package.validate().map_err(protocol_error)?;
+    if no_run {
+        ctx.emit(&serde_json::json!({
+            "command": "occurrence pull",
+            "occurrenceId": package.occurrence.occurrence_id,
+            "status": package.assessment.status,
+            "packageId": package.id,
+            "directory": directory,
+        }));
+        ctx.say(format!("Pulled occurrence {reference}"));
+        ctx.say(format!("  evidence: {}", directory.display()));
+        ctx.say(format!("  run:      reproit {reference}"));
+        return Ok(ExitCode::SUCCESS);
+    }
+    if package.plan.is_none()
+        && package
+            .legacy
+            .as_ref()
+            .is_some_and(|legacy| !legacy.actions.is_empty())
+    {
+        persist_legacy_occurrence(&root, &package, reference)?;
+        ctx.say("  replay:   using the captured action path through the trusted app adapter");
+        return super::check::run(
+            ctx,
+            config_path,
+            super::check::CheckArgs {
+                repro: Some(reference.to_string()),
+                devices: 1,
+                kind: None,
+                runs: Some(1),
+                junit: None,
+                service: Vec::new(),
+                strict: false,
+                locale: None,
+                target: None,
+                device: None,
+                record_video: false,
+                flicker: false,
+                changed: None,
+                update_baseline: false,
+                inspect: false,
+            },
+        )
+        .await;
+    }
     let mut automatic_plan_id = None;
     if package.assessment.status != AssessmentStatus::Eligible || package.plan.is_none() {
         use crate::adapters::execution::AutomaticCompilation;
@@ -348,6 +397,60 @@ pub(crate) async fn run_occurrence(ctx: &Ctx, reference: &str) -> Result<ExitCod
         | ExecutionVerdict::InfrastructureFailed => Exit::Stale,
     };
     Ok(exit_with(exit))
+}
+
+fn persist_legacy_occurrence(
+    root: &Path,
+    package: &ReproductionPackage,
+    alias: &str,
+) -> Result<String> {
+    let legacy = package
+        .legacy
+        .as_ref()
+        .context("legacy occurrence omitted its replay")?;
+    let observation = package
+        .occurrence
+        .observations
+        .first()
+        .context("legacy occurrence omitted its observation")?;
+    let seed = 0;
+    let id = crate::domain::repro::repro_id(seed, &legacy.actions);
+    let meta = crate::domain::repro::Meta {
+        id: id.clone(),
+        alias: Some(alias.to_string()),
+        status: crate::domain::repro::Status::Quarantined,
+        seed,
+        created: chrono::Utc::now().to_rfc3339(),
+        last_checked: None,
+        last_result: None,
+        trigger_index: Some(legacy.actions.len()),
+        trigger_sig: observation.signature.clone(),
+        trigger_selector: None,
+        trigger_fingerprint: None,
+        oracle: Some(observation_oracle(observation.kind).to_string()),
+        record_url: None,
+        record_action: None,
+    };
+    let fixture = crate::domain::fixture::synthesize(&legacy.fixture);
+    let replay = super::triage::build_replay_json(seed, &legacy.actions, &fixture);
+    let directory = crate::domain::repro::repro_dir(root, &id);
+    std::fs::create_dir_all(&directory)?;
+    write_json_atomically(&directory.join("replay.json"), &replay)?;
+    crate::domain::repro::save_meta(root, &meta)?;
+    write_json_atomically(&directory.join("package.json"), package)?;
+    Ok(id)
+}
+
+fn observation_oracle(kind: ObservationKind) -> &'static str {
+    match kind {
+        ObservationKind::Exception | ObservationKind::Crash | ObservationKind::Exit => "crash",
+        ObservationKind::Hang => "hang",
+        ObservationKind::ContractViolation => "contract",
+        ObservationKind::DataCorruption => "backend-data-loss",
+        ObservationKind::Performance => "jank",
+        ObservationKind::UserReport => "tester-capture",
+        ObservationKind::Diagnostic => "diagnostic",
+    }
 }
 
 fn report_incomplete_occurrence(
@@ -782,5 +885,76 @@ mod tests {
             hex_decode::<32>(&hex_encode(&bytes), "test").unwrap(),
             bytes
         );
+    }
+
+    #[test]
+    fn legacy_cloud_occurrence_becomes_a_local_guard_without_a_process_plan() {
+        let occurrence_id = "occ_0123456789abcdef";
+        let occurrence = OccurrenceEnvelope {
+            version: OCCURRENCE_VERSION,
+            occurrence_id: occurrence_id.into(),
+            source: EvidenceSource::Sentry,
+            subject: SubjectIdentity {
+                product: "shop".into(),
+                component: "checkout".into(),
+                platform: Some("web".into()),
+            },
+            observed_at: "2026-07-01T00:00:00Z".into(),
+            received_at: "2026-07-01T00:00:01Z".into(),
+            deployment: None,
+            observations: vec![FailureObservation {
+                kind: ObservationKind::Exception,
+                authority: ObservationAuthority::RuntimeDiagnosis,
+                summary: "checkout failed".into(),
+                signature: Some("TypeError:checkout".into()),
+                observation_point: None,
+                artifact_ids: vec![],
+            }],
+            artifacts: vec![],
+            capture_defects: vec![],
+            policy: EvidencePolicy {
+                consent: ConsentClass::LocalAnalysis,
+                retention_class: "production".into(),
+            },
+        };
+        let assessment = CapabilityAssessment {
+            occurrence_id: occurrence_id.into(),
+            status: AssessmentStatus::Eligible,
+            requirements: vec![],
+            unresolved: vec![],
+        };
+        let mut package = ReproductionPackage {
+            version: PACKAGE_VERSION,
+            id: String::new(),
+            occurrence,
+            assessment,
+            plan: None,
+            capsule: None,
+            legacy: Some(reproit_protocol::LegacyReplay {
+                actions: vec!["tap:key:id:checkout".into()],
+                fixture: serde_json::json!({"locale": "en-US"}),
+                crash_signature: Some("TypeError:checkout".into()),
+                start_signature: Some("home".into()),
+            }),
+        };
+        package.finalize_id().unwrap();
+        package.validate().unwrap();
+
+        let root = std::env::temp_dir().join(format!(
+            "reproit-legacy-occurrence-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let id = persist_legacy_occurrence(&root, &package, occurrence_id).unwrap();
+        let directory = crate::domain::repro::repro_dir(&root, &id);
+        let meta = crate::domain::repro::load_meta(&root, &id).unwrap();
+
+        assert_eq!(meta.alias.as_deref(), Some(occurrence_id));
+        assert_eq!(meta.oracle.as_deref(), Some("crash"));
+        assert_eq!(meta.trigger_index, Some(1));
+        assert!(directory.join("replay.json").is_file());
+        assert!(directory.join("package.json").is_file());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

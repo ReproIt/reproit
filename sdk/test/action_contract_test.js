@@ -27,6 +27,7 @@ var files = [
   'reproit-ios/Sources/ReproIt/CaptureAppKit.swift',
   'reproit-react-native/src/index.ts',
   'reproit_flutter/lib/reproit_flutter.dart',
+  'reproit_flutter/lib/src/runtime.dart',
   'reproit-windows/src/ReproIt.Core/Engine.cs',
 ];
 
@@ -47,7 +48,13 @@ for (var i = 0; i < files.length; i++) {
   }
 }
 
-var webSource = fs.readFileSync(path.join(root, 'reproit-web.js'), 'utf8');
+var webSource = [
+  'src/reproit-web-config.part.js',
+  'src/reproit-web-dom.part.js',
+  'src/reproit-web-runtime.part.js',
+].map(function (rel) {
+  return fs.readFileSync(path.join(root, rel), 'utf8');
+}).join('');
 assert.ok(
   /self\._observe\(self\._pending \|\| ["']nav["']\)/.test(webSource),
   'web navigation must preserve the structural click that triggered it',

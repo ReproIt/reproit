@@ -57,7 +57,7 @@ const STAGES = [
     id: 'local-materialization',
     file: 'pull.log',
     required: true,
-    summary: 'replay package pulled into a clean developer workspace',
+    summary: 'occurrence package pulled into a clean developer workspace',
   },
   {
     id: 'exact-local-reproduction',
@@ -70,7 +70,7 @@ const STAGES = [
     id: 'direct-replay',
     file: 'direct-replay.log',
     required: true,
-    summary: 'direct bucket command confirmed the failure',
+    summary: 'direct occurrence command confirmed the failure',
   },
   {
     id: 'reproduction-stderr',

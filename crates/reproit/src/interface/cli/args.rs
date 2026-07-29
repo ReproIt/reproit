@@ -523,7 +523,12 @@ pub(crate) enum Cmd {
     },
     /// Internal direct occurrence route used by `reproit occ_...`.
     #[command(name = "__occurrence", hide = true)]
-    Occurrence { reference: String },
+    Occurrence {
+        reference: String,
+        /// Download and validate the occurrence without executing it.
+        #[arg(long)]
+        no_run: bool,
+    },
     /// Compile an imported occurrence against checkout-owned execution providers.
     #[command(hide = true)]
     Plan {
