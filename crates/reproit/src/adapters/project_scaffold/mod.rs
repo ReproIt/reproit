@@ -248,7 +248,7 @@ fn detection_failure_guide(dir: &Path) -> String {
 }
 
 /// The schema part of the guide, for `--platform backend` in a schemaless
-/// repo; `init --learn` reuses it when derivation finds no routes.
+/// repo; `init` reuses it when derivation finds no routes.
 pub fn backend_schema_guide(dir: &Path) -> String {
     match backend_detect::detect_backend_framework(dir) {
         Some(found) => format!(
@@ -307,7 +307,7 @@ pub fn init_backend_url(
     Ok(())
 }
 
-/// Persist a schema derived by `reproit init --learn`: write the draft next to
+/// Persist a schema derived by `reproit init`: write the draft next to
 /// the project root and a reproit.yaml referencing it (with the enrichment
 /// target as `backend.target` when one was used). The caller prints the
 /// learn-specific summary and next steps.

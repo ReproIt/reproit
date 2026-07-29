@@ -5,6 +5,9 @@ contract. `validation/compatibility/check.py` validates it and generates the
 [current status](../validation/compatibility/STATUS.md). Documentation cannot
 promote a target.
 
+The generated [all-target stability plan](../validation/compatibility/STABILITY_PLAN.md)
+turns every current blocker and native gate into a per-target worklist.
+
 ## Maturity
 
 - Stable targets are covered by the 1.x compatibility promise and have complete
@@ -41,6 +44,15 @@ compatibility claim. `productionToLocal` is the separate, stronger designation
 that a real production occurrence on that target reproduces locally, and it
 moves through Unqualified, FixtureQualified, and IndependentQualified.
 
+The manifest stores this state as an evidence binding, not a label. An
+Unqualified target has no evidence path. Every qualified target must cite a
+retained schema-2 production-chain record that matches the target and level,
+binds exact CLI, SDK, and application revisions, distinguishes fixture from
+independent origin, names the Cloud project and occurrence, identifies the
+trusted local provider, and verifies commands, assertions, reset, cleanup, and
+artifact hashes. The compatibility validator rejects a state change when any
+binding is absent or inconsistent.
+
 ## Current promotion state
 
 <!-- generated:promotion-state -->
@@ -53,8 +65,8 @@ Stable atomic targets: 5. Preview: 16. Experimental: 0.
 | Jetpack Compose Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
 | Electron Linux | Stable | schema-3 | linux | x86_64 | 0 |
 | Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
-| Flutter iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |
-| Linux GTK | Preview | schema-3 | linux-container | x86_64 | 2 |
+| Flutter iOS | Preview | schema-3 | ios-simulator | arm64 | 1 |
+| Linux GTK | Preview | schema-3 | linux-container | x86_64 | 3 |
 | Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 2 |
 | Linux Qt Widgets | Preview | schema-3 | linux-container | x86_64 | 2 |
 | Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 2 |
@@ -63,10 +75,10 @@ Stable atomic targets: 5. Preview: 16. Experimental: 0.
 | React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |
 | SwiftUI iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |
 | Tauri Linux | Preview | schema-3 | linux | x86_64 | 2 |
-| Terminal UI | Stable | schema-2 | linux | x86_64 | 0 |
-| Web Chromium | Stable | schema-2 | linux | x86_64 | 0 |
-| Web Firefox | Stable | schema-2 | linux | x86_64 | 0 |
-| Web WebKit | Stable | schema-2 | linux | x86_64 | 0 |
+| Terminal UI | Stable | schema-3 | linux | x86_64 | 0 |
+| Web Chromium | Stable | schema-3 | linux | x86_64 | 0 |
+| Web Firefox | Stable | schema-3 | linux | x86_64 | 0 |
+| Web WebKit | Stable | schema-3 | linux | x86_64 | 0 |
 | Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 | Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 | Windows WPF | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |

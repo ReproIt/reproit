@@ -800,8 +800,7 @@ fn authority_for_oracle(oracle: &str) -> Option<reproit_protocol::AuthoritySourc
     match oracle {
         "crash" => Some(AuthoritySource::RuntimeDiagnosis),
         "contract" | "invariant" | "detached-indicator" => Some(AuthoritySource::AuthoredContract),
-        // The backend contract family (per-check "backend-*" ids and the
-        // legacy "backend-contract" umbrella) is authored-contract evidence.
+        // The backend contract family has per-check "backend-*" ids.
         oracle if crate::domain::backend::is_backend_oracle(oracle) => {
             Some(AuthoritySource::AuthoredContract)
         }

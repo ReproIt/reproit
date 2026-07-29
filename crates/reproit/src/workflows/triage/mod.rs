@@ -433,13 +433,13 @@ mod tests {
             },
             "actions": [{"index":1,"actor":"a","action":"tap:key:send"}],
             "exchanges": [{
-                "id":"a-1-0","actor":"a","action_index":1,"ordinal":0,"protocol":"https",
+                "id":"a-1-0","actor":"a","actionIndex":1,"ordinal":0,"protocol":"https",
                 "method": "POST",
                 "url": "https://api.test/send",
-                "request_headers": {"authorization": "raw"},
-                "request_body":{"token":"raw","message":{"kind":"text"}},"status":200,
-                "response_headers": {"content-type": "application/json"},
-                "response_body": {"ok": true},
+                "requestHeaders": {"authorization": "raw"},
+                "requestBody":{"token":"raw","message":{"kind":"text"}},"status":200,
+                "responseHeaders": {"content-type": "application/json"},
+                "responseBody": {"ok": true},
                 "required": true
             }],
             "causalGraph": {"version":1,"nodes":[],"edges":[]},

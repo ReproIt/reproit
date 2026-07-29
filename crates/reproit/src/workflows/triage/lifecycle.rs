@@ -62,8 +62,7 @@ pub async fn triage(
     if !fib.is_null() {
         println!("  fixed in:  {}", fib.as_str().unwrap_or("?"));
     }
-    // The server returns snake_case `updated_at`; tolerate the camelCase form too.
-    if let Some(updated) = t["updated_at"].as_str().or_else(|| t["updatedAt"].as_str()) {
+    if let Some(updated) = t["updatedAt"].as_str() {
         println!("  updated:   {updated}");
     }
     if status.is_none() {

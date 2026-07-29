@@ -652,7 +652,7 @@ pub(super) async fn build_identity_pool(
     auth: &BackendAuth,
 ) -> Result<Vec<Vec<(String, String)>>> {
     let mut pool = Vec::new();
-    for account in auth.resolved_accounts() {
+    for account in &auth.accounts {
         let token = login_account(client, base_url, &account.login).await?;
         let headers = account
             .headers

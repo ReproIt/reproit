@@ -74,7 +74,7 @@ a general graph abstraction.
 
 - A state key is an immutable structural id. An editable `State.name` supplies the human label.
 - `schemaVersion` changes only for incompatible file-format changes. The in-memory `revision`
-  changes whenever graph content changes and remains serialized as legacy-compatible `version`.
+  changes whenever graph content changes and is serialized as `version`.
 - `GraphIndex` derives signature, incoming, and outgoing indexes in memory. It is never persisted.
 - Map and visit JSON is streamed to same-directory temporary files and atomically replaced under a
   workspace lock. A recovery journal rolls an interrupted multi-file commit forward before reads.

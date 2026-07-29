@@ -445,7 +445,7 @@ fn malformed_structural_evidence_abstains_from_graph_invariants() {
 }
 
 #[test]
-fn legacy_version_deserializes_as_a_graph_revision() {
+fn serialized_version_is_the_graph_revision() {
     let map: AppMap = serde_json::from_str(
         r#"{"app":"demo","version":7,"states":{},"transitions":[],"invariants":[]}"#,
     )

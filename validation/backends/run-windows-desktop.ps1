@@ -6,6 +6,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $out = Join-Path $env:TEMP "reproit-windows-backends"
 $fuzz = Join-Path $out "fuzz.json"
 $config = Join-Path $out "reproit.yaml"
+$cargoTarget = Join-Path $env:TEMP "reproit-backend-target-$PID"
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw "Windows desktop backend gate must run on Windows"
@@ -20,7 +21,9 @@ Start-Sleep -Milliseconds 500
 
 Push-Location $root
 try {
-    $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "reproit-backend-target"
+    Remove-Item -Recurse -Force $cargoTarget -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $cargoTarget | Out-Null
+    $env:CARGO_TARGET_DIR = $cargoTarget
     cargo build -p reproit --release
     if ($LASTEXITCODE -ne 0) { throw "reproit release build failed" }
     $runner = Join-Path $env:CARGO_TARGET_DIR "release/reproit.exe"
@@ -125,6 +128,7 @@ try {
 }
 finally {
     Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $cargoTarget -ErrorAction SilentlyContinue
     Pop-Location
 }
 

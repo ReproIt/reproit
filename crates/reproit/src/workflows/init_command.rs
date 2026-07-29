@@ -35,27 +35,17 @@ pub(super) async fn run(
     ctx: &Ctx,
     target: Option<String>,
     platform: Option<String>,
-    learn: bool,
     learn_target: Option<String>,
     force: bool,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
     let backend_platform = matches!(platform.as_deref(), None | Some("backend"));
-    if learn && !backend_platform {
-        bail!(
-            "--learn derives a backend schema and implies --platform backend (got --platform {})",
-            platform.as_deref().unwrap_or_default()
-        );
-    }
     // Deriving from source is what `init` should DO when a backend has no
     // schema, not something to ask for. The dead end here used to tell people
     // to go hand-write an OpenAPI document while the reader could produce a
     // draft from their code in the time the message took to print, and it did
     // not even mention the flag that does it.
     if target.is_none() && backend_platform && needs_derivation(&root) {
-        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
-    }
-    if learn {
         return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
     }
     let Some(target) = target else {

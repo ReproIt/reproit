@@ -40,7 +40,7 @@ The dogfood boundary remains explicit:
 
 - `sdk/reproit-backend-rs` is the canonical bounded Rust adapter. Cloud vendors that source exactly,
   enforces source parity, and wires it into the five routes only when
-  `REPROIT_EXPERIMENTAL_BACKEND_CONTRACTS=1`; individual requests must also carry `x-reproit-trace`.
+  `REPROIT_BACKEND_CONTRACTS=1`; individual requests must also carry `x-reproit-trace`.
   The default server path remains inert.
 - Cloud currently records request/response shape and status, but does not claim handler-observed
   tenant or persistent-effect completeness. Every captured return therefore carries

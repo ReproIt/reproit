@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "target": "web-firefox",
+  "worker": {
+    "image": "reproit-stable-corpus:amd64@sha256:98af18ccacb13117d04e8f4ed2f3dd29133d0bc3e210f4694880347e2125cefd",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "vert-about-fixed-firefox",
+      "kind": "clean",
+      "application": "vert-route-57",
+      "repository": "https://github.com/VERT-sh/VERT",
+      "revision": "a8386ee3f1efc40c37828f780e75cb3a8df4b12b",
+      "fixture": null,
+      "variant": "fixed-about-route",
+      "why": "the fixed direct route renders the exact About content",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observationReached": true,
+        "cleanLaunch": false,
+        "exceptions": [
+          "TypeError: NetworkError when attempting to fetch resource.",
+          "uncaught exception: TypeError: error loading dynamically imported module: https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js"
+        ],
+        "engine": "firefox",
+        "browserVersion": "153.0",
+        "finalUrl": "http://127.0.0.1:4173/about",
+        "aboutContentPresent": true,
+        "homeContentPresent": false,
+        "legalBehaviorObserved": true,
+        "legalBehavior": "the fixed direct About route rendered the exact About content",
+        "identity": null
+      }
+    },
+    {
+      "id": "vert-root-neighbor-firefox",
+      "kind": "adversarial",
+      "application": "vert-route-57",
+      "repository": "https://github.com/VERT-sh/VERT",
+      "revision": "a8386ee3f1efc40c37828f780e75cb3a8df4b12b",
+      "fixture": null,
+      "variant": "legal-root-route",
+      "why": "the neighboring root route legally renders home content without About content",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observationReached": true,
+        "cleanLaunch": false,
+        "exceptions": [
+          "TypeError: NetworkError when attempting to fetch resource.",
+          "uncaught exception: TypeError: error loading dynamically imported module: https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js"
+        ],
+        "engine": "firefox",
+        "browserVersion": "153.0",
+        "finalUrl": "http://127.0.0.1:4173/",
+        "aboutContentPresent": false,
+        "homeContentPresent": true,
+        "legalBehaviorObserved": true,
+        "legalBehavior": "the neighboring root route rendered its legal home content",
+        "identity": null
+      }
+    },
+    {
+      "id": "slidev-neighbor-firefox",
+      "kind": "adversarial",
+      "application": "slidev-hash-1637",
+      "repository": "https://github.com/slidevjs/slidev",
+      "revision": "8b7ccf13358b904636d476072a0b67a857115a10",
+      "fixture": "slidev-hash.md",
+      "variant": "legal-neighboring-navigation",
+      "why": "the retained neighboring navigation behavior remains legal on the fixed build",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "engine": "firefox",
+        "browserVersion": "153.0",
+        "finalUrl": "http://127.0.0.1:4174/#/2",
+        "reachedSlide2": true,
+        "slide2ContentPresent": true,
+        "legalBehaviorObserved": true,
+        "legalBehavior": "directly opening slide 2 rendered the second slide",
+        "identity": null
+      }
+    }
+  ]
+}

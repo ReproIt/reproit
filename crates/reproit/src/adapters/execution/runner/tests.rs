@@ -23,6 +23,20 @@ fn provider() -> CommandProvider {
     }
 }
 
+fn write_project_catalog(root: &Path, catalog: &ProviderCatalog) {
+    let serialized = serde_yaml::to_string(catalog).unwrap();
+    let indented = serialized
+        .lines()
+        .map(|line| format!("  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(
+        root.join("reproit.yaml"),
+        format!("execution:\n{indented}\n"),
+    )
+    .unwrap();
+}
+
 #[test]
 fn provider_digest_changes_with_executable_mechanism() {
     let first = provider();
@@ -135,6 +149,25 @@ execution:
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn removed_standalone_execution_catalog_is_not_loaded() {
+    let root = temporary_root("standalone-catalog");
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        providers: BTreeMap::from([("service-start".into(), provider())]),
+    };
+    std::fs::write(
+        root.join("reproit.execution.yaml"),
+        serde_yaml::to_string(&catalog).unwrap(),
+    )
+    .unwrap();
+    let error = load_catalog(&root, None, None).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("add execution.providers to reproit.yaml"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[tokio::test]
 async fn command_output_is_bounded_while_the_pipe_is_drained() {
     let root = temporary_root("output");
@@ -166,11 +199,7 @@ async fn imported_process_occurrence_compiles_and_reproduces_without_ui() {
         version: CATALOG_VERSION,
         providers: BTreeMap::from([("service-start".into(), provider())]),
     };
-    std::fs::write(
-        root.join("reproit.execution.yaml"),
-        serde_yaml::to_string(&catalog).unwrap(),
-    )
-    .unwrap();
+    write_project_catalog(&root, &catalog);
 
     let occurrence = OccurrenceEnvelope {
         version: OCCURRENCE_VERSION,
@@ -248,11 +277,7 @@ fn automatic_compilation_uses_only_an_unambiguous_trusted_provider() {
         version: CATALOG_VERSION,
         providers: BTreeMap::from([("service-start".into(), provider())]),
     };
-    std::fs::write(
-        root.join("reproit.execution.yaml"),
-        serde_yaml::to_string(&catalog).unwrap(),
-    )
-    .unwrap();
+    write_project_catalog(&root, &catalog);
     let package = incomplete_process_package();
 
     let AutomaticCompilation::Compiled(compiled) =
@@ -280,11 +305,7 @@ fn automatic_compilation_refuses_ambiguous_providers() {
             ("service-start-copy".into(), provider()),
         ]),
     };
-    std::fs::write(
-        root.join("reproit.execution.yaml"),
-        serde_yaml::to_string(&catalog).unwrap(),
-    )
-    .unwrap();
+    write_project_catalog(&root, &catalog);
 
     let AutomaticCompilation::Blocked(blockers) =
         compile_package_automatically(&root, &incomplete_process_package()).unwrap()
@@ -371,11 +392,7 @@ fn automatic_compilation_returns_a_typed_blocker_for_an_untrusted_capability() {
         version: CATALOG_VERSION,
         providers: BTreeMap::from([("concurrency-trigger".into(), trigger_provider)]),
     };
-    std::fs::write(
-        root.join("reproit.execution.yaml"),
-        serde_yaml::to_string(&catalog).unwrap(),
-    )
-    .unwrap();
+    write_project_catalog(&root, &catalog);
     let mut package = incomplete_process_package();
     package.assessment.requirements[0].id = "req_concurrency".into();
     package.assessment.requirements[0].requirement = RequirementKind::Trigger {

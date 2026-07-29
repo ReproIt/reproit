@@ -311,7 +311,7 @@ fn parse_fuzz_report_without_seed_is_none() {
 fn web_engine_targets_route_to_the_cross_engine_path() {
     // A list of only engine names routes to the cross-engine differential.
     assert!(is_web_engines("chromium,firefox,webkit"));
-    assert!(is_web_engines("chrome,safari"));
+    assert!(!is_web_engines("chrome,safari"));
     // A bare `web` (or any platform token) is NOT the engine path: it is a
     // platform run. ios/android likewise route to the platform path.
     assert!(!is_web_engines("web"));

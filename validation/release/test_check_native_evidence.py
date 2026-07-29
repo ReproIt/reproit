@@ -139,8 +139,13 @@ class SupportManifestTests(unittest.TestCase):
             promotion = target["promotion"]
             benchmark_path = promotion["fieldBenchmark"]
             if target["maturity"] != "stable":
-                self.assertIsNone(benchmark_path, target_id)
                 self.assertTrue(promotion["blockers"], target_id)
+                if benchmark_path is not None:
+                    benchmark = json.loads(
+                        (MODULE.ROOT / benchmark_path).read_text(encoding="utf-8")
+                    )
+                    self.assertEqual(benchmark["target"], target_id)
+                    self.assertIn(benchmark["status"], {"pending", "complete"})
                 continue
             self.assertEqual(promotion["blockers"], [], target_id)
             self.assertIsInstance(benchmark_path, str, target_id)

@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-wpf",
+  "campaign": "flowlauncher-system-language-4518",
+  "status": "campaign-complete",
+  "issue": "https://github.com/Flow-Launcher/Flow.Launcher/issues/4518",
+  "pullRequest": "https://github.com/Flow-Launcher/Flow.Launcher/pull/4519",
+  "affectedRevision": "447fbea4882b7d1df9bf6c510752dc236a30a115",
+  "fixedRevision": "eb3da1edb942983c14b7c78a4d50dee368c23002",
+  "identity": "system-language-falls-through-to-english",
+  "authority": "authored-contract: Language=system must select the current supported system culture",
+  "memoryMeasurement": "unavailable",
+  "minimizedAction": "launch with a fresh portable UserData directory under fr-FR and Language=system",
+  "neighboringLegalBehavior": "under en-US, both exact revisions expose Welcome to Flow Launcher",
+  "observation": {
+    "automation": "Windows UI Automation",
+    "windowAutomationId": "FlowWelcomeWindow",
+    "titleAutomationId": "TitleTextBlock",
+    "affectedTitle": "Welcome to Flow Launcher",
+    "fixedTitle": "Bienvenue dans Flow Launcher"
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "interactiveSessionId": 1,
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route",
+    "scheduledTaskLogonType": "Interactive",
+    "dotnetRuntimeRoot": "C:\\lab\\dotnet-campaign",
+    "buildSdk": "9.0.316",
+    "networkPolicy": "not isolated; the launch and UI Automation read require no network"
+  },
+  "builds": {
+    "affected": {
+      "executableSha256": "43AB06DBD951E82532FDBB28F4DBE9BDF29EF4F99EBE3BBF985AC7FEA274BF54",
+      "coreSha256": "0A8A33423B68EED22F494B06CFC51A3C236AA31372800CABE7219878CF58730C",
+      "buildLogSha256": "253E022BE5FFDBFEEFCA6678170F196D68F6185648C3026EC16C0A0493C36227",
+      "buildElapsedSeconds": 33.79,
+      "result": "Build succeeded, 0 errors"
+    },
+    "fixed": {
+      "executableSha256": "43AB06DBD951E82532FDBB28F4DBE9BDF29EF4F99EBE3BBF985AC7FEA274BF54",
+      "coreSha256": "1C0A5EA7F8C2BD3486E51B2BD93A1B5BC60539A4BBF6BF8AE45FD7AB797E3621",
+      "buildLogSha256": "AAD694185AB19036021F8AD5FE4ADAF375F80627AB690AB3D9C2E6D2FD143D54",
+      "buildElapsedSeconds": 30.03,
+      "result": "Build succeeded, 0 errors"
+    }
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 27.798462,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:14:34.4135348+00:00",
+      "finishedAt": "2026-07-29T02:15:02.2119968+00:00",
+      "processId": 336,
+      "readinessMilliseconds": 25170,
+      "settingsLanguage": "system",
+      "observedTitle": "Welcome to Flow Launcher",
+      "rawRecordSha256": "1563d0efcbfe73398785550f48e34bf07b6825604a3c9a4a9cbabd4da399f320"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 6.239813,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:15:55.4216511+00:00",
+      "finishedAt": "2026-07-29T02:16:01.6614644+00:00",
+      "processId": 5072,
+      "readinessMilliseconds": 4754,
+      "settingsLanguage": "system",
+      "observedTitle": "Welcome to Flow Launcher",
+      "rawRecordSha256": "dfbc8675be682ce5af909151b1bae26ea2516bf669ccb46b13c1da0c0943369a"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 6.377929,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:16:04.3882839+00:00",
+      "finishedAt": "2026-07-29T02:16:10.7662126+00:00",
+      "processId": 10696,
+      "readinessMilliseconds": 4843,
+      "settingsLanguage": "system",
+      "observedTitle": "Welcome to Flow Launcher",
+      "rawRecordSha256": "69b2512e54d6bed566c65776db63d495fb5bf3687d4cdbed116d03814565cf32"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 6.847384,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:16:32.0656144+00:00",
+      "finishedAt": "2026-07-29T02:16:38.9129987+00:00",
+      "processId": 10948,
+      "readinessMilliseconds": 5389,
+      "settingsLanguage": "system",
+      "observedTitle": "Bienvenue dans Flow Launcher",
+      "rawRecordSha256": "8aea8a2c42d056ce2c38d733f8ace6ec2571f25946a240574377906baa1c8b53"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 6.23737,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:16:43.1602525+00:00",
+      "finishedAt": "2026-07-29T02:16:49.3976222+00:00",
+      "processId": 5860,
+      "readinessMilliseconds": 4755,
+      "settingsLanguage": "system",
+      "observedTitle": "Bienvenue dans Flow Launcher",
+      "rawRecordSha256": "6c31d20c349e06fc37ed53021f384e6e9dc4f00dafb0fe7b781be0012031505c"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 10.795293,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:16:51.8227029+00:00",
+      "finishedAt": "2026-07-29T02:17:02.6179959+00:00",
+      "processId": 10976,
+      "readinessMilliseconds": 8340,
+      "settingsLanguage": "system",
+      "observedTitle": "Bienvenue dans Flow Launcher",
+      "rawRecordSha256": "0c8019a119a0fb527ceceddde24d958f9262006c73672eaa43a387ac8309768f"
+    }
+  ],
+  "controls": [
+    {
+      "role": "affected-control",
+      "revision": "447fbea4882b7d1df9bf6c510752dc236a30a115",
+      "culture": "en-US",
+      "settingsLanguage": "system",
+      "observedTitle": "Welcome to Flow Launcher",
+      "rawRecordSha256": "020810af24c5800aff2ca1231f76b16b8bcb31281ecf22d462f7c954c542f139"
+    },
+    {
+      "role": "fixed-control",
+      "revision": "eb3da1edb942983c14b7c78a4d50dee368c23002",
+      "culture": "en-US",
+      "settingsLanguage": "system",
+      "observedTitle": "Welcome to Flow Launcher",
+      "rawRecordSha256": "ea249d77259a6bb711fb661090792e9107769ca82bd47d3f9c9d0a11309914d9"
+    }
+  ],
+  "containment": {
+    "preexistingFlowProcessesEveryRun": 0,
+    "freshPortableUserDataEveryRun": true,
+    "remainingOwnedProcessesEveryRun": 0,
+    "portableUserDataRemovedEveryRun": true,
+    "originalCulture": "en-US",
+    "cultureRestoredEveryRun": true,
+    "scheduledTaskRemoved": true
+  },
+  "rawRecords": {
+    "retainedAt": "C:\\lab\\campaigns\\wpf-evidence",
+    "orderedHashChainSha256": "f89529894d444414c1cc84d0a8ead8e76eb6c1b257ff065be2e2a2b3fddececc"
+  },
+  "qualification": {
+    "defectCampaignComplete": true,
+    "targetQualified": false,
+    "remaining": "target promotion is separate from this application campaign"
+  }
+}

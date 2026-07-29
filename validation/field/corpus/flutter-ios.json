@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "target": "flutter-ios",
+  "worker": {
+    "image": "xcode-26.2-ios-18.5-simulator:saber-290df12ce820",
+    "platform": "ios-simulator/arm64",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "saber-clean-live-notes",
+      "kind": "clean",
+      "application": "saber-recent-notes-1603-fixed",
+      "repository": "https://github.com/saber-notes/saber",
+      "revision": "ed4fe66fc5908a55d2e20806e9cb01fc11ad5d78",
+      "fixture": null,
+      "variant": "live-notes",
+      "why": "Two ordinary persisted notes provide the clean known-good subject.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "cleanLaunch": true,
+        "observationReached": true,
+        "exceptions": [],
+        "variant": "live-notes",
+        "subjectNoteExists": true,
+        "subjectPreviewExists": true,
+        "subjectRowVisible": true,
+        "noPreviewVisible": false,
+        "neighboringControlVisible": true,
+        "sourceSha256": "sha256:6ae17b68075f9eb96cba8ba3cd11e9b2edb2d93525116900dbd364b28c14684d",
+        "network": {
+          "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+          "proxyEnvironmentPresent": true,
+          "observedIpEndpoints": [
+            "127.0.0.1:56514 (LISTEN)"
+          ],
+          "externalEstablishedConnections": []
+        }
+      }
+    },
+    {
+      "id": "saber-adversarial-deleted-pair",
+      "kind": "adversarial",
+      "application": "saber-recent-notes-1603-fixed",
+      "repository": "https://github.com/saber-notes/saber",
+      "revision": "ed4fe66fc5908a55d2e20806e9cb01fc11ad5d78",
+      "fixture": null,
+      "variant": "deleted-note-pair",
+      "why": "A complete note pair is removed externally, matching the fixed defect boundary.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "cleanLaunch": true,
+        "observationReached": true,
+        "exceptions": [],
+        "variant": "deleted-note-pair",
+        "subjectNoteExists": false,
+        "subjectPreviewExists": false,
+        "subjectRowVisible": false,
+        "noPreviewVisible": false,
+        "neighboringControlVisible": true,
+        "sourceSha256": "sha256:49f59fa36d5a14706c9ed1d7c2bcc10cbd0b7d8e9632a33bf9e7583c4eb20478",
+        "network": {
+          "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+          "proxyEnvironmentPresent": true,
+          "observedIpEndpoints": [
+            "127.0.0.1:56856 (LISTEN)"
+          ],
+          "externalEstablishedConnections": []
+        }
+      }
+    },
+    {
+      "id": "saber-adversarial-missing-preview",
+      "kind": "adversarial",
+      "application": "saber-recent-notes-1603-fixed",
+      "repository": "https://github.com/saber-notes/saber",
+      "revision": "ed4fe66fc5908a55d2e20806e9cb01fc11ad5d78",
+      "fixture": null,
+      "variant": "missing-preview-sidecar",
+      "why": "The note remains valid while its optional preview sidecar is absent.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "cleanLaunch": true,
+        "observationReached": true,
+        "exceptions": [],
+        "variant": "missing-preview-sidecar",
+        "subjectNoteExists": true,
+        "subjectPreviewExists": false,
+        "subjectRowVisible": true,
+        "noPreviewVisible": true,
+        "neighboringControlVisible": true,
+        "sourceSha256": "sha256:50c23b9562d1122ef4afc549cd77ac1c21994500d0dc48dd7adc0d894618fdc1",
+        "network": {
+          "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+          "proxyEnvironmentPresent": true,
+          "observedIpEndpoints": [
+            "127.0.0.1:57131 (LISTEN)"
+          ],
+          "externalEstablishedConnections": []
+        }
+      }
+    }
+  ]
+}

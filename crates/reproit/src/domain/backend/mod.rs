@@ -123,10 +123,15 @@ impl FrozenBackendGuard {
         let fingerprints = findings
             .iter()
             .filter(|finding| {
-                finding
+                let exact_oracle = finding
                     .get("oracle")
                     .and_then(Value::as_str)
-                    .is_some_and(is_backend_oracle)
+                    .is_some_and(is_backend_oracle);
+                let backend_invariant = finding
+                    .get("invariant")
+                    .and_then(Value::as_str)
+                    .is_some_and(|invariant| invariant.starts_with("backend:"));
+                exact_oracle || backend_invariant
             })
             .filter_map(|finding| finding.get("fingerprint").and_then(Value::as_str))
             .map(str::to_string)
@@ -246,21 +251,18 @@ use evaluate::{
 };
 pub use evaluate::{pending_obligations, PendingObligation};
 
-/// Whether a finding-level oracle id belongs to the backend contract family:
-/// a first-class per-check id ("backend-data-loss", ...) or the legacy
-/// umbrella id "backend-contract" still present in old artifacts.
+/// Whether a finding-level oracle id belongs to the backend contract family.
 pub fn is_backend_oracle(oracle: &str) -> bool {
     oracle.starts_with("backend-")
 }
 
 pub fn finding(violation: &BackendViolation) -> Value {
     // Per-check registry id when the check has one (the evaluate/ family);
-    // checks without a registry row (scoped protocol evidence) keep the
-    // legacy umbrella id, which downstreams accept as unknown-but-well-formed.
+    // checks without a registry row use the canonical contract oracle.
     let per_check = format!("backend-{}", violation.oracle);
     let oracle = match crate::domain::oracle::Oracle::parse(&per_check) {
         Some(oracle) => oracle.as_str(),
-        None => "backend-contract",
+        None => "contract",
     };
     json!({
         "oracle": oracle,

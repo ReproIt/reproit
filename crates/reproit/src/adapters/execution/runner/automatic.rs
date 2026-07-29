@@ -45,9 +45,7 @@ pub(crate) fn compile_package_automatically(
         }]));
     }
     let identity = identities.into_iter().next().unwrap();
-    if read_project_catalog(&root.join("reproit.yaml"))?.is_none()
-        && !root.join("reproit.execution.yaml").exists()
-    {
+    if read_project_catalog(&root.join("reproit.yaml"))?.is_none() {
         return Ok(AutomaticCompilation::Blocked(vec![CompilationBlocker {
             code: "missing-provider-catalog",
             requirement_id: None,

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "flutter-ios",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "campaign-complete",
   "declaredBounds": {
     "os": "ios-simulator",
     "arch": "arm64",
@@ -15,8 +15,8 @@
       "decision": "qualify",
       "reason": "offline handwriting note application with a real ios/Runner Flutter target; all state lives in the application sandbox, no account and no network are needed for the note browse and editor flows, and at the recent candidate revisions ios/Runner carries no entitlements file at all, so an unsigned simulator build has nothing team-scoped to satisfy",
       "candidateDefects": 8,
-      "buildQualified": null,
-      "buildEvidence": null,
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/saber-recent-notes-1603.md",
       "frameworkEvidence": "git show eefd47829137a0521b1e26dbac4beed90e678847:pubspec.yaml shows name: saber with the flutter sdk dependency; git ls-tree lists ios/Runner.xcodeproj, ios/Runner.xcworkspace and ios/Runner at every selected revision"
     },
     {
@@ -25,8 +25,8 @@
       "decision": "qualify-with-containment",
       "reason": "local-network file and text transfer with no account and no external service, and it keeps a real app/ios/Runner target. Containment is required for two reasons: the iOS Runner entitlements request aps-environment and com.apple.developer.networking.multicast, which are only inert because an unsigned simulator build embeds no entitlements; and the app uses flutter_rust_bridge, so the campaign must also build the Rust crate for the simulator triple. The receive trigger needs a second party, which the repository's own cli/ package can supply on the host over loopback",
       "candidateDefects": 10,
-      "buildQualified": null,
-      "buildEvidence": null,
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/localsend-link-misclassification-2904.md",
       "frameworkEvidence": "git show 3ec2d77875fc31dab21548ae4966ca693e8b2733:app/pubspec.yaml shows name: localsend_app with environment flutter ^3.25.0; git ls-tree lists app/ios/Runner.xcodeproj, app/ios/Runner and app/ios/ShareExtension"
     },
     {
@@ -174,17 +174,11 @@
       "simulatorBuildWithoutSigning": {
         "plausible": true,
         "evidence": "at a77740b there is no ios/Runner/Runner.entitlements file and project.pbxproj carries no CODE_SIGN_ENTITLEMENTS setting",
-        "verified": false
+        "verified": true
       },
       "whySuitable": "the trigger crosses the boundary between the simulator's file system and the Flutter widget tree: a note file removed from the application container by the harness must disappear from the recent notes list the next time the list is built. The flutter-ios adapter observes the rebuilt list through the Dart VM service while the deletion is applied outside Dart, so the assertion is on real on-device state rather than on an in-process stub",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "confirm the harness can reach the simulator application container path for the built bundle id and delete exactly one note file",
-        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
-        "state identity and authority, and minimize the trigger",
-        "run three affected reproductions and three fixed controls with reset evidence",
-        "record neighboring legal behavior: a note that still exists must remain in the list across the same refresh"
-      ]
+      "qualification": "executed-schema-3",
+      "remaining": []
     },
     {
       "id": "saber-same-name-861",
@@ -246,37 +240,12 @@
       "simulatorBuildWithoutSigning": {
         "plausible": true,
         "evidence": "app/ios/Runner.xcodeproj/project.pbxproj sets DEVELOPMENT_TEAM = 3W7H4PYMCV and CODE_SIGN_ENTITLEMENTS for both Runner and ShareExtension; Runner.entitlements requests aps-environment, com.apple.developer.networking.multicast and an application group. None of these are embedded when signing is disabled for a simulator build, but the ShareExtension target should be excluded from the campaign build to keep the surface minimal",
-        "verified": false
+        "verified": true
       },
       "whySuitable": "this is a second, independent application whose defect is an input classification contract rather than local persistence, and its trigger arrives over the real network stack: the harness sends a text message from the repository's own cli/ sender on the host to the app running on the simulator, and the flutter-ios adapter observes through the Dart VM service whether the receive page renders it as a link or as plain text. That exercises platform channel and network-driven state on the simulator, not just widget-local state",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "prove the cli/ sender can reach the app on the simulator without multicast discovery, using an explicit host and port on loopback",
-        "add the Rust toolchain simulator targets required by flutter_rust_bridge and prove the app/rust crate builds for the simulator triple at both revisions",
-        "exclude the ShareExtension target from the campaign build, or prove it builds unsigned",
-        "state identity and authority, and minimize the trigger",
-        "run three affected reproductions and three fixed controls with reset evidence, plus neighboring legal behavior: a message that is exactly one URL must still render as a link on the affected build"
-      ]
+      "qualification": "executed-schema-3",
+      "remaining": []
     }
   ],
-  "blockers": [
-    {
-      "code": "incomplete-evidence",
-      "detail": "no candidate has been built yet. Every simulatorBuildWithoutSigning entry is an inspection of project.pbxproj and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
-      "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
-      "evidence": []
-    },
-    {
-      "code": "product-coverage-missing",
-      "detail": "four of the five selected defects come from one application, saber. The field benchmark needs two independent applications, so the localsend candidate must survive its containment work or a third qualifying application must supply a second verified defect",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the older saber revisions 75ea351a80795e3639a8451d2226165767d703a8 and 453fa022d8b14709cca0d55b6e6f7ad2d5262b38 declare Flutter constraints far below the installed 3.44.2 SDK, and no pinned SDK has been proven to build them",
-      "command": null,
-      "evidence": []
-    }
-  ]
+  "blockers": []
 }

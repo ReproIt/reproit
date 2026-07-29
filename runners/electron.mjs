@@ -12,6 +12,8 @@
 //                        takes precedence when set
 //   REPROIT_VIDEO_DIR    where to save the run video (optional)
 //   REPROIT_FUZZ_CONFIG  fuzz config json (seed/budget/replay/prefix/edgeWeights)
+//   REPROIT_ELECTRON_DISABLE_SANDBOX=1
+//                        disable Chromium's sandbox in an already-contained worker
 //
 // Status: validated end-to-end against a real Electron app (dev-dir mode).
 
@@ -2624,6 +2626,13 @@ async function main() {
       : undefined,
   };
   if (launch.args) launchOpts.args = launch.args;
+  if (process.env.REPROIT_ELECTRON_DISABLE_SANDBOX === '1') {
+    launchOpts.args = [
+      ...(launchOpts.args || []),
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+    ];
+  }
   // The release and native-gate workflows install the shared browser runtime
   // from runners/web/package-lock.json. Resolve from that package boundary so
   // ESM lookup does not depend on an accidental runners/node_modules hoist.

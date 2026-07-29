@@ -131,24 +131,24 @@ pub struct Action {
 pub struct Exchange {
     pub id: String,
     pub actor: String,
-    #[serde(rename = "actionIndex", alias = "action_index")]
+    #[serde(rename = "actionIndex")]
     pub action_index: u32,
     pub ordinal: u32,
     pub protocol: String,
     pub method: String,
     pub url: String,
     #[serde(default)]
-    #[serde(rename = "requestHeaders", alias = "request_headers")]
+    #[serde(rename = "requestHeaders")]
     pub request_headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "requestBody", alias = "request_body")]
+    #[serde(rename = "requestBody")]
     pub request_body: Option<Value>,
     pub status: u16,
     #[serde(default)]
-    #[serde(rename = "responseHeaders", alias = "response_headers")]
+    #[serde(rename = "responseHeaders")]
     pub response_headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "responseBody", alias = "response_body")]
+    #[serde(rename = "responseBody")]
     pub response_body: Option<Value>,
     #[serde(default)]
     pub required: bool,
@@ -220,7 +220,6 @@ pub struct Capsule {
     #[serde(
         default,
         rename = "reproductionPlan",
-        alias = "reproduction_plan",
         skip_serializing_if = "Option::is_none"
     )]
     pub reproduction_plan: Option<reproit_protocol::ReproductionPlan>,
@@ -238,9 +237,9 @@ pub struct Capsule {
     /// replay. It never applies the recorded mutation to a real datastore.
     #[serde(default)]
     pub backend_events: Vec<crate::domain::backend::BackendEvent>,
-    #[serde(rename = "causalGraph", alias = "causal_graph")]
+    #[serde(rename = "causalGraph")]
     pub causal_graph: CausalGraph,
-    #[serde(rename = "environmentEnvelope", alias = "environment_envelope")]
+    #[serde(rename = "environmentEnvelope")]
     pub environment_envelope: EnvironmentEnvelope,
     pub finding: FindingIdentity,
     #[serde(default)]
@@ -249,7 +248,7 @@ pub struct Capsule {
 
 impl Capsule {
     fn is_backend_finding(&self) -> bool {
-        self.finding.oracle == "backend-contract" || self.finding.invariant.starts_with("backend:")
+        self.finding.invariant.starts_with("backend:")
     }
 
     pub fn new(app: impl Into<String>, finding: FindingIdentity) -> Self {

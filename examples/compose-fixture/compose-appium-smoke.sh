@@ -98,11 +98,16 @@ if [[ "$launched" != 1 ]]; then
 fi
 sleep 3
 
-REPROIT_APPIUM_CAPS='{"platformName":"Android","appium:automationName":"UiAutomator2",'
-REPROIT_APPIUM_CAPS+="\"appium:udid\":\"$UDID\","
-REPROIT_APPIUM_CAPS+='"appium:appPackage":"com.reproit.composefixture",'
-REPROIT_APPIUM_CAPS+='"appium:appActivity":".MainActivity","appium:noReset":true,'
-REPROIT_APPIUM_CAPS+='"appium:newCommandTimeout":600,"appium:adbExecTimeout":120000}'
+# The embedded quotes are JSON data consumed by the runner, not shell syntax.
+# shellcheck disable=SC2089
+printf -v REPROIT_APPIUM_CAPS '%s%s%s%s%s%s' \
+  '{"platformName":"Android","appium:automationName":"UiAutomator2",' \
+  "\"appium:udid\":\"$UDID\"," \
+  '"appium:appPackage":"com.reproit.composefixture",' \
+  '"appium:appActivity":".MainActivity","appium:noReset":true,' \
+  '"appium:forceAppLaunch":true,' \
+  '"appium:newCommandTimeout":600,"appium:adbExecTimeout":120000}'
+# shellcheck disable=SC2090
 export REPROIT_APPIUM_CAPS
 
 FUZZ="$(mktemp)"

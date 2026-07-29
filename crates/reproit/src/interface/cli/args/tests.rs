@@ -205,28 +205,16 @@ fn check_accepts_a_positional_capture_reference() {
     .is_err());
 }
 
-/// `repro list` is an alias of the top-level `repros` (the primary form).
-#[test]
-fn repro_list_parses_as_the_repros_alias() {
-    let cli = Cli::try_parse_from(["reproit", "repro", "list"]).unwrap();
-    assert!(matches!(
-        cli.command,
-        Cmd::Repro {
-            action: ReproAction::List
-        }
-    ));
-    assert!(matches!(
-        Cli::try_parse_from(["reproit", "repros"]).unwrap().command,
-        Cmd::Repros
-    ));
-}
-
 #[test]
 fn removed_compatibility_commands_are_not_parseable() {
     for args in [
         vec!["reproit", "run"],
         vec!["reproit", "guard"],
         vec!["reproit", "save"],
+        vec!["reproit", "repros"],
+        vec!["reproit", "repro", "list"],
+        vec!["reproit", "candidates"],
+        vec!["reproit", "bugs"],
         vec!["reproit", "pull", "bkt_deadbeef0001"],
         vec!["reproit", "replay", "fnd_deadbeef0001"],
         vec!["reproit", "record"],
@@ -236,6 +224,9 @@ fn removed_compatibility_commands_are_not_parseable() {
         vec!["reproit", "cloud", "login"],
         vec!["reproit", "cloud", "pull"],
         vec!["reproit", "cloud", "reproduce"],
+        vec!["reproit", "init", "--learn"],
+        vec!["reproit", "auth", "verify", "alice"],
+        vec!["reproit", "auth", "discover", "alice"],
         vec![
             "reproit",
             "check",

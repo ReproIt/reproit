@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "windows-wpf",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "flowlauncher-system-language-4518",
+      "repository": "https://github.com/Flow-Launcher/Flow.Launcher",
+      "issueUrl": "https://github.com/Flow-Launcher/Flow.Launcher/issues/4518",
+      "affectedRevision": "447fbea4882b7d1df9bf6c510752dc236a30a115",
+      "fixedRevision": "eb3da1edb942983c14b7c78a4d50dee368c23002",
+      "authority": "authored-contract",
+      "expectedIdentity": "system-language-falls-through-to-english",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "system-language-falls-through-to-english",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "system-language-falls-through-to-english",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "system-language-falls-through-to-english",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 36,
+        "replaySecondsP95": 27.798462,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/flowlauncher-system-language-4518.json",
+        "validation/field/evidence/flowlauncher-system-language-4518.md"
+      ]
+    },
+    {
+      "id": "screentogif-mouse-events-tooltip-1200",
+      "repository": "https://github.com/NickeManarin/ScreenToGif",
+      "issueUrl": "https://github.com/NickeManarin/ScreenToGif/issues/1200",
+      "affectedRevision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1",
+      "fixedRevision": "d71dfbcf02749da7d9303d9c716d76372339acb0",
+      "authority": "authored-contract",
+      "expectedIdentity": "mouse-events-tooltip-uses-old-french-command-label",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "mouse-events-tooltip-uses-old-french-command-label",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "mouse-events-tooltip-uses-old-french-command-label",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "mouse-events-tooltip-uses-old-french-command-label",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 78,
+        "replaySecondsP95": 21.145414,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/screentogif-mouse-events-tooltip-1200.json",
+        "validation/field/evidence/screentogif-mouse-events-tooltip-1200.md"
+      ]
+    }
+  ]
+}

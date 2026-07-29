@@ -17,18 +17,41 @@ adb_run get-state | grep -q device
 test "$(adb_run shell getprop sys.boot_completed | tr -d '\r')" = "1"
 
 APP="$WORK/app"
-flutter create --platforms=android --project-name reproit_flutter_fixture "$APP"
+FLUTTER_CREATE_ARGS=(
+  --platforms=android
+  --project-name reproit_flutter_fixture
+)
+if [[ "${REPROIT_OFFLINE:-0}" == 1 ]]; then
+  FLUTTER_CREATE_ARGS+=(--no-pub)
+fi
+flutter create "${FLUTTER_CREATE_ARGS[@]}" "$APP"
 cp "$ROOT/examples/flutter-fixture/lib/main.dart" "$APP/lib/main.dart"
 cargo build -p reproit --manifest-path "$ROOT/Cargo.toml"
-(cd "$APP" && "$ROOT/target/debug/reproit" init --platform flutter --force --yes)
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+(cd "$APP" && "$CARGO_TARGET_DIR/debug/reproit" init --platform flutter --force --yes)
+if [[ "${REPROIT_OFFLINE:-0}" == 1 ]]; then
+  (cd "$APP" && flutter pub get --offline)
+fi
 printf '{"budget":4}' > "$WORK/fuzz.json"
 
-(cd "$APP" && flutter drive \
-  --driver=test_driver/integration_driver.dart \
-  --target=integration_test/journey_explore.dart \
-  -d "$ANDROID_UDID" \
-  --dart-define=REPROIT_FUZZ_CONFIG="$WORK/fuzz.json" \
-  --dart-define=REPROIT_DEVICE=a) | tee "$WORK/run.log"
+# Flutter 3.41 can fail to establish its API 36 log filter, then parse a stale
+# Dart VM service announcement from the device-wide log buffer. The stale
+# authentication token points the driver at the current app's port but can
+# never authenticate. Clear the buffer immediately before launch so the only
+# VM service announcement belongs to this fresh application.
+adb_run logcat -c
+
+FLUTTER_DRIVE_ARGS=(
+  --driver=test_driver/integration_driver.dart
+  --target=integration_test/journey_explore.dart
+  -d "$ANDROID_UDID"
+  --dart-define=REPROIT_FUZZ_CONFIG="$WORK/fuzz.json"
+  --dart-define=REPROIT_DEVICE=a
+)
+if [[ "${REPROIT_OFFLINE:-0}" == 1 ]]; then
+  FLUTTER_DRIVE_ARGS+=(--no-pub)
+fi
+(cd "$APP" && flutter drive "${FLUTTER_DRIVE_ARGS[@]}") | tee "$WORK/run.log"
 
 grep -q "EXPLORE:STATE " "$WORK/run.log"
 grep -q "EXPLORE:EDGE " "$WORK/run.log"
@@ -36,6 +59,9 @@ grep -q "key:s:toggle" "$WORK/run.log"
 grep -q "Detail revealed" "$WORK/run.log"
 grep -q "JOURNEY DONE" "$WORK/run.log"
 grep -q "All tests passed" "$WORK/run.log"
-! grep -q "EXCEPTION CAUGHT BY REPROIT" "$WORK/run.log"
+if grep -q "EXCEPTION CAUGHT BY REPROIT" "$WORK/run.log"; then
+  echo "FlutterDrive backend reported an explorer exception" >&2
+  exit 1
+fi
 
 echo "FlutterDrive backend passed native Flutter/Android emulator runtime"

@@ -167,8 +167,8 @@ fn inferred_contracts_never_create_findings() {
 }
 
 #[test]
-fn backend_config_parses_auth_block_with_defaults() {
-    let config: BackendConfig = serde_yaml::from_str(
+fn backend_config_rejects_flat_auth_sugar() {
+    let result = serde_yaml::from_str::<BackendConfig>(
         "enabled: true\n\
          schemas: [openapi.json]\n\
          auth:\n  \
@@ -177,31 +177,8 @@ fn backend_config_parses_auth_block_with_defaults() {
              username: ${MEALIE_USER}\n    \
              password: ${MEALIE_PASS}\n  \
            tokenPath: /access_token\n",
-    )
-    .unwrap();
-    let auth = config.auth.expect("auth block parses");
-    // The flat single-login sugar normalizes to a one-identity pool.
-    let accounts = auth.resolved_accounts();
-    assert_eq!(accounts.len(), 1, "flat sugar is one account");
-    let account = &accounts[0];
-    assert_eq!(account.login.path.as_deref(), Some("/api/auth/token"));
-    assert_eq!(account.login.token_path, "/access_token");
-    assert_eq!(account.login.method, "POST", "method defaults to POST");
-    assert_eq!(
-        account
-            .login
-            .form
-            .as_ref()
-            .unwrap()
-            .get("username")
-            .map(String::as_str),
-        Some("${MEALIE_USER}")
     );
-    assert_eq!(
-        account.headers.get("Authorization").map(String::as_str),
-        Some("Bearer {token}"),
-        "the single header defaults to a bearer template"
-    );
+    assert!(result.is_err());
 }
 
 #[test]
@@ -217,7 +194,7 @@ fn backend_config_parses_auth_account_pool() {
                headers: { x-region-session: \"{token}\" }\n",
     )
     .unwrap();
-    let accounts = config.auth.unwrap().resolved_accounts();
+    let accounts = config.auth.unwrap().accounts;
     assert_eq!(accounts.len(), 2, "two pooled identities");
     assert_eq!(accounts[0].headers.len(), 2, "multi-header identity");
     assert_eq!(

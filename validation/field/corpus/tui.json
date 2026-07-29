@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "target": "tui",
+  "worker": {
+    "image": "reproit-stable-corpus:amd64@sha256:1aac631a388f3cb0bb07b399b21c5db904994db03df36c99a90f2628e24ad613",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "fx-valid-json",
+      "kind": "clean",
+      "application": "fx-empty-343",
+      "repository": "https://github.com/antonmedv/fx",
+      "revision": "14b2139b55627a823201aac8972699daf90076ce",
+      "fixture": "generated-valid-json",
+      "variant": "nonempty-json",
+      "why": "a nonempty JSON document renders normally in a fresh PTY",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observationReached": true,
+        "inputSent": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "exitCode": 0,
+        "elapsedSeconds": 3.078,
+        "screen": "{\n  \"alpha\": 1\n}\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n                                                                                                           1% valid.json",
+        "ptyBytes": 802,
+        "ptyTailHex": "5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b33303b34376d202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202031252076616c69642e6a736f6e1b5b306d1b5b34303b48",
+        "ptySha256": "sha256:a0730c1b2d96d7d787a5af2bcca05b9bbc2f5e335d797eb6d4e0eeb229ea3999",
+        "legalBehaviorObserved": true,
+        "legalBehavior": "valid JSON rendered its key",
+        "identity": null
+      }
+    },
+    {
+      "id": "fx-fixed-empty-file",
+      "kind": "adversarial",
+      "application": "fx-empty-343",
+      "repository": "https://github.com/antonmedv/fx",
+      "revision": "14b2139b55627a823201aac8972699daf90076ce",
+      "fixture": "generated-empty-json",
+      "variant": "fixed-empty-file",
+      "why": "the repaired empty-file behavior resembles the old stall but completes legally",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observationReached": true,
+        "inputSent": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "exitCode": 0,
+        "elapsedSeconds": 3.078,
+        "screen": "~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n~\n                                                                                        -9223372036854775808% empty.json",
+        "ptyBytes": 790,
+        "ptyTailHex": "5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b39306d7e1b5b306d1b5b4b0d0a1b5b33303b34376d202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202d393232333337323033363835343737353830382520656d7074792e6a736f6e1b5b306d1b5b34303b48",
+        "ptySha256": "sha256:117566f55061332b9fa53b383aab26fd7a2be38380f2dce6b965dee523a8023e",
+        "legalBehaviorObserved": true,
+        "legalBehavior": "the fixed empty-file path completed instead of remaining in indexing",
+        "identity": null
+      }
+    },
+    {
+      "id": "nnn-all-rows-match",
+      "kind": "adversarial",
+      "application": "nnn-filter-2120",
+      "repository": "https://github.com/jarun/nnn",
+      "revision": "c73600a0da993b4675a6e6c7357546d5de22b4d1",
+      "fixture": "generated-three-file-directory",
+      "variant": "all-rows-legally-match",
+      "why": "a broad filter legally retains every row because every filename matches",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observationReached": true,
+        "inputSent": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "exitCode": null,
+        "elapsedSeconds": 0.32,
+        "screen": "1 2 3 4 5 6 7 8 ~\n\n>2026-07-29 09:42  644       0B  alpha.txt\n 2026-07-29 09:42  644       0B  beta.txt\n 2026-07-29 09:42  644       0B  gamma.txt\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n                                                                                                         str [/], ic [:]\n/a",
+        "ptyBytes": 303,
+        "ptyTailHex": "312032203320342035203620372038207e0a0a3e323032362d30372d32392030393a343220203634342020202020202030422020616c7068612e7478740a20323032362d30372d32392030393a343220203634342020202020202030422020626574612e7478740a20323032362d30372d32392030393a34322020363434202020202020203042202067616d6d612e7478740a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020737472205b2f5d2c206963205b3a5d0a2f61",
+        "ptySha256": "sha256:49912bf4a62967f9751b307e158798096dc8249a54023c5dc9db3cf963fb9429",
+        "legalBehaviorObserved": true,
+        "legalBehavior": "filtering by a retained all three legitimate matching rows",
+        "identity": null
+      }
+    }
+  ]
+}

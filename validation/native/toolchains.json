@@ -12,8 +12,8 @@
     "androidApi": 30,
     "androidArchitecture": "x86_64",
     "xcodeByProfile": {
-      "macos-appium": "16.4",
-      "macos-flutter": "16.4",
+      "macos-appium": "26.2",
+      "macos-flutter": "26.2",
       "macos-ax": "26.2"
     }
   },

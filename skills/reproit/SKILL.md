@@ -78,7 +78,7 @@ rules, output format, and browser route-access example.
 - Confirm with `check` before fixing and after fixing. No exceptions.
 - Screens are keyed **structurally** (roles + dev keys, text excluded), so the graph is
   locale-invariant. Do not assume a screen changed just because text did.
-- `reproit repros` lists saved guards + last status. `reproit watch <id>` opens the recorded video
+- `reproit list` lists saved guards + last status. `reproit watch <id>` opens the recorded video
   for a finding (make one with `reproit <id> --record-video`).
 - `reproit repro simplify <id> --to '[...]'` adopts a shorter action sequence that reproit verifies
   still reproduces; `reproit repro why <id>` localizes.

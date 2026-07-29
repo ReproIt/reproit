@@ -86,23 +86,18 @@ mod tests {
 
     // The ORACLES metadata table is the code source of truth for oracle
     // identity. Every enum variant must have exactly one row, and no id,
-    // alias, invariant id, or kind token may resolve to two rows, or parse
-    // and classify become order-dependent.
+    // invariant id, or kind token may resolve to two rows, or parse and
+    // classify become order-dependent.
     #[test]
     fn oracle_table_has_one_unambiguous_row_per_variant() {
         assert_eq!(ORACLES.len(), 57, "row count tracks the Oracle enum");
         let mut ids = BTreeSet::new();
-        let mut names = BTreeSet::new();
         let mut invariants = BTreeSet::new();
         let mut kinds = BTreeSet::new();
         for m in ORACLES {
             assert_eq!(Oracle::parse(m.id), Some(m.oracle), "{} parses", m.id);
             assert_eq!(m.oracle.as_str(), m.id);
             assert!(ids.insert(m.id), "duplicate row for {}", m.id);
-            assert!(names.insert(m.id), "id {} collides", m.id);
-            for a in m.aliases {
-                assert!(names.insert(a), "alias {a} of {} collides", m.id);
-            }
             for i in m.invariants {
                 assert!(invariants.insert(i), "invariant {i} maps to two rows");
             }
@@ -210,7 +205,7 @@ mod tests {
         assert_eq!(classify(&json!({ "invariant": "no-jank" })), Oracle::Jank);
         assert_eq!(classify(&json!({ "invariant": "no-leak" })), Oracle::Leak);
         assert_eq!(
-            classify(&json!({ "oracle": "backend-contract", "kind": "response-shape" })),
+            classify(&json!({ "oracle": "contract", "kind": "response-shape" })),
             Oracle::Contract
         );
         // Listener leak folds into the Leak oracle (invariant id AND kind).
@@ -235,17 +230,17 @@ mod tests {
         assert_eq!(classify(&json!({ "kind": "HANG" })), Oracle::Hang);
         // The web jank path reuses the no-jank invariant -> jank category.
         assert_eq!(classify(&json!({ "invariant": "no-jank" })), Oracle::Jank);
-        // The new categories parse from their --only/--no names + aliases.
+        // Filters accept only canonical oracle ids.
         assert_eq!(Oracle::parse("content-bug"), Some(Oracle::ContentBug));
-        assert_eq!(Oracle::parse("content"), Some(Oracle::ContentBug));
+        assert_eq!(Oracle::parse("content"), None);
         assert_eq!(
             classify(&json!({ "invariant": "no-layout-overflow" })),
             Oracle::Overflow
         );
         assert_eq!(classify(&json!({ "kind": "OVERFLOW" })), Oracle::Overflow);
-        assert_eq!(Oracle::parse("layout-overflow"), Some(Oracle::Overflow));
+        assert_eq!(Oracle::parse("layout-overflow"), None);
         assert_eq!(Oracle::parse("hang"), Some(Oracle::Hang));
-        assert_eq!(Oracle::parse("freeze"), Some(Oracle::Hang));
+        assert_eq!(Oracle::parse("freeze"), None);
         assert_eq!(classify(&json!({ "kind": "PERF" })), Oracle::Jank);
         // Choice-anomaly must NOT fall through to crash (it has its own category).
         assert_eq!(
@@ -253,15 +248,14 @@ mod tests {
             Oracle::ChoiceAnomaly
         );
         assert_eq!(Oracle::parse("choice-anomaly"), Some(Oracle::ChoiceAnomaly));
-        // Broken-route is its own category, parsed from its names/aliases.
+        // Broken-route is its own canonical category.
         assert_eq!(
             classify(&json!({ "invariant": "no-broken-route" })),
             Oracle::BrokenRoute
         );
         assert_eq!(Oracle::parse("broken-route"), Some(Oracle::BrokenRoute));
-        assert_eq!(Oracle::parse("404"), Some(Oracle::BrokenRoute));
-        // Duplicate-submit maps from its invariant AND its kind, and parses from
-        // its --only/--no names + aliases.
+        assert_eq!(Oracle::parse("404"), None);
+        // Duplicate-submit maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-duplicate-submit" })),
             Oracle::DuplicateSubmit
@@ -274,22 +268,17 @@ mod tests {
             Oracle::parse("duplicate-submit"),
             Some(Oracle::DuplicateSubmit)
         );
-        assert_eq!(Oracle::parse("dupsubmit"), Some(Oracle::DuplicateSubmit));
-        assert_eq!(
-            Oracle::parse("double-submit"),
-            Some(Oracle::DuplicateSubmit)
-        );
-        // Focus-loss maps from its invariant AND its kind, and parses from its
-        // --only/--no names + aliases.
+        assert_eq!(Oracle::parse("dupsubmit"), None);
+        assert_eq!(Oracle::parse("double-submit"), None);
+        // Focus-loss maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-focus-loss" })),
             Oracle::FocusLoss
         );
         assert_eq!(classify(&json!({ "kind": "FOCUSLOSS" })), Oracle::FocusLoss);
         assert_eq!(Oracle::parse("focus-loss"), Some(Oracle::FocusLoss));
-        assert_eq!(Oracle::parse("focusloss"), Some(Oracle::FocusLoss));
-        // Zoom-reflow maps from its invariant AND its kind, and parses from its
-        // --only/--no names + aliases.
+        assert_eq!(Oracle::parse("focusloss"), None);
+        // Zoom-reflow maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-reflow-break" })),
             Oracle::ZoomReflow
@@ -299,17 +288,17 @@ mod tests {
             Oracle::ZoomReflow
         );
         assert_eq!(Oracle::parse("zoom-reflow"), Some(Oracle::ZoomReflow));
-        assert_eq!(Oracle::parse("reflow"), Some(Oracle::ZoomReflow));
-        assert_eq!(Oracle::parse("zoom"), Some(Oracle::ZoomReflow));
+        assert_eq!(Oracle::parse("reflow"), None);
+        assert_eq!(Oracle::parse("zoom"), None);
         // Rotation + background-restore (the lifecycle-metamorphic oracles) map
-        // from their invariant AND kind, and parse from their names + aliases.
+        // from their invariant and kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-rotation-loss" })),
             Oracle::Rotation
         );
         assert_eq!(classify(&json!({ "kind": "ROTATION" })), Oracle::Rotation);
         assert_eq!(Oracle::parse("rotation"), Some(Oracle::Rotation));
-        assert_eq!(Oracle::parse("orientation"), Some(Oracle::Rotation));
+        assert_eq!(Oracle::parse("orientation"), None);
         assert_eq!(
             classify(&json!({ "invariant": "no-background-loss" })),
             Oracle::BackgroundRestore
@@ -322,9 +311,8 @@ mod tests {
             Oracle::parse("background-restore"),
             Some(Oracle::BackgroundRestore)
         );
-        assert_eq!(Oracle::parse("lifecycle"), Some(Oracle::BackgroundRestore));
-        // Scroll-round-trip maps from its invariant AND its kind, and parses
-        // from its --only/--no names + aliases.
+        assert_eq!(Oracle::parse("lifecycle"), None);
+        // Scroll-round-trip maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-scroll-recycle" })),
             Oracle::ScrollRoundTrip
@@ -337,27 +325,24 @@ mod tests {
             Oracle::parse("scroll-round-trip"),
             Some(Oracle::ScrollRoundTrip)
         );
-        assert_eq!(Oracle::parse("list-recycle"), Some(Oracle::ScrollRoundTrip));
-        // Wakelock maps from its invariant AND its kind, and parses from its
-        // --only/--no names + aliases (Android battery-drain oracle).
+        assert_eq!(Oracle::parse("list-recycle"), None);
+        // Wakelock maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-wakelock-leak" })),
             Oracle::WakeLock
         );
         assert_eq!(classify(&json!({ "kind": "WAKELOCK" })), Oracle::WakeLock);
         assert_eq!(Oracle::parse("wakelock"), Some(Oracle::WakeLock));
-        assert_eq!(Oracle::parse("keep-screen-on"), Some(Oracle::WakeLock));
-        // Safe-area maps from its invariant AND its kind, and parses from its
-        // --only/--no names + aliases (never falling through to crash).
+        assert_eq!(Oracle::parse("keep-screen-on"), None);
+        // Safe-area maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-safe-area-collision" })),
             Oracle::SafeArea
         );
         assert_eq!(classify(&json!({ "kind": "SAFEAREA" })), Oracle::SafeArea);
         assert_eq!(Oracle::parse("safe-area"), Some(Oracle::SafeArea));
-        assert_eq!(Oracle::parse("notch"), Some(Oracle::SafeArea));
-        // Permission-walk maps from its invariant AND its kind, and parses from
-        // its --only/--no names + aliases.
+        assert_eq!(Oracle::parse("notch"), None);
+        // Permission-walk maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-permission-dead-end" })),
             Oracle::PermissionWalk
@@ -370,9 +355,8 @@ mod tests {
             Oracle::parse("permission-walk"),
             Some(Oracle::PermissionWalk)
         );
-        assert_eq!(Oracle::parse("permission"), Some(Oracle::PermissionWalk));
-        // Zero-contrast maps from its invariant AND its kind, and parses from
-        // its --only/--no names + aliases.
+        assert_eq!(Oracle::parse("permission"), None);
+        // Zero-contrast maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-zero-contrast" })),
             Oracle::ZeroContrast
@@ -382,23 +366,18 @@ mod tests {
             Oracle::ZeroContrast
         );
         assert_eq!(Oracle::parse("zero-contrast"), Some(Oracle::ZeroContrast));
-        assert_eq!(
-            Oracle::parse("invisible-content"),
-            Some(Oracle::ZeroContrast)
-        );
-        // Dead-input maps from its invariant AND its kind, and parses from
-        // its --only/--no names + aliases.
+        assert_eq!(Oracle::parse("invisible-content"), None);
+        // Dead-input maps from its invariant and its kind.
         assert_eq!(
             classify(&json!({ "invariant": "no-dead-input" })),
             Oracle::DeadInput
         );
         assert_eq!(classify(&json!({ "kind": "DEADINPUT" })), Oracle::DeadInput);
         assert_eq!(Oracle::parse("dead-input"), Some(Oracle::DeadInput));
-        assert_eq!(Oracle::parse("input-liveness"), Some(Oracle::DeadInput));
+        assert_eq!(Oracle::parse("input-liveness"), None);
         // Backend contract family: per-check findings classify from their
         // "backend:<check>" invariant into their first-class category, while
-        // legacy artifacts stamped with the umbrella oracle keep classifying
-        // as Contract (the oracle special-case wins over the invariant).
+        // A canonical backend invariant classifies to its exact oracle.
         assert_eq!(
             classify(&json!({ "invariant": "backend:data-loss" })),
             Oracle::BackendDataLoss
@@ -409,7 +388,7 @@ mod tests {
         );
         assert_eq!(
             classify(&json!({ "oracle": "backend-contract", "invariant": "backend:data-loss" })),
-            Oracle::Contract
+            Oracle::BackendDataLoss
         );
         assert_eq!(
             Oracle::parse("backend-data-loss"),
@@ -535,15 +514,9 @@ mod tests {
                 RunTarget::Engine("webkit".into()),
             ]
         );
-        // Engine aliases canonicalize (chrome->chromium, safari->webkit).
-        let (rts2, _) = parse_run_targets("chrome,safari");
-        assert_eq!(
-            rts2,
-            vec![
-                RunTarget::Engine("chromium".into()),
-                RunTarget::Engine("webkit".into()),
-            ]
-        );
+        let (rts2, unknown) = parse_run_targets("chrome,safari");
+        assert!(rts2.is_empty());
+        assert_eq!(unknown, vec!["chrome".to_string(), "safari".to_string()]);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "policy": {
     "stableMinIndependentApplications": 2,
     "affectedReproductionsPerApplication": 3,
@@ -9,12 +9,7 @@
     "requireNeighboringLegalBehavior": true,
     "requireExactCommitNativeEvidence": true,
     "newPromotionStandard": "schema-3",
-    "grandfatheredStableTargets": [
-      "tui",
-      "web-chromium",
-      "web-firefox",
-      "web-webkit"
-    ]
+    "grandfatheredStableTargets": []
   },
   "counts": {
     "stable": 5,
@@ -60,6 +55,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -104,6 +100,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -149,6 +146,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": []
     },
     {
@@ -184,6 +182,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -209,10 +208,10 @@
         "flutter-ios"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/flutter-ios.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -232,14 +231,11 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+          "detail": "the flutter-ios native gate passed the current candidate working tree, but the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned Xcode 16.4 preflight"
         }
       ]
     },
@@ -277,7 +273,12 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
+        {
+          "code": "environment-unreachable",
+          "detail": "the Linux GTK gate builds on the local x86_64 worker, but both owned fixture processes remain absent from the AT-SPI application bus before the first action"
+        },
         {
           "code": "incomplete-evidence",
           "detail": "no application campaign has been executed. 5 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
@@ -322,6 +323,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -366,6 +368,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -410,6 +413,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -455,6 +459,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -503,6 +508,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -547,6 +553,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -591,6 +598,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -635,6 +643,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -655,11 +664,11 @@
       "nativeGates": [
         "tui-pty"
       ],
-      "promotionStandard": "schema-2",
+      "promotionStandard": "schema-3",
       "fieldBenchmark": "validation/field/tui.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -681,6 +690,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": []
     },
     {
@@ -692,11 +702,11 @@
       "nativeGates": [
         "web-chromium"
       ],
-      "promotionStandard": "schema-2",
+      "promotionStandard": "schema-3",
       "fieldBenchmark": "validation/field/benchmark.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -716,6 +726,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": []
     },
     {
@@ -727,11 +738,11 @@
       "nativeGates": [
         "web-engines"
       ],
-      "promotionStandard": "schema-2",
+      "promotionStandard": "schema-3",
       "fieldBenchmark": "validation/field/web-firefox.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -751,6 +762,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": []
     },
     {
@@ -762,11 +774,11 @@
       "nativeGates": [
         "web-engines"
       ],
-      "promotionStandard": "schema-2",
+      "promotionStandard": "schema-3",
       "fieldBenchmark": "validation/field/web-webkit.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -786,6 +798,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": []
     },
     {
@@ -821,6 +834,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -870,6 +884,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
@@ -918,6 +933,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
+      "productionToLocalEvidence": null,
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",

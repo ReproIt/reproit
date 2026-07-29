@@ -336,7 +336,7 @@ const MAX_WORKSPACE_MEMBERS: usize = 64;
 /// members. A Cargo workspace root declares `[workspace] members = [...]` and
 /// usually has no dependencies of its own, so reading only the root manifest
 /// reported "no backend" for every workspace-layout service: the common shape
-/// for exactly the Rust projects that most need `--learn`.
+/// for exactly the Rust projects that most need source derivation.
 fn detect_cargo_framework(dir: &Path) -> Option<&'static str> {
     let root = manifest(dir, "Cargo.toml")?;
     if let Some(name) = cargo_framework(&root) {

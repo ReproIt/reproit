@@ -850,7 +850,7 @@ async fn adapter_checks(
 /// A schema is hand-written far more often than generated, and nothing verified
 /// it against the code: a mistyped path 404s on every attempt while still
 /// reporting as an exercised operation, and a route missing from the schema is
-/// real surface nothing will ever test. `--learn`'s extractor already reads
+/// real surface nothing will ever test. `init`'s extractor already reads
 /// routes from source, so this points it at validation.
 ///
 /// Reports "not checked" rather than a pass whenever the comparison could not
@@ -883,7 +883,7 @@ fn doctor_schema_drift(
                     services.len(),
                     services.join(", ")
                 ),
-                Some("backend.source scopes --learn and this check to one service".into()),
+                Some("backend.source scopes init and this check to one service".into()),
             );
             return;
         }
@@ -947,7 +947,7 @@ fn doctor_schema_drift(
             report.join("\n    ")
         ),
         Some(
-            "reproit init --learn rewrites the draft from source. A route the extractor \
+            "reproit init rewrites the draft from source. A route the extractor \
              cannot read looks the same as one that does not exist, so confirm before \
              changing a path"
                 .into(),

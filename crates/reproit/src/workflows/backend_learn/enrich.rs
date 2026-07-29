@@ -1,4 +1,4 @@
-//! Optional live enrichment for `reproit init --learn`: one bounded GET per
+//! Optional live enrichment for `reproit init`: one bounded GET per
 //! parameterless derived GET route against the resolved target. Non-GET
 //! methods are never sent. Every probe is fail-soft; the whole pass has a
 //! hard route cap and time budget.

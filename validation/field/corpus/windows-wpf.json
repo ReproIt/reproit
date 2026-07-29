@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-wpf",
+  "worker": {
+    "image": "native-windows-vm:Microsoft-Windows-NT-10.0.26100.0",
+    "platform": "windows/x86_64/WPF/UIA",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "flow-fixed-fr-clean",
+      "kind": "clean",
+      "application": "Flow Launcher",
+      "repository": "https://github.com/Flow-Launcher/Flow.Launcher",
+      "revision": "eb3da1edb942983c14b7c78a4d50dee368c23002",
+      "fixture": "validation/field/windows/run-windows-wpf-corpus.ps1",
+      "variant": "fixed revision, fresh portable profile, fr-FR, Language=system",
+      "why": "the fixed application is a clean subject that must select its supported French WPF resources without reporting the system-language defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "automationId": "TitleTextBlock",
+        "observedTitle": "Bienvenue dans Flow Launcher",
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules",
+        "rawRecordSha256": "888bd2acd9165d24532d6067126019aaffe3c86da7366ee217dc6bc3d51a5119"
+      }
+    },
+    {
+      "id": "flow-affected-en-adversarial",
+      "kind": "adversarial",
+      "application": "Flow Launcher",
+      "repository": "https://github.com/Flow-Launcher/Flow.Launcher",
+      "revision": "447fbea4882b7d1df9bf6c510752dc236a30a115",
+      "fixture": "validation/field/windows/run-windows-wpf-corpus.ps1",
+      "variant": "affected revision, fresh portable profile, en-US, Language=system",
+      "why": "the English title superficially matches the defect observation, but it is legal under en-US and must not be classified as the French system-language failure",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "automationId": "TitleTextBlock",
+        "observedTitle": "Welcome to Flow Launcher",
+        "cleanLaunch": true,
+        "probeCulture": "en-US",
+        "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules",
+        "rawRecordSha256": "e3b7581cd485be8789ae55a03dca1402c6e49bdd196fa42d02c0a1126936525a"
+      }
+    },
+    {
+      "id": "screentogif-affected-shapes-adversarial",
+      "kind": "adversarial",
+      "application": "ScreenToGif",
+      "repository": "https://github.com/NickeManarin/ScreenToGif",
+      "revision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1",
+      "fixture": "validation/field/windows/run-windows-wpf-corpus.ps1",
+      "variant": "affected revision, French Image tab, adjacent Shapes tooltip",
+      "why": "the same custom WPF ribbon, pointer hover, and tooltip observation path is exercised on an adjacent unchanged command and must not report the Mouse Events label defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "controlType": "ControlType.ToolTip",
+        "observedTooltip": "Ajouter des formes (Alt + J)",
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules",
+        "rawRecordSha256": "dfd97f93192f9314328e681a06892b2b8951372784e3c207595156ef8cf6e1d6"
+      }
+    }
+  ]
+}

@@ -175,7 +175,7 @@ pub(super) async fn run_check_targets(
     // The suite: a single named repro, or every saved repro.
     let metas = match repro {
         Some(r) => vec![repro::resolve(&loaded.root, r).ok_or_else(|| {
-            anyhow::anyhow!("no repro `{r}` (by id or alias). List them with `reproit repros`.")
+            anyhow::anyhow!("no repro `{r}` (by id or alias). List them with `reproit list`.")
         })?],
         None => repro::list(&loaded.root),
     };

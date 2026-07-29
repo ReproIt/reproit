@@ -11,8 +11,7 @@ mod actions;
 
 pub(crate) use actions::*;
 
-/// The listed commands are the product loop. Compatibility aliases and
-/// specialist operations remain available through `reproit help <command>`.
+/// The listed commands are the complete public product loop.
 const AFTER_HELP: &str = concat!(
     "Known failure:\n",
     "  reproit capture       preserve a UI or command failure\n",
@@ -25,8 +24,7 @@ const AFTER_HELP: &str = concat!(
     "  reproit keep <id>     preserve it as a regression guard\n",
     "  reproit check         prove saved failures remain fixed\n",
     "  reproit list          show local guards\n",
-    "\nUtilities: doctor, login, reset, update. Existing scan, fuzz, collect,\n",
-    "create, verify, and specialist commands remain compatible.",
+    "\nUtilities: doctor and login.",
 );
 
 #[derive(Parser)]
@@ -293,16 +291,11 @@ pub(crate) enum Cmd {
     Init {
         /// Running web app to initialize. A URL always selects the web UI
         /// workflow.
-        #[arg(value_name = "URL", conflicts_with = "learn")]
+        #[arg(value_name = "URL")]
         target: Option<String>,
         /// Platform override: flutter | web | rn | android | backend.
         #[arg(long)]
         platform: Option<String>,
-        /// Deprecated: deriving a draft schema from source is what `init` does
-        /// when a backend project has none. Accepted so existing scripts keep
-        /// working; it changes nothing.
-        #[arg(long, hide = true)]
-        learn: bool,
         /// Running service base URL. When a draft is derived from source,
         /// reproit sends one bounded GET per parameterless GET route and
         /// records the observed response.
@@ -678,20 +671,6 @@ pub(crate) enum Cmd {
         #[arg(long)]
         list: bool,
     },
-    /// List discovered candidates that are still blocked from promotion, with
-    /// the exact missing proof stages.
-    #[command(hide = true)]
-    Candidates,
-    /// List saved local repros under .reproit/repros/.
-    #[command(hide = true)]
-    Repros,
-    /// List confirmed production bugs, impact-ranked, for the project selected
-    /// during `reproit login`.
-    #[command(hide = true)]
-    Bugs {
-        /// Filter by message, signature, or bucket id.
-        query: Option<String>,
-    },
     /// Internal route for the direct `reproit bkt_...` form.
     #[command(name = "__replay-bucket", hide = true)]
     ReplayBucket {
@@ -808,8 +787,8 @@ pub(crate) enum Cmd {
     /// Diagnose local setup: config, runner deps, app URL, and cloud
     /// credentials.
     Doctor,
-    /// Configure and verify one test login. `auth verify <account>` replays the
-    /// contract directly; `auth discover <account>` regenerates it first.
+    /// Configure and verify one test login. `auth <account>` replays the
+    /// contract directly; `--discover` regenerates it first.
     #[command(hide = true)]
     Auth {
         account: String,

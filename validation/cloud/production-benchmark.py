@@ -57,6 +57,7 @@ def percentile(values, percentile_value):
 path = [
     {"signature": "home", "action": "tap:key:testid:contract-crash", "label": None},
 ]
+occurrence_identities = []
 
 
 def event_batch(batch_label, finding_count):
@@ -65,6 +66,7 @@ def event_batch(batch_label, finding_count):
     sequence = 1
     for occurrence in range(finding_count):
         run_id = f"release-gate-{batch_label}-{occurrence}-{uuid.uuid4().hex}"
+        occurrence_identities.append(run_id)
         frames.append(
             {
                 "runId": run_id,
@@ -199,6 +201,8 @@ if maximum > MAX_CEILING_MS:
 
 result = {
     "base": BASE,
+    "projectId": APP,
+    "occurrenceId": occurrence_identities[0],
     "batches": BATCHES,
     "errorsPerBatch": ERRORS_PER_BATCH,
     "occurrences": BATCHES * ERRORS_PER_BATCH,

@@ -9,12 +9,7 @@
     "requireNeighboringLegalBehavior": true,
     "requireExactCommitNativeEvidence": true,
     "newPromotionStandard": "schema-3",
-    "grandfatheredStableTargets": [
-      "tui",
-      "web-chromium",
-      "web-firefox",
-      "web-webkit"
-    ]
+    "grandfatheredStableTargets": []
   },
   "comment": "Canonical atomic compatibility contract. Public support claims, native release gates, field qualification, and promotion blockers derive from this file.",
   "targets": {
@@ -30,13 +25,15 @@
         "web-chromium": "linux-hosted"
       },
       "promotion": {
-        "standard": "schema-2",
+        "standard": "schema-3",
         "fieldBenchmark": "validation/field/benchmark.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/web-chromium.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/web-chromium.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -55,7 +52,10 @@
             "DOM applications"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": []
       }
     },
@@ -71,13 +71,15 @@
         "web-engines": "linux-hosted"
       },
       "promotion": {
-        "standard": "schema-2",
+        "standard": "schema-3",
         "fieldBenchmark": "validation/field/web-firefox.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/web-firefox.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/web-firefox.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -96,7 +98,10 @@
             "DOM applications"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": []
       }
     },
@@ -112,13 +117,15 @@
         "web-engines": "linux-hosted"
       },
       "promotion": {
-        "standard": "schema-2",
+        "standard": "schema-3",
         "fieldBenchmark": "validation/field/web-webkit.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/web-webkit.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/web-webkit.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -137,7 +144,10 @@
             "DOM applications"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": []
       }
     },
@@ -154,12 +164,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/flutter-ios.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/flutter-ios.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/flutter-ios.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -178,21 +190,18 @@
             "Flutter"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
-            "command": null,
+            "detail": "the flutter-ios native gate passed the current candidate working tree, but the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned Xcode 16.4 preflight",
+            "command": "RUSTUP_TOOLCHAIN=1.88.0 REPROIT_GATE_OUTPUT_DIR=target/reproit-validation/flutter-ios-current-tree python3 validation/backends/gate.py flutter-ios --architecture arm64",
             "evidence": [
-              "validation/field/qualification/flutter-ios.json"
+              "validation/field/evidence/flutter-ios-corpus-and-native-current-tree.md"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
           }
         ]
       }
@@ -234,7 +243,10 @@
             "Flutter"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -298,7 +310,10 @@
             "React Native"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -354,7 +369,10 @@
             "React Native"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -410,7 +428,10 @@
             "Jetpack Compose"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -464,7 +485,10 @@
             "SwiftUI"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -519,7 +543,10 @@
             "AppKit"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -583,7 +610,10 @@
             "WPF"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -647,7 +677,10 @@
             "Avalonia"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -712,7 +745,10 @@
             "WinUI 3"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -777,8 +813,19 @@
             "GTK 4"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
+          {
+            "code": "environment-unreachable",
+            "detail": "the Linux GTK gate builds on the local x86_64 worker, but both owned fixture processes remain absent from the AT-SPI application bus before the first action",
+            "command": "DOCKER_DEFAULT_PLATFORM=linux/amd64 bash .github/scripts/atspi-scenario-e2e.sh",
+            "evidence": [
+              "validation/field/evidence/linux-atspi-amd64-local.md"
+            ]
+          },
           {
             "code": "incomplete-evidence",
             "detail": "no application campaign has been executed. 5 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
@@ -833,7 +880,10 @@
             "Qt Widgets"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -890,7 +940,10 @@
             "Qt Quick/QML"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -946,7 +999,10 @@
             "wxWidgets"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -977,13 +1033,15 @@
         "tui-pty": "linux-hosted"
       },
       "promotion": {
-        "standard": "schema-2",
+        "standard": "schema-3",
         "fieldBenchmark": "validation/field/tui.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/tui.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/tui.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -1004,7 +1062,10 @@
             "Python terminal apps"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": []
       }
     },
@@ -1048,7 +1109,10 @@
             "Electron"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": []
       }
     },
@@ -1089,7 +1153,10 @@
             "Tauri"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",
@@ -1149,7 +1216,10 @@
             "Backend services"
           ]
         },
-        "productionToLocal": "Unqualified",
+        "productionToLocal": {
+          "level": "Unqualified",
+          "evidence": null
+        },
         "blockers": [
           {
             "code": "incomplete-evidence",

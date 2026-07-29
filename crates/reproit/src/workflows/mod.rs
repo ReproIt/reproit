@@ -109,10 +109,9 @@ where
         Cmd::Init {
             target,
             platform,
-            learn,
             learn_target,
             force,
-        } => init_command::run(&ctx, target, platform, learn, learn_target, force).await,
+        } => init_command::run(&ctx, target, platform, learn_target, force).await,
         Cmd::Find(args) => find_command::run(&ctx, cli.config.as_deref(), args).await,
         Cmd::List { state, query } => match state {
             ListState::Guards => {
@@ -460,11 +459,6 @@ where
             backend_headless::backend_accept(&ctx, &ids, &reason, until.as_deref(), remove, list)
                 .await
         }
-        Cmd::Candidates => {
-            let loaded = config::load(cli.config.as_deref())?;
-            list_candidates(&ctx, &loaded)?;
-            Ok(ExitCode::SUCCESS)
-        }
         Cmd::Keep {
             id,
             as_name,
@@ -489,21 +483,6 @@ where
         Cmd::Repro {
             action: ReproAction::Simplify { repro, to },
         } => simplify_repro(&ctx, cli.config.as_deref(), &repro, &to).await,
-        // `repro list` is an alias of the top-level `repros`: one match arm,
-        // one implementation, identical output.
-        Cmd::Repros
-        | Cmd::Repro {
-            action: ReproAction::List,
-        } => {
-            let loaded = config::load(cli.config.as_deref())?;
-            list::guards(&ctx, &loaded, "repros")
-        }
-        Cmd::Bugs { query } => {
-            let app = cloud_app_id(None)?;
-            let (cloud, key) = cloud_creds(None, None);
-            triage::buckets(&app, query.as_deref(), ctx.json, cloud, key).await?;
-            Ok(ExitCode::SUCCESS)
-        }
         Cmd::ReplayBucket {
             issue,
             as_name,

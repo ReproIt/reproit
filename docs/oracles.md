@@ -35,7 +35,8 @@ Only `REPRODUCED` promotes a discovered violation into a confirmed finding. `ABS
 or failure and never becomes a finding. A failing test, unusual screenshot, timing spike, or
 different implementation is not automatically a bug.
 
-`reproit proof <id>` explains the complete ledger. `reproit candidates` lists observations still
+`reproit proof <id>` explains the complete ledger. `reproit list --state candidates` lists
+observations still
 blocked by missing authority, a non-violation, abstention, replay, identity, or minimization.
 
 ## What runs by default
@@ -166,7 +167,7 @@ Each check below is a first-class oracle category: its finding carries the regis
 `backend-<check>` (for example `backend-data-loss`), listed in `oracle-registry.json` with a
 confidence tier and severity class. Scoped protocol evidence (`http-*`, `lifecycle-*`,
 `websocket-*`) and schema validation (`openapi-parameter-uniqueness`) still surface under the
-legacy umbrella id `backend-contract`, which downstream consumers continue to accept.
+the canonical `contract` id when a scoped check has no dedicated oracle row.
 
 ### Request and response
 

@@ -10,6 +10,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: backend-contract
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: HTTP, OpenAPI
@@ -34,6 +35,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: compose-android
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: android-emulator
 - Architectures: x86_64
 - Runtimes: ART, Appium UiAutomator2
@@ -58,6 +60,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: electron
 - Field benchmark: validation/field/electron-linux.json
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Chromium, Node.js, CDP
@@ -78,6 +81,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: flutter-android
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: android-emulator
 - Architectures: x86_64
 - Runtimes: Dart VM service, flutter drive
@@ -103,23 +107,22 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Scope: Flutter on a disposable iOS simulator through flutter drive
 - Promotion standard: schema-3
 - Native gates: flutter-ios
-- Field benchmark: incomplete
+- Field benchmark: validation/field/flutter-ios.json
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: ios-simulator
 - Architectures: arm64
 - Runtimes: Dart VM service, flutter drive
 - Frameworks: Flutter
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - [incomplete-evidence] the flutter-ios native gate passed the current candidate working tree, but
+    the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned
+    Xcode 16.4 preflight
 
 ## Linux GTK
 
@@ -129,6 +132,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: linux-atspi-gtk
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux-container
 - Architectures: x86_64
 - Runtimes: AT-SPI 2, GLib main loop
@@ -139,6 +143,8 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
+  - [environment-unreachable] the Linux GTK gate builds on the local x86_64 worker, but both owned
+    fixture processes remain absent from the AT-SPI application bus before the first action
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 4
     application(s) are qualified with verified revisions, but none has three clean affected
     reproductions and three reached-observation fixed controls
@@ -153,6 +159,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: linux-atspi-toolkits
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux-container
 - Architectures: x86_64
 - Runtimes: AT-SPI 2, Qt 6, QML engine
@@ -177,6 +184,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: linux-atspi-toolkits
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux-container
 - Architectures: x86_64
 - Runtimes: AT-SPI 2, Qt 6
@@ -201,6 +209,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: linux-atspi-toolkits
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux-container
 - Architectures: x86_64
 - Runtimes: AT-SPI 2, GTK backend
@@ -225,6 +234,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: macos-ax
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: macos
 - Architectures: arm64
 - Runtimes: Swift runtime, Accessibility API
@@ -252,6 +262,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: react-native-android
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: android-emulator
 - Architectures: x86_64
 - Runtimes: Hermes, Appium UiAutomator2
@@ -276,6 +287,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: react-native-ios
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: ios-simulator
 - Architectures: arm64
 - Runtimes: Hermes, Appium XCUITest
@@ -300,6 +312,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: swiftui-ios
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: ios-simulator
 - Architectures: arm64
 - Runtimes: Swift runtime, Appium XCUITest
@@ -324,6 +337,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: tauri
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: WebKitGTK, tauri-driver
@@ -344,17 +358,18 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 - Maturity: Stable
 - Scope: Terminal applications on a real PTY with the VT parser
-- Promotion standard: schema-2
+- Promotion standard: schema-3
 - Native gates: tui-pty
 - Field benchmark: validation/field/tui.json
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: PTY, VT parser
 - Frameworks: Go, TypeScript, Python terminal apps
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
@@ -364,17 +379,18 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 - Maturity: Stable
 - Scope: Chromium web through Playwright CDP on Linux
-- Promotion standard: schema-2
+- Promotion standard: schema-3
 - Native gates: web-chromium
 - Field benchmark: validation/field/benchmark.json
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Node.js 20+, Playwright CDP
 - Frameworks: DOM applications
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
@@ -384,17 +400,18 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 - Maturity: Stable
 - Scope: Firefox through Playwright on Linux
-- Promotion standard: schema-2
+- Promotion standard: schema-3
 - Native gates: web-engines
 - Field benchmark: validation/field/web-firefox.json
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Node.js 20+, Playwright
 - Frameworks: DOM applications
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
@@ -404,17 +421,18 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 - Maturity: Stable
 - Scope: WebKit through Playwright on Linux
-- Promotion standard: schema-2
+- Promotion standard: schema-3
 - Native gates: web-engines
 - Field benchmark: validation/field/web-webkit.json
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Node.js 20+, Playwright
 - Frameworks: DOM applications
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
@@ -428,6 +446,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: windows-uia
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: windows-x86_64-interactive
 - Architectures: x86_64
 - Runtimes: .NET, UI Automation
@@ -455,6 +474,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: windows-uia
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: windows-x86_64-interactive
 - Architectures: x86_64
 - Runtimes: .NET, UI Automation, WinAppSDK
@@ -482,6 +502,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Native gates: windows-uia
 - Field benchmark: incomplete
 - Production-to-local: Unqualified
+- Production-to-local evidence: none
 - Operating systems: windows-x86_64-interactive
 - Architectures: x86_64
 - Runtimes: .NET, UI Automation

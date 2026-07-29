@@ -18,6 +18,25 @@ Run one gate through the evidence recorder:
 python3 validation/backends/gate.py web-chromium
 ```
 
+To run the Linux gates on the native x86_64 worker through the configured
+gateway, use:
+
+```bash
+validation/release/run-linux-x86-remote.sh
+```
+
+The Android x86_64 worker uses a pinned API 36 Google APIs image, Android
+Emulator 36.2.12, NDK 28.2.13676358, and CMake 3.22.1 under KVM and Xvfb.
+It verifies the SDK component digests, prepares dependency caches online, then
+runs the selected gates in a network-isolated container:
+
+```bash
+validation/release/run-android-x86-remote.sh
+```
+
+The collector rejects a dirty tree in exact mode. Use `--current-tree` only
+for diagnostic runs that must not be used as exact-commit promotion evidence.
+
 The recorder applies the gate's timeout, bounds captured output to 16 MiB, checks required runtime
 markers, and writes a log plus a `result.schema.json`-compatible result under
 `target/reproit-validation/`. Set `REPROIT_GATE_OUTPUT_DIR` to place CI artifacts elsewhere. The

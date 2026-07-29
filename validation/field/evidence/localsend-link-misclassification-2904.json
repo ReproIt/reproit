@@ -1,0 +1,105 @@
+{
+  "issue": "https://github.com/localsend/localsend/issues/2904",
+  "affectedRevision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+  "fixedRevision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+  "identity": "receive-message:compound-uri-misclassified-as-link:open-button-visible",
+  "memoryMeasurement": "unavailable",
+  "environment": {
+    "target": "flutter-ios",
+    "simulatorUdid": "0518894C-7758-4472-ABCF-D2DDB2DF8202",
+    "simulator": "iPhone 16 Pro",
+    "runtime": "iOS 18.5 (22F77)",
+    "architecture": "arm64",
+    "bundleId": "org.localsend.localsendApp",
+    "xcode": "26.2 (17C52)",
+    "flutter": "3.38.10 (c6f67dede3)",
+    "appium": "3.5.2",
+    "xcuitestDriver": "11.16.2",
+    "transport": "LocalSend v2 HTTPS over simulator loopback",
+    "reset": "application uninstalled and reinstalled before every run"
+  },
+  "artifacts": {
+    "affectedAppFrameworkSha256": "sha256:33e8df4149b1a59d51d21d3d56b50e0c9285907193c02feaa11bbf5a3cec01c1",
+    "affectedKernelSha256": "sha256:dc211a4d3e930a0902d61f77c3ce151c08ba9493d66b717146ff44747ad8899b",
+    "fixedAppFrameworkSha256": "sha256:1cc556bf1fa1fb0268074555987666fdd0ebd07e36df70e657a77ea3f2a1534b",
+    "fixedKernelSha256": "sha256:ec338c1116aac1e14fcc3cc519313ed87d8af1bb95556b67d82fa4bf2dc9cacb"
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": "receive-message:compound-uri-misclassified-as-link:open-button-visible",
+      "neighboringControlReached": true,
+      "elapsedSeconds": 12.941,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:4e8d4005a4ff60cae34f73de82db446d85e47ae597a6efc864e57a7d2bec0da5",
+      "controlSourceSha256": "sha256:9fad939a8dbd54318f0a593509d34282c84a055e514c9915bbc763465af442be"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": "receive-message:compound-uri-misclassified-as-link:open-button-visible",
+      "neighboringControlReached": true,
+      "elapsedSeconds": 12.818,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:d2c96e1e5a917856fda9f644dc29809e891794c830da6ff0fecf530923687a82",
+      "controlSourceSha256": "sha256:2dd15f04a3b5413d6be149b5f149b242f6485e8d552f73a04465bbaabbdeac6c"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": "receive-message:compound-uri-misclassified-as-link:open-button-visible",
+      "neighboringControlReached": true,
+      "elapsedSeconds": 12.812,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:eb34d7e804549cb96a3f8b6d50d916e79afe3832187c972de9fae11f7905eda0",
+      "controlSourceSha256": "sha256:93c40e25ec4c4dd66a49383e0770f063bd8238ae371c5105d0f2e48a0a3e72fb"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": null,
+      "neighboringControlReached": true,
+      "elapsedSeconds": 12.576,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:b7f848550504a4cfda364d825e41446fd0636b6daefc1135c7d18ac5a81fac3c",
+      "controlSourceSha256": "sha256:b5fa7ee1be7bad4b2c05a49b867af03a24d0fafd14c13ed8547f5ac45b36e883"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": null,
+      "neighboringControlReached": true,
+      "elapsedSeconds": 12.606,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:216d725183f75a34525aa3a86f64e2933ff4cf190760d5ae954b5ec68f7568ac",
+      "controlSourceSha256": "sha256:de4e2ff661fd1833f22d2920e57f0ca30aef443bd5a5dac5f6a3bf02e88585f4"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": null,
+      "neighboringControlReached": true,
+      "elapsedSeconds": 12.568,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:659e6c07395cd74893b43c1534ae9b2b3515bb0335f59d3c3299ec818dce1d0b",
+      "controlSourceSha256": "sha256:7316df8022eb87502f571da08cb02d8f30e86caa2fb6b38a4d0577b7b26ec501"
+    }
+  ],
+  "neighboringLegalBehavior": "A message containing exactly one absolute URL remains a link and exposes the Open button.",
+  "minimizedAction": "POST one text/plain preview containing an absolute URI followed by whitespace and text to the application's real LocalSend v2 HTTPS server."
+}

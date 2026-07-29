@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "target": "compose-android",
+  "worker": {
+    "image": "reproit-android-x86-07cae9bc60e8a40263ee:cf0be6d0ccdc",
+    "platform": "android-emulator/x86_64-api36",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "nextplayer-fixed-clean-permission",
+      "kind": "clean",
+      "application": "nextplayer-permission-loop-1825-fixed",
+      "repository": "https://github.com/anilbeesetti/nextplayer",
+      "revision": "b2875cc4d4e866912c04c26aff8b6fbff9e0de57",
+      "fixture": null,
+      "variant": "accept-media-permission",
+      "why": "The ordinary fixed clean-install permission flow is a known-good subject.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "permissionGranted": true,
+        "loadingIndicatorVisible": false,
+        "emptyMediaViewVisible": true,
+        "sourceSha256": "sha256:f5ef7a685bb9733be9553e2e951b902168179bc7885ff90eead17290fcb47d86",
+        "screenshotSha256": "sha256:2d8408a3c025b60274c62b0ed5c307ee0d32c583952bfb94995c193f46126916",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "nextplayer-adversarial-pregranted",
+      "kind": "adversarial",
+      "application": "nextplayer-permission-loop-1825-affected",
+      "repository": "https://github.com/anilbeesetti/nextplayer",
+      "revision": "b00807bc0ba28b41365c5f4e41e0af2062e7715e",
+      "fixture": null,
+      "variant": "permission-pregranted-before-launch",
+      "why": "The affected revision is known-good when permission is already granted, the neighboring boundary of the clean-install defect.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "permissionGranted": true,
+        "loadingIndicatorVisible": false,
+        "emptyMediaViewVisible": true,
+        "sourceSha256": "sha256:f5ef7a685bb9733be9553e2e951b902168179bc7885ff90eead17290fcb47d86",
+        "screenshotSha256": "sha256:6dec6fc3644c3a736eac8773d578f591c2e5aa76616a9ec8ba8e75224e2c0304",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "greenstash-adversarial-idle-rotation",
+      "kind": "adversarial",
+      "application": "greenstash-currency-picker-rotation-225-fixed",
+      "repository": "https://github.com/Pool-Of-Tears/GreenStash",
+      "revision": "78a1cf4aaa5a673e50bc54f9bbed66d4e6514200",
+      "fixture": null,
+      "variant": "rotate-untouched-welcome-screen",
+      "why": "A real configuration change without an open picker resembles the trigger but must not create a state-restoration finding.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "pickerVisible": false,
+        "searchTextRetained": false,
+        "selectedCurrencyRetained": false,
+        "defaultCurrencyVisible": true,
+        "sourceSha256": "sha256:467a582ed75e7b50dfdc6b30202e555bbd2b2c87201292cd0609452c0659abf1",
+        "screenshotSha256": "sha256:f68d3c549e6a898c924fad1334f5c90b2feeb664859f53fd20c7896e310d3732",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    }
+  ]
+}

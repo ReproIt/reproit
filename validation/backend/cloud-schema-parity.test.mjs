@@ -4,16 +4,16 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 const cloud = resolve(import.meta.dirname, '../../../reproit-cloud');
-const mainPath = resolve(cloud, 'src/main.rs');
+const routerPath = resolve(cloud, 'src/router.rs');
 
 test(
   'local Cloud dogfood schema stays tied to real routes and response keys',
-  { skip: !existsSync(mainPath) },
+  { skip: !existsSync(routerPath) },
   () => {
     const schema = JSON.parse(
       readFileSync(resolve(cloud, 'contracts/backend-openapi.json'), 'utf8'),
     );
-    const main = readFileSync(mainPath, 'utf8');
+    const router = readFileSync(routerPath, 'utf8');
     const registry = readFileSync(resolve(cloud, 'src/backend_contract.rs'), 'utf8');
     const routes = [
       ['post', '/auth/signup', 'SIGNUP'],
@@ -31,14 +31,16 @@ test(
       const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       assert.match(registry, new RegExp(`router_path:\\s*"${escaped}"`));
       assert.match(
-        main,
+        router,
         new RegExp(`\\.route\\(\\s*backend_contract::${constant}\\s*,\\s*${method}\\(`, 's'),
       );
     }
 
     const sourceChecks = [
-      ['src/auth/mod.rs', ['"email"', '"appId"', '"apiKeyPrefix"', '"publishableKeyPrefix"']],
-      ['src/ingest/mod.rs', ['"ingested"', '"deduped"', '"orgId"', '"projects"', '"localReproId"']],
+      ['src/auth/mod.rs', ['"email"']],
+      ['src/auth/projects.rs', ['"appId"', '"apiKeyPrefix"', '"publishableKeyPrefix"']],
+      ['src/ingest/mod.rs', ['"ingested"', '"deduped"', '"orgId"', '"projects"']],
+      ['src/ingest/replay.rs', ['"localReproId"']],
     ];
     for (const [relative, tokens] of sourceChecks) {
       const source = readFileSync(resolve(cloud, relative), 'utf8');

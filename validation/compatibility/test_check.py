@@ -1,6 +1,8 @@
 import copy
+import hashlib
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,15 +21,108 @@ class CompatibilityContractTests(unittest.TestCase):
     def promotion(self, candidate, target_id):
         return candidate["targets"][target_id]["promotion"]
 
+    def production_record(self, root, target_id, level="FixtureQualified"):
+        required_stages = [
+            "reset",
+            "production-signal",
+            "cloud-ingestion",
+            "local-materialization",
+            "exact-local-reproduction",
+            "direct-replay",
+            "retention-and-deletion",
+        ]
+        stages = []
+        chain_parts = []
+        for stage_id in required_stages:
+            file_name = f"{stage_id}.json"
+            payload = f'{{"stage":"{stage_id}"}}\n'.encode()
+            (root / file_name).write_bytes(payload)
+            digest = f"sha256:{hashlib.sha256(payload).hexdigest()}"
+            stages.append(
+                {
+                    "id": stage_id,
+                    "summary": f"retained {stage_id}",
+                    "present": True,
+                    "required": True,
+                    "file": file_name,
+                    "bytes": len(payload),
+                    "malformed": False,
+                    "rawSha256": digest,
+                    "sanitizedSha256": digest,
+                }
+            )
+            chain_parts.append(f"{stage_id}:{digest}")
+        commands = [
+            {
+                "stage": stage_id,
+                "command": f"run {stage_id}",
+                "assertions": [f"{stage_id} passed"],
+            }
+            for stage_id in required_stages
+        ]
+        record = {
+            "schemaVersion": 2,
+            "gate": "D5-production-to-local",
+            "targetId": target_id,
+            "qualification": level,
+            "origin": {
+                "kind": (
+                    "independent-application"
+                    if level == "IndependentQualified"
+                    else "fixture"
+                ),
+                "summary": "test-only production occurrence",
+            },
+            "revisions": {
+                "cli": f"git:{'a' * 40}",
+                "sdk": {
+                    "name": "test-sdk",
+                    "revision": f"git:{'b' * 40}",
+                },
+                "application": f"sha256:{'c' * 64}",
+            },
+            "cloud": {
+                "baseUrl": "https://cloud.example.test",
+                "projectId": "app_test",
+                "occurrenceId": "run_test",
+                "bucketId": "bkt_test",
+            },
+            "local": {
+                "provider": "test-trusted-provider",
+                "trusted": True,
+            },
+            "execution": {
+                "commands": commands,
+                "reset": {
+                    "command": "reset test workspace",
+                    "evidence": ["reset"],
+                },
+                "cleanup": {
+                    "command": "delete test project",
+                    "evidence": ["retention-and-deletion"],
+                },
+            },
+            "stages": stages,
+            "missingRequiredStages": [],
+            "qualificationBlockers": [],
+            "chainSha256": (
+                "sha256:"
+                + hashlib.sha256("\n".join(chain_parts).encode()).hexdigest()
+            ),
+        }
+        record_path = root / "record.json"
+        record_path.write_text(f"{json.dumps(record, indent=2)}\n", encoding="utf-8")
+        return record_path
+
     def test_checked_in_contract_is_valid_and_chromium_is_stable(self):
         CHECK.validate_support(self.support, self.gates)
         status = CHECK.status_document(self.support)
         stable = [target["id"] for target in status["targets"]
                   if target["maturity"] == "stable"]
-        # The grandfathered schema-2 set is frozen: nothing may join it, because
-        # it predates the schema-3 evidence standard.
+        # All Stable targets have completed the schema-3 ratchet, so the
+        # compatibility escape hatch is permanently empty.
         grandfathered = self.support["policy"]["grandfatheredStableTargets"]
-        self.assertEqual(sorted(grandfathered), ["tui", "web-chromium", "web-firefox", "web-webkit"])
+        self.assertEqual(grandfathered, [])
         schema_2_stable = sorted(
             target_id for target_id in stable
             if self.support["targets"][target_id]["promotion"]["standard"] == "schema-2"
@@ -126,12 +221,12 @@ class CompatibilityContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only grandfathered targets"):
             CHECK.validate_support(candidate, self.gates)
 
-    def test_the_grandfathered_stable_set_cannot_grow(self):
+    def test_the_grandfathered_stable_set_cannot_be_reintroduced(self):
         candidate = copy.deepcopy(self.support)
         candidate["policy"]["grandfatheredStableTargets"] = sorted(
             candidate["policy"]["grandfatheredStableTargets"] + ["flutter-ios"]
         )
-        with self.assertRaisesRegex(ValueError, "cannot grow"):
+        with self.assertRaisesRegex(ValueError, "cannot be reintroduced"):
             CHECK.validate_support(candidate, self.gates)
 
     def test_a_schema_3_promotion_needs_every_qualification_slot(self):
@@ -147,29 +242,69 @@ class CompatibilityContractTests(unittest.TestCase):
     def test_a_schema_3_promotion_rejects_a_missing_qualification_slot(self):
         candidate = copy.deepcopy(self.support)
         target = candidate["targets"]["tui"]
-        target["promotion"]["standard"] = "schema-3"
-        candidate["policy"]["grandfatheredStableTargets"] = [
-            name
-            for name in candidate["policy"]["grandfatheredStableTargets"]
-            if name != "tui"
-        ]
+        target["promotion"]["cleanCorpus"] = {"kind": "missing"}
         with self.assertRaisesRegex(ValueError, "has no cleanCorpus qualification"):
             CHECK.validate_support(candidate, self.gates)
 
     def test_production_to_local_is_independent_of_maturity(self):
         candidate = copy.deepcopy(self.support)
-        self.promotion(candidate, "flutter-ios")["productionToLocal"] = "FixtureQualified"
-        CHECK.validate_support(candidate, self.gates)
-        status = CHECK.status_document(candidate)
-        entry = next(t for t in status["targets"] if t["id"] == "flutter-ios")
-        self.assertEqual(entry["maturity"], "preview")
-        self.assertEqual(entry["productionToLocal"], "FixtureQualified")
-
-    def test_an_invalid_production_to_local_value_is_rejected(self):
-        candidate = copy.deepcopy(self.support)
-        self.promotion(candidate, "flutter-ios")["productionToLocal"] = "Totally"
-        with self.assertRaisesRegex(ValueError, "productionToLocal value is invalid"):
+        with tempfile.TemporaryDirectory(
+            dir=CHECK.ROOT / "validation/compatibility"
+        ) as directory:
+            evidence = self.production_record(Path(directory), "flutter-ios")
+            relative = evidence.relative_to(CHECK.ROOT).as_posix()
+            self.promotion(candidate, "flutter-ios")["productionToLocal"] = {
+                "level": "FixtureQualified",
+                "evidence": relative,
+            }
             CHECK.validate_support(candidate, self.gates)
+            status = CHECK.status_document(candidate)
+            entry = next(t for t in status["targets"] if t["id"] == "flutter-ios")
+            self.assertEqual(entry["maturity"], "preview")
+            self.assertEqual(entry["productionToLocal"], "FixtureQualified")
+            self.assertEqual(entry["productionToLocalEvidence"], relative)
+
+    def test_a_bare_production_to_local_string_is_rejected(self):
+        candidate = copy.deepcopy(self.support)
+        self.promotion(candidate, "flutter-ios")["productionToLocal"] = "FixtureQualified"
+        with self.assertRaisesRegex(ValueError, "evidence binding object"):
+            CHECK.validate_support(candidate, self.gates)
+
+    def test_unqualified_target_cannot_cite_production_evidence(self):
+        candidate = copy.deepcopy(self.support)
+        binding = self.promotion(candidate, "flutter-ios")["productionToLocal"]
+        binding["evidence"] = "validation/support-manifest.json"
+        with self.assertRaisesRegex(ValueError, "must not cite evidence while Unqualified"):
+            CHECK.validate_support(candidate, self.gates)
+
+    def test_production_evidence_must_name_the_same_target(self):
+        candidate = copy.deepcopy(self.support)
+        with tempfile.TemporaryDirectory(
+            dir=CHECK.ROOT / "validation/compatibility"
+        ) as directory:
+            evidence = self.production_record(Path(directory), "web-chromium")
+            self.promotion(candidate, "flutter-ios")["productionToLocal"] = {
+                "level": "FixtureQualified",
+                "evidence": evidence.relative_to(CHECK.ROOT).as_posix(),
+            }
+            with self.assertRaisesRegex(ValueError, "names another target"):
+                CHECK.validate_support(candidate, self.gates)
+
+    def test_independent_qualification_rejects_fixture_origin(self):
+        candidate = copy.deepcopy(self.support)
+        with tempfile.TemporaryDirectory(
+            dir=CHECK.ROOT / "validation/compatibility"
+        ) as directory:
+            evidence = self.production_record(Path(directory), "flutter-ios")
+            record = json.loads(evidence.read_text(encoding="utf-8"))
+            record["qualification"] = "IndependentQualified"
+            evidence.write_text(f"{json.dumps(record)}\n", encoding="utf-8")
+            self.promotion(candidate, "flutter-ios")["productionToLocal"] = {
+                "level": "IndependentQualified",
+                "evidence": evidence.relative_to(CHECK.ROOT).as_posix(),
+            }
+            with self.assertRaisesRegex(ValueError, "origin.kind cannot prove"):
+                CHECK.validate_support(candidate, self.gates)
 
     def test_bounds_must_name_runtime_and_framework(self):
         candidate = copy.deepcopy(self.support)
@@ -184,6 +319,17 @@ class CompatibilityContractTests(unittest.TestCase):
             self.assertIn(target["displayName"], table)
         claim = CHECK.support_claim(status)
         self.assertIn("Stable is an atomic compatibility claim", claim)
+
+    def test_stability_plan_covers_every_target_and_real_execution_lane(self):
+        status = CHECK.status_document(self.support)
+        plan = CHECK.stability_plan(status, self.gates["gates"])
+        for target in status["targets"]:
+            self.assertIn(f"`{target['id']}`", plan)
+        self.assertIn("ssh black@zgx-5a09.local", plan)
+        self.assertIn("then `ssh strix`", plan)
+        self.assertIn("`IndependentQualified` count: 21", plan)
+        self.assertIn("local amd64 emulation failure is", plan)
+        self.assertIn("diagnostic only and cannot defer native Linux", plan)
 
     def test_render_is_deterministic(self):
         first = CHECK.render()

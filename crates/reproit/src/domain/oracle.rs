@@ -203,9 +203,7 @@ pub enum Oracle {
     /// Every one requires a declared or schema-owned contract plus a runtime
     /// witness correlated to the exact operation, and replays exactly (the
     /// backend replay harness re-evaluates the accumulated event sequence
-    /// through the same pure check). Findings carry the per-check id below;
-    /// legacy artifacts stamped with the umbrella id `backend-contract`
-    /// still read back and classify as `Contract`.
+    /// through the same pure check). Findings carry the per-check id below.
     /// Repeatable 5xx for a request satisfying the schema-owned contract.
     BackendServerError,
     /// Successful status outside the declared success statuses.
@@ -267,8 +265,6 @@ pub struct OracleMeta {
     pub oracle: Oracle,
     /// Canonical lowercase tag stamped on findings; the registry id.
     pub id: &'static str,
-    /// Extra `--only`/`--no` spellings accepted by `parse`.
-    pub aliases: &'static [&'static str],
     /// Finding `invariant` ids that classify into this category.
     pub invariants: &'static [&'static str],
     /// Finding `kind` tokens (uppercase) that classify into this category.
@@ -284,7 +280,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Unclassified,
         id: "unclassified",
-        aliases: &[],
         invariants: &[],
         kinds: &[],
         stable: false,
@@ -292,7 +287,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Crash,
         id: "crash",
-        aliases: &["exception", "exceptions"],
         invariants: &["no-exception"],
         kinds: &["EXCEPTION", "CRASH", "SIGNAL"],
         stable: true,
@@ -300,7 +294,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Jank,
         id: "jank",
-        aliases: &["perf", "performance"],
         invariants: &["no-jank"],
         kinds: &["PERF"],
         stable: false,
@@ -308,7 +301,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Leak,
         id: "leak",
-        aliases: &["memory"],
         // Listener/DOM-node leak across repeated route visits: the same Leak
         // oracle class as the soak/memory signal, just detected structurally.
         invariants: &["no-leak", "no-listener-leak"],
@@ -318,7 +310,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Visual,
         id: "visual",
-        aliases: &[],
         invariants: &[],
         kinds: &["VISUAL"],
         stable: false,
@@ -326,7 +317,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Flicker,
         id: "flicker",
-        aliases: &["flash"],
         invariants: &["rerender-flicker", "paint-flicker"],
         kinds: &["FLICKER"],
         stable: false,
@@ -334,7 +324,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Divergence,
         id: "divergence",
-        aliases: &["diverge", "diff"],
         invariants: &[],
         kinds: &["DIVERGENCE"],
         stable: false,
@@ -342,7 +331,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::ContentBug,
         id: "content-bug",
-        aliases: &["content", "contentbug", "broken-render"],
         invariants: &["no-broken-render"],
         kinds: &["CONTENTBUG"],
         stable: false,
@@ -350,7 +338,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Overflow,
         id: "overflow",
-        aliases: &["layout-overflow", "clipping"],
         invariants: &["no-layout-overflow"],
         kinds: &["OVERFLOW"],
         stable: true,
@@ -358,7 +345,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Hang,
         id: "hang",
-        aliases: &["freeze", "frozen", "no-progress"],
         invariants: &["no-hang"],
         kinds: &["HANG"],
         stable: false,
@@ -366,7 +352,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Occlusion,
         id: "occlusion",
-        aliases: &["occluded", "blocked-control"],
         invariants: &["no-occluded-control"],
         kinds: &["OCCLUSION"],
         stable: false,
@@ -374,7 +359,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::DetachedIndicator,
         id: "detached-indicator",
-        aliases: &["detachedindicator", "indicator", "badge"],
         invariants: &["no-detached-indicator"],
         kinds: &["DETACHEDINDICATOR"],
         stable: true,
@@ -382,7 +366,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::AccessibilityState,
         id: "accessibility-state",
-        aliases: &["a11y-state", "semantic-state"],
         invariants: &["no-accessibility-state-mismatch"],
         kinds: &["A11YSTATE"],
         stable: false,
@@ -390,7 +373,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::ChoiceAnomaly,
         id: "choice-anomaly",
-        aliases: &["choice", "choicebug", "anomaly"],
         invariants: &["no-choice-anomaly"],
         kinds: &[],
         stable: false,
@@ -398,7 +380,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BrokenRoute,
         id: "broken-route",
-        aliases: &["broken-link", "not-found", "404", "deadlink"],
         invariants: &["no-broken-route"],
         kinds: &[],
         stable: false,
@@ -406,7 +387,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Security,
         id: "security",
-        aliases: &["sec", "mixed-content", "tabnabbing"],
         invariants: &[],
         kinds: &["SECURITY"],
         stable: false,
@@ -414,7 +394,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::StuckKeyboard,
         id: "stuck-keyboard",
-        aliases: &["keyboard", "ime", "soft-keyboard"],
         invariants: &["no-stuck-keyboard"],
         kinds: &["STUCKKEYBOARD"],
         stable: false,
@@ -422,7 +401,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::DuplicateSubmit,
         id: "duplicate-submit",
-        aliases: &["dupsubmit", "double-submit"],
         invariants: &["no-duplicate-submit"],
         kinds: &["DUPSUBMIT"],
         stable: false,
@@ -430,7 +408,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::FocusLoss,
         id: "focus-loss",
-        aliases: &["focusloss"],
         invariants: &["no-focus-loss"],
         kinds: &["FOCUSLOSS"],
         stable: false,
@@ -438,7 +415,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BlankScreen,
         id: "blank-screen",
-        aliases: &["blankscreen", "white-screen"],
         invariants: &["no-blank-screen"],
         kinds: &["BLANKSCREEN"],
         stable: false,
@@ -446,7 +422,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BrokenAsset,
         id: "broken-asset",
-        aliases: &["brokenasset", "dead-asset", "tofu"],
         invariants: &["no-broken-asset"],
         kinds: &["BROKENASSET"],
         stable: false,
@@ -454,7 +429,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::ZoomReflow,
         id: "zoom-reflow",
-        aliases: &["zoomreflow", "reflow", "zoom"],
         invariants: &["no-reflow-break"],
         kinds: &["ZOOMREFLOW"],
         stable: false,
@@ -462,7 +436,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Invariant,
         id: "invariant",
-        aliases: &["assertion", "app-invariant", "custom-invariant"],
         // Both the app-registered invariant path and the CLI-config `custom`
         // regex rules emit kind INVARIANT; bucket both here (previously they
         // fell through to Crash).
@@ -473,7 +446,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Contract,
         id: "contract",
-        aliases: &["temporal-contract", "property"],
         invariants: &[],
         kinds: &["TEMPORAL-CONTRACT"],
         stable: true,
@@ -481,7 +453,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::Rotation,
         id: "rotation",
-        aliases: &["rotate", "orientation", "split-screen"],
         invariants: &["no-rotation-loss"],
         kinds: &["ROTATION"],
         stable: false,
@@ -489,7 +460,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackgroundRestore,
         id: "background-restore",
-        aliases: &["background", "bg-restore", "lifecycle", "backgrounded"],
         invariants: &["no-background-loss"],
         kinds: &["BGRESTORE"],
         stable: false,
@@ -497,12 +467,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::ScrollRoundTrip,
         id: "scroll-round-trip",
-        aliases: &[
-            "scrollroundtrip",
-            "scroll-recycle",
-            "list-recycle",
-            "recycle",
-        ],
         invariants: &["no-scroll-recycle"],
         kinds: &["SCROLLROUNDTRIP"],
         stable: false,
@@ -510,7 +474,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::WakeLock,
         id: "wakelock",
-        aliases: &["wake-lock", "wakelocks", "keep-screen-on", "battery"],
         invariants: &["no-wakelock-leak"],
         kinds: &["WAKELOCK"],
         stable: false,
@@ -518,7 +481,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::SafeArea,
         id: "safe-area",
-        aliases: &["safearea", "safe-area-inset", "notch"],
         invariants: &["no-safe-area-collision"],
         kinds: &["SAFEAREA"],
         stable: false,
@@ -526,7 +488,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::PermissionWalk,
         id: "permission-walk",
-        aliases: &["permissionwalk", "permission-dead-end", "permission"],
         invariants: &["no-permission-dead-end"],
         kinds: &["PERMISSIONWALK"],
         stable: false,
@@ -534,7 +495,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::ZeroContrast,
         id: "zero-contrast",
-        aliases: &["zerocontrast", "invisible-content", "invisible-text"],
         invariants: &["no-zero-contrast"],
         kinds: &["ZEROCONTRAST"],
         stable: false,
@@ -542,7 +502,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::DeadInput,
         id: "dead-input",
-        aliases: &["deadinput", "input-liveness", "swallowed-input"],
         invariants: &["no-dead-input"],
         kinds: &["DEADINPUT"],
         stable: false,
@@ -555,7 +514,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendServerError,
         id: "backend-server-error",
-        aliases: &[],
         invariants: &["backend:server-error"],
         kinds: &[],
         stable: true,
@@ -563,7 +521,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResponseStatus,
         id: "backend-response-status",
-        aliases: &[],
         invariants: &["backend:response-status"],
         kinds: &[],
         stable: true,
@@ -571,7 +528,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendAcceptedInvalidInput,
         id: "backend-accepted-invalid-input",
-        aliases: &[],
         invariants: &["backend:accepted-invalid-input"],
         kinds: &[],
         stable: true,
@@ -579,7 +535,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResponseShape,
         id: "backend-response-shape",
-        aliases: &[],
         invariants: &["backend:response-shape"],
         kinds: &[],
         stable: true,
@@ -587,7 +542,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResponseSelection,
         id: "backend-response-selection",
-        aliases: &[],
         invariants: &["backend:response-selection"],
         kinds: &[],
         stable: true,
@@ -595,7 +549,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendReadOnlyMutation,
         id: "backend-read-only-mutation",
-        aliases: &[],
         invariants: &["backend:read-only-mutation"],
         kinds: &[],
         stable: true,
@@ -603,7 +556,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendMissingEffect,
         id: "backend-missing-effect",
-        aliases: &[],
         invariants: &["backend:missing-effect"],
         kinds: &[],
         stable: true,
@@ -611,7 +563,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendExcessEffect,
         id: "backend-excess-effect",
-        aliases: &[],
         invariants: &["backend:excess-effect"],
         kinds: &[],
         stable: true,
@@ -619,7 +570,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendTenantIsolation,
         id: "backend-tenant-isolation",
-        aliases: &[],
         invariants: &["backend:tenant-isolation"],
         kinds: &[],
         stable: true,
@@ -627,7 +577,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendAuthoredInvariant,
         id: "backend-authored-invariant",
-        aliases: &[],
         invariants: &["backend:authored-invariant"],
         kinds: &[],
         stable: true,
@@ -635,7 +584,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendQueryPagination,
         id: "backend-query-pagination",
-        aliases: &[],
         invariants: &["backend:query-pagination"],
         kinds: &[],
         stable: true,
@@ -643,7 +591,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendQueryPaginationReference,
         id: "backend-query-pagination-reference",
-        aliases: &[],
         invariants: &["backend:query-pagination-reference"],
         kinds: &[],
         stable: true,
@@ -651,7 +598,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendDataLoss,
         id: "backend-data-loss",
-        aliases: &[],
         invariants: &["backend:data-loss"],
         kinds: &[],
         stable: true,
@@ -659,7 +605,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResourceCreateMissing,
         id: "backend-resource-create-missing",
-        aliases: &[],
         invariants: &["backend:resource-create-missing"],
         kinds: &[],
         stable: true,
@@ -667,7 +612,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResourceDeleteVisible,
         id: "backend-resource-delete-visible",
-        aliases: &[],
         invariants: &["backend:resource-delete-visible"],
         kinds: &[],
         stable: true,
@@ -675,7 +619,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResourceIdentity,
         id: "backend-resource-identity",
-        aliases: &[],
         invariants: &["backend:resource-identity"],
         kinds: &[],
         stable: true,
@@ -683,7 +626,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResourceState,
         id: "backend-resource-state",
-        aliases: &[],
         invariants: &["backend:resource-state"],
         kinds: &[],
         stable: true,
@@ -691,7 +633,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendCodecRoundTrip,
         id: "backend-codec-round-trip",
-        aliases: &[],
         invariants: &["backend:codec-round-trip"],
         kinds: &[],
         stable: true,
@@ -699,7 +640,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendAuthorizationMatrix,
         id: "backend-authorization-matrix",
-        aliases: &[],
         invariants: &["backend:authorization-matrix"],
         kinds: &[],
         stable: true,
@@ -707,7 +647,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendTransactionAtomicity,
         id: "backend-transaction-atomicity",
-        aliases: &[],
         invariants: &["backend:transaction-atomicity"],
         kinds: &[],
         stable: true,
@@ -715,7 +654,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendConcurrentUpdate,
         id: "backend-concurrent-update",
-        aliases: &[],
         invariants: &["backend:concurrent-update"],
         kinds: &[],
         stable: true,
@@ -723,7 +661,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendConcurrentConservation,
         id: "backend-concurrent-conservation",
-        aliases: &[],
         invariants: &["backend:concurrent-conservation"],
         kinds: &[],
         stable: true,
@@ -731,7 +668,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendResourceRoundTrip,
         id: "backend-resource-round-trip",
-        aliases: &[],
         invariants: &["backend:resource-round-trip"],
         kinds: &[],
         stable: true,
@@ -739,7 +675,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendIdempotency,
         id: "backend-idempotency",
-        aliases: &[],
         invariants: &["backend:idempotency"],
         kinds: &[],
         stable: true,
@@ -747,7 +682,6 @@ pub const ORACLES: &[OracleMeta] = &[
     OracleMeta {
         oracle: Oracle::BackendFleetConsistency,
         id: "backend-fleet-consistency",
-        aliases: &[],
         invariants: &["backend:fleet-consistency"],
         kinds: &[],
         stable: true,
@@ -766,13 +700,13 @@ impl Oracle {
         self.meta().id
     }
 
-    /// Parse a category name (case-insensitive, with a few aliases) into an
-    /// `Oracle`. Unrecognized names return None so the caller can warn.
+    /// Parse one canonical category id. Unrecognized names return None so the
+    /// caller can report them rather than silently choosing another oracle.
     pub fn parse(name: &str) -> Option<Oracle> {
         let name = name.trim().to_ascii_lowercase();
         ORACLES
             .iter()
-            .find(|m| m.id == name || m.aliases.contains(&name.as_str()))
+            .find(|metadata| metadata.id == name)
             .map(|m| m.oracle)
     }
 }
@@ -784,7 +718,7 @@ impl Oracle {
 pub fn classify(finding: &Value) -> Oracle {
     if matches!(
         finding.get("oracle").and_then(Value::as_str),
-        Some("contract" | "backend-contract")
+        Some("contract")
     ) {
         return Oracle::Contract;
     }

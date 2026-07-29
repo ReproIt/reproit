@@ -156,9 +156,9 @@ pub async fn top_bucket_id(
     let items = v["items"]
         .as_array()
         .context("cloud buckets response did not include an items array")?;
-    let top = items
-        .first()
-        .context("no bugs available yet; run `reproit bugs` after production data arrives")?;
+    let top = items.first().context(
+        "no bugs available yet; run `reproit list --state bugs` after production data arrives",
+    )?;
     let id = top["bucketId"]
         .as_str()
         .context("top bucket did not include bucketId")?;
@@ -180,16 +180,18 @@ pub async fn explain(
         (Some(bucket), _) => list
             .iter()
             .find(|b| b["bucketId"].as_str() == Some(bucket))
-            .with_context(|| format!("no bucket `{bucket}` in app `{app}`; run `reproit bugs`"))?,
+            .with_context(|| {
+                format!("no bucket `{bucket}` in app `{app}`; run `reproit list --state bugs`")
+            })?,
         (None, Some(sig)) => list
             .iter()
             .find(|b| b["crashSig"].as_str() == Some(sig))
             .with_context(|| {
-                format!("no bucket with crash signature `{sig}`; run `reproit bugs`")
+                format!("no bucket with crash signature `{sig}`; run `reproit list --state bugs`")
             })?,
-        (None, None) => list
-            .first()
-            .with_context(|| format!("no buckets available for `{app}`; run `reproit bugs`"))?,
+        (None, None) => list.first().with_context(|| {
+            format!("no buckets available for `{app}`; run `reproit list --state bugs`")
+        })?,
     };
     let bucket = item["bucketId"]
         .as_str()

@@ -6,7 +6,7 @@
 //! reports "exercised" while evaluating nothing. Worse, a path the service does
 //! not serve 404s forever and reads as a passing operation.
 //!
-//! `--learn` already extracts routes from source for exactly this reason. This
+//! `init` already extracts routes from source for exactly this reason. This
 //! points the same extractor at VALIDATION: which declared operations have no
 //! matching route, and which served routes are undeclared. It compares
 //! (method, path template) only, never types, because the extractor sees routes

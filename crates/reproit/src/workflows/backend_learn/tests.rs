@@ -368,7 +368,7 @@ fn nested_router_mount_prefixes_are_resolved() {
 
 #[test]
 fn every_detectable_backend_framework_has_a_family_or_is_php_symfony() {
-    // The backend_detect names --learn must route; symfony is the one
+    // The backend_detect names init must route; symfony is the one
     // detectable framework without patterns yet (falls to the guided error).
     for name in [
         "axum",
@@ -524,7 +524,7 @@ fn draft_yaml_round_trips_through_the_schema_importer() {
     std::fs::remove_dir_all(&dir).unwrap();
     let yaml = emit::draft_yaml("fixture", "axum", &derived, &BTreeMap::new()).unwrap();
     assert!(yaml.contains("x-reproit-derived: true"));
-    assert!(yaml.starts_with("# DRAFT schema derived by `reproit init --learn`"));
+    assert!(yaml.starts_with("# DRAFT schema derived by `reproit init`"));
     assert!(yaml.contains("operationId: get_orders_id"));
     // Path params are typed string; mutating routes get a free-form body.
     assert!(yaml.contains("in: path"));
@@ -597,7 +597,7 @@ async fn live_enrichment_records_status_shape_and_effects() {
     let derived = derive(&dir, "axum").unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let yaml = emit::draft_yaml("fixture", "axum", &derived, &outcome.observations).unwrap();
-    let note = "# observed live by --learn: HTTP 200; adapter effects: read(inventory)";
+    let note = "# observed live during init: HTTP 200; adapter effects: read(inventory)";
     assert!(yaml.contains(note));
     assert!(yaml.contains("\"200\":"));
     assert!(yaml.contains("type: boolean"));
@@ -644,7 +644,7 @@ fn the_report_writes_nothing() {
             "async fn main() {\n    let app = Router::new().route(\"/health\", get(h));\n\
              \x20   axum::serve(listener, app).await.unwrap();\n}\n",
         ),
-        // A schema already present is one of the two cases `--learn` refuses.
+        // A schema already present is one of the two cases source derivation refuses.
         (
             "openapi.yaml",
             "openapi: 3.1.0\ninfo: { title: t, version: \"1\" }\npaths: {}\n",

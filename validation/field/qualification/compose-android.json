@@ -5,7 +5,7 @@
   "status": "candidates-selected",
   "declaredBounds": {
     "os": "android",
-    "arch": "arm64-v8a",
+    "arch": "x86_64",
     "device": "reset Android Studio AVD from the installed SDK",
     "runtime": [
       "ART",
@@ -28,7 +28,7 @@
       "releaseApk": {
         "buildsWithoutSigningSecrets": true,
         "signing": "app/build.gradle.kts declares only a debug signingConfig, backed by the committed app/debug.keystore with storePassword android and keyAlias androiddebugkey, and a build type release-with-debug-signing that does initWith(getByName(\"release\")) then signingConfig = signingConfigs.getByName(\"debug\")",
-        "command": "./gradlew assembleReleaseWithDebugSigning",
+        "command": "./gradlew assembleRelease-with-debug-signing",
         "note": "getByName(\"release\") itself sets no signingConfig, so a plain assembleRelease is unsigned and will not install. The release-with-debug-signing variant is minified and shrunk exactly like release and installs on a reset AVD with no secret at all. It carries applicationIdSuffix .release, so the campaign must use that application id"
       }
     },
@@ -43,7 +43,7 @@
       "releaseApk": {
         "buildsWithoutSigningSecrets": false,
         "signing": "app/build.gradle contains no signingConfigs block at all and the release build type sets no signingConfig, so assembleRelease emits an unsigned APK",
-        "command": "./gradlew assembleDebug",
+        "command": "bash gradlew --no-daemon assembleDebug",
         "note": "there is no upstream secret to be missing, but there is also no fallback: the campaign either installs the debug variant, which the AGP-generated debug key signs, or supplies a locally generated throwaway keystore. Record which artifact was actually observed"
       }
     },
@@ -205,15 +205,11 @@
       "pullRequestUrl": "https://github.com/anilbeesetti/nextplayer/pull/1825",
       "affectedRevision": "b00807bc0ba28b41365c5f4e41e0af2062e7715e",
       "fixedRevision": "b2875cc4d4e866912c04c26aff8b6fbff9e0de57",
-      "whySuitable": "MediaPickerScreen relied on the rememberPermissionState onPermissionResult callback to dispatch OnPermissionAccepted. On a clean install that callback did not fire the way the screen assumed, so the composable stayed in DataState.Loading forever and the user saw a spinner that never resolved. The fix replaces the callback with a LaunchedEffect keyed on permissionState.status.isGranted and hoists the permission branch above the data branch. The trigger is exactly what an Appium UiAutomator2 driver does natively: install onto a reset AVD, tap the system permission dialog, then read the Compose semantics tree. The observable is semantic, not pixel: on the affected build the progress indicator node persists and no video list node ever appears, while on the fixed build the list nodes appear. That is the whole point of the compose-android adapter, since a Compose hierarchy reaches UiAutomator2 only through the semantics-to-accessibility bridge",
-      "qualification": "selected-not-executed",
+      "whySuitable": "MediaPickerScreen relied on the rememberPermissionState onPermissionResult callback to dispatch OnPermissionAccepted. On a clean install that callback did not fire the way the screen assumed, so the composable stayed in DataState.Loading forever and the user saw a spinner that never resolved. The fix replaces the callback with a LaunchedEffect keyed on permissionState.status.isGranted and hoists the permission branch above the data branch. On the affected build the loading branch is composed before PermissionMissingView, so the system permission dialog is unreachable; on the fixed build the dialog is reachable and accepting it exposes the empty media view. The observable is semantic, not pixel: the affected build retains a progress indicator and never exposes the empty media node, while the fixed build exposes the empty media node. A qualifying replay must drive and read those nodes through Appium UiAutomator2, since a Compose hierarchy reaches UiAutomator2 through the semantics-to-accessibility bridge",
+      "qualification": "direct-uiautomator-campaign-complete-appium-rerun-required",
       "remaining": [
-        "build assembleReleaseWithDebugSigning at both revisions and record the resulting application id suffix",
-        "prove AVD reset: the defect only appears on a clean install, so the campaign has to wipe user data between runs and show the evidence",
-        "author the trigger through UiAutomator2, including the system permission dialog, which is outside the application's own semantics tree",
-        "state identity and authority: granting the requested permission must move the screen out of its loading state",
-        "minimize the trigger and verify neighboring legal behavior: launching with the permission already granted must reach the list on both builds",
-        "prove three clean affected reproductions and three reached-observation fixed controls"
+        "rerun the three affected and three fixed observations through Appium UiAutomator2 instead of direct adb shell uiautomator",
+        "retain the Appium session capabilities and structured evidence in the repository"
       ]
     },
     {
@@ -263,15 +259,10 @@
       "affectedRevision": "eeb3bc077f796ce45cae66c45a00c82def9ee599",
       "fixedRevision": "78a1cf4aaa5a673e50bc54f9bbed66d4e6514200",
       "whySuitable": "the currency picker held its selection and its search text in plain remember, so an activity recreation discarded both and the onboarding screen snapped back to the default currency with an empty search field. The fix is precisely rememberSaveable. This is the canonical Compose state-restoration defect and it needs a real device event that only the emulator can deliver, a configuration change, so it exercises the adapter's ability to hold an observation across an Android activity recreation and then re-resolve Compose semantics nodes on the recomposed tree. It is also a second, independent application, and its defect class is state loss rather than state that never advances",
-      "qualification": "selected-not-executed",
+      "qualification": "direct-uiautomator-campaign-complete-appium-rerun-required",
       "remaining": [
-        "build the debug variant at both revisions, or supply a locally generated throwaway keystore, since the project declares no signingConfigs",
-        "reset the AVD so the onboarding screen is reachable, and unlock rotation on the device",
-        "author the trigger: open the currency picker, type a search term, select a non-default currency, rotate, then re-read the semantics tree",
-        "state identity and authority: a selection the user made must survive a configuration change",
-        "minimize the trigger and verify neighboring legal behavior: a value already committed to settings survives the same rotation on both builds",
-        "note in the record that the upstream issue is labelled enhancement even though the merged pull request is titled fix, and decide whether the authority is platform or authored-contract before executing",
-        "prove three clean affected reproductions and three reached-observation fixed controls"
+        "rerun the three affected and three fixed observations through Appium UiAutomator2 instead of direct adb shell uiautomator",
+        "retain the Appium session capabilities and structured evidence in the repository"
       ]
     },
     {
@@ -304,8 +295,8 @@
     },
     {
       "code": "incomplete-evidence",
-      "kind": "build-input-missing",
-      "detail": "no APK has been built at any selected revision. Every selectedDefects entry is qualification 'selected-not-executed'; the Compose identity per revision, the existence of both revisions, the issue titles, and the pull request merge parents are verified, the runtime behaviour is not",
+      "kind": "adapter-path-missing",
+      "detail": "NextPlayer issue 1820 and GreenStash issue 213 each passed three affected runs, three fixed controls, and neighboring legal behavior on reset API 36 x86_64 AVDs, but the campaign used direct adb shell uiautomator and adb input. The declared target is Appium UiAutomator2, so these application runs cannot complete the target field benchmark until they are replayed through Appium and the session capabilities are retained",
       "command": null,
       "evidence": []
     },

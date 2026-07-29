@@ -30,9 +30,8 @@ ship in this release as opt-in previews outside that promise; see
   `docs/compatibility.md`).
 - Backend contract oracles: findings from the backend evaluate family carry a
   per-check `backend-*` oracle id (for example `backend-data-loss`), registered
-  in `oracle-registry.json` with a confidence tier and severity class. Existing
-  artifacts stamped with the legacy umbrella id `backend-contract` remain
-  readable; scoped protocol and schema checks still report under it.
+  in `oracle-registry.json` with a confidence tier and severity class. Scoped
+  protocol and schema checks without a dedicated row report as `contract`.
 - Backend production capture mode: error-triggered (and optionally sampled)
   capture of the full start/effects/return operation sequence, shipped as
   version 1 event batches tagged `backend-server-error`, with hard bounds on
@@ -56,8 +55,8 @@ ship in this release as opt-in previews outside that promise; see
   surfaces as `backend-server-error`, a 2xx acceptance as
   `backend-accepted-invalid-input`); `reproit inspect` for backend findings,
   capture-bearing buckets, and capture files (live effect-diff or `--offline`);
-  `reproit check <capture.json>` and `reproit debug replay-capture`; and the
-  `reproit repro list` alias. The current workflow is documented in `docs/cli.md`.
+  `reproit check <capture.json>` and `reproit debug replay-capture`. The current
+  workflow is documented in `docs/cli.md`.
 
 ### Stability contract
 

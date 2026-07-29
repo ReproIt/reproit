@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "windows-wpf",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "campaigns-complete",
   "declaredBounds": {
     "os": "windows",
     "arch": "x86_64",
@@ -14,8 +14,8 @@
     "method": "GitHub GraphQL scan of merged pull requests that close at least one issue, followed by per-revision framework verification",
     "candidateDefectsMeaning": "merged pull requests closing an issue, counted over the 60 most recently updated merged pull requests of the repository",
     "frameworkVerification": "git clone --filter=blob:none --no-checkout, then git show <revision>:<project file> at every revision named in this record; a repository is never classified by its default branch",
-    "executed": false,
-    "note": "no build, no launch and no UI Automation session was run for this record; every entry below is research only"
+    "executed": true,
+    "note": "one defect in each of two independent WPF applications completed exact native affected/fixed builds, three clean affected reproductions, three clean fixed controls, minimized triggers, neighboring legal controls, and cleanup verification"
   },
   "applicationPool": [
     {
@@ -24,8 +24,8 @@
       "decision": "qualify-with-containment",
       "reason": "Flow.Launcher/Flow.Launcher.csproj carries UseWPF>true and OutputType>WinExe on net9.0-windows10.0.19041.0 at the candidate revisions, so the window is a real WPF visual tree with native UI Automation peers. Containment: the launcher registers a session-wide hotkey and enumerates Start Menu and installed-program entries, so the worker must own the desktop session; it writes only under its own settings folder",
       "candidateDefects": 18,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/flowlauncher-system-language-4518.json"
     },
     {
       "repository": "https://github.com/NickeManarin/ScreenToGif",
@@ -33,8 +33,8 @@
       "decision": "qualify-with-containment",
       "reason": "ScreenToGif/ScreenToGif.csproj carries UseWPF>true at every candidate revision inspected, on net6.0-windows and later net8.0-windows10.0.17763.0. Containment: the recorder installs low-level mouse and keyboard hooks and the encoder flows fetch FFmpeg and Gifski on first use, so only editor and options triggers are in bounds and the external encoders must be pre-seeded into the application folder",
       "candidateDefects": 6,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/screentogif-mouse-events-tooltip-1200.json"
     },
     {
       "repository": "https://github.com/DevToys-app/DevToys",
@@ -211,21 +211,29 @@
       "frameworkVerified": {
         "projectFile": "Flow.Launcher/Flow.Launcher.csproj",
         "evidence": "UseWPF>true, OutputType>WinExe, TargetFramework net9.0-windows10.0.19041.0",
-        "verifiedAtRevision": "5f9d116708276c1b616edc56c4f95a868f118d4d, on the same branch line as both revisions of this defect"
+        "verifiedAtRevision": "447fbea4882b7d1df9bf6c510752dc236a30a115 and eb3da1edb942983c14b7c78a4d50dee368c23002"
       },
       "build": {
         "command": "dotnet build Flow.Launcher.sln -c Release",
-        "toolchain": ".NET 9 SDK",
+        "toolchain": ".NET SDK 9.0.316",
         "publicFeedsOnly": true,
         "signingRequired": false,
-        "verified": false
+        "verified": true,
+        "evidence": "validation/field/evidence/flowlauncher-system-language-4518.json"
       },
-      "whySuitable": "the observable is the Name property of localized WPF elements in the settings window: with the language setting left on 'system', the affected build resolves the wrong resource dictionary and the automation tree reports English labels where the fixed build reports the display-language labels. That is a pure UI Automation tree read against a WPF window and it needs no input beyond opening settings",
-      "qualification": "selected-not-executed",
+      "whySuitable": "with the language setting left on system under fr-FR, the affected build falls through to English and the fixed build selects the supported French resources. The native UI Automation observable is TitleTextBlock.Name in FlowWelcomeWindow, with no input beyond launch",
+      "qualification": "campaign-complete",
+      "campaign": {
+        "affectedReproductions": 3,
+        "fixedControls": 3,
+        "minimizedTriggerVerified": true,
+        "neighboringLegalBehaviorVerified": true,
+        "evidence": [
+          "validation/field/evidence/flowlauncher-system-language-4518.json",
+          "validation/field/evidence/flowlauncher-system-language-4518.md"
+        ]
+      },
       "remaining": [
-        "decide and record the guest display language, because the trigger depends on the VM's configured UI language and the current guest language is unknown",
-        "confirm the divergence is visible in element Name properties rather than only in bitmap text",
-        "build both revisions in the Windows VM"
       ]
     },
     {
@@ -270,8 +278,7 @@
       "affectedRevision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1",
       "fixedRevision": "d71dfbcf02749da7d9303d9c716d76372339acb0",
       "changedFiles": [
-        "ScreenToGif/Resources/Localization/StringResources.en.xaml",
-        "plus nineteen sibling localization dictionaries"
+        "ScreenToGif/Resources/Localization/StringResources.fr.xaml"
       ],
       "frameworkVerified": {
         "projectFile": "ScreenToGif/ScreenToGif.csproj",
@@ -283,31 +290,24 @@
         "toolchain": ".NET 6 SDK, which is out of support and must be installed explicitly in the guest",
         "publicFeedsOnly": true,
         "signingRequired": false,
-        "verified": false
+        "verified": true,
+        "evidence": "validation/field/evidence/screentogif-mouse-events-tooltip-1200.json"
       },
-      "whySuitable": "a WPF ResourceDictionary string bound to a button's tooltip is wrong, so the defect is observable as the HelpText or the tooltip element that UI Automation exposes for that button. It is the cheapest possible windows-wpf trigger: open one window, read one automation property, no input synthesis at all, which makes it a good control case next to the input-driven candidates",
-      "qualification": "selected-not-executed",
+      "whySuitable": "the one-file WPF ResourceDictionary defect is observable in the live ControlType.ToolTip exposed after hovering the Mouse Events command. The minimized editor trigger opens one one-pixel frame and does not enter recording, hook, encoder, download, or network flows",
+      "qualification": "campaign-complete",
+      "campaign": {
+        "affectedReproductions": 3,
+        "fixedControls": 3,
+        "minimizedTriggerVerified": true,
+        "neighboringLegalBehaviorVerified": true,
+        "evidence": [
+          "validation/field/evidence/screentogif-mouse-events-tooltip-1200.json",
+          "validation/field/evidence/screentogif-mouse-events-tooltip-1200.md"
+        ]
+      },
       "remaining": [
-        "confirm the string reaches UI Automation as HelpText or as a tooltip popup element rather than only as rendered pixels",
-        "install the .NET 6 SDK in the guest or drop this candidate if the toolchain is refused",
-        "build both revisions in the Windows VM"
       ]
     }
   ],
-  "blockers": [
-    {
-      "code": "incomplete-evidence",
-      "detail": "no build, launch or UI Automation evidence exists for any candidate in this record. Every revision pair, framework classification and license here was verified from repository data on the host; nothing has been executed in the native x86_64 Windows VM",
-      "command": null,
-      "evidence": [
-        "validation/field/qualification/infrastructure.json"
-      ]
-    },
-    {
-      "code": "product-coverage-missing",
-      "detail": "the five selected candidates come from two applications, which meets the two-independent-application floor only if none of them fails. Three of the five are Flow.Launcher, so a single application-level containment failure would drop the target below the floor",
-      "command": null,
-      "evidence": []
-    }
-  ]
+  "blockers": []
 }

@@ -1,4 +1,4 @@
-//! `reproit init --learn`: derive a draft schema for a backend project that
+//! `reproit init`: derive a draft schema for a backend project that
 //! has none. Routes are extracted statically from the framework's source
 //! patterns; a resolvable running target optionally enriches parameterless GET
 //! routes with one observed response each. The result is an honestly-marked
@@ -51,7 +51,7 @@ pub(super) async fn run(
     // contract check abstains there.
     if let drift::SourceRoot::Ambiguous(services) = drift::source_root(root, None) {
         bail!(
-            "--learn found {} services under this root ({}). Run it from one service's \
+            "init found {} services under this root ({}). Run it from one service's \
              directory, so the derived schema describes a single service",
             services.len(),
             services.join(", ")
@@ -59,7 +59,7 @@ pub(super) async fn run(
     }
     let Some(framework) = backend_detect::detect_backend_framework(root) else {
         bail!(
-            "--learn could not detect a backend framework from the project manifests \
+            "init could not detect a backend framework from the project manifests \
              (Cargo.toml, package.json, pyproject/requirements, pom/gradle, Gemfile, \
              composer.json, go.mod); run it from the service's root directory"
         );
@@ -75,7 +75,7 @@ pub(super) async fn run(
     }
     let Some(derived) = extract::derive(root, framework.name) else {
         bail!(
-            "detected {} (from {}), which --learn cannot extract routes for yet.\n{}",
+            "detected {} (from {}), which init cannot extract routes for yet.\n{}",
             framework.name,
             framework.manifest,
             project_scaffold::backend_schema_guide(root)

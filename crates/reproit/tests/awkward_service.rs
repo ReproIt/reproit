@@ -150,7 +150,7 @@ fn a_sibling_service_makes_the_contract_check_abstain_rather_than_guess() {
 #[test]
 fn learn_reads_wrapped_routes_a_conditional_router_and_skips_bench_targets() {
     let root = awkward_repo("learn");
-    let derived = reproit(&root.join("api"), &["init", "--learn", "--yes", "--force"]);
+    let derived = reproit(&root.join("api"), &["init", "--yes", "--force"]);
     assert!(derived.contains("derived"), "{derived}");
     let schema = std::fs::read_to_string(root.join("api/openapi.yaml")).expect("draft");
 

@@ -1,0 +1,98 @@
+{
+  "issue": "https://github.com/saber-notes/saber/issues/1603",
+  "affectedRevision": "a77740bf4b55a962838940f77f763041544bc901",
+  "fixedRevision": "ed4fe66fc5908a55d2e20806e9cb01fc11ad5d78",
+  "identity": "recent-notes:externally-deleted-note-still-visible:No preview available\\n26-07-29 Untitled",
+  "memoryMeasurement": "unavailable",
+  "environment": {
+    "target": "flutter-ios",
+    "simulatorUdid": "0518894C-7758-4472-ABCF-D2DDB2DF8202",
+    "simulator": "iPhone 16 Pro",
+    "runtime": "iOS 18.5 (22F77)",
+    "architecture": "arm64",
+    "bundleId": "com.adilhanney.saber",
+    "xcode": "26.2 (17C52)",
+    "flutter": "3.41.6 (db50e20168)",
+    "appium": "3.5.2",
+    "xcuitestDriver": "11.16.2",
+    "reset": "application uninstalled and reinstalled before every run"
+  },
+  "artifacts": {
+    "affectedAppFrameworkSha256": "sha256:813850d9c508c6c42bfb41ff669d3c15222869475d7486c2c512e6f8673f3a44",
+    "affectedKernelSha256": "sha256:e7390a90e1ea4ee11b9ef0efa3481fd4e885a84c96b5c5646afa56007d2b0642",
+    "fixedAppFrameworkSha256": "sha256:290df12ce820987b2882805af68f8a1a82e1441d57125c73000c9ca455559378",
+    "fixedKernelSha256": "sha256:a0e6eb73fedc519b05de5b4e676944810c88d3be8f94f55f814784b6b15c2d17"
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": "recent-notes:externally-deleted-note-still-visible:No preview available\\n26-07-29 Untitled",
+      "neighboringControlReached": true,
+      "elapsedSeconds": 30.613,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:441fd26ab5bc59ac040ee17f108ecab0d61c300a534d0e5c35d441942db355b0"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": "recent-notes:externally-deleted-note-still-visible:No preview available\\n26-07-29 Untitled",
+      "neighboringControlReached": true,
+      "elapsedSeconds": 30.797,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:cc80c3fe97de2da6fc4d2b80ddb535bf684501185408e5f26aff784746c171de"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": "recent-notes:externally-deleted-note-still-visible:No preview available\\n26-07-29 Untitled",
+      "neighboringControlReached": true,
+      "elapsedSeconds": 30.581,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:d9aca36bc541eb3e69038d875f427646587095e5f534b1372b3e4e580904b408"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": null,
+      "neighboringControlReached": true,
+      "elapsedSeconds": 30.587,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:72c8064bfc601f726c4da198197ebe76b04d7fd472bbe43f871ee333a677c340"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": null,
+      "neighboringControlReached": true,
+      "elapsedSeconds": 31.441,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:0de96675932c3f2d78e70f0f80405dff8892e3c9388c71fd0a31ccd11d48c9ef"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "identity": null,
+      "neighboringControlReached": true,
+      "elapsedSeconds": 31.028,
+      "jsHeapMiB": null,
+      "exceptions": [],
+      "sourceSha256": "sha256:c8fa89f15345133a0aaf9aed949ac16fac90cd16f56e53701131707ba84c4859"
+    }
+  ],
+  "neighboringLegalBehavior": "The second note remains on Recent Notes after the first note is moved outside the application container.",
+  "minimizedAction": "Create two notes, move exactly one persisted note pair outside the application container, terminate, and relaunch."
+}

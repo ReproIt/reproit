@@ -200,6 +200,6 @@ mod tests {
         assert!(has_explicit_status_marker("detached-indicator"));
         assert!(has_explicit_status_marker("accessibility-state"));
         assert!(!has_explicit_status_marker("crash"));
-        assert!(!has_explicit_status_marker("backend-contract"));
+        assert!(!has_explicit_status_marker("contract"));
     }
 }

@@ -116,10 +116,3 @@ Local-only capture and checking do not require login.
 --quiet         suppress human output
 --yes           disable prompts for CI
 ```
-
-## Compatibility surface
-
-Older commands remain hidden compatibility routes while scripts migrate to `capture`, `find`,
-`check`, and `list`. They are covered by parser and workflow tests and are not removed until their
-observable contracts have equivalents in the core workflows. They are intentionally omitted from
-this product reference.

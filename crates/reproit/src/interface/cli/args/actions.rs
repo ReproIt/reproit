@@ -22,8 +22,6 @@ pub(crate) enum DebugAction {
 /// `repro` subcommands: advanced operations that act on an existing repro.
 #[derive(Subcommand)]
 pub(crate) enum ReproAction {
-    /// List saved local repros (an alias of the top-level `repros`).
-    List,
     /// Verify an alternate action sequence still reproduces a repro's finding,
     /// and adopt it if it does and is no longer than the current one. The
     /// engine VERIFIES the candidate deterministically, so a simplification
@@ -310,7 +308,7 @@ pub(crate) enum CloudAction {
     /// and writes it as a saved repro under `.reproit/repros/` named `--as
     /// <name>`, the SAME on-disk shape `keep` produces. Afterwards `reproit
     /// @name` runs the standard local, network-free verification and
-    /// `reproit repros` lists it -- indistinguishable from a locally found
+    /// `reproit list` lists it -- indistinguishable from a locally found
     /// repro. Fetches the content-addressed `GET
     /// /v1/apps/:app/buckets/:bucket`.
     Pull {

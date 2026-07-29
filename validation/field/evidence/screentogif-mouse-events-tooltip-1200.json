@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-wpf",
+  "campaign": "screentogif-mouse-events-tooltip-1200",
+  "status": "campaign-complete",
+  "issue": "https://github.com/NickeManarin/ScreenToGif/issues/1200",
+  "pullRequest": "https://github.com/NickeManarin/ScreenToGif/pull/1205",
+  "affectedRevision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1",
+  "fixedRevision": "d71dfbcf02749da7d9303d9c716d76372339acb0",
+  "identity": "mouse-events-tooltip-uses-old-french-command-label",
+  "authority": "authored-contract: the French Mouse Events command tooltip must name events, not clicks",
+  "memoryMeasurement": "unavailable",
+  "minimizedAction": "open one one-pixel frame in the French editor, select Image, and hover the Mouse Events command",
+  "neighboringLegalBehavior": "the adjacent Shapes command exposes Ajouter des formes (Alt + J) on both exact revisions",
+  "observation": {
+    "automation": "Windows UI Automation plus pointer hover",
+    "windowAutomationId": "EditorWindow",
+    "ribbonAutomationId": "RibbonTabControl",
+    "affectedTooltip": "Clics de souris (Alt + I)",
+    "fixedTooltip": "Événements de souris (Alt + I)",
+    "neighboringTooltip": "Ajouter des formes (Alt + J)",
+    "targeting": "UIA ribbon bounds plus the fixed historical Editor.xaml Image-tab layout"
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "interactiveSessionId": 1,
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route",
+    "scheduledTaskLogonType": "Interactive",
+    "dotnetRoot": "C:\\lab\\dotnet-campaign",
+    "buildSdk": "6.0.428",
+    "runtime": "6.0.36",
+    "portableLanguageCode": "fr",
+    "networkPolicy": "application update checks disabled in fresh portable settings"
+  },
+  "builds": {
+    "affected": {
+      "executableSha256": "F116A58952DE0DCED93987E1112769CD6ACB1936BBF69DBC75C00E93590EF8F2",
+      "applicationAssemblySha256": "88EB418E734DED16AB711F19CC801336DF27AD02B286111AC145D9C72B6A4405",
+      "buildLogSha256": "D92F300234FC3B788D4089DCEBF14ED145DE05D45A42206E4AEC15752C717CFD",
+      "buildLogWriteSpanSeconds": 77.4869103,
+      "result": "Build succeeded, 0 errors"
+    },
+    "fixed": {
+      "executableSha256": "F116A58952DE0DCED93987E1112769CD6ACB1936BBF69DBC75C00E93590EF8F2",
+      "applicationAssemblySha256": "FFEE9B0752E861C3EEB3A223CBF1D4A3A273EC44CD8EB3B6E6C54E3E42676E64",
+      "buildLogSha256": "A78C10FC609FAC02ED994B09AE3E7033678C1A092E4BDC80226D6EA24399B319",
+      "buildLogWriteSpanSeconds": 21.4639643,
+      "result": "Build succeeded, 0 errors"
+    }
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 20.264375,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:48:33.4204108+00:00",
+      "finishedAt": "2026-07-29T02:48:53.6847856+00:00",
+      "processId": 11104,
+      "readinessMilliseconds": 19412,
+      "observedTooltip": "Clics de souris (Alt + I)",
+      "rawRecordSha256": "7e2d521d78b798048d3b0b92b2c663703d19ef39937a04908a48e80e82cadee3"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 19.893676,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:49:11.1139335+00:00",
+      "finishedAt": "2026-07-29T02:49:31.0076095+00:00",
+      "processId": 10428,
+      "readinessMilliseconds": 18990,
+      "observedTooltip": "Clics de souris (Alt + I)",
+      "rawRecordSha256": "2718507317b66aa6ce7349b5c20c82087357170b6aef71aed6cfe296b479fb85"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 21.145414,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:49:53.0811473+00:00",
+      "finishedAt": "2026-07-29T02:50:14.2265610+00:00",
+      "processId": 2064,
+      "readinessMilliseconds": 20250,
+      "observedTooltip": "Clics de souris (Alt + I)",
+      "rawRecordSha256": "e6797523c9ef87515ac0e5cd3526a3315c6a0333e6cc5064cffe1981fe4847f1"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 20.732087,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:50:33.8355820+00:00",
+      "finishedAt": "2026-07-29T02:50:54.5676695+00:00",
+      "processId": 10184,
+      "readinessMilliseconds": 19916,
+      "observedTooltip": "Événements de souris (Alt + I)",
+      "rawRecordSha256": "a4aecfcc425f6e173ed86bd66f6040953bf27cbf92b24921c3a3b7700df5eb8e"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 19.063551,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:51:15.8806264+00:00",
+      "finishedAt": "2026-07-29T02:51:34.9441779+00:00",
+      "processId": 6996,
+      "readinessMilliseconds": 18201,
+      "observedTooltip": "Événements de souris (Alt + I)",
+      "rawRecordSha256": "48e3a7a4ef0963a53ea70aacca92c075bc16f2dc5f2581dbca3d7854fa60ee35"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 19.051465,
+      "jsHeapMiB": null,
+      "startedAt": "2026-07-29T02:51:57.4420696+00:00",
+      "finishedAt": "2026-07-29T02:52:16.4935349+00:00",
+      "processId": 5752,
+      "readinessMilliseconds": 18218,
+      "observedTooltip": "Événements de souris (Alt + I)",
+      "rawRecordSha256": "ffe3740b77f7169999aa76b2ed43ac63d752313c894bb64a0ae4837588cb4eb6"
+    }
+  ],
+  "controls": [
+    {
+      "role": "affected-control",
+      "revision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1",
+      "observedTooltip": "Ajouter des formes (Alt + J)",
+      "rawRecordSha256": "2cf7a9bf28b7d50e9a8d691d432d9f0ef500a9bf31e229158b4253619eebb6d2"
+    },
+    {
+      "role": "fixed-control",
+      "revision": "d71dfbcf02749da7d9303d9c716d76372339acb0",
+      "observedTooltip": "Ajouter des formes (Alt + J)",
+      "rawRecordSha256": "58188becdca089c86356263213cf348f1fc0738b7c997ef4a2bed86df877669f"
+    }
+  ],
+  "containment": {
+    "preexistingScreenToGifProcessesEveryRun": 0,
+    "freshPortableSettingsEveryRun": true,
+    "remainingOwnedProcessesEveryRun": 0,
+    "portableSettingsRemovedEveryRun": true,
+    "runRootRemovedEveryRun": true,
+    "pointerRestoredEveryRun": true,
+    "scheduledTaskRemoved": true
+  },
+  "rawRecords": {
+    "retainedAt": "C:\\lab\\campaigns\\screentogif-evidence",
+    "orderedHashChainSha256": "c676c95837bc1efe883b5daca8baaa33e6d3b7af8e15643b771c0265d37079ac"
+  },
+  "qualification": {
+    "defectCampaignComplete": true,
+    "targetQualified": false,
+    "remaining": "target promotion is separate from this application campaign"
+  }
+}

@@ -21,10 +21,19 @@ import { sanitizeEvidenceText } from '../sanitize-evidence.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const QUALIFICATIONS = new Set(['FixtureQualified', 'IndependentQualified']);
+const REVISION_PATTERN = /^(?:git:[a-f0-9]{40}|sha256:[a-f0-9]{64})$/;
 
 // The chain, in order. `required` stages must all be present for the record to
 // qualify; the rest are retained when the harness produced them.
 const STAGES = [
+  {
+    id: 'reset',
+    file: 'reset.json',
+    required: true,
+    summary: 'clean application workspace and disposable Cloud project reset',
+    redactJson: true,
+  },
   {
     id: 'production-signal',
     file: 'project.json',
@@ -67,7 +76,7 @@ const STAGES = [
   {
     id: 'retention-and-deletion',
     file: 'delete.json',
-    required: false,
+    required: true,
     summary: 'disposable project deletion response',
     redactJson: true,
   },
@@ -101,6 +110,73 @@ function isJson(text) {
 
 function sha256(text) {
   return `sha256:${createHash('sha256').update(text).digest('hex')}`;
+}
+
+function nonEmpty(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function qualificationContract(contract, qualification) {
+  const blockers = [];
+  const requireValue = (condition, field) => {
+    if (!condition) blockers.push(field);
+  };
+  requireValue(contract && typeof contract === 'object', 'contract');
+  if (!contract || typeof contract !== 'object') return { blockers };
+
+  requireValue(nonEmpty(contract.targetId), 'targetId');
+  requireValue(
+    contract.originKind === 'fixture' || contract.originKind === 'independent-application',
+    'originKind',
+  );
+  const expectedOrigin = qualification === 'IndependentQualified'
+    ? 'independent-application'
+    : 'fixture';
+  requireValue(contract.originKind === expectedOrigin, 'originKind-for-qualification');
+
+  const revisions = contract.revisions;
+  requireValue(revisions && typeof revisions === 'object', 'revisions');
+  requireValue(REVISION_PATTERN.test(revisions?.cli || ''), 'revisions.cli');
+  requireValue(REVISION_PATTERN.test(revisions?.application || ''), 'revisions.application');
+  requireValue(nonEmpty(revisions?.sdk?.name), 'revisions.sdk.name');
+  requireValue(
+    REVISION_PATTERN.test(revisions?.sdk?.revision || ''),
+    'revisions.sdk.revision',
+  );
+
+  requireValue(nonEmpty(contract.local?.provider), 'local.provider');
+  requireValue(contract.local?.trusted === true, 'local.trusted');
+
+  const commands = contract.execution?.commands;
+  requireValue(Array.isArray(commands) && commands.length > 0, 'execution.commands');
+  for (const [index, command] of (commands || []).entries()) {
+    requireValue(nonEmpty(command?.stage), `execution.commands[${index}].stage`);
+    requireValue(nonEmpty(command?.command), `execution.commands[${index}].command`);
+    requireValue(
+      Array.isArray(command?.assertions)
+        && command.assertions.length > 0
+        && command.assertions.every(nonEmpty),
+      `execution.commands[${index}].assertions`,
+    );
+  }
+  for (const phase of ['reset', 'cleanup']) {
+    requireValue(nonEmpty(contract.execution?.[phase]?.command), `execution.${phase}.command`);
+    requireValue(
+      Array.isArray(contract.execution?.[phase]?.evidence)
+        && contract.execution[phase].evidence.length > 0
+        && contract.execution[phase].evidence.every(nonEmpty),
+      `execution.${phase}.evidence`,
+    );
+  }
+  return { contract, blockers };
+}
+
+async function retainedJson(outputRoot, file) {
+  try {
+    return JSON.parse(await readFile(join(outputRoot, file), 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 async function readBounded(path) {
@@ -169,21 +245,75 @@ function assertNoSecret(record) {
 }
 
 export async function retainProductionChain(workRoot, outputRoot, options = {}) {
-  const { qualification = 'FixtureQualified', originSummary } = options;
+  const { qualification = 'FixtureQualified', originSummary, contract = null } = options;
   if (!originSummary) throw new Error('originSummary must describe the production signal');
+  const requestedQualification = QUALIFICATIONS.has(qualification)
+    ? qualification
+    : 'Unqualified';
+  const contractResult = qualificationContract(contract, requestedQualification);
+  if (!QUALIFICATIONS.has(qualification)) {
+    contractResult.blockers.push('qualification');
+  }
   await mkdir(outputRoot, { recursive: true });
   const stages = [];
   for (const stage of STAGES) stages.push(await retainStage(stage, workRoot, outputRoot));
   const missing = stages.filter(
     (stage) => stage.required && (!stage.present || stage.malformed),
   );
+  const stageIds = new Set(stages.map((stage) => stage.id));
+  const requiredStageIds = STAGES.filter((stage) => stage.required).map((stage) => stage.id);
+  const commandStages = new Set(
+    (contract?.execution?.commands || []).map((command) => command.stage),
+  );
+  for (const stageId of requiredStageIds) {
+    if (!commandStages.has(stageId)) {
+      contractResult.blockers.push(`execution.commands.${stageId}`);
+    }
+  }
+  for (const stageId of commandStages) {
+    if (!stageIds.has(stageId)) {
+      contractResult.blockers.push(`execution.commands.unknown-stage.${stageId}`);
+    }
+  }
+  if (!contract?.execution?.reset?.evidence?.includes('reset')) {
+    contractResult.blockers.push('execution.reset.evidence.reset');
+  }
+  if (!contract?.execution?.cleanup?.evidence?.includes('retention-and-deletion')) {
+    contractResult.blockers.push('execution.cleanup.evidence.retention-and-deletion');
+  }
+  const project = await retainedJson(outputRoot, 'project.json');
+  const hosted = await retainedJson(outputRoot, 'hosted.json');
+  const cloud = {
+    baseUrl: hosted.base || null,
+    projectId: hosted.projectId || project.appId || null,
+    occurrenceId: hosted.occurrenceId || null,
+    bucketId: hosted.bucketId || null,
+  };
+  for (const [field, value] of Object.entries(cloud)) {
+    if (!nonEmpty(value)) contractResult.blockers.push(`cloud.${field}`);
+  }
+  const qualificationBlockers = [
+    ...new Set([
+      ...contractResult.blockers,
+      ...missing.map((stage) => `stage.${stage.id}`),
+    ]),
+  ];
   const record = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     gate: 'D5-production-to-local',
-    qualification: missing.length ? 'Unqualified' : qualification,
-    originSummary,
+    targetId: contract?.targetId || null,
+    qualification: qualificationBlockers.length ? 'Unqualified' : requestedQualification,
+    origin: {
+      kind: contract?.originKind || null,
+      summary: originSummary,
+    },
+    revisions: contract?.revisions || null,
+    cloud,
+    local: contract?.local || null,
+    execution: contract?.execution || null,
     stages,
     missingRequiredStages: missing.map((stage) => stage.id),
+    qualificationBlockers,
     chainSha256: sha256(
       stages
         .filter((stage) => stage.present)
@@ -205,23 +335,29 @@ async function main(argv) {
   if (!workRoot || !outputRoot) {
     throw new Error(
       'usage: retain-production-chain.mjs WORK_DIR OUTPUT_DIR [--qualification NAME] '
-      + '--origin "description"',
+      + '--origin "description" --contract CONTRACT.json',
     );
   }
   const originIndex = rest.indexOf('--origin');
   const qualificationIndex = rest.indexOf('--qualification');
+  const contractIndex = rest.indexOf('--contract');
+  const contract = contractIndex === -1
+    ? null
+    : JSON.parse(await readBounded(resolve(rest[contractIndex + 1])));
   const record = await retainProductionChain(resolve(workRoot), resolve(outputRoot), {
     originSummary: originIndex === -1 ? null : rest[originIndex + 1],
     qualification: qualificationIndex === -1
       ? 'FixtureQualified'
       : rest[qualificationIndex + 1],
+    contract,
   });
   process.stdout.write(`${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     output: outputRoot,
     qualification: record.qualification,
     stages: record.stages.filter((stage) => stage.present).length,
     missing: record.missingRequiredStages,
+    blockers: record.qualificationBlockers,
   }, null, 2)}\n`);
 }
 

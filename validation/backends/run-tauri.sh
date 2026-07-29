@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
+IMAGE="${REPROIT_TAURI_GATE_IMAGE:-reproit-tauri-backend}"
+VOLUME_LABEL="${REPROIT_DOCKER_VOLUME_LABEL:-}"
+[[ "$VOLUME_LABEL" == "" || "$VOLUME_LABEL" == ",z" || "$VOLUME_LABEL" == ",Z" ]] || {
+  echo "REPROIT_DOCKER_VOLUME_LABEL must be empty, ,z, or ,Z" >&2
+  exit 2
+}
 trap 'rm -rf "$WORK"' EXIT
 
 cat > "$WORK/Dockerfile" <<'EOF'
@@ -71,6 +77,6 @@ for _ in $(seq 1 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
 exec dbus-run-session -- bash /work/inner.sh
 EOF
 
-docker build -t reproit-tauri-backend "$WORK"
-docker run --rm -v "$ROOT":/repo:ro -v "$WORK":/work:ro \
-  reproit-tauri-backend bash /work/entry.sh
+docker build -t "$IMAGE" "$WORK"
+docker run --rm -v "$ROOT:/repo:ro$VOLUME_LABEL" -v "$WORK:/work:ro$VOLUME_LABEL" \
+  "$IMAGE" bash /work/entry.sh

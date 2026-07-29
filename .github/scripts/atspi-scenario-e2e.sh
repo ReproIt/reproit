@@ -33,7 +33,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-IMAGE=reproit-atspi-scenario-e2e
+IMAGE="${REPROIT_ATSPI_GATE_IMAGE:-reproit-atspi-scenario-e2e}"
+VOLUME_LABEL="${REPROIT_DOCKER_VOLUME_LABEL:-}"
+[[ "$VOLUME_LABEL" == "" || "$VOLUME_LABEL" == ",z" || "$VOLUME_LABEL" == ",Z" ]] || {
+  echo "REPROIT_DOCKER_VOLUME_LABEL must be empty, ,z, or ,Z" >&2
+  exit 2
+}
 
 cat > "$WORK/Dockerfile" <<'EOF'
 FROM rust:1.88-bookworm AS rust-toolchain
@@ -368,6 +373,6 @@ EOF
 
 docker build -t "$IMAGE" "$WORK"
 docker run --rm \
-  -v "$ROOT":/repo:ro \
-  -v "$WORK":/work \
+  -v "$ROOT:/repo:ro$VOLUME_LABEL" \
+  -v "$WORK:/work:rw$VOLUME_LABEL" \
   "$IMAGE" bash /work/entry.sh

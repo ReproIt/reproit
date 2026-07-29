@@ -20,7 +20,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-IMAGE=reproit-qt-atspi-e2e
+IMAGE="${REPROIT_QT_ATSPI_GATE_IMAGE:-reproit-qt-atspi-e2e}"
+VOLUME_LABEL="${REPROIT_DOCKER_VOLUME_LABEL:-}"
+[[ "$VOLUME_LABEL" == "" || "$VOLUME_LABEL" == ",z" || "$VOLUME_LABEL" == ",Z" ]] || {
+  echo "REPROIT_DOCKER_VOLUME_LABEL must be empty, ,z, or ,Z" >&2
+  exit 2
+}
 
 cp "$HERE/main.cpp" "$WORK/main.cpp"
 cp "$HERE/qml-main.cpp" "$WORK/qml-main.cpp"
@@ -194,6 +199,6 @@ EOF
 
 docker build -t "$IMAGE" "$WORK"
 docker run --rm \
-  -v "$ROOT":/repo:ro \
-  -v "$WORK":/work \
+  -v "$ROOT:/repo:ro$VOLUME_LABEL" \
+  -v "$WORK:/work:rw$VOLUME_LABEL" \
   "$IMAGE" bash /work/entry.sh

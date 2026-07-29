@@ -83,7 +83,7 @@ finding carries the per-check `backend-*` id below; legacy artifacts stamped wit
 - Deployment and multi-actor proofs: `backend-fleet-consistency`, `backend-authorization-matrix`,
   `backend-transaction-atomicity`, `backend-concurrent-update`, and
   `backend-concurrent-conservation`.
-- Scoped protocol evidence still reports under the `backend-contract` umbrella id:
+- Scoped protocol evidence without a dedicated row reports under the canonical `contract` id:
   `http-byte-range`, `http-redirect-transition`, `http-response-media-type`,
   `http-conditional-cache`, `lifecycle-precedence`, `lifecycle-forbid-after`, and
   `lifecycle-cardinality`.

@@ -16,6 +16,8 @@ npm install --prefix "$WORK/app" --no-save --no-audit --no-fund electron@31.7.7
 
 REPROIT_APP_DIR="$WORK/app" \
 REPROIT_FUZZ_CONFIG="$WORK/fuzz.json" \
+REPROIT_ELECTRON_DISABLE_SANDBOX=1 \
+DEBUG='pw:browser*' \
 node "$ROOT/runners/electron.mjs" | tee "$WORK/run.log"
 
 grep -q '^EXPLORE:STATE ' "$WORK/run.log"
@@ -26,6 +28,8 @@ grep -q '^EXPLORE:OVERFLOW ' "$WORK/run.log"
 grep -q 'key:id:overflow-message' "$WORK/run.log"
 grep -q '^JOURNEY DONE$' "$WORK/run.log"
 grep -q '^All tests passed$' "$WORK/run.log"
-! grep -q 'EXCEPTION CAUGHT BY REPROIT' "$WORK/run.log"
+if grep -q 'EXCEPTION CAUGHT BY REPROIT' "$WORK/run.log"; then
+  exit 1
+fi
 
 echo "WebCdp backend passed native Electron runtime"

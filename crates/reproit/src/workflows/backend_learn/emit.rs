@@ -1,4 +1,4 @@
-//! Draft OpenAPI emission for `reproit init --learn`. The output is honestly
+//! Draft OpenAPI emission for `reproit init`. The output is honestly
 //! marked as a derived draft (`x-reproit-derived` plus a header comment) and
 //! deliberately loose: free-form bodies for mutating routes, string-typed path
 //! params, and responses only where a live probe actually observed one. Fewer
@@ -40,7 +40,7 @@ fn render(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "# DRAFT schema derived by `reproit init --learn` from {framework} source patterns.\n\
+        "# DRAFT schema derived by `reproit init` from {framework} source patterns.\n\
          # It is a starting point, not a verified contract: the routes were read from\n\
          # source, the types are loose placeholders, and any recorded response was\n\
          # observed exactly once. Review it, tighten the types and statuses your\n\
@@ -94,12 +94,12 @@ fn push_observed(out: &mut String, observed: &Observation) {
         format!("; adapter effects: {}", observed.effects.join(", "))
     };
     out.push_str(&format!(
-        "      # observed live by --learn: HTTP {}{effects}\n",
+        "      # observed live during init: HTTP {}{effects}\n",
         observed.status
     ));
     out.push_str(&format!(
         "      responses:\n        \"{}\":\n          description: observed once by the \
-         --learn live probe; verify before relying on it\n",
+         init live probe; verify before relying on it\n",
         observed.status
     ));
     if let Some(shape) = &observed.body {

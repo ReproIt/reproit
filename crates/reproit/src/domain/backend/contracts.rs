@@ -60,8 +60,8 @@ pub struct BackendConfig {
     /// Subtree that implements THIS service, relative to the project root.
     ///
     /// Only needed in a repo that holds more than one service. Source-reading
-    /// features (`--learn`, the doctor contract check) scan the project root by
-    /// default, which in a multi-service repo means comparing one service's
+    /// Source-derivation features (`init`, the doctor contract check) scan the
+    /// project root by default, which in a multi-service repo means comparing one service's
     /// schema against another service's routes: confidently wrong, in the
     /// direction of telling you to delete a correct operation.
     #[serde(default)]
@@ -119,22 +119,6 @@ pub struct BackendAuth {
     /// (single-identity auth reaches only one success per throttled endpoint).
     #[serde(default)]
     pub accounts: Vec<BackendAccount>,
-    // --- Backward-compatible single-login sugar (one account). ---
-    /// Login endpoint path, joined to the service base URL (e.g. /api/auth/token).
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default = "default_login_method")]
-    pub method: String,
-    #[serde(default)]
-    pub form: Option<BTreeMap<String, String>>,
-    #[serde(default)]
-    pub json: Option<Value>,
-    #[serde(default)]
-    pub token_path: Option<String>,
-    #[serde(default = "default_auth_header")]
-    pub header: String,
-    #[serde(default = "default_auth_value")]
-    pub value: String,
 }
 
 /// One identity: how to log it in, and the headers to inject once it holds a
@@ -174,46 +158,12 @@ pub struct BackendLogin {
     pub token_path: String,
 }
 
-impl BackendAuth {
-    /// The identities to log in, whether declared as a `accounts` pool or via the
-    /// flat single-login sugar. Empty when nothing is configured.
-    pub fn resolved_accounts(&self) -> Vec<BackendAccount> {
-        if !self.accounts.is_empty() {
-            return self.accounts.clone();
-        }
-        let Some(path) = self.path.clone() else {
-            return Vec::new();
-        };
-        let mut headers = BTreeMap::new();
-        headers.insert(self.header.clone(), self.value.clone());
-        vec![BackendAccount {
-            login: BackendLogin {
-                path: Some(path),
-                url: None,
-                method: self.method.clone(),
-                form: self.form.clone(),
-                json: self.json.clone(),
-                token_path: self.token_path.clone().unwrap_or_else(default_token_path),
-            },
-            headers,
-        }]
-    }
-}
-
 fn default_token_path() -> String {
     "/access_token".to_string()
 }
 
 fn default_login_method() -> String {
     "POST".to_string()
-}
-
-fn default_auth_header() -> String {
-    "Authorization".to_string()
-}
-
-fn default_auth_value() -> String {
-    "Bearer {token}".to_string()
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]

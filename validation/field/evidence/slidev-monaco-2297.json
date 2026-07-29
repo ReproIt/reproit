@@ -5,6 +5,7 @@
   "affectedRevision": "c87d474c5f5aed4533a1758e280988ac379cac0f",
   "fixedRevision": "7d7aad8d2e0c3117227ed8e8840439723568c1ae",
   "identity": "navigation:/15->/16:on-space-in-monaco",
+  "memoryMeasurement": "js-heap",
   "affected": [
     {"run": 1, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/16", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 8.094},
     {"run": 2, "cleanLaunch": true, "activeElement": "DIV.native-edit-context", "finalPath": "/16", "exceptions": [], "jsHeapMiB": 133, "elapsedSeconds": 2.858},

@@ -144,6 +144,8 @@ jobs:
           npm ci --prefix runners/rn
           npm install -g appium@3.5.2
           appium driver install xcuitest@11.16.2
+      - name: Select pinned Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
       - run: python3 validation/native/preflight.py macos-appium
       - name: Run SwiftUI and React Native through Appium
         env:
@@ -170,6 +172,8 @@ jobs:
           rustup toolchain install 1.88.0 --profile minimal
           rustup default 1.88.0
       - uses: Swatinem/rust-cache@v2
+      - name: Select pinned Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
       - run: python3 validation/native/preflight.py macos-flutter
       - name: Run Flutter on a disposable simulator
         env:

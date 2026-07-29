@@ -12,19 +12,9 @@ pub(super) fn load_catalog(
     occurrence_id: Option<&str>,
     plan_id: Option<&str>,
 ) -> Result<ProviderCatalog> {
-    let compatibility_path = root.join("reproit.execution.yaml");
     let project_path = root.join("reproit.yaml");
-    let project_catalog = read_project_catalog(&project_path)?;
-    if project_catalog.is_some() && compatibility_path.exists() {
-        anyhow::bail!(
-            "execution providers are defined in both reproit.yaml and \
-             reproit.execution.yaml; keep only reproit.yaml:execution"
-        );
-    }
-    let mut catalog = if let Some(catalog) = project_catalog {
+    let mut catalog = if let Some(catalog) = read_project_catalog(&project_path)? {
         catalog
-    } else if compatibility_path.exists() {
-        read_catalog(&compatibility_path)?
     } else {
         ProviderCatalog {
             version: CATALOG_VERSION,

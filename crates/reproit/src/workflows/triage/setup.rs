@@ -35,7 +35,7 @@ on:
   pull_request:
   repository_dispatch:
     types: [reproit-repro]
-  # Smoke-test the loop by hand with an app + bucket id from `reproit bugs`.
+  # Smoke-test the loop by hand with an app + bucket id from `reproit list --state bugs`.
   workflow_dispatch:
     inputs:
       app:
@@ -391,7 +391,7 @@ pub async fn setup(
         .to_string();
 
     // Persist the selected project alongside the validated secret. Every common
-    // command can now infer it (`reproit bugs`, `reproit pull bkt_...`).
+    // command can now infer it (`reproit list --state bugs`, direct `reproit bkt_...`).
     crate::adapters::cloud_profile::save_cloud_profile(&tok_path, &project_key, &base, Some(app))?;
 
     // Prove ingest + project routing without opening a fake bug: a synthetic
@@ -467,7 +467,7 @@ pub async fn setup(
     };
     print_sdk_hint(platform_hint.as_deref(), app, &publishable_key, &endpoint);
     println!("  3. Ship a crash, then list your production bugs:");
-    println!("       reproit bugs");
+    println!("       reproit list --state bugs");
     Ok(())
 }
 

@@ -16,7 +16,9 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod package_routing;
 mod verification;
+use package_routing::has_compiled_plan;
 use verification::{guard_verification_summary, plan_verification_summary};
 
 pub(super) struct CheckArgs {
@@ -144,11 +146,7 @@ fn source_neutral_suite() -> Option<(PathBuf, Vec<repro::Meta>)> {
     loop {
         let metas = repro::list(&root)
             .into_iter()
-            .filter(|meta| {
-                repro::repro_dir(&root, &meta.id)
-                    .join("package.json")
-                    .is_file()
-            })
+            .filter(|meta| has_compiled_plan(&root, meta))
             .collect::<Vec<_>>();
         let has_config =
             root.join("reproit.yaml").is_file() || root.join(".reproit/reproit.yaml").is_file();
@@ -470,7 +468,7 @@ fn resolve_metas(
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "no repro or finding `{reference}` (by id or alias). List saved bugs with \
-                 `reproit bugs`, or find some with `reproit fuzz`."
+                 `reproit list --state bugs`, or find some with `reproit fuzz`."
             )
         })?;
     Ok(vec![meta])
@@ -551,10 +549,7 @@ async fn execute_case(
     meta: &repro::Meta,
     locale: Option<&str>,
 ) -> Result<CaseExecution> {
-    if repro::repro_dir(&loaded.root, &meta.id)
-        .join("package.json")
-        .is_file()
-    {
+    if has_compiled_plan(&loaded.root, meta) {
         return execute_plan_guard(ctx, &loaded.root, args, times, meta, locale).await;
     }
     let label = locale.map_or_else(

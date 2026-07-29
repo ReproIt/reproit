@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "target": "web-chromium",
   "status": "complete",
   "applications": [
@@ -24,7 +24,12 @@
       "minimized": true,
       "controls": ["fixed-revision", "neighboring-legal-behavior"],
       "manualReview": "confirmed-target-bug",
-      "metrics": {"setupSeconds": 11, "replaySecondsP95": 1.844, "peakMemoryMiB": 58},
+      "metrics": {
+        "setupSeconds": 11,
+        "replaySecondsP95": 1.844,
+        "peakMemoryMiB": 58,
+        "memoryMeasurement": "js-heap"
+      },
       "evidence": [
         "validation/field/evidence/vert-route-57.json",
         "validation/field/evidence/vert-route-57.md"
@@ -51,7 +56,12 @@
       "minimized": true,
       "controls": ["fixed-revision", "neighboring-legal-behavior"],
       "manualReview": "confirmed-target-bug",
-      "metrics": {"setupSeconds": 145, "replaySecondsP95": 8.094, "peakMemoryMiB": 142},
+      "metrics": {
+        "setupSeconds": 145,
+        "replaySecondsP95": 8.094,
+        "peakMemoryMiB": 142,
+        "memoryMeasurement": "js-heap"
+      },
       "evidence": [
         "validation/field/evidence/slidev-monaco-2297.json",
         "validation/field/evidence/slidev-monaco-2297.md"

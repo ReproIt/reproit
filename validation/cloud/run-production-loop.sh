@@ -53,10 +53,19 @@ PY
 
 retain_chain() {
   [[ -n "${REPROIT_PRODUCTION_RETAIN:-}" ]] || return 0
+  local contract_args=()
+  local origin_summary
+  origin_summary="hosted Cloud disposable project ingesting strict protocol-v1 "
+  origin_summary+="production findings through the real SDK boundary, replayed "
+  origin_summary+="locally from the returned bucket"
+  if [[ -f "$WORK/qualification-contract.json" ]]; then
+    contract_args=(--contract "$WORK/qualification-contract.json")
+  fi
   node "$ROOT/validation/cloud/retain-production-chain.mjs" \
     "$WORK" "$REPROIT_PRODUCTION_RETAIN" \
     --qualification "${REPROIT_PRODUCTION_QUALIFICATION:-FixtureQualified}" \
-    --origin "hosted Cloud disposable project ingesting strict protocol-v1 production findings through the real SDK boundary, replayed locally from the returned bucket" \
+    --origin "$origin_summary" \
+    "${contract_args[@]}" \
     || echo "warning: production chain retention failed" >&2
 }
 
@@ -125,6 +134,97 @@ journeys:
 evidence:
   outDir: .reproit/runs
 YAML
+
+python3 - "$WORK/app/index.html" "$WORK/reset.json" \
+  "$WORK/qualification-contract.json" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+application_path, reset_path, contract_path = sys.argv[1:]
+application_revision = "sha256:" + hashlib.sha256(
+    open(application_path, "rb").read()
+).hexdigest()
+with open(reset_path, "w", encoding="utf-8") as output:
+    json.dump(
+        {
+            "cleanWorkspace": True,
+            "disposableProject": True,
+            "workspaceOwner": "run-production-loop.sh",
+        },
+        output,
+        indent=2,
+        sort_keys=True,
+    )
+    output.write("\n")
+
+required_stages = [
+    "reset",
+    "production-signal",
+    "cloud-ingestion",
+    "local-materialization",
+    "exact-local-reproduction",
+    "direct-replay",
+    "retention-and-deletion",
+]
+contract = {
+    "targetId": os.environ.get("REPROIT_PRODUCTION_TARGET_ID", "web-chromium"),
+    "originKind": "fixture",
+    "revisions": {
+        "cli": os.environ.get("REPROIT_QUALIFICATION_CLI_REVISION", ""),
+        "sdk": {
+            "name": os.environ.get(
+                "REPROIT_QUALIFICATION_SDK_NAME",
+                "reproit-web-protocol-v1",
+            ),
+            "revision": os.environ.get("REPROIT_QUALIFICATION_SDK_REVISION", ""),
+        },
+        "application": application_revision,
+    },
+    "local": {
+        "provider": "reproit-bucket-v1",
+        "trusted": True,
+    },
+    "execution": {
+        "commands": [
+            {
+                "stage": stage,
+                "command": {
+                    "reset": "mktemp workspace and create disposable Cloud project",
+                    "production-signal": "POST /v1/projects",
+                    "cloud-ingestion": "validation/cloud/production-benchmark.py",
+                    "local-materialization": "reproit BUCKET --no-run",
+                    "exact-local-reproduction": "reproit check --repro-id BUCKET --json",
+                    "direct-replay": "reproit BUCKET",
+                    "retention-and-deletion": "DELETE /v1/projects/APP",
+                }[stage],
+                "assertions": {
+                    "reset": ["workspace and project are disposable"],
+                    "production-signal": ["project response is HTTP 201"],
+                    "cloud-ingestion": ["strict SDK-shaped findings produce a bucket"],
+                    "local-materialization": ["bucket package materializes locally"],
+                    "exact-local-reproduction": ["outcome is fail and exit code is 1"],
+                    "direct-replay": ["output contains REPRODUCED"],
+                    "retention-and-deletion": ["project deletion response is HTTP 200"],
+                }[stage],
+            }
+            for stage in required_stages
+        ],
+        "reset": {
+            "command": "create a clean workspace and disposable Cloud project",
+            "evidence": ["reset", "production-signal"],
+        },
+        "cleanup": {
+            "command": "delete the disposable Cloud project and remove the workspace",
+            "evidence": ["retention-and-deletion"],
+        },
+    },
+}
+with open(contract_path, "w", encoding="utf-8") as output:
+    json.dump(contract, output, indent=2, sort_keys=True)
+    output.write("\n")
+PY
 
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$WORK/app" \
   > "$WORK/server.log" 2>&1 &
@@ -221,5 +321,5 @@ with open(destination, "w") as f:
 print(json.dumps(d, indent=2, sort_keys=True))
 PY
 
-echo "production gate passed: disposable project -> strict ingest -> redaction markers -> "\
-"bkt replay -> deletion"
+echo "production gate passed: disposable project -> strict ingest -> redaction markers ->" \
+  "bkt replay -> deletion"

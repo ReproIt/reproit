@@ -81,7 +81,7 @@ pub(super) fn persist_schema_findings(
         let public_id = repro::display_finding_id(&raw_id);
         let finding = json!({
             "id": public_id,
-            "oracle": "backend-contract",
+            "oracle": "contract",
             "invariant": format!("backend:{}", violation.oracle),
             "kind": violation.oracle,
             "message": violation.reason,

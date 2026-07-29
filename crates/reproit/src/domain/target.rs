@@ -19,9 +19,9 @@ impl Target {
 
     pub fn parse(name: &str) -> Option<Target> {
         match name.trim().to_ascii_lowercase().as_str() {
-            "ios" | "iphone" | "ipad" => Some(Target::Ios),
+            "ios" => Some(Target::Ios),
             "android" => Some(Target::Android),
-            "web" | "chromium" | "chrome" | "firefox" | "webkit" | "safari" => Some(Target::Web),
+            "web" => Some(Target::Web),
             _ => None,
         }
     }
@@ -44,7 +44,7 @@ pub fn platform_targets(platform: &str) -> Vec<Target> {
     if p == "flutter" {
         return vec![Target::Ios];
     }
-    if p == "react-native" || p == "rn" {
+    if p == "react-native" {
         return vec![Target::Ios, Target::Android];
     }
     let mut out = Vec::new();
@@ -67,22 +67,21 @@ pub fn platform_targets(platform: &str) -> Vec<Target> {
 
 /// Whether a `--target` token (or whole list) names web browser engines, so the
 /// dispatcher routes to the cross-engine path rather than the platform path. A
-/// list is web-engine iff EVERY non-empty token is an engine alias.
+/// list is web-engine iff every non-empty token is a canonical engine id.
 pub fn is_web_engine_token(tok: &str) -> bool {
     matches!(
         tok.trim().to_ascii_lowercase().as_str(),
-        "chromium" | "chrome" | "blink" | "firefox" | "gecko" | "webkit" | "safari"
+        "chromium" | "firefox" | "webkit"
     )
 }
 
-/// Normalize an engine alias to its canonical Playwright engine name
-/// (chromium/firefox/webkit), the value the web runner reads from
-/// `REPROIT_ENGINE`. Returns None for non-engine tokens.
+/// Validate a canonical Playwright engine name, the value the web runner reads
+/// from `REPROIT_ENGINE`. Returns None for non-engine tokens.
 pub fn canonical_engine(tok: &str) -> Option<&'static str> {
     match tok.trim().to_ascii_lowercase().as_str() {
-        "chromium" | "chrome" | "blink" => Some("chromium"),
-        "firefox" | "gecko" => Some("firefox"),
-        "webkit" | "safari" => Some("webkit"),
+        "chromium" => Some("chromium"),
+        "firefox" => Some("firefox"),
+        "webkit" => Some("webkit"),
         _ => None,
     }
 }

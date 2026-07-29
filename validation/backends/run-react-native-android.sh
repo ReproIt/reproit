@@ -33,8 +33,26 @@ curl -fsS "$APPIUM_URL/status" >/dev/null || {
 
 # Pin both the generator and framework. The generated Gradle project is the
 # upstream React Native template, not a hand-written native surrogate.
-npx --yes @react-native-community/cli@15.1.3 init ReproitRnFixture \
-  --version 0.76.9 --directory "$WORK/app" --skip-install --skip-git-init
+if [[ -n "${REPROIT_RN_TEMPLATE_DIR:-}" ]]; then
+  template_sha256_file="${REPROIT_RN_TEMPLATE_SHA256_FILE:-}"
+  test -d "$REPROIT_RN_TEMPLATE_DIR"
+  test -f "$template_sha256_file"
+  expected_template_sha256="$(cat "$template_sha256_file")"
+  actual_template_sha256="$(
+    cd "$REPROIT_RN_TEMPLATE_DIR"
+    tar --sort=name --mtime="@0" --owner=0 --group=0 --numeric-owner \
+      -cf - . | sha256sum | awk '{print $1}'
+  )"
+  test "$actual_template_sha256" = "$expected_template_sha256"
+  test "$(
+    node -p "require('$REPROIT_RN_TEMPLATE_DIR/package.json').dependencies['react-native']"
+  )" = "0.76.9"
+  cp -a "$REPROIT_RN_TEMPLATE_DIR" "$WORK/app"
+  echo "React Native template cache verified: $actual_template_sha256"
+else
+  npx --yes @react-native-community/cli@15.1.3 init ReproitRnFixture \
+    --version 0.76.9 --directory "$WORK/app" --skip-install --skip-git-init
+fi
 cp "$ROOT/examples/react-native-fixture/App.tsx" "$WORK/app/App.tsx"
 cp "$ROOT/examples/react-native-fixture/index.js" "$WORK/app/index.js"
 sed -i.bak 's/^newArchEnabled=true$/newArchEnabled=false/' "$WORK/app/android/gradle.properties"
@@ -54,9 +72,10 @@ test "$(adb_run shell getprop sys.boot_completed | tr -d '\r')" = "1"
 printf '{"budget":1}' > "$WORK/fuzz.json"
 export REPROIT_APPIUM_URL="$APPIUM_URL"
 export REPROIT_APPIUM_CAPS
-printf -v REPROIT_APPIUM_CAPS '%s%s%s%s' \
+printf -v REPROIT_APPIUM_CAPS '%s%s%s%s%s' \
   '{"platformName":"Android","appium:automationName":"UiAutomator2",' \
   "\"appium:udid\":\"$ANDROID_UDID\",\"appium:noReset\":true," \
+  '"appium:forceAppLaunch":true,' \
   '"appium:newCommandTimeout":600,"appium:appPackage":"com.reproitrnfixture",' \
   '"appium:appActivity":".MainActivity"}'
 export REPROIT_FUZZ_CONFIG="$WORK/fuzz.json"

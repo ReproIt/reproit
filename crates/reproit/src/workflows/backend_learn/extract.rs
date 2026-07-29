@@ -1,4 +1,4 @@
-//! Static route derivation for `reproit init --learn`.
+//! Static route derivation for `reproit init`.
 //!
 //! This file used to BE the extraction: a pattern per framework family, run
 //! line by line over a bounded set of source files. It is now the dispatch and
@@ -107,7 +107,7 @@ impl Derived {
     }
 }
 
-/// The framework families `--learn` can extract routes for, mapped from the
+/// The framework families `init` can extract routes for, mapped from the
 /// `backend_detect` framework names.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Family {

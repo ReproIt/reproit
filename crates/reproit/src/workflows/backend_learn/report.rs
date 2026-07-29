@@ -1,4 +1,4 @@
-//! `reproit init --learn --report`: what a service serves, read from source,
+//! Reporting for source-derived backend schemas: what a service serves, read from source,
 //! writing nothing.
 //!
 //! The setup path bails in exactly the situations where a first look is most

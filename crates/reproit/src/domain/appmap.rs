@@ -25,7 +25,7 @@ pub struct AppMap {
     pub schema_version: u32,
     /// Monotonic graph content revision. Legacy maps used `version` for this
     /// value, so the alias preserves existing committed maps.
-    #[serde(default = "initial_revision", rename = "version", alias = "revision")]
+    #[serde(default = "initial_revision", rename = "version")]
     pub revision: u64,
     pub states: BTreeMap<String, State>,
     pub transitions: Vec<Transition>,

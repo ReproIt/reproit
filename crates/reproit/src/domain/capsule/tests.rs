@@ -249,7 +249,8 @@ fn redaction_is_recursive_typed_and_manifested() {
 #[test]
 fn backend_findings_require_structural_replay_capability() {
     let mut backend = finding();
-    backend.oracle = "backend-contract".into();
+    backend.oracle = "contract".into();
+    backend.invariant = "backend:http-byte-range".into();
     let mut capsule = Capsule::new("app", backend);
     capsule.capabilities.insert(
         "http_replay".into(),
@@ -301,7 +302,7 @@ fn matching_and_reduction_are_deterministic() {
 }
 
 #[test]
-fn exchange_wire_format_is_canonical_camel_case_and_reads_legacy_snake_case() {
+fn exchange_wire_format_requires_canonical_camel_case() {
     let exchange = Exchange {
         id: "a-1-0".into(),
         actor: "a".into(),
@@ -322,7 +323,7 @@ fn exchange_wire_format_is_canonical_camel_case_and_reads_legacy_snake_case() {
     assert!(value.get("action_index").is_none());
     assert!(value.get("requestHeaders").is_some());
     assert!(value.get("responseBody").is_some());
-    let legacy = json!({"id":"a-1-0","actor":"a","action_index":1,"ordinal":0,
+    let noncanonical = json!({"id":"a-1-0","actor":"a","action_index":1,"ordinal":0,
         "protocol":"https","method":"GET","url":"https://x.test","request_headers":{},
         "request_body": null,
         "status": 200,
@@ -330,12 +331,7 @@ fn exchange_wire_format_is_canonical_camel_case_and_reads_legacy_snake_case() {
         "response_body": {"ok": true},
         "required": true
     });
-    assert_eq!(
-        serde_json::from_value::<Exchange>(legacy)
-            .unwrap()
-            .action_index,
-        1
-    );
+    assert!(serde_json::from_value::<Exchange>(noncanonical).is_err());
 }
 
 #[test]

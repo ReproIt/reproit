@@ -10,16 +10,74 @@ const ORIGIN = 'hosted Cloud disposable project, strict protocol-v1 findings';
 // under test without resembling a real provider key to a secret scanner.
 const ACCOUNT_KEY = 'sk_live_EXAMPLE-NOT-A-REAL-KEY';
 const PUBLISHABLE_KEY = 'pk_live_EXAMPLE-NOT-A-REAL-KEY';
+const REQUIRED_STAGES = [
+  'reset',
+  'production-signal',
+  'cloud-ingestion',
+  'local-materialization',
+  'exact-local-reproduction',
+  'direct-replay',
+  'retention-and-deletion',
+];
+
+function contract(originKind = 'fixture') {
+  return {
+    targetId: 'web-chromium',
+    originKind,
+    revisions: {
+      cli: `git:${'a'.repeat(40)}`,
+      sdk: {
+        name: 'reproit-web-protocol-v1',
+        revision: `git:${'b'.repeat(40)}`,
+      },
+      application: `sha256:${'c'.repeat(64)}`,
+    },
+    local: {
+      provider: 'reproit-bucket-v1',
+      trusted: true,
+    },
+    execution: {
+      commands: REQUIRED_STAGES.map((stage) => ({
+        stage,
+        command: `run ${stage}`,
+        assertions: [`${stage} passed`],
+      })),
+      reset: {
+        command: 'create a clean workspace and disposable Cloud project',
+        evidence: ['reset'],
+      },
+      cleanup: {
+        command: 'delete the disposable Cloud project and workspace',
+        evidence: ['retention-and-deletion'],
+      },
+    },
+  };
+}
+
+function options(overrides = {}) {
+  return {
+    originSummary: ORIGIN,
+    contract: contract(),
+    ...overrides,
+  };
+}
 
 async function harnessWork(overrides = {}) {
   const root = await mkdtemp(resolve(tmpdir(), 'reproit-prod-chain-'));
   const files = {
+    'reset.json': JSON.stringify({ cleanWorkspace: true, disposableProject: true }),
     'project.json': JSON.stringify({
       appId: 'app_1234',
       apiKey: ACCOUNT_KEY,
       publishableKey: PUBLISHABLE_KEY,
     }),
-    'hosted.json': JSON.stringify({ bucketId: 'bkt_9999', ingestedFindings: 500 }),
+    'hosted.json': JSON.stringify({
+      base: 'https://cloud.reproit.example',
+      projectId: 'app_1234',
+      occurrenceId: 'run_release_gate_1234',
+      bucketId: 'bkt_9999',
+      ingestedFindings: 500,
+    }),
     'pull.log': `pulled bkt_9999 with ${ACCOUNT_KEY}\n`,
     'check.json': JSON.stringify({ outcome: 'fail', id: 'bkt_9999' }),
     'direct-replay.log': 'REPRODUCED: TypeError ReproitContractError\n',
@@ -42,11 +100,10 @@ async function harnessWork(overrides = {}) {
 test('a complete chain is retained, digested, and qualified', async () => {
   const area = await harnessWork();
   try {
-    const record = await retainProductionChain(area.root, area.output, {
-      originSummary: ORIGIN,
-    });
+    const record = await retainProductionChain(area.root, area.output, options());
     assert.equal(record.qualification, 'FixtureQualified');
     assert.deepEqual(record.missingRequiredStages, []);
+    assert.deepEqual(record.qualificationBlockers, []);
     assert.match(record.chainSha256, /^sha256:[a-f0-9]{64}$/);
     for (const stage of record.stages) {
       if (!stage.present) continue;
@@ -54,12 +111,15 @@ test('a complete chain is retained, digested, and qualified', async () => {
       assert.match(stage.sanitizedSha256, /^sha256:[a-f0-9]{64}$/);
     }
     const stageIds = record.stages.map((stage) => stage.id);
-    assert.deepEqual(stageIds.slice(0, 5), [
+    assert.deepEqual(stageIds, [
+      'reset',
       'production-signal',
       'cloud-ingestion',
       'local-materialization',
       'exact-local-reproduction',
       'direct-replay',
+      'reproduction-stderr',
+      'retention-and-deletion',
     ]);
   } finally {
     await area.dispose();
@@ -69,7 +129,7 @@ test('a complete chain is retained, digested, and qualified', async () => {
 test('no live credential survives into the retained bytes or the record', async () => {
   const area = await harnessWork();
   try {
-    await retainProductionChain(area.root, area.output, { originSummary: ORIGIN });
+    await retainProductionChain(area.root, area.output, options());
     for (const name of ['project.json', 'pull.log', 'record.json']) {
       const body = await readFile(join(area.output, name), 'utf8');
       assert.ok(!body.includes(ACCOUNT_KEY), `${name} leaked the account key`);
@@ -87,8 +147,9 @@ test('a missing required stage disqualifies the record instead of hiding', async
   const area = await harnessWork({ 'check.json': null });
   try {
     const record = await retainProductionChain(area.root, area.output, {
-      originSummary: ORIGIN,
+      ...options(),
       qualification: 'IndependentQualified',
+      contract: contract('independent-application'),
     });
     assert.equal(record.qualification, 'Unqualified');
     assert.deepEqual(record.missingRequiredStages, ['exact-local-reproduction']);
@@ -99,14 +160,12 @@ test('a missing required stage disqualifies the record instead of hiding', async
   }
 });
 
-test('an optional stage may be absent without disqualifying the chain', async () => {
+test('cleanup evidence is required for qualification', async () => {
   const area = await harnessWork({ 'delete.json': null });
   try {
-    const record = await retainProductionChain(area.root, area.output, {
-      originSummary: ORIGIN,
-    });
-    assert.equal(record.qualification, 'FixtureQualified');
-    assert.deepEqual(record.missingRequiredStages, []);
+    const record = await retainProductionChain(area.root, area.output, options());
+    assert.equal(record.qualification, 'Unqualified');
+    assert.deepEqual(record.missingRequiredStages, ['retention-and-deletion']);
   } finally {
     await area.dispose();
   }
@@ -127,9 +186,7 @@ test('a record must describe where the production signal came from', async () =>
 test('a malformed required stage is recorded, not thrown, and disqualifies', async () => {
   const area = await harnessWork({ 'hosted.json': `{"bucketId": "bkt_1", ${ACCOUNT_KEY}` });
   try {
-    const record = await retainProductionChain(area.root, area.output, {
-      originSummary: ORIGIN,
-    });
+    const record = await retainProductionChain(area.root, area.output, options());
     const stage = record.stages.find((entry) => entry.id === 'cloud-ingestion');
     assert.equal(stage.present, true);
     assert.equal(stage.malformed, true);
@@ -145,14 +202,38 @@ test('a malformed required stage is recorded, not thrown, and disqualifies', asy
 test('an empty artifact is a missing stage, not a retention crash', async () => {
   const area = await harnessWork({ 'check.json': '' });
   try {
-    const record = await retainProductionChain(area.root, area.output, {
-      originSummary: ORIGIN,
-    });
+    const record = await retainProductionChain(area.root, area.output, options());
     const stage = record.stages.find((entry) => entry.id === 'exact-local-reproduction');
     assert.equal(stage.present, false);
     assert.match(stage.reason, /empty artifact/);
     assert.equal(record.qualification, 'Unqualified');
     assert.deepEqual(record.missingRequiredStages, ['exact-local-reproduction']);
+  } finally {
+    await area.dispose();
+  }
+});
+
+test('a complete chain without exact revision bindings remains unqualified', async () => {
+  const area = await harnessWork();
+  try {
+    const record = await retainProductionChain(area.root, area.output, {
+      originSummary: ORIGIN,
+    });
+    assert.equal(record.qualification, 'Unqualified');
+    assert.ok(record.qualificationBlockers.includes('contract'));
+  } finally {
+    await area.dispose();
+  }
+});
+
+test('fixture evidence cannot claim independent qualification', async () => {
+  const area = await harnessWork();
+  try {
+    const record = await retainProductionChain(area.root, area.output, options({
+      qualification: 'IndependentQualified',
+    }));
+    assert.equal(record.qualification, 'Unqualified');
+    assert.ok(record.qualificationBlockers.includes('originKind-for-qualification'));
   } finally {
     await area.dispose();
   }
