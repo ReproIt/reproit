@@ -49,27 +49,27 @@ Stable atomic targets: 5. Preview: 16. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
-| Backend contracts | Preview | schema-3 | linux | x86_64 | 3 |
+| Backend contracts | Preview | schema-3 | linux | x86_64 | 2 |
 | Jetpack Compose Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
 | Electron Linux | Stable | schema-3 | linux | x86_64 | 0 |
 | Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
 | Flutter iOS | Preview | schema-3 | ios-simulator | arm64 | 3 |
-| Linux GTK | Preview | schema-3 | linux-container | x86_64 | 3 |
-| Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 3 |
-| Linux Qt Widgets | Preview | schema-3 | linux-container | x86_64 | 3 |
-| Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 3 |
+| Linux GTK | Preview | schema-3 | linux-container | x86_64 | 2 |
+| Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 2 |
+| Linux Qt Widgets | Preview | schema-3 | linux-container | x86_64 | 2 |
+| Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 2 |
 | macOS Accessibility | Preview | schema-3 | macos | arm64 | 5 |
 | React Native Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
 | React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 3 |
 | SwiftUI iOS | Preview | schema-3 | ios-simulator | arm64 | 4 |
-| Tauri Linux | Preview | schema-3 | linux | x86_64 | 3 |
+| Tauri Linux | Preview | schema-3 | linux | x86_64 | 2 |
 | Terminal UI | Stable | schema-2 | linux | x86_64 | 0 |
 | Web Chromium | Stable | schema-2 | linux | x86_64 | 0 |
 | Web Firefox | Stable | schema-2 | linux | x86_64 | 0 |
 | Web WebKit | Stable | schema-2 | linux | x86_64 | 0 |
-| Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
+| Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 | Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
-| Windows WPF | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
+| Windows WPF | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 
 Every blocker, with its typed code and exact detail, is listed in
 [the generated status](../validation/compatibility/STATUS.md).

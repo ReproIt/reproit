@@ -640,18 +640,12 @@
             ]
           },
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/windows-wpf.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -710,18 +704,12 @@
             ]
           },
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/windows-avalonia.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -782,17 +770,19 @@
           },
           {
             "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "detail": "gate S2 selected 5 candidate defects but they come from only 1 application (UniGetUI). Stable requires two independent applications, and the qualification record states no second application with a usable defect history was found, so this is a coverage limit rather than remaining work on the application already selected",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/windows-winui.json"
             ]
           },
           {
             "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
+            "detail": "no application campaign has been executed. 5 candidate defects across 1 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
-            "evidence": []
+            "evidence": [
+              "validation/field/qualification/windows-winui.json"
+            ]
           },
           {
             "code": "incomplete-evidence",
@@ -844,18 +834,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/linux-gtk.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -906,18 +890,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 3 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/linux-qt-widgets.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -969,18 +947,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 5 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/linux-qt-quick.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -1031,18 +1003,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 5 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/linux-wxwidgets.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -1180,18 +1146,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 3 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/tauri-linux.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -1246,18 +1206,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 6 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/backend-contract.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
