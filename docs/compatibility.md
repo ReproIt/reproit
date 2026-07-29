@@ -5,6 +5,11 @@ contract. `validation/compatibility/check.py` validates it and generates the
 [current status](../validation/compatibility/STATUS.md). Documentation cannot
 promote a target.
 
+Capture and replay coverage is tracked separately in the
+[capability ledger](../validation/capabilities/README.md). A platform maturity
+claim cannot substitute for a missing collector, compiler requirement, replay
+provider, or independent production-to-local qualification.
+
 The generated [all-target stability plan](../validation/compatibility/STABILITY_PLAN.md)
 turns every current blocker and native gate into a per-target worklist.
 

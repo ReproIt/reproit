@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "capability-ledger-gate",
+  "changeType": "tooling",
+  "detail": "This commit adds a fail-closed coverage ledger and CI validation without correcting runtime product behavior.",
+  "evidence": [
+    {
+      "path": "validation/capabilities/check.py",
+      "sha256": "sha256:893f686225ba700f3272204b85f1c1a7c0b61341dc7127d80a6ebc4c23a043dd"
+    }
+  ]
+}

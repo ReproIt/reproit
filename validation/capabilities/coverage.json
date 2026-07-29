@@ -1,0 +1,390 @@
+{
+  "schemaVersion": 1,
+  "claims": [
+    {
+      "id": "cache",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "no generic cache collector or structured cache replay provider",
+        "no independent production-to-local qualification"
+      ]
+    },
+    {
+      "id": "clock",
+      "capture": "modeled-only",
+      "compiler": "modeled-only",
+      "replay": "unavailable",
+      "provider": "none",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs"
+      ],
+      "blockers": [
+        "clock events do not compile into executable requirements",
+        "no deterministic clock collector or replay provider"
+      ]
+    },
+    {
+      "id": "commands",
+      "capture": "complete",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider",
+      "qualification": "fixture",
+      "evidence": [
+        "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs",
+        "validation/self-dogfood/evidence/ci-enforcement-qualification.json"
+      ],
+      "blockers": [
+        "qualification covers controlled self-dogfood fixtures, not independent production origins",
+        "the provider exposes command matchers rather than typed domain replay"
+      ]
+    },
+    {
+      "id": "concurrency",
+      "capture": "modeled-only",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider with concurrency authority",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "no generic schedule collector",
+        "no structured deterministic scheduler",
+        "no independent production-to-local qualification"
+      ]
+    },
+    {
+      "id": "crash-diagnostics",
+      "capture": "partial",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider exit and signal matchers",
+      "qualification": "field",
+      "evidence": [
+        "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs",
+        "validation/field/benchmark.json"
+      ],
+      "blockers": [
+        "generic command capture retains exit status and signal but not dumps or symbols",
+        "field evidence is not an independent production-to-local chain"
+      ]
+    },
+    {
+      "id": "database",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored backend command adapter",
+      "qualification": "field",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/domain/backend/contracts.rs",
+        "validation/field/corpus/backend-contract.json"
+      ],
+      "blockers": [
+        "no generic database collector or structured database reset provider",
+        "field evidence is not an independent production-to-local chain"
+      ]
+    },
+    {
+      "id": "device",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "adapter-specific",
+      "provider": "Appium, UiAutomator2, and XCUITest runners",
+      "qualification": "field",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "validation/field/corpus/compose-android.json",
+        "validation/compatibility/status.json"
+      ],
+      "blockers": [
+        "qualification is simulator and emulator centered",
+        "no generic real-device or hardware interaction provider"
+      ]
+    },
+    {
+      "id": "environment",
+      "capture": "partial",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider environment map",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "generic capture retains only build identity variables",
+        "no typed locale, kernel, hardware, or service environment provider"
+      ]
+    },
+    {
+      "id": "filesystem",
+      "capture": "unavailable",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs"
+      ],
+      "blockers": [
+        "generic filesystem observation is not installed",
+        "no structured filesystem or registry reset provider"
+      ]
+    },
+    {
+      "id": "http",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "adapter-specific",
+      "provider": "web and backend transport runners",
+      "qualification": "fixture",
+      "evidence": [
+        "crates/reproit/src/domain/backend/protocol.rs",
+        "validation/field/corpus/backend-contract.json",
+        "validation/field/corpus/web-chromium.json",
+        "validation/compatibility/status.json"
+      ],
+      "blockers": [
+        "production-to-local qualification is fixture-only",
+        "raw network and third-party service replay are not generic"
+      ]
+    },
+    {
+      "id": "jobs",
+      "capture": "adapter-specific",
+      "compiler": "partial",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs"
+      ],
+      "blockers": [
+        "job events do not have a dedicated compiler requirement",
+        "no generic scheduler collector or structured job replay provider"
+      ]
+    },
+    {
+      "id": "network",
+      "capture": "adapter-specific",
+      "compiler": "partial",
+      "replay": "adapter-specific",
+      "provider": "web and backend transport runners",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit/src/domain/backend/protocol.rs"
+      ],
+      "blockers": [
+        "network capability does not compile into a dedicated requirement",
+        "no generic raw network capture and deterministic replay provider"
+      ]
+    },
+    {
+      "id": "object-store",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "no generic object-store collector or structured reset provider",
+        "no independent production-to-local qualification"
+      ]
+    },
+    {
+      "id": "open-telemetry",
+      "capture": "adapter-specific",
+      "compiler": "modeled-only",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs"
+      ],
+      "blockers": [
+        "OpenTelemetry evidence does not compile into a dedicated requirement",
+        "no structured trace replay provider or independent qualification"
+      ]
+    },
+    {
+      "id": "process-tree",
+      "capture": "partial",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs"
+      ],
+      "blockers": [
+        "generic capture owns only the root process",
+        "descendant enumeration and structured process lifecycle replay are absent"
+      ]
+    },
+    {
+      "id": "queue",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "no generic queue collector or structured seed and cleanup provider",
+        "no independent production-to-local qualification"
+      ]
+    },
+    {
+      "id": "randomness",
+      "capture": "modeled-only",
+      "compiler": "modeled-only",
+      "replay": "unavailable",
+      "provider": "none",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs"
+      ],
+      "blockers": [
+        "randomness events do not compile into executable requirements",
+        "no deterministic randomness collector or replay provider"
+      ]
+    },
+    {
+      "id": "resource-pressure",
+      "capture": "modeled-only",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider with performance authority",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "no generic CPU, memory, disk, or network pressure collector",
+        "no structured bounded pressure provider or independent qualification"
+      ]
+    },
+    {
+      "id": "rpc",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored backend command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/domain/backend/contracts.rs"
+      ],
+      "blockers": [
+        "no generic RPC collector or structured RPC replay provider",
+        "no independent production-to-local qualification"
+      ]
+    },
+    {
+      "id": "standard-streams",
+      "capture": "partial",
+      "compiler": "partial",
+      "replay": "command-provider",
+      "provider": "CommandProvider substring matchers",
+      "qualification": "fixture",
+      "evidence": [
+        "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs",
+        "validation/self-dogfood/evidence/ci-enforcement-qualification.json"
+      ],
+      "blockers": [
+        "content capture is opt-in and otherwise partial",
+        "compiler authority is observation-specific rather than a stream requirement"
+      ]
+    },
+    {
+      "id": "timers",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "qualification": "unqualified",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit/src/adapters/execution/runner/model.rs"
+      ],
+      "blockers": [
+        "no generic timer and background-event collector",
+        "no deterministic virtual-time replay provider"
+      ]
+    },
+    {
+      "id": "user-interface",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "adapter-specific",
+      "provider": "browser, Appium, AT-SPI, UIA, and TUI runners",
+      "qualification": "field",
+      "evidence": [
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "validation/compatibility/status.json",
+        "validation/field/benchmark.json"
+      ],
+      "blockers": [
+        "11 of 21 atomic targets remain preview",
+        "field campaigns are not independent production-to-local qualification"
+      ]
+    }
+  ],
+  "summary": {
+    "capture": {
+      "adapter-specific": 12,
+      "complete": 1,
+      "modeled-only": 4,
+      "partial": 4,
+      "unavailable": 1
+    },
+    "compiler": {
+      "complete": 16,
+      "modeled-only": 3,
+      "partial": 3
+    },
+    "replay": {
+      "adapter-specific": 4,
+      "command-provider": 16,
+      "unavailable": 2
+    },
+    "qualification": {
+      "field": 4,
+      "fixture": 3,
+      "unqualified": 15
+    }
+  }
+}
