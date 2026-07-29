@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "target": "tauri-linux",
+  "gate": "S2-candidate-qualification",
+  "status": "harness-proven-campaigns-not-executed",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "inventory": {
+    "source": "reproit-lab/defect-candidates-tauri.json",
+    "repositoriesScanned": 24,
+    "candidateCount": 174,
+    "note": "the inventory classifies by repository, so every selected defect below was re-verified per revision: src-tauri present, a tauri 2 dependency in src-tauri/Cargo.toml, and @tauri-apps packages in the application package.json, all read at the affected revision"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/readest/readest",
+      "license": "AGPL-3.0",
+      "decision": "qualify",
+      "reason": "Tauri 2 at every candidate revision (apps/readest-app/src-tauri/Cargo.toml carries tauri = { version = \"2\", features = [ \"protocol-asset\" ] }), bundle targets are \"all\" so Linux deb and AppImage are produced, the library and reader work entirely against a local epub file with no account and no network, and all state lives in the application data directory",
+      "candidateDefects": 30
+    },
+    {
+      "repository": "https://github.com/farion1231/cc-switch",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "Tauri 2.8.2 at the candidate revisions with a flatpak/ manifest and bundle targets \"all\", but the application's purpose is rewriting ~/.claude and ~/.codex configuration for other tools. Only defects whose trigger stays inside its own window are usable, and the worker must run with HOME redirected into the disposable work directory so nothing outside it is touched",
+      "candidateDefects": 32
+    },
+    {
+      "repository": "https://github.com/codexu/note-gen",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Tauri 2 at the candidate revisions (src-tauri/Cargo.toml, plus fifteen @tauri-apps plugin packages) and bundle targets \"all\". Its AI, WebDAV, and GitHub sync features are network bound and must stay unconfigured, but the local markdown editor, export, and mark flows run offline",
+      "candidateDefects": 5
+    },
+    {
+      "repository": "https://github.com/ayangweb/BongoCat",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "Tauri 2 at the candidate revisions and the release workflow builds ubuntu-22.04, so a real Linux artifact exists. Containment is required because the application is a transparent always-on-top overlay that installs a global input-device hook, and its most valuable Linux defect (issue 431, resources not found under /tmp) only reproduces from a packaged AppImage rather than a plain directory build",
+      "candidateDefects": 19
+    },
+    {
+      "repository": "https://github.com/tw93/Pake",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "its entire function is wrapping a remote web page in a window, so every produced application loads a third-party URL at startup and no trigger is offline",
+      "candidateDefects": 15
+    },
+    {
+      "repository": "https://github.com/t8y2/dbx",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "database client; the candidate defects are MySQL, MongoDB, Redis, Kafka, GaussDB, StarRocks, and TDengine specific and each needs an external database service to reproduce",
+      "candidateDefects": 19
+    },
+    {
+      "repository": "https://github.com/CyberTimon/RapidRAW",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "GPU-accelerated RAW editor; the candidate defects are about GPU context, thumbnail decode performance, and downloaded AI models, none of which survive a software-rendered headless worker",
+      "candidateDefects": 10
+    },
+    {
+      "repository": "https://github.com/pot-app/pot-desktop",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "translation client; every core flow calls a third-party translation or OCR service",
+      "candidateDefects": 8
+    },
+    {
+      "repository": "https://github.com/libnyanpasu/clash-nyanpasu",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "proxy manager; it rewrites system networking and routes traffic through remote nodes, so the trigger is not non-destructive",
+      "candidateDefects": 3
+    },
+    {
+      "repository": "https://github.com/louis-e/arnis",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "generates Minecraft worlds from live Overpass queries; the candidate defects are about Overpass relation fetching and datapack loading, both of which need the network or a Minecraft install",
+      "candidateDefects": 4
+    },
+    {
+      "repository": "https://github.com/tonyantony300/alt-sendme",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "peer-to-peer file transfer; there is no single-process offline trigger",
+      "candidateDefects": 4
+    },
+    {
+      "repository": "https://github.com/crynta/terax-ai",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "AI assistant; every candidate defect needs a live model provider",
+      "candidateDefects": 10
+    },
+    {
+      "repository": "https://github.com/HuLaSpark/HuLa",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "instant messenger; requires a running HuLa server and two authenticated accounts",
+      "candidateDefects": 2
+    },
+    {
+      "repository": "https://github.com/jely2002/youtube-dl-gui",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "downloader whose every flow requires external transfers, and it is an Electron application rather than a Tauri one, so it was misclassified by the repository-level inventory",
+      "candidateDefects": 10
+    },
+    {
+      "repository": "https://github.com/nukeop/nuclear",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "streaming music player: needs remote sources, and it is Electron rather than Tauri",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/rustdesk/rustdesk-server",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "a server product with no Tauri window at all",
+      "candidateDefects": 3
+    },
+    {
+      "repository": "https://github.com/eythaann/Seelen-UI",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "Windows-only desktop shell; no Linux build exists",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/mountain-loop/yaak",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "API client; every core flow issues requests to an external endpoint",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/Sjj1024/PakePlus",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a builder that packages remote sites, same objection as Pake, and its sibling repositories target Android and iOS rather than Linux",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/tauri-apps/awesome-tauri",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a curated list, not an application",
+      "candidateDefects": 0
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "readest-select-mode-last-book-5200",
+      "application": "readest",
+      "issueUrl": "https://github.com/readest/readest/issues/5175",
+      "issueTitle": "In list mode, can't select the last book if one is already selected.",
+      "pullRequestUrl": "https://github.com/readest/readest/pull/5200",
+      "affectedRevision": "54ad2e9166c54fa3a4956961bb4991fc2bbc22d2",
+      "fixedRevision": "09548d998f16be10315d988176a2e7acddce3473",
+      "whySuitable": "the fixed select-mode action bar overlays the bottom of the shelf because the virtualised list reserves a constant 34px footer regardless of the bar's real height, so the last book row sits underneath it. That makes the trigger a hit test rather than a state assertion: a click has to be delivered at the last row's real window coordinates through the WebKitGTK webview, and on the affected build the action bar receives it instead of the book. Dispatching a synthetic DOM click on the row element would hit the row and would not reproduce, which is exactly the distinction the Tauri adapter exists to make. The observable is the selected-count in the action bar, which does not increment on the affected build",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "apps/readest-app/src-tauri/Cargo.toml at 54ad2e9166c54fa3a4956961bb4991fc2bbc22d2",
+        "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\" ] }"
+      },
+      "remaining": [
+        "build the Tauri Linux artifact at both revisions in the x86_64 worker with webkit2gtk-4.1 and libappindicator present",
+        "seed a deterministic library of enough local epub files that the last row falls under the action bar at the worker's fixed window size",
+        "pin the window geometry, because the defect depends on the last row being within the bar's height of the viewport bottom",
+        "prove the neighbouring legal behaviour: selecting a non-last book with the same click path succeeds on the affected build"
+      ]
+    },
+    {
+      "id": "readest-deleted-highlight-4779",
+      "application": "readest",
+      "issueUrl": "https://github.com/readest/readest/issues/4773",
+      "issueTitle": "instantly highlighted text bug",
+      "pullRequestUrl": "https://github.com/readest/readest/pull/4779",
+      "affectedRevision": "cecb1c53126280009a95d3ce04b24062eaec7b5b",
+      "fixedRevision": "0589cb4f4aa8c0578fb41b870ed7f06f36ae0bb4",
+      "whySuitable": "the annotation index is memoized, so a highlight deleted in place still sits in its section bucket and is re-drawn as an orphaned overlay on the next render pass. Reproducing it needs a real text selection inside the foliate iframe, that is a press, drag, and release across glyph coordinates in the rendered book view rather than a programmatic Range, then the popup's highlight and delete actions in quick succession. The overlay is drawn by the reader, not by the DOM the host controls, so the observable is a rendered annotation overlay that persists after deletion. This exercises the Tauri adapter's pointer-drag path and its ability to observe inside a nested browsing context",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "apps/readest-app/src-tauri/Cargo.toml at cecb1c53126280009a95d3ce04b24062eaec7b5b",
+        "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\" ] }"
+      },
+      "remaining": [
+        "build the Tauri Linux artifact at both revisions",
+        "seed a fixed epub and a fixed reading position so the same glyph range is selectable every run",
+        "establish that the delete must land before the index is rebuilt, and decide whether that ordering is deterministic enough for a three-run reproduction or whether it needs an explicit wait",
+        "confirm the orphaned overlay is observable without instrumenting the application, otherwise record the observation method as a corpus property"
+      ]
+    },
+    {
+      "id": "readest-stale-nav-cache-5311",
+      "application": "readest",
+      "issueUrl": "https://github.com/readest/readest/issues/5308",
+      "issueTitle": "BUG: Can't jump to chapters with special characters (like &) from table of contents.",
+      "pullRequestUrl": "https://github.com/readest/readest/pull/5311",
+      "affectedRevision": "5e2836b0839e60aab841c6a38a7e70e2accb7b4d",
+      "fixedRevision": "79b75e17dd155360be0cd4d6b105d673b8a997c7",
+      "whySuitable": "a persisted nav cache written by an older build stores the ampersand chapter's TOC href percent-encoded, which no longer resolves against the decoded manifest, so clicking that TOC entry silently does nothing. The fix bumps BOOK_NAV_VERSION so the stale cache is recomputed. This is a persisted-state defect across an application lifecycle rather than an input path, which makes it complementary to the other two readest selections: it exercises the Tauri adapter's ownership of the application data directory between launches, and the observable is the reader's section indicator failing to change after a real click on a TOC row",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "apps/readest-app/src-tauri/Cargo.toml at 5e2836b0839e60aab841c6a38a7e70e2accb7b4d",
+        "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\" ] }"
+      },
+      "remaining": [
+        "build the Tauri Linux artifact at both revisions",
+        "author an epub containing a chapter whose href carries a reserved character, and confirm the encoded form is what the affected build persists",
+        "produce the pre-fix cache honestly: open the book once on the affected build to write the version 3 cache, then relaunch, rather than hand-writing a cache file",
+        "decide whether the fixed control needs the same seeded stale cache, since the fix is precisely the invalidation of it"
+      ]
+    },
+    {
+      "id": "cc-switch-preset-click-4315",
+      "application": "cc-switch",
+      "issueUrl": "https://github.com/farion1231/cc-switch/issues/4302",
+      "issueTitle": "\u6dfb\u52a0\u4f9b\u5e94\u5546\u9875\u9762 \u641c\u7d22\u9884\u8bbe\u540e\u65e0\u6cd5\u70b9\u51fb\u9009\u4e2d\u641c\u7d22\u7ed3\u679c",
+      "pullRequestUrl": "https://github.com/farion1231/cc-switch/pull/4315",
+      "affectedRevision": "caa912e3a39c60330fad641b295ae8b13cdea586",
+      "fixedRevision": "81d6002ace328cf74c9b63e32b15279a7c445812",
+      "whySuitable": "the click-outside handler is bound to a container ref that wraps only the search input row, not the result list below it, so pressing the mouse on a search result fires the outside-click path and clears the search before the click completes. The result is never selected. This can only be reproduced by a real pointer sequence, mousedown then mouseup on the result at its window coordinates. A single synthetic click event, or any harness that jumps straight to the element's click handler, will select the preset and show no defect, so the trigger is a direct test of whether the Tauri adapter delivers a genuine pointer sequence into the WebKitGTK webview. The observable is the provider form's preset field remaining unset",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "src-tauri/Cargo.toml at caa912e3a39c60330fad641b295ae8b13cdea586",
+        "proof": "tauri = { version = \"2.8.2\", features = [\"tray-icon\", \"protocol-asset\", \"image-png\"] }"
+      },
+      "remaining": [
+        "build the Tauri Linux artifact at both revisions",
+        "run the worker with HOME redirected into the disposable work directory so the application cannot touch a real ~/.claude or ~/.codex",
+        "reach the add-provider page without configuring any live provider, and confirm the preset list is bundled rather than fetched",
+        "prove the neighbouring legal behaviour: clicking a preset without first opening search selects it on the affected build"
+      ]
+    },
+    {
+      "id": "note-gen-export-filename-516",
+      "application": "note-gen",
+      "issueUrl": "https://github.com/codexu/note-gen/issues/509",
+      "issueTitle": "[bug] \u5bfc\u51fa\u4e3ahtml\u65f6\u547d\u540d\u4e3a123",
+      "pullRequestUrl": "https://github.com/codexu/note-gen/pull/516",
+      "affectedRevision": "844b0195472c933de9dcedbf01633cbc250f5913",
+      "fixedRevision": "52b6e1b5a6a998e77025796fb14633d470ed36c7",
+      "whySuitable": "the export handler passes a hardcoded defaultPath of \"123.<ext>\" to the Tauri dialog plugin's save(), so the native save dialog opens pre-filled with the filename 123 instead of one derived from the note's heading. The fix derives the name from the markdown content. This is the only selected defect whose observable lives outside the webview entirely: the filename entry belongs to a GTK file chooser window that Tauri opened, not to any DOM. It therefore exercises the part of the Tauri adapter that has to follow the process out of the webview and observe a separate native window, which no webview-only harness can do",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "src-tauri/Cargo.toml at 844b0195472c933de9dcedbf01633cbc250f5913",
+        "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\", \"image-png\", \"devtools\"] }"
+      },
+      "remaining": [
+        "build the Tauri Linux artifact at both revisions with the GTK file chooser available in the worker",
+        "confirm which file chooser backend the worker gets, because an xdg-desktop-portal chooser and the in-process GTK chooser are observed differently, and record the chosen one as a bound",
+        "seed a note whose first line is a markdown heading so the fixed build has a distinct expected filename",
+        "reach the export menu without configuring any AI provider or sync target, keeping the run offline",
+        "decide whether to observe the dialog's filename entry through AT-SPI or to accept the written file's name as the observable, and record which"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "packaged-artifact-defect-deferred",
+      "detail": "BongoCat issue 431, the Linux-only failure to find bundled model resources under /tmp, is the strongest Linux-specific Tauri defect found, but it reproduces only from a packaged AppImage rather than a directory build. It is recorded here and not selected because AppImage packaging inside the worker is not yet qualified",
+      "blocks": "nothing selected; recorded so the candidate is not lost"
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "the worker and the observation channel are proven, but no application campaign has run. Both selected applications need a real pointer sequence rather than a synthetic DOM click, since each defect is a hit-test failure that a synthetic click would not reproduce, so the scenarios must drive WebDriver pointer actions at window coordinates",
+      "command": "node src/electron-corpus.mjs style runner, not yet written for this target"
+    }
+  ],
+  "verification": {
+    "method": "every pull request was re-read through the GitHub API: merged state, merge_commit_sha as the fixed revision, that commit's first parent as the affected revision, and the linked issue's real title and closed state. Both revisions of every selected defect were then confirmed with git cat-file -t in a blobless clone, and the Tauri dependency was read out of the build manifest at the affected revision rather than at HEAD",
+    "revisionsChecked": 10,
+    "revisionsResolved": 10
+  },
+  "harness": {
+    "workerImage": "reproit-field-tauri-linux:amd64",
+    "definition": "reproit-lab/field/tauri-linux/Dockerfile",
+    "arch": "amd64",
+    "stack": "ubuntu:24.04, webkit2gtk-4.1, WebKitWebDriver, tauri-driver, Xvfb, dbus, webdriverio 9, Rust 1.88",
+    "probe": "reproit-cli/validation/field/probe-tauri.mjs",
+    "observationProven": {
+      "subject": "reproit-cli/examples/tauri-fixture, built in the worker",
+      "result": "readiness, trigger, observe, and the neighboring control all answered from inside the WebKitGTK webview under Xvfb: title 'Reproit Tauri Fixture', url tauri://localhost, the toggle revealed the detail section, and the untouched control element kept its text",
+      "note": "the Tauri adapter observes through the WebDriver DOM channel, not AT-SPI, so this is the channel the campaigns actually use"
+    },
+    "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver, so the campaign declares it unavailable rather than inventing a number"
+  }
+}

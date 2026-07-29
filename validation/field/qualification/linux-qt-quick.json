@@ -1,0 +1,291 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-qt-quick",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://invent.kde.org/office/marknote",
+      "license": "GPL-2.0-or-later",
+      "decision": "qualify",
+      "reason": "Kirigami note taking application, Qt6 Qml/QuickControls2 with ecm_add_qml_module and 30 .qml sources at the candidate revision. Notes live in a local directory under the user profile, no network, no third-party account",
+      "candidateDefects": 2
+    },
+    {
+      "repository": "https://invent.kde.org/utilities/kalk",
+      "license": "GPL-3.0-or-later",
+      "decision": "qualify",
+      "reason": "Kirigami calculator, Qt6 Quick/QuickControls2 with ecm_add_qml_module(kalklib) and 14 .qml sources. Pure offline compute, writes only its own KConfig file, deterministic text observable in a QML label",
+      "candidateDefects": 9
+    },
+    {
+      "repository": "https://invent.kde.org/utilities/kclock",
+      "license": "GPL-2.0-or-later",
+      "decision": "qualify",
+      "reason": "Kirigami clock, timer, stopwatch and alarm app, Qt6 Quick/QuickControls2 with 35 .qml sources. Offline. Contains a kclockd D-Bus daemon, so runs need a private session bus, which is containment the harness already does for other KDE targets",
+      "candidateDefects": 10
+    },
+    {
+      "repository": "https://invent.kde.org/multimedia/elisa",
+      "license": "LGPL-3.0-or-later",
+      "decision": "qualify",
+      "reason": "Qt Quick music player, qt_add_qml_module(elisaLib) with 59 .qml sources. Plays local files from a directory the run controls, no network required once the music path is set",
+      "candidateDefects": 18
+    },
+    {
+      "repository": "https://invent.kde.org/graphics/koko",
+      "license": "LGPL-2.1-or-later",
+      "decision": "qualify",
+      "reason": "Kirigami image gallery and annotation editor, Qt6 Qml/Quick/QuickControls2 plus KQuickImageEditor. Reads a local picture directory the run supplies. Editing writes only into that directory, so it is containable but must not be pointed at user data",
+      "candidateDefects": 9
+    },
+    {
+      "repository": "https://invent.kde.org/utilities/keysmith",
+      "license": "GPL-3.0-or-later",
+      "decision": "qualify",
+      "reason": "Kirigami OTP generator, Qt6 Quick/QuickControls2 linked in src/CMakeLists.txt. Accounts are created locally from a typed secret, TOTP needs no network. First run asks for a keyring password, which the run supplies",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://invent.kde.org/utilities/francis",
+      "license": "LGPL-2.1-or-later",
+      "decision": "qualify",
+      "reason": "Kirigami pomodoro timer, small QML surface, fully offline, state is a single KConfig file. Merge request 43 (unclickable About page back button on pageStack.layers) is an ideal Kirigami page-stack defect but carries no upstream bug report, so it is held out of the selected set",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://invent.kde.org/graphics/arianna",
+      "license": "GPL-3.0-or-later",
+      "decision": "qualify-with-containment",
+      "reason": "Kirigami epub reader with real state-restore defects, but the reader view is foliate-js inside QtWebEngine. That needs a sandbox relaxation and software GL in the container, and it puts a Chromium renderer between the trigger and the QML tree, which weakens the Qt Quick attribution",
+      "candidateDefects": 4
+    },
+    {
+      "repository": "https://github.com/Ultimaker/Cura",
+      "license": "LGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "genuinely a QML application on Linux, but the main view is an OpenGL 3D scene and slicing is CPU heavy. Needs llvmpipe plus a long warm-up, so it is a fallback pool member rather than a first pick",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/flipperdevices/qFlipper",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "QML UI, but every user-visible flow requires a physically attached Flipper Zero over USB or a firmware download from the vendor. No offline, hardware-free trigger",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/network/tokodon",
+      "license": "AGPL-3.0-or-later",
+      "decision": "reject",
+      "reason": "Mastodon client: requires a third-party account and a live instance for any observable behaviour",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/network/neochat",
+      "license": "GPL-3.0-or-later",
+      "decision": "reject",
+      "reason": "Matrix client: requires a homeserver account and network for any observable behaviour",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/multimedia/kasts",
+      "license": "GPL-3.0-or-later",
+      "decision": "reject",
+      "reason": "podcast client: core flows fetch remote RSS feeds and media",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/frameworks/kirigami",
+      "license": "LGPL-2.1-or-later",
+      "decision": "reject",
+      "reason": "the UI framework under test, not an application built on it",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/sdk/kirigami-gallery",
+      "license": "LGPL-2.0-or-later",
+      "decision": "reject",
+      "reason": "component gallery and developer demo, not an end-user application. Its defects are Kirigami framework defects surfaced through a showcase",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/graphics/okular",
+      "license": "GPL-2.0-or-later",
+      "decision": "reject",
+      "reason": "Qt Widgets rather than Qt Quick: the desktop application is a KParts and QWidget shell. CMakeLists.txt line 103 requires Qt6 Widgets unconditionally, while Qml and Quick at line 180 are pulled in only for the separate Okular mobile build. Belongs to the linux-qt-widgets target",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/graphics/krita",
+      "license": "GPL-3.0-or-later",
+      "decision": "reject",
+      "reason": "Qt Widgets rather than Qt Quick: the top level CMakeLists.txt requires Gui, Widgets, OpenGLWidgets and SvgWidgets and never requests Quick or Qml. Belongs to the linux-qt-widgets target",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/multimedia/kdenlive",
+      "license": "GPL-3.0-or-later",
+      "decision": "reject",
+      "reason": "mixed toolkit, and the primary UI is Qt Widgets: CMakeLists.txt requests Core, Widgets, MultimediaWidgets and SvgWidgets alongside Quick, QuickControls2 and QuickWidgets. The QML is a monitor overlay island inside a QWidget main window, which is exactly the misclassification this gate must avoid",
+      "candidateDefects": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "marknote-async-page-push-517967",
+      "application": "marknote",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=517967",
+      "issueTitle": "The app crashes when you first add a notebook",
+      "pullRequestUrl": "https://invent.kde.org/office/marknote/-/merge_requests/227",
+      "affectedRevision": "ac41efa34c1bc0b842fb6b3c7988d065803ba4db",
+      "fixedRevision": "e6b3d4d4d4e5fd7ba136fe7aca405c4a12336215",
+      "whySuitable": "the trigger is Kirigami page-stack navigation itself. On a fresh profile with no notebooks, Main.qml calls safePush, which at the affected revision builds the page with Qt.createComponent(moduleUri, typeName, Component.Asynchronous) and pushes it onto pageStack. Because the component is instantiated asynchronously, WelcomePage.qml evaluates ApplicationWindow.window.visibility before the item is attached to a window, so the attached property is null and the QML engine faults. The observable is a first-launch crash of the Qt Quick window plus the absence of the WelcomePage from the page stack, which is precisely the Qt Quick adapter's window lifecycle and page-stack surface rather than a widget tree",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "src/CMakeLists.txt at ac41efa34c1bc0b842fb6b3c7988d065803ba4db, line 15; CMakeLists.txt line 53",
+        "proof": "src/CMakeLists.txt:15 \"ecm_add_qml_module(marknote_static\" with \"URI org.kde.marknote\" and a QML_FILES list including qml/Main.qml and qml/WelcomePage.qml; CMakeLists.txt:53 \"find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Core Gui Qml QuickControls2 Svg)\". 30 .qml files present in the tree at this revision"
+      },
+      "remaining": [
+        "build both revisions in an x86_64 Linux container with KF6 and Qt6 Quick available, no network",
+        "start from an empty XDG_DATA_HOME so the notebook count is zero and safePush is reached",
+        "decide the observable: process exit status plus stderr QML TypeError, or absence of the WelcomePage object in the accessibility tree",
+        "confirm the neighbouring legal path (launching with a notebook already present) does not crash on the affected revision, so the crash is attributable to the async push"
+      ]
+    },
+    {
+      "id": "kalk-decimal-separator-507525",
+      "application": "kalk",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=507525",
+      "issueTitle": "Kalk doesn't understand decimal separators",
+      "pullRequestUrl": "https://invent.kde.org/utilities/kalk/-/merge_requests/119",
+      "affectedRevision": "940abaf0cbbbb78ccea1ea45879ca2f2cd2c6e54",
+      "fixedRevision": "b452c5a3460b78fe6deff3ff9d95f7ca21838c28",
+      "whySuitable": "the trigger is text entry into the QML input of CalculationPage.qml, either by pressing the QML NumberPad decimal button or by typing the key into the focused QML text item, under a locale whose decimal separator is a comma (de_DE.UTF-8). At the affected revision QalculateEngine::evaluate passes the localised expression straight to libqalculate and only localises the result on the way back (line 120, m_result.replace('.', QLocale().decimalPoint())), so 1,5+1 evaluates wrongly. The observable is the text of the QML result label, read back through the Qt Quick accessible tree, so the whole loop is Qt Quick action delivery in and Qt Quick text observation out, with no widget involved",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "src/CMakeLists.txt at 940abaf0cbbbb78ccea1ea45879ca2f2cd2c6e54, lines 16 to 22; CMakeLists.txt line 49",
+        "proof": "src/CMakeLists.txt:16 \"ecm_add_qml_module(kalklib\" with \"URI \\\"org.kde.kalk\\\"\" followed by ecm_target_qml_sources listing qml/Main.qml, qml/NumberPad.qml and qml/CalculationPage.qml; CMakeLists.txt:49 \"find_package(Qt6 ${QT_MIN_VERSION} REQUIRED NO_MODULE COMPONENTS Core Quick Test Gui QuickControls2 Widgets)\". Qt6::Widgets appears only for the QApplication style host at src/CMakeLists.txt:82; the UI is the 14 .qml files"
+      },
+      "remaining": [
+        "generate the de_DE.UTF-8 locale inside the image and set LC_NUMERIC, otherwise QLocale().decimalPoint() is '.' and the defect is invisible",
+        "choose between button taps on the QML NumberPad and raw key delivery to the focused QML input, and verify the chosen path reaches the item on the affected revision",
+        "pin the exact expression and expected result string for both revisions",
+        "verify a control expression with no decimal separator gives the same result on both revisions, so the harness is proven able to drive the calculator at all"
+      ]
+    },
+    {
+      "id": "kclock-timer-presets-505636",
+      "application": "kclock",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=505636",
+      "issueTitle": "Timer Presets just don't work",
+      "pullRequestUrl": "https://invent.kde.org/utilities/kclock/-/merge_requests/211",
+      "affectedRevision": "ac9abd275e20152139847dd82e7abd9aa73295cd",
+      "fixedRevision": "033e713e86d0f91c1f89c1f69241bd169787c9bc",
+      "whySuitable": "this is a Repeater and delegate defect in a Kirigami form. At the affected revision src/kclock/qml/timer/TimerForm.qml line 171 gates the preset Flow on \"showPresets && Kirigami.Settings.isMobile && repeater.count > 0\", so on a desktop session the saved presets are never instantiated as delegates at all, and the delegate that is instantiated on mobile creates a timer from the live form values instead of the stored preset. The observable is which delegate items exist under the preset Flow after pressing Show Presets, and what duration the created timer delegate reports, so the trigger exercises Qt Quick delegate instantiation and ListView/Repeater model binding rather than any native control",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt at ac9abd275e20152139847dd82e7abd9aa73295cd, lines 47 to 57; src/kclock/CMakeLists.txt lines 54 and 56",
+        "proof": "CMakeLists.txt:47 \"find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS\" with Quick at line 50 and QuickControls2 at line 53; src/kclock/CMakeLists.txt:54 \"Qt6::Qml\" and :56 \"Qt6::QuickControls2\" in target_link_libraries. 35 .qml files present at this revision, including src/kclock/qml/timer/TimerForm.qml"
+      },
+      "remaining": [
+        "note that this fix landed on release/25.04, not master: both shas are reachable only from origin/release/25.04, so the campaign must check out that branch",
+        "seed a saved preset in the kclock config before launch, or drive the Add Preset flow first",
+        "run a private D-Bus session so kclockd starts, since the timer model is served over D-Bus",
+        "confirm the desktop path is the one under test: Kirigami.Settings.isMobile must be false in the container, otherwise the visibility half of the defect does not reproduce"
+      ]
+    },
+    {
+      "id": "elisa-spacebar-focus-476532",
+      "application": "elisa",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=476532",
+      "issueTitle": "Spacebar doesn't always pause/play anymore",
+      "pullRequestUrl": "https://invent.kde.org/multimedia/elisa/-/merge_requests/673",
+      "affectedRevision": "18e843d8d2db13485cbc64ae865c4e1585af6239",
+      "fixedRevision": "5b191f11f1bae3a2bc6bef988a80d3630ac411c5",
+      "whySuitable": "this is a pure Qt Quick keyboard-focus defect. MediaPlayerControl.qml at the affected revision installs a C++ QObject event filter on eight QML button items in Component.onCompleted (line 376, ElisaApplication.installKeyEventFilter), and the filter swallows Key_Space entirely, so the space key does nothing whenever focus sits on one of those QML buttons while it still works when focus is elsewhere. The trigger therefore has to move QML focus to a specific QQuickItem and then deliver a key to it, which is exactly the Qt Quick adapter's focus and key-delivery path, and the observable is the play/pause button state in the QML control bar",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "src/CMakeLists.txt at 18e843d8d2db13485cbc64ae865c4e1585af6239, line 330; CMakeLists.txt line 36",
+        "proof": "src/CMakeLists.txt:330 \"qt_add_qml_module(elisaLib\" with \"URI org.kde.elisa\" and a QML_FILES list; CMakeLists.txt:36 \"find_package(Qt6 ${REQUIRED_QT_VERSION} CONFIG REQUIRED COMPONENTS\" listing Qml, Quick, QuickControls2 and QuickTest at lines 42 to 45. 59 .qml files at this revision, and the defect itself lives in src/qml/MediaPlayerControl.qml"
+      },
+      "remaining": [
+        "supply a local audio file and a working QtMultimedia backend in the container, otherwise there is no play state to toggle and the observable collapses",
+        "establish focus on one of the eight named buttons deterministically (Tab traversal order is not guaranteed stable across Qt versions), most likely by activating the item through the accessibility interface first",
+        "decide the observable: the QML play/pause button's accessible name or checked state, rather than audible output",
+        "prove the control case on the affected revision: space with focus elsewhere in the window must still toggle playback, which is what distinguishes this defect from a dead key pipeline"
+      ]
+    },
+    {
+      "id": "keysmith-remove-issuer-477812",
+      "application": "keysmith",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=477812",
+      "issueTitle": "Show provider name when removing a key",
+      "pullRequestUrl": "https://invent.kde.org/utilities/keysmith/-/merge_requests/127",
+      "affectedRevision": "375c81f1ab53f45c691eaae4f3116fefe46c1a10",
+      "fixedRevision": "8159df84e76d11ae7fcbb65a53fb5b3beb461bc7",
+      "whySuitable": "the trigger is Kirigami.SwipeListItem delegate interaction: swipe or open the actions on a list delegate, invoke Remove, and read the text of the Controls.Label inside the resulting QML sheet. At the affected revision src/contents/ui/AccountEntryViewBase.qml line 106 renders a fixed warning string with no account name or issuer, so a user with two accounts of the same name cannot tell which one is about to be deleted. The observable is the accessible text of a QQuickText item inside a Kirigami overlay sheet, which stresses two Qt Quick specifics at once: delegate identity in a ListView and text observation on an item that lives in an overlay layer rather than the page",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt at 375c81f1ab53f45c691eaae4f3116fefe46c1a10, line 50; src/CMakeLists.txt lines 40, 41 and 43",
+        "proof": "CMakeLists.txt:50 \"find_package(Qt6 ${QT_MIN_VERSION} REQUIRED NO_MODULE COMPONENTS Core Quick Gui Svg QuickControls2 Concurrent)\"; src/CMakeLists.txt:40 \"Qt6::Qml\", :41 \"Qt6::Quick\", :43 \"Qt6::QuickControls2\" in target_link_libraries. The changed file is itself QML: src/contents/ui/AccountEntryViewBase.qml"
+      },
+      "remaining": [
+        "script first-run setup: Keysmith asks for a new keyring password before any account exists",
+        "create two accounts sharing an account name but differing in issuer, so the defect is user-visible rather than cosmetic",
+        "confirm the Kirigami overlay sheet is reachable through AT-SPI; overlay-layer items are a known weak spot for Qt Quick accessibility",
+        "pin the expected substring for the fixed revision (account name and account issuer lines) and its absence on the affected revision"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "kind": "observation-capability-unproven",
+      "detail": "Qt Quick exposes accessibility far more weakly than Qt Widgets. QQuickItem objects only appear on the AT-SPI bus when the application is built against Qt accessibility and the process runs with QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 on a live session bus, and items without an explicit Accessible attached property often surface with no name or role. Every observable in this record is stated as an intent, not as a measured capability. None of the five selected defects has had its observable read out of a running process yet",
+      "affects": "all selectedDefects"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "no-build-qualification",
+      "detail": "no revision in this record has been built. The electron-linux record carries buildQualified and buildEvidence per pool entry; the equivalent evidence for Qt Quick does not exist yet because building these applications needs a KDE Frameworks 6 and Qt 6 image that the field harness does not have. Building was out of scope for this gate and no container was started",
+      "affects": "applicationPool, selectedDefects"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "branch-scope",
+      "detail": "kclock-timer-presets-505636 was fixed on release/25.04, not on master. The master history contains the same behaviour change spread over several commits (a7a4f75a87659105fccc71326f098360badde526, d5b202db7e85515716fea2573736042682cb53c6, e8040e18c8e82dd66ef9dcddcb321e314517d32a) with no single commit citing bug 505636, so the release-branch merge request is the only clean two-revision pair",
+      "affects": "kclock-timer-presets-505636"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "candidate-is-wishlist-not-defect",
+      "detail": "bugs.kde.org reports severity 'wishlist' for bug 477812, so keysmith-remove-issuer-477812 is an enhancement request rather than a reported defect. The other four carry severity crash (517967), major (507525), and normal (505636, 476532). If the gate requires every selected candidate to be a defect, this one drops and the set falls to exactly four with no spare",
+      "affects": "keysmith-remove-issuer-477812"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "candidate-inventory-incomplete",
+      "detail": "candidateDefects counts are the number of merged merge requests citing a bugs.kde.org id within the most recent 100 merged merge requests per project, retrieved from the invent.kde.org REST API. They are a floor, not a full inventory: projects with more than 100 merged merge requests were not paged, and merge requests that fix real defects without citing a bug id (for example marknote 227's sibling fixes, or francis 43) are not counted",
+      "affects": "applicationPool"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "no-github-qt-quick-candidates-selected",
+      "detail": "the GitHub side of the pool produced no selected defect. qFlipper needs physical hardware and Cura needs OpenGL plus a long warm-up, so all five selected defects come from invent.kde.org. The target's evidence is therefore concentrated in one ecosystem and one UI stack (Kirigami on Qt Quick Controls), which understates the variance of plain QtQuick.Controls applications",
+      "affects": "applicationPool, selectedDefects"
+    }
+  ],
+  "provenance": {
+    "sources": [
+      "https://invent.kde.org/api/v4 merge_requests and commits endpoints",
+      "https://bugs.kde.org/rest/bug for every issue title quoted here",
+      "git clone --filter=blob:none of marknote, kalk, kclock, elisa, koko, keysmith, francis"
+    ],
+    "verification": "every affectedRevision and fixedRevision in selectedDefects was confirmed with git cat-file -t in a local clone, and each affectedRevision is the first parent of its fixedRevision. Toolkit evidence was read from the build manifest at the affected revision, not from the repository head"
+  }
+}

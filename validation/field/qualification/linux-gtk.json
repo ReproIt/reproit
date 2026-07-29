@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-gtk",
+  "gate": "S2-candidate-qualification",
+  "status": "selected-pending-execution",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-calculator",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "GTK4 plus libadwaita end-user application (meson.build: dependency('gtk4')), builds and runs offline, persists only GSettings and its own history file under the profile. Currency conversion is the one network flow and is not on any selected trigger path. candidateDefects counts merged MRs in the most recent 100 whose description closes or fixes a numbered issue",
+      "candidateDefects": 19
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-text-editor",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "GTK4 plus GtkSourceView plus libadwaita application (meson.build: dependency('gtk4', version: gtk_req)), fully offline, writes only to files the operator opens plus its own session state. candidateDefects counts merged MRs in the most recent 100 whose description closes or fixes a numbered issue",
+      "candidateDefects": 14
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-clocks",
+      "license": "GPL-2.0",
+      "decision": "qualify",
+      "reason": "GTK4 plus libadwaita Vala application (meson.build: dependency('gtk4')), the world clock database ships with libgweather locally so the add-clock flow needs no network, and state lives in GSettings only. candidateDefects counts merged MRs in the most recent 100 whose description closes or fixes a numbered issue",
+      "candidateDefects": 9
+    },
+    {
+      "repository": "https://github.com/flxzt/rnote",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "Rust GTK4 plus libadwaita drawing application (meson.build declares dependency('gtk4') for the ui subproject, crates/rnote-ui/Cargo.toml pulls gtk4 and adw), runs entirely offline and writes only the notebook files the operator chooses. Its canvas is a custom GTK widget driven by GtkGesture and GtkEventController, which is exactly the adapter surface under test. candidateDefects is the GitHub search count of merged pull requests linked to an issue",
+      "candidateDefects": 101
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-characters",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "small GTK4 plus libadwaita application (meson.build: dependency('gtk4', version: '>=4.6')), no network, no state outside its own recent-characters GSettings key. Not yet mined for defects",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-font-viewer",
+      "license": "GPL-2.0",
+      "decision": "qualify",
+      "reason": "GTK4 plus libadwaita application (meson.build: dependency('gtk4', version: gtk_req_version)), reads the font tree read-only and installs fonts only into the user's own ~/.local/share/fonts. Not yet mined for defects",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/gaphor/gaphor",
+      "license": "Apache-2.0 (REUSE, LICENSES/Apache-2.0.txt)",
+      "decision": "qualify",
+      "reason": "PyGObject GTK4 modelling application (pyproject.toml requires PyGObject, classifier 'Environment :: X11 Applications :: GTK'), offline, saves only to the model file the operator picks. Adds a Python binding flavour of the GTK adapter next to the C, Vala, and Rust ones. Not yet mined for defects",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/baobab",
+      "license": "GPL-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "GTK4 plus libadwaita application (meson.build: dependency('gtk4', version: '>=4.15.1')) and read-only in normal use, but it also offers a delete-to-trash action and by default scans the whole home directory. Only admissible if the trigger is pinned to a scratch directory and the trash action is never on the path",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-calendar",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "GTK4 plus libadwaita application (meson.build: dependency('gtk4', version: '>= 4.21.2')) but it stores nothing itself: every read and write goes through evolution-data-server D-Bus services that must be started and torn down inside the container, and any account backend would reach the network. Admissible only with a private session bus and a local-only calendar source",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/nautilus",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "the file manager's core flows copy, move, rename, trash, and delete files anywhere the user can reach, so the trigger mutates state outside the application's own profile by construction",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-control-center",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "writes system and session configuration (users, network, printers, power) through privileged D-Bus services; the trigger is not non-destructive and needs a live system bus",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-disk-utility",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "partitions, formats, and mounts block devices via udisks2; destructive against host state and unrunnable in an unprivileged container",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-software",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "requires PackageKit or Flatpak plus remote repositories for every meaningful flow; installs and removes system packages, so it is both network-bound and destructive",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-maps",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "map tiles, geocoding, and routing all come from third-party services; there is no offline trigger",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/World/fractal",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "Matrix client: every user-visible flow requires a homeserver, which is a third-party service the campaign cannot stand up under --network none",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/transmission/transmission",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "the GTK client is a BitTorrent front end; core flows need peers and trackers on the network and write downloads outside the profile",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gtk",
+      "license": "LGPL-2.1",
+      "decision": "reject",
+      "reason": "the toolkit under test, not an application built on it. Its own test suite would measure GTK rather than the ReproIt GTK adapter",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-builder",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "IDE platform with plugin, container, and language-server subsystems; framework-scale rather than an end-user application, and its flows spawn external toolchains",
+      "candidateDefects": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "gnome-text-editor-search-entry-a11y-771",
+      "application": "gnome-text-editor",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-text-editor/-/issues/771",
+      "issueTitle": "Orca doesn't announce the \"Search\" and \"Replace\" text fields",
+      "pullRequestUrl": "https://gitlab.gnome.org/GNOME/gnome-text-editor/-/merge_requests/215",
+      "affectedRevision": "8732544897aada0500e32df6dba1a7259f9ddc7b",
+      "fixedRevision": "bf3a1414dc8ab39349c1d24beec89ea417a058b0",
+      "whySuitable": "the defect exists only in the accessibility projection of the widget tree, which is the GTK adapter's primary observation channel. The search bar's inner GtkText carries no accessible-role and the replace entry carries no accessible label, so on the affected revision the AT-SPI tree exposes the search field with a generic role and the replace field with an empty name. The fix sets accessible-role=text-box on the GtkText and an accessible label on the replace entry. Observable: open the search bar with Ctrl+F and read the role and name of the two entry objects from the AT-SPI tree. No pixels, no timing, and nothing outside the widget hierarchy the adapter already walks",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "meson.build",
+        "proof": "line 46 at 8732544897aada0500e32df6dba1a7259f9ddc7b: libgtk_dep = dependency('gtk4', version: gtk_req), with gtk_req_version = '4.17.3' on line 34 and libadwaita_dep on line 48"
+      },
+      "remaining": [
+        "build both revisions in an x86_64 container with gtk4 >= 4.17.3, gtksourceview-5 >= 5.15.0, and libadwaita >= 1.6",
+        "prove the adapter can read AT-SPI role and name under Xvfb with at-spi2-core running on a private session bus",
+        "minimize the trigger to: launch, Ctrl+F, dump the accessible role of the search GtkText and the name of the replace entry",
+        "run 3 affected reproductions and 3 fixed controls",
+        "add a neighbouring legal-behaviour check: another entry in the same window that already has a correct accessible name must report it identically at both revisions, proving the reader is not simply blind"
+      ]
+    },
+    {
+      "id": "gnome-text-editor-language-dialog-esc-744",
+      "application": "gnome-text-editor",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-text-editor/-/issues/744",
+      "issueTitle": "\"Document Type\" window is not closable with ESC key",
+      "pullRequestUrl": "https://gitlab.gnome.org/GNOME/gnome-text-editor/-/merge_requests/187",
+      "affectedRevision": "a1398b8c5575ef280627b75e1d53a2b4df44c7c4",
+      "fixedRevision": "25a943faa4306e8db3b483e8951a9d0677580a4d",
+      "whySuitable": "a key must be delivered to a real GTK widget and its effect read back from window state, so the trigger crosses the adapter's key-injection path rather than any internal API. Escape pressed inside the dialog's GtkSearchEntry emits stop-search; on the affected revision nothing is connected to that signal and the AdwDialog stays mapped, on the fixed revision the handler calls adw_dialog_close. Observable: after opening the Document Type dialog and sending Escape, does an object with that dialog's accessible name still exist in the AT-SPI tree. This pairs with the accessibility defect above by exercising the action half of the adapter against the same application",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "meson.build",
+        "proof": "line 46 at a1398b8c5575ef280627b75e1d53a2b4df44c7c4: libgtk_dep = dependency('gtk4', version: gtk_req), with gtk_req_version = '4.15' on line 34"
+      },
+      "remaining": [
+        "build both revisions in an x86_64 container with gtk4 >= 4.15, gtksourceview-5, and libadwaita >= 1.6",
+        "confirm the adapter can open the dialog deterministically (the Document Type row in the main menu) before the key step",
+        "minimize the trigger to: open the dialog, focus the search entry, send Escape, poll for dialog presence with a bounded timeout",
+        "run 3 affected reproductions and 3 fixed controls",
+        "add a neighbouring legal-behaviour check: Escape must close a different dialog in the same build on the affected revision, proving Escape delivery works and the defect is dialog-specific"
+      ]
+    },
+    {
+      "id": "gnome-calculator-history-focus-473",
+      "application": "gnome-calculator",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-calculator/-/issues/473",
+      "issueTitle": "Cursor disappears when click on history",
+      "pullRequestUrl": "https://gitlab.gnome.org/GNOME/gnome-calculator/-/merge_requests/416",
+      "affectedRevision": "22c21e63228746df98eda1f2a4575b6a1ba71932",
+      "fixedRevision": "89cf2ae15384a62cde174a3d445b965d5c2c1f1c",
+      "whySuitable": "a pointer click must be delivered at real coordinates inside a GtkListBoxRow and the consequence read as a focus transition, which is exactly the click-plus-focus pair the GTK adapter has to get right. The history row is a ListBoxRow with focus-on-click left at its GTK default of true on the affected revision, so clicking a history item moves keyboard focus off the equation GtkSourceView and the caret disappears. The fix adds focus-on-click: false in history-entry.blp. Observable: which object holds the AT-SPI focused state after the click, and whether subsequently typed digits still reach the equation display",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "meson.build",
+        "proof": "line 93 at 22c21e63228746df98eda1f2a4575b6a1ba71932: gtk = dependency('gtk4', version: '>= 4.17.0'), with libadwaita-1 on line 106 and gtksourceview-5 on line 107"
+      },
+      "remaining": [
+        "build both revisions in an x86_64 container with gtk4 >= 4.17.0, libadwaita >= 1.8.alpha, gtksourceview-5, and the vala compiler",
+        "seed one history entry deterministically (enter an expression and press Return) before the click step",
+        "locate the history row by accessible name and click its centre rather than by fixed coordinates",
+        "run 3 affected reproductions and 3 fixed controls, asserting focus ownership and that a digit typed after the click appears in the equation",
+        "add a neighbouring legal-behaviour check: clicking a non-focusable label in the same window must not move focus at either revision"
+      ]
+    },
+    {
+      "id": "gnome-clocks-world-dialog-default-focus-393",
+      "application": "gnome-clocks",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-clocks/-/issues/393",
+      "issueTitle": "Default keyboard focus is on the Cancel button when adding a clock",
+      "pullRequestUrl": "https://gitlab.gnome.org/GNOME/gnome-clocks/-/merge_requests/343",
+      "affectedRevision": "1283eb4668d83fd710e9b272abca1443f96ff21f",
+      "fixedRevision": "6055f282826d3ac817697e33697142899989c269",
+      "whySuitable": "initial focus placement is a property of the GTK widget tree at map time, so the adapter must observe the accessibility state of a freshly created window rather than react to an input it sent. On the affected revision the AdwDialog has no focus-widget property and GTK gives initial focus to the Cancel button, so text typed straight after opening the dialog goes nowhere. The fix sets focus-widget=location_entry in world-location-dialog.ui. Observable: which object reports the AT-SPI focused state immediately after the dialog is mapped, and whether typed characters land in the location GtkEntry. A third application, and a different failure shape from the other three: no user action at all is required to expose it",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "meson.build",
+        "proof": "line 15 at 1283eb4668d83fd710e9b272abca1443f96ff21f: gtk = dependency('gtk4', version: '>= 4.15.3'), with libadwaita-1 >= 1.6.alpha on line 25"
+      },
+      "remaining": [
+        "build both revisions in an x86_64 container with gtk4 >= 4.15.3, libadwaita >= 1.6.alpha, libgweather, and the vala compiler",
+        "confirm the world-clock add dialog opens without any network access (libgweather ships its location database locally); if it does not, drop this candidate",
+        "minimize the trigger to: launch, activate the add-clock button, wait for the dialog to map, read the focused object, type one character and read the entry text",
+        "run 3 affected reproductions and 3 fixed controls",
+        "add a neighbouring legal-behaviour check: explicitly focusing the location entry and typing must work at the affected revision, proving the entry accepts text and only the default focus is wrong"
+      ]
+    },
+    {
+      "id": "rnote-ctrl-scroll-capslock-1617",
+      "application": "rnote",
+      "issueUrl": "https://github.com/flxzt/rnote/issues/1617",
+      "issueTitle": "Zooming with ctrl + scroll does not work when caps lock is on",
+      "pullRequestUrl": "https://github.com/flxzt/rnote/pull/1724",
+      "affectedRevision": "841c8f86b180b496e45161a18cdcdc1b661080b7",
+      "fixedRevision": "1a1467ae31b40da74f263b29bce1d2b583c34d76",
+      "whySuitable": "the defect is in how the application reads GdkModifierType off a GTK event controller, so it can only be reproduced by delivering a real scroll event with a real modifier state through GTK. canvaswrapper.rs compared the controller's modifier state to ControlMask with strict equality, so with Caps Lock latched the state is Control plus Lock and the zoom branch never runs; the fix switches to .contains. Observable: the canvas zoom factor shown in the zoom control before and after a Ctrl+scroll with the lock modifier set. This is the only selected candidate whose trigger requires modifier state rather than a plain key or click, which is the part of the GTK adapter nothing else here covers, and it is the only Rust binding in the set",
+      "qualification": "selected-not-executed",
+      "toolkitEvidence": {
+        "file": "meson.build",
+        "proof": "line 140 at 841c8f86b180b496e45161a18cdcdc1b661080b7, inside the 'if build_ui == true' block: dependency('gtk4', version: '>= 4.18'), followed by dependency('libadwaita-1', version: '>= 1.7'); crates/rnote-ui/Cargo.toml line 27 declares gtk4 and line 16 declares adw"
+      },
+      "remaining": [
+        "build both revisions in an x86_64 container with a Rust toolchain, gtk4 >= 4.18, libadwaita >= 1.7, poppler, and the rnote build dependencies; this is the heaviest build in the set and its cost must be measured before the campaign is sized",
+        "prove the adapter can deliver a scroll event with Caps Lock latched under Xvfb, which may require setting the lock modifier through XTEST rather than through GTK",
+        "minimize the trigger to: launch with an empty document, latch Caps Lock, Ctrl+scroll over the canvas, read the zoom value",
+        "run 3 affected reproductions and 3 fixed controls",
+        "add a neighbouring legal-behaviour check: the same Ctrl+scroll without Caps Lock must zoom at the affected revision, which is what makes the modifier the cause rather than the scroll delivery"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "kind": "no-build-verification",
+      "detail": "None of the ten revisions named in selectedDefects has been built or run. This record qualifies candidates from repository, issue, and merge-request data plus git object verification only; every entry carries qualification 'selected-not-executed'. Docker was deliberately not used during this gate. buildQualified therefore has no value for any pool entry, unlike the electron-linux record which was written after its campaigns"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "observation-channel-unproven",
+      "detail": "Four of the five selected defects are observed through AT-SPI (accessible role, accessible name, focused state). The GTK adapter's ability to read the AT-SPI tree of an application running under Xvfb with at-spi2-core on a private session bus has not been demonstrated in this repository yet. If that channel does not work, gnome-text-editor-search-entry-a11y-771 is unobservable entirely and the three focus-based candidates fall back to weaker text-content assertions"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "modifier-injection-unproven",
+      "detail": "rnote-ctrl-scroll-capslock-1617 needs a scroll event delivered while the Lock modifier is latched. Whether the harness can latch Caps Lock and have GTK report it in the controller's GdkModifierType under Xvfb is untested. If it cannot, this candidate is not reproducible and the set drops to four"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "candidate-dropped-no-issue-link",
+      "detail": "Two otherwise strong candidates were dropped for lack of a referenced issue, which the gate requires: gnome-calculator MR 438 'Fix keyboard shortcut for preferences not working' (ff2e5747fe09aab443be3e97b9b901002e2a1251, parent ff5d8913c666578a438d7e6a032843c1531af3a4) has an empty description and no closes_issues entry, and gnome-text-editor MR 206 'editor-window: Always show a confirmation dialog when discarding changes' (5a293da8b68c169a6d020e1a1509e6fd2742c65a, parent b71c5e4f2e7eccacced8205926e83e971cdc7315) describes the bug in prose but links no issue. Both shas were verified to exist and are reachable from the default branch, so either can be promoted if the gate later accepts a merge request as the sole authority"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "pool-defect-counts-incomplete",
+      "detail": "candidateDefects is null for nine pool entries because no defect mining was run against them. Where a count is present it is a stated metric, not a qualified defect list: for the three GNOME projects it is the number of merged merge requests among the most recent 100 whose description closes or fixes a numbered issue, and for rnote it is the GitHub search count of merged pull requests linked to an issue. None of those counts has been filtered for offline runnability or observability"
+    }
+  ],
+  "verification": {
+    "method": "GitLab REST API v4 for gitlab.gnome.org projects and the authenticated gh CLI for github.com, plus blobless clones of gnome-calculator, gnome-text-editor, gnome-clocks, and rnote",
+    "shaCheck": "every affectedRevision and fixedRevision was confirmed with git cat-file -t (all report 'commit') and with git merge-base --is-ancestor against origin/HEAD (all reachable from the default branch)",
+    "toolkitCheck": "GTK linkage was read from the build manifest at each affected revision, not at HEAD and not per repository, and the proving line is quoted in each toolkitEvidence entry",
+    "issueCheck": "issue titles came from the API (closes_issues for GNOME merge requests, the issues endpoint for rnote). GNOME's API returns the newer /-/work_items/<n> form; the canonical /-/issues/<n> URLs recorded here were each confirmed to return HTTP 200"
+  }
+}

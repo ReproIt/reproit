@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-wxwidgets",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected-not-executed",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/vslavik/poedit",
+      "license": "MIT",
+      "decision": "qualify",
+      "reason": "wxGTK translation editor, builds on Linux with configure.ac WX_CONFIG_CHECK, runs fully offline on a local PO file, writes only the file it was given plus its own wxConfig profile. Cloud sync exists but is optional and is not on the trigger path",
+      "candidateDefects": 6,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/wxMaxima-developers/wxmaxima",
+      "license": "GPL-2.0-or-later",
+      "decision": "qualify-with-containment",
+      "reason": "wxGTK front end, CMakeLists find_package(wxWidgets 3 REQUIRED ...), offline and non-destructive, but the application spawns a local maxima interpreter at startup. Containment: install maxima in the image, or accept the startup error banner for triggers that do not need a computation",
+      "candidateDefects": 8,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/eranif/codelite",
+      "license": "GPL-2.0",
+      "decision": "qualify",
+      "reason": "wxGTK IDE, CMakeLists find_package(wxWidgets COMPONENTS adv aui base core html propgrid xml xrc net stc ribbon richtext REQUIRED), offline, mutates only the workspace directory it is pointed at and its own config",
+      "candidateDefects": 21,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/audacity/audacity",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "wxWidgets at the 3.3.x revisions only, proved per revision: cmake-proxies/cmake-modules/DependenciesList.cmake calls audacity_find_package(wxWidgets REQUIRED ...) at 56f7ead13b9374b503e2d6e0b9320a1b9f7c7546. origin/master is the Audacity 4 rewrite and sets QT_MIN_VERSION 6.2.4 with include(SetupQt6) in CMakeLists.txt, with the old code moved under au3/, so any candidate taken from master would not be a wxWidgets subject. Triggers must avoid the cloud save and update-check paths, which need the network",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/Aegisub/Aegisub",
+      "license": "BSD-3-Clause",
+      "decision": "qualify-with-containment",
+      "reason": "wxGTK subtitle editor, configure.ac WX_CONFIG_CHECK with the std,gl,stc component set. Offline and non-destructive for subtitle-only work, but configure hard-requires the wxWidgets OpenGL canvas, so the image needs a software GL stack, and the spell-checker triggers need myspell dictionaries and locales provisioned in the image",
+      "candidateDefects": 2,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/prusa3d/PrusaSlicer",
+      "license": "AGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "real wxWidgets desktop application that works offline on a local model file, but the main window is an OpenGL 3D scene, so it needs a software GL stack, and the build is long. Held as a reserve subject, not selected for this gate",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://gitlab.com/kicad/code/kicad",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "wxWidgets application with a GitLab merge-request-to-issue trail, offline and non-destructive on a local project, but every canvas is OpenGL or Cairo accelerated and the build tree is very large. Reserve subject, not selected for this gate",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/GrandOrgue/grandorgue",
+      "license": "GPL-2.0-or-later",
+      "decision": "reject",
+      "reason": "wxWidgets (CMakeLists.txt find_package(wxWidgets REQUIRED base)) but the application is unusable without a working audio output device and multi-gigabyte third-party organ sample sets, neither of which fits an offline container trigger",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/OpenCPN/OpenCPN",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "chartplotter: the primary view is an OpenGL chart canvas and the useful flows need third-party chart data plus GPS or AIS input, so there is no self-contained offline trigger",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/veracrypt/VeraCrypt",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "the Linux GUI is wxWidgets but every meaningful flow needs root and mutates block devices or loop-mounted volumes outside the application profile, so the trigger is destructive and privileged",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/BOINC/boinc",
+      "license": "LGPL-3.0",
+      "decision": "reject",
+      "reason": "the wxWidgets BOINC Manager is only meaningful once attached to a remote project server, so the core flows require network and a third-party service",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/cemu-project/Cemu",
+      "license": "MPL-2.0",
+      "decision": "reject",
+      "reason": "emulator: needs a real GPU with Vulkan or OpenGL and proprietary game images that cannot be shipped in a test image",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/EUA/wxHexEditor",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "the product is a raw file and block-device editor: its headline flows write to devices and to files in place, which is exactly the destructive trigger class this gate excludes",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/wxWidgets/wxWidgets",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "the toolkit under test, not an application built on it. Its samples are framework demos, not end-user products",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/wxWidgets/Phoenix",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "Python bindings library for wxWidgets, not an end-user application",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/wxFormBuilder/wxFormBuilder",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "GUI designer whose output is generated wxWidgets scaffolding: defects here are in a code generator for the framework rather than in an application whose own behaviour is under test",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/wxGlade/wxGlade",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "same class as wxFormBuilder: a designer that emits wxWidgets scaffolding, not an end-user application",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/slic3r/Slic3r",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "the GUI is Perl-side Wx bindings over an unmaintained build that no longer configures cleanly on current Linux, and the project is superseded by PrusaSlicer. No reproducible Linux build at the candidate revisions",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/PCSX2/pcsx2",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "not wxWidgets at current revisions: pcsx2-qt/CMakeLists.txt links Qt6::Core, Qt6::Gui and Qt6::Widgets. Historically wx, which is exactly the per-repository misclassification trap; rejected here rather than pinned to an ancient wx revision",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/dolphin-emu/dolphin",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "not wxWidgets at current revisions: Source/Core/DolphinQt/CMakeLists.txt calls find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg). Also needs a GPU and proprietary game images",
+      "candidateDefects": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "poedit-source-view-no-line-900",
+      "application": "poedit",
+      "issueUrl": "https://github.com/vslavik/poedit/issues/900",
+      "issueTitle": "Can't view source file if no line number is specified",
+      "pullRequestUrl": "https://github.com/vslavik/poedit/pull/901",
+      "affectedRevision": "c4fe890ef72c8c8cbc6b9b8cc1784dba10447798",
+      "fixedRevision": "f261986fe726a5c2a0ca0717179740c31875de57",
+      "whySuitable": "the trigger is a selection in the catalog list followed by the 'Code occurrences' context-menu item, so it exercises wx popup-menu dispatch off a list selection and then the creation of a second wxGTK top level window (FileViewer, a wxFrame that wxGTK realizes as a GtkWindow). The observable is what that new frame contains: on the affected revision a reference of the form 'src/main.gd' with no ':line' suffix makes wxString::BeforeLast(':') return empty and the frame shows the 'Source code not found' message, on the fixed revision the same frame shows the file's text. Both states are readable through AT-SPI as static text or a text area inside a newly appeared top-level frame, so the adapter is proving window appearance plus text readout, not an internal value",
+      "toolkitEvidence": {
+        "file": "configure.ac",
+        "proof": "line 122 at c4fe890ef72c8c8cbc6b9b8cc1784dba10447798: WX_CONFIG_CHECK([3.2.4], [WXFOUND=1], [WXFOUND=0], [$WXLIBS_USED], [--unicode]); line 211 in the same file errors with 'GTK+ build of wxWidgets is required'"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions on x86_64 Linux against wxGTK 3.2 and gettext, with --network none",
+        "author the fixture PO file: one entry whose source reference has no line number and a matching source file present on disk, plus a control entry whose reference does carry ':line'",
+        "confirm the FileViewer frame and its text are reachable through AT-SPI under Xvfb with the accessibility bus enabled",
+        "record the neighbouring legal behaviour: the control entry with a line number opens correctly on the affected build, proving the harness can drive the context menu at all"
+      ]
+    },
+    {
+      "id": "wxmaxima-greek-pane-1276",
+      "application": "wxmaxima",
+      "issueUrl": "https://github.com/wxMaxima-developers/wxmaxima/issues/1276",
+      "issueTitle": "Greek Letters panel is always ON at start",
+      "pullRequestUrl": "https://github.com/wxMaxima-developers/wxmaxima/pull/1278",
+      "affectedRevision": "e5c410e884c3f1b24c54ac1179c16c3cf0283247",
+      "fixedRevision": "684d2ed4e106fc0fc174f5537129bfd13ba68b93",
+      "whySuitable": "this is a wxConfig round trip across an application lifecycle expressed through wxAUI. The affected revision hard-codes Show(true) on the 'greek' wxAuiPaneInfo while constructing the frame, so the persisted layout is overridden on every start. The trigger is: uncheck 'Greek Letters' in the View menu, quit, start again. Two observables, both native at the wxGTK layer: the pane itself, which wxAUI realizes as a real child window inside the frame carrying the 'Greek Letters' caption and a grid of buttons that AT-SPI enumerates as push buttons, and the check state of the corresponding wxMenuItem, which wxGTK maps to a GtkCheckMenuItem and AT-SPI reports as a checked toggle. The defect is the disagreement between those two, which is precisely a wx adapter question rather than an application-internal one",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt",
+        "proof": "line 26 at e5c410e884c3f1b24c54ac1179c16c3cf0283247: find_package(wxWidgets 3 REQUIRED base core adv xml html aui net richtext); src/CMakeLists.txt line 142 links ${wxWidgets_LIBRARIES}"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions on x86_64 Linux against wxGTK 3 with the aui component present",
+        "install maxima in the image or confirm the frame and its panes are constructed before the interpreter handshake, so the trigger does not depend on a working backend",
+        "isolate the wxConfig store per run (dedicated HOME) so no state leaks between the affected and fixed runs",
+        "record the neighbouring legal behaviour: a different AUI pane toggled off in the same session stays off across the restart on the affected build"
+      ]
+    },
+    {
+      "id": "codelite-findbar-escape-3071",
+      "application": "codelite",
+      "issueUrl": "https://github.com/eranif/codelite/issues/3071",
+      "issueTitle": "[Bug]: Trying to close find panel on Diff View closes the Diff View itself",
+      "pullRequestUrl": "https://github.com/eranif/codelite/pull/3072",
+      "affectedRevision": "feabdcd78c41d7ee0a20d96cf484ae1625649c0a",
+      "fixedRevision": "17afc9d748e5e08146ffacb753faa7b1ddb75456",
+      "whySuitable": "two wx event-routing defects in one flow, and both are observable as window lifetime. The find bar registered its close tool under wxID_CLOSE, so the toolbar command reached the diff frame's own close handler, and clDiffFrame::OnCharHook closed the whole frame on WXK_ESCAPE without asking whether the find bar held focus. The trigger is: open the diff view, open the find bar, press Escape or click the find bar's close tool. The observable is whether the diff top-level window still exists afterwards, which AT-SPI reports directly as the presence or absence of a frame in the application's accessible tree, with the find bar's entry as a second, finer observable. That exercises the wx adapter's keyboard dispatch through wxEVT_CHAR_HOOK and its toolbar command-id routing rather than any application-internal state",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt",
+        "proof": "line 292 at feabdcd78c41d7ee0a20d96cf484ae1625649c0a: find_package(wxWidgets COMPONENTS adv aui base core html propgrid xml xrc net stc ribbon richtext REQUIRED)"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions on x86_64 Linux against wxGTK 3; CodeLite is the largest of the selected subjects, so confirm the build fits the campaign budget before committing to it",
+        "reach the diff view without git remote access: open the side-by-side diff on two local files rather than through the Git tab flow described in the issue",
+        "confirm the reproduction on Linux; the report was filed from macOS, and although the wxID_CLOSE collision and the char-hook path are platform independent, the affected behaviour has not yet been seen on wxGTK",
+        "record the neighbouring legal behaviour: Escape with focus outside the find bar must still close the diff view on both builds"
+      ]
+    },
+    {
+      "id": "audacity-time-dialog-format-4568",
+      "application": "audacity",
+      "issueUrl": "https://github.com/audacity/audacity/issues/4568",
+      "issueTitle": "Set left/right selection boundary dialogs cannot display positions in any of the bar formats",
+      "pullRequestUrl": "https://github.com/audacity/audacity/pull/4577",
+      "affectedRevision": "56f7ead13b9374b503e2d6e0b9320a1b9f7c7546",
+      "fixedRevision": "61473f82784c28dc9ed8ca60cc9c5e97b73f2cf3",
+      "whySuitable": "the trigger is an accelerator ('[' or ']') that opens a modal TimeDialog, which derives from wxDialogWrapper and is a real GtkDialog at runtime, so the flow exercises wx accelerator dispatch plus dialog modality: the adapter must observe that a modal top-level appeared, that it holds the parent frame, and that it dismisses cleanly. The behavioural difference is in the dialog's numeric control context, which the affected build constructs from a bare sample rate and the fixed build constructs from the project. The stable observable is the context menu that the numeric field pops up: it is an ordinary wxMenu, realized as a GtkMenu whose item labels AT-SPI enumerates, and on the affected build the bar:beat entries the user is looking for are absent from that list while on the fixed build they are present. That keeps the assertion on a native wx construct rather than on a custom-drawn field",
+      "toolkitEvidence": {
+        "file": "cmake-proxies/cmake-modules/DependenciesList.cmake",
+        "proof": "line 8 at 56f7ead13b9374b503e2d6e0b9320a1b9f7c7546: audacity_find_package(wxWidgets REQUIRED FIND_PACKAGE_OPTIONS COMPONENTS adv base core html qa xml net)"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions on x86_64 Linux; both sit on the release-3.3.0 line, whose dependency fetch must be pre-seeded because the campaign runs with --network none",
+        "script the setup without audio hardware: generate a tone track, make a selection, set the selection bar format to bar:beat, then press '[' or ']'",
+        "settle the observable before executing: confirm under AT-SPI whether NumericTextCtrl exposes its content, and if it does not, assert on the numeric control's context menu item labels as planned here rather than on the field text",
+        "record the neighbouring legal behaviour: with the selection bar left on a time format, the same dialog offers the time formats on both builds"
+      ]
+    },
+    {
+      "id": "aegisub-spell-language-131",
+      "application": "aegisub",
+      "issueUrl": "https://github.com/Aegisub/Aegisub/issues/131",
+      "issueTitle": "Aegisub crashes immediately after selecting any language from the end of the list",
+      "pullRequestUrl": "https://github.com/Aegisub/Aegisub/pull/132",
+      "affectedRevision": "c3c446a8d6abc5127c9432387f50c5ad50012561",
+      "fixedRevision": "547b17fc22ecd2652053d04a31640843ef3922a4",
+      "whySuitable": "a wx menu id-range defect: the spell-checker language submenu is a wxMenu built over a reserved block of command ids that only covered 100 entries, so choosing an item past the hundredth dispatched an id outside the backing vector and the process died. The trigger is pure menu interaction, which is the most native thing a wxGTK adapter can drive: open the context menu on the subtitle grid, walk into 'Spell checker language', activate an item beyond position 100. AT-SPI enumerates that submenu's items directly, so the adapter can both count the items and select a specific one by index, and the observable is coarse and unambiguous: the application's accessible tree disappears because the process aborted on the affected build and survives with the chosen language recorded in config on the fixed build",
+      "toolkitEvidence": {
+        "file": "configure.ac",
+        "proof": "line 470 at c3c446a8d6abc5127c9432387f50c5ad50012561: WX_CONFIG_CHECK([wx_required_version],,,[std,gl,stc],[$WXCONFIG_FLAGS]); line 474 fails with 'wxWidgets detection failed'"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "provision the image with more than 100 locales or myspell dictionaries so the submenu actually exceeds the 100-item block; without this the trigger cannot fire and the defect is not reproducible",
+        "provide a software OpenGL stack: configure.ac hard-fails without wxWidgets OpenGL support even though the trigger never touches video",
+        "build both revisions on x86_64 Linux against wxGTK 3 with stc and gl components",
+        "record the neighbouring legal behaviour: selecting a language from the first 100 entries must succeed on the affected build, which separates the id-range defect from a generally broken menu"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "kind": "no-build-attempted",
+      "detail": "this gate is qualification only and no Linux build of any wxWidgets subject was run, so buildQualified is null throughout. Every selected defect still needs a two-revision build before S3. wxGTK subjects are source builds against system wx, which is a different risk profile from the electron target where the packaging step was already proven"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "observation-uncertain",
+      "detail": "audacity-time-dialog-format-4568 relies on Audacity's NumericTextCtrl, which is custom drawn rather than a wxTextCtrl. Its accessibility support is guarded by wxUSE_ACCESSIBILITY, which is a Windows path in practice, so the field's text may not be readable through AT-SPI on wxGTK. The plan asserts on the numeric control's context menu labels instead, but that substitution has not been executed and could still fail"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "reproduction-unconfirmed-on-linux",
+      "detail": "codelite-findbar-escape-3071 was reported from macOS. The wxID_CLOSE collision and the wxEVT_CHAR_HOOK handler are platform independent in the diff, but no Linux observation of the affected behaviour exists yet"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "environment-dependent-trigger",
+      "detail": "aegisub-spell-language-131 only fires when the runtime environment offers more than 100 spell-checker languages, which is a property of the image rather than of the application. If the image cannot be provisioned that way, this defect must be dropped and a replacement selected"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "issue-to-pull-request-trail-thin",
+      "detail": "several strong wxWidgets applications commit fixes directly to trunk with no pull request, so the merged-PR-with-linked-issue recipe finds few candidates: 6 for poedit, 8 for wxmaxima and 2 for Aegisub across their full merged histories. Audacity is the only subject with a deep pool, and only on its 3.3.x revisions, since master is now Qt6. If more than two of the five selected defects fail, replacements will have to come from plain commits that cite an issue rather than from pull requests"
+    }
+  ]
+}

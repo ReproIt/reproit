@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-qt-widgets",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/keepassxreboot/keepassxc",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "QWidget password manager, builds and ships on x86_64 Linux, works fully offline against a local .kdbx file, and touches nothing outside its own config and the database path it is given",
+      "candidateDefects": 3
+    },
+    {
+      "repository": "https://github.com/jurplel/qView",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "small QMainWindow image viewer, offline, read-only against the image it opens; qmake project declares widgets and there is no QML in the UI",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://invent.kde.org/utilities/kcalc",
+      "license": "GPL-2.0-or-later (LICENSES/ also carries BSD-3-Clause and CC0-1.0)",
+      "decision": "qualify",
+      "reason": "pure QWidget calculator, no filesystem or network use at all, state limited to its own KConfig entry; the smallest possible surface for widget key and click delivery",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://invent.kde.org/graphics/okular",
+      "license": "GPL-2.0-or-later (LICENSES/ carries multiple)",
+      "decision": "qualify",
+      "reason": "Qt Widgets document viewer: master CMakeLists has find_package(Qt6 ... COMPONENTS Core Test Widgets PrintSupport Svg Xml) and the QML dependency is optional; opens local documents offline and keeps annotations in its own data directory",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/tsujan/FeatherPad",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "lightweight QWidget text editor, offline, writes only files the user opens; suitable subject but no defect was mined here, see the blocker on its pull request metadata",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/notepadqq/notepadqq",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "QWidget shell around a CodeMirror editor view, offline; containment because the editing surface is a web view, so only chrome level observables (menus, dialogs, tab bar) exercise the widget adapter",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/nomacs/nomacs",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Qt Widgets image viewer, offline; containment because it links OpenCV and the build is large, and because save flows write outside the profile unless pointed at a temporary directory",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/Sigil-Ebook/Sigil",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Qt Widgets epub editor, offline; containment because it edits the book file in place, so a run must operate on a copy staged in a temporary directory",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/pbek/QOwnNotes",
+      "license": "GPL-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "Qt Widgets note taking application; containment because the update check, ownCloud sync and script repository flows reach the network and must be disabled, leaving the local note folder flows",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/strawberrymusicplayer/strawberry",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Qt Widgets music player; containment because playback needs a GStreamer sink and several views are streaming services, leaving the offline collection, playlist and tag editing views",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/utilities/filelight",
+      "license": "GPL-3.0-only or LicenseRef-KDE-Accepted-GPL",
+      "decision": "reject",
+      "reason": "Qt Quick, not Qt Widgets: master CMakeLists has find_package(Qt6 ${QT_REQUIRED_VERSION} CONFIG REQUIRED Core Widgets Quick QuickControls2) and includes ECMQmlModule, so the visible UI is QML. Belongs to the QML target, not this one",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/multimedia/elisa",
+      "license": "LGPL-3.0-or-later or GPL-3.0-or-later (LICENSES/ carries multiple)",
+      "decision": "reject",
+      "reason": "Qt Quick, not Qt Widgets: master CMakeLists requests Qml, Quick and QuickControls2 components. Also needs an audio sink. Belongs to the QML target",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/network/neochat",
+      "license": "GPL-3.0-or-later (LICENSES/ carries multiple)",
+      "decision": "reject",
+      "reason": "Qt Quick, not Qt Widgets: master CMakeLists requests Core Quick Gui QuickControls2 Multimedia. Also a Matrix client, so every core flow needs a remote homeserver",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://invent.kde.org/system/dolphin",
+      "license": "GPL-2.0-or-later (LICENSES/ carries multiple)",
+      "decision": "reject",
+      "reason": "Qt Widgets, but the trigger surface is destructive: a file manager moves, deletes and renames user data outside its own profile, and its core flows depend on KIO workers and desktop services",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/qbittorrent/qBittorrent",
+      "license": "NOASSERTION as reported by the GitHub license API",
+      "decision": "reject",
+      "reason": "Qt Widgets, but every core flow needs peers and trackers on the network; no offline trigger",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/obsproject/obs-studio",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "Qt Widgets front end, but needs GPU rendering plus capture and encoder hardware; not reproducible in a headless x86_64 container",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/AntiMicroX/antimicrox",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "Qt Widgets, but the application exists to map physical gamepads and to synthesize system-wide input; needs hardware and mutates state outside its own process",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/qt/qtbase",
+      "license": "unknown, the GitHub license API reports none for this mirror",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it",
+      "candidateDefects": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "keepassxc-plugindata-remove-12891",
+      "application": "keepassxc",
+      "issueUrl": "https://github.com/keepassxreboot/keepassxc/issues/12891",
+      "issueTitle": "\"Properties\" -> \"Plugin Data\" -> \"Remove\" button enabled on first show with no rows selected",
+      "pullRequestUrl": "https://github.com/keepassxreboot/keepassxc/pull/12916",
+      "affectedRevision": "18973351de355ac99ff96683db115d64cca4414d",
+      "fixedRevision": "6bd83602613d119fb9be44299f3de1a7e4f8a1ee",
+      "whySuitable": "the observable is a QPushButton enabled state that must track a QItemSelectionModel on a QTableView. The affected build computes removeCustomDataButton->setEnabled(!m_customData->isEmpty()), the fixed build computes it from customDataTable->selectionModel()->hasSelection(). Reading it means walking a real QWidget tree over AT-SPI, finding the push button by its accessible name inside the entry Properties page, and reading the enabled state before any row is clicked, then clicking a table row and reading it again. That is a model/view row state and widget enablement path, not a DOM assertion, and the neighbouring legal behaviour (button enabled after selecting a row) is observable through the same channel",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt:513 at 18973351de355ac99ff96683db115d64cca4414d",
+        "proof": "set(QT_COMPONENTS Core Network Concurrent Gui Svg Widgets Test LinguistTools) followed by find_package(Qt5 COMPONENTS ${QT_COMPONENTS} DBus REQUIRED) at line 518; src/CMakeLists.txt links Qt5::Widgets and the tree carries no Quick or Qml component"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build a headless x86_64 Linux image with Qt5 Widgets, Xvfb and AT-SPI, and compile the application at both revisions",
+        "author a minimized trigger: open a database fixture that has an entry carrying custom data, open the entry editor Properties page, read the Remove button enabled state before any selection",
+        "author the neighbouring legal check: click a plugin data row and confirm the button becomes enabled on both revisions, proving the harness can select rows",
+        "run three affected reproductions and three fixed controls and record the evidence pair"
+      ]
+    },
+    {
+      "id": "keepassxc-autogenerate-charset-13073",
+      "application": "keepassxc",
+      "issueUrl": "https://github.com/keepassxreboot/keepassxc/issues/13073",
+      "issueTitle": "Password generator skips special characters when using AutoGeneratePasswordForNewEntries=true",
+      "pullRequestUrl": "https://github.com/keepassxreboot/keepassxc/pull/13277",
+      "affectedRevision": "caa7d1476134d86c1cf769081d8460933f4cd11c",
+      "fixedRevision": "58a2919650f814e042daf0f51fe7c76705f0288c",
+      "whySuitable": "a persisted-settings restore across a widget lifecycle rather than an input path, so it exercises a different part of the adapter than the selection defect. The saved generator configuration is written from the password generator widget, and the observable is the text that EditEntryWidget places into the entry password QLineEdit when a new entry is created. Reading it means driving the settings widget, closing it, opening the new entry dialog and reading the line edit contents back through the accessibility text interface; the affected build produces a password drawn from the default character classes, the fixed build honours the stored length and character classes",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt:429 at caa7d1476134d86c1cf769081d8460933f4cd11c",
+        "proof": "set(QT_COMPONENTS Core Network Concurrent Gui Svg Widgets Test LinguistTools); the changed UI file src/gui/entry/EditEntryWidget.cpp is a QWidget editor and no Quick or Qml component is requested"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions in the headless Qt5 Widgets image",
+        "author a minimized trigger: set a distinctive generator configuration (for example length and a single character class) in the password generator, enable AutoGeneratePasswordForNewEntries, create a new entry, read the generated password from the QLineEdit",
+        "decide the identity and authority wording: this is an authored contract, a stored generator configuration must govern generated passwords",
+        "author the neighbouring legal check: the same configuration used through the explicit Generate button must already be honoured on the affected build, proving the settings write itself is not what fails",
+        "run three affected reproductions and three fixed controls"
+      ]
+    },
+    {
+      "id": "keepassxc-browser-checkbox-12972",
+      "application": "keepassxc",
+      "issueUrl": "https://github.com/keepassxreboot/keepassxc/issues/12972",
+      "issueTitle": "Browser integration setting shows wrong value",
+      "pullRequestUrl": "https://github.com/keepassxreboot/keepassxc/pull/12980",
+      "affectedRevision": "b45cea0d9c169fc5ec599f57906061bda22e2fc7",
+      "fixedRevision": "2dd56c76cc2541e9c897490cb05f309f4b5a3526",
+      "whySuitable": "the observable is the checked state, and the enabled state, of QCheckBox widgets on the Browser Integration page of the entry editor when a group above the entry overrides the option. No browser and no native messaging host is involved in displaying the page, so the trigger stays offline: set the option at group level, open the child entry, and read the checkbox tri-state through AT-SPI. That is dialog navigation plus widget check state, which is a third distinct adapter path alongside model/view selection and line edit text",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt:513 at b45cea0d9c169fc5ec599f57906061bda22e2fc7",
+        "proof": "set(QT_COMPONENTS Core Network Concurrent Gui Svg Widgets Test LinguistTools); the changed UI file src/gui/entry/EditEntryWidget.cpp is a QWidget editor page"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the affected checkbox is reachable with browser integration compiled in but disabled at runtime, so the container needs no browser",
+        "build both revisions in the headless Qt5 Widgets image",
+        "author a minimized trigger over a database fixture with a group whose browser option is set and a child entry that inherits it",
+        "author the neighbouring legal check: with the group left at inherit, the entry checkbox must show the entry's own value on both revisions",
+        "run three affected reproductions and three fixed controls"
+      ]
+    },
+    {
+      "id": "qview-fullscreen-unmaximize-453",
+      "application": "qView",
+      "issueUrl": "https://github.com/jurplel/qView/issues/453",
+      "issueTitle": "qView window gets unmaximized after exiting full screen",
+      "pullRequestUrl": "https://github.com/jurplel/qView/pull/623",
+      "affectedRevision": "9f6c225451bb060af8fafd948839432a6de32f4a",
+      "fixedRevision": "e28cbe7b8521959777f40ad6a43b62b4ee243b28",
+      "whySuitable": "a window state restore across a QMainWindow lifecycle. MainWindow::toggleFullScreen restores storedWindowState and then, on the affected revision only, calls setWindowSize(), which resizes the window to the image and destroys the restored maximized state. The observable is the top level window state and geometry read back after the fullscreen round trip, which is exactly what the Qt Widgets adapter must be able to see and drive: send the fullscreen toggle as a key to the widget, wait for the window state change, read maximized back. An independent second application from keepassxc, and a window level observable rather than an in-dialog one",
+      "toolkitEvidence": {
+        "file": "qView.pro:4 at 9f6c225451bb060af8fafd948839432a6de32f4a",
+        "proof": "QT += core gui network widgets; the repository tree at that revision has no CMakeLists.txt and no qml directory, and the changed file src/mainwindow.cpp is a QMainWindow subclass"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions with qmake and Qt5 Widgets in the headless image",
+        "confirm the window manager in the container honours maximize and fullscreen; a bare Xvfb with no WM will not, so a lightweight reparenting WM is required and that dependency must be recorded",
+        "set the 'window matches image size' preference to 'when opening images', which is the precondition named on the pull request",
+        "author the minimized trigger: maximize, enter fullscreen, leave fullscreen, read the window state",
+        "author the neighbouring legal check: the same round trip from a non maximized window must leave geometry unchanged",
+        "run three affected reproductions and three fixed controls"
+      ]
+    },
+    {
+      "id": "kcalc-degree-token-freeze-515379",
+      "application": "kcalc",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=515379",
+      "issueTitle": "kcalc freezes when \u00b01 is typed",
+      "pullRequestUrl": "https://invent.kde.org/utilities/kcalc/-/merge_requests/224",
+      "affectedRevision": "b1a901a25eddd81d1d92312bb1ee270600a7d4fb",
+      "fixedRevision": "20cb18b6ec20b4f6fa7659bb1a4914453b5dfa13",
+      "whySuitable": "the trigger is pure key delivery into a QWidget and the observable is whether the widget keeps servicing its event loop. Typing the degree character followed by a digit sends the parser into an infinite loop, so the main window stops repainting and stops answering accessibility queries. Detecting it means asserting liveness of a real QWidget tree after a keystroke: deliver the keys, then require the display label to report a value within a bound. That is the strongest possible check that the adapter's key path reaches the widget and that its observation path is a live query rather than a cached snapshot. Fourth application in the set and the only one whose failure mode is a hang",
+      "toolkitEvidence": {
+        "file": "CMakeLists.txt:37-39 and 135-136 at b1a901a25eddd81d1d92312bb1ee270600a7d4fb",
+        "proof": "find_package (Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS / Core / Widgets, and target_link_libraries(kcalc Qt6::Core Qt6::Widgets KF6::ColorScheme ...); no Qml or Quick component is requested anywhere in the file"
+      },
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build a second headless image with Qt6 Widgets and the KF6 dependencies kcalc needs (ColorScheme, CoreAddons, ConfigWidgets, GuiAddons, I18n, IconThemes, Crash, Config, WidgetsAddons), which is a heavier dependency set than the Qt5-only subjects",
+        "confirm the degree character can be delivered: it comes from a kcalc button on some layouts and from the keyboard on others, so pick whichever the affected revision exposes and record it",
+        "author the minimized trigger with a hard timeout and a liveness assertion on the result display",
+        "author the neighbouring legal check: a plain calculation typed the same way must complete on the affected build, proving keys are delivered and the timeout is not a harness artefact",
+        "decide how a hang is encoded as a reproduction outcome in the benchmark record, since the existing electron-linux evidence shape assumes a value comparison",
+        "run three affected reproductions and three fixed controls"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "kind": "worker-image-missing",
+      "detail": "there is no reproit-field-linux-qt-widgets worker image yet. Two are needed, not one: a Qt5 Widgets image for keepassxc and qView, and a Qt6 plus KF6 image for kcalc. Neither was built here because this gate was research only and the Docker daemon was in use by other work"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "build-not-attempted",
+      "detail": "no candidate was compiled at either revision, so every buildQualified claim is absent by construction. All five selected defects carry the compile step in remaining"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "window-manager-dependency-unresolved",
+      "detail": "the qView defect is a maximize and fullscreen state transition. A bare Xvfb has no window manager, so setWindowState may not produce the state the defect depends on. Whether a reparenting WM must join the image, and which one, is unverified"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "hang-outcome-encoding-undefined",
+      "detail": "the kcalc defect reproduces as an event loop freeze. The evidence shape used by electron-linux records a compared observable, not a liveness timeout, so the benchmark record needs a decision on how a hang is expressed before this defect can be executed"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "defect-inventory-incomplete",
+      "detail": "candidateDefects is null for eleven pool entries. Counts were only established for the three repositories that were mined. FeatherPad in particular returned no merged pull request whose body links an issue across the first hundred closed pull requests, so defects there would have to be mined from commit messages instead of pull request metadata, which was not done"
+    },
+    {
+      "code": "product-coverage-missing",
+      "kind": "application-concentration",
+      "detail": "three of the five selected defects are in keepassxc. The gate wants four so two may fail safely, but two of the five share a single build; if the keepassxc image fails to build, three candidates fall at once. A fifth independent subject should be mined before execution"
+    }
+  ]
+}
