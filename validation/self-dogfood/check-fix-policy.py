@@ -8,10 +8,11 @@ Every commit that changes production source must declare, in exactly one
                               evidence
   exception:<code>:<id>       a typed eligibility exception with a retained
                               evidence record
-  no-repro:<test path>        no stable automated reproduction is practical,
-                              plus an independent regression test changed in
-                              the same range
-  not-a-fix                   the change is not a bug fix
+  no-repro:<id>               no stable automated reproduction is practical;
+                              a bounded independent regression test must fail
+                              on the parent and pass on the fix
+  not-a-fix:<id>              an evidence-backed record proves the change is
+                              a feature, refactor, maintenance, or tooling work
 
 A missing declaration is a failure, never an implicit exception.
 
@@ -23,35 +24,105 @@ guard removed, renamed, or downgraded out of ``required`` must carry a
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 EXCEPTIONS = Path("validation/self-dogfood/exceptions")
+NO_REPRO = Path("validation/self-dogfood/no-repro")
+NOT_A_FIX = Path("validation/self-dogfood/not-a-fix")
 RETIREMENTS = Path("validation/self-dogfood/retirements")
 GUARD_ROOT = ".reproit/repros"
 
-# Directories whose contents can carry a defect. A change here always needs a
-# declaration; docs, workflows, and retained evidence do not.
+# Directories and root build files whose contents can carry a defect. This list
+# deliberately includes workflow and packaging code: a broken gate or release
+# recipe is a product defect even when no runtime source file changed.
 SOURCE_PREFIXES = (
+    ".github/actions/",
+    ".github/workflows/",
     "crates/",
-    "src/",
-    "sdk/",
     "runners/",
     "scripts/",
+    "sdk/",
+    "src/",
 )
-SOURCE_SUFFIXES = (".rs", ".ts", ".tsx", ".js", ".mjs", ".py", ".swift", ".kt", ".dart")
+SOURCE_FILES = frozenset(
+    {
+        "Cargo.lock",
+        "Cargo.toml",
+        "Dockerfile",
+        "Makefile",
+        "build.gradle",
+        "build.gradle.kts",
+        "go.mod",
+        "go.sum",
+        "package-lock.json",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pyproject.toml",
+        "settings.gradle",
+        "settings.gradle.kts",
+        "uv.lock",
+    }
+)
+SOURCE_SUFFIXES = (
+    ".bash",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".cxx",
+    ".dart",
+    ".gql",
+    ".go",
+    ".gradle",
+    ".graphql",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".html",
+    ".java",
+    ".js",
+    ".json",
+    ".jsx",
+    ".kt",
+    ".kts",
+    ".m",
+    ".mjs",
+    ".mm",
+    ".php",
+    ".proto",
+    ".ps1",
+    ".py",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".swift",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".xml",
+    ".yaml",
+    ".yml",
+)
 
 MAX_COMMITS = 200
 MAX_FILES_PER_COMMIT = 5000
+MAX_TEST_ARGUMENTS = 32
+MAX_TEST_TIMEOUT_SECONDS = 300
 DECLARATION = re.compile(r"^Reproit-Dogfood:\s*(.+?)\s*$", re.MULTILINE)
 RETIRE = re.compile(r"^Reproit-Guard-Retire:\s*(rep_[a-f0-9]{12})\s*$", re.MULTILINE)
 REPRO_ID = re.compile(r"^rep_[a-f0-9]{12}$")
 RAW_GUARD_ID = re.compile(r"^[a-f0-9]{12}$")
 EXCEPTION_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+SHA256 = re.compile(r"^sha256:[a-f0-9]{64}$")
+NOT_A_FIX_TYPES = frozenset({"feature", "maintenance", "refactor", "tooling"})
 BLOCKER_CODES = frozenset(
     {
         "incomplete-evidence",
@@ -81,6 +152,19 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
+def git_bytes(repo: Path, *args: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        error = result.stderr.decode("utf-8", errors="replace").strip()
+        raise PolicyError(f"git {' '.join(args)} failed: {error}")
+    return result.stdout
+
+
 def commits(repo: Path, base: str, head: str) -> list[str]:
     listed = git(repo, "rev-list", "--no-merges", f"{base}..{head}").split()
     if len(listed) > MAX_COMMITS:
@@ -102,7 +186,12 @@ def changed_files(repo: Path, commit: str) -> list[str]:
 
 def touches_source(paths: list[str]) -> bool:
     for path in paths:
-        if path.startswith(SOURCE_PREFIXES) and path.endswith(SOURCE_SUFFIXES):
+        name = Path(path).name
+        if name in SOURCE_FILES:
+            return True
+        if path.startswith(SOURCE_PREFIXES) and (
+            path.endswith(SOURCE_SUFFIXES) or name in SOURCE_FILES
+        ):
             return True
     return False
 
@@ -164,6 +253,57 @@ def require_text(record: dict[str, object], field: str, path: Path) -> str:
     return value
 
 
+def require_safe_path(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value.startswith("/")
+        or ".." in value.split("/")
+        or len(value) > 4096
+    ):
+        raise PolicyError(f"{label} must be a bounded safe relative path")
+    return value
+
+
+def validate_evidence(
+    repo: Path,
+    ref: str,
+    evidence: object,
+    record_path: Path,
+    field: str,
+) -> list[str]:
+    if not isinstance(evidence, list) or not evidence:
+        raise PolicyError(f"{record_path}: {field} must be a non-empty list")
+    paths = []
+    for index, entry in enumerate(evidence):
+        if not isinstance(entry, dict) or set(entry) != {"path", "sha256"}:
+            raise PolicyError(
+                f"{record_path}: {field}[{index}] must contain path and sha256"
+            )
+        evidence_path = require_safe_path(
+            entry.get("path"), f"{record_path}: {field}[{index}].path"
+        )
+        expected = entry.get("sha256")
+        if not isinstance(expected, str) or not SHA256.fullmatch(expected):
+            raise PolicyError(
+                f"{record_path}: {field}[{index}].sha256 must be sha256:<64 hex>"
+            )
+        try:
+            blob = git_bytes(repo, "show", f"{ref}:{evidence_path}")
+        except PolicyError as error:
+            raise PolicyError(
+                f"{record_path}: retained evidence {evidence_path} is missing at {ref}"
+            ) from error
+        actual = f"sha256:{hashlib.sha256(blob).hexdigest()}"
+        if actual != expected:
+            raise PolicyError(
+                f"{record_path}: retained evidence {evidence_path} digest "
+                f"is {actual}, expected {expected}"
+            )
+        paths.append(evidence_path)
+    return paths
+
+
 def validate_exception(repo: Path, ref: str, code: str, identifier: str) -> None:
     if code not in BLOCKER_CODES:
         raise PolicyError(
@@ -182,20 +322,123 @@ def validate_exception(repo: Path, ref: str, code: str, identifier: str) -> None
     require_text(record, "detail", path)
     require_text(record, "issue", path)
     require_text(record, "missingCapability", path)
-    evidence = record.get("retainedEvidence")
-    if not isinstance(evidence, list) or not evidence:
-        raise PolicyError(f"{path}: retainedEvidence must be a non-empty list")
-    for entry in evidence:
-        if not isinstance(entry, str) or not entry or entry.startswith("/"):
-            raise PolicyError(f"{path}: retainedEvidence holds a bad path")
+    validate_evidence(repo, ref, record.get("retainedEvidence"), path, "retainedEvidence")
 
 
-def validate_no_repro(repo: Path, commit: str, test_path: str, files: list[str]) -> None:
-    if test_path.startswith("/") or ".." in test_path.split("/"):
-        raise PolicyError(f"no-repro test path {test_path!r} is not relative")
+def validate_not_a_fix(
+    repo: Path, commit: str, identifier: str, files: list[str]
+) -> dict[str, str]:
+    if not EXCEPTION_ID.fullmatch(identifier):
+        raise PolicyError(f"not-a-fix id {identifier!r} is not a safe slug")
+    path = NOT_A_FIX / f"{identifier}.json"
+    if path.as_posix() not in files:
+        raise PolicyError(
+            f"{commit[:12]}: not-a-fix record {path} must change with the declaration"
+        )
+    record = load_record(repo, commit, path, "not-a-fix")
+    if record.get("schemaVersion") != 1 or record.get("id") != identifier:
+        raise PolicyError(f"{path}: schemaVersion 1 and id {identifier} required")
+    change_type = record.get("changeType")
+    if change_type not in NOT_A_FIX_TYPES:
+        raise PolicyError(f"{path}: changeType must be one of {sorted(NOT_A_FIX_TYPES)}")
+    require_text(record, "detail", path)
+    evidence = validate_evidence(
+        repo, commit, record.get("evidence"), path, "evidence"
+    )
+    if not any(evidence_path in files for evidence_path in evidence):
+        raise PolicyError(
+            f"{path}: at least one evidence artifact must change in the same commit"
+        )
+    return {"kind": "not-a-fix", "id": identifier, "changeType": str(change_type)}
+
+
+def validate_test_command(record: dict[str, object], path: Path) -> tuple[list[str], int]:
+    command = record.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or len(command) > MAX_TEST_ARGUMENTS
+        or any(
+            not isinstance(argument, str)
+            or not argument
+            or len(argument) > 4096
+            for argument in command
+        )
+    ):
+        raise PolicyError(
+            f"{path}: command must contain 1..{MAX_TEST_ARGUMENTS} bounded arguments"
+        )
+    timeout = record.get("timeoutSeconds")
+    if (
+        not isinstance(timeout, int)
+        or isinstance(timeout, bool)
+        or not 1 <= timeout <= MAX_TEST_TIMEOUT_SECONDS
+    ):
+        raise PolicyError(
+            f"{path}: timeoutSeconds must be 1..{MAX_TEST_TIMEOUT_SECONDS}"
+        )
+    return list(command), timeout
+
+
+def execute_test_at_commit(
+    repo: Path,
+    commit: str,
+    command: list[str],
+    timeout_seconds: int,
+    overlays: dict[str, bytes] | None = None,
+) -> int:
+    with tempfile.TemporaryDirectory(prefix="reproit-no-repro-") as directory:
+        git(repo, "worktree", "add", "--detach", "--quiet", directory, commit)
+        try:
+            for relative, content in (overlays or {}).items():
+                target = Path(directory) / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            result = subprocess.run(
+                command,
+                cwd=directory,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise PolicyError(
+                f"{commit[:12]}: no-repro test timed out after {timeout_seconds}s"
+            ) from error
+        finally:
+            subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", "--force", directory],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+            )
+        return result.returncode
+
+
+def validate_no_repro(
+    repo: Path,
+    commit: str,
+    identifier: str,
+    files: list[str],
+    execute: bool,
+) -> dict[str, str]:
+    if not EXCEPTION_ID.fullmatch(identifier):
+        raise PolicyError(f"no-repro id {identifier!r} is not a safe slug")
+    path = NO_REPRO / f"{identifier}.json"
+    if path.as_posix() not in files:
+        raise PolicyError(
+            f"{commit[:12]}: no-repro record {path} must change with the fix"
+        )
+    record = load_record(repo, commit, path, "no-repro")
+    if record.get("schemaVersion") != 1 or record.get("id") != identifier:
+        raise PolicyError(f"{path}: schemaVersion 1 and id {identifier} required")
+    require_text(record, "detail", path)
+    test_path = require_safe_path(record.get("test"), f"{path}: test")
     if test_path not in files:
         raise PolicyError(
-            f"{commit[:12]}: no-repro declares {test_path}, which the commit "
+            f"{commit[:12]}: no-repro record names {test_path}, which the commit "
             "does not change; the independent regression test must land with "
             "the fix"
         )
@@ -203,13 +446,47 @@ def validate_no_repro(repo: Path, commit: str, test_path: str, files: list[str])
         git(repo, "show", f"{commit}:{test_path}")
     except PolicyError as error:
         raise PolicyError(f"{commit[:12]}: {test_path} does not exist") from error
+    validate_evidence(
+        repo, commit, record.get("affectedEvidence"), path, "affectedEvidence"
+    )
+    command, timeout = validate_test_command(record, path)
+    affected_exit_code = record.get("affectedExitCode")
+    if (
+        not isinstance(affected_exit_code, int)
+        or isinstance(affected_exit_code, bool)
+        or not 1 <= affected_exit_code <= 255
+    ):
+        raise PolicyError(f"{path}: affectedExitCode must be 1..255")
+    if execute:
+        fixed_exit_code = execute_test_at_commit(repo, commit, command, timeout)
+        if fixed_exit_code != 0:
+            raise PolicyError(
+                f"{commit[:12]}: fixed no-repro test exited {fixed_exit_code}"
+            )
+        test_source = git_bytes(repo, "show", f"{commit}:{test_path}")
+        affected_ref = f"{commit}^"
+        affected_actual = execute_test_at_commit(
+            repo,
+            affected_ref,
+            command,
+            timeout,
+            overlays={test_path: test_source},
+        )
+        if affected_actual != affected_exit_code:
+            raise PolicyError(
+                f"{commit[:12]}: affected no-repro test exited {affected_actual}, "
+                f"expected {affected_exit_code}"
+            )
+    return {"kind": "no-repro", "id": identifier, "test": test_path}
 
 
 def validate_declaration(
-    repo: Path, commit: str, declaration: str, files: list[str]
+    repo: Path,
+    commit: str,
+    declaration: str,
+    files: list[str],
+    execute_no_repro: bool,
 ) -> dict[str, str]:
-    if declaration == "not-a-fix":
-        return {"kind": "not-a-fix"}
     kind, _, rest = declaration.partition(":")
     if kind == "guard":
         if not REPRO_ID.match(rest):
@@ -225,11 +502,14 @@ def validate_declaration(
         validate_exception(repo, commit, code, identifier)
         return {"kind": "exception", "code": code, "id": identifier}
     if kind == "no-repro":
-        validate_no_repro(repo, commit, rest, files)
-        return {"kind": "no-repro", "test": rest}
+        return validate_no_repro(
+            repo, commit, rest, files, execute=execute_no_repro
+        )
+    if kind == "not-a-fix":
+        return validate_not_a_fix(repo, commit, rest, files)
     raise PolicyError(
         f"{commit[:12]}: unknown declaration {declaration!r}; use guard:, "
-        "exception:, no-repro:, or not-a-fix"
+        "exception:, no-repro:, or not-a-fix:"
     )
 
 
@@ -256,7 +536,13 @@ def validate_retirements(repo: Path, base: str, head: str, retired: set[str]) ->
         if record.get("schemaVersion") != 1 or record.get("guard") != guard_id:
             raise PolicyError(f"{path}: schemaVersion 1 and guard {guard_id} required")
         require_text(record, "reason", path)
-        require_text(record, "replacement", path)
+        replacement = require_text(record, "replacement", path)
+        if not REPRO_ID.fullmatch(replacement) or replacement == guard_id:
+            raise PolicyError(f"{path}: replacement must name a different guard id")
+        if replacement not in after:
+            raise PolicyError(
+                f"{path}: replacement {replacement} is not a required guard at {head}"
+            )
     if unresolved:
         raise PolicyError(
             "the required guard corpus was weakened without a retirement "
@@ -265,7 +551,13 @@ def validate_retirements(repo: Path, base: str, head: str, retired: set[str]) ->
     return weakened
 
 
-def review(repo: Path, base: str, head: str) -> dict[str, object]:
+def review(
+    repo: Path,
+    base: str,
+    head: str,
+    *,
+    execute_no_repro: bool = False,
+) -> dict[str, object]:
     listed = commits(repo, base, head)
     results = []
     retired: set[str] = set()
@@ -286,7 +578,13 @@ def review(repo: Path, base: str, head: str) -> dict[str, object]:
         results.append(
             {
                 "commit": commit,
-                "declaration": validate_declaration(repo, commit, found[0], files),
+                "declaration": validate_declaration(
+                    repo,
+                    commit,
+                    found[0],
+                    files,
+                    execute_no_repro=execute_no_repro,
+                ),
             }
         )
     weakened = validate_retirements(repo, base, head, retired)
@@ -309,7 +607,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", default=str(ROOT), help="repository root")
     arguments = parser.parse_args(argv)
     try:
-        report = review(Path(arguments.repo).resolve(), arguments.base, arguments.head)
+        report = review(
+            Path(arguments.repo).resolve(),
+            arguments.base,
+            arguments.head,
+            execute_no_repro=True,
+        )
     except PolicyError as error:
         sys.stderr.write(f"self-dogfood fix policy: {error}\n")
         return 1

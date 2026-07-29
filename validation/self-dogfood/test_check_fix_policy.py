@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -20,6 +21,8 @@ SPEC.loader.exec_module(MODULE)
 
 GUARD = "rep_b1ab0f0eb617"
 RAW_GUARD = "b1ab0f0eb617"
+REPLACEMENT_GUARD = "rep_40f619ef4a2c"
+RAW_REPLACEMENT_GUARD = "40f619ef4a2c"
 
 
 class FixPolicyTests(unittest.TestCase):
@@ -60,7 +63,13 @@ class FixPolicyTests(unittest.TestCase):
             json.dumps({"id": RAW_GUARD, "status": status, "trigger_sig": signature}),
         )
 
+    def evidence(self, path: str) -> dict[str, str]:
+        digest = hashlib.sha256((self.repo / path).read_bytes()).hexdigest()
+        return {"path": path, "sha256": f"sha256:{digest}"}
+
     def write_exception(self, identifier: str, code: str) -> None:
+        evidence_path = f"validation/self-dogfood/evidence/{identifier}.log"
+        self.write(evidence_path, "retained blocker evidence\n")
         self.write(
             f"validation/self-dogfood/exceptions/{identifier}.json",
             json.dumps(
@@ -71,13 +80,66 @@ class FixPolicyTests(unittest.TestCase):
                     "detail": "the vendor SDK cannot be installed offline",
                     "issue": "DOGFOOD-042",
                     "missingCapability": "offline vendor SDK acquisition",
-                    "retainedEvidence": ["validation/self-dogfood/evidence/x.log"],
+                    "retainedEvidence": [self.evidence(evidence_path)],
                 }
             ),
         )
 
-    def review(self) -> dict[str, object]:
-        return MODULE.review(self.repo, self.base, "HEAD")
+    def write_not_a_fix(
+        self,
+        identifier: str,
+        evidence_path: str,
+        change_type: str = "maintenance",
+    ) -> None:
+        self.write(
+            f"validation/self-dogfood/not-a-fix/{identifier}.json",
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "id": identifier,
+                    "changeType": change_type,
+                    "detail": "this change adds behavior and does not correct a defect",
+                    "evidence": [self.evidence(evidence_path)],
+                }
+            ),
+        )
+
+    def write_no_repro(
+        self,
+        identifier: str,
+        test_path: str,
+        test_source: str = (
+            "from pathlib import Path\n"
+            "source = Path('crates/reproit/src/lib.rs')\n"
+            "raise SystemExit(0 if source.is_file() else 1)\n"
+        ),
+    ) -> None:
+        evidence_path = f"validation/self-dogfood/evidence/{identifier}.log"
+        self.write(evidence_path, "affected revision exited 1\n")
+        self.write(test_path, test_source)
+        self.write(
+            f"validation/self-dogfood/no-repro/{identifier}.json",
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "id": identifier,
+                    "detail": "the independent unit test is the stable authority",
+                    "test": test_path,
+                    "command": ["python3", test_path],
+                    "timeoutSeconds": 30,
+                    "affectedExitCode": 1,
+                    "affectedEvidence": [self.evidence(evidence_path)],
+                }
+            ),
+        )
+
+    def review(self, *, execute_no_repro: bool = False) -> dict[str, object]:
+        return MODULE.review(
+            self.repo,
+            self.base,
+            "HEAD",
+            execute_no_repro=execute_no_repro,
+        )
 
     def test_source_change_without_a_declaration_fails(self) -> None:
         self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
@@ -93,7 +155,8 @@ class FixPolicyTests(unittest.TestCase):
 
     def test_every_commit_in_a_multi_commit_push_is_reviewed(self) -> None:
         self.write("crates/reproit/src/lib.rs", "fn one() {}\n")
-        self.commit("Change one\n\nReproit-Dogfood: not-a-fix\n")
+        self.write_not_a_fix("change-one", "crates/reproit/src/lib.rs")
+        self.commit("Change one\n\nReproit-Dogfood: not-a-fix:change-one\n")
         self.write("crates/reproit/src/lib.rs", "fn two() {}\n")
         self.commit("Fix two without a declaration")
 
@@ -106,6 +169,19 @@ class FixPolicyTests(unittest.TestCase):
         report = self.review()
         self.assertEqual(report["declared"], [])
         self.assertEqual(report["commits"], 1)
+
+    def test_workflow_build_and_additional_language_files_need_declarations(self) -> None:
+        for path in (
+            ".github/workflows/release.yml",
+            "sdk/reproit-dotnet/Runtime.cs",
+            "runners/native/bridge.cpp",
+            "package.json",
+        ):
+            with self.subTest(path=path):
+                self.write(path, "production\n")
+                self.commit(f"Change {path}")
+                with self.assertRaisesRegex(MODULE.PolicyError, "exactly one"):
+                    MODULE.review(self.repo, "HEAD~1", "HEAD")
 
     def test_a_required_guard_declaration_is_accepted(self) -> None:
         self.write_guard()
@@ -150,19 +226,69 @@ class FixPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.PolicyError, "not one of"):
             self.review()
 
-    def test_no_repro_requires_the_test_to_land_with_the_fix(self) -> None:
+    def test_exception_evidence_digest_must_match(self) -> None:
+        self.write_exception("vendor-sdk", "unsupported-capability")
+        self.write("validation/self-dogfood/evidence/vendor-sdk.log", "tampered\n")
         self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
-        self.commit("Fix\n\nReproit-Dogfood: no-repro:crates/reproit/tests/x.rs\n")
-        with self.assertRaisesRegex(MODULE.PolicyError, "does not change"):
+        self.commit(
+            "Fix\n\nReproit-Dogfood: exception:unsupported-capability:vendor-sdk\n"
+        )
+        with self.assertRaisesRegex(MODULE.PolicyError, "digest"):
             self.review()
 
-    def test_no_repro_with_the_regression_test_is_accepted(self) -> None:
+    def test_no_repro_requires_a_changed_record_and_test(self) -> None:
         self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
-        self.write("crates/reproit/tests/x.rs", "#[test] fn t() {}\n")
-        self.commit("Fix\n\nReproit-Dogfood: no-repro:crates/reproit/tests/x.rs\n")
-        report = self.review()
+        self.commit("Fix\n\nReproit-Dogfood: no-repro:dispatch-test\n")
+        with self.assertRaisesRegex(MODULE.PolicyError, "record"):
+            self.review()
+
+    def test_no_repro_executes_the_fixed_regression_test(self) -> None:
+        self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
+        self.write_no_repro("dispatch-test", "tests/dispatch_regression.py")
+        self.commit("Fix\n\nReproit-Dogfood: no-repro:dispatch-test\n")
+        report = self.review(execute_no_repro=True)
         self.assertEqual(
-            report["declared"][0]["declaration"]["test"], "crates/reproit/tests/x.rs"
+            report["declared"][0]["declaration"]["test"],
+            "tests/dispatch_regression.py",
+        )
+
+    def test_no_repro_fails_when_the_fixed_regression_test_fails(self) -> None:
+        self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
+        self.write_no_repro(
+            "dispatch-test",
+            "tests/dispatch_regression.py",
+            "raise SystemExit(2)\n",
+        )
+        self.commit("Fix\n\nReproit-Dogfood: no-repro:dispatch-test\n")
+        with self.assertRaisesRegex(MODULE.PolicyError, "fixed no-repro test exited 2"):
+            self.review(execute_no_repro=True)
+
+    def test_no_repro_must_fail_with_the_declared_result_on_the_parent(self) -> None:
+        self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
+        self.write_no_repro("dispatch-test", "tests/dispatch_regression.py")
+        record_path = (
+            self.repo
+            / "validation/self-dogfood/no-repro/dispatch-test.json"
+        )
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["affectedExitCode"] = 2
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        self.commit("Fix\n\nReproit-Dogfood: no-repro:dispatch-test\n")
+        with self.assertRaisesRegex(MODULE.PolicyError, "expected 2"):
+            self.review(execute_no_repro=True)
+
+    def test_not_a_fix_requires_a_changed_evidence_record(self) -> None:
+        self.write("crates/reproit/src/lib.rs", "pub fn feature() {}\n")
+        self.commit("Feature\n\nReproit-Dogfood: not-a-fix\n")
+        with self.assertRaisesRegex(MODULE.PolicyError, "not-a-fix id"):
+            self.review()
+
+        self.write("crates/reproit/src/feature.rs", "pub fn feature() {}\n")
+        self.write_not_a_fix("new-feature", "crates/reproit/src/feature.rs", "feature")
+        self.commit("Feature\n\nReproit-Dogfood: not-a-fix:new-feature\n")
+        report = MODULE.review(self.repo, "HEAD~1", "HEAD")
+        self.assertEqual(
+            report["declared"][0]["declaration"]["changeType"], "feature"
         )
 
     def test_deleting_a_required_guard_fails_the_gate(self) -> None:
@@ -190,13 +316,23 @@ class FixPolicyTests(unittest.TestCase):
         self.base = self.git("rev-parse", "HEAD").strip()
         self.git("rm", "-r", "--quiet", f".reproit/repros/{RAW_GUARD}")
         self.write(
+            f".reproit/repros/{RAW_REPLACEMENT_GUARD}/meta.json",
+            json.dumps(
+                {
+                    "id": RAW_REPLACEMENT_GUARD,
+                    "status": "required",
+                    "trigger_sig": "cli:replacement",
+                }
+            ),
+        )
+        self.write(
             f"validation/self-dogfood/retirements/{GUARD}.json",
             json.dumps(
                 {
                     "schemaVersion": 1,
                     "guard": GUARD,
                     "reason": "the defect class is now covered by an exact oracle",
-                    "replacement": "rep_40f619ef4a2c",
+                    "replacement": REPLACEMENT_GUARD,
                 }
             ),
         )
@@ -207,6 +343,29 @@ class FixPolicyTests(unittest.TestCase):
         report = self.review()
         self.assertEqual(report["retiredGuards"], [GUARD])
         self.assertEqual(len(report["weakenedGuards"]), 1)
+
+    def test_a_retirement_replacement_must_be_a_live_required_guard(self) -> None:
+        self.write_guard()
+        self.commit("Add the guard")
+        self.base = self.git("rev-parse", "HEAD").strip()
+        self.git("rm", "-r", "--quiet", f".reproit/repros/{RAW_GUARD}")
+        self.write(
+            f"validation/self-dogfood/retirements/{GUARD}.json",
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "guard": GUARD,
+                    "reason": "the defect class moved",
+                    "replacement": REPLACEMENT_GUARD,
+                }
+            ),
+        )
+        self.commit(
+            f"Retire\n\nReproit-Dogfood: not-a-fix\n"
+            f"Reproit-Guard-Retire: {GUARD}\n"
+        )
+        with self.assertRaisesRegex(MODULE.PolicyError, "not a required guard"):
+            self.review()
 
     def test_a_retirement_without_a_record_still_fails(self) -> None:
         self.write_guard()

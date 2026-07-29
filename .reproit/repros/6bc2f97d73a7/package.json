@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "id": "pkg_bdab44bd64e245d6",
+  "occurrence": {
+    "version": 1,
+    "occurrenceId": "occ_faf210ef8c7e2aae",
+    "source": "reproit-capture",
+    "subject": {
+      "product": "demo-89fb4a",
+      "component": "node",
+      "platform": "macos"
+    },
+    "observedAt": "2026-07-29T20:26:36.678195+00:00",
+    "receivedAt": "2026-07-29T20:26:36.735362+00:00",
+    "observations": [
+      {
+        "kind": "exit",
+        "authority": "runtime-diagnosis",
+        "summary": "node terminated with process-exit:17; trusted verifier asserted ci:required-guard-corpus-dispatch",
+        "signature": "ci:required-guard-corpus-dispatch",
+        "observationPoint": "node/process-exit",
+        "artifactIds": []
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "sha256:18fad8373fbc27ef75f607d94c57d7173d24188d74b7603259f415c91458ef11",
+        "kind": "interaction-trace",
+        "mediaType": "application/json",
+        "bytes": 96,
+        "policy": "local-analysis-only",
+        "redaction": "unredacted-restricted",
+        "collection": "flight-recorder",
+        "name": "argv.json"
+      }
+    ],
+    "captureDefects": [
+      {
+        "kind": "truncated",
+        "detail": "ProcessTree: root process owned; descendant enumeration is not installed"
+      },
+      {
+        "kind": "truncated",
+        "detail": "StandardStreams: content was not retained"
+      },
+      {
+        "kind": "unavailable",
+        "detail": "Filesystem: filesystem observation is not installed"
+      },
+      {
+        "kind": "truncated",
+        "detail": "Environment: only build identity variables were retained"
+      },
+      {
+        "kind": "truncated",
+        "detail": "CrashDiagnostics: exit status and signal only"
+      }
+    ],
+    "policy": {
+      "consent": "local-analysis",
+      "retentionClass": "local-private"
+    }
+  },
+  "assessment": {
+    "occurrenceId": "occ_faf210ef8c7e2aae",
+    "status": "eligible",
+    "requirements": [
+      {
+        "id": "req_001_trigger",
+        "level": "required",
+        "requirement": {
+          "kind": "trigger",
+          "trigger": "command",
+          "subject": "node"
+        },
+        "evidenceArtifactIds": [
+          "sha256:18fad8373fbc27ef75f607d94c57d7173d24188d74b7603259f415c91458ef11"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "plan": {
+    "version": 1,
+    "id": "plan_0f07e8d8bdc27ab9",
+    "occurrenceId": "occ_faf210ef8c7e2aae",
+    "target": "current-checkout",
+    "destination": {
+      "kind": "local-process"
+    },
+    "bindings": [
+      {
+        "requirementId": "req_001_trigger",
+        "providerId": "local-occ_faf210ef8c7e2aae",
+        "mechanismAuthority": "explicit-local-approval",
+        "templateDigest": "sha256:9e49f7caba46cf563454454d2a21822755c74dc0801d2716a81103a063410eb4",
+        "evidenceArtifactIds": [
+          "sha256:18fad8373fbc27ef75f607d94c57d7173d24188d74b7603259f415c91458ef11"
+        ]
+      }
+    ],
+    "observation": {
+      "observation": "exit",
+      "identity": "ci:required-guard-corpus-dispatch",
+      "authority": "runtime-diagnosis"
+    }
+  },
+  "capsule": {
+    "actions": [],
+    "app": "demo-89fb4a",
+    "assessment": {
+      "occurrenceId": "occ_faf210ef8c7e2aae",
+      "requirements": [
+        {
+          "evidenceArtifactIds": [
+            "sha256:18fad8373fbc27ef75f607d94c57d7173d24188d74b7603259f415c91458ef11"
+          ],
+          "id": "req_001_trigger",
+          "level": "required",
+          "requirement": {
+            "kind": "trigger",
+            "subject": "node",
+            "trigger": "command"
+          }
+        }
+      ],
+      "status": "eligible",
+      "unresolved": []
+    },
+    "backend_events": [],
+    "builds": {},
+    "capabilities": {
+      "http": {
+        "detail": "no HTTP transaction is part of this finding's cause",
+        "status": "not_applicable"
+      },
+      "http_replay": {
+        "detail": "no causal HTTP transaction requires replay",
+        "status": "not_applicable"
+      }
+    },
+    "causalGraph": {
+      "edges": [],
+      "nodes": [
+        {
+          "id": "cause_d2116267bfdc79154f87",
+          "kind": "finding",
+          "label": "exact finding"
+        },
+        {
+          "actor": "a",
+          "id": "cause_bda3a2a5dc4a7a789522",
+          "kind": "actor-event",
+          "label": "actor a"
+        }
+      ],
+      "version": 1
+    },
+    "cause": "command",
+    "environment": {},
+    "environmentEnvelope": {
+      "complete": false,
+      "relaxedDimensions": [],
+      "replayAttempts": 0,
+      "trials": [],
+      "version": 1
+    },
+    "exchanges": [],
+    "finding": {
+      "boundary": "ci:required-guard-corpus-dispatch",
+      "frame": "node/process-exit",
+      "invariant": "exact-occurrence",
+      "kind": "exit",
+      "message": "node terminated with process-exit:17; trusted verifier asserted ci:required-guard-corpus-dispatch",
+      "oracle": "exit",
+      "trigger": "current-checkout"
+    },
+    "id": "cap_054234fcc0b471e7",
+    "occurrence": {
+      "artifacts": [
+        {
+          "bytes": 96,
+          "collection": "flight-recorder",
+          "id": "sha256:18fad8373fbc27ef75f607d94c57d7173d24188d74b7603259f415c91458ef11",
+          "kind": "interaction-trace",
+          "mediaType": "application/json",
+          "name": "argv.json",
+          "policy": "local-analysis-only",
+          "redaction": "unredacted-restricted"
+        }
+      ],
+      "captureDefects": [
+        {
+          "detail": "ProcessTree: root process owned; descendant enumeration is not installed",
+          "kind": "truncated"
+        },
+        {
+          "detail": "StandardStreams: content was not retained",
+          "kind": "truncated"
+        },
+        {
+          "detail": "Filesystem: filesystem observation is not installed",
+          "kind": "unavailable"
+        },
+        {
+          "detail": "Environment: only build identity variables were retained",
+          "kind": "truncated"
+        },
+        {
+          "detail": "CrashDiagnostics: exit status and signal only",
+          "kind": "truncated"
+        }
+      ],
+      "observations": [
+        {
+          "artifactIds": [],
+          "authority": "runtime-diagnosis",
+          "kind": "exit",
+          "observationPoint": "node/process-exit",
+          "signature": "ci:required-guard-corpus-dispatch",
+          "summary": "node terminated with process-exit:17; trusted verifier asserted ci:required-guard-corpus-dispatch"
+        }
+      ],
+      "observedAt": "2026-07-29T20:26:36.678195+00:00",
+      "occurrenceId": "occ_faf210ef8c7e2aae",
+      "policy": {
+        "consent": "local-analysis",
+        "retentionClass": "local-private"
+      },
+      "receivedAt": "2026-07-29T20:26:36.735362+00:00",
+      "source": "reproit-capture",
+      "subject": {
+        "component": "node",
+        "platform": "macos",
+        "product": "demo-89fb4a"
+      },
+      "version": 1
+    },
+    "redactions": [],
+    "reproductionPlan": {
+      "bindings": [
+        {
+          "evidenceArtifactIds": [
+            "sha256:18fad8373fbc27ef75f607d94c57d7173d24188d74b7603259f415c91458ef11"
+          ],
+          "mechanismAuthority": "explicit-local-approval",
+          "providerId": "local-occ_faf210ef8c7e2aae",
+          "requirementId": "req_001_trigger",
+          "templateDigest": "sha256:9e49f7caba46cf563454454d2a21822755c74dc0801d2716a81103a063410eb4"
+        }
+      ],
+      "destination": {
+        "kind": "local-process"
+      },
+      "id": "plan_0f07e8d8bdc27ab9",
+      "observation": {
+        "authority": "runtime-diagnosis",
+        "identity": "ci:required-guard-corpus-dispatch",
+        "observation": "exit"
+      },
+      "occurrenceId": "occ_faf210ef8c7e2aae",
+      "target": "current-checkout",
+      "version": 1
+    },
+    "version": 2
+  }
+}
