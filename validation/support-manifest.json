@@ -181,18 +181,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/flutter-ios.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -243,24 +237,26 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/flutter-android.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
             "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
             "command": null,
             "evidence": []
+          },
+          {
+            "code": "unsupported-capability",
+            "detail": "a Flutter release APK is AOT compiled with the Dart VM service removed, so the declared runtime bound is not reachable from the release artifact. The campaign must either observe through a profile-mode build or the bound must be restated",
+            "command": null,
+            "evidence": [
+              "validation/field/qualification/flutter-android.json"
+            ]
           }
         ]
       }
@@ -305,18 +301,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 3 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/react-native-android.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -368,17 +358,19 @@
         "blockers": [
           {
             "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "detail": "gate S2 selected 5 candidate defects but they come from only 1 application (BlueWallet). Stable requires two independent applications, and the qualification record states no second application qualified, so this is a coverage limit rather than remaining work on the application already selected",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/react-native-ios.json"
             ]
           },
           {
             "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
+            "detail": "no application campaign has been executed. 5 candidate defects across 1 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
-            "evidence": []
+            "evidence": [
+              "validation/field/qualification/react-native-ios.json"
+            ]
           },
           {
             "code": "incomplete-evidence",
@@ -429,18 +421,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/compose-android.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -489,18 +475,12 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 6 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/swiftui-ios.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",
@@ -564,18 +544,12 @@
             ]
           },
           {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
+            "code": "incomplete-evidence",
+            "detail": "no application campaign has been executed. 5 candidate defects across 3 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/macos-ax.json"
             ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
           },
           {
             "code": "incomplete-evidence",

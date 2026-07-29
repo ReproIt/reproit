@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 1,
+  "target": "flutter-android",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "android",
+    "arch": "arm64-v8a",
+    "device": "reset Android Studio AVD from the installed SDK",
+    "runtime": [
+      "Dart VM service",
+      "flutter drive"
+    ],
+    "framework": [
+      "Flutter"
+    ],
+    "networkPolicy": "no Google Play Services, no account, offline or loopback and LAN only"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/localsend/localsend",
+      "license": "Apache-2.0",
+      "decision": "qualify",
+      "reason": "Flutter application at every candidate revision: app/pubspec.yaml declares name localsend_app with environment flutter ^3.25.0 and the Android module lives at app/android. Transfers are LAN only, nothing leaves the emulator, and scripts/remove_proprietary_dependencies.sh strips the in-app-purchase donation path so the build has no Google Play dependency",
+      "candidateDefects": 10,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": false,
+        "signing": "app/android/app/build.gradle signingConfigs.release loads app/android/key.properties and uses storeFile keystoreProperties['storeFile'] ? file(...) : null, and buildTypes.release binds signingConfig signingConfigs.release unconditionally",
+        "command": "sh scripts/remove_proprietary_dependencies.sh; cd app; flutter pub get; flutter build apk --split-per-abi",
+        "note": "the upstream release workflow .github/workflows/compile_apk.yml injects secrets.ANDROID_KEY_PROPERTIES and secrets.ANDROID_KEY_STORE. Those are not obtainable, but nothing in the build depends on the upstream identity: a locally generated throwaway keystore plus a locally written key.properties satisfies the same config, so the release APK is buildable with no upstream secret. Also needs a Rust toolchain for app/rust_builder cargokit"
+      }
+    },
+    {
+      "repository": "https://github.com/GopeedLab/gopeed",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Flutter application at every candidate revision: ui/flutter/pubspec.yaml declares name gopeed and the Android module is ui/flutter/android. The product itself is a downloader, so its core flow needs external network transfers, but the two selected defects are settings-page defects that reproduce fully offline. Containment is to run the emulator with no network and never start a task",
+      "candidateDefects": 23,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": true,
+        "signing": "ui/flutter/android/app/build.gradle buildTypes.release chooses signingConfigs.release only when signingConfigs.release.keyPassword is non-null, and falls back to signingConfigs.debug otherwise, so with APK_KEY_PASSWORD and APK_STORE_PASSWORD unset the release APK is debug-signed and installable",
+        "command": "go install golang.org/x/mobile/cmd/gomobile@latest; gomobile init; gomobile bind -tags nosqlite -o ui/flutter/android/app/libs/libgopeed.aar -target=android -androidapi 21 -javapkg=com.gopeed github.com/GopeedLab/gopeed/bind/mobile; cd ui/flutter; flutter build apk --split-per-abi",
+        "note": "recipe taken verbatim from .github/workflows/build.yml job build-android. The Go core is linked as a gomobile aar, so the worker needs Go and the Android NDK in addition to Flutter"
+      }
+    },
+    {
+      "repository": "https://github.com/AppFlowy-IO/AppFlowy",
+      "license": "AGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Flutter application: frontend/appflowy_flutter/pubspec.yaml declares name appflowy. Local workspace mode works without an account, but the mobile build also compiles a large Rust backend, so it is a fallback pool member rather than a first campaign application. Not used for the selected defects",
+      "candidateDefects": 4,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": null
+    },
+    {
+      "repository": "https://github.com/Predidit/Kazumi",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "every core flow scrapes third-party anime streaming sites, so the trigger cannot be made offline or reproducible, and the fetched content is outside our authority",
+      "candidateDefects": 5
+    },
+    {
+      "repository": "https://github.com/bggRGjQaUbCoE/PiliPlus",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "third-party Bilibili client; the app is unusable past the launch screen without a Bilibili account and live API access",
+      "candidateDefects": 4
+    },
+    {
+      "repository": "https://github.com/guozhigq/pilipala",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "third-party Bilibili client with the same account and live API requirement; the single candidate is a risk-challenge flow that needs a real login",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://github.com/Notsfsssf/pixez-flutter",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "Pixiv client; requires a Pixiv account and live pixiv.net access, and most candidates are Windows-only fixes",
+      "candidateDefects": 9
+    },
+    {
+      "repository": "https://github.com/BasedHardware/omi",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "companion app for a physical wearable and a hosted backend; the candidates are backend, desktop, and Windows fixes, none reachable from an emulator with no device and no cloud account",
+      "candidateDefects": 10
+    },
+    {
+      "repository": "https://github.com/rustdesk/rustdesk",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "remote desktop and remote input control; enabling the Android input service grants accessibility-level control of the emulator, which is a destructive trigger, and the flows need a second live peer plus a rendezvous server",
+      "candidateDefects": 6
+    },
+    {
+      "repository": "https://github.com/flame-engine/flame",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "game engine library plus examples, not an end-user application",
+      "candidateDefects": 16
+    },
+    {
+      "repository": "https://github.com/flet-dev/flet",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "application framework, not an application built on Flutter by a third party",
+      "candidateDefects": 13
+    },
+    {
+      "repository": "https://github.com/cfug/dio",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "HTTP client library with no user interface",
+      "candidateDefects": 5
+    },
+    {
+      "repository": "https://github.com/felangel/bloc",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "state management library, not an application",
+      "candidateDefects": 3
+    },
+    {
+      "repository": "https://github.com/jonataslaw/getx",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "state management and routing library, not an application",
+      "candidateDefects": 2
+    },
+    {
+      "repository": "https://github.com/flutter/flutter",
+      "license": "BSD-3-Clause",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it, and the single candidate is a Windows mouse-button fix",
+      "candidateDefects": 1
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "localsend-receive-link-2975",
+      "application": "localsend",
+      "issueUrl": "https://github.com/localsend/localsend/issues/2904",
+      "issueTitle": "bug: Receive Text or Paste are incorrectly identified as link when message starts with URI but has more text after",
+      "pullRequestUrl": "https://github.com/localsend/localsend/pull/2975",
+      "affectedRevision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+      "fixedRevision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+      "whySuitable": "the defect is the isLink field of ReceivePageVm in app/lib/pages/receive_page.dart: a message such as https://example.com plus trailing prose satisfied Uri.tryParse().isAbsolute and was rendered as a tappable link instead of plain text. Flutter paints into one SurfaceView, so UiAutomator2 sees no such distinction; reading which branch of the receive page was built means attaching to the Dart isolate over the VM service and inspecting the widget tree and the Riverpod view model. The trigger is an inbound LAN text send, so the adapter has to hold that observation across an incoming HTTP request served by the app's own Dart server",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build affected and fixed profile-mode APKs with Flutter 3.35.6 after running scripts/remove_proprietary_dependencies.sh, with a locally generated throwaway keystore in app/android/key.properties",
+        "stand up the second peer: run the repository's own cli/ Dart package on the host and reach the emulator over the LocalSend LAN protocol, or run a second AVD",
+        "author the trigger: send the exact message from issue 2904, accept it on the emulator, and read ReceivePageVm.isLink through the Dart VM service",
+        "state identity and authority for the observation",
+        "minimize the trigger and verify neighboring legal behavior with a bare absolute URL, which must still render as a link on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "localsend-share-link-length-2756",
+      "application": "localsend",
+      "issueUrl": "https://github.com/localsend/localsend/issues/2359",
+      "issueTitle": "Bug report: Client can not download files when using \"Share via link\" from Android",
+      "pullRequestUrl": "https://github.com/localsend/localsend/pull/2756",
+      "affectedRevision": "1fe1e04b9890fb3c686f433d42dd3afec9356b4f",
+      "fixedRevision": "a6588717db5075e0398b27601eb1e00dbdac621d",
+      "whySuitable": "SendController set content-length from File(path).lengthSync() even when the selected file was an Android content:// SAF URI, where that call cannot produce a size, so the share-via-link download failed. The fix reads the length through UriContent().getContentLength for content URIs. The trigger runs entirely inside one emulator: pick a file through the Android document picker, start share via link, and issue an HTTP GET from the host through adb forward. The observation is Dart-side, in the app's own HTTP server response, reached over the VM service while the Dart isolate is servicing a native ContentResolver read, which is precisely the Dart-to-platform boundary the Flutter Android adapter has to keep observable",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build affected and fixed profile-mode APKs at the two revisions",
+        "seed a file into the emulator's shared storage and drive the Android document picker through UiAutomator2, since the picker is a system UI outside the Flutter surface",
+        "wire adb forward from the host to the app's share-via-link port and record the response headers",
+        "state identity and authority for the content-length observation",
+        "minimize the trigger and verify neighboring legal behavior: a file selected by plain filesystem path must download correctly on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "localsend-media-location-2742",
+      "application": "localsend",
+      "issueUrl": "https://github.com/localsend/localsend/issues/237",
+      "issueTitle": "Don`t clear photo metadata",
+      "pullRequestUrl": "https://github.com/localsend/localsend/pull/2742",
+      "affectedRevision": "5cf8c06eb34f80454b7f52d5910e19d272ca333c",
+      "fixedRevision": "6dea005c534ae706654c8bc40ec6fb9f59240262",
+      "whySuitable": "_pickMedia in app/lib/util/native/file_picker.dart never requested ACCESS_MEDIA_LOCATION, so Android returned a copy of the picked photo with GPS EXIF stripped. The fix adds a PhotoManager.requestPermissionExtend call with mediaLocation true on the Android branch only. The trigger is a Dart call that crosses a platform channel into an Android runtime permission, and the observation is the bytes of the AssetEntity the Dart side receives back, read over the VM service. It exercises the adapter on an Android-specific path that has no desktop equivalent",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build affected and fixed profile-mode APKs at the two revisions",
+        "seed a geotagged JPEG into the emulator MediaStore and confirm the AVD grants ACCESS_MEDIA_LOCATION when asked",
+        "drive the in-app media picker and read the returned file's EXIF GPS tags from the Dart side over the VM service",
+        "state identity and authority: a picker that claims to return the user's photo must not silently strip its metadata",
+        "minimize the trigger and verify neighboring legal behavior: non-location EXIF such as orientation must survive on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "gopeed-proxy-credentials-1183",
+      "application": "gopeed",
+      "issueUrl": "https://github.com/GopeedLab/gopeed/issues/1180",
+      "issueTitle": "\u4ee3\u7406\u8d26\u53f7\u3001\u5bc6\u7801\u65e0\u6cd5\u4fdd\u5b58",
+      "pullRequestUrl": "https://github.com/GopeedLab/gopeed/pull/1183",
+      "affectedRevision": "f7189668fd014696c9716bf7687ecc48fb91cd3b",
+      "fixedRevision": "5bb85413854f2f4202bdc8e6026a3a856358b4d4",
+      "whySuitable": "the proxy username and password TextEditingControllers in ui/flutter/lib/app/modules/setting/views/setting_view.dart were never wired to the GetX settings controller, so the typed values were dropped and never persisted. The fix adds listeners that copy them into the proxy config and call debounceSave. The trigger is text entry plus an application restart with no network at all, and the check is the persisted Dart-side config object read over the VM service, so it exercises the Flutter adapter's state and lifecycle path on a second, independent application without touching the downloader core",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the gomobile libgopeed.aar and the affected and fixed profile-mode APKs at the two revisions",
+        "author the trigger: enter proxy credentials in the settings page, leave the page, restart the app, and read the persisted config over the VM service",
+        "state identity and authority: a setting the application persists must be restored on the next launch",
+        "minimize the trigger and verify neighboring legal behavior: the proxy host and port fields on the same page persist on both builds, so the restart itself is not what loses state",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "gopeed-download-directory-1352",
+      "application": "gopeed",
+      "issueUrl": "https://github.com/GopeedLab/gopeed/issues/1350",
+      "issueTitle": "\u8bbe\u7f6e\u4e86\u9ed8\u8ba4\u7684\u4e0b\u8f7d\u6587\u4ef6\u5939\uff0c\u7ed3\u679c\u8fd8\u662f\u539f\u6765\u7684\u3002",
+      "pullRequestUrl": "https://github.com/GopeedLab/gopeed/pull/1352",
+      "affectedRevision": "d7f6c3b206da5074c7e35b90306760842de71fe3",
+      "fixedRevision": "ae70dc240c25887d10a87e8f88c8a2b076f0001d",
+      "whySuitable": "the directory selector assigned controller.text directly and never invoked onEditComplete, so choosing a download directory updated the text field but never reached the saved config. The fix routes every assignment through updateDirectorySelection, which also fires onChanged. On Android the two toggle branches resolve getExternalStorageDirectory and the platform downloads directory, so the trigger is a single tap with no system file picker and no network. The observation is a Dart-side config value after a restart, read over the VM service, which distinguishes it from the sibling gopeed defect: this one is lost at write time, the proxy one at capture time",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the gomobile libgopeed.aar and the affected and fixed profile-mode APKs at the two revisions",
+        "author the trigger: toggle the download directory in settings, restart, and read the persisted directory over the VM service",
+        "state identity and authority for the persisted-directory contract",
+        "minimize the trigger and verify neighboring legal behavior: a directory typed into the same field by hand persists on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "unsupported-capability",
+      "kind": "runtime-observation-constraint",
+      "detail": "a Flutter release APK is AOT compiled with the Dart VM service removed, so the declared runtime bound 'Dart VM service' is not reachable from the artifact the release build produces. Both selected applications build a release APK on this host without any upstream signing secret, gopeed by falling back to debug signing and localsend with a locally generated throwaway keystore, but the campaign has to install profile-mode APKs and record explicitly that the observed artifact is the profile build and not the shipped release build",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "build-input-missing",
+      "detail": "no APK has been built at any selected revision yet. Every selectedDefects entry is qualification 'selected-not-executed'; the framework identity, the existence of both revisions, the issue titles, and the pull request merge parents are verified, the runtime behaviour is not",
+      "command": null,
+      "evidence": []
+    }
+  ],
+  "verification": {
+    "method": "each repository was cloned with git clone --filter=blob:none --no-checkout, every affectedRevision and fixedRevision was confirmed with git cat-file -t, the framework was confirmed by reading the build manifest at the affected revision rather than at HEAD, and every issue title, pull request title, merge state and merge parent was read back from the GitHub API",
+    "frameworkEvidence": [
+      "localsend: git show <affectedRevision>:app/pubspec.yaml declares name localsend_app and environment flutter ^3.25.0 at 3ec2d77875fc31dab21548ae4966ca693e8b2733, 1fe1e04b9890fb3c686f433d42dd3afec9356b4f and 5cf8c06eb34f80454b7f52d5910e19d272ca333c",
+      "gopeed: git show <affectedRevision>:ui/flutter/pubspec.yaml declares name gopeed at f7189668fd014696c9716bf7687ecc48fb91cd3b and d7f6c3b206da5074c7e35b90306760842de71fe3, with the Android module at ui/flutter/android"
+    ],
+    "revisionEvidence": "all ten selected revisions returned type commit from git cat-file -t, and each fixedRevision is a squash merge whose sole parent is the corresponding affectedRevision",
+    "source": "reproit-lab/defect-candidates-flutter.json, 112 entries across 15 repositories, re-verified rather than trusted"
+  }
+}

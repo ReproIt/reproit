@@ -1,0 +1,330 @@
+{
+  "schemaVersion": 1,
+  "target": "compose-android",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "android",
+    "arch": "arm64-v8a",
+    "device": "reset Android Studio AVD from the installed SDK",
+    "runtime": [
+      "ART",
+      "Appium UiAutomator2"
+    ],
+    "framework": [
+      "Jetpack Compose"
+    ],
+    "networkPolicy": "no Google Play Services, no account, offline only"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/anilbeesetti/nextplayer",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "Jetpack Compose application at every selected revision: app/build.gradle.kts declares alias(libs.plugins.composeCompiler), buildFeatures compose = true, platform(libs.androidx.compose.bom), libs.androidx.compose.ui and libs.androidx.activity.compose. It is a local media player over MediaStore, so every core flow runs offline with no account and no Play Services; only the optional network and SMB browsing feature would need a LAN",
+      "candidateDefects": 6,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": true,
+        "signing": "app/build.gradle.kts declares only a debug signingConfig, backed by the committed app/debug.keystore with storePassword android and keyAlias androiddebugkey, and a build type release-with-debug-signing that does initWith(getByName(\"release\")) then signingConfig = signingConfigs.getByName(\"debug\")",
+        "command": "./gradlew assembleReleaseWithDebugSigning",
+        "note": "getByName(\"release\") itself sets no signingConfig, so a plain assembleRelease is unsigned and will not install. The release-with-debug-signing variant is minified and shrunk exactly like release and installs on a reset AVD with no secret at all. It carries applicationIdSuffix .release, so the campaign must use that application id"
+      }
+    },
+    {
+      "repository": "https://github.com/Pool-Of-Tears/GreenStash",
+      "license": "MIT",
+      "decision": "qualify",
+      "reason": "Jetpack Compose application at every selected revision: app/build.gradle declares the org.jetbrains.kotlin.plugin.compose plugin, buildFeatures compose true, a compose-bom platform, androidx.activity:activity-compose and androidx.lifecycle:lifecycle-viewmodel-compose. It is a local savings-goal tracker on Room with no account, no network and no Play Services, so the entire product runs on an air-gapped AVD",
+      "candidateDefects": 6,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": false,
+        "signing": "app/build.gradle contains no signingConfigs block at all and the release build type sets no signingConfig, so assembleRelease emits an unsigned APK",
+        "command": "./gradlew assembleDebug",
+        "note": "there is no upstream secret to be missing, but there is also no fallback: the campaign either installs the debug variant, which the AGP-generated debug key signs, or supplies a locally generated throwaway keystore. Record which artifact was actually observed"
+      }
+    },
+    {
+      "repository": "https://github.com/spacecowboy/Feeder",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Compose application: app/build.gradle.kts applies libs.plugins.kotlin.compose.compiler, sets buildFeatures compose = true and pulls platform(libs.compose.bom). Feed fetching needs a network, so containment is to seed content by OPML import or from a loopback HTTP server and never let the app reach the internet. Not used for the selected defects",
+      "candidateDefects": 4,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": true,
+        "signing": "a committed shareddebug.keystore is used for debug, and release applies signingConfigs release only under if (project.hasProperty(\"STORE_FILE\"))",
+        "command": "./gradlew assembleDebug",
+        "note": "best signing story in the Compose pool, but the release variant is still unsigned without STORE_FILE"
+      }
+    },
+    {
+      "repository": "https://github.com/mihonapp/mihon",
+      "license": "Apache-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "Compose application: app/build.gradle.kts pulls androidx.compose.foundation, androidx.compose.material3, androidx.compose.animation and androidx.activity.compose. The first-party source-local module makes an offline, extension-free configuration possible, but trackers, repositories and extensions all need a network, so the trigger has to stay inside the local source. Not used for the selected defects",
+      "candidateDefects": 4,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": true,
+        "signing": "app/build.gradle.kts sets the release build type's signingConfig to debug.signingConfig, and the debug config only overrides the keystore when MIHON_GITHUB_RELEASE is set or keystore.properties exists, so with neither present AGP's generated debug key signs the release APK",
+        "command": "./gradlew assembleStandardRelease",
+        "note": "the cleanest release-signs-with-debug-key case found in this pool"
+      }
+    },
+    {
+      "repository": "https://github.com/ReadYouApp/ReadYou",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Compose application: app/build.gradle.kts applies libs.plugins.compose.compiler and pulls platform(libs.compose.bom.alpha) plus compose.ui, compose.material and compose.material.icons.extended. The default local account means no login, but feed sync needs a network, so containment is a loopback feed server. Also note the redirect: Ashinch/ReadYou now resolves to ReadYouApp/ReadYou",
+      "candidateDefects": 6,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": false,
+        "signing": "app/build.gradle.kts creates a release signingConfig from keystore.properties and then applies it in buildTypes all { }, which means the debug variant depends on that keystore too",
+        "command": null,
+        "note": "a locally generated throwaway keystore plus keystore.properties is required before either variant builds. No upstream secret is needed, but the default build is not turnkey"
+      }
+    },
+    {
+      "repository": "https://github.com/quillpad/quillpad",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "Compose is enabled: app/build.gradle.kts applies libs.plugins.compose.compiler, sets buildFeatures compose = true and pulls platform(libs.androidx.compose.bom), androidx.navigation.compose and androidx.activity.compose. The app is fully offline, but the migration from Fragments is incomplete and the note editor is still EditorFragment, so any candidate must be checked screen by screen to confirm the trigger lands on a Compose surface. Not used for the selected defects",
+      "candidateDefects": 6,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": false,
+        "signing": "release applies a signingConfig only under if (project.hasProperty(\"keystore\")); otherwise no signing config is applied",
+        "command": null,
+        "note": null
+      }
+    },
+    {
+      "repository": "https://github.com/celzero/rethink-app",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "not a Jetpack Compose application at its candidate revisions: app/build.gradle at ba886684e540f93435221d8a66b49126719bd024 sets buildFeatures viewBinding true and declares no androidx.compose dependency anywhere. The android candidate inventory classified it by repository, not per revision. Independently it is also a VPN and firewall that rewrites device network policy, which is a destructive trigger",
+      "candidateDefects": 12,
+      "buildQualified": false,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/CeuiLiSA/Pixiv-Shaft",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "not a Jetpack Compose application at its candidate revisions: app/build.gradle at 55e4b9a6fab4b74a09adaaa1dff0d45625464a3f sets viewBinding true, uses androidx.navigation safeargs and recyclerview, and declares no androidx.compose dependency. It also requires a Pixiv account and live pixiv.net access",
+      "candidateDefects": 5,
+      "buildQualified": false,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/Tapadoo/Alerter",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "an alert widget library with a sample app, not an end-user application, and View-based rather than Compose",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://github.com/maxrave-dev/SimpMusic",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "Compose is real here, but it is a YouTube Music client whose every core flow needs the internet, and the only merged pull request in the inventory that links an issue fixes a desktop crash reported on Windows",
+      "candidateDefects": 2
+    },
+    {
+      "repository": "https://github.com/JunkFood02/Seal",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "Compose, but a yt-dlp video downloader: the core flow is network only, and the single issue-linked code fix in the repository is MIUI-specific and cannot be reproduced on an AOSP emulator",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://github.com/tasks/tasks",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "hybrid View and Compose application whose default product flavor googleplay applies the Google services and Firebase Crashlytics plugins and pulls Play Billing, so it needs a generic-flavor build to run on a bare AVD. More decisive for this gate: its recent issue-linked merged pull requests are CalDAV or multi-device sync fixes that need a live server, and the older ones edit View and XML code rather than Compose",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/OxygenCobalt/Auxio",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "offline local music player, but View-based: app/build.gradle sets viewBinding true and contains no androidx.compose dependency",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/Kunzisoft/KeePassDX",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "offline password manager, but View-based: app/build.gradle contains no androidx.compose dependency",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/vitorpamplona/amethyst",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "Compose, but a nostr client: every core flow needs live relays and a key pair, so no offline trigger exists",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/element-hq/element-x-android",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "Compose, but unusable past the login screen without a Matrix homeserver and an account",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/Automattic/pocket-casts-android",
+      "license": "MPL-2.0",
+      "decision": "reject",
+      "reason": "Compose, but a podcast client whose core flows need an account and network content",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/android/nowinandroid",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "a reference sample published by the framework owner, not a third-party end-user application",
+      "candidateDefects": 0
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "nextplayer-permission-loop-1825",
+      "application": "nextplayer",
+      "issueUrl": "https://github.com/anilbeesetti/nextplayer/issues/1820",
+      "issueTitle": "0.17.2 has a never ending spinning circle on a new install",
+      "pullRequestUrl": "https://github.com/anilbeesetti/nextplayer/pull/1825",
+      "affectedRevision": "b00807bc0ba28b41365c5f4e41e0af2062e7715e",
+      "fixedRevision": "b2875cc4d4e866912c04c26aff8b6fbff9e0de57",
+      "whySuitable": "MediaPickerScreen relied on the rememberPermissionState onPermissionResult callback to dispatch OnPermissionAccepted. On a clean install that callback did not fire the way the screen assumed, so the composable stayed in DataState.Loading forever and the user saw a spinner that never resolved. The fix replaces the callback with a LaunchedEffect keyed on permissionState.status.isGranted and hoists the permission branch above the data branch. The trigger is exactly what an Appium UiAutomator2 driver does natively: install onto a reset AVD, tap the system permission dialog, then read the Compose semantics tree. The observable is semantic, not pixel: on the affected build the progress indicator node persists and no video list node ever appears, while on the fixed build the list nodes appear. That is the whole point of the compose-android adapter, since a Compose hierarchy reaches UiAutomator2 only through the semantics-to-accessibility bridge",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build assembleReleaseWithDebugSigning at both revisions and record the resulting application id suffix",
+        "prove AVD reset: the defect only appears on a clean install, so the campaign has to wipe user data between runs and show the evidence",
+        "author the trigger through UiAutomator2, including the system permission dialog, which is outside the application's own semantics tree",
+        "state identity and authority: granting the requested permission must move the screen out of its loading state",
+        "minimize the trigger and verify neighboring legal behavior: launching with the permission already granted must reach the list on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "nextplayer-locked-controls-1657",
+      "application": "nextplayer",
+      "issueUrl": "https://github.com/anilbeesetti/nextplayer/issues/1653",
+      "issueTitle": "While locking video gives black shade tone",
+      "pullRequestUrl": "https://github.com/anilbeesetti/nextplayer/pull/1657",
+      "affectedRevision": "29ca89579ab85f0da23989859f3875617c1e88e6",
+      "fixedRevision": "fb7b507114f0358bb141a5443f2408c328c1d4f6",
+      "whySuitable": "the player's control overlay was gated on controlsVisibilityState.controlsVisible alone, so locking the controls left the whole scrimmed overlay composed on top of the video. The fix adds && !controlsVisibilityState.controlsLocked to the AnimatedVisibility condition. The observation does not need a pixel comparison: while the controls are locked, the seek bar and transport buttons must be absent from the Compose semantics tree, and on the affected build they are still present behind the scrim. That is a direct exercise of Compose semantics read through UiAutomator2, and it is a different adapter path from the permission defect, which is about state that never advances rather than nodes that never leave",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build assembleReleaseWithDebugSigning at both revisions",
+        "push a small video file into the AVD's shared storage and grant media permission as part of setup",
+        "author the trigger: start playback, reveal the controls, tap lock, then enumerate the semantics tree",
+        "state identity and authority: locked player controls must not remain interactive or visible",
+        "minimize the trigger and verify neighboring legal behavior: with the controls unlocked, the same nodes are present on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "nextplayer-single-video-autoplay-1824",
+      "application": "nextplayer",
+      "issueUrl": "https://github.com/anilbeesetti/nextplayer/issues/1821",
+      "issueTitle": "[BUG] v0.17.2 Autoplay on Single Selected Video Completion",
+      "pullRequestUrl": "https://github.com/anilbeesetti/nextplayer/pull/1824",
+      "affectedRevision": "d8a089c2e3088f106d9067360b1c3b19ebe493a5",
+      "fixedRevision": "ea2049fdaef7acd425cb148e6c49e77d7770caf2",
+      "whySuitable": "tapping one video called startPlayback(listOf(uri)), which always attached an API_PLAYLIST extra, so the player treated a single tap as a playlist and rolled on to the next file when it ended. The fix adds a single-uri overload that passes a null playlist. The trigger is an ordinary UiAutomator2 tap on a Compose list item followed by waiting out a short clip, and the observation is which activity and which semantics tree is on screen once playback ends. It exercises the adapter across an Android activity boundary rather than inside one composition, which is the third distinct path among the nextplayer selections",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build assembleReleaseWithDebugSigning at both revisions",
+        "push two short video files so that a wrong autoplay has somewhere to go, and confirm their MediaStore ordering",
+        "author the trigger and bound the wait on playback completion",
+        "state identity and authority: playing a single selected item must stop when that item ends",
+        "minimize the trigger and verify neighboring legal behavior: a genuine multi-select playback must still advance on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "greenstash-currency-picker-rotation-225",
+      "application": "GreenStash",
+      "issueUrl": "https://github.com/Pool-Of-Tears/GreenStash/issues/213",
+      "issueTitle": "[Enhancement]: Improve currency picker in onboarding screen to better handle screen rotation",
+      "pullRequestUrl": "https://github.com/Pool-Of-Tears/GreenStash/pull/225",
+      "affectedRevision": "eeb3bc077f796ce45cae66c45a00c82def9ee599",
+      "fixedRevision": "78a1cf4aaa5a673e50bc54f9bbed66d4e6514200",
+      "whySuitable": "the currency picker held its selection and its search text in plain remember, so an activity recreation discarded both and the onboarding screen snapped back to the default currency with an empty search field. The fix is precisely rememberSaveable. This is the canonical Compose state-restoration defect and it needs a real device event that only the emulator can deliver, a configuration change, so it exercises the adapter's ability to hold an observation across an Android activity recreation and then re-resolve Compose semantics nodes on the recomposed tree. It is also a second, independent application, and its defect class is state loss rather than state that never advances",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the debug variant at both revisions, or supply a locally generated throwaway keystore, since the project declares no signingConfigs",
+        "reset the AVD so the onboarding screen is reachable, and unlock rotation on the device",
+        "author the trigger: open the currency picker, type a search term, select a non-default currency, rotate, then re-read the semantics tree",
+        "state identity and authority: a selection the user made must survive a configuration change",
+        "minimize the trigger and verify neighboring legal behavior: a value already committed to settings survives the same rotation on both builds",
+        "note in the record that the upstream issue is labelled enhancement even though the merged pull request is titled fix, and decide whether the authority is platform or authored-contract before executing",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "greenstash-datetime-locale-152",
+      "application": "GreenStash",
+      "issueUrl": "https://github.com/Pool-Of-Tears/GreenStash/issues/149",
+      "issueTitle": "Unable to correctly handle 24-hour and 12-hour time formats",
+      "pullRequestUrl": "https://github.com/Pool-Of-Tears/GreenStash/pull/152",
+      "affectedRevision": "2274142c1e2c45a52c72a170a66ff98913f6f4a1",
+      "fixedRevision": "d263a46c39e97c3a19ce78d520f860106230c17b",
+      "whySuitable": "the deposit and edit-transaction sheets opened a DateTimeDialog with no DateTimeConfig, so the dialog picked up an ambient locale and presented a time format inconsistent with what the rest of the screen rendered. The fix pins DateTimeConfig(locale = Locale.US) at both call sites. The trigger is a device-level setting change followed by a Compose dialog opening, and the observation is the text of the semantics nodes inside that dialog, which is exactly the surface UiAutomator2 reads. It is a weaker candidate than the other four because the observable depends on emulator locale and 24-hour configuration, which is why it is fifth of five rather than one of the first four",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the debug variant at both revisions",
+        "pin the AVD locale and the use-24-hour-format system setting explicitly, and record both as part of the bounds",
+        "author the trigger: create a goal, open the deposit sheet, open the date and time dialog, read the dialog's semantics text",
+        "state identity and authority, which here is an authored contract about the application's own formatting consistency rather than a platform rule",
+        "minimize the trigger and verify neighboring legal behavior: the date half of the same dialog is unaffected on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls, or drop this candidate if the locale dependence makes the observation unstable"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "product-coverage-missing",
+      "kind": "candidate-inventory-thin",
+      "detail": "reproit-lab/defect-candidates-android.json holds only 20 entries across 4 repositories and none of them survived qualification: rethink-app and Pixiv-Shaft are View-based at their candidate revisions and not Compose at all, Alerter is a library, and the only issue-linked SimpMusic candidate is a desktop crash. Every defect selected here comes from repositories discovered during this gate, so the inventory file should be regenerated against the qualified pool before the campaign runs",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "build-input-missing",
+      "detail": "no APK has been built at any selected revision. Every selectedDefects entry is qualification 'selected-not-executed'; the Compose identity per revision, the existence of both revisions, the issue titles, and the pull request merge parents are verified, the runtime behaviour is not",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "artifact-mismatch-risk",
+      "detail": "only one of the two selected applications produces an installable release-configuration APK with no signing secret. nextplayer has a release-with-debug-signing build type that is minified and shrunk like release, but it carries applicationIdSuffix .release, so the campaign observes a different application id from the shipped build. GreenStash declares no signingConfigs at all, so its release APK is unsigned and the campaign must install the debug variant. Whichever artifact is used has to be named in the evidence rather than described as the release build",
+      "command": null,
+      "evidence": []
+    }
+  ],
+  "verification": {
+    "method": "each repository was cloned with git clone --filter=blob:none --no-checkout, every affectedRevision and fixedRevision was confirmed with git cat-file -t, Compose identity was confirmed by reading app/build.gradle or app/build.gradle.kts at the affected revision rather than at HEAD, and every issue title, pull request title, merge state and merge parent was read back from the GitHub API",
+    "frameworkEvidence": [
+      "nextplayer: app/build.gradle.kts at b00807bc0ba28b41365c5f4e41e0af2062e7715e, 29ca89579ab85f0da23989859f3875617c1e88e6, d8a089c2e3088f106d9067360b1c3b19ebe493a5 and c3084e91ff3569063b5a44ce33df6e3897a2e353 all declare alias(libs.plugins.composeCompiler), compose = true, platform(libs.androidx.compose.bom) and libs.androidx.compose.ui",
+      "GreenStash: app/build.gradle at eeb3bc077f796ce45cae66c45a00c82def9ee599 declares the org.jetbrains.kotlin.plugin.compose plugin, compose true and compose-bom 2026.04.01, and at 2274142c1e2c45a52c72a170a66ff98913f6f4a1 the same plugin with compose-bom 2024.06.00",
+      "rethink-app at ba886684e540f93435221d8a66b49126719bd024 and Pixiv-Shaft at 55e4b9a6fab4b74a09adaaa1dff0d45625464a3f declare viewBinding and no androidx.compose dependency, which is why both are rejected on framework identity rather than on product coverage"
+    ],
+    "revisionEvidence": "all ten selected revisions returned type commit from git cat-file -t. The three nextplayer fixes are true merge commits whose first parent is the corresponding affectedRevision; the two GreenStash fixes are squash merges with that same single parent",
+    "source": "reproit-lab/defect-candidates-android.json was used as the starting point and did not survive re-verification; the qualified repositories were found during this gate"
+  }
+}

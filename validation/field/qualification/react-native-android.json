@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "target": "react-native-android",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "android",
+    "arch": "arm64-v8a",
+    "device": "reset Android Studio AVD from the installed SDK",
+    "runtime": [
+      "Hermes",
+      "Appium UiAutomator2"
+    ],
+    "framework": [
+      "React Native"
+    ],
+    "networkPolicy": "no Google Play Services, no account, offline only"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/laurent22/joplin",
+      "license": "AGPL-3.0-or-later",
+      "licenseNote": "the GitHub API reports NOASSERTION for this repository. The root LICENSE states that all code is AGPL-3.0-or-later unless a directory carries its own LICENSE file, and packages/app-mobile carries none at the selected revisions, so AGPL-3.0-or-later applies to the mobile application",
+      "decision": "qualify",
+      "reason": "React Native application at every selected revision: packages/app-mobile/package.json declares react-native 0.81.6 and the bare Android module is committed at packages/app-mobile/android/app. Expo 54 is present as a library, not as a managed workflow, so the Android project is in the repository. Notes are local SQLite, sync is opt-in and off by default, and there is no account wall, so the whole note, notebook, search, settings and profile surface runs on an air-gapped AVD",
+      "candidateDefects": 7,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": false,
+        "signing": "packages/app-mobile/android/app/build.gradle guards the release signingConfig with if (project.hasProperty('JOPLIN_RELEASE_STORE_FILE')), so without that property the config is empty and buildTypes.release produces an unsigned APK. The same file declares a profileable build type that does initWith release, then signingConfig signingConfigs.debug against the committed debug.keystore, with debuggable false",
+        "command": "./gradlew assembleProfileable",
+        "note": "the profileable variant is the release-like artifact that installs with zero secrets. It sets minifyEnabled false, so it is not byte-identical to the shipped release build and the evidence must say so"
+      },
+      "architecture": "packages/app-mobile/android/gradle.properties sets newArchEnabled=true and hermesEnabled=true, so this application exercises the Hermes plus bridgeless path"
+    },
+    {
+      "repository": "https://github.com/streetwriters/notesnook",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "React Native application at every selected revision: apps/mobile/package.json declares react-native 0.82.1 with no expo dependency, and the Android module is committed at apps/mobile/android/app. The signup screen is skippable, so local notes work with no account and no network",
+      "candidateDefects": 5,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": true,
+        "signing": "apps/mobile/android/app/build.gradle declares a release signingConfig whose storeFile is the committed debug.keystore with storePassword android and keyAlias androiddebugkey, and buildTypes.release applies it under if (file(\"debug.keystore\").exists())",
+        "command": "./gradlew assembleRelease",
+        "note": "the strongest signing story in this pool: the release variant installs on a reset AVD with no secret and no local keystore generation"
+      },
+      "architecture": "apps/mobile/android/gradle.properties sets newArchEnabled=true and hermesEnabled=true"
+    },
+    {
+      "repository": "https://github.com/MissingCore/Music",
+      "license": "AGPL-3.0",
+      "decision": "qualify",
+      "reason": "React Native application at the selected revision: mobile/package.json declares react-native 0.79.4 and the Android module is committed at mobile/android/app. It is a local-file music player over MediaStore with no account, no network and no Play Services in any core flow. It is also the only qualified application on the old architecture, which is why it is kept despite a small candidate count",
+      "candidateDefects": 2,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": true,
+        "signing": "mobile/android/app/build.gradle release signingConfig reads if (project.hasProperty('RELEASE_KEYSTORE_PASSWORD')) { storeFile file(\"keystore.jks\") ... } else { storeFile file('debug.keystore'); storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android' }, with the upstream comment 'Fallback to debug config if not provided', and buildTypes.release applies signingConfigs.release unconditionally",
+        "command": "./gradlew assembleRelease",
+        "note": "an explicit, documented debug fallback, so the real release variant installs with no secret"
+      },
+      "architecture": "mobile/android/gradle.properties at cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3 sets newArchEnabled=false and hermesEnabled=true, so this application covers the legacy bridge with Hermes while joplin and notesnook cover bridgeless"
+    },
+    {
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "React Native application with a committed android/app module and react-native 0.85.3. There is no account, and several surfaces are genuinely offline: wallet creation, seed import, the address and checksum tools, and PSBT signing. Everything that shows a balance or broadcasts needs Electrum servers, so containment is to stay inside the offline tool and import flows and keep the AVD air-gapped. Not used for the selected defects",
+      "candidateDefects": 5,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "releaseApk": {
+        "buildsWithoutSigningSecrets": false,
+        "signing": "android/app/build.gradle declares no signingConfigs block at all, so assembleRelease emits an unsigned APK and signing happens outside Gradle in the upstream release pipeline",
+        "command": null,
+        "note": "android/app/build.gradle also applies the com.google.gms.google-services plugin with a committed google-services.json, so the build succeeds without Play Services but push notification paths degrade on a bare AVD"
+      },
+      "architecture": "newArchEnabled=true and hermesEnabled=true"
+    },
+    {
+      "repository": "https://github.com/bluesky-social/social-app",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "requires an ATProto account and live network for every screen, and there is no committed android/ directory: the Android project is generated by Expo prebuild, so there is no per-revision Android module to build against",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/Expensify/App",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "login-walled; nothing past the sign-in screen is reachable without an account. Its release signingConfig also calls file(MYAPP_UPLOAD_STORE_FILE) unguarded, so Gradle configuration fails when the property is absent",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/mattermost/mattermost-mobile",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "requires a Mattermost server and an account before any product surface is reachable. Its Gradle signing does fall back to the debug config, but that does not help a login-walled product",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/RocketChat/Rocket.Chat.ReactNative",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "requires a Rocket.Chat server and an account, and its release build is unsigned without a KEYSTORE property",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/jitsi/jitsi-meet",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "a conference client: past the welcome page every flow needs a signalling server plus camera and microphone. Worth remembering for a different reason, since it supports a first-class Play-Services-free build through LIBRE_BUILD",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/zulip/zulip-mobile",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "needs a Zulip server and an account, and it does not depend on a published react-native version at all: package.json pins a GitHub fork, so the framework under test would be a fork rather than React Native itself",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/status-im/status-mobile",
+      "license": "MPL-2.0",
+      "decision": "reject",
+      "reason": "the repository has been renamed to status-im/status-legacy and archived, so there is no maintained artifact to reproduce against",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/lossless-protocols-org/zero",
+      "license": "BSD-2-Clause",
+      "decision": "reject",
+      "reason": "an ideal product profile, a fully offline local expense tracker on React Native 0.84.1, but unusable for this gate: none of its merged pull requests link a GitHub issue, so there is no public defect with an authored fix boundary to select",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/maotoumao/MusicFree",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "content comes from network plugins, so no core flow is offline, and its release signingConfig reads keystore properties unguarded, which fails Gradle configuration without a keystore",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/lyswhut/lx-music-mobile",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "music sources are online plugins, so no offline trigger exists, and the release signingConfig opens keystore.properties unguarded",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/functionland/fx-fotos",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "an offline gallery, but unmaintained since 2024 and its release signingConfig is commented out while referencing an unguarded environment variable",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/facebook/react-native",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it; RNTester is a harness rather than an end-user product",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/expo/expo",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "an SDK and tooling monorepo, not an end-user application",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/software-mansion/react-native-reanimated",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "an animation library with an example app, not an end-user application",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/callstack/react-native-paper",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a component library with an example app, not an end-user application",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/wix/Detox",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "test infrastructure, not an end-user application",
+      "candidateDefects": 0
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "joplin-back-after-delete-15028",
+      "application": "joplin",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/15004",
+      "issueTitle": "Mobile: Back button handler breaks after deleting the Welcome notebook and then going to settings",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15028",
+      "affectedRevision": "de6378473fa261e495b4709672471613235b493a",
+      "fixedRevision": "623da377db98dbc8576651aa066ef4000fbf2116",
+      "whySuitable": "the mobile app's own navigation history lives in a Redux reducer in packages/app-mobile/utils/appReducer.ts. Deleting the current notebook removed the last history entry without pushing a replacement, so the history could empty out and the hardware back button stopped working. The fix pushes DEFAULT_ROUTE when the history would otherwise be empty. This is the defining shape of a React Native defect: the bug is pure JavaScript running on Hermes, but the trigger is a native Android event, KEYCODE_BACK delivered by UiAutomator2, and the observation is the native view hierarchy that the JS side drives. Neither half alone reproduces it, which is exactly what the react-native-android adapter has to bridge",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the profileable variant at both revisions so the artifact is signed with the committed debug keystore",
+        "reset the AVD so the Welcome notebook exists, since the trigger depends on first-run content",
+        "author the trigger through UiAutomator2: delete the Welcome notebook, open settings, send KEYCODE_BACK, and read the resulting screen",
+        "state identity and authority: the platform back gesture must leave a screen the user navigated into",
+        "minimize the trigger and verify neighboring legal behavior: back from settings works on both builds when no notebook was deleted",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "joplin-profile-list-scroll-15074",
+      "application": "joplin",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/15061",
+      "issueTitle": "Mobile: The manage profiles screen is not scrollable to the bottom entry",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15074",
+      "affectedRevision": "af8eb30844ba7f25c4583b6db3e8d7055dc9db95",
+      "fixedRevision": "222bb002c81710dd02681e9a1a79e13ee7f0522b",
+      "whySuitable": "the profile FlatList was wrapped in a plain View with no flex, so the native scroll container was measured to its natural height and the last profile could never be reached. The fix gives the list flex 1 and adds bottom content padding. The defect lives in a JavaScript style object, but it only becomes observable after the JS shadow tree is laid out and handed to the native Android view system, so the trigger is a UiAutomator2 scroll gesture and the observation is whether the last row becomes visible. It is the layout and measurement path of the adapter, distinct from the reducer and navigation path of the other joplin selection",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the profileable variant at both revisions",
+        "seed enough profiles that the list overflows the screen on the chosen AVD, and pin the AVD's screen size and density in the bounds since overflow depends on them",
+        "author the trigger: open settings, open manage profiles, scroll to the end, and assert the last entry is reachable",
+        "state identity and authority: a scrollable list must be able to reveal its last item",
+        "minimize the trigger and verify neighboring legal behavior: a list short enough to fit renders identically on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "joplin-side-menu-landscape-15302",
+      "application": "joplin",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/15292",
+      "issueTitle": "Mobile: There is a gap when side menus are opened in landscape mode",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15302",
+      "affectedRevision": "8c666935a5c9b2b8003448100dcd24e83c7528ef",
+      "fixedRevision": "dec9a5aa82bee72764255a219c080b31ca568a3a",
+      "whySuitable": "SideMenu applied safe-area insets to the menu itself as padding, which in landscape left a visible gap between the menu and the screen edge on devices with cutouts. The fix removes the inset padding from the menu styles and restructures where the menu is mounted in root.tsx. The trigger needs a real device orientation change and real window insets, so it cannot be reproduced off-device: it exercises the adapter across an Android configuration change while the React Native surface re-measures. The observation is geometric, the bounds of the menu node relative to the display, which is a UiAutomator2 property rather than a semantics label",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the profileable variant at both revisions",
+        "choose an AVD whose insets actually reproduce the gap and record the exact device profile, since the upstream issue says on some devices",
+        "author the trigger: rotate to landscape, open the side menu, read the node bounds",
+        "state identity and authority for the geometry claim, and decide the tolerance before executing",
+        "minimize the trigger and verify neighboring legal behavior: the same menu in portrait is flush on both builds",
+        "prove three clean affected reproductions and three reached-observation fixed controls, and drop this candidate if no available AVD profile reproduces the inset condition"
+      ]
+    },
+    {
+      "id": "notesnook-unlink-notebook-10053",
+      "application": "notesnook",
+      "issueUrl": "https://github.com/streetwriters/notesnook/issues/7348",
+      "issueTitle": "X-ing a Notebook from \"linked notebook\" doesn't unlink notes from this Notebook",
+      "pullRequestUrl": "https://github.com/streetwriters/notesnook/pull/10053",
+      "affectedRevision": "14f727d6e630f60299f1ceae42e48685e87cba8f",
+      "fixedRevision": "7c3fdab6eec0c083ef4c3b12ff16ba0d2f8aff2c",
+      "whySuitable": "the link-notebooks screen saved only the notebooks present in the selection store, so in single-select mode a notebook the user removed was never marked deselected and the note stayed linked. The fix diffs the initial selection against the current one and writes an explicit deselected state. This is a second, independent application whose defect class is persisted-state divergence rather than layout or navigation, and its observation is a database-backed list re-read after leaving and re-entering the screen, so the adapter has to hold an observation across a screen transition rather than within one render",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the release variant at both revisions, which the committed debug keystore signs with no secret",
+        "confirm the signup screen's Skip path reaches local-only mode on the affected build and record that as reset evidence",
+        "author the trigger: create two notebooks and a note, link the note, reopen link notebooks in single-select mode, remove one, save, and re-read the note's notebooks",
+        "state identity and authority: a link the user removed must not survive the save",
+        "minimize the trigger and verify neighboring legal behavior: the same removal in multi-select mode persists correctly on both builds, which is the exact boundary the fix draws",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    },
+    {
+      "id": "music-duplicate-albums-247",
+      "application": "MissingCore/Music",
+      "issueUrl": "https://github.com/MissingCore/Music/issues/220",
+      "issueTitle": "Album split into multiple smaller albums",
+      "pullRequestUrl": "https://github.com/MissingCore/Music/pull/247",
+      "affectedRevision": "cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3",
+      "fixedRevision": "5c86ff15ee99ac8f77abc19b9e58b98a705a9951",
+      "whySuitable": "the library scanner keyed albums partly on release year, so one album whose tracks carried different or missing year tags was split into several albums in the UI. The fix changes the schema and the scanning helpers, with a drizzle migration. The trigger is entirely local: push a set of tagged audio files onto the AVD and let the app scan them, then read the artist screen. It is the third distinct adapter path in this target, media scanning driven from JavaScript over a native MediaStore read, and it is the only selected defect on the legacy bridge, since this revision sets newArchEnabled=false with Hermes on. That makes it the one candidate that would catch an adapter that silently assumes bridgeless",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the release variant at both revisions, which the documented debug fallback signs with no secret",
+        "author the audio fixture set: tracks of one album with differing and missing year tags, tagged deterministically and stored with the campaign",
+        "drive the initial scan and grant media permission through UiAutomator2, then read the album list on the artist screen",
+        "state identity and authority: one album's tracks must be grouped as one album",
+        "minimize the trigger and verify neighboring legal behavior: two genuinely different albums by the same artist stay separate on both builds",
+        "confirm the drizzle migration path does not require a pre-existing database, since the campaign installs onto a reset AVD",
+        "prove three clean affected reproductions and three reached-observation fixed controls"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "product-coverage-missing",
+      "kind": "candidate-inventory-missing",
+      "detail": "there is no react-native candidate inventory in reproit-lab at all. reproit-lab/defect-candidates-android.json is Kotlin-only and contains no React Native repository, so every candidate here was discovered during this gate and no inventory file backs the target yet",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "product-coverage-missing",
+      "kind": "product-coverage-thin",
+      "detail": "the offline-capable open-source React Native application population is genuinely small. Of the nine well-known React Native Android products reviewed, seven are login or server walled and one is archived. Three applications carry this target: joplin, notesnook and MissingCore/Music, and only joplin can supply a large number of further candidates. MissingCore/Music has just two usable issue-linked defects in its whole history, and lossless-protocols-org/zero, which has the best product profile of anything found, links no issues from any merged pull request",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "build-input-missing",
+      "detail": "no APK has been built at any selected revision. Every selectedDefects entry is qualification 'selected-not-executed'; the React Native identity per revision, the existence of both revisions, the issue titles, and the pull request merge parents are verified, the runtime behaviour is not",
+      "command": null,
+      "evidence": []
+    }
+  ],
+  "verification": {
+    "method": "each repository was cloned with git clone --filter=blob:none --no-checkout, every affectedRevision and fixedRevision was confirmed with git cat-file -t, React Native identity was confirmed by reading the mobile package.json and the committed android module at the affected revision rather than at HEAD, and every issue title, pull request title, merge state and merge parent was read back from the GitHub API",
+    "frameworkEvidence": [
+      "joplin: packages/app-mobile/package.json declares react-native 0.81.6 at de6378473fa261e495b4709672471613235b493a, af8eb30844ba7f25c4583b6db3e8d7055dc9db95, 8c666935a5c9b2b8003448100dcd24e83c7528ef and ed8ce18b0f351ab40491dc1d3f8cbe8a70ea9de2, with packages/app-mobile/android/app present at each",
+      "notesnook: apps/mobile/package.json declares react-native 0.82.1 at 14f727d6e630f60299f1ceae42e48685e87cba8f, with apps/mobile/android/app present",
+      "MissingCore/Music: mobile/package.json declares react-native 0.79.4 at cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3, with mobile/android/app present and gradle.properties setting newArchEnabled=false, hermesEnabled=true"
+    ],
+    "revisionEvidence": "all ten selected revisions returned type commit from git cat-file -t. The three joplin fixes and the Music fix are squash merges with a single parent equal to the affectedRevision; the notesnook fix is a true merge commit whose first parent, 14f727d6e630f60299f1ceae42e48685e87cba8f, is the affectedRevision",
+    "source": "no reproit-lab inventory exists for this target; the pool and the candidates were assembled during this gate"
+  }
+}
