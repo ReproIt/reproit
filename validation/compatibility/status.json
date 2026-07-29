@@ -17,9 +17,9 @@
     "experimental": 0
   },
   "productionToLocalCounts": {
-    "FixtureQualified": 1,
+    "FixtureQualified": 3,
     "IndependentQualified": 0,
-    "Unqualified": 20
+    "Unqualified": 18
   },
   "targets": [
     {
@@ -756,8 +756,8 @@
           "DOM applications"
         ]
       },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
+      "productionToLocal": "FixtureQualified",
+      "productionToLocalEvidence": "validation/field/evidence/production/web-firefox/record.json",
       "promotionBlockers": []
     },
     {
@@ -792,8 +792,8 @@
           "DOM applications"
         ]
       },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
+      "productionToLocal": "FixtureQualified",
+      "productionToLocalEvidence": "validation/field/evidence/production/web-webkit/record.json",
       "promotionBlockers": []
     },
     {

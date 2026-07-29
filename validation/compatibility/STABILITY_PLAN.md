@@ -538,8 +538,8 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `tauri-linux` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `tui` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `web-chromium` | Stable | FixtureQualified | Stable + `IndependentQualified` |
-| `web-firefox` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `web-webkit` | Stable | Unqualified | Stable + `IndependentQualified` |
+| `web-firefox` | Stable | FixtureQualified | Stable + `IndependentQualified` |
+| `web-webkit` | Stable | FixtureQualified | Stable + `IndependentQualified` |
 | `windows-avalonia` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `windows-winui` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `windows-wpf` | Stable | Unqualified | Stable + `IndependentQualified` |

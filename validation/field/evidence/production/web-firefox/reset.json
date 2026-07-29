@@ -1,7 +1,7 @@
 {
   "cleanWorkspace": true,
   "disposableProject": true,
-  "playwrightEngine": "chromium",
-  "targetId": "web-chromium",
+  "playwrightEngine": "firefox",
+  "targetId": "web-firefox",
   "workspaceOwner": "run-production-loop.sh"
 }

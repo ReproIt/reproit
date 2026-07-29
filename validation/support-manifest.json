@@ -99,8 +99,8 @@
           ]
         },
         "productionToLocal": {
-          "level": "Unqualified",
-          "evidence": null
+          "level": "FixtureQualified",
+          "evidence": "validation/field/evidence/production/web-firefox/record.json"
         },
         "blockers": []
       }
@@ -145,8 +145,8 @@
           ]
         },
         "productionToLocal": {
-          "level": "Unqualified",
-          "evidence": null
+          "level": "FixtureQualified",
+          "evidence": "validation/field/evidence/production/web-webkit/record.json"
         },
         "blockers": []
       }

@@ -401,8 +401,8 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Promotion standard: schema-3
 - Native gates: web-engines
 - Field benchmark: validation/field/web-firefox.json
-- Production-to-local: Unqualified
-- Production-to-local evidence: none
+- Production-to-local: FixtureQualified
+- Production-to-local evidence: validation/field/evidence/production/web-firefox/record.json
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Node.js 20+, Playwright
@@ -422,8 +422,8 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Promotion standard: schema-3
 - Native gates: web-engines
 - Field benchmark: validation/field/web-webkit.json
-- Production-to-local: Unqualified
-- Production-to-local evidence: none
+- Production-to-local: FixtureQualified
+- Production-to-local evidence: validation/field/evidence/production/web-webkit/record.json
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Node.js 20+, Playwright

@@ -60,6 +60,27 @@ class CompatibilityContractTests(unittest.TestCase):
             }
             for stage_id in required_stages
         ]
+        execution = {
+            "commands": commands,
+            "reset": {
+                "command": "reset test workspace",
+                "evidence": ["reset"],
+            },
+            "cleanup": {
+                "command": "delete test project",
+                "evidence": ["retention-and-deletion"],
+            },
+        }
+        web_engines = {
+            "web-chromium": "chromium",
+            "web-firefox": "firefox",
+            "web-webkit": "webkit",
+        }
+        if target_id in web_engines:
+            execution["adapter"] = {
+                "kind": "playwright",
+                "engine": web_engines[target_id],
+            }
         record = {
             "schemaVersion": 2,
             "gate": "D5-production-to-local",
@@ -91,17 +112,7 @@ class CompatibilityContractTests(unittest.TestCase):
                 "provider": "test-trusted-provider",
                 "trusted": True,
             },
-            "execution": {
-                "commands": commands,
-                "reset": {
-                    "command": "reset test workspace",
-                    "evidence": ["reset"],
-                },
-                "cleanup": {
-                    "command": "delete test project",
-                    "evidence": ["retention-and-deletion"],
-                },
-            },
+            "execution": execution,
             "stages": stages,
             "missingRequiredStages": [],
             "qualificationBlockers": [],
@@ -288,6 +299,22 @@ class CompatibilityContractTests(unittest.TestCase):
                 "evidence": evidence.relative_to(CHECK.ROOT).as_posix(),
             }
             with self.assertRaisesRegex(ValueError, "names another target"):
+                CHECK.validate_support(candidate, self.gates)
+
+    def test_web_production_evidence_must_bind_the_matching_engine(self):
+        candidate = copy.deepcopy(self.support)
+        with tempfile.TemporaryDirectory(
+            dir=CHECK.ROOT / "validation/compatibility"
+        ) as directory:
+            evidence = self.production_record(Path(directory), "web-firefox")
+            record = json.loads(evidence.read_text(encoding="utf-8"))
+            record["execution"]["adapter"]["engine"] = "chromium"
+            evidence.write_text(f"{json.dumps(record)}\n", encoding="utf-8")
+            self.promotion(candidate, "web-firefox")["productionToLocal"] = {
+                "level": "FixtureQualified",
+                "evidence": evidence.relative_to(CHECK.ROOT).as_posix(),
+            }
+            with self.assertRaisesRegex(ValueError, "does not match web-firefox"):
                 CHECK.validate_support(candidate, self.gates)
 
     def test_independent_qualification_rejects_fixture_origin(self):

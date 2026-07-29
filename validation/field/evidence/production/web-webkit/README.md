@@ -1,16 +1,16 @@
-# Web Chromium production-to-local evidence
+# Web WebKit production-to-local evidence
 
 This directory retains the sanitized D5 production-to-local chain for
-`web-chromium`.
+`web-webkit`.
 
 - Qualification: `FixtureQualified`
 - CLI revision: `git:52407f4d58671e05ac541cc8c674785032a2f3af`
 - SDK revision: `git:52407f4d58671e05ac541cc8c674785032a2f3af`
-- Playwright engine: `chromium`
+- Playwright engine: `webkit`
 - Cloud endpoint: `https://cloud.reproit.com`
 - Retained record: `record.json`
 - Chain SHA-256:
-  `sha256:7eb2bae030139dbe47bb4b1f05b509d9856e1f7600b5900fba3748eeccfeb790`
+  `sha256:f28b80b146db3f70733d6c1d8046c5d646fad5d4f1438870cb814124982060be`
 
 The run created a disposable project, ingested 500 strict protocol-v1
 occurrences, retained redaction markers, materialized the resulting bucket,

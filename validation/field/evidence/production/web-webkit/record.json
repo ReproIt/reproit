@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "gate": "D5-production-to-local",
-  "targetId": "web-chromium",
+  "targetId": "web-webkit",
   "qualification": "FixtureQualified",
   "origin": {
     "kind": "fixture",
@@ -17,8 +17,8 @@
   },
   "cloud": {
     "baseUrl": "https://cloud.reproit.com",
-    "projectId": "release-gate-web-chromium-52407f4-2531a1",
-    "occurrenceId": "release-gate-warmup-0-0-86dc2f9c30934848ba189b3267e008ac",
+    "projectId": "release-gate-web-webkit-52407f4-8aab59",
+    "occurrenceId": "release-gate-warmup-0-0-050acbafdeca47e0b2d3b0665c23be22",
     "bucketId": "bkt_a3a6b74fec06"
   },
   "local": {
@@ -27,7 +27,7 @@
   },
   "execution": {
     "adapter": {
-      "engine": "chromium",
+      "engine": "webkit",
       "kind": "playwright"
     },
     "cleanup": {
@@ -40,9 +40,9 @@
       {
         "assertions": [
           "workspace and project are disposable",
-          "web-chromium selects Playwright chromium"
+          "web-webkit selects Playwright webkit"
         ],
-        "command": "mktemp workspace, create disposable Cloud project, and select Playwright chromium",
+        "command": "mktemp workspace, create disposable Cloud project, and select Playwright webkit",
         "stage": "reset"
       },
       {
@@ -70,14 +70,14 @@
         "assertions": [
           "outcome is fail and exit code is 1"
         ],
-        "command": "REPROIT_ENGINE=chromium reproit check --repro-id BUCKET --json",
+        "command": "REPROIT_ENGINE=webkit reproit check --repro-id BUCKET --json",
         "stage": "exact-local-reproduction"
       },
       {
         "assertions": [
           "output contains REPRODUCED"
         ],
-        "command": "REPROIT_ENGINE=chromium reproit BUCKET",
+        "command": "REPROIT_ENGINE=webkit reproit BUCKET",
         "stage": "direct-replay"
       },
       {
@@ -103,10 +103,10 @@
       "present": true,
       "required": true,
       "file": "reset.json",
-      "bytes": 168,
+      "bytes": 164,
       "malformed": false,
-      "rawSha256": "sha256:481c12a40bdfcbf0063369c5bc802b2954c638aa6672df3675d62bd462625f81",
-      "sanitizedSha256": "sha256:481c12a40bdfcbf0063369c5bc802b2954c638aa6672df3675d62bd462625f81"
+      "rawSha256": "sha256:16caf6160c71ffcb29dc5d52320350873173974562041a780729e9d81753ab55",
+      "sanitizedSha256": "sha256:16caf6160c71ffcb29dc5d52320350873173974562041a780729e9d81753ab55"
     },
     {
       "id": "production-signal",
@@ -114,10 +114,10 @@
       "present": true,
       "required": true,
       "file": "project.json",
-      "bytes": 255,
+      "bytes": 251,
       "malformed": false,
-      "rawSha256": "sha256:d675d1d68c5ded696e8b1fe50c1b8332385000bed82699799061b86aad049ed0",
-      "sanitizedSha256": "sha256:458a09d186e8678528c6436dd76d30c22e656271552f88fcfa9ee2a6476f2ebf"
+      "rawSha256": "sha256:4145d8abbbbf8f2a7434974f2692f204eb301978e1a277f2b894fd8fe19c0025",
+      "sanitizedSha256": "sha256:fd8f50ad4bb886a4b401120402879d935993db2ae040856a18bf11322b11198a"
     },
     {
       "id": "cloud-ingestion",
@@ -125,10 +125,10 @@
       "present": true,
       "required": true,
       "file": "hosted.json",
-      "bytes": 574,
+      "bytes": 571,
       "malformed": false,
-      "rawSha256": "sha256:009cad22ca17c5eb22b84b7f64ec4bc6d4784bf4bb7c726a266d3ff5c9c1692e",
-      "sanitizedSha256": "sha256:009cad22ca17c5eb22b84b7f64ec4bc6d4784bf4bb7c726a266d3ff5c9c1692e"
+      "rawSha256": "sha256:4cd4d32478620e566c6e677fdf0e102992440810dc7295da8464ef44c2935a6b",
+      "sanitizedSha256": "sha256:4cd4d32478620e566c6e677fdf0e102992440810dc7295da8464ef44c2935a6b"
     },
     {
       "id": "local-materialization",
@@ -136,10 +136,10 @@
       "present": true,
       "required": true,
       "file": "pull.log",
-      "bytes": 593,
+      "bytes": 591,
       "malformed": false,
-      "rawSha256": "sha256:f3e603d8799274addc9c724b164b02943abc61a4fa58d476c89f29ebb19ed183",
-      "sanitizedSha256": "sha256:f3e603d8799274addc9c724b164b02943abc61a4fa58d476c89f29ebb19ed183"
+      "rawSha256": "sha256:74e5a698c07903d0d5f877970761b13805e4a451def77c55f8dd7ced30cbd724",
+      "sanitizedSha256": "sha256:74e5a698c07903d0d5f877970761b13805e4a451def77c55f8dd7ced30cbd724"
     },
     {
       "id": "exact-local-reproduction",
@@ -149,8 +149,8 @@
       "file": "check.json",
       "bytes": 691,
       "malformed": false,
-      "rawSha256": "sha256:a11fabcc4bd41151a34bb4140f9648749769f26407e15f540d7cce78806ffa31",
-      "sanitizedSha256": "sha256:a11fabcc4bd41151a34bb4140f9648749769f26407e15f540d7cce78806ffa31"
+      "rawSha256": "sha256:44f6145cdb4d80cdd97ed31cf425109c5dafec6d8aa7a8fbabbf1f7828fa5b6e",
+      "sanitizedSha256": "sha256:44f6145cdb4d80cdd97ed31cf425109c5dafec6d8aa7a8fbabbf1f7828fa5b6e"
     },
     {
       "id": "direct-replay",
@@ -158,10 +158,10 @@
       "present": true,
       "required": true,
       "file": "direct-replay.log",
-      "bytes": 777,
+      "bytes": 775,
       "malformed": false,
-      "rawSha256": "sha256:630428246cb53f0e519bc472fb8f7fd51baab41349cbb28a94c631fcb3bc4c97",
-      "sanitizedSha256": "sha256:630428246cb53f0e519bc472fb8f7fd51baab41349cbb28a94c631fcb3bc4c97"
+      "rawSha256": "sha256:0c1139662e464cd6da188905510310fe91b88e95375f35f96776b6422d784da9",
+      "sanitizedSha256": "sha256:0c1139662e464cd6da188905510310fe91b88e95375f35f96776b6422d784da9"
     },
     {
       "id": "reproduction-stderr",
@@ -171,8 +171,8 @@
       "file": "check.err",
       "bytes": 620,
       "malformed": false,
-      "rawSha256": "sha256:4e18117d7e2c066c7f0de8c95bd83dede5e820d19d78838463fc17bc212b3076",
-      "sanitizedSha256": "sha256:4e18117d7e2c066c7f0de8c95bd83dede5e820d19d78838463fc17bc212b3076"
+      "rawSha256": "sha256:f49e7f5200ab00879b51d93eeb5cc8dbb0b042a61a892e7ad2d9a66b23f5424b",
+      "sanitizedSha256": "sha256:f49e7f5200ab00879b51d93eeb5cc8dbb0b042a61a892e7ad2d9a66b23f5424b"
     },
     {
       "id": "retention-and-deletion",
@@ -180,13 +180,13 @@
       "present": true,
       "required": true,
       "file": "delete.json",
-      "bytes": 62,
+      "bytes": 60,
       "malformed": false,
-      "rawSha256": "sha256:c1c7f215e558c1f47921605bdbddc16f9028662005f055456c4cce98286e228e",
-      "sanitizedSha256": "sha256:c1c7f215e558c1f47921605bdbddc16f9028662005f055456c4cce98286e228e"
+      "rawSha256": "sha256:5ddbef2838520e9b88bfa613eb2cf7b28fa083d03d2ff0e2bae732b2a0c83f78",
+      "sanitizedSha256": "sha256:5ddbef2838520e9b88bfa613eb2cf7b28fa083d03d2ff0e2bae732b2a0c83f78"
     }
   ],
   "missingRequiredStages": [],
   "qualificationBlockers": [],
-  "chainSha256": "sha256:7eb2bae030139dbe47bb4b1f05b509d9856e1f7600b5900fba3748eeccfeb790"
+  "chainSha256": "sha256:f28b80b146db3f70733d6c1d8046c5d646fad5d4f1438870cb814124982060be"
 }

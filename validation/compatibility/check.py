@@ -458,9 +458,35 @@ def validate_production_record(
     require(required_stage_ids <= stage_ids, f"{label} lacks a required chain stage")
 
     execution = record["execution"]
-    require(isinstance(execution, dict)
-            and set(execution) == {"commands", "reset", "cleanup"},
-            f"{label}.execution keys must be commands, reset, and cleanup")
+    base_execution_keys = {"commands", "reset", "cleanup"}
+    web_engines = {
+        "web-chromium": "chromium",
+        "web-firefox": "firefox",
+        "web-webkit": "webkit",
+    }
+    expected_execution_keys = (
+        base_execution_keys | {"adapter"}
+        if target_id in web_engines
+        else base_execution_keys
+    )
+    require(
+        isinstance(execution, dict) and set(execution) == expected_execution_keys,
+        f"{label}.execution keys do not match the target contract",
+    )
+    if target_id in web_engines:
+        adapter = execution["adapter"]
+        require(
+            isinstance(adapter, dict) and set(adapter) == {"kind", "engine"},
+            f"{label}.execution.adapter must bind kind and engine",
+        )
+        require(
+            adapter["kind"] == "playwright",
+            f"{label}.execution.adapter.kind must be playwright",
+        )
+        require(
+            adapter["engine"] == web_engines[target_id],
+            f"{label}.execution.adapter.engine does not match {target_id}",
+        )
     commands = execution["commands"]
     require(isinstance(commands, list) and commands,
             f"{label}.execution.commands must be non-empty")

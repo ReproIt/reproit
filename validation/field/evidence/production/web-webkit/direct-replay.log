@@ -1,0 +1,14 @@
+Pulled bucket bkt_a3a6b74fec06 from 'release-gate-web-webkit-52407f4-8aab59' as a local repro.
+  structural bug: bug_a3a6b74fec06
+  expected:  TypeError: ReproitContractError
+  signature: crash:ReproitContractError:production-gate
+  replay:    tap:key:testid:contract-crash
+  fixture:   checkout-name<-32 chars
+  saved:     rep_8b938a73ba53 (quarantined, alias bkt_a3a6b74fec06)
+  files:     /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.y6GDlVJAEh/.reproit/repros/8b938a73ba53/meta.json
+
+Running the replay (bkt_a3a6b74fec06)...
+REPRODUCED: the replay re-triggered the failure in this build. 
+Reported the verdict to the cloud: reproduced (bucket bkt_a3a6b74fec06).
+
+Next: test a candidate fix by running `reproit @bkt_a3a6b74fec06` against the fixed target.

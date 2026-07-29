@@ -91,8 +91,8 @@ production.
 | Tauri Linux | Preview | WebKitGTK, tauri-driver | Unqualified |
 | Terminal UI | Stable | PTY, VT parser | Unqualified |
 | Web Chromium | Stable | Node.js 20+, Playwright CDP | FixtureQualified |
-| Web Firefox | Stable | Node.js 20+, Playwright | Unqualified |
-| Web WebKit | Stable | Node.js 20+, Playwright | Unqualified |
+| Web Firefox | Stable | Node.js 20+, Playwright | FixtureQualified |
+| Web WebKit | Stable | Node.js 20+, Playwright | FixtureQualified |
 | Windows Avalonia | Preview | .NET, UI Automation | Unqualified |
 | Windows WinUI 3 | Preview | .NET, UI Automation, WinAppSDK | Unqualified |
 | Windows WPF | Stable | .NET, UI Automation | Unqualified |

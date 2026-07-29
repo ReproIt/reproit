@@ -1,0 +1,20 @@
+{
+  "base": "https://cloud.reproit.com",
+  "batches": 20,
+  "bucketId": "bkt_a3a6b74fec06",
+  "bucketListMs": 1635.8,
+  "errorsPerBatch": 25,
+  "ingestMaxMs": 1918.37,
+  "ingestOccurrencesPerSecond": 15.07,
+  "ingestP50Ms": 1644.59,
+  "ingestP95Ms": 1745.96,
+  "occurrenceId": "release-gate-warmup-0-0-050acbafdeca47e0b2d3b0665c23be22",
+  "occurrences": 500,
+  "packageMs": 1655.74,
+  "projectId": "release-gate-web-webkit-52407f4-8aab59",
+  "redaction": {
+    "emailMetadataPreserved": true,
+    "nestedTokenMetadataPreserved": true,
+    "rawSentinelAbsent": true
+  }
+}

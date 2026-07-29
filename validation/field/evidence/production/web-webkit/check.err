@@ -1,0 +1,8 @@
+  drive web-A (building)...
+  exit  device a: process exited, no verdict (t+8s)
+  FAIL  evidence: /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.y6GDlVJAEh/.reproit/runs/20260729-082307-explore
+  note: exploration run did not pass cleanly; mapping what was observed
+  map: 1 states, 0 transitions -> /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.y6GDlVJAEh/.reproit/map/appmap.json
+  drive web-A (building)...
+  exit  device a: process exited, no verdict (t+32s)
+  FAIL  evidence: /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.y6GDlVJAEh/.reproit/runs/20260729-082318-explore
