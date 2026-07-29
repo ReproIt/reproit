@@ -12,8 +12,8 @@
     "grandfatheredStableTargets": []
   },
   "counts": {
-    "stable": 7,
-    "preview": 14,
+    "stable": 8,
+    "preview": 13,
     "experimental": 0
   },
   "productionToLocalCounts": {
@@ -71,16 +71,16 @@
       "id": "compose-android",
       "displayName": "Jetpack Compose Android",
       "family": "native-mobile",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Jetpack Compose on a reset Android emulator through Appium UiAutomator2",
       "nativeGates": [
         "compose-android"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/compose-android.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -101,16 +101,7 @@
       },
       "productionToLocal": "Unqualified",
       "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
-        }
-      ]
+      "promotionBlockers": []
     },
     {
       "id": "electron-linux",

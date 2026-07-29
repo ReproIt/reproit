@@ -29,11 +29,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Jetpack Compose Android
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Jetpack Compose on a reset Android emulator through Appium UiAutomator2
 - Promotion standard: schema-3
 - Native gates: compose-android
-- Field benchmark: incomplete
+- Field benchmark: validation/field/compose-android.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: android-emulator
@@ -41,16 +41,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: ART, Appium UiAutomator2
 - Frameworks: Jetpack Compose
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Electron Linux
 

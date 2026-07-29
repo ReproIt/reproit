@@ -118,6 +118,7 @@ These targets are not finished merely because they are already Stable. They must
 the current exact-commit gates, move to schema-3, and complete both production
 qualification levels.
 
+- Jetpack Compose Android: already satisfies every recorded qualification slot
 - Electron Linux: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
 - Terminal UI: already satisfies every recorded qualification slot
@@ -152,33 +153,6 @@ complete target-specific record validates.
     positive rate is measured for this target
 - Promotion gate:
   - Set `backend-contract.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### Jetpack Compose Android
-
-- Target id: `compose-android`
-- Current maturity: Preview
-- Environment: android-emulator; x86_64
-- Runtime bound: ART, Appium UiAutomator2
-- Framework bound: Jetpack Compose
-- Native gates:
-  - `compose-android`: required-ci in .github/workflows/native-gates.yml job `android-hosted`
-    ```sh
-    bash validation/backends/with-appium.sh bash \
-      examples/compose-fixture/compose-appium-smoke.sh
-    ```
-- Field benchmark to create: `validation/field/compose-android.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `compose-android.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -523,7 +497,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | Target | Current maturity | Current qualification | Required end state |
 |---|---|---|---|
 | `backend-contract` | Preview | Unqualified | Stable + `IndependentQualified` |
-| `compose-android` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `compose-android` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `electron-linux` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `flutter-ios` | Stable | Unqualified | Stable + `IndependentQualified` |

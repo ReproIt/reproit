@@ -1,0 +1,124 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.11.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :reproit-android:preBuild UP-TO-DATE
+> Task :reproit-android:preDebugBuild UP-TO-DATE
+> Task :reproit-android:writeDebugAarMetadata UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :reproit-android:generateDebugResValues UP-TO-DATE
+> Task :reproit-android:generateDebugResources UP-TO-DATE
+> Task :reproit-android:packageDebugResources UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :reproit-android:extractDeepLinksDebug UP-TO-DATE
+> Task :reproit-android:processDebugManifest UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :reproit-android:compileDebugLibraryResources UP-TO-DATE
+> Task :reproit-android:parseDebugLocalResources UP-TO-DATE
+> Task :reproit-android:generateDebugRFile UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :reproit-android:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :reproit-android:compileDebugKotlin UP-TO-DATE
+> Task :reproit-android:javaPreCompileDebug UP-TO-DATE
+> Task :reproit-android:compileDebugJavaWithJavac NO-SOURCE
+> Task :reproit-android:bundleLibCompileToJarDebug UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :reproit-android:mergeDebugShaders UP-TO-DATE
+> Task :reproit-android:compileDebugShaders NO-SOURCE
+> Task :reproit-android:generateDebugAssets UP-TO-DATE
+> Task :reproit-android:packageDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :reproit-android:bundleLibRuntimeToJarDebug UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:dexBuilderDebug UP-TO-DATE
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:mergeDebugGlobalSynthetics UP-TO-DATE
+> Task :reproit-android:processDebugJavaRes UP-TO-DATE
+> Task :app:mergeDebugJavaResource UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :reproit-android:bundleLibRuntimeToDirDebug UP-TO-DATE
+> Task :app:mergeProjectDexDebug UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :reproit-android:mergeDebugJniLibFolders UP-TO-DATE
+> Task :reproit-android:mergeDebugNativeLibs NO-SOURCE
+> Task :reproit-android:copyDebugJniLibsProjectOnly UP-TO-DATE
+> Task :app:mergeDebugNativeLibs UP-TO-DATE
+> Task :app:stripDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 6s
+54 actionable tasks: 2 executed, 52 up-to-date
+Performing Streamed Install
+Success
+JOURNEY claimed role=a
+JOURNEY[a] step: jank-floor=125 (software GPU) baseline=100%
+FUZZ:OBS {"sig":"eb6d7411","route":".MainActivity","labels":["status","toggle","Toggle"],"elements":[{"role":"node"},{"role":"button"}]}
+EXPLORE:STATE {"sig":"eb6d7411","route":".MainActivity","labels":["status","toggle","Toggle"],"elements":[{"sel":"key:toggle","role":"node","label":"","bounds":[42,86,236,126]},{"sel":"role:button#0","role":"button","label":"","bounds":[42,96,236,105],"nokey":true}],"texts":[{"text":"status","bounds":[42,42,51,43]},{"text":"toggle","bounds":[42,96,236,105]},{"text":"Toggle","bounds":[105,122,110,53]}]}
+JOURNEY[a] step: groundtruth from native a11y tree (no-js-channel; 1 operable)
+EXPLORE:GROUNDTRUTH {"sig":"eb6d7411","focusTrap":false,"elements":[{"id":"key:toggle","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":false,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}}]}
+EXPLORE:RELATIONSTATUS {"sig":"eb6d7411","route":".MainActivity","outcome":"VIOLATION","checks":[{"kind":"indicator-anchor","dependentKey":"key:badge","ownerKey":"key:toggle","containerKey":"key:screen","outcome":"VIOLATION","violation":"detached"}]}
+EXPLORE:RELATION {"sig":"eb6d7411","route":".MainActivity","items":[{"kind":"indicator-anchor","dependentKey":"key:badge","ownerKey":"key:toggle","containerKey":"key:screen","outcome":"VIOLATION","violation":"detached"}]}
+EXPLORE:INVARIANT {"sig":"eb6d7411","route":".MainActivity","items":[{"id":"focused-input-obscured:key:email","message":"focused editable has no usable visible rectangle after its owning scroll container attempted reveal"}]}
+FUZZ:OBS {"sig":"f0c8fd93","route":".MainActivity","labels":["toggle","Toggle"],"elements":[{"role":"node"},{"role":"button"}]}
+EXPLORE:STATE {"sig":"f0c8fd93","route":".MainActivity","labels":["toggle","Toggle"],"elements":[{"sel":"key:toggle","role":"node","label":"","bounds":[42,86,236,126]},{"sel":"role:button#0","role":"button","label":"","bounds":[42,96,236,105],"nokey":true}],"texts":[{"text":"toggle","bounds":[42,96,236,105]},{"text":"Toggle","bounds":[105,122,110,53]}]}
+JOURNEY[a] step: groundtruth from native a11y tree (no-js-channel; 1 operable)
+EXPLORE:GROUNDTRUTH {"sig":"f0c8fd93","focusTrap":false,"elements":[{"id":"key:toggle","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":false,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}}]}
+EXPLORE:INVARIANT {"sig":"f0c8fd93","route":".MainActivity","items":[{"id":"state-preservation:rotation:fixture.draft","message":"declared structural state was not preserved across rotation"},{"id":"action-effect:fixture.checkout:route","message":"declared route effect did not occur"}]}
+EXPLORE:ROTATION {"sig":"eb6d7411","route":".MainActivity","expected":"eb6d7411","got":"f0c8fd93"}
+FUZZ:OBS {"sig":"f0c8fd93","route":".MainActivity","labels":["toggle","Toggle"],"elements":[{"role":"node"},{"role":"button"}]}
+FUZZ:ACT tap:key:toggle
+FUZZ:OBS {"sig":"8b1e627b","route":".MainActivity","labels":["toggle","Toggle","extra"],"elements":[{"role":"node"},{"role":"button"}]}
+EXPLORE:STATE {"sig":"8b1e627b","route":".MainActivity","labels":["toggle","Toggle","extra"],"elements":[{"sel":"key:toggle","role":"node","label":"","bounds":[42,86,236,126]},{"sel":"role:button#0","role":"button","label":"","bounds":[42,96,236,105],"nokey":true}],"texts":[{"text":"toggle","bounds":[42,96,236,105]},{"text":"Toggle","bounds":[105,122,110,53]},{"text":"extra","bounds":[42,237,179,43]}]}
+JOURNEY[a] step: groundtruth from native a11y tree (no-js-channel; 1 operable)
+EXPLORE:GROUNDTRUTH {"sig":"8b1e627b","focusTrap":false,"elements":[{"id":"key:toggle","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":false,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}}]}
+EXPLORE:EDGE {"from":"f0c8fd93","action":"tap:key:toggle","to":"8b1e627b"}
+FUZZ:OBS {"sig":"f0c8fd93","route":".MainActivity","labels":["toggle","Toggle"],"elements":[{"role":"node"},{"role":"button"}]}
+EXPLORE:ROTATION {"sig":"8b1e627b","route":".MainActivity","expected":"8b1e627b","got":"f0c8fd93"}
+FUZZ:ACT tap:role:button#0
+FUZZ:MISS tap:role:button#0
+FUZZ:OBS {"sig":"f0c8fd93","route":".MainActivity","labels":["toggle","Toggle"],"elements":[{"role":"node"},{"role":"button"}]}
+FUZZ:ACT back
+FUZZ:OBS {"sig":"c4fb87f8","route":".NexusLauncherActivity","labels":["At a glance","Wed, Jul 29","Gmail","Photos","YouTube","Home","Phone","Messages","Chrome","Appium Settings","Google search","Google app","Voice search","Google Lens"],"elements":[{"role":"group"},{"role":"text"},{"role":"text"},{"role":"text"},{"role":"text"},{"role":"text"},{"role":"text"},{"role":"text"},{"role":"text"},{"role":"group"},{"role":"image"},{"role":"image"},{"role":"button"}]}
+EXPLORE:STATE {"sig":"c4fb87f8","route":".NexusLauncherActivity","labels":["At a glance","Wed, Jul 29","Gmail","Photos","YouTube","Home","Phone","Messages","Chrome","Appium Settings","Google search","Google app","Voice search","Google Lens"],"elements":[{"sel":"key:base_template_card_with_date","role":"group","label":"","bounds":[67,223,946,273]},{"sel":"key:date","role":"text","label":"Wed, Jul 29","bounds":[83,329,272,62]},{"sel":"role:text#0","role":"text","label":"Gmail","bounds":[314,1483,205,273],"nokey":true},{"sel":"role:text#1","role":"text","label":"Photos","bounds":[561,1483,205,273],"nokey":true},{"sel":"role:text#2","role":"text","label":"YouTube","bounds":[808,1483,205,273],"nokey":true},{"sel":"role:text#3","role":"text","label":"Phone","bounds":[83,1873,173,195],"nokey":true},{"sel":"role:text#4","role":"text","label":"Messages","bounds":[330,1873,173,195],"nokey":true},{"sel":"role:text#5","role":"text","label":"Chrome","bounds":[577,1873,173,195],"nokey":true},{"sel":"role:text#6","role":"text","label":"Appium Settings","bounds":[824,1873,173,195],"nokey":true},{"sel":"key:search_container_hotseat","role":"group","label":"Google search","bounds":[90,2125,900,165]},{"sel":"key:g_icon","role":"image","label":"Google app","bounds":[101,2144,126,126]},{"sel":"key:mic_icon","role":"image","label":"Voice search","bounds":[727,2125,126,165]},{"sel":"key:lens_icon","role":"button","label":"Google Lens","bounds":[853,2125,126,165]}],"texts":[{"text":"At a glance","bounds":[67,223,946,273]},{"text":"Wed, Jul 29","bounds":[83,329,272,62]},{"text":"Gmail","bounds":[314,1483,205,273]},{"text":"Photos","bounds":[561,1483,205,273]},{"text":"YouTube","bounds":[808,1483,205,273]},{"text":"Home","bounds":[0,128,1080,2209]},{"text":"Phone","bounds":[83,1873,173,195]},{"text":"Messages","bounds":[330,1873,173,195]},{"text":"Chrome","bounds":[577,1873,173,195]},{"text":"Appium Settings","bounds":[824,1873,173,195]},{"text":"Google search","bounds":[90,2125,900,165]},{"text":"Google app","bounds":[101,2144,126,126]},{"text":"Voice search","bounds":[727,2125,126,165]},{"text":"Google Lens","bounds":[853,2125,126,165]}]}
+JOURNEY[a] step: groundtruth from native a11y tree (no-js-channel; 7 operable)
+EXPLORE:GROUNDTRUTH {"sig":"c4fb87f8","focusTrap":false,"elements":[{"id":"key:base_template_card_with_date","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":false,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}},{"id":"key:date","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":true,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}},{"id":"key:g_icon","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":true,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}},{"id":"key:lens_icon","operable":true,"gestureKind":"tap","a11y":{"rolePresent":true,"namePresent":true,"keyboardActivatable":true,"inTabOrder":true,"focusable":true}},{"id":"key:mic_icon","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":true,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}},{"id":"key:search_container_hotseat","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":true,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}},{"id":"key:smartspace_card_pager","operable":true,"gestureKind":"tap","a11y":{"rolePresent":false,"namePresent":true,"keyboardActivatable":false,"inTabOrder":false,"focusable":false}}]}
+EXPLORE:EDGE {"from":"f0c8fd93","action":"back","to":"c4fb87f8"}
+JOURNEY[a] step: explored 4 states
+JOURNEY DONE
+All tests passed
+smoke ok: Appium session created (JOURNEY claimed)
+smoke ok: no runner exception marker
+smoke ok: at least one EXPLORE:STATE captured
+smoke ok: a state carries a well-formed 8-hex canonical signature
+smoke ok: a state carries a non-empty structural elements list
+smoke ok: at least one tap attempted (2 attempted)
+smoke ok: at least one tap resolved and clicked (2 attempted, 1 missed)
+smoke ok: the explorer re-observed after every tap that resolved (4 observations, 1 resolved taps)
+smoke ok: every observed state change was recorded as an edge (4 signatures, 2 edges)
+smoke ok: walk finished (JOURNEY DONE)
+smoke ok: clean finish, crash oracle silent ("All tests passed")
+appium smoke: all assertions passed

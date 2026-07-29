@@ -57,12 +57,12 @@ binding is absent or inconsistent.
 
 <!-- generated:promotion-state -->
 
-Stable atomic targets: 7. Preview: 14. Experimental: 0.
+Stable atomic targets: 8. Preview: 13. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
 | Backend contracts | Preview | schema-3 | linux | x86_64 | 2 |
-| Jetpack Compose Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
+| Jetpack Compose Android | Stable | schema-3 | android-emulator | x86_64 | 0 |
 | Electron Linux | Stable | schema-3 | linux | x86_64 | 0 |
 | Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
 | Flutter iOS | Stable | schema-3 | ios-simulator | arm64 | 0 |

@@ -1,0 +1,20 @@
+{
+  "commit": "1091520c930c073abacbf33f4c100561638b2402",
+  "gates": [
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "1091520c930c073abacbf33f4c100561638b2402",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-29T15:38:19.497562Z",
+      "gateId": "compose-android",
+      "logSha256": "5d101e4b04e4c818ad3c6237e5c19e29a1bf216d807d9b80e41dfdbe81dbb3dd",
+      "startedAt": "2026-07-29T15:37:46.058200Z"
+    }
+  ],
+  "schema": 2
+}

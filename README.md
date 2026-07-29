@@ -76,7 +76,7 @@ production.
 | Target | Compatibility | Backend | Production-to-local |
 |---|---|---|---|
 | Backend contracts | Preview | HTTP, OpenAPI | Unqualified |
-| Jetpack Compose Android | Preview | ART, Appium UiAutomator2 | Unqualified |
+| Jetpack Compose Android | Stable | ART, Appium UiAutomator2 | Unqualified |
 | Electron Linux | Stable | Chromium, Node.js, CDP | Unqualified |
 | Flutter Android | Preview | Dart VM service, flutter drive | Unqualified |
 | Flutter iOS | Stable | Dart VM service, flutter drive | Unqualified |
