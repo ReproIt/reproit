@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "id": "pkg_6f9d62f9be360fea",
+  "occurrence": {
+    "version": 1,
+    "occurrenceId": "occ_09cf297c8cb0df86",
+    "source": "reproit-capture",
+    "subject": {
+      "product": "demo-89fb4a",
+      "component": "node",
+      "platform": "macos"
+    },
+    "observedAt": "2026-07-29T20:26:43.323615+00:00",
+    "receivedAt": "2026-07-29T20:26:43.387157+00:00",
+    "observations": [
+      {
+        "kind": "exit",
+        "authority": "runtime-diagnosis",
+        "summary": "node terminated with process-exit:17; trusted verifier asserted ci:direct-push-dogfood-policy",
+        "signature": "ci:direct-push-dogfood-policy",
+        "observationPoint": "node/process-exit",
+        "artifactIds": []
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730",
+        "kind": "interaction-trace",
+        "mediaType": "application/json",
+        "bytes": 92,
+        "policy": "local-analysis-only",
+        "redaction": "unredacted-restricted",
+        "collection": "flight-recorder",
+        "name": "argv.json"
+      }
+    ],
+    "captureDefects": [
+      {
+        "kind": "truncated",
+        "detail": "ProcessTree: root process owned; descendant enumeration is not installed"
+      },
+      {
+        "kind": "truncated",
+        "detail": "StandardStreams: content was not retained"
+      },
+      {
+        "kind": "unavailable",
+        "detail": "Filesystem: filesystem observation is not installed"
+      },
+      {
+        "kind": "truncated",
+        "detail": "Environment: only build identity variables were retained"
+      },
+      {
+        "kind": "truncated",
+        "detail": "CrashDiagnostics: exit status and signal only"
+      }
+    ],
+    "policy": {
+      "consent": "local-analysis",
+      "retentionClass": "local-private"
+    }
+  },
+  "assessment": {
+    "occurrenceId": "occ_09cf297c8cb0df86",
+    "status": "eligible",
+    "requirements": [
+      {
+        "id": "req_001_trigger",
+        "level": "required",
+        "requirement": {
+          "kind": "trigger",
+          "trigger": "command",
+          "subject": "node"
+        },
+        "evidenceArtifactIds": [
+          "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730"
+        ]
+      }
+    ],
+    "unresolved": []
+  },
+  "plan": {
+    "version": 1,
+    "id": "plan_e96f9e9af411664d",
+    "occurrenceId": "occ_09cf297c8cb0df86",
+    "target": "current-checkout",
+    "destination": {
+      "kind": "local-process"
+    },
+    "bindings": [
+      {
+        "requirementId": "req_001_trigger",
+        "providerId": "local-occ_09cf297c8cb0df86",
+        "mechanismAuthority": "explicit-local-approval",
+        "templateDigest": "sha256:1283b8b84210611e49784dc5cf2a7c5ad527306b687b01d068484587328777a9",
+        "evidenceArtifactIds": [
+          "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730"
+        ]
+      }
+    ],
+    "observation": {
+      "observation": "exit",
+      "identity": "ci:direct-push-dogfood-policy",
+      "authority": "runtime-diagnosis"
+    }
+  },
+  "capsule": {
+    "actions": [],
+    "app": "demo-89fb4a",
+    "assessment": {
+      "occurrenceId": "occ_09cf297c8cb0df86",
+      "requirements": [
+        {
+          "evidenceArtifactIds": [
+            "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730"
+          ],
+          "id": "req_001_trigger",
+          "level": "required",
+          "requirement": {
+            "kind": "trigger",
+            "subject": "node",
+            "trigger": "command"
+          }
+        }
+      ],
+      "status": "eligible",
+      "unresolved": []
+    },
+    "backend_events": [],
+    "builds": {},
+    "capabilities": {
+      "http": {
+        "detail": "no HTTP transaction is part of this finding's cause",
+        "status": "not_applicable"
+      },
+      "http_replay": {
+        "detail": "no causal HTTP transaction requires replay",
+        "status": "not_applicable"
+      }
+    },
+    "causalGraph": {
+      "edges": [],
+      "nodes": [
+        {
+          "id": "cause_d2116267bfdc79154f87",
+          "kind": "finding",
+          "label": "exact finding"
+        },
+        {
+          "actor": "a",
+          "id": "cause_bda3a2a5dc4a7a789522",
+          "kind": "actor-event",
+          "label": "actor a"
+        }
+      ],
+      "version": 1
+    },
+    "cause": "command",
+    "environment": {},
+    "environmentEnvelope": {
+      "complete": false,
+      "relaxedDimensions": [],
+      "replayAttempts": 0,
+      "trials": [],
+      "version": 1
+    },
+    "exchanges": [],
+    "finding": {
+      "boundary": "ci:direct-push-dogfood-policy",
+      "frame": "node/process-exit",
+      "invariant": "exact-occurrence",
+      "kind": "exit",
+      "message": "node terminated with process-exit:17; trusted verifier asserted ci:direct-push-dogfood-policy",
+      "oracle": "exit",
+      "trigger": "current-checkout"
+    },
+    "id": "cap_41dde1d8ecdc8916",
+    "occurrence": {
+      "artifacts": [
+        {
+          "bytes": 92,
+          "collection": "flight-recorder",
+          "id": "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730",
+          "kind": "interaction-trace",
+          "mediaType": "application/json",
+          "name": "argv.json",
+          "policy": "local-analysis-only",
+          "redaction": "unredacted-restricted"
+        }
+      ],
+      "captureDefects": [
+        {
+          "detail": "ProcessTree: root process owned; descendant enumeration is not installed",
+          "kind": "truncated"
+        },
+        {
+          "detail": "StandardStreams: content was not retained",
+          "kind": "truncated"
+        },
+        {
+          "detail": "Filesystem: filesystem observation is not installed",
+          "kind": "unavailable"
+        },
+        {
+          "detail": "Environment: only build identity variables were retained",
+          "kind": "truncated"
+        },
+        {
+          "detail": "CrashDiagnostics: exit status and signal only",
+          "kind": "truncated"
+        }
+      ],
+      "observations": [
+        {
+          "artifactIds": [],
+          "authority": "runtime-diagnosis",
+          "kind": "exit",
+          "observationPoint": "node/process-exit",
+          "signature": "ci:direct-push-dogfood-policy",
+          "summary": "node terminated with process-exit:17; trusted verifier asserted ci:direct-push-dogfood-policy"
+        }
+      ],
+      "observedAt": "2026-07-29T20:26:43.323615+00:00",
+      "occurrenceId": "occ_09cf297c8cb0df86",
+      "policy": {
+        "consent": "local-analysis",
+        "retentionClass": "local-private"
+      },
+      "receivedAt": "2026-07-29T20:26:43.387157+00:00",
+      "source": "reproit-capture",
+      "subject": {
+        "component": "node",
+        "platform": "macos",
+        "product": "demo-89fb4a"
+      },
+      "version": 1
+    },
+    "redactions": [],
+    "reproductionPlan": {
+      "bindings": [
+        {
+          "evidenceArtifactIds": [
+            "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730"
+          ],
+          "mechanismAuthority": "explicit-local-approval",
+          "providerId": "local-occ_09cf297c8cb0df86",
+          "requirementId": "req_001_trigger",
+          "templateDigest": "sha256:1283b8b84210611e49784dc5cf2a7c5ad527306b687b01d068484587328777a9"
+        }
+      ],
+      "destination": {
+        "kind": "local-process"
+      },
+      "id": "plan_e96f9e9af411664d",
+      "observation": {
+        "authority": "runtime-diagnosis",
+        "identity": "ci:direct-push-dogfood-policy",
+        "observation": "exit"
+      },
+      "occurrenceId": "occ_09cf297c8cb0df86",
+      "target": "current-checkout",
+      "version": 1
+    },
+    "version": 2
+  }
+}

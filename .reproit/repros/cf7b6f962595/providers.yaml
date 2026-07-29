@@ -1,0 +1,21 @@
+version: 1
+providers:
+  local-occ_09cf297c8cb0df86:
+    authority: explicit-local-approval
+    phase: trigger
+    capabilities: []
+    source:
+      path: validation/self-dogfood/ci-enforcement.mjs
+      sha256: sha256:68d1f30d2214bbcd66fb86357fc99de6a8ef7f0f013965a73d9f69274b2a5cfa
+    argv:
+    - node
+    - validation/self-dogfood/ci-enforcement.mjs
+    - direct-push-dogfood-policy
+    environment: {}
+    timeoutMs: 30000
+    cleanExitCodes:
+    - 0
+    observation:
+      identity: ci:direct-push-dogfood-policy
+      kind: exit-code
+      code: 17

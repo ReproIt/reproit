@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "plan_e96f9e9af411664d",
+  "occurrenceId": "occ_09cf297c8cb0df86",
+  "target": "current-checkout",
+  "destination": {
+    "kind": "local-process"
+  },
+  "bindings": [
+    {
+      "requirementId": "req_001_trigger",
+      "providerId": "local-occ_09cf297c8cb0df86",
+      "mechanismAuthority": "explicit-local-approval",
+      "templateDigest": "sha256:1283b8b84210611e49784dc5cf2a7c5ad527306b687b01d068484587328777a9",
+      "evidenceArtifactIds": [
+        "sha256:2331ac449a40f50e370d26a9403618cc4fde545c8595c079822043feda7dc730"
+      ]
+    }
+  ],
+  "observation": {
+    "observation": "exit",
+    "identity": "ci:direct-push-dogfood-policy",
+    "authority": "runtime-diagnosis"
+  }
+}

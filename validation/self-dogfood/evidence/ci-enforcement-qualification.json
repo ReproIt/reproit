@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "controller": {
+    "binary": "target/debug/reproit",
+    "sha256": "sha256:d5c6fffe2d84d40c2ed5e806f7280baccbe9a6460794e39b173861f7d986fa71",
+    "verifier": "validation/self-dogfood/ci-enforcement.mjs",
+    "verifierSha256": "sha256:68d1f30d2214bbcd66fb86357fc99de6a8ef7f0f013965a73d9f69274b2a5cfa"
+  },
+  "subjects": {
+    "affected": {
+      "commit": "a2f717694e49336e34ae1b759326f62a369e23ff",
+      "tree": "75d2f1c4c267e8871cfb1a3d089e4d1aa64a00ed"
+    },
+    "fixed": {
+      "commit": "54425805046a976c9db82e92a2adb4f87635a58d",
+      "tree": "d30b476f8a85accf4965a4aa01582b33af92dfb3",
+      "workflowSha256": "sha256:045e0fbf7f6e2f93a3da1ac55e6f9ac72a011dc055fa062012fd933c7c9e4615",
+      "corpusRunnerSha256": "sha256:55fa6fc812fa94b67824af5f337fce8e5ce59e119c6c2912d9c2d9dc0aad6f5a"
+    }
+  },
+  "cases": [
+    {
+      "identity": "ci:required-guard-corpus-dispatch",
+      "guard": "rep_6bc2f97d73a7",
+      "affectedReproductions": 3,
+      "fixedReachedObservations": 3,
+      "fixedExactIdentityMatches": 0
+    },
+    {
+      "identity": "ci:direct-push-dogfood-policy",
+      "guard": "rep_cf7b6f962595",
+      "affectedReproductions": 3,
+      "fixedReachedObservations": 3,
+      "fixedExactIdentityMatches": 0
+    }
+  ]
+}

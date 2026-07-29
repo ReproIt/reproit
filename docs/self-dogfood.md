@@ -3,7 +3,7 @@
 Reproit reproduces, proves, and retains its own defects with Reproit. This
 document is the enforceable version of that rule. The gate is
 `validation/self-dogfood/check-fix-policy.py`, run by the `dogfood-policy` CI
-job on every pull request and direct push.
+job on every pull request and direct push to `main`.
 
 ## The rule
 
@@ -38,16 +38,16 @@ does not reuse the affected evaluator.
 ## The declaration every fix carries
 
 A commit that changes production source must carry exactly one
-`Reproit-Dogfood:` trailer. Production source means a file under `crates/`,
-`src/`, `sdk/`, `runners/`, or `scripts/` with a source extension. Docs,
-workflows, and retained evidence do not need a declaration.
+`Reproit-Dogfood:` trailer. Production source includes runtime and SDK source,
+runners, scripts, build manifests, package locks, and GitHub Actions workflows.
+Documentation and retained evidence do not need a declaration.
 
 | Declaration | Meaning | What the gate checks |
 | --- | --- | --- |
 | `guard:rep_<12 hex>` | A committed guard proves affected versus fixed | `.reproit/repros/<id>/meta.json` exists in that commit's tree with `status: required` |
-| `exception:<code>:<id>` | A typed eligibility exception | `validation/self-dogfood/exceptions/<id>.json` exists and validates; `<code>` is one of the six typed blocker codes |
-| `no-repro:<test path>` | No stable automated reproduction is practical | The named independent regression test exists and is changed by the same commit |
-| `not-a-fix` | The change is not a bug fix | Nothing further; the point is that the answer is explicit |
+| `exception:<code>:<id>` | A typed eligibility exception | The exception record validates and every retained artifact exists with its declared SHA-256 digest |
+| `no-repro:<id>` | No stable Reproit reproduction is practical | The record, test, affected evidence, command, and timeout validate; the test fails with the declared result on the parent and passes on the fix |
+| `not-a-fix:<id>` | The change is not a bug fix | A changed typed record explains the change and binds at least one changed evidence artifact by SHA-256 |
 
 A missing trailer fails the gate. Two trailers fail the gate. There is no
 implicit exception.
@@ -75,13 +75,36 @@ An exception record is:
   "detail": "the vendor SDK installer requires network access at build time",
   "issue": "DOGFOOD-042",
   "missingCapability": "offline vendor SDK acquisition",
-  "retainedEvidence": ["validation/self-dogfood/evidence/vendor-sdk-offline.log"]
+  "retainedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/vendor-sdk-offline.log",
+      "sha256": "sha256:<64 lowercase hex>"
+    }
+  ]
 }
 ```
 
-`detail`, `issue`, `missingCapability`, and at least one retained evidence path
-are all required. An exception that names no missing capability is not an
-exception, it is an omission.
+`detail`, `issue`, `missingCapability`, and at least one retained evidence
+artifact are all required. Each evidence path must exist in the declared commit
+and match its digest. An exception that names no missing capability is an
+omission, not an exception.
+
+### Independent-test records
+
+`no-repro:<id>` resolves to
+`validation/self-dogfood/no-repro/<id>.json`. The record declares a changed
+test path, a shell-free command argument array, a bounded timeout, the exact
+nonzero exit expected from the parent revision, and digest-bound affected
+evidence. CI overlays the new regression test onto the parent checkout, proves
+the declared failure, then proves the same command passes on the fixed commit.
+
+### Non-fix records
+
+`not-a-fix:<id>` resolves to
+`validation/self-dogfood/not-a-fix/<id>.json`. It must classify the change as
+`feature`, `maintenance`, `refactor`, or `tooling`, explain why it is not a bug
+fix, and bind at least one artifact changed by the same commit. A reusable
+blanket exemption is invalid.
 
 ## Guards may not be weakened to make CI green
 
@@ -93,11 +116,13 @@ The only way through is an explicit, recorded retirement:
 
 1. add `Reproit-Guard-Retire: rep_<id>` to the commit message;
 2. commit `validation/self-dogfood/retirements/rep_<id>.json` with
-   `schemaVersion`, `guard`, `reason`, and `replacement`.
+   `schemaVersion`, `guard`, `reason`, and a different required replacement
+   guard.
 
 Deleting a failing guard, quarantining it, or editing its trigger signature so
 it stops matching are all the same act and are all blocked. Fix the code or
-record the retirement.
+record the retirement. Arbitrary replacement prose is rejected; the named
+replacement must be present in the required corpus and therefore replay in CI.
 
 ## Guard execution order in CI
 
@@ -134,9 +159,17 @@ truth.
 | Case | Identity | Guard | Repository |
 | --- | --- | --- | --- |
 | `dog_cli_backend_root` | `doctor:blank-backend-project-root` | `rep_b1ab0f0eb617` | reproit-cli |
+| `dog_cli_required_corpus_dispatch` | `ci:required-guard-corpus-dispatch` | `rep_6bc2f97d73a7` | reproit-cli |
+| `dog_cli_direct_push_policy` | `ci:direct-push-dogfood-policy` | `rep_cf7b6f962595` | reproit-cli |
 | `dog_cloud_migration_history` | `cloud:migration-history-divergence` | `rep_40f619ef4a2c` | reproit-cloud |
 
-Both cases validate under `reproit-lab`'s strict case validator with three
+The CLI CI-enforcement guards bind the affected and fixed commits, controller
+and verifier digests, three affected reproductions, and three reached-observation
+fixed controls in
+`validation/self-dogfood/evidence/ci-enforcement-qualification.json`.
+
+The original CLI and Cloud cases validate under `reproit-lab`'s strict case
+validator with three
 affected reproductions, three reached-observation fixed controls, and verified
 digests for every declared artifact:
 
