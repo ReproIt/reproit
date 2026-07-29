@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "backend-contract",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "gitea-total-count-filtered-commits-35886",
+      "repository": "https://github.com/go-gitea/gitea",
+      "issueUrl": "https://github.com/go-gitea/gitea/issues/35886",
+      "affectedRevision": "98c61942aa433342eacf08e4040ded80b1d0efe1",
+      "fixedRevision": "4812e354866a066dcb899af667b0fad5fa094065",
+      "authority": "authored-contract",
+      "expectedIdentity": "filtered-commit-total-count-ignores-bounds",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "filtered-commit-total-count-ignores-bounds",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "filtered-commit-total-count-ignores-bounds",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "filtered-commit-total-count-ignores-bounds",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 12,
+        "replaySecondsP95": 0.44089,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/gitea.json",
+        "validation/field/evidence/gitea.md"
+      ]
+    },
+    {
+      "id": "memos-public-read-requires-auth-5443",
+      "repository": "https://github.com/usememos/memos",
+      "issueUrl": "https://github.com/usememos/memos/issues/5443",
+      "affectedRevision": "14fb38f37560541bf2719647e7e8b1468937f8ef",
+      "fixedRevision": "7c3fcc297d8e5a955d9c0bc4f3ca917854132e8e",
+      "authority": "authored-contract",
+      "expectedIdentity": "public-memo-list-requires-authentication",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "public-memo-list-requires-authentication",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "public-memo-list-requires-authentication",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "public-memo-list-requires-authentication",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 3,
+        "replaySecondsP95": 0.335096,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/memos.json",
+        "validation/field/evidence/memos.md"
+      ]
+    }
+  ]
+}

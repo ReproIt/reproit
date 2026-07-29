@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "target": "backend-contract",
+  "worker": {
+    "image": "sha256:23c3fe0410aa43cc095c7f54c528e0b2077e1583dfb0c14a7a858b52f1232c60 + sha256:2b6aaf46753ee21bf0c1b282f6d30636aabe08080cff75b27d7d23b7cc2df021 + sha256:9c7d9ffbef357a510b8bc6f9ddd5b28657ea6f4acf9039983121d15bb6ec3b97 + sha256:ce68d20f33603a0e4a7f77c41fb699df36bb5c43ec1039eaa95a3ad452cf12ce",
+    "platform": "Docker Linux application containers over SQLite",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "memos-fixed-public-list-clean",
+      "kind": "clean",
+      "application": "Memos",
+      "repository": "https://github.com/usememos/memos",
+      "revision": "7c3fcc297d8e5a955d9c0bc4f3ca917854132e8e",
+      "fixture": "validation/field/backend_contract/run_campaign.py",
+      "variant": "fixed revision, anonymous read of a seeded PUBLIC memo",
+      "why": "the authored anonymous operation succeeds and excludes the adjacent private memo, so the public-access oracle must remain silent",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "status": 200,
+        "publicMemoCount": 1,
+        "privateMemoCount": 0,
+        "rawRecordSha256": "c36dd28d39eea08db522b5d8505d93e99078d5fbb2bdb74fba45d3928ac4c546"
+      }
+    },
+    {
+      "id": "gitea-affected-unfiltered-adversarial",
+      "kind": "adversarial",
+      "application": "Gitea",
+      "repository": "https://github.com/go-gitea/gitea",
+      "revision": "98c61942aa433342eacf08e4040ded80b1d0efe1",
+      "fixture": "validation/field/backend_contract/run_campaign.py",
+      "variant": "affected revision, adjacent unfiltered commits request",
+      "why": "the same endpoint and X-Total-Count header are exercised on legal unfiltered behavior and must not be classified as the bounded-filter defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "bodyCount": 4,
+        "headerCount": 4,
+        "rawRecordSha256": "bcbf2852269b3e23cb53d096b378349280f852f2f9b04e08a0db5ddf5c35c731"
+      }
+    },
+    {
+      "id": "memos-fixed-protected-route-adversarial",
+      "kind": "adversarial",
+      "application": "Memos",
+      "repository": "https://github.com/usememos/memos",
+      "revision": "7c3fcc297d8e5a955d9c0bc4f3ca917854132e8e",
+      "fixture": "validation/field/backend_contract/run_campaign.py",
+      "variant": "fixed revision, anonymous read of a genuinely protected identity route",
+      "why": "a 401 superficially resembles the field defect, but the authored route requires authentication and must not produce the public-access identity",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "status": 401,
+        "rawRecordSha256": "c36dd28d39eea08db522b5d8505d93e99078d5fbb2bdb74fba45d3928ac4c546"
+      }
+    }
+  ]
+}

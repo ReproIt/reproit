@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "target": "backend-contract",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "field-qualified",
   "declaredBounds": {
     "os": "linux",
-    "arch": "x86_64",
+    "arch": "arm64 field containers; x86_64 release gate",
     "protocol": "HTTP",
     "contract": "an authored machine-readable API contract committed in the repository, OpenAPI or Swagger or an equivalent authored schema"
   },
@@ -14,8 +14,8 @@
     "contractCheck": "gh api repos/<owner>/<repo>/contents/<path> for a claimed spec, and a recursive tree listing filtered for openapi, swagger, proto and schema artifacts when claiming that no contract exists",
     "revisionRule": "fixedRevision is the merge commit of the pull request on the default branch and affectedRevision is that commit's first parent; both were confirmed through the commits API",
     "candidateDefectsMeaning": "historical defects surfaced by this scan whose violation is observable in an HTTP response, not a count of everything the repository holds; the field is left null where no defect scan was run for that repository",
-    "executed": false,
-    "note": "no service was stood up and no request was issued for this record; every entry below is research only"
+    "executed": true,
+    "note": "the selected Gitea and Memos revision pairs were built and executed; the other pool entries remain research-only alternatives"
   },
   "applicationPool": [
     {
@@ -24,8 +24,11 @@
       "decision": "qualify",
       "reason": "templates/swagger/v1_json.tmpl is committed (865 KB) and is the contract the service serves at /api/swagger.v1.json, with regeneration enforced in CI. The whole product runs as one container over SQLite with no third-party dependency, and the API is bounded and token-authenticated",
       "candidateDefects": 5,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": [
+        "validation/field/backend_contract/Dockerfile.gitea",
+        "validation/field/evidence/gitea.json"
+      ]
     },
     {
       "repository": "https://github.com/netbox-community/netbox",
@@ -42,8 +45,11 @@
       "decision": "qualify",
       "reason": "the authored contract is the protobuf service definition under proto/api/v1 with a generated proto/gen/openapi.yaml committed (163 KB). One binary, SQLite, no external service at all, which makes it the cheapest subject in the pool",
       "candidateDefects": 2,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": [
+        "validation/field/backend_contract/Dockerfile.memos",
+        "validation/field/evidence/memos.json"
+      ]
     },
     {
       "repository": "https://github.com/ory/kratos",
@@ -237,12 +243,8 @@
       },
       "offlineStack": "one pinned gitea image over SQLite with a repository seeded through the API; no third-party service",
       "whySuitable": "the trigger is a single GET /api/v1/repos/{owner}/{repo}/commits?sha=main&since=...&until=... and the violation is entirely in the response: the body honours the filter while the X-Total-Count header reports the unfiltered repository-wide count. That is the backend-contract adapter's exact shape, one request and one response checked against the documented pagination contract, with the oracle computable from the response alone by comparing the header integer against the returned page when the page is not full. The fix touches only implementation code, so the contract text is unchanged across the pair",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "seed commits with pinned author timestamps so the filtered count is deterministic",
-        "stand the affected and fixed images up from source builds of both revisions and record the build commands",
-        "state the oracle as a header-versus-body invariant so it does not depend on a hardcoded expected number"
-      ]
+      "qualification": "field-qualified",
+      "remaining": []
     },
     {
       "id": "gitea-has-code-always-false-36332",
@@ -345,27 +347,9 @@
       },
       "offlineStack": "one memos container over SQLite with no external service at all",
       "whySuitable": "one authenticated write seeds a memo with public visibility, then one anonymous GET must return it. The affected revision answers with an authorization error, which contradicts the security requirements the contract records for that operation. The trigger is two plain HTTP exchanges with no browser and no third party, and it is a fourth independent service, which is what gives this target a real margin",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "confirm the operation carries no security requirement in the committed contract at the affected revision",
-        "build both revisions and record the build commands"
-      ]
+      "qualification": "field-qualified",
+      "remaining": []
     }
   ],
-  "blockers": [
-    {
-      "code": "incomplete-evidence",
-      "detail": "no service in this record has been stood up and no request has been issued. Every revision pair, contract path, license and title here was verified against the GitHub API from the host; nothing has been executed",
-      "command": null,
-      "evidence": [
-        "validation/field/qualification/infrastructure.json"
-      ]
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "for none of the six candidates has the contract artifact been diffed across the revision pair, so it is not yet proven that each fix moved the implementation toward the committed contract rather than moving the contract toward the implementation. One further gitea candidate, pull request 38590 for issue 38581, was found and deliberately not selected precisely because it edits templates/swagger/v1_json.tmpl, which makes it a specification change rather than a conformance defect",
-      "command": null,
-      "evidence": []
-    }
-  ]
+  "blockers": []
 }

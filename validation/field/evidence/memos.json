@@ -1,0 +1,188 @@
+{
+  "issue": "https://github.com/usememos/memos/issues/5443",
+  "affectedRevision": "14fb38f37560541bf2719647e7e8b1468937f8ef",
+  "fixedRevision": "7c3fcc297d8e5a955d9c0bc4f3ca917854132e8e",
+  "identity": "public-memo-list-requires-authentication",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.314202,
+      "setupSeconds": 2,
+      "imageId": "sha256:23c3fe0410aa43cc095c7f54c528e0b2077e1583dfb0c14a7a858b52f1232c60",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "anonymousPrivateCount": 0,
+        "anonymousPublicCount": 0,
+        "anonymousStatus": 401,
+        "authenticatedStatus": 200,
+        "elapsedSeconds": 0.314202,
+        "identity": "public-memo-list-requires-authentication",
+        "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+        "protectedStatus": 401
+      },
+      "rawRecordSha256": "7b0f3c2dec2469055f53166c0b7765125fbf9d0d865f6e0df70452ed679238d6"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.302481,
+      "setupSeconds": 2,
+      "imageId": "sha256:23c3fe0410aa43cc095c7f54c528e0b2077e1583dfb0c14a7a858b52f1232c60",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "anonymousPrivateCount": 0,
+        "anonymousPublicCount": 0,
+        "anonymousStatus": 401,
+        "authenticatedStatus": 200,
+        "elapsedSeconds": 0.302481,
+        "identity": "public-memo-list-requires-authentication",
+        "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+        "protectedStatus": 401
+      },
+      "rawRecordSha256": "3d57b22af738276bda30c72ee65108b99063fd545ca0acfb5a0c8d1126e15668"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.335096,
+      "setupSeconds": 3,
+      "imageId": "sha256:23c3fe0410aa43cc095c7f54c528e0b2077e1583dfb0c14a7a858b52f1232c60",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "anonymousPrivateCount": 0,
+        "anonymousPublicCount": 0,
+        "anonymousStatus": 401,
+        "authenticatedStatus": 200,
+        "elapsedSeconds": 0.335096,
+        "identity": "public-memo-list-requires-authentication",
+        "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+        "protectedStatus": 401
+      },
+      "rawRecordSha256": "2b40df336766168556a68558cc5b3f0829506dab23ff0ed8bbb019eac439929a"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.338239,
+      "setupSeconds": 3,
+      "imageId": "sha256:ce68d20f33603a0e4a7f77c41fb699df36bb5c43ec1039eaa95a3ad452cf12ce",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "anonymousPrivateCount": 0,
+        "anonymousPublicCount": 1,
+        "anonymousStatus": 200,
+        "authenticatedStatus": 200,
+        "elapsedSeconds": 0.338239,
+        "identity": null,
+        "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+        "protectedStatus": 401
+      },
+      "rawRecordSha256": "c36dd28d39eea08db522b5d8505d93e99078d5fbb2bdb74fba45d3928ac4c546"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.336669,
+      "setupSeconds": 2,
+      "imageId": "sha256:ce68d20f33603a0e4a7f77c41fb699df36bb5c43ec1039eaa95a3ad452cf12ce",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "anonymousPrivateCount": 0,
+        "anonymousPublicCount": 1,
+        "anonymousStatus": 200,
+        "authenticatedStatus": 200,
+        "elapsedSeconds": 0.336669,
+        "identity": null,
+        "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+        "protectedStatus": 401
+      },
+      "rawRecordSha256": "a8b37415886efc4f68d5d7a96e2dd68063262fe6874cd240fc3c9b32d2f60774"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.377406,
+      "setupSeconds": 3,
+      "imageId": "sha256:ce68d20f33603a0e4a7f77c41fb699df36bb5c43ec1039eaa95a3ad452cf12ce",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "anonymousPrivateCount": 0,
+        "anonymousPublicCount": 1,
+        "anonymousStatus": 200,
+        "authenticatedStatus": 200,
+        "elapsedSeconds": 0.377406,
+        "identity": null,
+        "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+        "protectedStatus": 401
+      },
+      "rawRecordSha256": "288ef66326497471e4c6d049c6faa4e1385eb97a9df73746588193f1f1448fe6"
+    }
+  ],
+  "neighboringLegalBehavior": "a genuinely protected identity route returns 401",
+  "minimizedAction": "seed one public memo through an authenticated operation, then issue one anonymous GET to the contract's public memo collection",
+  "containment": {
+    "network": "per-run internal Docker network with no external egress",
+    "hostBinding": "ephemeral port on 127.0.0.1 only",
+    "state": "fresh owned bind mount deleted after every run",
+    "rootFilesystem": "read-only",
+    "remainingContainers": 0
+  }
+}

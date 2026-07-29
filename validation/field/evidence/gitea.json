@@ -1,0 +1,194 @@
+{
+  "issue": "https://github.com/go-gitea/gitea/issues/35886",
+  "affectedRevision": "98c61942aa433342eacf08e4040ded80b1d0efe1",
+  "fixedRevision": "4812e354866a066dcb899af667b0fad5fa094065",
+  "identity": "filtered-commit-total-count-ignores-bounds",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.44089,
+      "setupSeconds": 12,
+      "imageId": "sha256:2b6aaf46753ee21bf0c1b282f6d30636aabe08080cff75b27d7d23b7cc2df021",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "contractSha256": "5fed9c5480c1cbddaabf36ea1d50029b90ff81f4d25d9184a24fa8eec7a82f41",
+        "elapsedSeconds": 0.44089,
+        "filteredBodyCount": 1,
+        "filteredHeaderCount": 4,
+        "filteredStatus": 200,
+        "identity": "filtered-commit-total-count-ignores-bounds",
+        "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+        "unfilteredBodyCount": 4,
+        "unfilteredHeaderCount": 4
+      },
+      "rawRecordSha256": "bcbf2852269b3e23cb53d096b378349280f852f2f9b04e08a0db5ddf5c35c731"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.407506,
+      "setupSeconds": 12,
+      "imageId": "sha256:2b6aaf46753ee21bf0c1b282f6d30636aabe08080cff75b27d7d23b7cc2df021",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "contractSha256": "5fed9c5480c1cbddaabf36ea1d50029b90ff81f4d25d9184a24fa8eec7a82f41",
+        "elapsedSeconds": 0.407506,
+        "filteredBodyCount": 1,
+        "filteredHeaderCount": 4,
+        "filteredStatus": 200,
+        "identity": "filtered-commit-total-count-ignores-bounds",
+        "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+        "unfilteredBodyCount": 4,
+        "unfilteredHeaderCount": 4
+      },
+      "rawRecordSha256": "afe3d28d7a7617454c8d3cf9156f2524836288bf6623f2e87585b4587a5adac1"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.394585,
+      "setupSeconds": 12,
+      "imageId": "sha256:2b6aaf46753ee21bf0c1b282f6d30636aabe08080cff75b27d7d23b7cc2df021",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "contractSha256": "5fed9c5480c1cbddaabf36ea1d50029b90ff81f4d25d9184a24fa8eec7a82f41",
+        "elapsedSeconds": 0.394585,
+        "filteredBodyCount": 1,
+        "filteredHeaderCount": 4,
+        "filteredStatus": 200,
+        "identity": "filtered-commit-total-count-ignores-bounds",
+        "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+        "unfilteredBodyCount": 4,
+        "unfilteredHeaderCount": 4
+      },
+      "rawRecordSha256": "750b232eddba8e8a854eeb7473a65a5b70b2ac2c5cc3cc994ceffeb7eff21766"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.416988,
+      "setupSeconds": 12,
+      "imageId": "sha256:9c7d9ffbef357a510b8bc6f9ddd5b28657ea6f4acf9039983121d15bb6ec3b97",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "contractSha256": "e52a0c337bdca1aedec7b5297ecb6b019014fdb992b294ffcdc0d5839d079fd7",
+        "elapsedSeconds": 0.416988,
+        "filteredBodyCount": 1,
+        "filteredHeaderCount": 1,
+        "filteredStatus": 200,
+        "identity": null,
+        "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+        "unfilteredBodyCount": 4,
+        "unfilteredHeaderCount": 4
+      },
+      "rawRecordSha256": "591cc4171aa3b260e8f011cc1cf2e620f9809fd7a902160bd7a59f038abb8d5c"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.383326,
+      "setupSeconds": 12,
+      "imageId": "sha256:9c7d9ffbef357a510b8bc6f9ddd5b28657ea6f4acf9039983121d15bb6ec3b97",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "contractSha256": "e52a0c337bdca1aedec7b5297ecb6b019014fdb992b294ffcdc0d5839d079fd7",
+        "elapsedSeconds": 0.383326,
+        "filteredBodyCount": 1,
+        "filteredHeaderCount": 1,
+        "filteredStatus": 200,
+        "identity": null,
+        "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+        "unfilteredBodyCount": 4,
+        "unfilteredHeaderCount": 4
+      },
+      "rawRecordSha256": "03ada29ca676eca4dd709017b0aedb0f29a854c4462982ebcf9a7ef749b2f23b"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.425828,
+      "setupSeconds": 12,
+      "imageId": "sha256:9c7d9ffbef357a510b8bc6f9ddd5b28657ea6f4acf9039983121d15bb6ec3b97",
+      "imageArchitecture": "arm64",
+      "networkInternal": true,
+      "publishedHost": "127.0.0.1",
+      "cleanup": {
+        "container": true,
+        "network": true,
+        "runtime": true
+      },
+      "observation": {
+        "contractSha256": "e52a0c337bdca1aedec7b5297ecb6b019014fdb992b294ffcdc0d5839d079fd7",
+        "elapsedSeconds": 0.425828,
+        "filteredBodyCount": 1,
+        "filteredHeaderCount": 1,
+        "filteredStatus": 200,
+        "identity": null,
+        "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+        "unfilteredBodyCount": 4,
+        "unfilteredHeaderCount": 4
+      },
+      "rawRecordSha256": "653741b89be2a2120a80b99f4bd11d1e003f7873fd320eef1ee9d59ad75d9e70"
+    }
+  ],
+  "neighboringLegalBehavior": "unfiltered X-Total-Count equals the response body count",
+  "minimizedAction": "GET one commits collection with authored since and until bounds, then compare X-Total-Count with the returned complete page",
+  "containment": {
+    "network": "per-run internal Docker network with no external egress",
+    "hostBinding": "ephemeral port on 127.0.0.1 only",
+    "state": "fresh owned bind mount deleted after every run",
+    "rootFilesystem": "read-only",
+    "remainingContainers": 0
+  }
+}

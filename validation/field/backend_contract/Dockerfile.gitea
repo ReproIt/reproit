@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
+
+ARG GO_IMAGE=golang@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS frontend
+RUN apk --no-cache add build-base git nodejs pnpm
+WORKDIR /src
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --frozen-lockfile
+COPY --exclude=.git/ . .
+RUN make frontend
+
+FROM ${GO_IMAGE} AS build
+ENV TAGS="bindata timetzdata"
+RUN apk --no-cache add build-base git
+WORKDIR /go/src/gitea.dev
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY --exclude=.git/ . .
+COPY --from=frontend /src/public/assets public/assets
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,source=".git/",target=".git/" \
+    make backend
+COPY docker/root /tmp/root
+RUN chmod 755 \
+    /tmp/root/usr/bin/entrypoint \
+    /tmp/root/usr/local/bin/* \
+    /tmp/root/etc/s6/gitea/* \
+    /tmp/root/etc/s6/openssh/* \
+    /tmp/root/etc/s6/.s6-svscan/* \
+    /go/src/gitea.dev/gitea
+
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+RUN apk --no-cache add \
+    bash ca-certificates curl gettext git linux-pam openssh s6 sqlite su-exec gnupg
+RUN addgroup -S -g 1000 git \
+    && adduser -S -H -D -h /data/git -s /bin/bash -u 1000 -G git git \
+    && echo "git:*" | chpasswd -e
+COPY --from=build /tmp/root /
+COPY --from=build /go/src/gitea.dev/gitea /app/gitea/gitea
+ENV USER=git
+ENV GITEA_CUSTOM=/data/gitea
+EXPOSE 22 3000
+ENTRYPOINT ["/usr/bin/entrypoint"]
+CMD ["/usr/bin/s6-svscan", "/etc/s6"]
