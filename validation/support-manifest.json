@@ -357,16 +357,8 @@
         "productionToLocal": "Unqualified",
         "blockers": [
           {
-            "code": "product-coverage-missing",
-            "detail": "gate S2 selected 5 candidate defects but they come from only 1 application (BlueWallet). Stable requires two independent applications, and the qualification record states no second application qualified, so this is a coverage limit rather than remaining work on the application already selected",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/react-native-ios.json"
-            ]
-          },
-          {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 1 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. 9 candidate defects across 2 independent applications (BlueWallet, Joplin) are qualified with verified revisions, but neither has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
               "validation/field/qualification/react-native-ios.json"
@@ -743,16 +735,8 @@
             ]
           },
           {
-            "code": "product-coverage-missing",
-            "detail": "gate S2 selected 5 candidate defects but they come from only 1 application (UniGetUI). Stable requires two independent applications, and the qualification record states no second application with a usable defect history was found, so this is a coverage limit rather than remaining work on the application already selected",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/windows-winui.json"
-            ]
-          },
-          {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 1 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. 8 candidate defects across 2 independent applications (DLSS Swapper, UniGetUI) are qualified with verified revisions, but neither has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
               "validation/field/qualification/windows-winui.json"

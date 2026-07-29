@@ -20,6 +20,17 @@
       "buildEvidence": null
     },
     {
+      "repository": "https://github.com/laurent22/joplin",
+      "license": "AGPL-3.0-or-later, declared in the repository LICENSE file; the GitHub licence API reports NOASSERTION because the file also defers to per-directory LICENSE files",
+      "decision": "qualify-with-containment",
+      "monorepoSubApplication": "packages/app-mobile, whose own package.json declares react-native and whose iOS project is checked in at packages/app-mobile/ios/Joplin.xcworkspace. This is a monorepo sub-application, admitted under the sub-application rule, and it is flagged here so the decision is visible rather than implied",
+      "reason": "the second independent application. It is a real end-user note taking application, not a playground or a framework harness, and it is local first: the note database is created on first launch with a Welcome notebook, and synchronisation is opt-in, so every trigger selected below runs with no account, no API key and no hosted server. packages/app-mobile/package.json pins react-native 0.81.6 at all ten revisions named below, and packages/app-mobile/ios carries 69 to 71 checked-in entries including Joplin.xcodeproj, Joplin.xcworkspace and a JoplinUITests target, so a single revision pins the iOS project. Containment is required on three points, all of them the same shape as BlueWallet: the project embeds a ShareExtension target that must be stripped from the campaign scheme; packages/app-mobile/ios/Joplin/Joplin.entitlements requests aps-environment and the group.net.cozic.joplin application group, which are inert only because an unsigned simulator build embeds no entitlements; and every revision hardcodes DEVELOPMENT_TEAM = A9BXAFS6CT in four build configurations, so the build recipe must force it empty rather than assume it is unset. CODE_SIGN_IDENTITY is scoped to [sdk=iphoneos*] only, so the simulator configuration inherits no identity",
+      "candidateDefects": null,
+      "candidateDefectsBasis": "the mobile fix stream is unusually machine readable: commit subjects follow the form Mobile: Fixes #<issue>: <summary> (#<pull request>), and a scan of the last 8000 commits returns well over a hundred such subjects. Four offline, simulator-triggerable pairs are verified below",
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
       "repository": "https://github.com/WordPress/gutenberg",
       "license": "GPL-2.0",
       "decision": "qualify-with-containment",
@@ -275,24 +286,136 @@
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence"
       ]
+    },
+    {
+      "id": "joplin-note-row-touch-target-15972",
+      "application": "Joplin",
+      "monorepoSubApplication": "packages/app-mobile",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/15972",
+      "issueTitle": "Mobile: New note list design does not include the padding in the touch target to open notes",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15987",
+      "pullRequestTitle": "Mobile: Fixes #15972: New note list design does not include the padding in the touch target to open notes",
+      "affectedRevision": "7d90db0bf68c7ea2803227f9e6277bb3cf697fb3",
+      "fixedRevision": "2fa45a5a05daa597d52b73fce120e9242a6c6860",
+      "changedFiles": [
+        "packages/app-mobile/components/NoteItem.tsx"
+      ],
+      "frameworkEvidence": "React Native verified at the affected revision: git show 7d90db0b:packages/app-mobile/package.json reports dependencies.react-native = 0.81.6, and git ls-tree lists 71 entries under packages/app-mobile/ios including Joplin.xcodeproj, Joplin.xcworkspace and the Joplin and JoplinUITests schemes. The fix commit is a squash whose sole parent is the affected revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "at this revision project.pbxproj has four DEVELOPMENT_TEAM = A9BXAFS6CT settings and a single CODE_SIGN_IDENTITY entry scoped to [sdk=iphoneos*], so the build must pass DEVELOPMENT_TEAM= together with CODE_SIGNING_ALLOWED=NO rather than rely on the checked-in settings. The aps-environment and application-group entitlements are never embedded when signing is disabled",
+        "verified": false
+      },
+      "whySuitable": "the strongest adapter-level candidate in this set. On the affected revision the row padding sits on the outer wrapper view rather than on the pressable, so the padded band around a note title is drawn but is not part of the hit area: a tap landing there is swallowed and the note does not open. The fix moves paddingLeft, paddingRight, paddingTop and paddingBottom onto the pressable. Nothing about this is visible to a JavaScript-only harness, because the styles are identical and only the native view that receives the touch differs; it can be seen only by sending a real coordinate tap through XCUITest into the RN view hierarchy and then asking the accessibility tree whether the note screen was pushed. That is precisely what the react-native-ios adapter owns. Entirely offline and needs no account",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the affected and fixed revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension, and record the exact command and result",
+        "state how the harness computes the padding coordinate from the row's accessibility frame, since a centre tap opens the note on both revisions and would not separate them",
+        "state the exact identity and authority for the observable, and minimize the trigger",
+        "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
+        "record neighboring legal behavior: a tap on the note title itself must still open the note on the affected build"
+      ]
+    },
+    {
+      "id": "joplin-back-button-deleted-notebook-15004",
+      "application": "Joplin",
+      "monorepoSubApplication": "packages/app-mobile",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/15004",
+      "issueTitle": "Mobile: Back button handler breaks after deleting the Welcome notebook and then going to settings",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15028",
+      "pullRequestTitle": "Mobile: Fixes #15004: Fix back button disabled after navigating away from a deleted notebook",
+      "affectedRevision": "de6378473fa261e495b4709672471613235b493a",
+      "fixedRevision": "623da377db98dbc8576651aa066ef4000fbf2116",
+      "changedFiles": [
+        "packages/app-mobile/utils/appReducer.ts",
+        "packages/app-mobile/utils/appReducer.test.ts"
+      ],
+      "frameworkEvidence": "React Native verified at the affected revision: git show de637847:packages/app-mobile/package.json reports dependencies.react-native = 0.81.6, and git ls-tree lists 69 entries under packages/app-mobile/ios including Joplin.xcodeproj and Joplin.xcworkspace. The fix commit is a squash whose sole parent is the affected revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "same signing shape as the other Joplin candidates: four DEVELOPMENT_TEAM = A9BXAFS6CT settings and a device-scoped CODE_SIGN_IDENTITY only",
+        "verified": false
+      },
+      "whySuitable": "the navigation history keeps an entry pointing at a notebook that no longer exists, so after deleting the Welcome notebook and opening settings the back affordance is dead and the user is stranded on the settings screen. The trigger is a multi-step offline session, delete a notebook then navigate, and the observable is whether the back control reported by the accessibility tree returns the session to the note list. It is a navigation-state defect rather than a rendering one, which balances the touch-target candidate, and it needs no account, no network and no camera",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension",
+        "decide whether the trigger uses the on-screen back affordance or a swipe gesture, since only one of the two is reliably addressable through XCUITest on iOS",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: back must still work on the affected build when no notebook was deleted"
+      ]
+    },
+    {
+      "id": "joplin-profile-list-scroll-15061",
+      "application": "Joplin",
+      "monorepoSubApplication": "packages/app-mobile",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/15061",
+      "issueTitle": "Mobile: The manage profiles screen is not scrollable to the bottom entry",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15074",
+      "pullRequestTitle": " Mobile: Fixes #15061: Fix profile list not scrollable to last item on Manage Profiles screen",
+      "affectedRevision": "af8eb30844ba7f25c4583b6db3e8d7055dc9db95",
+      "fixedRevision": "222bb002c81710dd02681e9a1a79e13ee7f0522b",
+      "changedFiles": [
+        "packages/app-mobile/components/ProfileSwitcher/ProfileSwitcher.tsx"
+      ],
+      "frameworkEvidence": "React Native verified at the affected revision: git show af8eb308:packages/app-mobile/package.json reports dependencies.react-native = 0.81.6, and git ls-tree lists 69 entries under packages/app-mobile/ios including Joplin.xcodeproj. The fix commit is a squash whose sole parent is the affected revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "same signing shape as the other Joplin candidates: four DEVELOPMENT_TEAM = A9BXAFS6CT settings and a device-scoped CODE_SIGN_IDENTITY only",
+        "verified": false
+      },
+      "whySuitable": "on the affected revision the FlatList is wrapped in a plain View with no flex, so the native scroll view is laid out taller than its container and the last profile can never be brought on screen; the floating action button also covers it. The fix gives the list flex 1 and bottom content padding. The trigger is create profiles until the list overflows, then scroll to the end, and the observable is whether the last profile element is hittable in the accessibility tree. It is a pure native layout and scrolling defect: the JavaScript state is identical on both builds and only the UIScrollView geometry differs, so it can be decided only by driving a real scroll through XCUITest. Fully offline, profiles are local directories under the application container",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension",
+        "determine how many profiles must be created on the chosen simulator device for the list to overflow, and whether that count is stable across device sizes; if it is not, drop this candidate",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: with a short list every profile must be hittable on the affected build"
+      ]
+    },
+    {
+      "id": "joplin-auto-title-cleared-13901",
+      "application": "Joplin",
+      "monorepoSubApplication": "packages/app-mobile",
+      "issueUrl": "https://github.com/laurent22/joplin/issues/13901",
+      "issueTitle": "Auto-title is broken",
+      "pullRequestUrl": "https://github.com/laurent22/joplin/pull/15846",
+      "pullRequestTitle": "Mobile: Fixes #13901: Fix auto-derived title being cleared after saving a new note",
+      "affectedRevision": "418e8657fe20eff6407aa55ac82f13e2b2e2319b",
+      "fixedRevision": "52e56deb61ab6b7fac95c7228bf7d73e30c8d84a",
+      "changedFiles": [
+        "packages/lib/components/shared/note-screen-shared.ts",
+        "packages/app-mobile/components/screens/Note/Note.test.tsx"
+      ],
+      "frameworkEvidence": "React Native verified at the affected revision: git show 418e8657:packages/app-mobile/package.json reports dependencies.react-native = 0.81.6, and git ls-tree lists 71 entries under packages/app-mobile/ios including Joplin.xcodeproj. The fix commit is a squash whose sole parent is the affected revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "same signing shape as the other Joplin candidates: four DEVELOPMENT_TEAM = A9BXAFS6CT settings and a device-scoped CODE_SIGN_IDENTITY only",
+        "verified": false
+      },
+      "whySuitable": "create a note, type body text and leave the title empty; Joplin derives the title from the first line, and on the affected revision saving the new note clears that derived title again, so the note appears untitled in the list. The trigger is text entered through XCUITest into a React Native TextInput, which travels native keyboard to RCTUITextField to the Hermes side through onChangeText, and the observable is the label the note list renders back into a native text view after the save. It is the same full bridge loop the uppercase bech32 candidate exercises for BlueWallet, on an application with a completely different note model, so it is genuine second-product coverage rather than a repeat. Fully offline; the fix also lands in shared library code, so the iOS-specific part of the evidence is the accessibility tree read rather than the fault location",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension",
+        "confirm the derived title is observable in the note list rather than only in the database, otherwise the oracle leaves the accessibility tree",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: a note with an explicitly typed title must still keep it on the affected build"
+      ]
     }
   ],
   "blockers": [
     {
-      "code": "product-coverage-missing",
-      "detail": "all five verified candidates come from a single application, BlueWallet. It is the only repository in the pool that is a real React Native application with a checked-in root ios/, reachable without an account or hosted service, and buildable unsigned for the simulator. The field benchmark requires two independent applications, so a second qualifying application must be found or the monorepo sub-application rule must be extended to admit WordPress/gutenberg packages/react-native-editor",
-      "command": null,
-      "evidence": []
-    },
-    {
       "code": "incomplete-evidence",
-      "detail": "no candidate has been built. Every simulatorBuildWithoutSigning entry is an inspection of project.pbxproj and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
+      "detail": "no candidate has been built, from either application. Every simulatorBuildWithoutSigning entry is an inspection of project.pbxproj and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
       "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
       "evidence": []
     },
     {
       "code": "incomplete-evidence",
-      "detail": "the affected revisions span React Native 0.72.14 through 0.85.3, so no single CocoaPods and Xcode recipe is known to build all of them. The 0.72 candidate is the most likely to fail toolchain resolution on the current host",
+      "detail": "the BlueWallet affected revisions span React Native 0.72.14 through 0.85.3, so no single CocoaPods and Xcode recipe is known to build all of them. The 0.72 candidate is the most likely to fail toolchain resolution on the current host. The four Joplin candidates are all pinned to React Native 0.81.6, so a single recipe covers them, but they carry a different cost: the iOS project lives in a Yarn workspace monorepo, so the build must first install and build the workspace packages that packages/app-mobile depends on before pod install can run",
       "command": null,
       "evidence": []
     }

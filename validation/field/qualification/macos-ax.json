@@ -44,8 +44,12 @@
       "repository": "https://github.com/CodeEditApp/CodeEdit",
       "license": "MIT",
       "decision": "qualify",
-      "reason": "a native SwiftUI CodeEdit.xcodeproj that already ships real XCUITest targets including ProjectNavigatorUITests and HideInterfaceTests, which is direct evidence that its interface is accessibility-addressable. Sandboxed with user-selected read-write only. Selection must stay away from its terminal and task features. No defect verified here yet",
-      "candidateDefects": null
+      "reason": "now the best signing story in the pool, better than CotEditor. Verified at both candidate revisions by reading the tree: CodeEdit.xcodeproj is committed, CodeEdit/CodeEditApp.swift declares @main struct CodeEditApp: App with an NSApplicationDelegateAdaptor and a Scene group of real windows, Info.plist sets no LSUIElement, and project.pbxproj carries MACOSX_DEPLOYMENT_TARGET = 13.0 with DEVELOPMENT_TEAM = \"\" in all twenty places and CODE_SIGN_IDENTITY[sdk=macosx*] = \"-\", so an ad-hoc local build needs no override at all. It ships real XCUITest targets, and the January 2025 revisions add ProjectNavigatorFileManagementUITests, which addresses the navigator through popUpButtons, menus, menuItems, outline rows and text field values, which is direct proof the interface is accessibility-addressable. Offline against a local folder. Selection must stay away from its terminal, task and source control features",
+      "reasonCorrection": "an earlier note in this record described CodeEdit as sandboxed with user-selected read-write only. That is wrong at the candidate revisions: CodeEdit/CodeEdit.entitlements contains only com.apple.security.application-groups with app.codeedit.CodeEdit.shared and $(TeamIdentifierPrefix), com.apple.security.cs.allow-jit and com.apple.security.cs.disable-library-validation, with no app-sandbox key. The application group carries a team identifier prefix, which is the one entitlement an ad-hoc build has to be observed to tolerate",
+      "candidateDefects": 2,
+      "candidateDefectsBasis": "eighteen commits closing an issue were enumerated from the log; seven were shortlisted as accessibility-observable and two verified",
+      "buildQualified": null,
+      "buildEvidence": null
     },
     {
       "repository": "https://github.com/MacPass/MacPass",
@@ -302,6 +306,74 @@
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence",
         "record neighboring legal behavior: a document that does display counts on the affected build"
+      ]
+    },
+    {
+      "id": "codeedit-menu-bar-items-not-updating-1684",
+      "application": "CodeEdit",
+      "issueUrl": "https://github.com/CodeEditApp/CodeEdit/issues/1684",
+      "issueTitle": "🐞 Menu Bar Items Not Updating",
+      "pullRequestUrl": "https://github.com/CodeEditApp/CodeEdit/pull/1697",
+      "pullRequestTitle": "Fixes \"Menu Bar Items Not Updating (#1684)\"",
+      "affectedRevision": "5724c724d66ea2af9e2b78b0fbbb91eb78c33f4c",
+      "fixedRevision": "78e75dc424cf54e0d4eb3d8f8c8bea2def9e343f",
+      "revisionDerivation": "78e75dc4 is the squash merge of pull request 1697 and 5724c724 is its first parent. Both were confirmed with git cat-file -t in a clone",
+      "frameworkEvidence": "native macOS application verified at the affected revision by reading the files the fix touches. CodeEdit/Features/WindowCommands/ViewCommands.swift imports SwiftUI at line 8, declares struct ViewCommands: Commands at line 10, holds @State var windowController: CodeEditWindowController? at line 20 and builds Button(\"\\(navigatorCollapsed ? \"Show\" : \"Hide\") Navigator\") at line 89. CodeEdit/Features/Documents/Controllers/CodeEditWindowController.swift imports Cocoa at line 8 and declares final class CodeEditWindowController: NSWindowController, NSToolbarDelegate, ObservableObject at line 12 with @Published var navigatorCollapsed at line 15. The application entry point CodeEdit/CodeEditApp.swift declares @main struct CodeEditApp: App at the same revision, and project.pbxproj carries MACOSX_DEPLOYMENT_TARGET = 13.0, so this is AppKit and SwiftUI on macOS, not Catalyst",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "with a workspace window open, traverse the application AXMenuBar to the View menu, AXPress the Hide Navigator AXMenuItem, then reopen the same menu and read the item again",
+        "observation": "AXTitle on that menu item: it still reads Hide Navigator at the affected revision and reads Show Navigator at the fixed revision. The reported workaround, clicking away from the window and back, is itself an AX-visible state change and must be excluded from the trigger",
+        "note": "at the affected revision the title is interpolated from windowController?.navigatorCollapsed but windowController is held in @State, so the Commands body never re-evaluates when the published property changes. The fix moves the items into a HideCommands View that holds the controller as @ObservedObject. The same revision also has inspectorCollapsed returning navigatorCollapsed, which is why the pull request also closes issue 1696"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "at this revision project.pbxproj sets DEVELOPMENT_TEAM = \"\" in all twenty build configurations and CODE_SIGN_IDENTITY[sdk=macosx*] = \"-\", so the repository already builds ad-hoc with no override. CodeEdit/CodeEdit.entitlements requests only an application group, allow-jit and disable-library-validation, with no sandbox key and no team-scoped capability other than the $(TeamIdentifierPrefix) entry in the group list",
+        "verified": false
+      },
+      "whySuitable": "the observable lives entirely in the menu bar, which is the part of the AX tree no other selected candidate touches as its primary signal: the CotEditor add-button candidate reads AXEnabled on menu items but reaches them through a window control, while this one traverses the application menu bar itself and the signal is AXTitle rather than AXEnabled. It is a third independent application, it is offline against a local folder, and the whole round trip stays inside the accessibility API",
+      "qualification": "selected-not-executed",
+      "caveat": "the trigger must not include clicking away from the window and back, because that is the user's own workaround and it repairs the symptom. The campaign therefore has to prove the driver can open a menu, act, and reopen it without ever taking key window focus away from the application",
+      "remaining": [
+        "build both revisions with the shipped ad-hoc settings and record the exact command and result, confirming the $(TeamIdentifierPrefix) application group does not block an ad-hoc launch",
+        "dump the accessibility tree of the built application and confirm the View menu and its items appear with stable AXTitles under the test locale",
+        "prove the driver can reopen the menu without changing key window focus, and record that as part of the minimized trigger",
+        "state the exact identity and authority for the observable, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with a reset application container and reset evidence",
+        "record neighboring legal behavior: a menu item whose title is static must read the same on both builds after the same action"
+      ]
+    },
+    {
+      "id": "codeedit-new-file-trailing-dot-1966",
+      "application": "CodeEdit",
+      "issueUrl": "https://github.com/CodeEditApp/CodeEdit/issues/1966",
+      "issueTitle": "🐞 File renamer appends `.` to `.gitignore` file",
+      "pullRequestUrl": "https://github.com/CodeEditApp/CodeEdit/pull/1969",
+      "pullRequestTitle": "Clean Up File Management",
+      "affectedRevision": "6d16c90e12a491a38dbd06b69c8c4b5c9edc81ab",
+      "fixedRevision": "c887249e53b859c2ddfe4f48946715d9d24814e0",
+      "revisionDerivation": "c887249e is the squash merge of pull request 1969 and 6d16c90e is its first parent. Both were confirmed with git cat-file -t in a clone. The pull request body closes issue 1966 and issue 1934",
+      "frameworkEvidence": "native macOS application verified at the affected revision. CodeEdit/Features/CEWorkspace/Models/CEWorkspaceFileManager+FileManagement.swift is a plain Swift and AppKit model file in the application target and contains the defective addFile; CodeEdit/Features/NavigatorArea/ProjectNavigator/ProjectNavigatorToolbarBottom.swift imports SwiftUI at line 8, declares struct ProjectNavigatorToolbarBottom: View at line 10 and builds the Menu with the Add File button at lines 96 and 97; the surrounding navigator is an AppKit NSOutlineView driven by ProjectNavigatorViewController. CodeEdit.xcodeproj and Configs/ are present and MACOSX_DEPLOYMENT_TARGET is 13.0",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "open an empty folder as the workspace, AXPress the project navigator Add AXPopUpButton, then AXPress the Add File AXMenuItem in its menu",
+        "observation": "AXValue of the AXTextField in the newly selected navigator row: it reads untitled. with a trailing period at the affected revision and untitled at the fixed revision",
+        "note": "at the affected revision addFile derives the extension from the most common extension among siblings, which for an empty folder is the empty string, and then unconditionally prefixes a period, producing untitled. The fix skips the period when the extension is empty. The fix commit also adds CodeEditUITests/Features/NavigatorArea/ProjectNavigator/ProjectNavigatorFileManagementUITests.swift, whose testCreateNewFiles asserts that exact text field value, which is independent confirmation that the observable is addressable through the accessibility tree"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "the same empty DEVELOPMENT_TEAM and ad-hoc CODE_SIGN_IDENTITY[sdk=macosx*] settings are present at this revision, and the entitlements file is unchanged from the menu bar candidate",
+        "verified": false
+      },
+      "whySuitable": "it is the only selected candidate whose signal is AXValue on a text field that the application itself puts into an editing state, so it exercises a press, a menu traversal and a value read against a control that only exists transiently. It also runs against an AppKit NSOutlineView reached from a SwiftUI menu, which widens the control vocabulary the adapter is proven against beyond checkboxes, popups and menu items",
+      "qualification": "selected-not-executed",
+      "caveat": "the observable is conditional on the workspace folder being empty, because the defect is that the guessed extension is empty. The empty folder is therefore part of the identity, not incidental setup. The addButton accessibility identifier used by the upstream test is introduced alongside the fix, so the harness must address the control by role and position on the affected build or port the identifier and record it as an instrumentation delta",
+      "remaining": [
+        "confirm whether the addButton accessibility identifier exists at the affected revision and, if not, record porting it as an instrumentation delta rather than a behavior change",
+        "build both revisions with the shipped ad-hoc settings",
+        "dump the accessibility tree and confirm the transient row text field is exposed with a readable AXValue",
+        "state identity and authority, and minimize the trigger, pinning the empty workspace folder as part of the identity",
+        "run three affected reproductions and three fixed controls with reset evidence, using a fresh temporary folder per run",
+        "record neighboring legal behavior: in a folder containing .swift files the new file must be named untitled.swift on both builds"
       ]
     },
     {

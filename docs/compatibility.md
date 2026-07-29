@@ -60,7 +60,7 @@ Stable atomic targets: 5. Preview: 16. Experimental: 0.
 | Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 2 |
 | macOS Accessibility | Preview | schema-3 | macos | arm64 | 4 |
 | React Native Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
-| React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 3 |
+| React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |
 | SwiftUI iOS | Preview | schema-3 | ios-simulator | arm64 | 3 |
 | Tauri Linux | Preview | schema-3 | linux | x86_64 | 2 |
 | Terminal UI | Stable | schema-2 | linux | x86_64 | 0 |
@@ -68,7 +68,7 @@ Stable atomic targets: 5. Preview: 16. Experimental: 0.
 | Web Firefox | Stable | schema-2 | linux | x86_64 | 0 |
 | Web WebKit | Stable | schema-2 | linux | x86_64 | 0 |
 | Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
-| Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 4 |
+| Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 | Windows WPF | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 
 Every blocker, with its typed code and exact detail, is listed in

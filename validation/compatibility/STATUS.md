@@ -288,13 +288,9 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [product-coverage-missing] gate S2 selected 5 candidate defects but they come from only 1
-    application (BlueWallet). Stable requires two independent applications, and the qualification
-    record states no second application qualified, so this is a coverage limit rather than remaining
-    work on the application already selected
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 1
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed. 9 candidate defects across 2
+    independent applications (BlueWallet, Joplin) are qualified with verified revisions, but neither
+    has three clean affected reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
@@ -476,13 +472,9 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - [incomplete-evidence] no exact-commit evidence is recorded for the windows-uia native gate. The
     execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not
     been run and retained against the candidate commit
-  - [product-coverage-missing] gate S2 selected 5 candidate defects but they come from only 1
-    application (UniGetUI). Stable requires two independent applications, and the qualification
-    record states no second application with a usable defect history was found, so this is a
-    coverage limit rather than remaining work on the application already selected
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 1
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed. 8 candidate defects across 2
+    independent applications (DLSS Swapper, UniGetUI) are qualified with verified revisions, but
+    neither has three clean affected reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 

@@ -16,7 +16,7 @@
     "candidateDefectsMeaning": "merged pull requests closing an issue; for UniGetUI the count is restricted to pull requests merged before the Avalonia-only cutover so that it covers WinUI 3 revisions only",
     "frameworkVerification": "git clone --filter=blob:none --no-checkout, then git show <revision>:<project file> at every revision named in this record; a repository is never classified by its default branch",
     "executed": false,
-    "note": "the 127-entry winui candidate inventory does not survive re-classification: only two of its nine repositories are WinUI 3 applications at the revisions in question, and one of those two is rejected below"
+    "note": "the 127-entry winui candidate inventory does not survive re-classification: only two of its nine repositories are WinUI 3 applications at the revisions in question, and one of those two is rejected below. The second qualified application was not found in that inventory at all; it came from a separate GitHub code search for project files containing both UseWinUI and WindowsPackageType, which returned 2732 hits across 605 distinct repositories, ranked by whether the repository is an end-user application with an issue tracker that links its fixes"
   },
   "applicationPool": [
     {
@@ -25,6 +25,16 @@
       "decision": "qualify-with-containment",
       "reason": "src/UniGetUI/UniGetUI.csproj sets UseWinUI>true with WindowsPackageType None and WindowsAppSDKSelfContained true on net8.0-windows10.0.26100.0, verified at all ten revisions named below, so it is a real WinUI 3 application that runs unpackaged with no MSIX, no package identity and no signing certificate. Containment: package install, update and uninstall flows drive winget, scoop, chocolatey and npm and mutate machine state, so only settings, navigation, keyboard and package-list triggers are in bounds and the package managers must be left uninitialised or stubbed. The repository moved from marticliment/UniGetUI to Devolutions/UniGetUI",
       "candidateDefects": 76,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/beeradmoore/dlss-swapper",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "the second independent application. src/DLSS Swapper.csproj sets UseWinUI>true with WindowsPackageType None and WindowsAppSDKSelfContained true on net9.0-windows10.0.26100.0 and later net10.0-windows10.0.26100.0, and the repository contains zero Package.appxmanifest files at every revision named below, so there is no MSIX, no package identity and no signing certificate anywhere in the build. It is a real end-user desktop application, not a sample or a library. Containment: the product's headline action replaces DLSS, FSR and XeSS DLLs inside game install directories and can write NVIDIA driver profiles through NvAPI, which is state outside its own profile, so only settings, navigation, language, window-state and search triggers are in bounds and the run must start with an empty game library. Its own state lives under the user profile and it refuses to run elevated for import and export, so the in-bounds triggers touch nothing outside the profile. Build caveat: nuget.config adds the anonymous CommunityToolkit Labs feed on pkgs.dev.azure.com alongside nuget.org, needed for CommunityToolkit.Labs.WinUI.Controls.MarkdownTextBlock; both are public and unauthenticated but nuget.org alone is not sufficient",
+      "candidateDefects": 81,
+      "candidateDefectsBasis": "81 of the 190 merged pull requests cite a real issue number in their Issues Resolved section, 31 of those are marked as a bug fix, and GitHub auto-links four closed issues to a merged pull request. The offline, no-game, no-swap subset is far smaller; three pairs are verified below",
       "buildQualified": null,
       "buildEvidence": null
     },
@@ -296,20 +306,120 @@
         "bound the write to a disposable directory under the target work directory",
         "build both revisions in the native x86_64 Windows VM"
       ]
+    },
+    {
+      "id": "dlss-swapper-non-nvidia-crash-590",
+      "application": "DLSS Swapper",
+      "issueUrl": "https://github.com/beeradmoore/dlss-swapper/issues/590",
+      "issueTitle": "[BUG] Crash in v1.2 when trying to get to settings",
+      "pullRequestUrl": "https://github.com/beeradmoore/dlss-swapper/pull/603",
+      "pullRequestTitle": "Bugfix/non nvidia crash",
+      "affectedRevision": "d2dd9b987ee81faf5112d9346d90cbe8e43654f1",
+      "fixedRevision": "7351e0002a13fa7584b15387171487ce532710f5",
+      "changedFiles": [
+        "src/Helpers/NVAPIHelper.cs",
+        "src/DLSS Swapper.csproj",
+        "src/app.manifest",
+        "package/NSIS/Installer.nsi",
+        "package/build_Installer.cmd",
+        "package/build_Portable.cmd"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/DLSS Swapper.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, WindowsAppSDKSelfContained true, TargetFramework net9.0-windows10.0.26100.0, PackageReference Microsoft.WindowsAppSDK 1.7.250606001; the tree contains no Package.appxmanifest at either revision",
+        "verifiedAtRevision": "both d2dd9b987ee81faf5112d9346d90cbe8e43654f1 and 7351e0002a13fa7584b15387171487ce532710f5"
+      },
+      "build": {
+        "command": "dotnet build \"src/DLSS Swapper.csproj\" -c Release -p:Platform=x64",
+        "toolchain": ".NET 9 SDK with the 10.0.26100 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "the affected revision calls DriverSettingsSession.CreateAndLoad through NvAPIWrapper without first checking that nvapi64.dll can be loaded, so on a machine with no NVIDIA driver the process dies while opening the settings or game page. The fix probes the library with LoadLibrary and degrades instead. The native x86_64 Windows VM has no NVIDIA GPU, so the reproduction condition is the environment we already have rather than something the harness must fabricate, exactly as the react-native-ios offline-import candidate is defined by its offline path. The adapter drives it with one navigation action and one observation: click the settings item in the UI Automation navigation tree, then ask whether the window and its automation tree still exist. It is the cheapest possible liveness oracle and it needs no game library, no network and no swap",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the crash is a process exit rather than a caught exception, so the observable is a definite absent automation tree and not a timeout",
+        "issue 599, [BUG] 1.2.0.2 Crash on Game and Settings, reports the same fault on the game page and is closed by the same pull request; decide whether it can carry a second trigger or only widens this one",
+        "build both revisions in the native x86_64 Windows VM and record the exact SDK versions"
+      ]
+    },
+    {
+      "id": "dlss-swapper-logging-dropdown-750",
+      "application": "DLSS Swapper",
+      "issueUrl": "https://github.com/beeradmoore/dlss-swapper/issues/750",
+      "issueTitle": "[BUG] translation for text in logging dropdown",
+      "pullRequestUrl": "https://github.com/beeradmoore/dlss-swapper/pull/780",
+      "pullRequestTitle": "Bugfix/translated logging dropdown",
+      "affectedRevision": "9bedca5e405f42dd31e83c488dee2c9bce219462",
+      "fixedRevision": "7a2076ce1c7d21c96e5ace0d86117539fa2911b4",
+      "changedFiles": [
+        "src/Pages/SettingsPage.xaml",
+        "src/Pages/SettingsPageModel.cs",
+        "src/Data/ComboBoxOption.cs",
+        "src/Translations/en-US/Resources.resw",
+        "src/Translations/fr-FR/Resources.resw"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/DLSS Swapper.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, WindowsAppSDKSelfContained true, TargetFramework net10.0-windows10.0.26100.0, PackageReference Microsoft.WindowsAppSDK 1.8.251106002; the tree contains no Package.appxmanifest at either revision",
+        "verifiedAtRevision": "both 9bedca5e405f42dd31e83c488dee2c9bce219462 and 7a2076ce1c7d21c96e5ace0d86117539fa2911b4"
+      },
+      "build": {
+        "command": "dotnet build \"src/DLSS Swapper.csproj\" -c Release -p:Platform=x64",
+        "toolchain": ".NET 10 SDK with the 10.0.26100 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "the logging level combo box binds raw enum values on the affected revision, so its items stay untranslated and do not refresh when the language is changed; the fix routes them through a ComboBoxOption carrying a resource key. The trigger is two settings actions, pick a language then expand the logging combo box, and the observable is the Name property of the ComboBoxItem elements the WinUI automation tree exposes. It exercises the adapter's expand-collapse and selection patterns on a live XAML ItemsControl, needs no game library and touches nothing outside the application's own settings file",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the combo box items expose stable automation identifiers at both revisions rather than only localized names",
+        "bound the settings write to the application's own profile directory and reset it between runs",
+        "build both revisions in the native x86_64 Windows VM"
+      ]
+    },
+    {
+      "id": "dlss-swapper-minimized-window-position-829",
+      "application": "DLSS Swapper",
+      "issueUrl": "https://github.com/beeradmoore/dlss-swapper/issues/829",
+      "issueTitle": "DLSS Swapper opens but doesn't let me access it",
+      "pullRequestUrl": "https://github.com/beeradmoore/dlss-swapper/pull/830",
+      "pullRequestTitle": "Fixes an issue where closing a window while minimized won't yeet it to -32000 x/y pos",
+      "affectedRevision": "8cd0ccccce1470844d4e3f9294eecbbad3c25672",
+      "fixedRevision": "09bfaa388cbab84cf8f416576b6e401d64f98e10",
+      "changedFiles": [
+        "src/Data/WindowPositionRect.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/DLSS Swapper.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, WindowsAppSDKSelfContained true, TargetFramework net10.0-windows10.0.26100.0, PackageReference Microsoft.WindowsAppSDK 1.8.260101001; the tree contains no Package.appxmanifest at either revision",
+        "verifiedAtRevision": "both 8cd0ccccce1470844d4e3f9294eecbbad3c25672 and 09bfaa388cbab84cf8f416576b6e401d64f98e10"
+      },
+      "build": {
+        "command": "dotnet build \"src/DLSS Swapper.csproj\" -c Release -p:Platform=x64",
+        "toolchain": ".NET 10 SDK with the 10.0.26100 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "Windows parks a minimized window at x and y of -32000, and on the affected revision the persistence code stores that position on exit and restores it on the next launch, so the application starts permanently offscreen. The trigger is minimize, close, relaunch; the observable is the BoundingRectangle the window element reports to UI Automation, which is the most adapter-native geometric assertion available on Windows and cannot be read at all without a live automation tree. It is entirely offline, needs no game library and writes only the application's own settings file",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "prove the harness can minimize and restore the window through the UI Automation window pattern rather than through a raw Win32 call, otherwise the trigger leaves the target's own automation tree",
+        "pull request 838, Removed magic numbers and added fix to prevent erroneous window position being set when closing app from minimized state, is a second fix for the same issue 829 at affected 68f721fc06db8d885f687aca7e6857e882a1198d and fixed 0b3e36eb9936c6abff4a9ec7bad3b7dbe00c0869; it is held as a spare and deliberately not counted, because the gate has not decided whether two fixes for one issue are two defects",
+        "build both revisions in the native x86_64 Windows VM"
+      ]
     }
   ],
   "blockers": [
     {
-      "code": "product-coverage-missing",
-      "detail": "all five selected candidates come from one application, UniGetUI. The promotion policy requires two independent qualified applications, and the search did not find a second unpackaged WinUI 3 application with a usable defect history: Files is MSIX and signed, WinUI-Gallery is a sample, PowerToys and RyTuneX mutate machine state, Lively's WinUI project postdates its candidates, and DevToys is not WinUI at all. A second application is a hard prerequisite and is not solved by more work on UniGetUI",
-      "command": null,
-      "evidence": [
-        "reproit-lab/defect-candidates-winui.json"
-      ]
-    },
-    {
       "code": "incomplete-evidence",
-      "detail": "no build, launch or UI Automation evidence exists for any candidate in this record. Every revision pair, framework classification and license here was verified from repository data on the host; nothing has been executed in the native x86_64 Windows VM",
+      "detail": "no build, launch or UI Automation evidence exists for any candidate in this record, from either application. Every revision pair, framework classification and license here was verified from repository data on the host; nothing has been executed in the native x86_64 Windows VM",
       "command": null,
       "evidence": [
         "validation/field/qualification/infrastructure.json"
@@ -317,7 +427,7 @@
     },
     {
       "code": "product-coverage-missing",
-      "detail": "two of the five candidates close the same issue (3298) through two different surfaces. If the gate treats them as one defect, only four remain and there is no margin for a failure",
+      "detail": "two of the five UniGetUI candidates close the same issue (3298) through two different surfaces. If the gate treats them as one defect, UniGetUI drops to four and there is no margin for a failure. DLSS Swapper is unaffected: its three selected candidates close three distinct issues, and the fourth pair that shares issue 829 is held as a spare rather than counted",
       "command": null,
       "evidence": []
     }
