@@ -29,8 +29,10 @@
         "permissionGranted": true,
         "loadingIndicatorVisible": false,
         "emptyMediaViewVisible": true,
-        "sourceSha256": "sha256:f5ef7a685bb9733be9553e2e951b902168179bc7885ff90eead17290fcb47d86",
-        "screenshotSha256": "sha256:2d8408a3c025b60274c62b0ed5c307ee0d32c583952bfb94995c193f46126916",
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "17ef34c0-3598-41f8-8bf5-523108baf675",
+        "sourceSha256": "sha256:8e62bdbf2b4cc0cd481b169d3e25917924700f43bef7aefc2445cf5a04ada6fd",
+        "screenshotSha256": "sha256:a7fab7994311ecae1c7057f8e50110e806e5bc1dfd262dd1a4097ef75f8bdc90",
         "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
       }
     },
@@ -51,8 +53,10 @@
         "permissionGranted": true,
         "loadingIndicatorVisible": false,
         "emptyMediaViewVisible": true,
-        "sourceSha256": "sha256:f5ef7a685bb9733be9553e2e951b902168179bc7885ff90eead17290fcb47d86",
-        "screenshotSha256": "sha256:6dec6fc3644c3a736eac8773d578f591c2e5aa76616a9ec8ba8e75224e2c0304",
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "737a612a-7a82-4c05-89d1-37afb6acab0b",
+        "sourceSha256": "sha256:8e62bdbf2b4cc0cd481b169d3e25917924700f43bef7aefc2445cf5a04ada6fd",
+        "screenshotSha256": "sha256:fd67964da74aeaf25c98f25f7762a8c5bee83123886d73cefbb86ef10b571aa2",
         "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
       }
     },
@@ -74,8 +78,10 @@
         "searchTextRetained": false,
         "selectedCurrencyRetained": false,
         "defaultCurrencyVisible": true,
-        "sourceSha256": "sha256:467a582ed75e7b50dfdc6b30202e555bbd2b2c87201292cd0609452c0659abf1",
-        "screenshotSha256": "sha256:f68d3c549e6a898c924fad1334f5c90b2feeb664859f53fd20c7896e310d3732",
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "4aba0133-bd93-4683-93fa-8bdca2acacf3",
+        "sourceSha256": "sha256:308f5518abd651744e8afc0a1e503a181b25743880e2ff2d7e52039a8c42a45e",
+        "screenshotSha256": "sha256:a56712aafa2828856e36d93eb3339dac58281225723931acd12e468e832a66b6",
         "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
       }
     }

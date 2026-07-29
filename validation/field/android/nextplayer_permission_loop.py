@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import re
+import signal
 import shutil
+import socket
 import subprocess
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import TextIO
+from typing import Callable, TextIO
+from urllib import error, request
 
 AFFECTED_REVISION = "b00807bc0ba28b41365c5f4e41e0af2062e7715e"
 FIXED_REVISION = "b2875cc4d4e866912c04c26aff8b6fbff9e0de57"
@@ -24,7 +28,7 @@ FIXED_APK_SHA256 = (
     "db6c669e2e7f759034c571ebb9392accdfabf3ca1b85754fb033126ebb50789c"
 )
 PACKAGE = "dev.anilbeesetti.nextplayer.release"
-ACTIVITY = f"{PACKAGE}/dev.anilbeesetti.nextplayer.MainActivity"
+APP_ACTIVITY = "dev.anilbeesetti.nextplayer.MainActivity"
 PERMISSION = "android.permission.READ_MEDIA_VIDEO"
 IDENTITY = "compose-permission:clean-install-prompt-unreachable-loading"
 BOUNDS = re.compile(r"\[(\d+),(\d+)]\[(\d+),(\d+)]")
@@ -33,6 +37,7 @@ ALLOW_BUTTON_IDS = {
     "com.android.permissioncontroller:id/permission_allow_all_button",
     "com.android.permissioncontroller:id/permission_allow_foreground_only_button",
 }
+ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf"
 
 
 def run(
@@ -61,6 +66,234 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+class AppiumSession:
+    def __init__(
+        self,
+        appium_url: str,
+        udid: str,
+        package: str,
+        activity: str,
+    ) -> None:
+        self.appium_url = appium_url.rstrip("/")
+        self.requested_capabilities = {
+            "platformName": "Android",
+            "appium:automationName": "UiAutomator2",
+            "appium:udid": udid,
+            "appium:appPackage": package,
+            "appium:appActivity": activity,
+            "appium:noReset": True,
+            "appium:forceAppLaunch": True,
+            "appium:newCommandTimeout": 600,
+            "appium:adbExecTimeout": 120000,
+            "appium:disableWindowAnimation": True,
+        }
+        response = self._request(
+            "POST",
+            "/session",
+            {"capabilities": {"alwaysMatch": self.requested_capabilities}},
+        )
+        value = response.get("value", {})
+        self.session_id = value.get("sessionId") or response.get("sessionId")
+        if not isinstance(self.session_id, str) or not self.session_id:
+            raise RuntimeError(f"Appium returned no session id: {response!r}")
+        self.returned_capabilities = value.get("capabilities", {})
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict | None = None,
+        timeout: int = 120,
+    ) -> dict:
+        body = None if payload is None else json.dumps(payload).encode()
+        operation = request.Request(
+            f"{self.appium_url}{path}",
+            data=body,
+            method=method,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with request.urlopen(operation, timeout=timeout) as response:
+                result = json.loads(response.read().decode())
+        except error.HTTPError as failure:
+            detail = failure.read().decode(errors="replace")
+            raise RuntimeError(
+                f"Appium {method} {path} failed with {failure.code}: {detail}"
+            ) from failure
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Appium {method} {path} returned a non-object")
+        value = result.get("value")
+        if isinstance(value, dict) and value.get("error"):
+            raise RuntimeError(f"Appium {method} {path} failed: {value!r}")
+        return result
+
+    def close(self) -> None:
+        if not getattr(self, "session_id", None):
+            return
+        try:
+            self._request("DELETE", f"/session/{self.session_id}")
+        finally:
+            self.session_id = ""
+
+    def source(self) -> str:
+        result = self._request("GET", f"/session/{self.session_id}/source")
+        source = result.get("value")
+        if not isinstance(source, str):
+            raise RuntimeError("Appium source response was not text")
+        return source
+
+    def screenshot(self, output: Path) -> None:
+        result = self._request("GET", f"/session/{self.session_id}/screenshot")
+        encoded = result.get("value")
+        if not isinstance(encoded, str):
+            raise RuntimeError("Appium screenshot response was not base64 text")
+        output.write_bytes(base64.b64decode(encoded, validate=True))
+
+    def tap_bounds(self, bounds: str) -> None:
+        match = BOUNDS.fullmatch(bounds)
+        if match is None:
+            raise RuntimeError("requested UI node had no usable bounds")
+        left, top, right, bottom = map(int, match.groups())
+        actions = {
+            "actions": [
+                {
+                    "type": "pointer",
+                    "id": "finger",
+                    "parameters": {"pointerType": "touch"},
+                    "actions": [
+                        {
+                            "type": "pointerMove",
+                            "duration": 0,
+                            "origin": "viewport",
+                            "x": (left + right) // 2,
+                            "y": (top + bottom) // 2,
+                        },
+                        {"type": "pointerDown", "button": 0},
+                        {"type": "pause", "duration": 100},
+                        {"type": "pointerUp", "button": 0},
+                    ],
+                }
+            ]
+        }
+        self._request(
+            "POST",
+            f"/session/{self.session_id}/actions",
+            actions,
+        )
+        self._request("DELETE", f"/session/{self.session_id}/actions")
+
+    def find_element(self, using: str, value: str) -> str:
+        result = self._request(
+            "POST",
+            f"/session/{self.session_id}/element",
+            {"using": using, "value": value},
+        )
+        element = result.get("value", {}).get(ELEMENT_KEY)
+        if not isinstance(element, str) or not element:
+            raise RuntimeError("Appium returned no element id")
+        return element
+
+    def click(self, element: str) -> None:
+        self._request(
+            "POST",
+            f"/session/{self.session_id}/element/{element}/click",
+            {},
+        )
+
+    def send_keys(self, element: str, text: str) -> None:
+        self._request(
+            "POST",
+            f"/session/{self.session_id}/element/{element}/value",
+            {"text": text, "value": list(text)},
+        )
+
+    def hide_keyboard(self) -> None:
+        self._request(
+            "POST",
+            f"/session/{self.session_id}/appium/device/hide_keyboard",
+            {},
+        )
+
+    def set_orientation(self, orientation: str) -> None:
+        self._request(
+            "POST",
+            f"/session/{self.session_id}/orientation",
+            {"orientation": orientation.upper()},
+        )
+
+    def evidence(self) -> dict:
+        return {
+            "server": self.appium_url,
+            "sessionId": self.session_id,
+            "requestedCapabilities": self.requested_capabilities,
+            "returnedCapabilities": self.returned_capabilities,
+        }
+
+
+class AppiumServer:
+    def __init__(self, evidence: Path, label: str) -> None:
+        self.log = (evidence / f"{label}-appium.log").open("w", encoding="utf-8")
+        self.process: subprocess.Popen[str] | None = None
+        self.url = ""
+
+    def start(self) -> str:
+        port = None
+        for candidate_port in range(4723, 4755):
+            with socket.socket() as candidate:
+                try:
+                    candidate.bind(("127.0.0.1", candidate_port))
+                except OSError:
+                    continue
+                port = candidate_port
+                break
+        if port is None:
+            raise RuntimeError("no free Appium port in bounded range")
+        self.url = f"http://127.0.0.1:{port}"
+        self.process = subprocess.Popen(
+            [
+                "appium",
+                "--address",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--log-level",
+                "debug",
+                "--relaxed-security",
+            ],
+            text=True,
+            stdout=self.log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        for _ in range(120):
+            if self.process.poll() is not None:
+                raise RuntimeError("Appium exited before readiness")
+            try:
+                with request.urlopen(f"{self.url}/status", timeout=2) as response:
+                    if response.status == 200:
+                        return self.url
+            except (OSError, error.URLError):
+                time.sleep(0.25)
+        raise RuntimeError("Appium did not become ready within 30 seconds")
+
+    def stop(self) -> None:
+        if self.process is not None:
+            try:
+                os.killpg(self.process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.process.wait(timeout=10)
+            self.process = None
+        self.log.close()
 
 
 class Device:
@@ -209,30 +442,13 @@ class Device:
             pass
         shutil.rmtree(self.avd_home, ignore_errors=True)
 
-    def source(self) -> str:
-        self.adb_run(
-            "shell",
-            "uiautomator",
-            "dump",
-            "/sdcard/reproit-window.xml",
-            capture=True,
-            timeout=30,
-        )
-        return self.adb_run(
-            "exec-out",
-            "cat",
-            "/sdcard/reproit-window.xml",
-            capture=True,
-            timeout=30,
-        )
-
-    def grant_from_dialog(self, label: str) -> None:
+    def grant_from_dialog(self, session: AppiumSession, label: str) -> None:
         deadline = time.monotonic() + 30
         source = ""
         while time.monotonic() < deadline:
-            source = self.source()
+            source = session.source()
             root = ET.fromstring(source)
-            for node in root.iter("node"):
+            for node in root.iter():
                 resource_id = node.attrib.get("resource-id")
                 text = node.attrib.get("text", "")
                 if resource_id not in ALLOW_BUTTON_IDS and text not in {
@@ -241,17 +457,10 @@ class Device:
                     "While using the app",
                 }:
                     continue
-                match = BOUNDS.fullmatch(node.attrib.get("bounds", ""))
-                if match is None:
+                bounds = node.attrib.get("bounds", "")
+                if BOUNDS.fullmatch(bounds) is None:
                     continue
-                left, top, right, bottom = map(int, match.groups())
-                self.adb_run(
-                    "shell",
-                    "input",
-                    "tap",
-                    str((left + right) // 2),
-                    str((top + bottom) // 2),
-                )
+                session.tap_bounds(bounds)
                 return
             time.sleep(1)
         (self.evidence / f"{label}-permission-dialog.xml").write_text(
@@ -272,6 +481,28 @@ class Device:
         return f"{PERMISSION}: granted=true" in value
 
 
+def run_with_reset(
+    device: Device,
+    label: str,
+    observation: Callable[[], dict],
+) -> dict:
+    retry_reasons = []
+    for attempt in range(1, 4):
+        reset = device.reset_and_start(label)
+        try:
+            record = observation()
+        except RuntimeError as failure:
+            if "device offline" not in str(failure) or attempt == 3:
+                raise
+            retry_reasons.append(str(failure))
+            continue
+        record["device"] = reset
+        record["infrastructureAttempts"] = attempt
+        record["infrastructureRetryReasons"] = retry_reasons
+        return record
+    raise AssertionError("bounded infrastructure retry loop exhausted")
+
+
 def observe(
     device: Device,
     apk: Path,
@@ -285,23 +516,36 @@ def observe(
     if pregrant:
         device.adb_run("shell", "pm", "grant", PACKAGE, PERMISSION)
     device.adb_run("logcat", "-c")
-    device.adb_run("shell", "am", "start", "-W", "-n", ACTIVITY)
-    if not pregrant and expected_identity is None:
-        device.grant_from_dialog(label)
+    server = AppiumServer(device.evidence, label)
+    session = None
+    try:
+        appium_url = server.start()
+        session = AppiumSession(appium_url, device.udid, PACKAGE, APP_ACTIVITY)
+        appium = session.evidence()
+        if not pregrant and expected_identity is None:
+            device.grant_from_dialog(session, label)
 
-    source = ""
-    loading = False
-    empty = False
-    for _ in range(30):
-        source = device.source()
-        loading = 'class="android.widget.ProgressBar"' in source
-        empty = "No videos found" in source
-        expected_view_reached = (
-            loading if expected_identity is not None else empty
-        )
-        if expected_view_reached:
-            break
-        time.sleep(1)
+        source = ""
+        loading = False
+        empty = False
+        for _ in range(30):
+            source = session.source()
+            loading = 'class="android.widget.ProgressBar"' in source
+            empty = "No videos found" in source
+            expected_view_reached = (
+                loading if expected_identity is not None else empty
+            )
+            if expected_view_reached:
+                break
+            time.sleep(1)
+        screenshot = device.evidence / f"{label}-screen.png"
+        session.screenshot(screenshot)
+    finally:
+        try:
+            if session is not None:
+                session.close()
+        finally:
+            server.stop()
     window_state = device.adb_run(
         "shell",
         "dumpsys",
@@ -326,14 +570,6 @@ def observe(
             f"{label} identity was {identity!r}, expected {expected_identity!r}"
         )
 
-    screenshot = device.evidence / f"{label}-screen.png"
-    with screenshot.open("wb") as output:
-        subprocess.run(
-            [str(device.adb), "-s", device.udid, "exec-out", "screencap", "-p"],
-            check=True,
-            stdout=output,
-            timeout=30,
-        )
     logcat = device.adb_run(
         "logcat",
         "-d",
@@ -360,6 +596,7 @@ def observe(
         "emptyMediaViewVisible": empty,
         "sourceSha256": f"sha256:{hashlib.sha256(source.encode()).hexdigest()}",
         "screenshotSha256": f"sha256:{sha256(screenshot)}",
+        "appium": appium,
     }
 
 
@@ -378,8 +615,11 @@ def main() -> None:
     parser.add_argument("--affected-apk", required=True, type=Path)
     parser.add_argument("--fixed-apk", required=True, type=Path)
     parser.add_argument("--evidence", required=True, type=Path)
+    parser.add_argument("--cli-commit", required=True)
     parser.add_argument("--runs", type=int, choices=range(1, 4), default=3)
     args = parser.parse_args()
+    if re.fullmatch(r"[0-9a-f]{40}", args.cli_commit) is None:
+        parser.error("--cli-commit must be a full lowercase Git commit")
     validate_apk(args.affected_apk, AFFECTED_APK_SHA256)
     validate_apk(args.fixed_apk, FIXED_APK_SHA256)
     args.evidence.mkdir(parents=True, exist_ok=True)
@@ -395,18 +635,34 @@ def main() -> None:
         ):
             for index in range(1, args.runs + 1):
                 label = f"{variant}-{index}"
-                reset = device.reset_and_start(label)
-                record = observe(device, apk, label, expected, False)
-                record["device"] = reset
+                record = run_with_reset(
+                    device,
+                    label,
+                    lambda: observe(
+                        device,
+                        apk,
+                        label,
+                        expected,
+                        False,
+                    ),
+                )
                 records.append(record)
         for variant, apk in (
             ("affected", args.affected_apk),
             ("fixed", args.fixed_apk),
         ):
             label = f"neighbor-{variant}"
-            reset = device.reset_and_start(label)
-            record = observe(device, apk, label, None, True)
-            record["device"] = reset
+            record = run_with_reset(
+                device,
+                label,
+                lambda: observe(
+                    device,
+                    apk,
+                    label,
+                    None,
+                    True,
+                ),
+            )
             neighbors[variant] = record
     finally:
         device.stop()
@@ -414,6 +670,7 @@ def main() -> None:
     result = {
         "schemaVersion": 1,
         "target": "compose-android",
+        "cliCommit": args.cli_commit,
         "application": "nextplayer",
         "repository": "https://github.com/anilbeesetti/nextplayer",
         "issue": "https://github.com/anilbeesetti/nextplayer/issues/1820",
@@ -436,6 +693,7 @@ def main() -> None:
         ),
         "runtime": {
             "platform": "android-emulator/x86_64",
+            "automation": "Appium UiAutomator2",
             "apiLevel": 36,
             "avd": device.name,
             "network": "none",

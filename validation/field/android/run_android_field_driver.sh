@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XVFB_PID=""
 
 stop_process() {
@@ -48,10 +49,11 @@ if [[ "$ready" != 1 ]]; then
   exit 1
 fi
 
-python3 "/campaign/scripts/$REPROIT_FIELD_DRIVER" \
+python3 "$SCRIPT_DIR/$REPROIT_FIELD_DRIVER" \
   --sdk /android-sdk \
   --avd-home "$REPROIT_FIELD_AVD_HOME" \
   --affected-apk "$REPROIT_FIELD_AFFECTED_APK" \
   --fixed-apk "$REPROIT_FIELD_FIXED_APK" \
   --evidence "$REPROIT_FIELD_EVIDENCE" \
+  --cli-commit "$REPROIT_FIELD_CLI_COMMIT" \
   --runs "${REPROIT_FIELD_RUNS:-3}"

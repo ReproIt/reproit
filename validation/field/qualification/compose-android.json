@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "compose-android",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "campaign-complete",
   "declaredBounds": {
     "os": "android",
     "arch": "x86_64",
@@ -23,8 +23,8 @@
       "decision": "qualify",
       "reason": "Jetpack Compose application at every selected revision: app/build.gradle.kts declares alias(libs.plugins.composeCompiler), buildFeatures compose = true, platform(libs.androidx.compose.bom), libs.androidx.compose.ui and libs.androidx.activity.compose. It is a local media player over MediaStore, so every core flow runs offline with no account and no Play Services; only the optional network and SMB browsing feature would need a LAN",
       "candidateDefects": 6,
-      "buildQualified": null,
-      "buildEvidence": null,
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/nextplayer-permission-loop-1825.json",
       "releaseApk": {
         "buildsWithoutSigningSecrets": true,
         "signing": "app/build.gradle.kts declares only a debug signingConfig, backed by the committed app/debug.keystore with storePassword android and keyAlias androiddebugkey, and a build type release-with-debug-signing that does initWith(getByName(\"release\")) then signingConfig = signingConfigs.getByName(\"debug\")",
@@ -38,8 +38,8 @@
       "decision": "qualify",
       "reason": "Jetpack Compose application at every selected revision: app/build.gradle declares the org.jetbrains.kotlin.plugin.compose plugin, buildFeatures compose true, a compose-bom platform, androidx.activity:activity-compose and androidx.lifecycle:lifecycle-viewmodel-compose. It is a local savings-goal tracker on Room with no account, no network and no Play Services, so the entire product runs on an air-gapped AVD",
       "candidateDefects": 6,
-      "buildQualified": null,
-      "buildEvidence": null,
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/greenstash-currency-picker-rotation-225.json",
       "releaseApk": {
         "buildsWithoutSigningSecrets": false,
         "signing": "app/build.gradle contains no signingConfigs block at all and the release build type sets no signingConfig, so assembleRelease emits an unsigned APK",
@@ -206,10 +206,11 @@
       "affectedRevision": "b00807bc0ba28b41365c5f4e41e0af2062e7715e",
       "fixedRevision": "b2875cc4d4e866912c04c26aff8b6fbff9e0de57",
       "whySuitable": "MediaPickerScreen relied on the rememberPermissionState onPermissionResult callback to dispatch OnPermissionAccepted. On a clean install that callback did not fire the way the screen assumed, so the composable stayed in DataState.Loading forever and the user saw a spinner that never resolved. The fix replaces the callback with a LaunchedEffect keyed on permissionState.status.isGranted and hoists the permission branch above the data branch. On the affected build the loading branch is composed before PermissionMissingView, so the system permission dialog is unreachable; on the fixed build the dialog is reachable and accepting it exposes the empty media view. The observable is semantic, not pixel: the affected build retains a progress indicator and never exposes the empty media node, while the fixed build exposes the empty media node. A qualifying replay must drive and read those nodes through Appium UiAutomator2, since a Compose hierarchy reaches UiAutomator2 through the semantics-to-accessibility bridge",
-      "qualification": "direct-uiautomator-campaign-complete-appium-rerun-required",
-      "remaining": [
-        "rerun the three affected and three fixed observations through Appium UiAutomator2 instead of direct adb shell uiautomator",
-        "retain the Appium session capabilities and structured evidence in the repository"
+      "qualification": "campaign-complete",
+      "remaining": [],
+      "evidence": [
+        "validation/field/evidence/nextplayer-permission-loop-1825.json",
+        "validation/field/evidence/nextplayer-permission-loop-1825.md"
       ]
     },
     {
@@ -259,10 +260,11 @@
       "affectedRevision": "eeb3bc077f796ce45cae66c45a00c82def9ee599",
       "fixedRevision": "78a1cf4aaa5a673e50bc54f9bbed66d4e6514200",
       "whySuitable": "the currency picker held its selection and its search text in plain remember, so an activity recreation discarded both and the onboarding screen snapped back to the default currency with an empty search field. The fix is precisely rememberSaveable. This is the canonical Compose state-restoration defect and it needs a real device event that only the emulator can deliver, a configuration change, so it exercises the adapter's ability to hold an observation across an Android activity recreation and then re-resolve Compose semantics nodes on the recomposed tree. It is also a second, independent application, and its defect class is state loss rather than state that never advances",
-      "qualification": "direct-uiautomator-campaign-complete-appium-rerun-required",
-      "remaining": [
-        "rerun the three affected and three fixed observations through Appium UiAutomator2 instead of direct adb shell uiautomator",
-        "retain the Appium session capabilities and structured evidence in the repository"
+      "qualification": "campaign-complete",
+      "remaining": [],
+      "evidence": [
+        "validation/field/evidence/greenstash-currency-picker-rotation-225.json",
+        "validation/field/evidence/greenstash-currency-picker-rotation-225.md"
       ]
     },
     {
@@ -285,29 +287,7 @@
       ]
     }
   ],
-  "blockers": [
-    {
-      "code": "product-coverage-missing",
-      "kind": "candidate-inventory-thin",
-      "detail": "reproit-lab/defect-candidates-android.json holds only 20 entries across 4 repositories and none of them survived qualification: rethink-app and Pixiv-Shaft are View-based at their candidate revisions and not Compose at all, Alerter is a library, and the only issue-linked SimpMusic candidate is a desktop crash. Every defect selected here comes from repositories discovered during this gate, so the inventory file should be regenerated against the qualified pool before the campaign runs",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "kind": "adapter-path-missing",
-      "detail": "NextPlayer issue 1820 and GreenStash issue 213 each passed three affected runs, three fixed controls, and neighboring legal behavior on reset API 36 x86_64 AVDs, but the campaign used direct adb shell uiautomator and adb input. The declared target is Appium UiAutomator2, so these application runs cannot complete the target field benchmark until they are replayed through Appium and the session capabilities are retained",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "kind": "artifact-mismatch-risk",
-      "detail": "only one of the two selected applications produces an installable release-configuration APK with no signing secret. nextplayer has a release-with-debug-signing build type that is minified and shrunk like release, but it carries applicationIdSuffix .release, so the campaign observes a different application id from the shipped build. GreenStash declares no signingConfigs at all, so its release APK is unsigned and the campaign must install the debug variant. Whichever artifact is used has to be named in the evidence rather than described as the release build",
-      "command": null,
-      "evidence": []
-    }
-  ],
+  "blockers": [],
   "verification": {
     "method": "each repository was cloned with git clone --filter=blob:none --no-checkout, every affectedRevision and fixedRevision was confirmed with git cat-file -t, Compose identity was confirmed by reading app/build.gradle or app/build.gradle.kts at the affected revision rather than at HEAD, and every issue title, pull request title, merge state and merge parent was read back from the GitHub API",
     "frameworkEvidence": [

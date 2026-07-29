@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "compose-android",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "nextplayer",
+      "repository": "https://github.com/anilbeesetti/nextplayer",
+      "issueUrl": "https://github.com/anilbeesetti/nextplayer/issues/1820",
+      "affectedRevision": "b00807bc0ba28b41365c5f4e41e0af2062e7715e",
+      "fixedRevision": "b2875cc4d4e866912c04c26aff8b6fbff9e0de57",
+      "authority": "platform",
+      "expectedIdentity": "compose-permission:clean-install-prompt-unreachable-loading",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "compose-permission:clean-install-prompt-unreachable-loading",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "compose-permission:clean-install-prompt-unreachable-loading",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "compose-permission:clean-install-prompt-unreachable-loading",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 372,
+        "replaySecondsP95": 14.555,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/nextplayer-permission-loop-1825.json",
+        "validation/field/evidence/nextplayer-permission-loop-1825.md"
+      ]
+    },
+    {
+      "id": "greenstash",
+      "repository": "https://github.com/Pool-Of-Tears/GreenStash",
+      "issueUrl": "https://github.com/Pool-Of-Tears/GreenStash/issues/213",
+      "affectedRevision": "eeb3bc077f796ce45cae66c45a00c82def9ee599",
+      "fixedRevision": "78a1cf4aaa5a673e50bc54f9bbed66d4e6514200",
+      "authority": "authored-contract",
+      "expectedIdentity": "compose-state:currency-picker-dismissed-on-rotation",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "compose-state:currency-picker-dismissed-on-rotation",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "compose-state:currency-picker-dismissed-on-rotation",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "compose-state:currency-picker-dismissed-on-rotation",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 244,
+        "replaySecondsP95": 27.966,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/greenstash-currency-picker-rotation-225.json",
+        "validation/field/evidence/greenstash-currency-picker-rotation-225.md"
+      ]
+    }
+  ]
+}

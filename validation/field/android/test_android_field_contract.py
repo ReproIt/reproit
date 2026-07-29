@@ -16,6 +16,7 @@ SPEC = importlib.util.spec_from_file_location("nextplayer_permission_loop", MODU
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+GREENSTASH = Path(__file__).with_name("greenstash_currency_rotation.py")
 
 
 class AndroidFieldContractTests(unittest.TestCase):
@@ -47,6 +48,52 @@ class AndroidFieldContractTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("unsupported Android field driver", result.stderr)
+
+    def test_real_app_ui_is_driven_through_appium(self) -> None:
+        nextplayer = MODULE_PATH.read_text(encoding="utf-8")
+        greenstash = GREENSTASH.read_text(encoding="utf-8")
+
+        self.assertIn('"appium:automationName": "UiAutomator2"', nextplayer)
+        self.assertIn('session.set_orientation("LANDSCAPE")', greenstash)
+        self.assertNotIn('"uiautomator",', nextplayer)
+        self.assertNotIn('"input", "tap"', nextplayer)
+        self.assertNotIn('"input", "text"', greenstash)
+        self.assertNotIn('"wm", "user-rotation"', greenstash)
+
+    def test_runner_requires_exact_cli_commit_provenance(self) -> None:
+        runner = Path(__file__).with_name("run_android_field_driver.sh")
+        source = runner.read_text(encoding="utf-8")
+
+        self.assertIn('--cli-commit "$REPROIT_FIELD_CLI_COMMIT"', source)
+
+    def test_only_device_offline_transport_is_retried(self) -> None:
+        device = mock.Mock()
+        device.reset_and_start.side_effect = [
+            {"attempt": 1},
+            {"attempt": 2},
+        ]
+        observation = mock.Mock(
+            side_effect=[
+                RuntimeError("Appium session failed: adb: device offline"),
+                {"status": "reproduced"},
+            ]
+        )
+
+        record = MODULE.run_with_reset(device, "affected-1", observation)
+
+        self.assertEqual(record["infrastructureAttempts"], 2)
+        self.assertEqual(len(record["infrastructureRetryReasons"]), 1)
+        self.assertEqual(device.reset_and_start.call_count, 2)
+
+    def test_semantic_failure_is_not_retried(self) -> None:
+        device = mock.Mock()
+        device.reset_and_start.return_value = {"attempt": 1}
+        observation = mock.Mock(side_effect=RuntimeError("identity mismatch"))
+
+        with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
+            MODULE.run_with_reset(device, "affected-1", observation)
+
+        observation.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -6,12 +6,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import subprocess
+import re
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from nextplayer_permission_loop import BOUNDS, Device, sha256
+from nextplayer_permission_loop import (
+    AppiumServer,
+    AppiumSession,
+    BOUNDS,
+    Device,
+    run_with_reset,
+    sha256,
+)
 
 AFFECTED_REVISION = "eeb3bc077f796ce45cae66c45a00c82def9ee599"
 FIXED_REVISION = "78a1cf4aaa5a673e50bc54f9bbed66d4e6514200"
@@ -22,16 +29,22 @@ FIXED_APK_SHA256 = (
     "3c06ce1ada421dae3bb1715c3f6c0d49f144fb4e9e340e0075f79fa1a0b6d56e"
 )
 PACKAGE = "com.starry.greenstash"
-ACTIVITY = f"{PACKAGE}/.MainActivity"
+APP_ACTIVITY = ".MainActivity"
 IDENTITY = "compose-state:currency-picker-dismissed-on-rotation"
 DEFAULT_CURRENCY = "US Dollar ($)"
 SELECTED_CURRENCY = "Japanese Yen (¥)"
 
 
-def wait_source(device: Device, predicate, label: str, seconds: int = 30) -> str:
+def wait_source(
+    session: AppiumSession,
+    device: Device,
+    predicate,
+    label: str,
+    seconds: int = 30,
+) -> str:
     source = ""
     for _ in range(seconds):
-        source = device.source()
+        source = session.source()
         if predicate(source):
             return source
         time.sleep(1)
@@ -40,38 +53,27 @@ def wait_source(device: Device, predicate, label: str, seconds: int = 30) -> str
     raise RuntimeError(f"{label} UI condition did not become true")
 
 
-def tap_node(device: Device, source: str, predicate) -> None:
+def tap_node(session: AppiumSession, source: str, predicate) -> None:
     root = ET.fromstring(source)
     parents = {child: parent for parent in root.iter() for child in parent}
-    selected = next((node for node in root.iter("node") if predicate(node.attrib)), None)
+    selected = next((node for node in root.iter() if predicate(node.attrib)), None)
     if selected is None:
         raise RuntimeError("requested UI node was absent")
     while selected.attrib.get("clickable") != "true" and selected in parents:
         selected = parents[selected]
-    match = BOUNDS.fullmatch(selected.attrib.get("bounds", ""))
-    if match is None:
-        raise RuntimeError("requested UI node had no usable bounds")
-    left, top, right, bottom = map(int, match.groups())
-    device.adb_run(
-        "shell",
-        "input",
-        "tap",
-        str((left + right) // 2),
-        str((top + bottom) // 2),
-    )
+    session.tap_bounds(selected.attrib.get("bounds", ""))
 
 
-def save_observation(device: Device, label: str, source: str) -> dict:
+def save_observation(
+    session: AppiumSession,
+    device: Device,
+    label: str,
+    source: str,
+) -> dict:
     source_path = device.evidence / f"{label}-source.xml"
     source_path.write_text(source, encoding="utf-8")
     screenshot = device.evidence / f"{label}-screen.png"
-    with screenshot.open("wb") as output:
-        subprocess.run(
-            [str(device.adb), "-s", device.udid, "exec-out", "screencap", "-p"],
-            check=True,
-            stdout=output,
-            timeout=30,
-        )
+    session.screenshot(screenshot)
     logcat = device.adb_run(
         "logcat",
         "-d",
@@ -99,47 +101,104 @@ def observe(
     device.adb_run("uninstall", PACKAGE, capture=True, check=False)
     device.adb_run("install", str(apk), timeout=180)
     device.adb_run("logcat", "-c")
-    device.adb_run("shell", "am", "start", "-W", "-n", ACTIVITY)
-    source = wait_source(
-        device,
-        lambda value: DEFAULT_CURRENCY in value,
-        f"{label}-welcome",
-    )
-    if not neighboring:
-        tap_node(device, source, lambda attributes: attributes.get("text") == DEFAULT_CURRENCY)
+    server = AppiumServer(device.evidence, label)
+    session = None
+    try:
+        appium_url = server.start()
+        session = AppiumSession(appium_url, device.udid, PACKAGE, APP_ACTIVITY)
+        appium = session.evidence()
         source = wait_source(
+            session,
             device,
-            lambda value: "Search currency" in value,
-            f"{label}-picker",
+            lambda value: DEFAULT_CURRENCY in value,
+            f"{label}-welcome",
         )
-        tap_node(
-            device,
-            source,
-            lambda attributes: attributes.get("class") == "android.widget.EditText",
-        )
-        time.sleep(1)
-        device.adb_run("shell", "input", "text", "Yen")
-        source = wait_source(
-            device,
-            lambda value: SELECTED_CURRENCY in value and 'text="Yen"' in value,
-            f"{label}-search",
-        )
-        tap_node(
-            device,
-            source,
-            lambda attributes: attributes.get("text") == SELECTED_CURRENCY,
-        )
-        wait_source(
-            device,
-            lambda value: (
-                SELECTED_CURRENCY in value and 'checked="true"' in value
-            ),
-            f"{label}-selected",
-        )
+        if not neighboring:
+            tap_node(
+                session,
+                source,
+                lambda attributes: attributes.get("text") == DEFAULT_CURRENCY,
+            )
+            source = wait_source(
+                session,
+                device,
+                lambda value: "Search currency" in value,
+                f"{label}-picker",
+            )
+            edit_text = session.find_element(
+                "class name",
+                "android.widget.EditText",
+            )
+            session.click(edit_text)
+            session.send_keys(edit_text, "Yen")
+            source = wait_source(
+                session,
+                device,
+                lambda value: (
+                    SELECTED_CURRENCY in value and 'text="Yen"' in value
+                ),
+                f"{label}-search",
+            )
+            session.hide_keyboard()
+            source = wait_source(
+                session,
+                device,
+                lambda value: (
+                    SELECTED_CURRENCY in value and 'text="Yen"' in value
+                ),
+                f"{label}-keyboard-hidden",
+            )
+            for attempt in range(3):
+                tap_node(
+                    session,
+                    source,
+                    lambda attributes: (
+                        attributes.get("text") == SELECTED_CURRENCY
+                    ),
+                )
+                try:
+                    wait_source(
+                        session,
+                        device,
+                        lambda value: (
+                            SELECTED_CURRENCY in value
+                            and 'checked="true"' in value
+                        ),
+                        f"{label}-selected",
+                        seconds=10,
+                    )
+                    break
+                except RuntimeError:
+                    if attempt == 2:
+                        raise
+                    source = session.source()
 
-    device.adb_run("shell", "wm", "user-rotation", "lock", "1")
-    time.sleep(3)
-    source = device.source()
+        session.set_orientation("LANDSCAPE")
+        if neighboring or expected_identity is not None:
+            rotated = lambda value: (
+                DEFAULT_CURRENCY in value
+                and 'class="android.widget.EditText"' not in value
+            )
+        else:
+            rotated = lambda value: (
+                'class="android.widget.EditText"' in value
+                and 'text="Yen"' in value
+                and SELECTED_CURRENCY in value
+                and 'checked="true"' in value
+            )
+        source = wait_source(
+            session,
+            device,
+            rotated,
+            f"{label}-rotation",
+        )
+        retained = save_observation(session, device, label, source)
+    finally:
+        try:
+            if session is not None:
+                session.close()
+        finally:
+            server.stop()
     foreground = f'package="{PACKAGE}"' in source
     picker_visible = 'class="android.widget.EditText"' in source
     search_retained = 'text="Yen"' in source
@@ -157,7 +216,6 @@ def observe(
     else:
         observation_reached = foreground and default_visible and not picker_visible
         identity = IDENTITY if observation_reached else None
-    retained = save_observation(device, label, source)
     if not observation_reached:
         raise RuntimeError(f"{label} did not reach the rotation observation")
     if identity != expected_identity:
@@ -179,6 +237,7 @@ def observe(
         "selectedCurrencyRetained": selected_retained,
         "defaultCurrencyVisible": default_visible,
         **retained,
+        "appium": appium,
     }
 
 
@@ -194,8 +253,11 @@ def main() -> None:
     parser.add_argument("--affected-apk", required=True, type=Path)
     parser.add_argument("--fixed-apk", required=True, type=Path)
     parser.add_argument("--evidence", required=True, type=Path)
+    parser.add_argument("--cli-commit", required=True)
     parser.add_argument("--runs", type=int, choices=range(1, 4), default=3)
     args = parser.parse_args()
+    if re.fullmatch(r"[0-9a-f]{40}", args.cli_commit) is None:
+        parser.error("--cli-commit must be a full lowercase Git commit")
     validate_apk(args.affected_apk, AFFECTED_APK_SHA256)
     validate_apk(args.fixed_apk, FIXED_APK_SHA256)
     args.evidence.mkdir(parents=True, exist_ok=True)
@@ -210,15 +272,31 @@ def main() -> None:
         ):
             for index in range(1, args.runs + 1):
                 label = f"{variant}-{index}"
-                reset = device.reset_and_start(label)
-                record = observe(device, apk, label, expected, False)
-                record["device"] = reset
+                record = run_with_reset(
+                    device,
+                    label,
+                    lambda: observe(
+                        device,
+                        apk,
+                        label,
+                        expected,
+                        False,
+                    ),
+                )
                 records.append(record)
         for variant, apk in (("affected", args.affected_apk), ("fixed", args.fixed_apk)):
             label = f"neighbor-{variant}"
-            reset = device.reset_and_start(label)
-            record = observe(device, apk, label, None, True)
-            record["device"] = reset
+            record = run_with_reset(
+                device,
+                label,
+                lambda: observe(
+                    device,
+                    apk,
+                    label,
+                    None,
+                    True,
+                ),
+            )
             neighbors[variant] = record
     finally:
         device.stop()
@@ -226,6 +304,7 @@ def main() -> None:
     result = {
         "schemaVersion": 1,
         "target": "compose-android",
+        "cliCommit": args.cli_commit,
         "application": "greenstash",
         "repository": "https://github.com/Pool-Of-Tears/GreenStash",
         "issue": "https://github.com/Pool-Of-Tears/GreenStash/issues/213",
@@ -247,6 +326,7 @@ def main() -> None:
         ),
         "runtime": {
             "platform": "android-emulator/x86_64",
+            "automation": "Appium UiAutomator2",
             "apiLevel": 36,
             "avd": device.name,
             "network": "none",
