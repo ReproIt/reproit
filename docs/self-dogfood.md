@@ -3,7 +3,7 @@
 Reproit reproduces, proves, and retains its own defects with Reproit. This
 document is the enforceable version of that rule. The gate is
 `validation/self-dogfood/check-fix-policy.py`, run by the `dogfood-policy` CI
-job on every pull request.
+job on every pull request and direct push.
 
 ## The rule
 
@@ -102,11 +102,13 @@ record the retirement.
 ## Guard execution order in CI
 
 Changed guards run first for fast feedback. The complete required corpus runs
-before merge, under `--strict`, so a quarantined guard's failure blocks too.
+before merge and again on direct pushes. The corpus runner validates every
+committed guard directory, selects required guards, and replays each explicitly
+under `--strict` with three runs.
 
 ```sh
-reproit --json --yes check @self-dogfood-cli-backend-root --runs 3
-reproit --json --yes check --strict --runs 3
+target/debug/reproit --json --yes check self-dogfood-cli-backend-root --runs 3
+python3 validation/self-dogfood/run-required-guards.py target/debug/reproit
 ```
 
 A guard passes only under the `exact-observation-v1` contract: every run

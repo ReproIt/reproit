@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("check-fix-policy.py")
+WORKFLOW = SCRIPT.parents[2] / ".github/workflows/ci.yml"
 SPEC = importlib.util.spec_from_file_location("check_fix_policy", SCRIPT)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"cannot load {SCRIPT}")
@@ -87,6 +88,15 @@ class FixPolicyTests(unittest.TestCase):
     def test_two_declarations_are_ambiguous_and_fail(self) -> None:
         self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
         self.commit("Fix\n\nReproit-Dogfood: not-a-fix\nReproit-Dogfood: not-a-fix\n")
+        with self.assertRaisesRegex(MODULE.PolicyError, "exactly one"):
+            self.review()
+
+    def test_every_commit_in_a_multi_commit_push_is_reviewed(self) -> None:
+        self.write("crates/reproit/src/lib.rs", "fn one() {}\n")
+        self.commit("Change one\n\nReproit-Dogfood: not-a-fix\n")
+        self.write("crates/reproit/src/lib.rs", "fn two() {}\n")
+        self.commit("Fix two without a declaration")
+
         with self.assertRaisesRegex(MODULE.PolicyError, "exactly one"):
             self.review()
 
@@ -214,6 +224,35 @@ class FixPolicyTests(unittest.TestCase):
         self.commit("Fix\n\nReproit-Dogfood: trust-me\n")
         with self.assertRaisesRegex(MODULE.PolicyError, "unknown declaration"):
             self.review()
+
+
+class FixPolicyWorkflowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workflow = WORKFLOW.read_text(encoding="utf-8")
+        start = self.workflow.index("  dogfood-policy:")
+        end = self.workflow.index("\n  windows-build:", start)
+        self.job = self.workflow[start:end]
+
+    def test_policy_runs_for_pull_requests_and_pushes(self) -> None:
+        self.assertIn(
+            "if: github.event_name == 'pull_request' || "
+            "github.event_name == 'push'",
+            self.job,
+        )
+
+    def test_policy_uses_immutable_event_ranges_with_full_history(self) -> None:
+        for expression in (
+            "github.event.pull_request.base.sha",
+            "github.event.pull_request.head.sha",
+            "github.event.before",
+            "github.event.after",
+            "fetch-depth: 0",
+            '--base "$POLICY_BASE"',
+            '--head "$POLICY_HEAD"',
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, self.job)
+        self.assertNotIn("github.base_ref", self.job)
 
 
 if __name__ == "__main__":

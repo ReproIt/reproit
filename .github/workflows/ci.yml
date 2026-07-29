@@ -44,9 +44,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-      # Changed guards first for fast feedback, then the complete required
-      # corpus. --strict makes a quarantined failure block too, so a guard
-      # cannot be silently downgraded into a passing suite.
+      # Changed guards run first for fast feedback. The corpus runner then
+      # selects every required guard from committed metadata and replays each
+      # one explicitly under --strict with three runs.
       - name: Replay changed Reproit self-dogfood guards first
         env:
           REPROIT_NO_UPDATE_CHECK: "1"
@@ -56,9 +56,13 @@ jobs:
       - name: Replay the complete required self-dogfood guard corpus
         env:
           REPROIT_NO_UPDATE_CHECK: "1"
-        run: target/debug/reproit --json --yes check --strict --runs 3
-      - name: Test the self-dogfood bug-fix declaration policy
-        run: python3 validation/self-dogfood/test_check_fix_policy.py
+        run: |
+          python3 validation/self-dogfood/run-required-guards.py \
+            target/debug/reproit
+      - name: Test the self-dogfood validation scripts
+        run: |
+          python3 -m unittest discover \
+            -s validation/self-dogfood -p 'test_*.py'
       - name: Test production-to-local chain retention and redaction
         run: node --test validation/cloud/retain-production-chain.test.mjs
       - name: Test native release evidence validation
@@ -88,25 +92,35 @@ jobs:
           cargo install cargo-audit --locked
           cargo audit
 
-  # Gate D4. Every commit that changes production source must declare how its
-  # defect is proven: a committed required guard, a typed eligibility
-  # exception with retained evidence, an explicit no-stable-reproduction
-  # explanation plus an independent regression test, or an explicit not-a-fix.
-  # A missing declaration fails; it is never an implicit exception. The same
-  # gate refuses any change that removes or downgrades a required guard
-  # without a declared, recorded retirement.
+  # Gate D4 runs for pull requests and direct pushes. Every commit that changes
+  # production source must declare how its defect is proven: a committed
+  # required guard, a typed eligibility exception with retained evidence, an
+  # explicit no-stable-reproduction explanation plus an independent regression
+  # test, or an explicit not-a-fix. A missing declaration fails; it is never an
+  # implicit exception. The same gate refuses any change that removes or
+  # downgrades a required guard without a declared, recorded retirement.
   dogfood-policy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    env:
+      POLICY_BASE: >-
+        ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.base.sha
+            || github.event.before }}
+      POLICY_HEAD: >-
+        ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.head.sha
+            || github.event.after }}
     steps:
       - uses: actions/checkout@v6
         with:
+          # The immutable event endpoints can be outside a shallow checkout.
           fetch-depth: 0
       - name: Enforce the self-dogfood bug-fix declaration policy
         run: |
           python3 validation/self-dogfood/check-fix-policy.py \
-            --base "origin/${{ github.base_ref }}" \
-            --head "${{ github.event.pull_request.head.sha }}"
+            --base "$POLICY_BASE" \
+            --head "$POLICY_HEAD"
 
   # The Windows desktop runner (`reproit __uia`, cfg(windows)) only compiles on
   # a Windows host, so the ubuntu `rust` job above never touches uia.rs. Compile
