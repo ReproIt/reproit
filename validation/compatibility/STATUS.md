@@ -4,11 +4,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Backend contracts
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Bounded backend scan, fuzz, replay, proof, and runtime capture
 - Promotion standard: schema-3
 - Native gates: backend-contract
-- Field benchmark: incomplete
+- Field benchmark: validation/field/backend-contract.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: linux
@@ -16,16 +16,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: HTTP, OpenAPI
 - Frameworks: Backend services
 - Qualifications:
-  - cleanCorpus: ci-gate
-  - adversarialCorpus: ci-gate
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 6 candidate defects across 4
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Jetpack Compose Android
 

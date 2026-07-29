@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "gateId": "backend-contract",
+  "commit": "9f1815ee26c35bf5d1b9b36ae7713b325b98317a",
+  "startedAt": "2026-07-29T15:46:20.302065Z",
+  "finishedAt": "2026-07-29T15:47:59.199872Z",
+  "executor": {
+    "os": "linux",
+    "architecture": "x86_64"
+  },
+  "targetOs": "linux",
+  "architectures": [
+    "x86_64"
+  ],
+  "fixture": "validation/backend/cli-e2e",
+  "command": [
+    "bash",
+    "validation/backend/cli-e2e/run.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "real reproit scan backend contract gate passed": true
+  },
+  "resetStrategy": "fresh loopback service and empty Reproit state per case",
+  "cleanupStrategy": "owned service process and Reproit state removed by EXIT trap",
+  "logSha256": "cb769ea7ad161967e84223a0e715312242dbb6e07e2a6a5dc7b93e42a4a6d1c3",
+  "logPath": "/evidence/backend-contract.log"
+}

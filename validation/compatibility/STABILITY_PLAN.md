@@ -118,6 +118,7 @@ These targets are not finished merely because they are already Stable. They must
 the current exact-commit gates, move to schema-3, and complete both production
 qualification levels.
 
+- Backend contracts: already satisfies every recorded qualification slot
 - Jetpack Compose Android: already satisfies every recorded qualification slot
 - Electron Linux: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
@@ -131,32 +132,6 @@ qualification levels.
 
 Execute these worklists in lane order. A target leaves this section only when its
 complete target-specific record validates.
-
-### Backend contracts
-
-- Target id: `backend-contract`
-- Current maturity: Preview
-- Environment: linux; x86_64
-- Runtime bound: HTTP, OpenAPI
-- Framework bound: Backend services
-- Native gates:
-  - `backend-contract`: required-ci in .github/workflows/native-gates.yml job `linux-hosted`
-    ```sh
-    bash validation/backend/cli-e2e/run.sh
-    ```
-- Field benchmark to create: `validation/field/backend-contract.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 6 candidate defects across 4
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `backend-contract.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
 
 ### Flutter Android
 
@@ -496,7 +471,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 
 | Target | Current maturity | Current qualification | Required end state |
 |---|---|---|---|
-| `backend-contract` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `backend-contract` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `compose-android` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `electron-linux` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |

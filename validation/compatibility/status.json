@@ -12,8 +12,8 @@
     "grandfatheredStableTargets": []
   },
   "counts": {
-    "stable": 8,
-    "preview": 13,
+    "stable": 9,
+    "preview": 12,
     "experimental": 0
   },
   "productionToLocalCounts": {
@@ -26,16 +26,16 @@
       "id": "backend-contract",
       "displayName": "Backend contracts",
       "family": "backend",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Bounded backend scan, fuzz, replay, proof, and runtime capture",
       "nativeGates": [
         "backend-contract"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/backend-contract.json",
       "qualifications": {
-        "cleanCorpus": "ci-gate",
-        "adversarialCorpus": "ci-gate",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -56,16 +56,7 @@
       },
       "productionToLocal": "Unqualified",
       "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 6 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
-        }
-      ]
+      "promotionBlockers": []
     },
     {
       "id": "compose-android",

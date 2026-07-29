@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "route": "black@zgx-5a09.local -> strix",
+  "host": "fedora",
+  "hostOs": "linux",
+  "hostArchitecture": "x86_64",
+  "docker": "x86_64/linux",
+  "sourceMode": "exact",
+  "baseCommit": "9f1815ee26c35bf5d1b9b36ae7713b325b98317a",
+  "sourceArchiveSha256": "fd5ed869f86359e5e4bfaadec51e47cebfafac3090437f7f345cd17e3ceeac3f",
+  "gates": [
+    "backend-contract"
+  ],
+  "startedAt": "2026-07-29T15:45:31.159903+00:00",
+  "processOwnership": "one remote directory and one named hosted container",
+  "readiness": "archive digest, Git commit, host architecture, and Docker architecture",
+  "cleanup": "gate traps, named container removal, and owned remote directory removal",
+  "evidenceRevision": "9f1815ee26c35bf5d1b9b36ae7713b325b98317a",
+  "finishedAt": "2026-07-29T15:48:00.099279+00:00",
+  "outcome": "passed"
+}

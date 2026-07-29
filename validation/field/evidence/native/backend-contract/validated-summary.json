@@ -1,0 +1,20 @@
+{
+  "commit": "9f1815ee26c35bf5d1b9b36ae7713b325b98317a",
+  "gates": [
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "9f1815ee26c35bf5d1b9b36ae7713b325b98317a",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-29T15:47:59.199872Z",
+      "gateId": "backend-contract",
+      "logSha256": "cb769ea7ad161967e84223a0e715312242dbb6e07e2a6a5dc7b93e42a4a6d1c3",
+      "startedAt": "2026-07-29T15:46:20.302065Z"
+    }
+  ],
+  "schema": 2
+}

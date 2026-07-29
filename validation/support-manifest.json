@@ -1135,7 +1135,7 @@
     "backend-contract": {
       "displayName": "Backend contracts",
       "family": "backend",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Bounded backend scan, fuzz, replay, proof, and runtime capture",
       "ownedGates": [
         "backend-contract"
@@ -1145,16 +1145,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/backend-contract.json",
         "cleanCorpus": {
-          "kind": "ci-gate",
-          "job": "rust",
-          "step": "Test (incl. determinism replay)"
+          "kind": "evidence",
+          "path": "validation/field/corpus/backend-contract.json"
         },
         "adversarialCorpus": {
-          "kind": "ci-gate",
-          "job": "rust",
-          "step": "Test (incl. determinism replay)"
+          "kind": "evidence",
+          "path": "validation/field/corpus/backend-contract.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -1177,22 +1175,7 @@
           "level": "Unqualified",
           "evidence": null
         },
-        "blockers": [
-          {
-            "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 6 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/backend-contract.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          }
-        ]
+        "blockers": []
       }
     }
   }
