@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 1,
+  "target": "backend-contract",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "linux",
+    "arch": "x86_64",
+    "protocol": "HTTP",
+    "contract": "an authored machine-readable API contract committed in the repository, OpenAPI or Swagger or an equivalent authored schema"
+  },
+  "inventory": {
+    "method": "GitHub GraphQL scan of merged pull requests that close at least one issue, plus a contract check against the repository tree",
+    "contractCheck": "gh api repos/<owner>/<repo>/contents/<path> for a claimed spec, and a recursive tree listing filtered for openapi, swagger, proto and schema artifacts when claiming that no contract exists",
+    "revisionRule": "fixedRevision is the merge commit of the pull request on the default branch and affectedRevision is that commit's first parent; both were confirmed through the commits API",
+    "candidateDefectsMeaning": "historical defects surfaced by this scan whose violation is observable in an HTTP response, not a count of everything the repository holds; the field is left null where no defect scan was run for that repository",
+    "executed": false,
+    "note": "no service was stood up and no request was issued for this record; every entry below is research only"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/go-gitea/gitea",
+      "license": "MIT",
+      "decision": "qualify",
+      "reason": "templates/swagger/v1_json.tmpl is committed (865 KB) and is the contract the service serves at /api/swagger.v1.json, with regeneration enforced in CI. The whole product runs as one container over SQLite with no third-party dependency, and the API is bounded and token-authenticated",
+      "candidateDefects": 5,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/netbox-community/netbox",
+      "license": "Apache-2.0",
+      "decision": "qualify",
+      "reason": "contrib/openapi.json is committed (12.9 MB) alongside a GraphQL surface. The stack is the application plus pinned Postgres and Redis images and it seeds entirely through its own REST API",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/usememos/memos",
+      "license": "MIT",
+      "decision": "qualify",
+      "reason": "the authored contract is the protobuf service definition under proto/api/v1 with a generated proto/gen/openapi.yaml committed (163 KB). One binary, SQLite, no external service at all, which makes it the cheapest subject in the pool",
+      "candidateDefects": 2,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/ory/kratos",
+      "license": "Apache-2.0",
+      "decision": "qualify",
+      "reason": ".schema/openapi.json is committed (117 KB) and the project treats it as the published contract. SQLite persistence and the courier in development mode remove the SMTP dependency for admin-API triggers",
+      "candidateDefects": 1,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/gotify/server",
+      "license": "MIT by the LICENSE file; GitHub reports no SPDX identifier",
+      "decision": "qualify",
+      "reason": "docs/spec.json is committed (94 KB). Single binary over SQLite with a very small endpoint surface, which is a good clean-corpus subject even though no defect from it is selected here",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/authelia/authelia",
+      "license": "Apache-2.0",
+      "decision": "qualify",
+      "reason": "api/openapi.yml is committed (215 KB), and the file-based user backend with the file notifier removes any need for SMTP or an external identity provider",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/apache/answer",
+      "license": "Apache-2.0",
+      "decision": "qualify",
+      "reason": "docs/swagger.json is committed (450 KB). Go service with MySQL; the spec is generated from annotations but the artifact is checked in, which is what the target requires",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/immich-app/immich",
+      "license": "AGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "open-api/immich-openapi-specs.json is committed (780 KB) and CI enforces that it matches the implementation. Containment: the machine-learning container downloads CLIP models from a third-party host on first use, so the model volume must be pre-baked or the ML service disabled, and the database image must be pinned to a vector-enabled Postgres",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/Sonarr/Sonarr",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "src/Sonarr.Api.V3/openapi.json is committed (297 KB). Containment: series lookup and add flows call a third-party metadata service and download flows need external indexers and clients, so only configuration, tag, quality-profile, history and blocklist endpoints are in bounds",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/Radarr/Radarr",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "src/Radarr.Api.V3/openapi.json is committed (309 KB); the same lookup and indexer containment as Sonarr applies, and the two are close siblings so they are not fully independent applications",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/zulip/zulip",
+      "license": "Apache-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "zerver/openapi/zulip.yaml is committed (1.5 MB) and is validated against the test suite, which is unusually strong contract discipline. Containment: the deployment is a large multi-service stack and account creation needs a local SMTP stub",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/goharbor/harbor",
+      "license": "Apache-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "api/v2.0/swagger.yaml is committed (317 KB) and is hand-authored rather than generated. Containment: the deployment is produced by a prepare script into a ten-container stack and the scanner pulls a vulnerability database from the internet, so it is boundable but heavy",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/grafana/grafana",
+      "license": "AGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "public/api-merged.json and public/openapi3.json are committed. Containment: the surface includes plugin, cloud and enterprise endpoints that cannot be driven offline, so the bound must be narrowed to core dashboard, folder, datasource and organisation endpoints over SQLite",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/paperless-ngx/paperless-ngx",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "no authored contract is committed: a recursive listing of the dev tree matched no openapi, swagger, proto or schema artifact. The schema exists only as a runtime rendering, and prose API documentation is not a machine-readable contract",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/jellyfin/jellyfin",
+      "license": "GPL-2.0",
+      "decision": "reject",
+      "reason": "no committed spec: the tree contains only openapi generation workflows and a Swagger UI asset directory. The specification is produced at runtime and published elsewhere, so there is no in-repository contract to hold a revision pair against",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/woodpecker-ci/woodpecker",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "the only authored schema in the tree is rpc/proto/woodpecker.proto, which describes the agent to server gRPC channel rather than the HTTP API; the HTTP specification is emitted at runtime by generated code and no artifact is committed",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/miniflux/v2",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "a small, well-bounded service, but a recursive tree listing matched no openapi, swagger or proto artifact, so there is nothing to check conformance against",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/umami-software/umami",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a recursive tree listing matched no openapi, swagger or graphql schema artifact",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/minio/minio",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "no committed contract; the service implements a third-party object-storage API whose definition lives outside this repository, so the contract is not authored here",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/element-hq/synapse",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "no openapi or swagger artifact in the develop tree; the protocol contract is maintained by a separate specification project, so this repository authors no contract of its own",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/langgenius/dify",
+      "license": "modified Apache-2.0 with commercial restrictions",
+      "decision": "reject",
+      "reason": "the license is not plain OSI Apache, the core flows need third-party model provider keys, and the in-repository api/openapi directory holds markdown rather than a machine-readable contract",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/n8n-io/n8n",
+      "license": "Sustainable Use License",
+      "decision": "reject",
+      "reason": "a public API specification is committed, but the license is not open source and parts of the tree are explicitly unlicensed; rejected on license before any contract consideration",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "gitea-total-count-filtered-commits-35886",
+      "application": "gitea",
+      "issueUrl": "https://github.com/go-gitea/gitea/issues/35886",
+      "issueTitle": "API /commits returns incorrect X-Total-Count when using since/until filters (v1.25)",
+      "pullRequestUrl": "https://github.com/go-gitea/gitea/pull/38204",
+      "pullRequestTitle": "fix(api): respect since/until when counting commits for X-Total-Count",
+      "affectedRevision": "98c61942aa433342eacf08e4040ded80b1d0efe1",
+      "fixedRevision": "4812e354866a066dcb899af667b0fad5fa094065",
+      "changedFiles": [
+        "modules/gitrepo/commit.go",
+        "modules/gitrepo/commit_test.go"
+      ],
+      "contract": {
+        "path": "templates/swagger/v1_json.tmpl",
+        "kind": "OpenAPI 2 template committed in the repository and served by the running instance"
+      },
+      "offlineStack": "one pinned gitea image over SQLite with a repository seeded through the API; no third-party service",
+      "whySuitable": "the trigger is a single GET /api/v1/repos/{owner}/{repo}/commits?sha=main&since=...&until=... and the violation is entirely in the response: the body honours the filter while the X-Total-Count header reports the unfiltered repository-wide count. That is the backend-contract adapter's exact shape, one request and one response checked against the documented pagination contract, with the oracle computable from the response alone by comparing the header integer against the returned page when the page is not full. The fix touches only implementation code, so the contract text is unchanged across the pair",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "seed commits with pinned author timestamps so the filtered count is deterministic",
+        "stand the affected and fixed images up from source builds of both revisions and record the build commands",
+        "state the oracle as a header-versus-body invariant so it does not depend on a hardcoded expected number"
+      ]
+    },
+    {
+      "id": "gitea-has-code-always-false-36332",
+      "application": "gitea",
+      "issueUrl": "https://github.com/go-gitea/gitea/issues/36332",
+      "issueTitle": "Repository `has_code` is always false when fetching a repository via the API",
+      "pullRequestUrl": "https://github.com/go-gitea/gitea/pull/36338",
+      "pullRequestTitle": "fill missing `has_code` in repository api",
+      "affectedRevision": "7a23e247e6e5dbf8b80d8203cbf0b948207ebd67",
+      "fixedRevision": "040fc9304673c0ffa42d910cb26ce141c85ccc22",
+      "contract": {
+        "path": "templates/swagger/v1_json.tmpl",
+        "kind": "OpenAPI 2 template committed in the repository; has_code is a documented property of the Repository schema"
+      },
+      "offlineStack": "one pinned gitea image over SQLite with one repository created through the API",
+      "whySuitable": "a documented response field is never populated, so GET /api/v1/repos/{owner}/{repo} returns has_code false on a repository whose code unit is enabled. The oracle is a field-level comparison between two responses of the same service, the repository object and its unit configuration, so it needs no external knowledge and no state beyond one created repository. It is a different violation class from the pagination candidate, which keeps the two gitea candidates from collapsing into one identity",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the unit configuration is readable over the same API so the oracle stays self-contained",
+        "build both revisions and record the build commands"
+      ]
+    },
+    {
+      "id": "netbox-html-500-on-write-without-slash-21906",
+      "application": "netbox",
+      "issueUrl": "https://github.com/netbox-community/netbox/issues/21906",
+      "issueTitle": "REST API `POST`/`PATCH` request without a trailing slash causes an exception",
+      "pullRequestUrl": "https://github.com/netbox-community/netbox/pull/21967",
+      "pullRequestTitle": "Fixes #21906: Return a 404 for REST API writes to endpoints with no trailing slash",
+      "affectedRevision": "900f1155afb361c616f572b1bb7fbdfaacdf4f37",
+      "fixedRevision": "29ae9f400ab0dc790b93d6f35406ed134f942240",
+      "contract": {
+        "path": "contrib/openapi.json",
+        "kind": "OpenAPI 3 artifact committed in the repository"
+      },
+      "offlineStack": "the netbox image plus pinned Postgres and Redis images, seeded through the REST API",
+      "whySuitable": "a write to a path without its trailing slash raises an unhandled framework error, so the service answers a JSON-accepting API request with a 500 whose body is HTML. Both halves of that are contract violations, the status class and the content type, and both are visible in a single request and response pair with no state beyond one existing object. This is the clearest error-contract candidate in the pool and it belongs to a second, independent service",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "pin one object identifier through a seeded fixture so the request is reproducible",
+        "assert on content type and status class rather than on the error body text",
+        "build both revisions and record the build commands"
+      ]
+    },
+    {
+      "id": "netbox-token-plaintext-null-22081",
+      "application": "netbox",
+      "issueUrl": "https://github.com/netbox-community/netbox/issues/22081",
+      "issueTitle": "TokenViewSet.create() does not return v2 token plaintext",
+      "pullRequestUrl": "https://github.com/netbox-community/netbox/pull/22160",
+      "pullRequestTitle": "Closes #22081: Include plaintext when creating v2 tokens via REST API",
+      "affectedRevision": "b1412514f1eb7cda94eddcb6839159d90de093b7",
+      "fixedRevision": "0ee59d7371e93a98bcf1c691e0499bf4275fe651",
+      "contract": {
+        "path": "contrib/openapi.json",
+        "kind": "OpenAPI 3 artifact committed in the repository; the creation response documents the token value"
+      },
+      "offlineStack": "the netbox image plus pinned Postgres and Redis images",
+      "whySuitable": "POST to the token collection returns 201 with the documented token field null, because the view re-serializes from the database after creation and discards the write-only plaintext that exists only in memory. The oracle is a nullability check on one documented response field of one POST, which is the simplest possible conformance assertion, and it is a different violation class from the error-contract candidate on the same service",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the field is documented as non-null on the creation response at the affected revision rather than only implied by the changelog",
+        "build both revisions and record the build commands"
+      ]
+    },
+    {
+      "id": "kratos-delete-credentials-status-3346",
+      "application": "kratos",
+      "issueUrl": "https://github.com/ory/kratos/issues/3346",
+      "issueTitle": "API call /admin/identities/{id}/credentials/{type} doesn't return expected statuscode and body",
+      "pullRequestUrl": "https://github.com/ory/kratos/pull/3347",
+      "pullRequestTitle": "fix: Return the updated identity as described in the API spec",
+      "affectedRevision": "f884dfbaa8aeba58b3b1595bd45e41f9b3e5a0e0",
+      "fixedRevision": "f3dee869bef0e0dd2d36541823ae57d54ba5788e",
+      "contract": {
+        "path": ".schema/openapi.json",
+        "kind": "OpenAPI artifact committed in the repository"
+      },
+      "offlineStack": "kratos over SQLite with the courier in development mode; the identity and its credential are created through the admin API",
+      "whySuitable": "the committed specification declares the credential-deletion operation as 200 with the updated identity in the body and the implementation answered 204 with no body. Status code and body presence are the two most primitive things the contract fixes, so this is the textbook conformance case for the target, and it comes from a third independent service",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the fix moved the implementation toward the spec rather than moving the spec, by diffing .schema/openapi.json across the revision pair",
+        "attach a TOTP credential through the admin API without a browser flow",
+        "build both revisions and record the build commands"
+      ]
+    },
+    {
+      "id": "memos-public-read-requires-auth-5443",
+      "application": "memos",
+      "issueUrl": "https://github.com/usememos/memos/issues/5443",
+      "issueTitle": "Getting public memos results in \"authorization required\"",
+      "pullRequestUrl": "https://github.com/usememos/memos/pull/5451",
+      "pullRequestTitle": "fix: allow public memo API access without authentication",
+      "affectedRevision": "14fb38f37560541bf2719647e7e8b1468937f8ef",
+      "fixedRevision": "7c3fcc297d8e5a955d9c0bc4f3ca917854132e8e",
+      "contract": {
+        "path": "proto/api/v1 service definitions with proto/gen/openapi.yaml committed alongside",
+        "kind": "authored protobuf service definition plus a generated and committed OpenAPI artifact"
+      },
+      "offlineStack": "one memos container over SQLite with no external service at all",
+      "whySuitable": "one authenticated write seeds a memo with public visibility, then one anonymous GET must return it. The affected revision answers with an authorization error, which contradicts the security requirements the contract records for that operation. The trigger is two plain HTTP exchanges with no browser and no third party, and it is a fourth independent service, which is what gives this target a real margin",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the operation carries no security requirement in the committed contract at the affected revision",
+        "build both revisions and record the build commands"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "detail": "no service in this record has been stood up and no request has been issued. Every revision pair, contract path, license and title here was verified against the GitHub API from the host; nothing has been executed",
+      "command": null,
+      "evidence": [
+        "validation/field/qualification/infrastructure.json"
+      ]
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "for none of the six candidates has the contract artifact been diffed across the revision pair, so it is not yet proven that each fix moved the implementation toward the committed contract rather than moving the contract toward the implementation. One further gitea candidate, pull request 38590 for issue 38581, was found and deliberately not selected precisely because it edits templates/swagger/v1_json.tmpl, which makes it a specification change rather than a conformance defect",
+      "command": null,
+      "evidence": []
+    }
+  ]
+}

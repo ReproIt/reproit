@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-wpf",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "windows",
+    "arch": "x86_64",
+    "runtime": ".NET",
+    "framework": "WPF",
+    "automation": "UI Automation"
+  },
+  "inventory": {
+    "method": "GitHub GraphQL scan of merged pull requests that close at least one issue, followed by per-revision framework verification",
+    "candidateDefectsMeaning": "merged pull requests closing an issue, counted over the 60 most recently updated merged pull requests of the repository",
+    "frameworkVerification": "git clone --filter=blob:none --no-checkout, then git show <revision>:<project file> at every revision named in this record; a repository is never classified by its default branch",
+    "executed": false,
+    "note": "no build, no launch and no UI Automation session was run for this record; every entry below is research only"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/Flow-Launcher/Flow.Launcher",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "Flow.Launcher/Flow.Launcher.csproj carries UseWPF>true and OutputType>WinExe on net9.0-windows10.0.19041.0 at the candidate revisions, so the window is a real WPF visual tree with native UI Automation peers. Containment: the launcher registers a session-wide hotkey and enumerates Start Menu and installed-program entries, so the worker must own the desktop session; it writes only under its own settings folder",
+      "candidateDefects": 18,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/NickeManarin/ScreenToGif",
+      "license": "MS-PL",
+      "decision": "qualify-with-containment",
+      "reason": "ScreenToGif/ScreenToGif.csproj carries UseWPF>true at every candidate revision inspected, on net6.0-windows and later net8.0-windows10.0.17763.0. Containment: the recorder installs low-level mouse and keyboard hooks and the encoder flows fetch FFmpeg and Gifski on first use, so only editor and options triggers are in bounds and the external encoders must be pre-seeded into the application folder",
+      "candidateDefects": 6,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/DevToys-app/DevToys",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the Windows head src/app/dev/platforms/desktop/DevToys.Windows/DevToys.Windows.csproj does set UseWPF>true, but the entire user interface is Blazor rendered inside a WebView2 host, so the UI Automation tree exposes a web document rather than WPF automation peers. The 29 entries the winui defect inventory attributed to this repository are not WPF automation evidence for any Windows target",
+      "candidateDefects": 29,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/JosefNemec/Playnite",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "genuinely WPF (source/Playnite.DesktopApp/Playnite.DesktopApp.csproj references PresentationFramework) but it is an old-style non-SDK project on TargetFrameworkVersion v4.6.2, which cannot be restored or built by dotnet build; it needs full Visual Studio MSBuild. The campaign requires an SDK-style dotnet build from public feeds only",
+      "candidateDefects": 9,
+      "buildQualified": false,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/icsharpcode/ILSpy",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "historically a WPF application, but ILSpy/ILSpy.csproj at every candidate revision inspected (74bc61b7, 48fb8596, 800efc6e, bf3beea9, d9b63a5b) references Avalonia, Avalonia.Desktop and Avalonia.AvaloniaEdit and no longer sets UseWPF. Classified per revision, it belongs to windows-avalonia",
+      "candidateDefects": 25,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/rocksdanister/lively",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "the WPF project src/Lively/Lively/Lively.csproj is the background core rather than the settings surface (the settings window is Lively.UI.WinUI), and the application's core flow replaces the desktop wallpaper by reparenting render windows under the shell WorkerW, which is state outside its own profile",
+      "candidateDefects": 2,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/microsoft/PowerToys",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "requires elevation and installs system-wide keyboard hooks, remaps and shell extensions; the trigger would mutate state well outside the application's own profile",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/MahApps/MahApps.Metro",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "WPF control library with a demo shell, not an end-user application; the 32 entries in the winui defect inventory are library changes",
+      "candidateDefects": 32,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/lepoco/wpfui",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "WPF control library, not an end-user application",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/dotnet/wpf",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/microsoft/WPF-Samples",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "sample collection, not an end-user application",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/files-community/Files",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "not WPF: src/Files.App/Files.App.csproj references Microsoft.WindowsAppSDK and the CommunityToolkit.WinUI packages. Considered and rejected separately for windows-winui",
+      "candidateDefects": 33,
+      "buildQualified": null,
+      "buildEvidence": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "flowlauncher-scroll-overflow-4481",
+      "application": "Flow.Launcher",
+      "issueUrl": "https://github.com/Flow-Launcher/Flow.Launcher/issues/4481",
+      "issueTitle": "BUG: System.OverflowException: TimeSpan overflowed in ScrollViewerEx.AnimateScroll",
+      "pullRequestUrl": "https://github.com/Flow-Launcher/Flow.Launcher/pull/4497",
+      "pullRequestTitle": "Fix System.OverflowException in CustomScrollViewerEx during Mouse Wheel scroll",
+      "affectedRevision": "0f2bc99791b0ce55b228901882476be21b30a089",
+      "fixedRevision": "071994ecf991eaf30befba648140dd562db1ae8a",
+      "changedFiles": [
+        "Flow.Launcher/Resources/Controls/CustomScrollViewerEx.cs",
+        "Flow.Launcher.Test/MouseWheelTest.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "Flow.Launcher/Flow.Launcher.csproj",
+        "evidence": "UseWPF>true, OutputType>WinExe, TargetFramework net9.0-windows10.0.19041.0",
+        "verifiedAtRevision": "5f9d116708276c1b616edc56c4f95a868f118d4d, on the same branch line as both revisions of this defect"
+      },
+      "build": {
+        "command": "dotnet build Flow.Launcher.sln -c Release",
+        "toolchain": ".NET 9 SDK",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "verified": false
+      },
+      "whySuitable": "the trigger is a mouse wheel delivered to the result list of a live WPF window, which is exactly the windows-wpf adapter's action path: find the results ScrollViewer through the UI Automation tree, invoke its scroll pattern or synthesise wheel input over its bounding rectangle, and observe whether the process keeps exposing an automation tree. The defect is an unhandled OverflowException raised inside the custom ScrollViewer's animation, so the observable is a window that disappears from the tree on the affected revision and stays present on the fixed one",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions in the native x86_64 Windows VM with dotnet build and record the exact SDK version",
+        "prove process ownership, readiness, reset and cleanup for a launcher that claims a session-wide hotkey",
+        "confirm the scroll delta required to overflow the animation duration and minimise it",
+        "record a neighbouring legal behaviour: a scroll that does not overflow must keep working on the affected build"
+      ]
+    },
+    {
+      "id": "flowlauncher-progressbar-cast-4348",
+      "application": "Flow.Launcher",
+      "issueUrl": "https://github.com/Flow-Launcher/Flow.Launcher/issues/4348",
+      "issueTitle": "BUG: Unable to cast object of type 'System.Windows.Media.Color' to type 'System.Windows.Expression'",
+      "pullRequestUrl": "https://github.com/Flow-Launcher/Flow.Launcher/pull/4499",
+      "pullRequestTitle": "Refactor InitProgressbarAnimation & avoid style cast issue",
+      "affectedRevision": "071994ecf991eaf30befba648140dd562db1ae8a",
+      "fixedRevision": "02c8dfd73846c1293a47f5f1a44cdfb8bea30c36",
+      "changedFiles": [
+        "Flow.Launcher/MainWindow.xaml",
+        "Flow.Launcher/MainWindow.xaml.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "Flow.Launcher/Flow.Launcher.csproj",
+        "evidence": "UseWPF>true, OutputType>WinExe, TargetFramework net9.0-windows10.0.19041.0",
+        "verifiedAtRevision": "5f9d116708276c1b616edc56c4f95a868f118d4d, on the same branch line as both revisions of this defect"
+      },
+      "build": {
+        "command": "dotnet build Flow.Launcher.sln -c Release",
+        "toolchain": ".NET 9 SDK",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "verified": false
+      },
+      "whySuitable": "a WPF-specific failure: the progress bar animation reads a brush colour out of the window style and the styled value is not the expected animatable type, so the exception is raised by the WPF property system while the main window is being composed. The adapter exercises it by opening the launcher window through UI Automation and issuing a query that starts the progress animation, then asserting the window is still in the tree. The failure has no meaning outside a XAML style and dependency-property runtime, which is what makes it WPF evidence rather than generic .NET evidence",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "note that this defect's affected revision is the previous defect's fixed revision, so the two must not be scheduled as a single build",
+        "identify the minimal query that starts the progress bar animation",
+        "build both revisions in the Windows VM and record the SDK version",
+        "record a neighbouring legal behaviour where the same window opens without the animation"
+      ]
+    },
+    {
+      "id": "flowlauncher-system-language-4518",
+      "application": "Flow.Launcher",
+      "issueUrl": "https://github.com/Flow-Launcher/Flow.Launcher/issues/4518",
+      "issueTitle": "BUG: Incorrect language on startup when using system",
+      "pullRequestUrl": "https://github.com/Flow-Launcher/Flow.Launcher/pull/4519",
+      "pullRequestTitle": "Fix incorrect system language",
+      "affectedRevision": "447fbea4882b7d1df9bf6c510752dc236a30a115",
+      "fixedRevision": "eb3da1edb942983c14b7c78a4d50dee368c23002",
+      "changedFiles": [
+        "Flow.Launcher.Core/Resource/Internationalization.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "Flow.Launcher/Flow.Launcher.csproj",
+        "evidence": "UseWPF>true, OutputType>WinExe, TargetFramework net9.0-windows10.0.19041.0",
+        "verifiedAtRevision": "5f9d116708276c1b616edc56c4f95a868f118d4d, on the same branch line as both revisions of this defect"
+      },
+      "build": {
+        "command": "dotnet build Flow.Launcher.sln -c Release",
+        "toolchain": ".NET 9 SDK",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "verified": false
+      },
+      "whySuitable": "the observable is the Name property of localized WPF elements in the settings window: with the language setting left on 'system', the affected build resolves the wrong resource dictionary and the automation tree reports English labels where the fixed build reports the display-language labels. That is a pure UI Automation tree read against a WPF window and it needs no input beyond opening settings",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "decide and record the guest display language, because the trigger depends on the VM's configured UI language and the current guest language is unknown",
+        "confirm the divergence is visible in element Name properties rather than only in bitmap text",
+        "build both revisions in the Windows VM"
+      ]
+    },
+    {
+      "id": "screentogif-extra-mouse-button-1296",
+      "application": "ScreenToGif",
+      "issueUrl": "https://github.com/NickeManarin/ScreenToGif/issues/1296",
+      "issueTitle": "[Bug] Mouse button 5 appears to be displayed as mouse button 3 in recordings",
+      "pullRequestUrl": "https://github.com/NickeManarin/ScreenToGif/pull/1297",
+      "pullRequestTitle": "Fix for the second extra color button",
+      "affectedRevision": "1037dae02c47eb833f26c26e2e5a4e1f750a840b",
+      "fixedRevision": "5e2fa790e51d48a97cfac162b0635b76594fc47f",
+      "changedFiles": [
+        "ScreenToGif/Windows/Editor.xaml.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "ScreenToGif/ScreenToGif.csproj",
+        "evidence": "UseWPF>true, UseWindowsForms>True, OutputType>WinExe, TargetFramework net8.0-windows10.0.17763.0",
+        "verifiedAtRevision": "1037dae02c47eb833f26c26e2e5a4e1f750a840b, the affected revision itself"
+      },
+      "build": {
+        "command": "dotnet build ScreenToGif.sln -c Release",
+        "toolchain": ".NET 8 SDK",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "verified": false
+      },
+      "whySuitable": "the fix is a one-file change in the WPF editor window's code-behind where the second extra mouse-button colour control is wired to the wrong backing value, so the affected build shows one colour control updating when the other is edited. The adapter drives it entirely through the UI Automation tree of a WPF window: open the editor's mouse-click options, set a value on one colour control, read the value patterns of both controls",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "read the diff of Editor.xaml.cs at the fixed revision on the VM and pin the exact pair of controls, since the issue text describes the recorded output while the fix touches the editor options",
+        "confirm no recording is needed to observe the swap, otherwise the low-level mouse hook comes into bounds and the trigger must be re-scoped",
+        "build both revisions in the Windows VM"
+      ]
+    },
+    {
+      "id": "screentogif-mouse-events-tooltip-1200",
+      "application": "ScreenToGif",
+      "issueUrl": "https://github.com/NickeManarin/ScreenToGif/issues/1200",
+      "issueTitle": "Error in StringResources.en",
+      "pullRequestUrl": "https://github.com/NickeManarin/ScreenToGif/pull/1205",
+      "pullRequestTitle": "Fix \"Mouse Events\" button tooltip",
+      "affectedRevision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1",
+      "fixedRevision": "d71dfbcf02749da7d9303d9c716d76372339acb0",
+      "changedFiles": [
+        "ScreenToGif/Resources/Localization/StringResources.en.xaml",
+        "plus nineteen sibling localization dictionaries"
+      ],
+      "frameworkVerified": {
+        "projectFile": "ScreenToGif/ScreenToGif.csproj",
+        "evidence": "UseWPF>true, UseWindowsForms>True, OutputType>WinExe, TargetFramework net6.0-windows",
+        "verifiedAtRevision": "e44f1f1ef0086fcb3cd85d55156e94a2957e3dd1, the affected revision itself"
+      },
+      "build": {
+        "command": "dotnet build ScreenToGif.sln -c Release",
+        "toolchain": ".NET 6 SDK, which is out of support and must be installed explicitly in the guest",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "verified": false
+      },
+      "whySuitable": "a WPF ResourceDictionary string bound to a button's tooltip is wrong, so the defect is observable as the HelpText or the tooltip element that UI Automation exposes for that button. It is the cheapest possible windows-wpf trigger: open one window, read one automation property, no input synthesis at all, which makes it a good control case next to the input-driven candidates",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the string reaches UI Automation as HelpText or as a tooltip popup element rather than only as rendered pixels",
+        "install the .NET 6 SDK in the guest or drop this candidate if the toolchain is refused",
+        "build both revisions in the Windows VM"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "detail": "no build, launch or UI Automation evidence exists for any candidate in this record. Every revision pair, framework classification and license here was verified from repository data on the host; nothing has been executed in the native x86_64 Windows VM",
+      "command": null,
+      "evidence": [
+        "validation/field/qualification/infrastructure.json"
+      ]
+    },
+    {
+      "code": "product-coverage-missing",
+      "detail": "the five selected candidates come from two applications, which meets the two-independent-application floor only if none of them fails. Three of the five are Flow.Launcher, so a single application-level containment failure would drop the target below the floor",
+      "command": null,
+      "evidence": []
+    }
+  ]
+}

@@ -1,0 +1,325 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-winui",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "windows",
+    "arch": "x86_64",
+    "runtime": ".NET",
+    "framework": "WinUI 3",
+    "appModel": "unpackaged only, WindowsPackageType None with a self-contained Windows App SDK",
+    "automation": "UI Automation"
+  },
+  "inventory": {
+    "method": "re-classification of reproit-lab/defect-candidates-winui.json, which was grouped by repository, plus a GitHub GraphQL scan of merged pull requests that close at least one issue",
+    "candidateDefectsMeaning": "merged pull requests closing an issue; for UniGetUI the count is restricted to pull requests merged before the Avalonia-only cutover so that it covers WinUI 3 revisions only",
+    "frameworkVerification": "git clone --filter=blob:none --no-checkout, then git show <revision>:<project file> at every revision named in this record; a repository is never classified by its default branch",
+    "executed": false,
+    "note": "the 127-entry winui candidate inventory does not survive re-classification: only two of its nine repositories are WinUI 3 applications at the revisions in question, and one of those two is rejected below"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/Devolutions/UniGetUI",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "src/UniGetUI/UniGetUI.csproj sets UseWinUI>true with WindowsPackageType None and WindowsAppSDKSelfContained true on net8.0-windows10.0.26100.0, verified at all ten revisions named below, so it is a real WinUI 3 application that runs unpackaged with no MSIX, no package identity and no signing certificate. Containment: package install, update and uninstall flows drive winget, scoop, chocolatey and npm and mutate machine state, so only settings, navigation, keyboard and package-list triggers are in bounds and the package managers must be left uninitialised or stubbed. The repository moved from marticliment/UniGetUI to Devolutions/UniGetUI",
+      "candidateDefects": 76,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/files-community/Files",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "genuinely WinUI 3 (src/Files.App/Files.App.csproj references Microsoft.WindowsAppSDK and the CommunityToolkit.WinUI packages) and it is the largest single block of the candidate inventory, but the project sets EnableMsixTooling, AppxBundle Always and AppxPackageSigningTimestampDigestAlgorithm and ships src/Files.App/Package.appxmanifest: it deploys as a signed MSIX with package identity, which we cannot install unattended without provisioning a certificate into the guest trust store. Its shell integration also reaches outside its own profile",
+      "candidateDefects": 33,
+      "buildQualified": false,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/DevToys-app/DevToys",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "not WinUI 3 at all: the Windows head src/app/dev/platforms/desktop/DevToys.Windows/DevToys.Windows.csproj sets UseWPF>true and UseWindowsForms>true and hosts a Blazor user interface inside WebView2. The 29 entries the inventory attributed to this repository are neither WinUI 3 nor usable WPF automation evidence",
+      "candidateDefects": 29,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/rocksdanister/lively",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "the repository does contain a WinUI 3 settings application (src/Lively/Lively.UI.WinUI/Lively.UI.WinUI.csproj, unpackaged when IsMsixRelease is not set), but both of its inventory candidates were merged in 2020 and 2021, before that project existed, and the application's core flow replaces the desktop wallpaper by reparenting render windows under the shell WorkerW, which is state outside its own profile",
+      "candidateDefects": 2,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/rayenghanmi/RyTuneX",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "WinUI 3, but the application is a system tweaker: its triggers write registry policy, disable services and remove provisioned packages, which is exactly the mutation class the campaign forbids. The inventory produced zero candidates for it in any case",
+      "candidateDefects": 0,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/microsoft/WinUI-Gallery",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a control gallery rather than an end-user application, and it deploys as a packaged MSIX",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/microsoft/PowerToys",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the settings surface is WinUI 3, but the product requires elevation and installs system-wide hooks, remaps and shell extensions, so no trigger stays inside its own profile",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/microsoft/microsoft-ui-xaml",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it",
+      "candidateDefects": 1,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/unoplatform/uno",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "a cross-platform framework that reimplements the WinUI API surface, not an application, and its own rendering is not the WinUI 3 runtime this target is bounded to",
+      "candidateDefects": 21,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/dotnet/maui",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a framework, not an application; its Windows head sits on WinUI 3 but the candidates are framework changes",
+      "candidateDefects": 5,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/MahApps/MahApps.Metro",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a WPF control library; it is in the winui inventory only because the inventory was grouped by repository",
+      "candidateDefects": 32,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/zhiyiYo/PyQt-Fluent-Widgets",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "a Python Qt widget library that imitates the Fluent look; it contains no WinUI 3 code and no .NET at all",
+      "candidateDefects": 4,
+      "buildQualified": null,
+      "buildEvidence": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "unigetui-mainview-keyup-3298",
+      "application": "UniGetUI",
+      "issueUrl": "https://github.com/Devolutions/UniGetUI/issues/3298",
+      "issueTitle": "[BUG] UniGetUI reacts to key press although not focused",
+      "pullRequestUrl": "https://github.com/Devolutions/UniGetUI/pull/3354",
+      "pullRequestTitle": "Use KeyDown instead of KeyUp to handle MainView keyboard shortcuts",
+      "affectedRevision": "fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5",
+      "fixedRevision": "6bd24003bb3292d5f23760a3f36d652881dcb30c",
+      "changedFiles": [
+        "src/UniGetUI/Pages/MainView.xaml.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/UniGetUI/UniGetUI.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, WindowsAppSDKSelfContained true, TargetFramework net8.0-windows10.0.26100.0",
+        "verifiedAtRevision": "both fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5 and 6bd24003bb3292d5f23760a3f36d652881dcb30c"
+      },
+      "build": {
+        "command": "dotnet build src/UniGetUI/UniGetUI.csproj -c Release -p:Platform=x64",
+        "toolchain": ".NET 8 SDK with the 10.0.26100 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "the shortcut handler is bound to KeyUp on the WinUI page, so a key released over the window is handled even when the key was pressed while the window did not have focus. The adapter exercises it exactly through its two primitives: set focus with the UI Automation focus pattern, deliver a key sequence, then read back which page the navigation tree reports as selected. It is a WinUI 3 XAML routed-event defect, meaningless outside a XAML input pipeline, so it is proper evidence for this adapter rather than for .NET generally",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "prove the application starts with all package managers disabled so that no winget or scoop process is spawned during the run",
+        "define how the harness moves focus away from the window and back without leaving the target's own automation tree",
+        "build both revisions in the native x86_64 Windows VM and record the exact SDK versions"
+      ]
+    },
+    {
+      "id": "unigetui-packagelist-keyup-3298",
+      "application": "UniGetUI",
+      "issueUrl": "https://github.com/Devolutions/UniGetUI/issues/3298",
+      "issueTitle": "[BUG] UniGetUI reacts to key press although not focused",
+      "pullRequestUrl": "https://github.com/Devolutions/UniGetUI/pull/3410",
+      "pullRequestTitle": "Use PreviewKeyDown instead of KeyUp to handle package list keyboard shortcuts",
+      "affectedRevision": "d213bc19702f68c269d3750edd92708e82253056",
+      "fixedRevision": "1862c41449e0f372cd9d623fa840643305f2427c",
+      "changedFiles": [
+        "src/UniGetUI/Pages/SoftwarePages/AbstractPackagesPage.xaml",
+        "src/UniGetUI/Pages/SoftwarePages/AbstractPackagesPage.xaml.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/UniGetUI/UniGetUI.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, WindowsAppSDKSelfContained true, TargetFramework net8.0-windows10.0.26100.0",
+        "verifiedAtRevision": "both d213bc19702f68c269d3750edd92708e82253056 and 1862c41449e0f372cd9d623fa840643305f2427c"
+      },
+      "build": {
+        "command": "dotnet build src/UniGetUI/UniGetUI.csproj -c Release -p:Platform=x64",
+        "toolchain": ".NET 8 SDK with the 10.0.26100 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "the same reported issue survived the first fix on a second surface, the package list, and needed the WinUI tunnelling event rather than the bubbling one. The trigger targets a different automation subtree, the package ListView and its items, and the observable is the item selection state that UI Automation reports, so it is a distinct action-and-observation pair from the MainView candidate even though the issue link is the same",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "resolve whether two fixes for one issue may count as two candidates under the gate; if not, this candidate must be replaced and the target drops to three",
+        "populate the package list without contacting a package manager, otherwise the list is empty and the trigger has nothing to select",
+        "build both revisions in the native x86_64 Windows VM"
+      ]
+    },
+    {
+      "id": "unigetui-keystroke-focus-3355",
+      "application": "UniGetUI",
+      "issueUrl": "https://github.com/Devolutions/UniGetUI/issues/3355",
+      "issueTitle": "[BUG] Searching in package list with key presses does not focus item",
+      "pullRequestUrl": "https://github.com/Devolutions/UniGetUI/pull/3360",
+      "pullRequestTitle": "Set focus to package when searching with key strokes",
+      "affectedRevision": "d5e8d323cd7452d721c31076c28a88b48f1e815c",
+      "fixedRevision": "878bd1813c938ba4a2d474f201ff07fe1ee60b51",
+      "changedFiles": [
+        "src/UniGetUI/Pages/SoftwarePages/AbstractPackagesPage.xaml",
+        "src/UniGetUI/Pages/SoftwarePages/AbstractPackagesPage.xaml.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/UniGetUI/UniGetUI.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, WindowsAppSDKSelfContained true, TargetFramework net8.0-windows10.0.26100.0",
+        "verifiedAtRevision": "both d5e8d323cd7452d721c31076c28a88b48f1e815c and 878bd1813c938ba4a2d474f201ff07fe1ee60b51"
+      },
+      "build": {
+        "command": "dotnet build src/UniGetUI/UniGetUI.csproj -c Release -p:Platform=x64",
+        "toolchain": ".NET 8 SDK with the 10.0.26100 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "the observable is the focused element itself, which is the single most adapter-native assertion available on Windows: type into the package list and ask UI Automation which element has focus. On the affected revision type-ahead matching moves the highlight without moving focus, so the focused element stays the list container; on the fixed revision it is the matched item. Nothing about this can be seen without a live automation tree",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "seed a deterministic package list offline so that type-ahead has a known target",
+        "confirm the WinUI ListView items expose stable automation identifiers at these revisions",
+        "build both revisions in the native x86_64 Windows VM"
+      ]
+    },
+    {
+      "id": "unigetui-ukrainian-language-4556",
+      "application": "UniGetUI",
+      "issueUrl": "https://github.com/Devolutions/UniGetUI/issues/4556",
+      "issueTitle": "[BUG] (Does not support Ukrainian language)",
+      "pullRequestUrl": "https://github.com/Devolutions/UniGetUI/pull/4558",
+      "pullRequestTitle": "Fix Ukrainian translation loading and duplicate-key validation",
+      "affectedRevision": "b9b9d1b6059a748748fd2d5af1d91a286bf0a559",
+      "fixedRevision": "dcc1b16a0331b63f59e93d8daa6cb2bd118348bc",
+      "changedFiles": [
+        "src/UniGetUI.Core.LanguageEngine/LanguageEngine.cs",
+        "src/UniGetUI.Core.LanguageEngine/Assets/Languages/lang_ua.json"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/UniGetUI/UniGetUI.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, TargetFramework $(WindowsTargetFramework); merged 2026-04-08, before the 2026-06-22 commit that removed the WinUI project and made the release Avalonia-only",
+        "verifiedAtRevision": "both b9b9d1b6059a748748fd2d5af1d91a286bf0a559 and dcc1b16a0331b63f59e93d8daa6cb2bd118348bc"
+      },
+      "build": {
+        "command": "dotnet build src/UniGetUI/UniGetUI.csproj -c Release -p:Platform=x64",
+        "toolchain": ".NET 8 SDK with the 10.0.26100 Windows SDK reference pack; the target framework is set through a shared property at this revision and must be resolved on the VM",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "picking Ukrainian in the settings page leaves the interface in English on the affected revision, so the observable is the Name property of every localized element in the WinUI automation tree after one settings change. It is the cheapest reset-and-read trigger in this set and it needs no input timing at all, which makes it a useful control next to the three keyboard candidates",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the defect is in loading rather than in translation completeness, because a partially translated file would make the oracle fuzzy",
+        "record that the fix also lands in shared core code, so the WinUI-specific part of the evidence is the automation tree read rather than the fault location",
+        "build both revisions in the native x86_64 Windows VM"
+      ]
+    },
+    {
+      "id": "unigetui-bundle-extension-2618",
+      "application": "UniGetUI",
+      "issueUrl": "https://github.com/Devolutions/UniGetUI/issues/2618",
+      "issueTitle": "[BUG] Bundles can  be saved without file extension",
+      "pullRequestUrl": "https://github.com/Devolutions/UniGetUI/pull/2625",
+      "pullRequestTitle": "Ensure bundle file is saved with file extension (fix #2618)",
+      "affectedRevision": "2bc59486b30b18d85afbca6047206eeb56d26b78",
+      "fixedRevision": "c8f1f9bc3a3fabaa6f27a2d4554a4a63e054ee46",
+      "changedFiles": [
+        "src/ExternalLibraries.FilePickers/Classes/Helper.cs"
+      ],
+      "frameworkVerified": {
+        "projectFile": "src/UniGetUI/UniGetUI.csproj",
+        "evidence": "UseWinUI>true, WindowsPackageType None, TargetFramework net8.0-windows10.0.19041.0",
+        "verifiedAtRevision": "both 2bc59486b30b18d85afbca6047206eeb56d26b78 and c8f1f9bc3a3fabaa6f27a2d4554a4a63e054ee46"
+      },
+      "build": {
+        "command": "dotnet build src/UniGetUI/UniGetUI.csproj -c Release -p:Platform=x64",
+        "toolchain": ".NET 8 SDK with the 10.0.19041 Windows SDK reference pack",
+        "publicFeedsOnly": true,
+        "signingRequired": false,
+        "msix": false,
+        "verified": false
+      },
+      "whySuitable": "saving a package bundle writes a file with no extension, which is observable in the target's own bundle directory and then again in the application's own file list. It is retained as a fifth candidate so that two of the four keyboard candidates can fail without dropping the target below the gate floor",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "note that the save flow opens the Win32 common save dialog, which is a separate process and a separate automation tree; either drive it and accept the boundary crossing, or reject this candidate",
+        "bound the write to a disposable directory under the target work directory",
+        "build both revisions in the native x86_64 Windows VM"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "product-coverage-missing",
+      "detail": "all five selected candidates come from one application, UniGetUI. The promotion policy requires two independent qualified applications, and the search did not find a second unpackaged WinUI 3 application with a usable defect history: Files is MSIX and signed, WinUI-Gallery is a sample, PowerToys and RyTuneX mutate machine state, Lively's WinUI project postdates its candidates, and DevToys is not WinUI at all. A second application is a hard prerequisite and is not solved by more work on UniGetUI",
+      "command": null,
+      "evidence": [
+        "reproit-lab/defect-candidates-winui.json"
+      ]
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "no build, launch or UI Automation evidence exists for any candidate in this record. Every revision pair, framework classification and license here was verified from repository data on the host; nothing has been executed in the native x86_64 Windows VM",
+      "command": null,
+      "evidence": [
+        "validation/field/qualification/infrastructure.json"
+      ]
+    },
+    {
+      "code": "product-coverage-missing",
+      "detail": "two of the five candidates close the same issue (3298) through two different surfaces. If the gate treats them as one defect, only four remain and there is no margin for a failure",
+      "command": null,
+      "evidence": []
+    }
+  ]
+}
