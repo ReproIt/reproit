@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-avalonia",
+  "campaign": "picview-corner-close-targets-320",
+  "status": "campaign-complete",
+  "issue": "https://github.com/Ruben2776/PicView/issues/320",
+  "pullRequest": "https://github.com/Ruben2776/PicView/pull/361",
+  "affectedRevision": "fd7acc2535ef8b2e7edeeb9d6b8507f09e3b411c",
+  "fixedRevision": "00cd32fdcc2332fc48ba1465e600b852ca09ee25",
+  "identity": "top-right-corner-click-does-not-close-window",
+  "authority": "authored-contract: accepted PicView behavior change for issue 320",
+  "memoryMeasurement": "unavailable",
+  "minimizedAction": "click the foreground main window's top-right pixel once",
+  "neighboringLegalBehavior": "clicking the affected revision's visible close-button center closes the window",
+  "observation": {
+    "automation": "Windows UI Automation plus one foreground Win32 SendInput click",
+    "windowClass": "WinMainWindow",
+    "mainViewAutomationId": "MainView",
+    "closeButtonAutomationId": "CloseButton",
+    "windowBounds": {
+      "x": 8,
+      "y": 0,
+      "width": 750,
+      "height": 812,
+      "right": 758,
+      "bottom": 812
+    },
+    "cornerPoint": {
+      "x": 757,
+      "y": 1
+    },
+    "affectedCloseButtonBounds": {
+      "x": 727,
+      "y": 1,
+      "width": 30,
+      "height": 31,
+      "right": 757,
+      "bottom": 32
+    },
+    "fixedCloseButtonBounds": {
+      "x": 728,
+      "y": 0,
+      "width": 30,
+      "height": 32,
+      "right": 758,
+      "bottom": 32
+    }
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "interactiveSessionId": 1,
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route",
+    "scheduledTaskLogonType": "Interactive",
+    "buildSdk": "11.0.100-preview.6.26359.118",
+    "networkPolicy": "program-scoped inbound and outbound Windows Firewall block rules"
+  },
+  "builds": {
+    "affected": {
+      "executableSha256": "28ADFCE832817749AC4BF3F58E406E42ED484AA5BB7AFA1F1AD072A1AF129C43",
+      "applicationAssemblySha256": "E47D6F039328B65EBC00463E1CF0395E65AF9792758D40EE688D09B599022AA7",
+      "buildLogSha256": "90DE3B79DADED389DC64D80F4C325A97C118489439E91C83FF3B7AF2045537BD"
+    },
+    "fixed": {
+      "executableSha256": "F8654746B561297A5C7745127851F948F6A7151AA2BD9CE4B2F5F32B517719FE",
+      "applicationAssemblySha256": "62C88246FD5FF0F3863917AF093D2D0B80F9A1E361BB42F28F70E1D90E52DD69",
+      "buildLogSha256": "07FCC86881B17B30AC43E4DE3C5D2A664E9CA8A5C4F3A1102AF77D9CD1034CE7"
+    }
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 10.7647078,
+      "jsHeapMiB": null,
+      "processId": 11176,
+      "readinessMilliseconds": 5322,
+      "windowClosed": false,
+      "rawRecordSha256": "4db03bfb5b29d08a84203264cb35d8c6f26deae2a99a915046d9e10363cf3dd0"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 9.9226449,
+      "jsHeapMiB": null,
+      "processId": 6324,
+      "readinessMilliseconds": 4972,
+      "windowClosed": false,
+      "rawRecordSha256": "648ef4110f323fb8ca049e797366ddd62ab9d0ed7ad727ef2509de3f4e3a497a"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 9.2590308,
+      "jsHeapMiB": null,
+      "processId": 10576,
+      "readinessMilliseconds": 4436,
+      "windowClosed": false,
+      "rawRecordSha256": "0280295f45e0f556fc4be14c00057c06d1d41bb47eeb44389a97a32a9331a381"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 6.2073059,
+      "jsHeapMiB": null,
+      "processId": 1176,
+      "readinessMilliseconds": 4250,
+      "windowClosed": true,
+      "rawRecordSha256": "9a177928fc4b8257064ae13422a4166c0806e54b40cb4d205a3bfbfa73749e27"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 6.5177615,
+      "jsHeapMiB": null,
+      "processId": 5648,
+      "readinessMilliseconds": 4520,
+      "windowClosed": true,
+      "rawRecordSha256": "bec6a9cc2bdad943f6b1bbcd3121380ac132fbcabb4d65f03e535fe277f2cb36"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 7.0604351,
+      "jsHeapMiB": null,
+      "processId": 7412,
+      "readinessMilliseconds": 5000,
+      "windowClosed": true,
+      "rawRecordSha256": "9d5ffb1a8294f8e111adde9d1ef98d2cfeb33d71efaa3b892a10484e885c1b74"
+    }
+  ],
+  "controls": [
+    {
+      "role": "neighboring-legal-behavior",
+      "revision": "fd7acc2535ef8b2e7edeeb9d6b8507f09e3b411c",
+      "action": "click the affected revision's close-button center at (742,16)",
+      "windowClosed": true,
+      "rawRecordSha256": "8866ebb3be7e8fe101afea1f93cc4ec0375a27816bfc78538cdf99a9d12f1d59"
+    }
+  ],
+  "containment": {
+    "preexistingApplicationProcessesEveryRun": 0,
+    "freshConfigurationEveryRun": true,
+    "freshRunRootEveryRun": true,
+    "firewallRulesActiveEveryRun": true,
+    "firewallRulesRemovedEveryRun": true,
+    "remainingApplicationProcessesEveryRun": 0,
+    "configurationRemovedEveryRun": true,
+    "runRootRemovedEveryRun": true,
+    "pointerRestoredEveryRun": true
+  },
+  "rawRecords": {
+    "retainedAt": "C:\\lab\\campaigns\\avalonia\\corner-evidence",
+    "orderedHashChainSha256": "c3cfee2a295e900fdf9ff4a00c80beabd558bc7d01f1f9b1ead27226d6c9bf67"
+  }
+}

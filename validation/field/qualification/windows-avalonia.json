@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "windows-avalonia",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "qualified",
   "declaredBounds": {
     "os": "windows",
     "arch": "x86_64",
@@ -14,8 +14,8 @@
     "method": "GitHub GraphQL scan of merged pull requests that close at least one issue, followed by per-revision framework verification",
     "candidateDefectsMeaning": "merged pull requests closing an issue, counted over the 60 most recently updated merged pull requests of the repository",
     "frameworkVerification": "git clone --filter=blob:none --no-checkout, then git show <revision>:<project file> at every revision named in this record; a repository is never classified by its default branch",
-    "executed": false,
-    "note": "no build, no launch and no UI Automation session was run for this record; every entry below is research only"
+    "executed": true,
+    "note": "The inventory research was followed by native Windows builds and UI Automation campaigns. PicView corner-close issue 320 and ILSpy fold-documentation issue 749 qualified. Two additional PicView input candidates were executed and rejected because their synthetic paths did not establish the reported physical or focused-input behavior."
   },
   "applicationPool": [
     {
@@ -24,8 +24,8 @@
       "decision": "qualify",
       "reason": "ILSpy/ILSpy.csproj at every candidate revision inspected references Avalonia, Avalonia.Desktop, Avalonia.Themes.Simple and Avalonia.AvaloniaEdit with OutputType>WinExe on net10.0, and no longer sets UseWPF. The application is an offline decompiler: it opens local assemblies, needs no account and no network, and writes only its own settings file. This repository is the clearest per-revision trap in the pool, because every public description of ILSpy still calls it a WPF application",
       "candidateDefects": 25,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/ilspy-fold-documentation-749.json"
     },
     {
       "repository": "https://github.com/Ruben2776/PicView",
@@ -33,8 +33,8 @@
       "decision": "qualify",
       "reason": "src/PicView.Avalonia/PicView.Avalonia.csproj references Avalonia and Avalonia.Desktop and the Windows head src/PicView.Avalonia.Win32/PicView.Avalonia.Win32.csproj is OutputType>WinExe on net11.0-windows10.0.22621.0, verified at all six revisions named below. Offline image viewer over a seeded local folder, no account, no network. The repository's own history also crosses the WPF-to-Avalonia migration, so revision-level classification is mandatory here",
       "candidateDefects": 8,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/picview-corner-close-targets-320.json"
     },
     {
       "repository": "https://github.com/Devolutions/UniGetUI",
@@ -141,15 +141,12 @@
         "toolchain": ".NET 11 SDK",
         "publicFeedsOnly": true,
         "signingRequired": false,
-        "verified": false
+        "verified": true
       },
       "whySuitable": "Avalonia routes raw pointer events through its own input pipeline before any automation peer sees them, and this defect lives exactly there: a double click made with pointer button 4 or 5 is classified as a left-button double click and runs the left-button action (window state change) instead of the side-button action. The adapter must locate the image surface in the Windows UI Automation tree that Avalonia projects, synthesise a side-button double click over its bounding rectangle, and then read back which action ran from the same tree. That is a full round trip through the Avalonia-to-UIA bridge rather than an internal Avalonia assertion",
-      "qualification": "selected-not-executed",
+      "qualification": "rejected-after-execution",
       "remaining": [
-        "confirm the Avalonia UIA bridge exposes the main window content with a stable automation id at these revisions, since Avalonia's automation peers are sparser than WPF's",
-        "confirm the .NET 11 SDK is installable in the guest",
-        "define the observable that distinguishes the left-button action from the side-button action through automation properties rather than pixels",
-        "build both revisions in the native x86_64 Windows VM"
+        "Synthetic XBUTTON replay reset zoom on both affected and fixed revisions. It did not separate the reported physical-device path, so this candidate cannot qualify."
       ]
     },
     {
@@ -174,14 +171,12 @@
         "toolchain": ".NET 11 SDK",
         "publicFeedsOnly": true,
         "signingRequired": false,
-        "verified": false
+        "verified": true
       },
       "whySuitable": "a modifier-key gesture is mismatched in Avalonia's key-binding table, so Ctrl+S rotates the displayed image instead of opening the save flow. The trigger is a key chord delivered to a focused Avalonia window and the observable is which of two windows or which image orientation the automation tree reports afterwards, so it exercises the adapter's keyboard action path and its tree observation in one step. It is also a different input class from the pointer defect above, which keeps the two PicView candidates from collapsing into one identity",
-      "qualification": "selected-not-executed",
+      "qualification": "rejected-after-execution",
       "remaining": [
-        "read the diff of MainKeyboardShortcuts.cs on the VM and pin the exact observable, since the issue is written in Chinese and the title carries no detail",
-        "confirm the save dialog is an in-process Avalonia window rather than the Win32 common dialog, otherwise the observation leaves the target's tree",
-        "build both revisions in the native x86_64 Windows VM"
+        "An inactive-window PostMessage replay was not a qualifying focused keyboard path, and the normal focused replay did not establish a revision-separated defect."
       ]
     },
     {
@@ -191,32 +186,28 @@
       "issueTitle": "Cannot casually hover the mouse over the top right corner and click to close",
       "pullRequestUrl": "https://github.com/Ruben2776/PicView/pull/361",
       "pullRequestTitle": "Fix top-right corner close targets",
-      "affectedRevision": "00cd32fdcc2332fc48ba1465e600b852ca09ee25",
-      "fixedRevision": "a8a429c5c2b9d244657a14e9e45c91f8f566b6df",
+      "affectedRevision": "fd7acc2535ef8b2e7edeeb9d6b8507f09e3b411c",
+      "fixedRevision": "00cd32fdcc2332fc48ba1465e600b852ca09ee25",
       "changedFiles": [
-        "src/PicView.Avalonia.Win32/Views/SettingsWindow.axaml",
-        "src/PicView.Avalonia.Win32/Views/AboutWindow.axaml",
-        "plus eight further Win32 view pairs"
+        "src/PicView.Avalonia.Win32/Views/WinMainWindow.axaml",
+        "src/PicView.Avalonia.Win32/Views/WinMainWindow.axaml.cs",
+        "src/PicView.Avalonia.Win32/Views/CaptionButtonCornerHandler.cs"
       ],
       "frameworkVerified": {
         "projectFile": "src/PicView.Avalonia.Win32/PicView.Avalonia.Win32.csproj",
-        "evidence": "the changed files are Avalonia .axaml views in the Windows head, OutputType>WinExe on net11.0-windows10.0.22621.0",
-        "verifiedAtRevision": "both 00cd32fdcc2332fc48ba1465e600b852ca09ee25 and a8a429c5c2b9d244657a14e9e45c91f8f566b6df"
+        "evidence": "the main-window Avalonia view extends the close target to the physical corner and attaches CaptionButtonCornerHandler in the Windows head",
+        "verifiedAtRevision": "both fd7acc2535ef8b2e7edeeb9d6b8507f09e3b411c and 00cd32fdcc2332fc48ba1465e600b852ca09ee25"
       },
       "build": {
         "command": "dotnet build src/PicView.Avalonia.Win32/PicView.Avalonia.Win32.csproj -c Release",
         "toolchain": ".NET 11 SDK",
         "publicFeedsOnly": true,
         "signingRequired": false,
-        "verified": false
+        "verified": true
       },
-      "whySuitable": "the close button of every custom-chrome Avalonia window has a hit region that does not reach the window's own corner, so a click at the corner falls through. The adapter reads the close button's bounding rectangle out of the UI Automation tree, clicks the corner point inside that rectangle, and asserts whether the window leaves the tree. That is precisely the geometry-plus-invoke path the Windows adapter has to get right for custom-chrome Avalonia windows, which are the common case for this framework",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "pick one window from the ten changed views and pin it as the subject",
-        "confirm the affected geometry is reported through UIA bounding rectangles rather than only in the Avalonia visual tree",
-        "build both revisions in the native x86_64 Windows VM"
-      ]
+      "whySuitable": "the PicView main window is the direct subject of the accepted fix. The harness reads its custom close button through UI Automation, sends a native click at the physical top-right corner, and observes whether the main window leaves the tree. A center click on the affected close button is the neighboring legal control.",
+      "qualification": "campaign-complete",
+      "remaining": []
     },
     {
       "id": "ilspy-fold-documentation-749",
@@ -242,16 +233,11 @@
         "toolchain": ".NET 10 SDK for the application; the test projects target net11.0",
         "publicFeedsOnly": true,
         "signingRequired": false,
-        "verified": false
+        "verified": true
       },
       "whySuitable": "an independent second application whose defect is in a hosted Avalonia editor control rather than in window chrome or raw input, so the two applications exercise different parts of the same adapter. The trigger clicks a folding margin in the AvaloniaEdit text view and the observable is the text the automation tree reports for the editor afterwards: on the affected revision the member folds while its documentation comment stays expanded",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "confirm AvaloniaEdit exposes its text through a UIA text or value pattern; if it does not, this candidate cannot be observed through the adapter and must be dropped",
-        "note that the report is filed as an enhancement rather than a bug, so the authority for the oracle is the project's own accepted behaviour change and not a platform rule",
-        "confirm the .NET 10 and .NET 11 SDKs required by the solution are installable in the guest",
-        "build both revisions in the native x86_64 Windows VM"
-      ]
+      "qualification": "campaign-complete",
+      "remaining": []
     },
     {
       "id": "ilspy-reference-highlight-781",
@@ -290,26 +276,5 @@
       ]
     }
   ],
-  "blockers": [
-    {
-      "code": "incomplete-evidence",
-      "detail": "no build, launch or UI Automation evidence exists for any candidate in this record. Every revision pair, framework classification and license here was verified from repository data on the host; nothing has been executed in the native x86_64 Windows VM",
-      "command": null,
-      "evidence": [
-        "validation/field/qualification/infrastructure.json"
-      ]
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the Avalonia to Windows UI Automation bridge is assumed but unproven for these applications. Avalonia projects its own automation peers and exposes fewer of them than WPF, so for each candidate it is still unknown whether the observable is reachable through the automation tree at all. This is the single largest risk in this record and it applies to all five candidates",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the toolchain is unusually new: ILSpy needs the .NET 10 SDK with net11.0 test projects and PicView needs the .NET 11 SDK. Neither has been confirmed installable in the Windows guest",
-      "command": null,
-      "evidence": []
-    }
-  ]
+  "blockers": []
 }

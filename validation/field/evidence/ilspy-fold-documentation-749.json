@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-avalonia",
+  "campaign": "ilspy-fold-documentation-749",
+  "status": "campaign-complete",
+  "issue": "https://github.com/icsharpcode/ILSpy/issues/749",
+  "pullRequest": "https://github.com/icsharpcode/ILSpy/pull/3922",
+  "affectedRevision": "48fb85960e2adce0367ba925d3f2bf1f6b0384f9",
+  "fixedRevision": "800efc6e105ce4a94f25a335938c53927f3cb4b6",
+  "identity": "member-fold-leaves-xml-documentation-expanded",
+  "authority": "authored-contract: accepted ILSpy behavior change for issue 749",
+  "memoryMeasurement": "unavailable",
+  "minimizedAction": "expand documentation and body, then invoke Toggle Folding inside the body",
+  "neighboringLegalBehavior": "the independent XML documentation margin fold expands normally",
+  "observation": {
+    "automation": "Windows UI Automation plus rendered AvaloniaEdit screenshots",
+    "editorAutomationId": "self",
+    "menuItemName": "Toggle Folding",
+    "expandedActiveRowCount": 233,
+    "affectedActiveRowCount": 230,
+    "fixedActiveRowCount": 50
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "interactiveSessionId": 1,
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route",
+    "scheduledTaskLogonType": "Interactive",
+    "buildSdk": "10.0.302",
+    "networkPolicy": "program-scoped inbound and outbound Windows Firewall block rules"
+  },
+  "builds": {
+    "affected": {
+      "executableSha256": "D5C14EE8B08424D1CD2423031E1241E7A4BEC5F6AFBA872803D9B3769AAD0966",
+      "applicationAssemblySha256": "37F8AEB783E4DF03CA4B331B8DB6265CADEABF087EA20553A714A989B029BEF3",
+      "buildLogSha256": "7843C15822FDF8D7C768CDE9CF9CAA150EE1EA567E75B47072A0C7BA8874FA10"
+    },
+    "fixed": {
+      "executableSha256": "E506A1D10B67542EBE02EA18E3F0E4009AF80FD96125D231BA0E66176026688A",
+      "applicationAssemblySha256": "7C3CEF37728D8FE7D1B27ED681E47BA714264FAE0E1466E7810D30D1ED1BFDFB",
+      "buildLogSha256": "DEE0C72C773B5285AB211CDF1F04ED44C4107F2D8DDCBDC0447B33D08C2A6F44"
+    },
+    "subject": {
+      "assemblySha256": "6BEB927C194CDF895F32346720FA218B001DC594E744702F349F7A9DBB7CCCF9",
+      "xmlSha256": "90279EDAC6547407CD3768D6CF5403FDF28CCC4E7EF0E862CF9B515F63DC2BEB"
+    }
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.673347,
+      "jsHeapMiB": null,
+      "processId": 3304,
+      "readinessMilliseconds": 5758,
+      "beforeActiveRowCount": 233,
+      "afterActiveRowCount": 230,
+      "rawRecordSha256": "8acc368194b4b709342ab718b42b7674d777403cc4d6efbbc9a0e7e23e12093d"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.538481,
+      "jsHeapMiB": null,
+      "processId": 7484,
+      "readinessMilliseconds": 5877,
+      "beforeActiveRowCount": 233,
+      "afterActiveRowCount": 230,
+      "rawRecordSha256": "9d4f4c48abc6649542b936ec22f21047780a99aa69344c80288f0e98f9d4d370"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.3481788,
+      "jsHeapMiB": null,
+      "processId": 11568,
+      "readinessMilliseconds": 5724,
+      "beforeActiveRowCount": 233,
+      "afterActiveRowCount": 230,
+      "rawRecordSha256": "6df21cf5c15a1fbe7dc60581e4ab3f5d9536a9ccb33bb7172eece4be8e8d9448"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.4239311,
+      "jsHeapMiB": null,
+      "processId": 11312,
+      "readinessMilliseconds": 5737,
+      "beforeActiveRowCount": 233,
+      "afterActiveRowCount": 50,
+      "rawRecordSha256": "6b0a99fe34b8ad7285294174c33be3cb07c4732d30e52a792025aee4b31a82bd"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.5502251,
+      "jsHeapMiB": null,
+      "processId": 12236,
+      "readinessMilliseconds": 5806,
+      "beforeActiveRowCount": 233,
+      "afterActiveRowCount": 50,
+      "rawRecordSha256": "abd45304e92bc099a303ffc0928501da9ded0cec04fe1fc3367385402d80be59"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.5081143,
+      "jsHeapMiB": null,
+      "processId": 3476,
+      "readinessMilliseconds": 5824,
+      "beforeActiveRowCount": 233,
+      "afterActiveRowCount": 50,
+      "rawRecordSha256": "a2ee174d5d172fc2fceee8634ff82b8848ac932c9042645e258d80cb4613c774"
+    }
+  ],
+  "controls": [
+    {
+      "role": "neighboring-legal-behavior",
+      "revision": "48fb85960e2adce0367ba925d3f2bf1f6b0384f9",
+      "action": "expand the independent XML documentation fold",
+      "afterActiveRowCount": 251,
+      "rawRecordSha256": "745258e8769a2f3cabcbb792214352f14c7d1d5602a577ea752addd173be2753"
+    }
+  ],
+  "containment": {
+    "preexistingApplicationProcessesEveryRun": 0,
+    "freshRunRootEveryRun": true,
+    "firewallRulesActiveEveryRun": true,
+    "firewallRulesRemovedEveryRun": true,
+    "remainingApplicationProcessesEveryRun": 0,
+    "runRootRemovedEveryRun": true,
+    "pointerRestoredEveryRun": true
+  },
+  "rawRecords": {
+    "retainedAt": "C:\\lab\\campaigns\\avalonia\\evidence",
+    "orderedHashChainSha256": "ed0199f3c43dff6d0163773972b51a24879f9af11e433f46ce880b16ef5ca258"
+  }
+}

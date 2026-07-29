@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-avalonia",
+  "capturedAt": "2026-07-29T16:59:30.0141105+00:00",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route"
+  },
+  "results": {
+    "campaignStatus": "pass",
+    "corpusStatus": "pass",
+    "campaignRawRecordCount": 14,
+    "corpusRawRecordCount": 3,
+    "remainingOwnedScheduledTasks": 0,
+    "remainingApplicationProcesses": 0,
+    "remainingFirewallRules": 0,
+    "remainingTemporaryRunRoots": 0,
+    "remainingTemporaryWorktrees": 0,
+    "remainingTemporaryPublishRoots": 0,
+    "remainingWithdrawnScripts": 0,
+    "picViewConfigExists": false,
+    "retainedRawEvidenceDirectories": [
+      "corner-evidence",
+      "corner-corpus",
+      "evidence"
+    ]
+  },
+  "parserErrors": {
+    "build-picview-corner-close.ps1": 0,
+    "run-picview-corner-close.ps1": 0,
+    "run-ilspy-fold-documentation.ps1": 0,
+    "run-windows-avalonia-campaign.ps1": 0,
+    "run-windows-avalonia-corpus.ps1": 0
+  },
+  "integrity": {
+    "build-picview-corner-close.ps1": "416FC5DC5328072C7E843E254CE861BBC1A43B22C7A7B9B88E05D71F532A5288",
+    "run-picview-corner-close.ps1": "E6F7986675FDE706124D49F469977698A3C64B87C4D19D6ADDA070B377C17BF9",
+    "run-ilspy-fold-documentation.ps1": "1B1D79D4D1FB01FAA42325F47CD663752A69FE1A52E84D3C50BA64434E0F06CA",
+    "run-windows-avalonia-campaign.ps1": "3EFF060F01F9C34C7BDF3A6C583BF1FAF33EDE8DA1F8C287DCE634C7E8029918",
+    "run-windows-avalonia-corpus.ps1": "5DD3E528F7E131849EACD4D20134150C71CBEE8AE58E843C4A07C57DAE086202"
+  },
+  "diskFreeBytes": 4737740800
+}

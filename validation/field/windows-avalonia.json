@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "windows-avalonia",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "picview-corner-close-targets-320",
+      "repository": "https://github.com/Ruben2776/PicView",
+      "issueUrl": "https://github.com/Ruben2776/PicView/issues/320",
+      "affectedRevision": "fd7acc2535ef8b2e7edeeb9d6b8507f09e3b411c",
+      "fixedRevision": "00cd32fdcc2332fc48ba1465e600b852ca09ee25",
+      "authority": "authored-contract",
+      "expectedIdentity": "top-right-corner-click-does-not-close-window",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "top-right-corner-click-does-not-close-window",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "top-right-corner-click-does-not-close-window",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "top-right-corner-click-does-not-close-window",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 6,
+        "replaySecondsP95": 10.7647078,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/picview-corner-close-targets-320.json",
+        "validation/field/evidence/picview-corner-close-targets-320.md"
+      ]
+    },
+    {
+      "id": "ilspy-fold-documentation-749",
+      "repository": "https://github.com/icsharpcode/ILSpy",
+      "issueUrl": "https://github.com/icsharpcode/ILSpy/issues/749",
+      "affectedRevision": "48fb85960e2adce0367ba925d3f2bf1f6b0384f9",
+      "fixedRevision": "800efc6e105ce4a94f25a335938c53927f3cb4b6",
+      "authority": "authored-contract",
+      "expectedIdentity": "member-fold-leaves-xml-documentation-expanded",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "member-fold-leaves-xml-documentation-expanded",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "member-fold-leaves-xml-documentation-expanded",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "member-fold-leaves-xml-documentation-expanded",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 6,
+        "replaySecondsP95": 16.673347,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/ilspy-fold-documentation-749.json",
+        "validation/field/evidence/ilspy-fold-documentation-749.md"
+      ]
+    }
+  ]
+}

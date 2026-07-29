@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-avalonia",
+  "worker": {
+    "image": "native-windows-vm:Microsoft-Windows-NT-10.0.26100.0",
+    "platform": "windows/x86_64/Avalonia/UIA",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "picview-fixed-clean",
+      "kind": "clean",
+      "application": "PicView",
+      "repository": "https://github.com/Ruben2776/PicView",
+      "revision": "00cd32fdcc2332fc48ba1465e600b852ca09ee25",
+      "fixture": "validation/field/windows/run-windows-avalonia-corpus.ps1",
+      "variant": "fixed revision, fresh configuration, physical corner click",
+      "why": "the fixed main window must close without reporting the affected identity",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "subject": "WinMainWindow",
+        "closed": true,
+        "closeButtonRight": 758,
+        "windowRight": 758,
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped inbound and outbound Windows Firewall block rules",
+        "rawRecordSha256": "16806c92d0567a00dfbffd12a6b7f02f69902e799e233a5b40a6f2d5ace417fb"
+      }
+    },
+    {
+      "id": "picview-affected-close-center",
+      "kind": "adversarial",
+      "application": "PicView",
+      "repository": "https://github.com/Ruben2776/PicView",
+      "revision": "fd7acc2535ef8b2e7edeeb9d6b8507f09e3b411c",
+      "fixture": "validation/field/windows/run-windows-avalonia-corpus.ps1",
+      "variant": "affected revision, neighboring legal close-button center click",
+      "why": "the affected window must still close when the legal center target is clicked",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "subject": "WinMainWindow",
+        "closed": true,
+        "closeButtonRight": 757,
+        "windowRight": 758,
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped inbound and outbound Windows Firewall block rules",
+        "rawRecordSha256": "79bb6ef3fd5d57a88b382b7a20b6ea391fb1d79936f1c1c96f5842124121ac07"
+      }
+    },
+    {
+      "id": "ilspy-affected-documentation-fold",
+      "kind": "adversarial",
+      "application": "ILSpy",
+      "repository": "https://github.com/icsharpcode/ILSpy",
+      "revision": "48fb85960e2adce0367ba925d3f2bf1f6b0384f9",
+      "fixture": "validation/field/windows/run-windows-avalonia-corpus.ps1",
+      "variant": "affected revision, independent XML documentation margin fold",
+      "why": "the independent documentation fold must not report the member-fold identity",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "editorAutomationId": "self",
+        "activeRowCount": 251,
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped inbound and outbound Windows Firewall block rules",
+        "rawRecordSha256": "1e0fd86bb51dd279934f1f122b7e6cc848ecc39d62a133933f103912379a0b0a"
+      }
+    }
+  ]
+}
