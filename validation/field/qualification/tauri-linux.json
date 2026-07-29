@@ -300,10 +300,14 @@
     "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver, so the campaign declares it unavailable rather than inventing a number",
     "scenarioStatus": {
       "scenario": "preset-pointer-select in reproit-cli/validation/field/probe-tauri.mjs",
-      "state": "written and executing, not yet discriminating",
-      "evidence": "the affected build reports the identity, but so does the fixed build: the provider name field stays empty on both. On the fixed build the pointer press also closes the preset search without filling any field, so the press is not selecting the preset on either revision",
-      "hypothesis": "WebDriver pointer actions under tauri-driver and WebKitGTK may not use the same coordinate space the DOM reports. The press at the button's viewport centre closes the search, which is what an outside click does, so it is likely landing somewhere other than the intended element",
-      "nextStep": "call document.elementFromPoint with the pressed coordinates and compare it to the intended button before trusting any run. If the coordinate space differs, translate through window.screenX/screenY or move the pointer with an element origin instead of a viewport origin"
+      "state": "executing, not yet discriminating, must not produce evidence",
+      "diagnosisSoFar": [
+        "pointer coordinates are NOT the problem: a WebDriver pointer press at (318, 239) delivered a mousedown at exactly (318, 239), confirmed by a capture-phase listener",
+        "the problem is element identity. The preset query matches two buttons, and getBoundingClientRect on the first returns a rect whose centre is occupied by a different element: document.elementFromPoint there returns a DIV reading 'About Common Config'",
+        "switching to WebDriver element clicks removed the coordinate maths but surfaced the real state: BOTH matching buttons report not displayed or not clickable, so the preset grid is overlaid or outside the scrollable area at the worker's window size"
+      ],
+      "nextStep": "the worker window is 1280x800 with an inner viewport of 1000x650. Either enlarge the Xvfb screen and the window so the preset grid is fully visible, or scroll the preset container before selecting. Then re-verify on the FIXED build first: the scenario is only usable once the fixed build fills the provider name and the affected build does not",
+      "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver"
     }
   }
 }

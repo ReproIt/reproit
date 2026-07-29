@@ -124,24 +124,25 @@ const PRESET_QUERY = 'kimi';
 const NAME_PLACEHOLDER = 'e.g., Claude Official';
 const SEARCH_LABEL = 'Search provider presets';
 
-// A genuine press and release at the element's centre, which is what
-// distinguishes this defect from a synthetic click.
-async function pointerPress(browser, rect) {
-  const x = Math.round(rect.x + rect.width / 2);
-  const y = Math.round(rect.y + rect.height / 2);
-  await browser.performActions([{
-    type: 'pointer',
-    id: 'mouse',
-    parameters: { pointerType: 'mouse' },
-    actions: [
-      { type: 'pointerMove', duration: 0, x, y },
-      { type: 'pointerDown', button: 0 },
-      { type: 'pause', duration: 60 },
-      { type: 'pointerUp', button: 0 },
-    ],
-  }]);
-  await browser.releaseActions().catch(() => {});
-  return { x, y };
+// A genuine press and release on the element. The WebDriver Element Click
+// command scrolls the element into view and dispatches a real pointer sequence,
+// including the mousedown this defect turns on. Computing viewport coordinates
+// by hand is not equivalent and is not safe: the rect a query returns can
+// belong to an offscreen twin of the element, so the press lands on whatever
+// occupies that point instead.
+async function pointerPress(browser, selector) {
+  // A selector can match an offscreen twin of the intended element. Press the
+  // first match that is actually displayed and clickable, never simply the
+  // first in document order.
+  const matches = await browser.$$(selector);
+  for (const element of matches) {
+    if (!(await element.isDisplayed())) continue;
+    if (!(await element.isClickable())) continue;
+    const text = (await element.getText()).trim().slice(0, 40);
+    await element.click();
+    return { selector, text };
+  }
+  throw new Error(`no displayed clickable element for ${selector} (${matches.length} matched)`);
 }
 
 const presetPointerSelect = {
@@ -212,19 +213,13 @@ const presetPointerSelect = {
     }, { label: SEARCH_LABEL, query: PRESET_QUERY });
     await sleep(1200);
 
-    const rect = await browser.execute((query) => {
-      const match = [...document.querySelectorAll('button')].find((b) =>
-        (b.textContent || '').toLowerCase().includes(query) && b.offsetWidth);
-      if (!match) return null;
-      const r = match.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height,
-               label: (match.textContent || '').trim() };
-    }, PRESET_QUERY);
-    if (!rect) throw new Error(`no preset matched ${PRESET_QUERY}`);
-    state.presetLabel = rect.label;
-    const at = await pointerPress(browser, rect);
+    const pressed = await pointerPress(
+      browser,
+      `//button[contains(translate(., 'KIM', 'kim'), '${PRESET_QUERY}')]`,
+    );
+    state.presetLabel = pressed.text;
     await sleep(1500);
-    return { query: PRESET_QUERY, preset: rect.label, pressedAt: at };
+    return { query: PRESET_QUERY, preset: pressed.text };
   },
   // Neighboring legal behavior: the search itself still works. The trigger
   // leaves the affected build with the search closed, which is the defect's own
