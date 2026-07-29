@@ -537,7 +537,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `swiftui-ios` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `tauri-linux` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `tui` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `web-chromium` | Stable | Unqualified | Stable + `IndependentQualified` |
+| `web-chromium` | Stable | FixtureQualified | Stable + `IndependentQualified` |
 | `web-firefox` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `web-webkit` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `windows-avalonia` | Preview | Unqualified | Stable + `IndependentQualified` |

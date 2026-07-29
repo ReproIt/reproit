@@ -380,8 +380,8 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Promotion standard: schema-3
 - Native gates: web-chromium
 - Field benchmark: validation/field/benchmark.json
-- Production-to-local: Unqualified
-- Production-to-local evidence: none
+- Production-to-local: FixtureQualified
+- Production-to-local evidence: validation/field/evidence/production/web-chromium/record.json
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Node.js 20+, Playwright CDP

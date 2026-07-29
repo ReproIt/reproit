@@ -24,7 +24,7 @@ Stable (7): Electron Linux, Flutter iOS, Terminal UI, Web Chromium, Web Firefox,
 
 Preview (14): Backend contracts, Jetpack Compose Android, Flutter Android, Linux GTK, Linux Qt Quick/QML, Linux Qt Widgets, Linux wxWidgets, macOS Accessibility, React Native Android, React Native iOS, SwiftUI iOS, Tauri Linux, Windows Avalonia, Windows WinUI 3.
 
-Production-to-local qualified: none.
+Production-to-local qualified: Web Chromium.
 
 Stable is an atomic compatibility claim. It does not by itself claim
 that every production occurrence on that target reproduces locally;

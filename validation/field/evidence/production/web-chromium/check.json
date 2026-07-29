@@ -1,0 +1,28 @@
+{
+  "command": "check",
+  "exit": 1,
+  "outcome": "fail",
+  "repros": [
+    {
+      "alias": "bkt_a3a6b74fec06",
+      "evidence": "/private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.wkuJDjgYaG/.reproit/runs/20260729-080432-explore",
+      "exit": 1,
+      "green": 0,
+      "id": "rep_8b938a73ba53",
+      "kind": "repro",
+      "locale": null,
+      "outcome": "fail",
+      "promoted": false,
+      "rate": "0/5",
+      "status": "quarantined",
+      "total": 5,
+      "verification": {
+        "cleanLaunchRuns": 5,
+        "contract": "exact-observation-v1",
+        "exactIdentityRuns": 5,
+        "observationReachedRuns": 5
+      },
+      "videoFlicker": false
+    }
+  ]
+}

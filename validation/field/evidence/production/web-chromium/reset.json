@@ -1,0 +1,5 @@
+{
+  "cleanWorkspace": true,
+  "disposableProject": true,
+  "workspaceOwner": "run-production-loop.sh"
+}

@@ -90,7 +90,7 @@ production.
 | SwiftUI iOS | Preview | Swift runtime, Appium XCUITest | Unqualified |
 | Tauri Linux | Preview | WebKitGTK, tauri-driver | Unqualified |
 | Terminal UI | Stable | PTY, VT parser | Unqualified |
-| Web Chromium | Stable | Node.js 20+, Playwright CDP | Unqualified |
+| Web Chromium | Stable | Node.js 20+, Playwright CDP | FixtureQualified |
 | Web Firefox | Stable | Node.js 20+, Playwright | Unqualified |
 | Web WebKit | Stable | Node.js 20+, Playwright | Unqualified |
 | Windows Avalonia | Preview | .NET, UI Automation | Unqualified |

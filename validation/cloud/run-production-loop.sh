@@ -53,19 +53,23 @@ PY
 
 retain_chain() {
   [[ -n "${REPROIT_PRODUCTION_RETAIN:-}" ]] || return 0
-  local contract_args=()
   local origin_summary
   origin_summary="hosted Cloud disposable project ingesting strict protocol-v1 "
   origin_summary+="production findings through the real SDK boundary, replayed "
   origin_summary+="locally from the returned bucket"
   if [[ -f "$WORK/qualification-contract.json" ]]; then
-    contract_args=(--contract "$WORK/qualification-contract.json")
+    node "$ROOT/validation/cloud/retain-production-chain.mjs" \
+      "$WORK" "$REPROIT_PRODUCTION_RETAIN" \
+      --qualification "${REPROIT_PRODUCTION_QUALIFICATION:-FixtureQualified}" \
+      --origin "$origin_summary" \
+      --contract "$WORK/qualification-contract.json" \
+      || echo "warning: production chain retention failed" >&2
+    return
   fi
   node "$ROOT/validation/cloud/retain-production-chain.mjs" \
     "$WORK" "$REPROIT_PRODUCTION_RETAIN" \
     --qualification "${REPROIT_PRODUCTION_QUALIFICATION:-FixtureQualified}" \
     --origin "$origin_summary" \
-    "${contract_args[@]}" \
     || echo "warning: production chain retention failed" >&2
 }
 

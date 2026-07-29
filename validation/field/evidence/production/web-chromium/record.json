@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 2,
+  "gate": "D5-production-to-local",
+  "targetId": "web-chromium",
+  "qualification": "FixtureQualified",
+  "origin": {
+    "kind": "fixture",
+    "summary": "hosted Cloud disposable project ingesting strict protocol-v1 production findings through the real SDK boundary, replayed locally from the returned bucket"
+  },
+  "revisions": {
+    "application": "sha256:8098ebc5c8cf00147de2bc7e6f61d2400e16bae793fdd373194616781bca050b",
+    "cli": "git:8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+    "sdk": {
+      "name": "reproit-web-protocol-v1",
+      "revision": "git:8cd2e7f63dd86740f1686d59e047cd8def7eeae1"
+    }
+  },
+  "cloud": {
+    "baseUrl": "https://cloud.reproit.com",
+    "projectId": "release-gate-20260729-150329-bb12d1",
+    "occurrenceId": "release-gate-warmup-0-0-c335087481dc4311a8cfd56a52e0d132",
+    "bucketId": "bkt_a3a6b74fec06"
+  },
+  "local": {
+    "provider": "reproit-bucket-v1",
+    "trusted": true
+  },
+  "execution": {
+    "cleanup": {
+      "command": "delete the disposable Cloud project and remove the workspace",
+      "evidence": [
+        "retention-and-deletion"
+      ]
+    },
+    "commands": [
+      {
+        "assertions": [
+          "workspace and project are disposable"
+        ],
+        "command": "mktemp workspace and create disposable Cloud project",
+        "stage": "reset"
+      },
+      {
+        "assertions": [
+          "project response is HTTP 201"
+        ],
+        "command": "POST /v1/projects",
+        "stage": "production-signal"
+      },
+      {
+        "assertions": [
+          "strict SDK-shaped findings produce a bucket"
+        ],
+        "command": "validation/cloud/production-benchmark.py",
+        "stage": "cloud-ingestion"
+      },
+      {
+        "assertions": [
+          "bucket package materializes locally"
+        ],
+        "command": "reproit BUCKET --no-run",
+        "stage": "local-materialization"
+      },
+      {
+        "assertions": [
+          "outcome is fail and exit code is 1"
+        ],
+        "command": "reproit check --repro-id BUCKET --json",
+        "stage": "exact-local-reproduction"
+      },
+      {
+        "assertions": [
+          "output contains REPRODUCED"
+        ],
+        "command": "reproit BUCKET",
+        "stage": "direct-replay"
+      },
+      {
+        "assertions": [
+          "project deletion response is HTTP 200"
+        ],
+        "command": "DELETE /v1/projects/APP",
+        "stage": "retention-and-deletion"
+      }
+    ],
+    "reset": {
+      "command": "create a clean workspace and disposable Cloud project",
+      "evidence": [
+        "reset",
+        "production-signal"
+      ]
+    }
+  },
+  "stages": [
+    {
+      "id": "reset",
+      "summary": "clean application workspace and disposable Cloud project reset",
+      "present": true,
+      "required": true,
+      "file": "reset.json",
+      "bytes": 104,
+      "malformed": false,
+      "rawSha256": "sha256:04db94353e939cb2ec58ed70a38ae69901366d15b5f57733c1c7019a6d6430c5",
+      "sanitizedSha256": "sha256:04db94353e939cb2ec58ed70a38ae69901366d15b5f57733c1c7019a6d6430c5"
+    },
+    {
+      "id": "production-signal",
+      "summary": "disposable Cloud project created for the production signal",
+      "present": true,
+      "required": true,
+      "file": "project.json",
+      "bytes": 245,
+      "malformed": false,
+      "rawSha256": "sha256:5b4ff662bb90e1c094907460559c22ff1a09955d6084b002dc0d937600c636f6",
+      "sanitizedSha256": "sha256:131a4279abcbcb21e4cb2e4e92441d5c51a1663fe3869dc87023a215edbe0512"
+    },
+    {
+      "id": "cloud-ingestion",
+      "summary": "authenticated hosted ingest, grouping, and bucket creation",
+      "present": true,
+      "required": true,
+      "file": "hosted.json",
+      "bytes": 569,
+      "malformed": false,
+      "rawSha256": "sha256:597b321ac6fbf820e3296b25491c885417c9d5f6daa21666c735e5e2e02f1421",
+      "sanitizedSha256": "sha256:597b321ac6fbf820e3296b25491c885417c9d5f6daa21666c735e5e2e02f1421"
+    },
+    {
+      "id": "local-materialization",
+      "summary": "replay package pulled into a clean developer workspace",
+      "present": true,
+      "required": true,
+      "file": "pull.log",
+      "bytes": 588,
+      "malformed": false,
+      "rawSha256": "sha256:fe78668ebba2e82a8c474bc0500cf64b41b1874c11ba9fa0c34110321e2fe27e",
+      "sanitizedSha256": "sha256:fe78668ebba2e82a8c474bc0500cf64b41b1874c11ba9fa0c34110321e2fe27e"
+    },
+    {
+      "id": "exact-local-reproduction",
+      "summary": "local check reproduced the exact production identity",
+      "present": true,
+      "required": true,
+      "file": "check.json",
+      "bytes": 691,
+      "malformed": false,
+      "rawSha256": "sha256:419810ce1971005c03f89cd35030f68729944f4abe14f6ed2a766c00aed9a4b9",
+      "sanitizedSha256": "sha256:419810ce1971005c03f89cd35030f68729944f4abe14f6ed2a766c00aed9a4b9"
+    },
+    {
+      "id": "direct-replay",
+      "summary": "direct bucket command confirmed the failure",
+      "present": true,
+      "required": true,
+      "file": "direct-replay.log",
+      "bytes": 772,
+      "malformed": false,
+      "rawSha256": "sha256:58888bb54c6c7bbd945febfc105c416f1db7a1130a65efa5219597c9bbf802a2",
+      "sanitizedSha256": "sha256:58888bb54c6c7bbd945febfc105c416f1db7a1130a65efa5219597c9bbf802a2"
+    },
+    {
+      "id": "reproduction-stderr",
+      "summary": "local check diagnostics",
+      "present": true,
+      "required": false,
+      "file": "check.err",
+      "bytes": 620,
+      "malformed": false,
+      "rawSha256": "sha256:a167aae0998191f6ed0d889801328abff1f29f646cc3606ce578ea28c608d704",
+      "sanitizedSha256": "sha256:a167aae0998191f6ed0d889801328abff1f29f646cc3606ce578ea28c608d704"
+    },
+    {
+      "id": "retention-and-deletion",
+      "summary": "disposable project deletion response",
+      "present": true,
+      "required": true,
+      "file": "delete.json",
+      "bytes": 57,
+      "malformed": false,
+      "rawSha256": "sha256:d82a2d0cbfc341faf4ab2403a28c4ffc185d3a1a6d6d8a0004b953ae3dbeb54f",
+      "sanitizedSha256": "sha256:d82a2d0cbfc341faf4ab2403a28c4ffc185d3a1a6d6d8a0004b953ae3dbeb54f"
+    }
+  ],
+  "missingRequiredStages": [],
+  "qualificationBlockers": [],
+  "chainSha256": "sha256:d26d19d94911ca53e2719e4459b2cd7a1abfe6f34d073b62f0c60b0c151e3c3d"
+}

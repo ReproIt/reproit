@@ -53,8 +53,8 @@
           ]
         },
         "productionToLocal": {
-          "level": "Unqualified",
-          "evidence": null
+          "level": "FixtureQualified",
+          "evidence": "validation/field/evidence/production/web-chromium/record.json"
         },
         "blockers": []
       }

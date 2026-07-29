@@ -17,9 +17,9 @@
     "experimental": 0
   },
   "productionToLocalCounts": {
-    "FixtureQualified": 0,
+    "FixtureQualified": 1,
     "IndependentQualified": 0,
-    "Unqualified": 21
+    "Unqualified": 20
   },
   "targets": [
     {
@@ -720,8 +720,8 @@
           "DOM applications"
         ]
       },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
+      "productionToLocal": "FixtureQualified",
+      "productionToLocalEvidence": "validation/field/evidence/production/web-chromium/record.json",
       "promotionBlockers": []
     },
     {
