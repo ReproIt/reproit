@@ -52,7 +52,7 @@ jobs:
           REPROIT_NO_UPDATE_CHECK: "1"
         run: |
           target/debug/reproit --json --yes check \
-            @self-dogfood-cli-backend-root --runs 3
+            self-dogfood-cli-backend-root --runs 3
       - name: Replay the complete required self-dogfood guard corpus
         env:
           REPROIT_NO_UPDATE_CHECK: "1"
@@ -68,8 +68,14 @@ jobs:
       - name: Validate the bounded field benchmark manifest
         run: |
           python3 validation/compatibility/check.py --check-generated
-          python3 validation/field/check-benchmark.py \
-            validation/field/benchmark.json --allow-pending
+          for benchmark in validation/field/benchmark.json \
+                           validation/field/electron-linux.json \
+                           validation/field/tui.json \
+                           validation/field/web-firefox.json \
+                           validation/field/web-webkit.json; do
+            python3 validation/field/check-benchmark.py "$benchmark" --allow-pending
+          done
+          python3 validation/field/check-corpus.py validation/field/corpus/electron-linux.json
           python3 -m unittest discover -s validation/compatibility -p 'test_*.py'
           python3 -m unittest discover -s validation/field -p 'test_*.py'
       - name: Package every platform SDK release archive
