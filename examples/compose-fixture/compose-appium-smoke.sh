@@ -62,9 +62,10 @@ curl -sf "$APPIUM_URL/status" > /dev/null || {
 }
 
 # Deterministic device state: build and install the fixture, suppress system
-# error dialogs, and launch its Activity explicitly so the walk starts from a
-# known screen. Pinning the package, Activity, and device prevents a false pass
-# against an unrelated foreground app.
+# error dialogs, and force-stop it before the production Appium runner creates
+# the session. The forceAppLaunch capability below makes UiAutomator2 own the
+# launch. A separate HOME key event can race a direct `am start -W`, leave the
+# launcher resumed, and make the adb client wait indefinitely.
 (
   cd "$ROOT/examples/compose-fixture"
   ANDROID_HOME="$ANDROID_HOME" ./gradlew --no-daemon :app:assembleDebug
@@ -77,26 +78,6 @@ adb_device shell input keyevent KEYCODE_WAKEUP || true
 adb_device shell wm dismiss-keyguard || true
 adb_device shell setprop debug.reproit.capsule __reproit_none__ || true
 adb_device shell am force-stop com.reproit.composefixture
-adb_device shell input keyevent KEYCODE_HOME
-adb_device shell am start -W -n com.reproit.composefixture/.MainActivity &
-launch_pid=$!
-launched=0
-for _ in $(seq 1 60); do
-  if ! kill -0 "$launch_pid" 2>/dev/null; then
-    if wait "$launch_pid"; then
-      launched=1
-    fi
-    break
-  fi
-  sleep 1
-done
-if [[ "$launched" != 1 ]]; then
-  kill "$launch_pid" 2>/dev/null || true
-  wait "$launch_pid" 2>/dev/null || true
-  echo "compose-appium-smoke: fixture launch did not finish within 60 seconds" >&2
-  exit 1
-fi
-sleep 3
 
 # The embedded quotes are JSON data consumed by the runner, not shell syntax.
 # shellcheck disable=SC2089

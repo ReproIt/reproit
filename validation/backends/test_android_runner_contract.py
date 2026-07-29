@@ -43,6 +43,16 @@ class AndroidFlutterRunnerContractTests(unittest.TestCase):
                 source = script.read_text(encoding="utf-8")
                 self.assertIn('"appium:forceAppLaunch":true', source)
 
+    def test_compose_fixture_launch_is_owned_by_appium(self) -> None:
+        source = COMPOSE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "adb_device shell am force-stop com.reproit.composefixture",
+            source,
+        )
+        self.assertNotIn("adb_device shell am start", source)
+        self.assertNotIn("KEYCODE_HOME", source)
+
     def test_react_native_runner_verifies_prepared_offline_template(self) -> None:
         source = REACT_NATIVE_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("REPROIT_RN_TEMPLATE_DIR", source)
