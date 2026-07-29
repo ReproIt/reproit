@@ -12,8 +12,8 @@
     "grandfatheredStableTargets": []
   },
   "counts": {
-    "stable": 5,
-    "preview": 16,
+    "stable": 6,
+    "preview": 15,
     "experimental": 0
   },
   "productionToLocalCounts": {
@@ -202,7 +202,7 @@
       "id": "flutter-ios",
       "displayName": "Flutter iOS",
       "family": "flutter",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Flutter on a disposable iOS simulator through flutter drive",
       "nativeGates": [
         "flutter-ios"
@@ -232,12 +232,7 @@
       },
       "productionToLocal": "Unqualified",
       "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "the flutter-ios native gate passed the current candidate working tree, but the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned Xcode 16.4 preflight"
-        }
-      ]
+      "promotionBlockers": []
     },
     {
       "id": "linux-gtk",

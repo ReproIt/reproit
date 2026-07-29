@@ -154,7 +154,7 @@
     "flutter-ios": {
       "displayName": "Flutter iOS",
       "family": "flutter",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Flutter on a disposable iOS simulator through flutter drive",
       "ownedGates": [
         "flutter-ios"
@@ -194,16 +194,7 @@
           "level": "Unqualified",
           "evidence": null
         },
-        "blockers": [
-          {
-            "code": "incomplete-evidence",
-            "detail": "the flutter-ios native gate passed the current candidate working tree, but the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned Xcode 16.4 preflight",
-            "command": "RUSTUP_TOOLCHAIN=1.88.0 REPROIT_GATE_OUTPUT_DIR=target/reproit-validation/flutter-ios-current-tree python3 validation/backends/gate.py flutter-ios --architecture arm64",
-            "evidence": [
-              "validation/field/evidence/flutter-ios-corpus-and-native-current-tree.md"
-            ]
-          }
-        ]
+        "blockers": []
       }
     },
     "flutter-android": {

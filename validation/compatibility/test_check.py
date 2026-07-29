@@ -163,19 +163,19 @@ class CompatibilityContractTests(unittest.TestCase):
 
     def test_preview_target_must_name_its_exact_blockers(self):
         candidate = copy.deepcopy(self.support)
-        self.promotion(candidate, "flutter-ios")["blockers"] = []
+        self.promotion(candidate, "flutter-android")["blockers"] = []
         with self.assertRaisesRegex(ValueError, "must name typed promotion blockers"):
             CHECK.validate_support(candidate, self.gates)
 
     def test_blocker_code_must_be_typed(self):
         candidate = copy.deepcopy(self.support)
-        self.promotion(candidate, "flutter-ios")["blockers"][0]["code"] = "just-because"
+        self.promotion(candidate, "flutter-android")["blockers"][0]["code"] = "just-because"
         with self.assertRaisesRegex(ValueError, "is untyped"):
             CHECK.validate_support(candidate, self.gates)
 
     def test_blocker_evidence_must_exist(self):
         candidate = copy.deepcopy(self.support)
-        blocker = self.promotion(candidate, "flutter-ios")["blockers"][0]
+        blocker = self.promotion(candidate, "flutter-android")["blockers"][0]
         blocker["evidence"] = ["validation/field/evidence/does-not-exist.json"]
         with self.assertRaisesRegex(ValueError, "evidence is missing"):
             CHECK.validate_support(candidate, self.gates)
@@ -251,15 +251,15 @@ class CompatibilityContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(
             dir=CHECK.ROOT / "validation/compatibility"
         ) as directory:
-            evidence = self.production_record(Path(directory), "flutter-ios")
+            evidence = self.production_record(Path(directory), "flutter-android")
             relative = evidence.relative_to(CHECK.ROOT).as_posix()
-            self.promotion(candidate, "flutter-ios")["productionToLocal"] = {
+            self.promotion(candidate, "flutter-android")["productionToLocal"] = {
                 "level": "FixtureQualified",
                 "evidence": relative,
             }
             CHECK.validate_support(candidate, self.gates)
             status = CHECK.status_document(candidate)
-            entry = next(t for t in status["targets"] if t["id"] == "flutter-ios")
+            entry = next(t for t in status["targets"] if t["id"] == "flutter-android")
             self.assertEqual(entry["maturity"], "preview")
             self.assertEqual(entry["productionToLocal"], "FixtureQualified")
             self.assertEqual(entry["productionToLocalEvidence"], relative)

@@ -79,7 +79,7 @@ production.
 | Jetpack Compose Android | Preview | ART, Appium UiAutomator2 | Unqualified |
 | Electron Linux | Stable | Chromium, Node.js, CDP | Unqualified |
 | Flutter Android | Preview | Dart VM service, flutter drive | Unqualified |
-| Flutter iOS | Preview | Dart VM service, flutter drive | Unqualified |
+| Flutter iOS | Stable | Dart VM service, flutter drive | Unqualified |
 | Linux GTK | Preview | AT-SPI 2, GLib main loop | Unqualified |
 | Linux Qt Quick/QML | Preview | AT-SPI 2, Qt 6, QML engine | Unqualified |
 | Linux Qt Widgets | Preview | AT-SPI 2, Qt 6 | Unqualified |

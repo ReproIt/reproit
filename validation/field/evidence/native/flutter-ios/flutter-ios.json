@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "gateId": "flutter-ios",
+  "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+  "startedAt": "2026-07-29T14:47:11.026969Z",
+  "finishedAt": "2026-07-29T14:49:24.104889Z",
+  "executor": {
+    "os": "darwin",
+    "architecture": "arm64"
+  },
+  "targetOs": "ios-simulator",
+  "architectures": [
+    "arm64"
+  ],
+  "fixture": "examples/flutter-fixture",
+  "command": [
+    "bash",
+    "validation/backends/with-ios-simulator.sh",
+    "bash",
+    "validation/backends/run-flutter-drive.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "iOS simulator reset: created ": true,
+    "EXPLORE:STATE ": true,
+    "EXPLORE:EDGE ": true,
+    "JOURNEY DONE": true,
+    "All tests passed": true,
+    "iOS simulator cleanup: deleted ": true
+  },
+  "resetStrategy": "create and boot a disposable iPhone simulator plus a generated app",
+  "cleanupStrategy": "delete the simulator and remove the temporary application directory",
+  "logSha256": "83fed39b76f0a7b86625ce32cf7b6db3c29f4421325cff243211e8cd9e6a105a",
+  "logPath": "/Users/obsidian/code/idea/reproit/reproit-cli/target/reproit-validation/flutter-ios-exact-8cd2e7f63dd86740f1686d59e047cd8def7eeae1/flutter-ios.log"
+}

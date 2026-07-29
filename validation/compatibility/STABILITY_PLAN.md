@@ -119,6 +119,7 @@ the current exact-commit gates, move to schema-3, and complete both production
 qualification levels.
 
 - Electron Linux: already satisfies every recorded qualification slot
+- Flutter iOS: already satisfies every recorded qualification slot
 - Terminal UI: already satisfies every recorded qualification slot
 - Web Chromium: already satisfies every recorded qualification slot
 - Web Firefox: already satisfies every recorded qualification slot
@@ -206,31 +207,6 @@ complete target-specific record validates.
     either observe through a profile-mode build or the bound must be restated
 - Promotion gate:
   - Set `flutter-android.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### Flutter iOS
-
-- Target id: `flutter-ios`
-- Current maturity: Preview
-- Environment: ios-simulator; arm64
-- Runtime bound: Dart VM service, flutter drive
-- Framework bound: Flutter
-- Native gates:
-  - `flutter-ios`: required-ci in .github/workflows/native-gates.yml job `macos-flutter`
-    ```sh
-    bash validation/backends/with-ios-simulator.sh bash \
-      validation/backends/run-flutter-drive.sh
-    ```
-- Field benchmark: `validation/field/flutter-ios.json`
-- Open blockers:
-  - [incomplete-evidence] the flutter-ios native gate passed the current candidate working tree, but
-    the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned
-    Xcode 16.4 preflight
-- Promotion gate:
-  - Set `flutter-ios.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -579,7 +555,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `compose-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `electron-linux` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |
-| `flutter-ios` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `flutter-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-gtk` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-quick` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-widgets` | Preview | Unqualified | Stable + `IndependentQualified` |

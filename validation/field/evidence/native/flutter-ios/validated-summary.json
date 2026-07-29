@@ -1,0 +1,20 @@
+{
+  "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+  "gates": [
+    {
+      "architectures": [
+        "arm64"
+      ],
+      "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+      "executor": {
+        "architecture": "arm64",
+        "os": "darwin"
+      },
+      "finishedAt": "2026-07-29T14:49:24.104889Z",
+      "gateId": "flutter-ios",
+      "logSha256": "83fed39b76f0a7b86625ce32cf7b6db3c29f4421325cff243211e8cd9e6a105a",
+      "startedAt": "2026-07-29T14:47:11.026969Z"
+    }
+  ],
+  "schema": 2
+}

@@ -57,7 +57,7 @@ binding is absent or inconsistent.
 
 <!-- generated:promotion-state -->
 
-Stable atomic targets: 5. Preview: 16. Experimental: 0.
+Stable atomic targets: 6. Preview: 15. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
@@ -65,7 +65,7 @@ Stable atomic targets: 5. Preview: 16. Experimental: 0.
 | Jetpack Compose Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
 | Electron Linux | Stable | schema-3 | linux | x86_64 | 0 |
 | Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
-| Flutter iOS | Preview | schema-3 | ios-simulator | arm64 | 1 |
+| Flutter iOS | Stable | schema-3 | ios-simulator | arm64 | 0 |
 | Linux GTK | Preview | schema-3 | linux-container | x86_64 | 3 |
 | Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 2 |
 | Linux Qt Widgets | Preview | schema-3 | linux-container | x86_64 | 2 |

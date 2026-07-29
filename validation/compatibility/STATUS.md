@@ -103,7 +103,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Flutter iOS
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Flutter on a disposable iOS simulator through flutter drive
 - Promotion standard: schema-3
 - Native gates: flutter-ios
@@ -120,9 +120,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] the flutter-ios native gate passed the current candidate working tree, but
-    the dirty tree has no exact-commit gate result and the host Xcode 26.2 does not match the pinned
-    Xcode 16.4 preflight
+  - None
 
 ## Linux GTK
 
