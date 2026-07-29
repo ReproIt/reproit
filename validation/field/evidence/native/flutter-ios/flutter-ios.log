@@ -1,0 +1,425 @@
+Monitoring boot status for Reproit-Gate-54020 (3C246F80-D9C9-48F8-9C20-5328CF32585F).
+[2026-07-29 14:47:13 +0000] Status=2, isTerminal=NO, Elapsed=00:01.
+	Waiting on Data Migration
+		Reason:(null)
+		Migration Elapsed:00:00 seconds
+
+[2026-07-29 14:47:30 +0000] Status=2, isTerminal=NO, Elapsed=00:19.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.securityd.KeychainMigrator (KeychainMigrator.migrator, user-agnostic)
+		Migration Elapsed:00:17 seconds
+
+[2026-07-29 14:47:32 +0000] Status=2, isTerminal=NO, Elapsed=00:20.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+		Migration Elapsed:00:17 seconds
+
+[2026-07-29 14:47:32 +0000] Status=2, isTerminal=NO, Elapsed=00:20.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.MobileSafari.migrator (MobileSafari.migrator)
+		Migration Elapsed:00:19 seconds
+
+[2026-07-29 14:47:33 +0000] Status=2, isTerminal=NO, Elapsed=00:21.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.dataaccess.migrator (DAAccount.migrator)
+		Migration Elapsed:00:19 seconds
+
+[2026-07-29 14:47:34 +0000] Status=2, isTerminal=NO, Elapsed=00:22.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.StocksMigrator (StocksMigrator.migrator)
+		Migration Elapsed:00:20 seconds
+
+[2026-07-29 14:47:34 +0000] Status=4, isTerminal=NO, Elapsed=00:22.
+	Waiting on System App
+
+[2026-07-29 14:47:35 +0000] Status=4, isTerminal=NO, Elapsed=00:23.
+	Waiting on System App
+
+[2026-07-29 14:47:36 +0000] Status=4, isTerminal=NO, Elapsed=00:24.
+	Waiting on System App
+
+[2026-07-29 14:47:37 +0000] Status=4294967295, isTerminal=YES, Elapsed=00:25.
+	Finished
+
+iOS simulator reset: created 3C246F80-D9C9-48F8-9C20-5328CF32585F runtime=com.apple.CoreSimulator.SimRuntime.iOS-18-5 deviceType=com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro
+Developer identity "Apple Development: Akufor Agho Fru (35T9JQ3R8R)" selected for iOS code signing
+Creating project ../../../var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app...
+Resolving dependencies in `../../../var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app`...
+Downloading packages...
+Got dependencies in `../../../var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app`.
+Wrote 52 files.
+
+All done!
+You can find general documentation for Flutter at: https://docs.flutter.dev/
+Detailed API documentation is available at: https://api.flutter.dev/
+If you prefer video documentation, consider: https://www.youtube.com/c/flutterdev
+
+In order to run your application, type:
+
+  $ cd ../../../var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app
+  $ flutter run
+
+Your application code is in ../../../var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/lib/main.dart.
+
+   Compiling unicode-ident v1.0.24
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling cfg-if v1.0.4
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling typenum v1.20.1
+   Compiling bytes v1.12.1
+   Compiling itoa v1.0.18
+   Compiling tree-sitter-language v0.1.7
+   Compiling version_check v0.9.5
+   Compiling subtle v2.6.1
+   Compiling getrandom v0.4.3
+   Compiling rand_core v0.10.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling memchr v2.8.3
+   Compiling zeroize v1.9.0
+   Compiling pin-project-lite v0.2.17
+   Compiling regex-syntax v0.8.11
+   Compiling dunce v1.0.5
+   Compiling futures-core v0.3.33
+   Compiling zmij v1.0.23
+   Compiling pkg-config v0.3.33
+   Compiling fs_extra v1.3.0
+   Compiling semver v1.0.28
+   Compiling bitflags v2.13.1
+   Compiling cmov v0.5.4
+   Compiling serde_core v1.0.229
+   Compiling generic-array v0.14.7
+   Compiling anyhow v1.0.104
+   Compiling ctutils v0.4.2
+   Compiling aws-lc-rs v1.17.3
+   Compiling litemap v0.8.2
+   Compiling smallvec v1.15.2
+   Compiling rustc_version v0.4.1
+   Compiling http v1.4.2
+   Compiling writeable v0.6.3
+   Compiling futures-sink v0.3.33
+   Compiling once_cell v1.21.4
+   Compiling utf8_iter v1.0.4
+   Compiling httparse v1.10.1
+   Compiling icu_properties_data v2.2.0
+   Compiling fnv v1.0.7
+   Compiling icu_normalizer_data v2.2.0
+   Compiling equivalent v1.0.2
+   Compiling futures-task v0.3.33
+   Compiling hashbrown v0.17.1
+   Compiling log v0.4.33
+   Compiling hybrid-array v0.4.13
+   Compiling slab v0.4.12
+   Compiling serde v1.0.229
+   Compiling core-foundation-sys v0.8.7
+   Compiling rustls-pki-types v1.15.1
+   Compiling simd-adler32 v0.3.10
+   Compiling thiserror v2.0.19
+   Compiling http-body v1.1.0
+   Compiling percent-encoding v2.3.2
+   Compiling block-buffer v0.12.1
+   Compiling indexmap v2.14.0
+   Compiling rustls v0.23.42
+   Compiling untrusted v0.9.0
+   Compiling either v1.17.0
+   Compiling crc32fast v1.5.0
+   Compiling serde_json v1.0.151
+   Compiling logos-codegen v0.15.1
+   Compiling aho-corasick v1.1.4
+   Compiling jobserver v0.1.35
+   Compiling getrandom v0.2.17
+   Compiling errno v0.3.14
+   Compiling syn v2.0.119
+   Compiling syn v3.0.3
+   Compiling rand_core v0.6.4
+   Compiling crypto-common v0.2.2
+   Compiling cc v1.4.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.2
+   Compiling socket2 v0.6.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling cpufeatures v0.3.0
+   Compiling digest v0.10.7
+   Compiling itertools v0.14.0
+   Compiling try-lock v0.2.5
+   Compiling autocfg v1.5.1
+   Compiling const-oid v0.10.2
+   Compiling tower-service v0.3.3
+   Compiling want v0.3.1
+   Compiling inout v0.2.2
+   Compiling tracing-core v0.1.36
+   Compiling regex-automata v0.4.16
+   Compiling futures-channel v0.3.33
+   Compiling digest v0.11.3
+   Compiling thiserror v1.0.69
+   Compiling num-traits v0.2.19
+   Compiling cmake v0.1.58
+   Compiling ref-cast v1.0.26
+   Compiling unicase v2.9.0
+   Compiling adler2 v2.0.1
+   Compiling atomic-waker v1.1.2
+   Compiling beef v0.5.2
+   Compiling lazy_static v1.5.0
+   Compiling miniz_oxide v0.8.9
+   Compiling mime_guess v2.0.5
+   Compiling tracing v0.1.44
+   Compiling cpufeatures v0.2.17
+   Compiling security-framework-sys v2.17.0
+   Compiling core-foundation v0.10.1
+   Compiling form_urlencoded v1.2.2
+   Compiling sync_wrapper v1.0.2
+   Compiling cpubits v0.1.1
+   Compiling base64 v0.22.1
+   Compiling zlib-rs v0.6.6
+   Compiling tower-layer v0.3.3
+   Compiling cfg_aliases v0.1.1
+   Compiling ipnet v2.12.0
+   Compiling utf8parse v0.2.2
+   Compiling rustix v1.1.4
+   Compiling unicode-width v0.1.14
+   Compiling anstyle-parse v1.0.0
+   Compiling nix v0.28.0
+   Compiling aws-lc-sys v0.43.0
+   Compiling security-framework v3.7.0
+   Compiling sha2 v0.10.9
+   Compiling cipher v0.5.2
+   Compiling universal-hash v0.6.1
+   Compiling inout v0.1.4
+   Compiling curve25519-dalek v4.1.3
+   Compiling chacha20 v0.10.1
+   Compiling dyn-clone v1.0.20
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle v1.0.14
+   Compiling mime v0.3.17
+   Compiling colorchoice v1.0.5
+   Compiling cipher v0.4.4
+   Compiling rand v0.10.2
+   Compiling anstream v1.0.0
+   Compiling polyval v0.7.3
+   Compiling serde_derive_internals v0.30.0
+   Compiling tree-sitter-python v0.25.0
+   Compiling tree-sitter-typescript v0.23.2
+   Compiling tree-sitter-go v0.23.4
+   Compiling tree-sitter-c-sharp v0.23.5
+   Compiling tree-sitter-ruby v0.23.1
+   Compiling tree-sitter-php v0.24.2
+   Compiling tree-sitter-javascript v0.25.0
+   Compiling tree-sitter-java v0.23.5
+   Compiling sha1 v0.11.0
+   Compiling universal-hash v0.5.1
+   Compiling http-body-util v0.1.4
+   Compiling fdeflate v0.3.7
+   Compiling signature v2.2.0
+   Compiling data-encoding v2.11.0
+   Compiling strsim v0.11.1
+   Compiling heck v0.5.0
+   Compiling pxfm v0.1.30
+   Compiling hex v0.4.3
+   Compiling base64ct v1.8.3
+   Compiling bumpalo v3.20.3
+   Compiling arrayvec v0.7.8
+   Compiling clap_lex v1.1.0
+   Compiling synstructure v0.13.2
+   Compiling opaque-debug v0.3.1
+   Compiling vte v0.15.0
+   Compiling password-hash v0.5.0
+   Compiling zopfli v0.8.3
+   Compiling poly1305 v0.8.0
+   Compiling xattr v1.6.1
+   Compiling clap_builder v4.6.2
+   Compiling logos-codegen v0.16.1
+   Compiling ed25519 v2.2.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.19
+   Compiling ref-cast-impl v1.0.26
+   Compiling schemars_derive v1.2.2
+   Compiling tree-sitter v0.26.11
+   Compiling clap_derive v4.6.4
+   Compiling async-trait v0.1.91
+   Compiling regex v1.13.1
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.6
+   Compiling tokio-macros v2.7.1
+   Compiling futures-macro v0.3.33
+   Compiling prost-derive v0.14.4
+   Compiling thiserror-impl v1.0.69
+   Compiling miette-derive v7.6.0
+   Compiling logos-derive v0.16.1
+   Compiling flate2 v1.1.9
+   Compiling tokio v1.53.1
+   Compiling futures-util v0.3.33
+   Compiling logos-derive v0.15.1
+   Compiling tungstenite v0.30.0
+   Compiling moxcms v0.8.1
+   Compiling logos v0.16.1
+   Compiling zerofrom v0.1.8
+   Compiling logos v0.15.1
+   Compiling png v0.18.1
+   Compiling yoke v0.8.3
+   Compiling miette v7.6.0
+   Compiling ghash v0.6.0
+   Compiling prost v0.14.4
+   Compiling chacha20 v0.9.1
+   Compiling ctr v0.10.1
+   Compiling aes v0.9.1
+   Compiling aead v0.6.1
+   Compiling blake2 v0.10.6
+   Compiling aead v0.5.2
+   Compiling serial2 v0.2.37
+   Compiling filetime v0.2.29
+   Compiling iana-time-zone v0.1.65
+   Compiling combine v4.6.7
+   Compiling bytemuck v1.25.2
+   Compiling unicode-width v0.2.2
+   Compiling unsafe-libyaml v0.2.11
+   Compiling ryu v1.0.23
+   Compiling shell-words v1.1.1
+   Compiling typed-path v0.12.3
+   Compiling byteorder-lite v0.1.0
+   Compiling downcast-rs v1.2.1
+   Compiling reproit v1.0.0 (/private/tmp/reproit-flutter-ios-exact.qORmrR/crates/reproit)
+   Compiling streaming-iterator v0.1.9
+   Compiling vt100 v0.16.2
+   Compiling chrono v0.4.45
+   Compiling tar v0.4.46
+   Compiling argon2 v0.5.3
+   Compiling aes-gcm v0.11.0
+   Compiling zip v8.6.0
+   Compiling image v0.25.10
+   Compiling zerovec v0.11.6
+   Compiling zerotrie v0.2.4
+   Compiling chacha20poly1305 v0.10.1
+   Compiling filedescriptor v0.8.3
+   Compiling ed25519-dalek v2.2.0
+   Compiling portable-pty v0.9.0
+   Compiling clap v4.6.4
+   Compiling hmac v0.13.0
+   Compiling sha2 v0.11.0
+   Compiling fs2 v0.4.3
+   Compiling reproit-tui-sig v1.0.0 (/private/tmp/reproit-flutter-ios-exact.qORmrR/crates/tui-sig)
+   Compiling schemars v1.2.2
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling prost-types v0.14.4
+   Compiling graphql-parser v0.4.1
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_collections v2.2.0
+   Compiling hyper v1.11.0
+   Compiling tower v0.5.3
+   Compiling tokio-util v0.7.19
+   Compiling protox-parse v0.9.0
+   Compiling prost-reflect v0.16.5
+   Compiling tokio-tungstenite v0.30.0
+   Compiling icu_provider v2.2.0
+   Compiling hyper-util v0.1.20
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling reproit-protocol v1.0.0 (/private/tmp/reproit-flutter-ios-exact.qORmrR/crates/reproit-protocol)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling protox v0.9.1
+   Compiling tower-http v0.6.11
+   Compiling reproit-recorder v1.0.0 (/private/tmp/reproit-flutter-ios-exact.qORmrR/crates/reproit-recorder)
+   Compiling rustls-webpki v0.103.13
+   Compiling tokio-rustls v0.26.4
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.13.4
+   Compiling llm v1.0.0 (/private/tmp/reproit-flutter-ios-exact.qORmrR/crates/llm)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 56.51s
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/journey_explore.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/test/fuzz_headless_test.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/config.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/signature.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/semantics.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/ground_truth.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/hygiene_oracles.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/invariants.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/environment_oracles.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/simulator_watchdog.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/runtime.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/settling.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/navigation.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/action_execution.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/oracle_collection.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/reproit_explorer/runner.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/integration_test/journey_helpers.dart
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/test_driver/integration_driver.dart
+  added integration_test dev dependency to /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/pubspec.yaml
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/reproit.yaml
+  write /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.kanDBEPhSg/app/.reproit/.gitignore
+
+  reproit initialized.
+  1. confirm the app entry in integration_test/journey_explore.dart
+  2. reproit doctor
+  3. reproit scan   # visible issues
+     reproit fuzz   # deeper interaction bugs
+Resolving dependencies...
+Downloading packages...
++ file 7.0.1
++ flutter_driver 0.0.0 from sdk flutter
++ fuchsia_remote_debug_protocol 0.0.0 from sdk flutter
++ integration_test 0.0.0 from sdk flutter
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.17.0 (1.19.0 available)
++ platform 3.1.6
++ process 5.0.5
++ sync_http 0.3.1
+  test_api 0.7.10 (0.7.13 available)
+  vector_math 2.2.0 (2.4.1 available)
++ webdriver 3.1.0
+Changed 8 dependencies!
+4 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Running pod install...                                             705ms
+Running Xcode build...                                          
+Xcode build done.                                           17.6s
+VMServiceFlutterDriver: Connecting to Flutter application at http://127.0.0.1:58066/TD4qQMwSUtg=/
+VMServiceFlutterDriver: Isolate found with number: 3349699475459079
+VMServiceFlutterDriver: Isolate 3349699475459079 is runnable.
+VMServiceFlutterDriver: Isolate is paused at start.
+VMServiceFlutterDriver: Attempting to resume isolate
+flutter: 00:00 +0: explore
+VMServiceFlutterDriver: Connected to Flutter application.
+flutter: JOURNEY claimed role=a
+flutter: SEED:BEGIN 0
+flutter: FUZZ:OBS {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"role":"button"}]}
+flutter: EXPLORE:STATE {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"sel":"key:s:toggle","role":"button","label":"Toggle"}]}
+flutter: EXPLORE:GROUNDTRUTH {"sig":"b8776e47","focusTrap":false,"elements":[{"id":"key:s:toggle","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}}]}
+flutter: FUZZ:OBS {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"role":"button"}]}
+flutter: FUZZ:OBS {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"role":"button"}]}
+flutter: FUZZ:ACT tap:key:s:toggle
+flutter: FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+flutter: EXPLORE:STATE {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"sel":"key:s:toggle","role":"button","label":"Toggle"}]}
+flutter: EXPLORE:GROUNDTRUTH {"sig":"655b22ba","focusTrap":false,"elements":[{"id":"key:s:toggle","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}}]}
+flutter: EXPLORE:EDGE {"from":"b8776e47","action":"tap:key:s:toggle","to":"655b22ba"}
+flutter: FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+flutter: FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+flutter: FUZZ:ACT tap:key:s:toggle
+flutter: FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+flutter: FUZZ:ACT back
+flutter: FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+flutter: FUZZ:ACT back
+flutter: FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+flutter: JOURNEY[a] step: explored 2 states
+flutter: SEED:END 0
+flutter: FRAMES:BATCH 0,3,6772;54,209498,4558;404,4077,1593;504,322,773;620,310,692;737,808,1298;854,800,1116;970,884,977;1087,598,673;1204,770,1213;1320,583,1659;1437,298,799;1554,748,1152;1670,940,1120;1787,660,1111;1904,666,1009;2020,293,742;2137,287,854;2254,613,1146;2370,590,999;2487,720,940;2604,320,641;2720,590,1028;2837,652,835;2954,313,829;3070,675,1127;3187,760,991;3354,7295,0;3470,283,0;3587,314,0;3704,350,0;3820,6781,803;3920,392,595;4037,669,964;4154,660,1084;4270,556,969;4387,758,1117;4504,305,712;4620,310,763;4737,359,748
+flutter: FRAMES:BATCH 4854,699,1050;4917,14067,2802;4937,1176,390;4954,820,679;5004,283,476;5120,304,753;5237,767,1088;5354,725,915;5470,294,825;5587,283,733;5704,756,1115;5820,339,692;5937,559,1301;6054,679,1140;6170,554,1161;6287,661,1161;6404,6713,0;6537,711,0;6654,697,0;6770,867,0;6887,6309,654;6987,556,950;7104,741,1031;7220,748,1093;7337,654,1258;7454,538,971;7570,719,1020;7687,631,969;7804,317,688;7920,294,716;7937,3525,590;7954,1866,1386;7970,802,785;8037,279,688;8154,296,781;8270,318,827;8387,271,697;8504,584,1105;8620,573,1120;8737,782,901
+flutter: FRAMES:BATCH 8854,603,965;8970,928,1098;9087,819,933;9204,312,588;9320,372,649;9437,259,879;9554,276,757;9670,649,986;9787,625,922;9904,647,885;10020,703,975;10137,626,1139;10254,319,722;10370,287,709;10487,308,472;10604,317,714;10720,296,653;10837,290,748;10954,350,634;11070,323,742;11187,320,756;11304,650,1014
+flutter: JOURNEY[a] step: recorded 102 frames
+flutter: JOURNEY DONE
+flutter: 00:13 +1: (tearDownAll)
+flutter: 00:13 +2: All tests passed!
+
+output contract satisfied; stopping owned command
+FlutterDrive backend passed native Flutter/iOS simulator runtime
+iOS simulator cleanup: deleted 3C246F80-D9C9-48F8-9C20-5328CF32585F
