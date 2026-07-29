@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "validation-source-scope",
+  "detail": "The policy classifier is deterministic, so its independent regression test is the stable reproduction authority.",
+  "test": "validation/self-dogfood/test_check_fix_policy.py",
+  "command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "validation/self-dogfood",
+    "-p",
+    "test_check_fix_policy.py"
+  ],
+  "timeoutSeconds": 60,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/validation-source-scope.log",
+      "sha256": "sha256:d77fb7e623dcb2943282eca2541ac17caaa877ca55d592decd377232bb8ac4fa"
+    }
+  ]
+}

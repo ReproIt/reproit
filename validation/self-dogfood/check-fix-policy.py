@@ -50,6 +50,22 @@ SOURCE_PREFIXES = (
     "scripts/",
     "sdk/",
     "src/",
+    "validation/",
+)
+NON_SOURCE_PREFIXES = (
+    "validation/field/evidence/",
+    "validation/self-dogfood/evidence/",
+    "validation/self-dogfood/exceptions/",
+    "validation/self-dogfood/no-repro/",
+    "validation/self-dogfood/not-a-fix/",
+    "validation/self-dogfood/retirements/",
+)
+NON_SOURCE_FILES = frozenset(
+    {
+        "validation/compatibility/STATUS.md",
+        "validation/compatibility/STABILITY_PLAN.md",
+        "validation/compatibility/status.json",
+    }
 )
 SOURCE_FILES = frozenset(
     {
@@ -186,8 +202,10 @@ def changed_files(repo: Path, commit: str) -> list[str]:
 
 def touches_source(paths: list[str]) -> bool:
     for path in paths:
+        if path in NON_SOURCE_FILES or path.startswith(NON_SOURCE_PREFIXES):
+            continue
         name = Path(path).name
-        if name in SOURCE_FILES:
+        if "/" not in path and name in SOURCE_FILES:
             return True
         if path.startswith(SOURCE_PREFIXES) and (
             path.endswith(SOURCE_SUFFIXES) or name in SOURCE_FILES

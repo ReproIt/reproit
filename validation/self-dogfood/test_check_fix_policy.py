@@ -183,6 +183,29 @@ class FixPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(MODULE.PolicyError, "exactly one"):
                     MODULE.review(self.repo, "HEAD~1", "HEAD")
 
+    def test_validation_code_and_support_manifest_need_declarations(self) -> None:
+        for path in (
+            "validation/campaign/check.py",
+            "validation/support-manifest.json",
+        ):
+            with self.subTest(path=path):
+                self.write(path, "production\n")
+                self.commit(f"Change {path}")
+                with self.assertRaisesRegex(MODULE.PolicyError, "exactly one"):
+                    MODULE.review(self.repo, "HEAD~1", "HEAD")
+
+    def test_retained_and_generated_evidence_needs_no_declaration(self) -> None:
+        for path in (
+            "validation/field/evidence/native/gate/result.json",
+            "validation/self-dogfood/evidence/affected.log",
+            "validation/compatibility/status.json",
+        ):
+            with self.subTest(path=path):
+                self.write(path, "retained\n")
+                self.commit(f"Retain {path}")
+                report = MODULE.review(self.repo, "HEAD~1", "HEAD")
+                self.assertEqual(report["declared"], [])
+
     def test_a_required_guard_declaration_is_accepted(self) -> None:
         self.write_guard()
         self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
