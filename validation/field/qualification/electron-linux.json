@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "electron-linux",
   "gate": "S2-candidate-qualification",
-  "status": "in-progress",
+  "status": "complete",
   "declaredBounds": {
     "os": "linux",
     "arch": "x86_64"
@@ -16,12 +16,12 @@
       "candidateDefects": 12,
       "buildQualified": true,
       "buildEvidence": {
-        "revision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
-        "container": "node:20-bookworm",
-        "arch": "arm64",
-        "command": "yarn install --frozen-lockfile && yarn run build",
-        "result": "build:main exit 0, build:renderer exit 0",
-        "note": "postinstall husky step fails in-container because .git is not mounted; it does not affect the built artifact"
+        "revision": "48a6013c06c714fbacdfba9c3263f7622e672f75 and bf1993b5677523a428d7ed190d3a8580f17c523f",
+        "container": "node:20-bookworm, FROM --platform=linux/amd64",
+        "arch": "amd64",
+        "command": "yarn install --frozen-lockfile; yarn build:main; yarn build:renderer; electron-builder build --linux dir",
+        "result": "packaged linux-unpacked/responsivelyapp built at both revisions on every campaign run",
+        "note": "the campaign rebuilds and repackages once per run, so no build is shared between runs"
       }
     },
     {
@@ -30,8 +30,15 @@
       "decision": "qualify",
       "reason": "ships on Linux, local AI upscaling with no network dependency",
       "candidateDefects": 7,
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": {
+        "revision": "86c144b1e3311c26c241c20d8b0a625462542cad and d736736e3cb9a2cf6ca8b06c0f95034abeb812e3",
+        "container": "node:20-bookworm, FROM --platform=linux/amd64",
+        "arch": "amd64",
+        "command": "npm ci; npm run pack-app",
+        "result": "packaged dist/linux-unpacked/upscayl built at both revisions on every campaign run",
+        "note": "electron 33.2.1; the first-launch changelog dialog is dismissed with Escape before the settings tab is reachable"
+      }
     },
     {
       "repository": "https://github.com/TriliumNext/Trilium",
@@ -45,10 +52,10 @@
     {
       "repository": "https://github.com/oldj/SwitchHosts",
       "license": "Apache-2.0",
-      "decision": "qualify-with-containment",
-      "reason": "ships on Linux but writes /etc/hosts; only safe inside a disposable container",
+      "decision": "reject",
+      "reason": "not an Electron application at its candidate revisions: package.json at ed94fe2aee683e526c919367271dadeb6e6a4501 depends on @tauri-apps/cli and the repository carries src-tauri. The electron candidate inventory classified it by repository, not per revision",
       "candidateDefects": 3,
-      "buildQualified": null,
+      "buildQualified": false,
       "buildEvidence": null
     },
     {
@@ -145,28 +152,74 @@
   ],
   "selectedDefects": [
     {
-      "id": "responsively-app-1454",
+      "id": "responsively-fullscreen-1441",
       "application": "responsively-app",
       "issueUrl": "https://github.com/responsively-org/responsively-app/issues/1441",
       "issueTitle": "Typing 'F' in a text field attempts to full screen the page",
       "affectedRevision": "48a6013c06c714fbacdfba9c3263f7622e672f75",
       "fixedRevision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
-      "whySuitable": "a keyboard action in a focused text field produces an observable window-state change, which exercises the Electron adapter's action path and window lifecycle observation rather than a pure DOM assertion",
-      "qualification": "build-qualified",
-      "remaining": [
-        "rebuild under linux/amd64 to match the declared x86_64 bound",
-        "reproduce the exact identity three times on the affected revision",
-        "reach the observation cleanly three times on the fixed revision",
-        "minimize the trigger and verify it preserves the identity",
-        "run the neighboring legal-behavior control"
-      ]
+      "whySuitable": "the application's webview preload claims the f key unconditionally, so the trigger crosses the real Electron guest boundary: a key delivered through the <webview> element API into a focused text field in the previewed page. That exercises the Electron adapter's action path and guest observation rather than a pure DOM assertion in the host renderer",
+      "qualification": "campaign-complete",
+      "identity": "webview-keydown:f-suppressed-in-focused-text-input",
+      "authority": "platform: a printable key delivered to a focused text input must insert that character",
+      "campaign": {
+        "runner": "reproit-lab: node src/electron-campaign.mjs",
+        "worker": "reproit-field-electron-linux:amd64, x86_64 Linux, --network none",
+        "affectedReproductions": 3,
+        "fixedControls": 3,
+        "minimizedTriggerVerified": true,
+        "neighboringLegalBehaviorVerified": true,
+        "containersRemaining": 0,
+        "benchmark": "validation/field/electron-linux.json",
+        "evidence": [
+          "validation/field/evidence/responsively-fullscreen-1441.json",
+          "validation/field/evidence/responsively-fullscreen-1441.md"
+        ]
+      },
+      "manualReview": {
+        "verdict": "confirmed-target-bug",
+        "note": "The affected preload registers a window keydown handler that calls preventDefault and requestFullscreen for f without checking the active element, so the character never reaches the input. The fix adds exactly that check. Under Xvfb the fullscreen request itself is rejected without dispatching fullscreenerror, so the campaign asserts the user-visible half of the defect -- the swallowed keystroke -- which is what the public issue reports and which is present on all three affected runs and absent on all three fixed runs. Typing a different printable key in the same focused input still reaches the page on the affected build, so the harness is proven able to deliver keys."
+      }
+    },
+    {
+      "id": "upscayl-image-format-1257",
+      "application": "upscayl",
+      "issueUrl": "https://github.com/upscayl/upscayl/issues/1225",
+      "issueTitle": "Remember \"Save image as\" in the setting every time I open Upscayl",
+      "pullRequestUrl": "https://github.com/upscayl/upscayl/pull/1257",
+      "affectedRevision": "86c144b1e3311c26c241c20d8b0a625462542cad",
+      "fixedRevision": "d736736e3cb9a2cf6ca8b06c0f95034abeb812e3",
+      "whySuitable": "an independent repository whose defect is a persisted-state contract rather than an input path, so the two applications exercise different parts of the Electron adapter: guest input delivery for one, renderer lifecycle and storage restore for the other",
+      "qualification": "campaign-complete",
+      "identity": "settings:save-image-as-not-restored-after-reload",
+      "authority": "authored-contract: a setting the application persists must be restored on the next load",
+      "campaign": {
+        "runner": "reproit-lab: node src/electron-campaign.mjs upscayl-image-format-1257",
+        "worker": "reproit-field-electron-linux:amd64, x86_64 Linux, --network none",
+        "affectedReproductions": 3,
+        "fixedControls": 3,
+        "minimizedTriggerVerified": true,
+        "neighboringLegalBehaviorVerified": true,
+        "containersRemaining": 0,
+        "benchmark": "validation/field/electron-linux.json",
+        "evidence": [
+          "validation/field/evidence/upscayl-image-format-1257.json",
+          "validation/field/evidence/upscayl-image-format-1257.md"
+        ]
+      },
+      "manualReview": {
+        "verdict": "confirmed-target-bug",
+        "note": "The settings tab wrote localStorage saveImageAs as a bare string on top of the jotai atomWithStorage entry for the same key. atomWithStorage stores JSON, so the bare value failed to parse on the next load and the setting reverted to the png default. The campaign observes exactly that: after choosing jpg the affected build stores jpg and shows png again after a reload, while the fixed build stores \"jpg\" and restores it. A second setting persisted through the same mechanism survives the same reload on the affected build, so the reload itself is not what loses state."
+      }
     }
   ],
-  "blockers": [
-    {
-      "code": "incomplete-evidence",
-      "detail": "one application is build-qualified and only on arm64; the target needs two independent applications with full affected-versus-fixed campaigns on x86_64 Linux",
-      "command": null
-    }
-  ]
+  "blockers": [],
+  "corpus": {
+    "record": "validation/field/corpus/electron-linux.json",
+    "runner": "reproit-lab: node src/electron-corpus.mjs",
+    "cleanSubjects": 2,
+    "adversarialSubjects": 3,
+    "confirmedFalsePositives": 0,
+    "note": "The adversarial subjects are the two legal explanations for the same observable as the webview defect: a guest page that claims the key itself, and an input that accepts no characters at all. The first is settled by the page's own recorded suppression, which is a property of this corpus rather than a general capability against arbitrary pages; the second is settled by delivering the control key, which needs no instrumentation."
+  }
 }

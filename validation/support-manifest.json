@@ -1099,7 +1099,7 @@
     "electron-linux": {
       "displayName": "Electron Linux",
       "family": "desktop-webview",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Packaged Electron applications on Linux workers",
       "ownedGates": [
         "electron"
@@ -1109,12 +1109,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/electron-linux.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/electron-linux.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/electron-linux.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -1135,28 +1137,7 @@
           ]
         },
         "productionToLocal": "Unqualified",
-        "blockers": [
-          {
-            "code": "product-coverage-missing",
-            "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/infrastructure.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each",
-            "command": null,
-            "evidence": []
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          }
-        ]
+        "blockers": []
       }
     },
     "tauri-linux": {

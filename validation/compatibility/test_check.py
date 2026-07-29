@@ -24,10 +24,34 @@ class CompatibilityContractTests(unittest.TestCase):
         status = CHECK.status_document(self.support)
         stable = [target["id"] for target in status["targets"]
                   if target["maturity"] == "stable"]
-        self.assertEqual(
-            stable,
-            ["tui", "web-chromium", "web-firefox", "web-webkit"],
+        # The grandfathered schema-2 set is frozen: nothing may join it, because
+        # it predates the schema-3 evidence standard.
+        grandfathered = self.support["policy"]["grandfatheredStableTargets"]
+        self.assertEqual(sorted(grandfathered), ["tui", "web-chromium", "web-firefox", "web-webkit"])
+        schema_2_stable = sorted(
+            target_id for target_id in stable
+            if self.support["targets"][target_id]["promotion"]["standard"] == "schema-2"
         )
+        self.assertEqual(schema_2_stable, sorted(grandfathered))
+        # Anything else that is Stable earned it under schema-3, so it must carry
+        # a complete two-application benchmark and no remaining blocker.
+        for target_id in stable:
+            promotion = self.support["targets"][target_id]["promotion"]
+            if promotion["standard"] == "schema-2":
+                continue
+            self.assertEqual(promotion["blockers"], [], target_id)
+            benchmark = json.loads(
+                (CHECK.ROOT / promotion["fieldBenchmark"]).read_text(encoding="utf-8"))
+            self.assertEqual(benchmark["status"], "complete", target_id)
+            self.assertEqual(len(benchmark["applications"]), 2, target_id)
+            for slot in CHECK.QUALIFICATION_SLOTS:
+                self.assertNotEqual(promotion[slot]["kind"], "missing", f"{target_id}.{slot}")
+
+    def test_electron_linux_is_stable_under_schema_3(self):
+        electron = self.support["targets"]["electron-linux"]
+        self.assertEqual(electron["maturity"], "stable")
+        self.assertEqual(electron["promotion"]["standard"], "schema-3")
+        self.assertNotIn("electron-linux", self.support["policy"]["grandfatheredStableTargets"])
 
     def test_stable_target_cannot_keep_a_promotion_blocker(self):
         candidate = copy.deepcopy(self.support)

@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/responsively-org/responsively-app/issues/1441",
+  "affectedRevision": "48a6013c06c714fbacdfba9c3263f7622e672f75",
+  "fixedRevision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+  "identity": "webview-keydown:f-suppressed-in-focused-text-input",
+  "memoryMeasurement": "js-heap",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 12,
+      "elapsedSeconds": 13.036
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 12,
+      "elapsedSeconds": 12.967
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 12,
+      "elapsedSeconds": 13.072
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 12,
+      "elapsedSeconds": 10.998
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 12,
+      "elapsedSeconds": 11.002
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 12,
+      "elapsedSeconds": 11.049
+    }
+  ],
+  "neighboringLegalBehavior": "a different printable key in the same focused guest text input still reaches the page",
+  "minimizedAction": "focus the previewed page text input and deliver one f key through the webview"
+}

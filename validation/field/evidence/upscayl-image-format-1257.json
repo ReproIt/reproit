@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/upscayl/upscayl/issues/1225",
+  "affectedRevision": "86c144b1e3311c26c241c20d8b0a625462542cad",
+  "fixedRevision": "d736736e3cb9a2cf6ca8b06c0f95034abeb812e3",
+  "identity": "settings:save-image-as-not-restored-after-reload",
+  "memoryMeasurement": "js-heap",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 23,
+      "elapsedSeconds": 25.221
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 23,
+      "elapsedSeconds": 25.246
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 23,
+      "elapsedSeconds": 25.324
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 23,
+      "elapsedSeconds": 25.114
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 23,
+      "elapsedSeconds": 25.252
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": 23,
+      "elapsedSeconds": 25.177
+    }
+  ],
+  "neighboringLegalBehavior": "another setting stored through the same JSON-encoded mechanism still survives a reload",
+  "minimizedAction": "click the JPG export-format button in Settings, then reload the renderer"
+}

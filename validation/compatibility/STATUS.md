@@ -60,31 +60,23 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Electron Linux
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Packaged Electron applications on Linux workers
 - Promotion standard: schema-3
 - Native gates: electron
-- Field benchmark: incomplete
+- Field benchmark: validation/field/electron-linux.json
 - Production-to-local: Unqualified
 - Operating systems: linux
 - Architectures: x86_64
 - Runtimes: Chromium, Node.js, CDP
 - Frameworks: Electron
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [product-coverage-missing] no qualified candidate application inventory: gate S2 requires at
-    least four candidate historical bugs with full affected and fixed commits, verified license,
-    build determinism, and a non-destructive trigger, so that two can fail safely before two
-    independent applications are selected. Fewer than four are qualified
-  - [incomplete-evidence] no independent affected-versus-fixed field benchmark: the target has fewer
-    than two qualified real applications with three clean affected reproductions and three reached-
-    observation fixed controls each
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Flutter Android
 

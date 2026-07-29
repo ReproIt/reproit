@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Reproit Electron field fixture</title>
+<script>
+  // Guest-side instrumentation only. fullscreenchange, fullscreenerror and
+  // window.onerror are real DOM events, so they stay observable no matter which
+  // world an application's webview preload runs in. Nothing here is specific to
+  // any application under test.
+  window.__reproit = { fullscreenChanges: 0, fullscreenErrors: 0, errors: [] };
+  document.addEventListener('fullscreenchange', () => {
+    window.__reproit.fullscreenChanges += 1;
+  });
+  document.addEventListener('fullscreenerror', () => {
+    window.__reproit.fullscreenErrors += 1;
+  });
+  window.addEventListener('error', (event) => {
+    window.__reproit.errors.push(String(event.message).slice(0, 200));
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    window.__reproit.errors.push(String(event.reason).slice(0, 200));
+  });
+</script>
+<h1 id="heading">Reproit field fixture</h1>
+<label for="note">Note</label>
+<input id="note" type="text" value="">
+<p id="state">idle</p>

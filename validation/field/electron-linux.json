@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "electron-linux",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "responsively-fullscreen-1441",
+      "repository": "https://github.com/responsively-org/responsively-app",
+      "issueUrl": "https://github.com/responsively-org/responsively-app/issues/1441",
+      "affectedRevision": "48a6013c06c714fbacdfba9c3263f7622e672f75",
+      "fixedRevision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+      "authority": "platform",
+      "expectedIdentity": "webview-keydown:f-suppressed-in-focused-text-input",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "webview-keydown:f-suppressed-in-focused-text-input",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "webview-keydown:f-suppressed-in-focused-text-input",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "webview-keydown:f-suppressed-in-focused-text-input",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 514,
+        "replaySecondsP95": 13.072,
+        "peakMemoryMiB": 12,
+        "memoryMeasurement": "js-heap"
+      },
+      "evidence": [
+        "validation/field/evidence/responsively-fullscreen-1441.json",
+        "validation/field/evidence/responsively-fullscreen-1441.md"
+      ]
+    },
+    {
+      "id": "upscayl-image-format-1257",
+      "repository": "https://github.com/upscayl/upscayl",
+      "issueUrl": "https://github.com/upscayl/upscayl/issues/1225",
+      "affectedRevision": "86c144b1e3311c26c241c20d8b0a625462542cad",
+      "fixedRevision": "d736736e3cb9a2cf6ca8b06c0f95034abeb812e3",
+      "authority": "authored-contract",
+      "expectedIdentity": "settings:save-image-as-not-restored-after-reload",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "settings:save-image-as-not-restored-after-reload",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "settings:save-image-as-not-restored-after-reload",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "settings:save-image-as-not-restored-after-reload",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 861,
+        "replaySecondsP95": 25.324,
+        "peakMemoryMiB": 23,
+        "memoryMeasurement": "js-heap"
+      },
+      "evidence": [
+        "validation/field/evidence/upscayl-image-format-1257.json",
+        "validation/field/evidence/upscayl-image-format-1257.md"
+      ]
+    }
+  ]
+}

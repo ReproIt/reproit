@@ -17,8 +17,8 @@
     ]
   },
   "counts": {
-    "stable": 4,
-    "preview": 17,
+    "stable": 5,
+    "preview": 16,
     "experimental": 0
   },
   "productionToLocalCounts": {
@@ -127,16 +127,16 @@
       "id": "electron-linux",
       "displayName": "Electron Linux",
       "family": "desktop-webview",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Packaged Electron applications on Linux workers",
       "nativeGates": [
         "electron"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/electron-linux.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -157,20 +157,7 @@
         ]
       },
       "productionToLocal": "Unqualified",
-      "promotionBlockers": [
-        {
-          "code": "product-coverage-missing",
-          "detail": "no qualified candidate application inventory: gate S2 requires at least four candidate historical bugs with full affected and fixed commits, verified license, build determinism, and a non-destructive trigger, so that two can fail safely before two independent applications are selected. Fewer than four are qualified"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no independent affected-versus-fixed field benchmark: the target has fewer than two qualified real applications with three clean affected reproductions and three reached-observation fixed controls each"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
-        }
-      ]
+      "promotionBlockers": []
     },
     {
       "id": "flutter-android",

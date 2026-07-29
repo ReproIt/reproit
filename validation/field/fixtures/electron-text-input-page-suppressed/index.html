@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Reproit Electron adversarial fixture: the page suppresses the key itself</title>
+<script>
+  // Adversarial corpus subject. This page legitimately claims the same key the
+  // defect claims, so a naive oracle blames the application for behavior the
+  // page chose. The page records its own suppression, which is what lets the
+  // oracle attribute correctly. That signal is a property of this corpus, not a
+  // general capability against arbitrary third-party pages.
+  window.__reproit = {
+    fullscreenChanges: 0,
+    fullscreenErrors: 0,
+    errors: [],
+    pageSuppressed: false,
+  };
+  document.addEventListener('fullscreenchange', () => {
+    window.__reproit.fullscreenChanges += 1;
+  });
+  document.addEventListener('fullscreenerror', () => {
+    window.__reproit.fullscreenErrors += 1;
+  });
+  window.addEventListener('error', (event) => {
+    window.__reproit.errors.push(String(event.message).slice(0, 200));
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    window.__reproit.errors.push(String(event.reason).slice(0, 200));
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'f' || event.key === 'F') {
+      event.preventDefault();
+      window.__reproit.pageSuppressed = true;
+    }
+  }, true);
+</script>
+<h1 id="heading">Reproit field fixture</h1>
+<label for="note">Note</label>
+<input id="note" type="text" value="">
+<p id="state">idle</p>

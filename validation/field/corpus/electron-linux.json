@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "target": "electron-linux",
+  "worker": {
+    "image": "reproit-field-electron-linux:amd64",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 3,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "responsively-clean-base",
+      "kind": "clean",
+      "application": "responsively-fullscreen-1441",
+      "repository": "https://github.com/responsively-org/responsively-app",
+      "revision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+      "fixture": "electron-text-input",
+      "variant": "default",
+      "why": "the ordinary fixture on the fixed build: the key reaches the input",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "exceptions": [],
+        "guestValue": "f",
+        "guestFullscreen": false,
+        "guestPageSuppressed": false,
+        "guestControlValue": null,
+        "guestUrl": "http://127.0.0.1:8181/",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "environmentExceptions": [
+          "TypeError: Failed to fetch"
+        ],
+        "jsHeapMiB": 12,
+        "elapsedSeconds": 11.005,
+        "scenario": "webview-text-input",
+        "variant": "default"
+      }
+    },
+    {
+      "id": "responsively-adversarial-page-suppressed",
+      "kind": "adversarial",
+      "application": "responsively-fullscreen-1441",
+      "repository": "https://github.com/responsively-org/responsively-app",
+      "revision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+      "fixture": "electron-text-input-page-suppressed",
+      "variant": "default",
+      "why": "the guest page claims the same key itself, which is legal page behavior",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "exceptions": [],
+        "guestValue": "",
+        "guestFullscreen": false,
+        "guestPageSuppressed": true,
+        "guestControlValue": null,
+        "guestUrl": "http://127.0.0.1:8181/",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "environmentExceptions": [
+          "TypeError: Failed to fetch"
+        ],
+        "jsHeapMiB": 12,
+        "elapsedSeconds": 10.968,
+        "scenario": "webview-text-input",
+        "variant": "default"
+      }
+    },
+    {
+      "id": "responsively-adversarial-readonly-input",
+      "kind": "adversarial",
+      "application": "responsively-fullscreen-1441",
+      "repository": "https://github.com/responsively-org/responsively-app",
+      "revision": "bf1993b5677523a428d7ed190d3a8580f17c523f",
+      "fixture": "electron-text-input-readonly",
+      "variant": "default",
+      "why": "the input accepts no characters at all, so nothing is attributable to the application",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "exceptions": [],
+        "guestValue": "",
+        "guestFullscreen": false,
+        "guestPageSuppressed": false,
+        "guestControlValue": "",
+        "guestUrl": "http://127.0.0.1:8181/",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "environmentExceptions": [
+          "TypeError: Failed to fetch"
+        ],
+        "jsHeapMiB": 12,
+        "elapsedSeconds": 12.99,
+        "scenario": "webview-text-input",
+        "variant": "default"
+      }
+    },
+    {
+      "id": "upscayl-clean-base",
+      "kind": "clean",
+      "application": "upscayl-image-format-1257",
+      "repository": "https://github.com/upscayl/upscayl",
+      "revision": "d736736e3cb9a2cf6ca8b06c0f95034abeb812e3",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary settings flow on the fixed build: the choice survives the reload",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "exceptions": [],
+        "selectedFormat": "jpg",
+        "storedAfterPick": "\"jpg\"",
+        "storedAfterReload": "\"jpg\"",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "environmentExceptions": [],
+        "jsHeapMiB": 23,
+        "elapsedSeconds": 25.236,
+        "scenario": "settings-persistence",
+        "variant": "default"
+      }
+    },
+    {
+      "id": "upscayl-adversarial-unrelated-bare-key",
+      "kind": "adversarial",
+      "application": "upscayl-image-format-1257",
+      "repository": "https://github.com/upscayl/upscayl",
+      "revision": "d736736e3cb9a2cf6ca8b06c0f95034abeb812e3",
+      "fixture": null,
+      "variant": "unrelated-bare-key",
+      "why": "a different setting is stored in the broken bare form, so something else does revert",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "exceptions": [],
+        "selectedFormat": "jpg",
+        "storedAfterPick": "\"jpg\"",
+        "storedAfterReload": "\"jpg\"",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "environmentExceptions": [],
+        "jsHeapMiB": 23,
+        "elapsedSeconds": 25.213,
+        "scenario": "settings-persistence",
+        "variant": "unrelated-bare-key"
+      }
+    }
+  ]
+}
