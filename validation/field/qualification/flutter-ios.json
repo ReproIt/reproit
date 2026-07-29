@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "target": "flutter-ios",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "ios-simulator",
+    "arch": "arm64",
+    "runtime": "Dart VM service through flutter drive"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/saber-notes/saber",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "offline handwriting note application with a real ios/Runner Flutter target; all state lives in the application sandbox, no account and no network are needed for the note browse and editor flows, and at the recent candidate revisions ios/Runner carries no entitlements file at all, so an unsigned simulator build has nothing team-scoped to satisfy",
+      "candidateDefects": 8,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "frameworkEvidence": "git show eefd47829137a0521b1e26dbac4beed90e678847:pubspec.yaml shows name: saber with the flutter sdk dependency; git ls-tree lists ios/Runner.xcodeproj, ios/Runner.xcworkspace and ios/Runner at every selected revision"
+    },
+    {
+      "repository": "https://github.com/localsend/localsend",
+      "license": "Apache-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "local-network file and text transfer with no account and no external service, and it keeps a real app/ios/Runner target. Containment is required for two reasons: the iOS Runner entitlements request aps-environment and com.apple.developer.networking.multicast, which are only inert because an unsigned simulator build embeds no entitlements; and the app uses flutter_rust_bridge, so the campaign must also build the Rust crate for the simulator triple. The receive trigger needs a second party, which the repository's own cli/ package can supply on the host over loopback",
+      "candidateDefects": 10,
+      "buildQualified": null,
+      "buildEvidence": null,
+      "frameworkEvidence": "git show 3ec2d77875fc31dab21548ae4966ca693e8b2733:app/pubspec.yaml shows name: localsend_app with environment flutter ^3.25.0; git ls-tree lists app/ios/Runner.xcodeproj, app/ios/Runner and app/ios/ShareExtension"
+    },
+    {
+      "repository": "https://github.com/Anxcye/anx-reader",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "an offline local-library epub reader with a real ios/Runner target, but its headline features are AI chat and WebDAV sync, both of which need third-party keys or a server, so any selected trigger must stay inside the local reading and annotation surface. No defect from this repository is selected yet because its fixes are mostly direct maintainer commits with no linked issue, so no affected and fixed pair has been verified here",
+      "candidateDefects": null,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/AppFlowy-IO/AppFlowy",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "the four inventory candidates are desktop-surface defects (sidebar flicker, outline block, and a scale factor fix that lands in startup/tasks/windows.dart) or bundle a feature and a version bump into one commit (PR 8594 touches CHANGELOG.md, Makefile.toml and pubspec together), and an iOS simulator build additionally requires compiling the full Rust core for the simulator triple",
+      "candidateDefects": 4
+    },
+    {
+      "repository": "https://github.com/GopeedLab/gopeed",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "download manager; every core flow requires external network transfers, and the inventory candidates are Windows, Linux packaging, or HTTP protocol defects with no iOS surface",
+      "candidateDefects": 23
+    },
+    {
+      "repository": "https://github.com/flame-engine/flame",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "game engine library, not an end-user application",
+      "candidateDefects": 16
+    },
+    {
+      "repository": "https://github.com/flet-dev/flet",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "application framework, not an end-user application",
+      "candidateDefects": 13
+    },
+    {
+      "repository": "https://github.com/BasedHardware/omi",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "core flow pairs with a Bluetooth wearable; the simulator has no Bluetooth radio, so the trigger cannot be delivered",
+      "candidateDefects": 10
+    },
+    {
+      "repository": "https://github.com/Notsfsssf/pixez-flutter",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "every core flow needs a Pixiv account and remote content; the inventory candidates are Windows or network defects",
+      "candidateDefects": 9
+    },
+    {
+      "repository": "https://github.com/rustdesk/rustdesk",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "remote desktop control; the trigger is not non-destructive, it needs a second machine and a rendezvous server, and the inventory candidates are Android, Linux and installer defects",
+      "candidateDefects": 6
+    },
+    {
+      "repository": "https://github.com/Predidit/Kazumi",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "streams from third-party scraped sites through user-supplied rules; there is no offline trigger and no stable content to assert on",
+      "candidateDefects": 5
+    },
+    {
+      "repository": "https://github.com/cfug/dio",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "HTTP client library, not an end-user application",
+      "candidateDefects": 5
+    },
+    {
+      "repository": "https://github.com/bggRGjQaUbCoE/PiliPlus",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "third-party Bilibili client; core flows need an account and remote content, and one candidate is explicitly a captcha challenge",
+      "candidateDefects": 4
+    },
+    {
+      "repository": "https://github.com/felangel/bloc",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "state management library, not an end-user application",
+      "candidateDefects": 3
+    },
+    {
+      "repository": "https://github.com/jonataslaw/getx",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "library, not an end-user application",
+      "candidateDefects": 2
+    },
+    {
+      "repository": "https://github.com/flutter/flutter",
+      "license": "BSD-3-Clause",
+      "decision": "reject",
+      "reason": "the framework under test, not an application built on it",
+      "candidateDefects": 1
+    },
+    {
+      "repository": "https://github.com/guozhigq/pilipala",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "third-party Bilibili client; the single candidate is a risk-control challenge flow that requires an account",
+      "candidateDefects": 1
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "saber-background-save-1688",
+      "application": "saber",
+      "issueUrl": "https://github.com/saber-notes/saber/issues/1688",
+      "issueTitle": "Changing background doesn't trigger save",
+      "pullRequestUrl": "https://github.com/saber-notes/saber/pull/1723",
+      "affectedRevision": "eefd47829137a0521b1e26dbac4beed90e678847",
+      "fixedRevision": "502bc9823ad308729ce6bd2775305d7d53f06e44",
+      "frameworkEvidence": "Flutter verified at the affected revision: pubspec.yaml declares name: saber with environment flutter \">=3.41.0\" and the flutter sdk dependency; ios/Runner.xcodeproj and ios/Runner exist at that revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "at eefd478 there is no ios/Runner/Runner.entitlements file and project.pbxproj carries no CODE_SIGN_ENTITLEMENTS setting, so xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO has no team-scoped capability to satisfy. DEVELOPMENT_TEAM = 3DB8QX4Z23 is present but is ignored when signing is disabled",
+        "verified": false
+      },
+      "whySuitable": "the defect is a state-to-persistence contract inside the editor: changing the background pattern was never recorded as an EditorHistoryItemType, so autosave and the save button did not consider the note modified. The flutter-ios adapter drives this end to end through flutter drive, delivering the background change as a real widget interaction and then reading the note's saved state back through the Dart VM service after a scene restart, which is exactly the Dart VM service observation path the target owns rather than a pure unit assertion",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build the affected and fixed revisions for the simulator with CODE_SIGNING_ALLOWED=NO and record the exact command and result",
+        "add a flutter driver extension entry point, or confirm the existing entry point is drivable, and pin the Flutter SDK version each revision requires",
+        "state the exact identity and authority for the observable, and minimize the trigger",
+        "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
+        "record neighboring legal behavior: a different editor change that does mark the note modified on the affected build"
+      ]
+    },
+    {
+      "id": "saber-recent-notes-1603",
+      "application": "saber",
+      "issueUrl": "https://github.com/saber-notes/saber/issues/1603",
+      "issueTitle": "Externally deleted note still persist in `Recent Notes`",
+      "pullRequestUrl": "https://github.com/saber-notes/saber/pull/1631",
+      "affectedRevision": "a77740bf4b55a962838940f77f763041544bc901",
+      "fixedRevision": "ed4fe66fc5908a55d2e20806e9cb01fc11ad5d78",
+      "frameworkEvidence": "Flutter verified at the affected revision: pubspec.yaml declares name: saber with environment flutter \">=3.38.2\"; ios/Runner.xcodeproj and ios/Runner exist at that revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "at a77740b there is no ios/Runner/Runner.entitlements file and project.pbxproj carries no CODE_SIGN_ENTITLEMENTS setting",
+        "verified": false
+      },
+      "whySuitable": "the trigger crosses the boundary between the simulator's file system and the Flutter widget tree: a note file removed from the application container by the harness must disappear from the recent notes list the next time the list is built. The flutter-ios adapter observes the rebuilt list through the Dart VM service while the deletion is applied outside Dart, so the assertion is on real on-device state rather than on an in-process stub",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm the harness can reach the simulator application container path for the built bundle id and delete exactly one note file",
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: a note that still exists must remain in the list across the same refresh"
+      ]
+    },
+    {
+      "id": "saber-same-name-861",
+      "application": "saber",
+      "issueUrl": "https://github.com/saber-notes/saber/issues/861",
+      "issueTitle": "Bug when creating a note and a folder with the same name",
+      "pullRequestUrl": "https://github.com/saber-notes/saber/pull/873",
+      "affectedRevision": "75ea351a80795e3639a8451d2226165767d703a8",
+      "fixedRevision": "c671d52049b39578acee5c45b84b3ae6c01c5f9f",
+      "frameworkEvidence": "Flutter verified at the affected revision: pubspec.yaml declares name: saber with the flutter sdk dependency; ios/Runner.xcodeproj, ios/Runner and ios/Podfile.lock exist at that revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "at 75ea351 project.pbxproj sets CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements and that file requests only com.apple.developer.associated-domains. An unsigned simulator build embeds no entitlements, so the associated domain is never claimed; this is the reason the entry is qualify rather than reject, and the build must still be proven",
+        "verified": false
+      },
+      "whySuitable": "a file manager index defect with a purely local trigger: creating a note and a folder with the same name in the browse tree. The observable is the browse list the widget tree renders, which the flutter-ios adapter reads through the Dart VM service after driving two real creation flows, so the target's action path and observation path are both exercised without any network",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "confirm this revision still builds against a Flutter SDK available on the host; it predates the current stable by a wide margin and may need a pinned older SDK",
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: two notes with distinct names must both appear"
+      ]
+    },
+    {
+      "id": "saber-rtl-speeddial-1282",
+      "application": "saber",
+      "issueUrl": "https://github.com/saber-notes/saber/issues/1282",
+      "issueTitle": "Add document buttons menu popup in RTL",
+      "pullRequestUrl": "https://github.com/saber-notes/saber/pull/1286",
+      "affectedRevision": "453fa022d8b14709cca0d55b6e6f7ad2d5262b38",
+      "fixedRevision": "30edb84cbc47e79404c1a878300f260a2b182746",
+      "frameworkEvidence": "Flutter verified at the affected revision: pubspec.yaml declares name: saber with environment flutter \">=3.19.0\"; ios/Runner.xcodeproj and ios/Runner exist at that revision",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "at 453fa02 project.pbxproj sets CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements requesting only com.apple.developer.associated-domains, which is not embedded in an unsigned simulator build",
+        "verified": false
+      },
+      "whySuitable": "a layout-direction defect that only appears once the app is running in a right-to-left locale, so the trigger is a simulator locale change plus a real tap on the SpeedDial. The observable, the side the labels are laid out on, is a geometry property of the rendered widget tree, which the flutter-ios adapter reads through the Dart VM service; it cannot be settled from source and is a different class of observable from the other three, which keeps the selection from being four instances of the same shape",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "decide how the locale is set on the disposable simulator and record it as part of the environment, not as an application mutation",
+        "confirm the observable is exposed to the driver as geometry rather than requiring a screenshot comparison; if it is pixels only, drop this candidate",
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence"
+      ]
+    },
+    {
+      "id": "localsend-link-misclassification-2904",
+      "application": "localsend",
+      "issueUrl": "https://github.com/localsend/localsend/issues/2904",
+      "issueTitle": "bug: Receive Text or Paste are incorrectly identified as link when message starts with URI but has more text after",
+      "pullRequestUrl": "https://github.com/localsend/localsend/pull/2975",
+      "affectedRevision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+      "fixedRevision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+      "frameworkEvidence": "Flutter verified at the affected revision: git show 3ec2d778:app/pubspec.yaml declares name: localsend_app with environment flutter ^3.25.0; git ls-tree lists app/ios/Runner.xcodeproj, app/ios/Runner and app/ios/ShareExtension",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "app/ios/Runner.xcodeproj/project.pbxproj sets DEVELOPMENT_TEAM = 3W7H4PYMCV and CODE_SIGN_ENTITLEMENTS for both Runner and ShareExtension; Runner.entitlements requests aps-environment, com.apple.developer.networking.multicast and an application group. None of these are embedded when signing is disabled for a simulator build, but the ShareExtension target should be excluded from the campaign build to keep the surface minimal",
+        "verified": false
+      },
+      "whySuitable": "this is a second, independent application whose defect is an input classification contract rather than local persistence, and its trigger arrives over the real network stack: the harness sends a text message from the repository's own cli/ sender on the host to the app running on the simulator, and the flutter-ios adapter observes through the Dart VM service whether the receive page renders it as a link or as plain text. That exercises platform channel and network-driven state on the simulator, not just widget-local state",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "prove the cli/ sender can reach the app on the simulator without multicast discovery, using an explicit host and port on loopback",
+        "add the Rust toolchain simulator targets required by flutter_rust_bridge and prove the app/rust crate builds for the simulator triple at both revisions",
+        "exclude the ShareExtension target from the campaign build, or prove it builds unsigned",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence, plus neighboring legal behavior: a message that is exactly one URL must still render as a link on the affected build"
+      ]
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "detail": "no candidate has been built yet. Every simulatorBuildWithoutSigning entry is an inspection of project.pbxproj and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
+      "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
+      "evidence": []
+    },
+    {
+      "code": "product-coverage-missing",
+      "detail": "four of the five selected defects come from one application, saber. The field benchmark needs two independent applications, so the localsend candidate must survive its containment work or a third qualifying application must supply a second verified defect",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "the older saber revisions 75ea351a80795e3639a8451d2226165767d703a8 and 453fa022d8b14709cca0d55b6e6f7ad2d5262b38 declare Flutter constraints far below the installed 3.44.2 SDK, and no pinned SDK has been proven to build them",
+      "command": null,
+      "evidence": []
+    }
+  ]
+}

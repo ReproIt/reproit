@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 1,
+  "target": "macos-ax",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "macos",
+    "arch": "arm64",
+    "runtime": "permissioned macOS Accessibility API: AX tree traversal, AXPress, attribute reads"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/coteditor/CotEditor",
+      "license": "Apache-2.0",
+      "licenseNote": "the GitHub API reports NOASSERTION because image assets carry CC-BY-NC-ND; the code is Apache-2.0",
+      "decision": "qualify",
+      "reason": "the strongest entry in the pool. A real CotEditor.xcodeproj AppKit and SwiftUI document application with MACOSX_DEPLOYMENT_TARGET 14.0 and no LSUIElement, so it has an inspectable main window. It ships Configurations/CodeSigning-AdHoc.xcconfig with CODE_SIGN_IDENTITY = - , an empty DEVELOPMENT_TEAM and a matching CotEditor-AdHoc.entitlements limited to the sandbox, user-selected files and printing, so a local build needs no Developer ID. Offline, operates on local files, and already ships a UI Tests target",
+      "candidateDefects": 452,
+      "candidateDefectsBasis": "closed issues carrying the bug label; seven were shortlisted as accessibility-observable and five verified",
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/ViennaRSS/vienna-rss",
+      "license": "Apache-2.0",
+      "decision": "qualify-with-containment",
+      "reason": "a real Vienna.xcodeproj Objective-C AppKit application with a storyboard-driven Preferences window, which is a rich accessibility surface. Containment: Codesigning.xcconfig sets CODE_SIGN_IDENTITY = Apple Development, so a local build must override it to ad-hoc, and ENABLE_HARDENED_RUNTIME is on with entitlements that request AppleEvents automation and Sparkle mach-lookup exceptions. The network must be blocked so the first-launch demo feed refresh and the Sparkle update check stay inert; the preference pane under test is entirely offline",
+      "candidateDefects": 252,
+      "candidateDefectsBasis": "merged pull requests with fix in the title; four shortlisted, one verified",
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/p0deje/Maccy",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "a real Maccy.xcodeproj SwiftUI application that already ships MaccyUITests, and its Settings window is a genuine inspectable window that needs no Accessibility grant to itself, since Accessibility is only used for auto-paste. Containment is substantial: Info.plist sets LSUIElement true so there is no persistent main window; the project pins DEVELOPMENT_TEAM = MN3X4648SC with automatic signing and hardened runtime, which a local build must override to ad-hoc; the app continuously reads the system pasteboard, which is shared user state; and it carries a Sparkle feed URL, so the network must be blocked",
+      "candidateDefects": 377,
+      "candidateDefectsBasis": "closed issues carrying the bug label; one verified",
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/CodeEditApp/CodeEdit",
+      "license": "MIT",
+      "decision": "qualify",
+      "reason": "a native SwiftUI CodeEdit.xcodeproj that already ships real XCUITest targets including ProjectNavigatorUITests and HideInterfaceTests, which is direct evidence that its interface is accessibility-addressable. Sandboxed with user-selected read-write only. Selection must stay away from its terminal and task features. No defect verified here yet",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/MacPass/MacPass",
+      "license": "NOASSERTION",
+      "decision": "qualify-with-containment",
+      "reason": "a real MacPass.xcodeproj Objective-C AppKit application with no LSUIElement, working entirely offline on a local kdbx database. Held back because the license is a GPL-family LICENSE.txt that the API cannot resolve and must be confirmed before use, its entitlements request AppleEvents automation for autotype, and any campaign must use a throwaway database",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/MacDownApp/macdown",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "a real MacDown.xcworkspace Objective-C AppKit document application with NSPrincipalClass NSApplication and no LSUIElement, but the first build needs the network for submodules and CocoaPods, and the preview pane is a web view that is opaque to the accessibility tree, so only the editor, menus and preferences are drivable",
+      "candidateDefects": 101
+    },
+    {
+      "repository": "https://github.com/HexFiend/HexFiend",
+      "license": "BSD-2-Clause",
+      "decision": "qualify",
+      "reason": "a real HexFiend_2.xcodeproj Objective-C AppKit NSDocument application whose default CODE_SIGN_IDENTITY is already ad-hoc, unsandboxed entitlements, no LSUIElement. Qualified as an application but useless as a defect source so far: its merged pull request history is dominated by binary template and framework-internal fixes, and the one accessibility-shaped candidate examined does not reproduce in the application itself",
+      "candidateDefects": 86
+    },
+    {
+      "repository": "https://github.com/glushchenko/FSNotes",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a real FSNotes.xcodeproj with segregated macOS and iOS targets and minimal entitlements, but rejected as a defect source: its history is grab-bag commits with no linked issues and mixed iOS and macOS changes in the same commit, so no clean affected and fixed pair can be isolated",
+      "candidateDefects": 623
+    },
+    {
+      "repository": "https://github.com/sindresorhus/Gifski",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "no LSUIElement and no TCC usage keys, but DEVELOPMENT_TEAM = YG56YK5RN5 and hardened runtime must be overridden, the vendored gifski-api forces a Rust toolchain and a networked cargo fetch, and the core convert flow exposes almost no accessibility-observable state",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/sveinbjornt/Platypus",
+      "license": "BSD-3-Clause",
+      "decision": "reject",
+      "reason": "an accessibility-rich Objective-C AppKit main window, but it writes application bundles so it must be pointed at a temporary directory, and with three merged pull requests in total its defect supply is effectively zero",
+      "candidateDefects": 0
+    },
+    {
+      "repository": "https://github.com/sveinbjornt/Sloth",
+      "license": "BSD-3-Clause",
+      "decision": "reject",
+      "reason": "a plain Objective-C AppKit window with read-only lsof browsing, but the application advertises in-app root authentication, which is an interactive admin prompt, and ships a kill-process button, so any accessibility action sweep is destructive",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/superhighfives/pika",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "it uses NSColorSampler rather than ScreenCaptureKit so it needs no screen recording grant, but the color picking gesture happens in a system overlay the accessibility API cannot drive, LSUIElement is true, and DEVELOPMENT_TEAM = TGHU37N6EX is pinned. Only the color pair window and preferences are drivable, which is not where its defects are",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/Ranchero-Software/NetNewsWire",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "a real non-Catalyst Mac target, but NetNewsWire.entitlements carries aps-environment, CloudKit container identifiers, ubiquity key-value store and app groups, all of which need a provisioned paid team, and the core purpose is fetching remote feeds. A NetNewsWire-dev.entitlements exists but was not decoded, so the claim that a team-free build is possible is unverified",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/OpenEmu/OpenEmu",
+      "license": "unverified",
+      "decision": "reject",
+      "reason": "the license could not be confirmed, the core flow needs ROMs that cannot be shipped, and the emulation surface renders to an OpenGL or Metal layer with no accessibility tree",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/iina/iina",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "the build is not offline: other/download_libs.sh pulls prebuilt mpv and FFmpeg dylibs. Its entitlements need unsigned executable memory and disabled library validation, and the player surface is a custom-drawn on-screen controller with no accessibility tree",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/rxhanson/Rectangle",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "two independent disqualifiers: LSUIElement true with AccessibilityAuthorization.swift requiring an interactive Accessibility grant to itself, and a core function that mutates other applications' windows",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/lwouis/alt-tab-macos",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "a genuine native Swift application, not a wrapper, but LSUIElement is true and SystemPermissions.swift requires both an interactive Accessibility grant and Screen Recording through ScreenCaptureKit, neither of which can be granted non-interactively",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/jordanbaird/Ice",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "LSUIElement is set and PermissionsManager declares both accessibility and screen recording as required; it also manipulates other applications' menu bar items",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/MrKai77/Loop",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "window manager: requires an Accessibility grant to itself and resizes other applications' windows, and pins DEVELOPMENT_TEAM = 5F967GYF84",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/keycastr/keycastr",
+      "license": "BSD-3-Clause",
+      "decision": "reject",
+      "reason": "LSUIElement agent that requires Input Monitoring or Accessibility granted by hand, and its output is an overlay rather than an inspectable window",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/exelban/stats",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "LSUIElement agent with SMPrivilegedExecutables for an SMC helper that needs an admin authorization and a matching signing requirement, plus AppleEvents and Bluetooth usage",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/XcodesOrg/XcodesApp",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "the core flow is account-gated: the README requires an Apple ID and the source carries two-factor and SMS sign-in views. It also installs a privileged XPC helper",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/ninxsoft/Mist",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "SMPrivilegedExecutables helper tool and a manual CODE_SIGN_IDENTITY of Developer ID Application, so a paid identity is required; the core flow downloads multi-gigabyte installers and writes install media",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/alienator88/Pearcleaner",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "restrictive fair-code license, deletes other applications' files, and needs Full Disk Access. Categorically destructive",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/MonitorControl/MonitorControl",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "mutates display hardware state over DDC, needs a real external monitor, and ships a login item helper",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/Whisky-App/Whisky",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "the repository is archived and the core flow downloads Wine and Game Porting Toolkit builds",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/aonez/Keka",
+      "license": "none",
+      "decision": "reject",
+      "reason": "the repository is the website and issue tracker only; it has no Xcode project and the application source is not published",
+      "candidateDefects": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "coteditor-file-browser-add-1744",
+      "application": "CotEditor",
+      "issueUrl": "https://github.com/coteditor/CotEditor/issues/1744",
+      "issueTitle": "\"New File/Folder\" are disabled when the focus is on a document",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/coteditor/CotEditor/commit/53329f1bf776fdc03358ac834e66adc27ff7ce84",
+      "affectedRevision": "7937b62585bd0f7621160efacbbcd97d77135e11",
+      "fixedRevision": "53329f1bf776fdc03358ac834e66adc27ff7ce84",
+      "frameworkEvidence": "native macOS application verified at the affected revision: git ls-tree lists CotEditor.xcodeproj, CotEditor/, Configurations/, Tests and UI Tests; project.pbxproj declares MACOSX_DEPLOYMENT_TARGET = 14.0; the file the fix touches, CotEditor/Sources/Document Window/File Browser/FileBrowserViewController.swift, is a Swift NSViewController conforming to NSMenuItemValidation, which is AppKit",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "AXPress on the file browser Add button, then traverse its AXMenu to the AXMenuItem children",
+        "observation": "AXEnabled on the New File and New Folder menu items: false at the affected revision, true at the fixed revision, with AXPress a no-op while disabled",
+        "note": "the fix sets item.target = self for the context menu and Add button menu items so responder chain validation stops disabling them; the added lines sit directly above the file's existing setAccessibilityElement(true) call"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "Configurations/CodeSigning-AdHoc.xcconfig is present at the affected revision with CODE_SIGN_IDENTITY = - , CODE_SIGN_STYLE = Manual and an empty DEVELOPMENT_TEAM, pointing at CotEditor-AdHoc.entitlements which requests only the sandbox, user-selected read-write files and printing",
+        "verified": false
+      },
+      "whySuitable": "it exercises all three macos-ax adapter primitives in one flow: accessibility tree traversal into a menu, an AXPress action, and an AXEnabled attribute read. No network, no TCC prompt, and the application keeps an ordinary inspectable window",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions locally with the shipped ad-hoc signing configuration and record the exact command and result",
+        "dump the accessibility tree of the built application and confirm the Add button and its menu items appear with the expected roles",
+        "state the exact identity and authority for the observable, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with a reset application container and reset evidence",
+        "record neighboring legal behavior: a menu item that is legitimately disabled must stay disabled on the fixed build"
+      ]
+    },
+    {
+      "id": "coteditor-text-replacement-toggle-1886",
+      "application": "CotEditor",
+      "issueUrl": "https://github.com/coteditor/CotEditor/issues/1886",
+      "issueTitle": "モードの設定で「テキストの置換」のチェックを外すことができません",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/coteditor/CotEditor/commit/efd3f02b0488529c1459137d7229b8e1f1c8e1be",
+      "affectedRevision": "529d38e2280bf39a6980b9cef1904234f95fbd21",
+      "fixedRevision": "efd3f02b0488529c1459137d7229b8e1f1c8e1be",
+      "frameworkEvidence": "native macOS application verified at the affected revision: CotEditor.xcodeproj and Configurations/ are present, and CotEditor/Sources/Settings Window/Panes/ModeSettingsView.swift imports SwiftUI and declares the Toggle labelled Text replacement",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "AXPress the Text replacement AXCheckBox in the Mode settings pane, then close and reopen the Settings window",
+        "observation": "AXValue on that checkbox: it reverts to 1 on the affected build and stays 0 on the fixed build",
+        "note": "the underlying defect is that ModeOptions.init(dictionary:) returned nil when fontType was absent, discarding every other stored flag"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "Configurations/CodeSigning-AdHoc.xcconfig is present at the affected revision 529d38e2",
+        "verified": false
+      },
+      "whySuitable": "the cleanest possible state oracle for this adapter: an AXPress followed by a window close and reopen followed by an AXValue read, with the entire round trip staying inside the accessibility API and no pixel comparison anywhere",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "build both revisions with the shipped ad-hoc configuration",
+        "confirm the SwiftUI Toggle exposes AXCheckBox with a stable AXTitle in the built application, including under a non-Japanese locale",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence, resetting the preferences domain between runs",
+        "record neighboring legal behavior: a different setting in the same pane must persist across the same reopen on the affected build"
+      ]
+    },
+    {
+      "id": "coteditor-status-bar-counts-1941",
+      "application": "CotEditor",
+      "issueUrl": "https://github.com/coteditor/CotEditor/issues/1941",
+      "issueTitle": "Line and character counts not displayed in status bar for some documents",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/coteditor/CotEditor/commit/3c15c9b222332824f8844f9c87c2d05ece0c45cb",
+      "affectedRevision": "84bfb4a5d9afa1e0ec661947af5eed9a51eadc24",
+      "fixedRevision": "3c15c9b222332824f8844f9c87c2d05ece0c45cb",
+      "frameworkEvidence": "native macOS application verified at the affected revision: CotEditor.xcodeproj and Configurations/CodeSigning-AdHoc.xcconfig are present, and the only code file the fix touches is CotEditor/Sources/Scanners/EditorCounter.swift in the application target",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "open a document, which requires no more than launching the application against a prepared file",
+        "observation": "AXValue of the status bar AXStaticText: empty at the affected revision, a populated line and character count at the fixed revision",
+        "note": "the fix is a single line, added.contains(.count) becoming !added.isDisjoint(with: .count), because OptionSet contains requires all members"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "the ad-hoc signing configuration is present at this revision",
+        "verified": false
+      },
+      "whySuitable": "the observable is a text value the accessibility tree exposes directly, and the trigger is the document open path rather than a control interaction, so it covers a different half of the adapter from the two press-driven candidates",
+      "qualification": "selected-not-executed",
+      "caveat": "an earlier commit, 503492da2, also claims to fix issue 1941 and did not fully do so, and the changelog entry moved between beta sections. 3c15c9b22 is the definitive fix and its parent is genuinely still affected, but the campaign must assert that the parent reproduces rather than trusting the issue reference",
+      "remaining": [
+        "confirm on a built affected binary that the status bar really is empty for the reported document shape, since the defect is conditional",
+        "build both revisions with the ad-hoc configuration",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: a document that does display counts on the affected build"
+      ]
+    },
+    {
+      "id": "maccy-storage-files-checkbox-925",
+      "application": "Maccy",
+      "issueUrl": "https://github.com/p0deje/Maccy/issues/925",
+      "issueTitle": "Maccy won't remember setting to save Files ",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/p0deje/Maccy/commit/3c5cf30e1fe703e01b388b08a3fd744458a7b971",
+      "affectedRevision": "40d6f67db0be63146c82b8e058ba46ad17e1523c",
+      "fixedRevision": "3c5cf30e1fe703e01b388b08a3fd744458a7b971",
+      "frameworkEvidence": "native macOS application verified at the affected revision: git ls-tree lists Maccy.xcodeproj, Maccy/ and MaccyUITests/; Maccy/Info.plist declares CFBundlePackageType APPL and NSPrincipalClass NSApplication; the file the fix touches, Maccy/Settings/StorageSettingsPane.swift, is a SwiftUI View",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "AXPress the Files AXCheckBox in Settings, Storage",
+        "observation": "AXValue on that checkbox flips back to 0 on the affected build and stays 1 on the fixed build",
+        "note": "the fix is a single word, isSubset(of:) becoming isSuperset(of:)"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "the project pins DEVELOPMENT_TEAM = MN3X4648SC, CODE_SIGN_IDENTITY = Apple Development, automatic signing and hardened runtime, so the build must override to CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= . Entitlements are sandbox, user-selected read-only and a Sparkle mach-lookup exception, none of which need a paid team",
+        "verified": false
+      },
+      "whySuitable": "a second, independent application exercising the same AXPress and AXValue path through a different persistence binding, which is what keeps the eventual field benchmark from resting on one codebase",
+      "qualification": "selected-not-executed",
+      "caveat": "Maccy sets LSUIElement true, so there is no persistent main window and the campaign must open the Settings window explicitly. The application also continuously reads the system pasteboard, which is shared user state, so the campaign must run against a scratch login session or accept that read. Rank this below the CotEditor candidates",
+      "remaining": [
+        "prove the ad-hoc signing override actually builds and launches this project",
+        "decide how the Settings window is opened without a main window and whether that step is part of the trigger or the setup",
+        "confirm the pasteboard monitoring is acceptable containment, or isolate the run",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence"
+      ]
+    },
+    {
+      "id": "vienna-syncing-preferences-enabled-2054",
+      "application": "vienna-rss",
+      "issueUrl": null,
+      "issueTitle": null,
+      "pullRequestUrl": "https://github.com/ViennaRSS/vienna-rss/pull/2054",
+      "pullRequestTitle": "Fix enabled state of controls in Syncing preferences panel",
+      "affectedRevision": "0bbdb76dec767bdb2153050186a24134fa05954c",
+      "fixedRevision": "7ae480835a193096108dc575fd30e0e40c1acec5",
+      "frameworkEvidence": "native macOS application verified at the affected revision: git ls-tree lists Vienna.xcodeproj, Vienna/ and Vienna Tests; Vienna/Sources/Preferences window/SyncingPreferencesViewController.m is Objective-C AppKit with IBOutlet NSTextField, NSSecureTextField and NSButton, driven by Vienna/Resources/Interfaces/Base.lproj/Preferences.storyboard. The fix commit 7ae4808 is the merge of pull request 2054 and its first parent, the affected revision, is mainline immediately before the merge; the substantive commit inside the branch is 9b23c67f320b290bce71dd794d6c0c4f22f25c05",
+      "accessibilityReachability": {
+        "reachable": true,
+        "trigger": "open Preferences and select the Syncing pane with the sync checkbox off, which is the default; optionally AXPress the sync AXCheckBox and re-read the pane",
+        "observation": "AXEnabled across the sibling controls: the source AXPopUpButton is enabled at the affected revision and disabled at the fixed revision, while the sibling AXTextField controls are correctly disabled in both",
+        "note": "at the affected revision viewWillAppear disables the source, host, username and password controls when sync is off and then unconditionally re-enables the popup on its last line; the fix removes that line and binds enablement through Cocoa bindings"
+      },
+      "signing": {
+        "identityRequired": false,
+        "evidence": "Vienna/Codesigning.xcconfig sets CODE_SIGN_IDENTITY = Apple Development, which must be overridden to ad-hoc, and ENABLE_HARDENED_RUNTIME is on, but Vienna/Vienna.entitlements has no sandbox key and requests only AppleEvents automation, app-scope bookmarks and Sparkle mach-lookup exceptions, so no paid Developer ID is required",
+        "verified": false
+      },
+      "whySuitable": "this is the only verified candidate whose whole signal is an AXEnabled read across a set of sibling controls rather than a single element, so it exercises accessibility subtree traversal, and it does so on an Objective-C, storyboard and Cocoa bindings stack rather than SwiftUI, which widens what the adapter is proven against",
+      "qualification": "selected-not-executed",
+      "caveat": "there is no linked issue for this fix, only the pull request, so issueUrl and issueTitle are null rather than invented",
+      "remaining": [
+        "build both revisions with the signing identity overridden to ad-hoc",
+        "block the network so the first-launch demo feed refresh and the Sparkle check stay inert, and record that as containment",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence, resetting the preferences domain between runs",
+        "record neighboring legal behavior: the sibling text fields must be disabled on both builds"
+      ]
+    }
+  ],
+  "reserveCandidates": [
+    {
+      "id": "coteditor-status-bar-encoding-1731",
+      "application": "CotEditor",
+      "issueUrl": "https://github.com/coteditor/CotEditor/issues/1731",
+      "issueTitle": "Text Encoding disappeared from the Status Bar",
+      "affectedRevision": "92b7a9f327a5c18d271b72c5b0c93f2bcf3ec19d",
+      "fixedRevision": "2e1ca4a986e52f8296d0a7b18a8e54900a2d7ccd",
+      "reason": "both revisions verified and the ad-hoc signing configuration is present. A two-line fix in the status bar, observable as an empty versus populated AXValue. Held in reserve because it is the same observable shape as the counts candidate"
+    },
+    {
+      "id": "coteditor-untitled-subtitle-1688",
+      "application": "CotEditor",
+      "issueUrl": "https://github.com/coteditor/CotEditor/issues/1688",
+      "issueTitle": "Filename on toolbar remains \"Untitled\" after creating new file with custom name from sidebar",
+      "affectedRevision": "6357c3bdeaaea6ab9e41f3b0274eab083919144c",
+      "fixedRevision": "562e163649ce9c70dbae2fb50496e33a7346fbf2",
+      "reason": "both revisions verified, but the fix targets NSWindow.subtitle and it is not confirmed without running whether the subtitle is exposed as the window AXTitle or as a separate title bar AXStaticText. Promote only after an accessibility tree dump of a built application"
+    }
+  ],
+  "rejectedCandidates": [
+    {
+      "application": "HexFiend",
+      "issueUrl": "https://github.com/HexFiend/HexFiend/issues/358",
+      "pullRequestUrl": "https://github.com/HexFiend/HexFiend/pull/420",
+      "affectedRevision": "2beda5bc03d9b8c2fe8bf6b1ec95adf6a708f310",
+      "fixedRevision": "5f8739b68cb564f8438fd178c0c0e72d457d25bc",
+      "reason": "the issue and both revisions are real, but reading app/sources/BaseDataDocument.m at the affected revision shows showViewForRepresenter: touches rep.view before addRepresenter:, so inside HexFiend.app the placeholder string is written while the controller is nil and is immediately overwritten. The symptom manifests only in third-party embedders of the framework, so it is not drivable through this application's accessibility tree"
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "detail": "four of the five selected defects were pushed directly to the default branch with no pull request; the CotEditor and Maccy maintainers do not merge fixes through pull requests, so pullRequestUrl is null for those four and a fixCommitUrl carries the reference instead",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "the vienna-rss candidate has no linked issue at all, only a pull request, so it has no issueUrl or issueTitle",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "product-coverage-missing",
+      "detail": "the five verified defects come from three applications but are concentrated three to one to one, with CotEditor supplying the majority. Native macOS applications that are simultaneously offline, free of interactive permission grants, buildable ad-hoc, and linked to a specific issue are genuinely scarce, so widening beyond CotEditor, Maccy and vienna-rss is the main remaining inventory work",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "no candidate was built or launched. The ad-hoc signing claims for Maccy and vienna-rss are inferred from project.pbxproj and xcconfig values rather than proven by a successful launch; CotEditor's is stronger because an ad-hoc configuration and matching entitlements ship in the repository, but it is still unproven",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "no accessibility tree dump exists for any built candidate, so every accessibilityReachability claim is inferred from source and from the AppKit or SwiftUI control types involved rather than observed",
+      "command": null,
+      "evidence": []
+    }
+  ]
+}

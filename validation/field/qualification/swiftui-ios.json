@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 1,
+  "target": "swiftui-ios",
+  "gate": "S2-candidate-qualification",
+  "status": "candidates-selected",
+  "declaredBounds": {
+    "os": "ios-simulator",
+    "arch": "arm64",
+    "runtime": "SwiftUI scene and view lifecycle through Appium XCUITest"
+  },
+  "applicationPool": [
+    {
+      "repository": "https://github.com/damus-io/damus",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "a real SwiftUI application: import SwiftUI and struct types conforming to View throughout damus/Features and damus/Shared. It ships a damusUITests XCUITest target, and onboarding, key generation, login by nsec, settings and the post composer are all local, with relays affecting only feed content. Upstream CI at HEAD builds for an iOS Simulator destination with no signing step, which is direct evidence the simulator build needs no identity",
+      "candidateDefects": 3,
+      "candidateDefectsBasis": "three pairs verified, four more examined and rejected",
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/Aidoku/Aidoku",
+      "license": "GPL-3.0",
+      "decision": "qualify",
+      "reason": "SwiftUI screens under iOS/New/Views with no login and no onboarding gate; the tab bar loads immediately, and Settings, Backups and the built-in local files source are fully offline. The entitlements file requests push, iCloud and CloudKit only, with no application groups, so blanking DEVELOPMENT_TEAM is enough for an unsigned simulator build",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/Dimillian/IceCubesApp",
+      "license": "AGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "pure SwiftUI, but without an account only two tabs render, timeline and settings, and timeline needs the network, so only the settings surface is reachable offline. The build additionally needs a synthesized IceCubesApp.xcconfig because the real file is gitignored and only a template is committed, and there is no UI test target to inherit",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/yattee/yattee",
+      "license": "AGPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "a genuine SwiftUI application with struct YatteeApp: App and WindowGroup, no onboarding gate, and the whole settings tree plus home customization reachable with zero configured instances. Containment: DEVELOPMENT_TEAM = 78Z5H3M6RJ is hardcoded eight times in the project file and SPM pulls MPVKit binary xcframeworks, so the build is not hermetic. No UI test target. Its best defect has no issue and no pull request, only a commit message, so nothing is selected from it",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/bitwarden/ios",
+      "license": "GPL-3.0",
+      "decision": "qualify-with-containment",
+      "reason": "SwiftUI dominant by file count, 426 files importing SwiftUI against 109 importing UIKit, but the application shell is UIKit: AppDelegate is a UIResponder with a SceneDelegate, and the only struct conforming to App is the watchOS one, so the SwiftUI scene lifecycle this target claims is not what drives the app. The full application target also carries push, associated domains, the autofill credential provider, iCloud, application groups, keychain sharing and NFC, and the build path requires XcodeGen, SwiftGen, SwiftLint and Sourcery through mint with a pinned Xcode. The entitlement-free BitwardenKit framework is a viable containment island. Defect linkage is by Jira ticket key rather than a closing reference, which makes pairs expensive to derive",
+      "candidateDefects": 6,
+      "candidateDefectsBasis": "six issue key matches, four pairs proven",
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/pointfreeco/isowords",
+      "license": "NOASSERTION",
+      "decision": "qualify-with-containment",
+      "reason": "genuine SwiftUI over the Composable Architecture, and solo play is fully local with server and Game Center failures deliberately swallowed, so no account is needed. Two containment costs: the license is a custom NOASSERTION file that must be read before use, and the clone currently fails Git LFS smudge because the repository exceeded its LFS budget, with 175 image and audio assets tracked by LFS, so the working tree can only be materialized with GIT_LFS_SKIP_SMUDGE and substitute assets",
+      "candidateDefects": 3,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/kean/Pulse",
+      "license": "MIT",
+      "decision": "qualify-with-containment",
+      "reason": "the Pulse Demo iOS target in Demo/Pulse.xcodeproj is real SwiftUI with struct PulseDemo_iOS: App and WindowGroup, is fully offline against a mock log store, and has no entitlements file at all, which is the cleanest signing story in the pool. It is held back because almost every fix is library-layer and the SwiftUI view fixes carry no linked issue",
+      "candidateDefects": 2,
+      "buildQualified": null,
+      "buildEvidence": null
+    },
+    {
+      "repository": "https://github.com/wikimedia/wikipedia-ios",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "not SwiftUI at the candidate revisions: 228 files import SwiftUI against 284 importing UIKit plus 441 Objective-C files, and there is no struct conforming to App and no WindowGroup anywhere; the entry point is a UIResponder AppDelegate. GitHub issues are disabled and tracking is Phabricator, so no pair can ever be issue-linked here",
+      "candidateDefects": 3
+    },
+    {
+      "repository": "https://github.com/signalapp/Signal-iOS",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "49 SwiftUI files against 305 UIKit files with a UIKit AppDelegate shell, and registration requires a real phone number and Signal servers",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/mozilla-mobile/firefox-ios",
+      "license": "MPL-2.0",
+      "decision": "reject",
+      "reason": "163 SwiftUI files against 621 UIKit files with a UIKit AppDelegate and SceneDelegate shell; the SwiftUI usage is isolated islands, not the scene lifecycle this adapter observes",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/duckduckgo/iOS",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "archived in February 2025 and superseded by duckduckgo/apple-browsers; a UIKit browser in any case",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/keepassium/KeePassium",
+      "license": "NOASSERTION",
+      "decision": "reject",
+      "reason": "zero files import SwiftUI against 137 importing UIKit, so it fails the per-revision framework test outright. It also carries team-scoped entitlements: associated domains with web credentials, the autofill credential provider, iCloud containers, an application group, a keychain group and NFC",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/simplex-chat/simplex-chat",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "genuinely SwiftUI with struct SimpleXApp: App and WindowGroup, but the application links a prebuilt Haskell core that is not in the repository, its entitlements request push, seven associated domains, an application group, a keychain group and multicast, and chat needs servers",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/ente-io/ente",
+      "license": "AGPL-3.0",
+      "decision": "reject",
+      "reason": "the mobile application is Flutter, not SwiftUI",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/apple/sample-food-truck",
+      "license": "MIT",
+      "decision": "reject",
+      "reason": "issues are disabled on the repository, so there is no defect history from which to derive an affected and fixed pair",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/khcrysalis/Feather",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "reason": "the cleanest build story found, 93 SwiftUI files with struct FeatherApp: App, entitlements containing only get-task-allow and an empty DEVELOPMENT_TEAM on the app target, but the core flow is sideloading and installing IPAs, which cannot work on a simulator",
+      "candidateDefects": null
+    },
+    {
+      "repository": "https://github.com/Dimillian/MovieSwiftUI",
+      "license": "Apache-2.0",
+      "decision": "reject",
+      "reason": "every screen is gated on the live TMDB HTTP API with a hardcoded key, and the project has been unmaintained since early 2024",
+      "candidateDefects": null
+    }
+  ],
+  "selectedDefects": [
+    {
+      "id": "damus-composer-cursor-3461",
+      "application": "damus",
+      "issueUrl": "https://github.com/damus-io/damus/issues/3461",
+      "issueTitle": "New note: cursor jumps behind first letter",
+      "pullRequestUrl": "https://github.com/damus-io/damus/pull/3473",
+      "pullRequestNote": "pull request 3473 authored the fix; it landed on the default branch through pull request 3509, \"Integrate more elsat fixes\"",
+      "affectedRevision": "f506f9cfe898a0c9f6eaa5ac0eb1e60245a340c8",
+      "fixedRevision": "4941b502d5ea1345e92c89540fab0bfef75cdb0f",
+      "frameworkEvidence": "SwiftUI verified at the affected revision by reading the files the fix touches: PostView.swift imports SwiftUI at line 8 and declares struct PostView: View at line 53; TextViewWrapper.swift imports SwiftUI at line 8 and declares struct TextViewWrapper: UIViewRepresentable at line 10. No UIViewController appears in the diff",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "the project uses CODE_SIGN_STYLE = Automatic with DEVELOPMENT_TEAM = XK7H4JAB3D in twelve places and damus.entitlements requests push, associated domains, the group.com.damus application group and a keychain group. None of these are enforced for an unsigned simulator build, and upstream CI at HEAD builds an iOS Simulator destination with no signing step, but the team must be blanked in the build command",
+        "verified": false
+      },
+      "whySuitable": "the strongest candidate for this target. The fix ships its own XCUITest, testPostComposerCursorPosition, whose oracle is a hard string equality on the text view value rather than a layout heuristic, and the defect is SwiftUI state-driven text binding flowing through a UIViewRepresentable, which is exactly the SwiftUI view identity and update path the adapter observes through XCUITest",
+      "qualification": "selected-not-executed",
+      "caveat": "the accessibility identifiers post_button and post_composer_text_view were introduced by the fix, so the harness must port them onto the affected build for the driver to address the same elements. The damusUITests target itself already exists at the affected revision",
+      "remaining": [
+        "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO and DEVELOPMENT_TEAM blanked, and record the exact command and result",
+        "port the two accessibility identifiers onto the affected build and record that as an instrumentation delta, not a behavior change",
+        "state the exact identity and authority for the observable, and minimize the trigger",
+        "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
+        "record neighboring legal behavior: typing into a different text field must keep the caret in place on the affected build"
+      ]
+    },
+    {
+      "id": "damus-create-account-keyboard-2771",
+      "application": "damus",
+      "issueUrl": "https://github.com/damus-io/damus/issues/2771",
+      "issueTitle": "Bug: create account difficult to proceed",
+      "pullRequestUrl": "https://github.com/damus-io/damus/pull/2773",
+      "affectedRevision": "19e312a8fb49971ff3652037b0dba860ea831add",
+      "fixedRevision": "2c7384b0a99879e4e7b471e98581f03f25cfecf9",
+      "frameworkEvidence": "SwiftUI verified at the affected revision: CreateAccountView.swift imports SwiftUI at line 8 and declares struct CreateAccountView: View at line 10; EditPictureControl.swift imports SwiftUI at line 8 and declares struct EditPictureControl: View at line 15",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "same project settings and entitlements as the composer candidate; the team must be blanked in the build command",
+        "verified": false
+      },
+      "whySuitable": "a zero-precondition trigger: the create account screen is pre-login, needs no network and no account, and the observable is whether the Next button is hittable while the software keyboard is presented. That is SwiftUI safe area and keyboard avoidance inside the scene, which is a different part of the adapter from the text binding candidate",
+      "qualification": "selected-not-executed",
+      "caveat": "the oracle is hittability rather than value equality, which is a weaker observable than the composer candidate",
+      "remaining": [
+        "confirm hittability is a stable oracle across simulator device sizes, and pin the device and runtime as part of the identity",
+        "build both revisions for the simulator with signing disabled and the team blanked",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: the same button must be hittable with the keyboard dismissed on the affected build"
+      ]
+    },
+    {
+      "id": "aidoku-ipad-backup-share-sheet-980",
+      "application": "Aidoku",
+      "issueUrl": "https://github.com/Aidoku/Aidoku/issues/980",
+      "issueTitle": "iPad Backup Export Doesn't Open Share Sheet",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/Aidoku/Aidoku/commit/fa2384e8244f2fca2bf23501d0efd30600a6b1fe",
+      "affectedRevision": "36f121edcb8686e44646bde93ab96f2f9446fcfa",
+      "fixedRevision": "fa2384e8244f2fca2bf23501d0efd30600a6b1fe",
+      "frameworkEvidence": "SwiftUI verified at the affected revision: the only file the fix touches, iOS/New/Views/Settings/Backups/BackupsView.swift, imports SwiftUI at line 8 and declares struct BackupsView: View at line 10",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "iOS/iOS.entitlements requests push, iCloud and CloudKit, ubiquity and user fonts, with no application groups; the project pins DEVELOPMENT_TEAM = 648WP6YBU2 with automatic signing, so blanking the team is sufficient for a simulator build",
+        "verified": false
+      },
+      "whySuitable": "the defect is precisely a SwiftUI to UIKit presentation anchor bug: the popover presentation controller is given a source view with no source rect, and the fix introduces SwiftUI state plus a GeometryReader background feeding onChange. XCUITest observes whether the share sheet appears at all, which is scene and presentation lifecycle rather than view content, so it covers a part of the adapter the other candidates do not",
+      "qualification": "selected-not-executed",
+      "caveat": "it reproduces only on an iPad simulator and needs one pre-created backup as setup, so the device class becomes part of the identity",
+      "remaining": [
+        "pin an iPad simulator and runtime, and record the pre-created backup as setup rather than as part of the trigger",
+        "build both revisions for the simulator with the team blanked",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence",
+        "record neighboring legal behavior: the same export must open the share sheet on an iPhone simulator on the affected build"
+      ]
+    },
+    {
+      "id": "aidoku-settings-freeze-984",
+      "application": "Aidoku",
+      "issueUrl": "https://github.com/Aidoku/Aidoku/issues/984",
+      "issueTitle": "Tapping anything on the Settings freezes the app",
+      "alsoCloses": {
+        "issueUrl": "https://github.com/Aidoku/Aidoku/issues/953",
+        "issueTitle": "Some settings cannot be opened on iOS 16"
+      },
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/Aidoku/Aidoku/commit/36f121edcb8686e44646bde93ab96f2f9446fcfa",
+      "affectedRevision": "aa91785fd8e761d73d90d6fc45a58acaefb854f2",
+      "fixedRevision": "36f121edcb8686e44646bde93ab96f2f9446fcfa",
+      "frameworkEvidence": "partial. At the affected revision the touched file iOS/UI/Common/TabBarController.swift imports SwiftUI at line 9 and SwiftUIIntrospect at line 10 and hosts a NavigationStack root view inside a UIHostingController at line 93, but the file itself is a UITabBarController subclass, so it matches import SwiftUI and not a View conformance. The destination screens it fails to present, SettingsView and its children under iOS/New/Views/Settings, are SwiftUI views",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "same entitlements and signing settings as the iPad backup candidate",
+        "verified": false
+      },
+      "whySuitable": "the defect is a SwiftUI NavigationStack and NavigationView hosting failure, so the trigger is SwiftUI navigation stack identity inside a hosting controller, which is exactly what this adapter watches. It is offline with zero setup, and because the symptom is a hang, a watchdog oracle settles it without any pixel comparison",
+      "qualification": "selected-not-executed",
+      "caveat": "if the rule for this target is that the file the fix touches must itself be a SwiftUI View, this candidate must be dropped: the fix lands in a UITabBarController subclass even though the failing surface is SwiftUI. It is included as the fourth candidate precisely so that dropping it is affordable",
+      "remaining": [
+        "decide whether the framework proof is satisfied by a SwiftUI hosting failure fixed in AppKit-adjacent glue, and drop the candidate if it is not",
+        "build both revisions for the simulator with the team blanked",
+        "define the hang oracle bound explicitly rather than relying on the driver's default timeout",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence"
+      ]
+    },
+    {
+      "id": "icecubes-restore-defaults-1859",
+      "application": "IceCubesApp",
+      "issueUrl": "https://github.com/Dimillian/IceCubesApp/issues/1859",
+      "issueTitle": "Bug: “Restore Defaults” Button not working",
+      "pullRequestUrl": null,
+      "fixCommitUrl": "https://github.com/Dimillian/IceCubesApp/commit/27da37e9ecddcd031b3f7e73b5585677651a32ab",
+      "affectedRevision": "6d12f2528d62b43ed5beec3042f9c36ce1fe328e",
+      "fixedRevision": "27da37e9ecddcd031b3f7e73b5585677651a32ab",
+      "frameworkEvidence": "SwiftUI verified at the affected revision: DisplaySettingsView.swift imports SwiftUI at line 8 and declares struct DisplaySettingsView: View at line 20, and Theme.swift imports SwiftUI at line 2. The fix commit subject is literally Fix #1859",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "every target uses CODE_SIGN_STYLE = Automatic with DEVELOPMENT_TEAM sourced from IceCubesApp.xcconfig, which is gitignored and absent from the repository, so the harness must synthesize it from the committed template. Entitlements request push, iCloud and CloudKit, an application group, a keychain group and user fonts, none of which are enforced for an unsigned simulator build",
+        "verified": false
+      },
+      "whySuitable": "a third independent application whose defect is reachable with no account, because settings is one of the two tabs that render logged out, and no network. The trigger flips AppStorage-backed theme state and the whole view tree re-renders, which is state-driven SwiftUI view identity in its purest form, and XCUITest reads the font and color rows back after the restore",
+      "qualification": "selected-not-executed",
+      "remaining": [
+        "synthesize IceCubesApp.xcconfig from the committed template with an empty team and record it as build configuration",
+        "build both revisions for the simulator with signing disabled",
+        "confirm the settings tab is reachable logged out at the affected revision, since the logged-out tab set is code-defined and may differ there",
+        "state identity and authority, and minimize the trigger",
+        "run three affected reproductions and three fixed controls with reset evidence, resetting the app container between runs"
+      ]
+    },
+    {
+      "id": "isowords-activityview-safe-area-45",
+      "application": "isowords",
+      "issueUrl": null,
+      "issueTitle": null,
+      "pullRequestUrl": "https://github.com/pointfreeco/isowords/pull/45",
+      "pullRequestTitle": "Make sure `ActivityView` ignores safe areas.",
+      "affectedRevision": "5eed5d1eef3fd4d4126917225febd738fd974336",
+      "fixedRevision": "84ca18983c36ba5c0b698dd307d68c1e61523686",
+      "frameworkEvidence": "SwiftUI verified at the affected revision: GameOverView.swift imports SwiftUI at line 23 and declares public struct GameOverView: View at line 419; SettingsView.swift imports SwiftUI at line 6 and declares public struct SettingsView: View at line 10",
+      "simulatorBuildWithoutSigning": {
+        "plausible": true,
+        "evidence": "App/iOS/iOS.entitlements requests push, five associated domains, the iCloud key-value store and the group.isowords application group, and DEVELOPMENT_TEAM = VFRXY8HC3H appears thirty times. None are enforced for an unsigned simulator build, but the team must be blanked",
+        "verified": false
+      },
+      "whySuitable": "a pure SwiftUI safe area and sheet presentation defect reachable offline from settings, which keeps the selection from being four state-and-value oracles in a row",
+      "qualification": "selected-not-executed",
+      "caveat": "two problems make this the first candidate to drop: the observable is visual, a footer clipped under the safe area, and the repository clone currently fails Git LFS smudge because it exceeded its LFS budget, so the working tree cannot be materialized without skipping smudge and substituting 175 image and audio assets. It also has no linked issue, only a pull request",
+      "remaining": [
+        "decide whether a pixel oracle is admissible for swiftui-ios; if it is not, drop this candidate",
+        "resolve the Git LFS budget failure or prove the application builds with placeholder assets, and record which",
+        "read and record the custom NOASSERTION license before any use",
+        "build both revisions for the simulator with the team blanked",
+        "state identity and authority, minimize the trigger, and run three affected reproductions and three fixed controls with reset evidence"
+      ]
+    }
+  ],
+  "rejectedCandidates": [
+    {
+      "application": "isowords",
+      "issueUrl": "https://github.com/pointfreeco/isowords/issues/126",
+      "pullRequestUrl": "https://github.com/pointfreeco/isowords/pull/127",
+      "affectedRevision": "206fb60fae724a79a7b201a5c7aa230ae41c7920",
+      "fixedRevision": "b10f0c0a0006a44a9239fd5691df73dce37d7c65",
+      "reason": "verified pair, but the file the fix touches is a SceneKit SCNView subclass hosted by a SwiftUI view through UIViewRepresentable, so the defect is SceneKit layout rather than SwiftUI layout and fails the per-revision framework test"
+    },
+    {
+      "application": "bitwarden-ios",
+      "issueUrl": "https://github.com/bitwarden/ios/issues/2554",
+      "affectedRevision": "2576ef6e88d7ef917916a6ef601022fa751af9ce",
+      "fixedRevision": "07709d32317131ecf22aac4f97947b58d33d6869",
+      "reason": "verified pair with clean SwiftUI proof in the entitlement-free BitwardenKit framework, but the trigger is the real iOS QuickType and autofill post-fill verification pass, which cannot be driven from plain XCUITest"
+    },
+    {
+      "application": "yattee",
+      "affectedRevision": "0d56dd02b7482b5ddc440a9c8eaae9c645463619",
+      "fixedRevision": "eea13a6290d5180fc3e5037a11b6ef11ce0ee448",
+      "reason": "verified pair with clean SwiftUI proof, fully offline, and an onAppear and onDisappear lifecycle bug that would be an ideal adapter exercise, but there is no issue and no pull request, only a commit message, so it has no citable defect record"
+    },
+    {
+      "application": "Pulse",
+      "pullRequestUrl": "https://github.com/kean/Pulse/pull/369",
+      "affectedRevision": "33831ee03711dd767b3736036c772f6c102353a5",
+      "fixedRevision": "14383871aa232bc846d637db45e952adc03d2987",
+      "reason": "verified pair, but there is no linked issue and the file the fix touches is an ObservableObject view model rather than a View"
+    }
+  ],
+  "blockers": [
+    {
+      "code": "incomplete-evidence",
+      "detail": "three of the six selected defects were pushed directly to the default branch with no pull request, so pullRequestUrl is null and a fixCommitUrl carries the reference; the issue linkage for those three comes from a closes or fix reference in the commit message, which was confirmed against the real issue",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "the isowords candidate has no linked issue at all, only a pull request, and its repository cannot currently be materialized because the Git LFS budget is exceeded for 175 tracked assets",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "incomplete-evidence",
+      "detail": "no candidate has been built. Every simulatorBuildWithoutSigning entry is an inspection of project settings and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
+      "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
+      "evidence": []
+    },
+    {
+      "code": "product-coverage-missing",
+      "detail": "the six candidates come from four applications, but the two strongest are both damus, and the Aidoku settings freeze candidate is at risk of being dropped because the fix lands in a UITabBarController subclass rather than in a SwiftUI View. If both the Aidoku freeze and the isowords candidate are dropped, the target falls to four",
+      "command": null,
+      "evidence": []
+    },
+    {
+      "code": "product-coverage-missing",
+      "detail": "the largest and most rigorously maintained iOS codebases in this space are not SwiftUI-driven at their candidate revisions. wikipedia-ios, firefox-ios, Signal-iOS and KeePassium were each rejected on a per-revision framework check, and wikipedia-ios additionally has GitHub issues disabled, so no issue-linked pair can ever be derived there. The qualifying pool is therefore small independent applications, which is the structural reason this target's inventory is thin",
+      "command": null,
+      "evidence": []
+    }
+  ]
+}
