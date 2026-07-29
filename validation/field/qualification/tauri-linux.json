@@ -273,6 +273,12 @@
       "code": "incomplete-evidence",
       "detail": "the worker and the observation channel are proven, but no application campaign has run. Both selected applications need a real pointer sequence rather than a synthetic DOM click, since each defect is a hit-test failure that a synthetic click would not reproduce, so the scenarios must drive WebDriver pointer actions at window coordinates",
       "command": "node src/electron-corpus.mjs style runner, not yet written for this target"
+    },
+    {
+      "code": "incomplete-evidence",
+      "kind": "scenario-not-discriminating",
+      "detail": "the cc-switch scenario must not be used to produce evidence until it separates the two revisions. Both currently report the identity, which would have manufactured a false reproduction had the fixed control not been run first",
+      "command": "node /probe/probe-tauri.mjs ask observe, in the tauri worker"
     }
   ],
   "verification": {
@@ -291,6 +297,13 @@
       "result": "readiness, trigger, observe, and the neighboring control all answered from inside the WebKitGTK webview under Xvfb: title 'Reproit Tauri Fixture', url tauri://localhost, the toggle revealed the detail section, and the untouched control element kept its text",
       "note": "the Tauri adapter observes through the WebDriver DOM channel, not AT-SPI, so this is the channel the campaigns actually use"
     },
-    "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver, so the campaign declares it unavailable rather than inventing a number"
+    "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver, so the campaign declares it unavailable rather than inventing a number",
+    "scenarioStatus": {
+      "scenario": "preset-pointer-select in reproit-cli/validation/field/probe-tauri.mjs",
+      "state": "written and executing, not yet discriminating",
+      "evidence": "the affected build reports the identity, but so does the fixed build: the provider name field stays empty on both. On the fixed build the pointer press also closes the preset search without filling any field, so the press is not selecting the preset on either revision",
+      "hypothesis": "WebDriver pointer actions under tauri-driver and WebKitGTK may not use the same coordinate space the DOM reports. The press at the button's viewport centre closes the search, which is what an outside click does, so it is likely landing somewhere other than the intended element",
+      "nextStep": "call document.elementFromPoint with the pressed coordinates and compare it to the intended button before trusting any run. If the coordinate space differs, translate through window.screenX/screenY or move the pointer with an element origin instead of a viewport origin"
+    }
   }
 }

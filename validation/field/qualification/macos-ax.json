@@ -44,7 +44,7 @@
       "repository": "https://github.com/CodeEditApp/CodeEdit",
       "license": "MIT",
       "decision": "qualify",
-      "reason": "now the best signing story in the pool, better than CotEditor. Verified at both candidate revisions by reading the tree: CodeEdit.xcodeproj is committed, CodeEdit/CodeEditApp.swift declares @main struct CodeEditApp: App with an NSApplicationDelegateAdaptor and a Scene group of real windows, Info.plist sets no LSUIElement, and project.pbxproj carries MACOSX_DEPLOYMENT_TARGET = 13.0 with DEVELOPMENT_TEAM = \"\" in all twenty places and CODE_SIGN_IDENTITY[sdk=macosx*] = \"-\", so an ad-hoc local build needs no override at all. It ships real XCUITest targets, and the January 2025 revisions add ProjectNavigatorFileManagementUITests, which addresses the navigator through popUpButtons, menus, menuItems, outline rows and text field values, which is direct proof the interface is accessibility-addressable. Offline against a local folder. Selection must stay away from its terminal, task and source control features",
+      "reason": "now the best signing story in the pool, better than CotEditor. Verified at both candidate revisions by reading the tree: CodeEdit.xcodeproj is committed, CodeEdit/CodeEditApp.swift declares @main struct CodeEditApp: App with an NSApplicationDelegateAdaptor and a Scene group of real windows, Info.plist sets no LSUIElement, and project.pbxproj carries MACOSX_DEPLOYMENT_TARGET = 13.0 with DEVELOPMENT_TEAM = \"\" in all twenty places and CODE_SIGN_IDENTITY[sdk=macosx*] = \"-\", so an ad-hoc local build needs no override at all. It ships real XCUITest targets, and the January 2025 revisions add ProjectNavigatorFileManagementUITests, which addresses the navigator through popUpButtons, menus, menuItems, outline rows and text field values, which is direct proof the interface is accessibility-addressable. Offline against a local folder, with one containment: Info.plist carries a Sparkle SUFeedURL and the application constructs a SoftwareUpdater at launch, so the network must be blocked for the update check to stay inert, exactly as for Maccy and vienna-rss. Selection must stay away from its terminal, task and source control features",
       "reasonCorrection": "an earlier note in this record described CodeEdit as sandboxed with user-selected read-write only. That is wrong at the candidate revisions: CodeEdit/CodeEdit.entitlements contains only com.apple.security.application-groups with app.codeedit.CodeEdit.shared and $(TeamIdentifierPrefix), com.apple.security.cs.allow-jit and com.apple.security.cs.disable-library-validation, with no app-sandbox key. The application group carries a team identifier prefix, which is the one entitlement an ad-hoc build has to be observed to tolerate",
       "candidateDefects": 2,
       "candidateDefectsBasis": "eighteen commits closing an issue were enumerated from the log; seven were shortlisted as accessibility-observable and two verified",
@@ -366,9 +366,9 @@
       },
       "whySuitable": "it is the only selected candidate whose signal is AXValue on a text field that the application itself puts into an editing state, so it exercises a press, a menu traversal and a value read against a control that only exists transiently. It also runs against an AppKit NSOutlineView reached from a SwiftUI menu, which widens the control vocabulary the adapter is proven against beyond checkboxes, popups and menu items",
       "qualification": "selected-not-executed",
-      "caveat": "the observable is conditional on the workspace folder being empty, because the defect is that the guessed extension is empty. The empty folder is therefore part of the identity, not incidental setup. The addButton accessibility identifier used by the upstream test is introduced alongside the fix, so the harness must address the control by role and position on the affected build or port the identifier and record it as an instrumentation delta",
+      "caveat": "the observable is conditional on the workspace folder being empty, because the defect is that the guessed extension is empty. The empty folder is therefore part of the identity, not incidental setup. The accessibilityIdentifier(\"addButton\") that the upstream test uses was verified to be introduced by the fix commit, at ProjectNavigatorToolbarBottom.swift line 141, and to be absent at the affected revision, so the harness must either address the control by role and position on both builds or port the identifier onto the affected build and record that as an instrumentation delta",
       "remaining": [
-        "confirm whether the addButton accessibility identifier exists at the affected revision and, if not, record porting it as an instrumentation delta rather than a behavior change",
+        "decide between addressing the add control by role and position on both builds or porting the addButton identifier onto the affected build as a recorded instrumentation delta",
         "build both revisions with the shipped ad-hoc settings",
         "dump the accessibility tree and confirm the transient row text field is exposed with a readable AXValue",
         "state identity and authority, and minimize the trigger, pinning the empty workspace folder as part of the identity",
@@ -474,7 +474,7 @@
   "blockers": [
     {
       "code": "incomplete-evidence",
-      "detail": "four of the five selected defects were pushed directly to the default branch with no pull request; the CotEditor and Maccy maintainers do not merge fixes through pull requests, so pullRequestUrl is null for those four and a fixCommitUrl carries the reference instead",
+      "detail": "four of the seven selected defects were pushed directly to the default branch with no pull request; the CotEditor and Maccy maintainers do not merge fixes through pull requests, so pullRequestUrl is null for those four and a fixCommitUrl carries the reference instead. The two CodeEdit candidates and the vienna-rss candidate do have pull requests",
       "command": null,
       "evidence": []
     },
@@ -486,7 +486,7 @@
     },
     {
       "code": "product-coverage-missing",
-      "detail": "the five verified defects come from three applications but are concentrated three to one to one, with CotEditor supplying the majority. Native macOS applications that are simultaneously offline, free of interactive permission grants, buildable ad-hoc, and linked to a specific issue are genuinely scarce, so widening beyond CotEditor, Maccy and vienna-rss is the main remaining inventory work",
+      "detail": "widened, not yet closed. CodeEdit was promoted from an application with no verified defect to a second multi-defect source, so the seven verified defects now come from four applications, CotEditor three, CodeEdit two, Maccy one and vienna-rss one, and CotEditor no longer supplies the majority. That is a margin of two applications over the two Stable requires. What remains is that CodeEdit is the only entry whose ad-hoc build needs no override at all, so if it fails to launch ad-hoc the concentration problem returns; MacPass, MacDown and HexFiend are still unmined",
       "command": null,
       "evidence": []
     },

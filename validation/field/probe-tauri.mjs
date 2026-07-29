@@ -106,7 +106,182 @@ const fixtureSmoke = {
   },
 };
 
-const SCENARIOS = new Map([[fixtureSmoke.id, fixtureSmoke]]);
+
+// ---------------------------------------------------------------- scenario 2
+//
+// cc-switch issue 4302 / pull request 4315. The click-outside handler was bound
+// to a container ref that wrapped only the search input row, not the result
+// list below it, so pressing the mouse on a search result fired the
+// outside-click path and cleared the search before the click completed. The
+// preset was never selected.
+//
+// This only reproduces with a real pointer sequence. The handler listens on
+// mousedown, and a synthetic element.click() dispatches no mousedown at all, so
+// it selects the preset and shows nothing. Every interaction below therefore
+// goes through WebDriver pointer actions at real window coordinates.
+
+const PRESET_QUERY = 'kimi';
+const NAME_PLACEHOLDER = 'e.g., Claude Official';
+const SEARCH_LABEL = 'Search provider presets';
+
+// A genuine press and release at the element's centre, which is what
+// distinguishes this defect from a synthetic click.
+async function pointerPress(browser, rect) {
+  const x = Math.round(rect.x + rect.width / 2);
+  const y = Math.round(rect.y + rect.height / 2);
+  await browser.performActions([{
+    type: 'pointer',
+    id: 'mouse',
+    parameters: { pointerType: 'mouse' },
+    actions: [
+      { type: 'pointerMove', duration: 0, x, y },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pause', duration: 60 },
+      { type: 'pointerUp', button: 0 },
+    ],
+  }]);
+  await browser.releaseActions().catch(() => {});
+  return { x, y };
+}
+
+const presetPointerSelect = {
+  id: 'preset-pointer-select',
+  identity: 'preset-search:result-not-selected-by-pointer',
+  async readiness(browser, context, state) {
+    const deadline = Date.now() + READY_TIMEOUT_MS;
+    let last = 'not attempted';
+    while (Date.now() < deadline) {
+      try {
+        // The first launch shows a welcome dialog that swallows every click.
+        await browser.execute(() => {
+          const got = [...document.querySelectorAll('button')]
+            .find((b) => /got it|\u77e5\u9053\u4e86/i.test((b.textContent || '').trim()));
+          if (got) got.click();
+        });
+        await sleep(600);
+        const opened = await browser.execute(() => {
+          const plus = [...document.querySelectorAll('button')].find((b) => {
+            const svg = b.querySelector('svg');
+            return svg && /lucide-plus/.test(svg.getAttribute('class') || '') && b.offsetWidth;
+          });
+          if (!plus) return false;
+          plus.click();
+          return true;
+        });
+        await sleep(1200);
+        const ready = await browser.execute((placeholder) => !!(
+          [...document.querySelectorAll('input')].find((i) => i.placeholder === placeholder)
+        ), NAME_PLACEHOLDER);
+        if (opened && ready) {
+          await browser.execute(() => {
+            const search = [...document.querySelectorAll('button')].find((b) => {
+              const svg = b.querySelector('svg');
+              return svg && /lucide-search/.test(svg.getAttribute('class') || '') && b.offsetWidth;
+            });
+            if (search) search.click();
+          });
+          await sleep(900);
+          const hasSearch = await browser.execute((label) => !!(
+            [...document.querySelectorAll('input')]
+              .find((i) => i.getAttribute('aria-label') === label)
+          ), SEARCH_LABEL);
+          if (hasSearch) {
+            state.presetsBefore = await browser.execute(() =>
+              document.querySelectorAll('button').length);
+            return { ready: true, searchOpen: true, buttons: state.presetsBefore };
+          }
+          last = 'the preset search did not open';
+        } else {
+          last = 'the add-provider form did not open';
+        }
+      } catch (error) {
+        last = String(error).slice(0, 200);
+      }
+      await sleep(1500);
+    }
+    throw new Error(`the add-provider preset search never became observable: ${last}`);
+  },
+  async trigger(browser, context, state) {
+    await browser.execute((args) => {
+      const input = [...document.querySelectorAll('input')]
+        .find((i) => i.getAttribute('aria-label') === args.label);
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, args.query);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, { label: SEARCH_LABEL, query: PRESET_QUERY });
+    await sleep(1200);
+
+    const rect = await browser.execute((query) => {
+      const match = [...document.querySelectorAll('button')].find((b) =>
+        (b.textContent || '').toLowerCase().includes(query) && b.offsetWidth);
+      if (!match) return null;
+      const r = match.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height,
+               label: (match.textContent || '').trim() };
+    }, PRESET_QUERY);
+    if (!rect) throw new Error(`no preset matched ${PRESET_QUERY}`);
+    state.presetLabel = rect.label;
+    const at = await pointerPress(browser, rect);
+    await sleep(1500);
+    return { query: PRESET_QUERY, preset: rect.label, pressedAt: at };
+  },
+  // Neighboring legal behavior: the search itself still works. The trigger
+  // leaves the affected build with the search closed, which is the defect's own
+  // side effect, so the control reopens it before filtering. Holding on both
+  // revisions separates "a result cannot be selected by pointer" from "the
+  // search feature is broken".
+  async control(browser) {
+    await browser.execute(() => {
+      const search = [...document.querySelectorAll('button')].find((b) => {
+        const svg = b.querySelector('svg');
+        return svg && /lucide-search/.test(svg.getAttribute('class') || '') && b.offsetWidth;
+      });
+      if (search) search.click();
+    });
+    await sleep(900);
+    const counts = await browser.execute((args) => {
+      const input = [...document.querySelectorAll('input')]
+        .find((i) => i.getAttribute('aria-label') === args.label);
+      if (!input) return null;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value').set;
+      const visible = () => [...document.querySelectorAll('button')]
+        .filter((b) => b.offsetWidth).length;
+      setter.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const all = visible();
+      setter.call(input, args.query);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { all, filtered: visible() };
+    }, { label: SEARCH_LABEL, query: PRESET_QUERY });
+    return {
+      ...(counts ?? {}),
+      reopened: counts !== null,
+      legal: !!counts && counts.filtered < counts.all,
+    };
+  },
+  async observe(browser, context, state) {
+    // Selecting a preset fills the provider name field. On the affected build
+    // the mousedown clears the search first, so nothing is ever selected.
+    const name = await browser.execute((placeholder) => {
+      const input = [...document.querySelectorAll('input')]
+        .find((i) => i.placeholder === placeholder);
+      return input ? input.value : null;
+    }, NAME_PLACEHOLDER);
+    return {
+      identity: name ? null : this.identity,
+      exceptions: [],
+      providerName: name,
+      preset: state.presetLabel ?? null,
+    };
+  },
+};
+
+const SCENARIOS = new Map([
+  [fixtureSmoke.id, fixtureSmoke],
+  [presetPointerSelect.id, presetPointerSelect],
+]);
 
 // ------------------------------------------------------------------- runtime
 
