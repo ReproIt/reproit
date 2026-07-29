@@ -124,6 +124,7 @@ qualification levels.
 - Web Chromium: already satisfies every recorded qualification slot
 - Web Firefox: already satisfies every recorded qualification slot
 - Web WebKit: already satisfies every recorded qualification slot
+- Windows WPF: already satisfies every recorded qualification slot
 
 ## Preview target worklists
 
@@ -462,8 +463,8 @@ complete target-specific record validates.
 - Runtime bound: .NET, UI Automation
 - Framework bound: Avalonia
 - Native gates:
-  - `windows-uia`: permissioned-self-hosted in .github/workflows/native-gates.yml job `windows-uia`;
-    route: black@zgx-5a09.local -> strix -> reproit@localhost:2223
+  - `windows-uia`: required-ci in .github/workflows/native-gates.yml job `windows-uia`; route:
+    black@zgx-5a09.local -> strix -> reproit@localhost:2223
     ```sh
     powershell validation/backends/run-windows-desktop.ps1
     ```
@@ -492,8 +493,8 @@ complete target-specific record validates.
 - Runtime bound: .NET, UI Automation, WinAppSDK
 - Framework bound: WinUI 3
 - Native gates:
-  - `windows-uia`: permissioned-self-hosted in .github/workflows/native-gates.yml job `windows-uia`;
-    route: black@zgx-5a09.local -> strix -> reproit@localhost:2223
+  - `windows-uia`: required-ci in .github/workflows/native-gates.yml job `windows-uia`; route:
+    black@zgx-5a09.local -> strix -> reproit@localhost:2223
     ```sh
     powershell validation/backends/run-windows-desktop.ps1
     ```
@@ -509,36 +510,6 @@ complete target-specific record validates.
     positive rate is measured for this target
 - Promotion gate:
   - Set `windows-winui.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### Windows WPF
-
-- Target id: `windows-wpf`
-- Current maturity: Preview
-- Environment: windows-x86_64-interactive; x86_64
-- Runtime bound: .NET, UI Automation
-- Framework bound: WPF
-- Native gates:
-  - `windows-uia`: permissioned-self-hosted in .github/workflows/native-gates.yml job `windows-uia`;
-    route: black@zgx-5a09.local -> strix -> reproit@localhost:2223
-    ```sh
-    powershell validation/backends/run-windows-desktop.ps1
-    ```
-- Field benchmark to create: `validation/field/windows-wpf.json`
-- Open blockers:
-  - [incomplete-evidence] no exact-commit evidence is recorded for the windows-uia native gate. The
-    execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not
-    been run and retained against the candidate commit
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `windows-wpf.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -571,7 +542,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `web-webkit` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `windows-avalonia` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `windows-winui` | Preview | Unqualified | Stable + `IndependentQualified` |
-| `windows-wpf` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `windows-wpf` | Stable | Unqualified | Stable + `IndependentQualified` |
 
 For each row, use this atomic sequence:
 

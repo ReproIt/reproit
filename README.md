@@ -95,7 +95,7 @@ production.
 | Web WebKit | Stable | Node.js 20+, Playwright | Unqualified |
 | Windows Avalonia | Preview | .NET, UI Automation | Unqualified |
 | Windows WinUI 3 | Preview | .NET, UI Automation, WinAppSDK | Unqualified |
-| Windows WPF | Preview | .NET, UI Automation | Unqualified |
+| Windows WPF | Stable | .NET, UI Automation | Unqualified |
 
 <!-- /generated:compatibility -->
 

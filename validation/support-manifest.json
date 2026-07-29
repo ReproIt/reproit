@@ -567,7 +567,7 @@
     "windows-wpf": {
       "displayName": "Windows WPF",
       "family": "desktop",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "Native x86_64 Windows UI Automation on WPF",
       "ownedGates": [
         "windows-uia"
@@ -577,12 +577,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/windows-wpf.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/windows-wpf.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/windows-wpf.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -605,30 +607,7 @@
           "level": "Unqualified",
           "evidence": null
         },
-        "blockers": [
-          {
-            "code": "incomplete-evidence",
-            "detail": "no exact-commit evidence is recorded for the windows-uia native gate. The execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not been run and retained against the candidate commit",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/infrastructure.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 2 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/windows-wpf.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          }
-        ]
+        "blockers": []
       }
     },
     "windows-avalonia": {

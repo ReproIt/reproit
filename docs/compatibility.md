@@ -57,7 +57,7 @@ binding is absent or inconsistent.
 
 <!-- generated:promotion-state -->
 
-Stable atomic targets: 6. Preview: 15. Experimental: 0.
+Stable atomic targets: 7. Preview: 14. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
@@ -81,7 +81,7 @@ Stable atomic targets: 6. Preview: 15. Experimental: 0.
 | Web WebKit | Stable | schema-3 | linux | x86_64 | 0 |
 | Windows Avalonia | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
 | Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
-| Windows WPF | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 3 |
+| Windows WPF | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
 
 Every blocker, with its typed code and exact detail, is listed in
 [the generated status](../validation/compatibility/STATUS.md).

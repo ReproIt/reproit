@@ -241,7 +241,7 @@
       "cleanupStrategy": "fixture process and temporary artifact cleanup",
       "requiredOutput": ["Windows DesktopUia backend passed WPF, Avalonia, and WinUI"],
       "automation": {
-        "mode": "permissioned-self-hosted",
+        "mode": "required-ci",
         "workflow": ".github/workflows/native-gates.yml",
         "job": "windows-uia",
         "environment": "native-windows-uia",

@@ -213,7 +213,7 @@ jobs:
           if-no-files-found: error
 
   windows-uia:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_windows_uia
+    if: github.event_name != 'workflow_dispatch' || inputs.run_windows_uia
     runs-on: [self-hosted, macOS, ARM64, reproit-windows-bridge]
     environment: native-windows-uia
     timeout-minutes: 60

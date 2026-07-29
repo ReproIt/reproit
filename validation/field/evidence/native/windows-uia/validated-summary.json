@@ -1,0 +1,20 @@
+{
+  "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+  "gates": [
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+      "executor": {
+        "architecture": "amd64",
+        "os": "windows"
+      },
+      "finishedAt": "2026-07-29T07:56:08.816347Z",
+      "gateId": "windows-uia",
+      "logSha256": "0ab59ad85972898bf71ae087191791f42e07c63059ef321be7fa10314c1c92dc",
+      "startedAt": "2026-07-29T07:47:17.066628Z"
+    }
+  ],
+  "schema": 2
+}
