@@ -146,3 +146,88 @@ looked for beyond the framework list.
    MISclassification, not just a bail. The Phase 1.1 degrade path needs to state what it
    assumed ("no backend framework read; treating as web UI at <url>, override with
    --platform backend") instead of writing a confident but wrong scaffold.
+
+## Phase 1 result (2026-07-30)
+
+Re-ran all three fixtures with the rebuilt release binary after the Phase 1 changes.
+Rule verified: bare `reproit init`, zero flags, always exit 0, always a scaffold, and
+`reproit list` parses every config init writes.
+
+### Fixture A: stock Express app
+
+Exit 0, no flags. Init now boots the app itself from the `start` script, enriches the
+parameterless GET routes live, and tears the process down (no leftover node process).
+Verbatim stdout:
+
+```
+  derived 4 operations on 3 paths from express source (1 files scanned)
+  booting the package.json `start` script on port 54429 to observe responses (torn down
+  after init; override with --target <url>)
+  probed 2 of 2 parameterless GET routes at http://127.0.0.1:54429 (booted from the
+  package.json `start` script): 2 answered, no adapter detected (black-box observations)
+  write .../openapi.yaml (derived draft)
+  write .../reproit.yaml
+  write .../.reproit/.gitignore
+
+  reproit initialized from a DERIVED DRAFT schema (4 operations on 3 paths from source,
+  2 enriched live).
+  1. review openapi.yaml: it is a draft, not your service's contract
+  2. tighten param/body/response types for the routes you rely on
+  3. reproit doctor         # schema, target, and adapter tier
+  4. reproit find           # find bugs (surface scan, then deep fuzz)
+```
+
+- The summary now counts in the derivation line's own scheme (operations on paths), and
+  next steps name `find`, matching the top-level help.
+- `/items` and `/search` carry `# observed live during init: HTTP 200` responses blocks
+  with sampled body shapes in openapi.yaml.
+- `reproit list`: exit 0 ("no saved guards. Find failures with `reproit find` ...").
+  The "missing field 'app'" failure on init's own config is gone.
+- Already-running servers are only trusted after a two-signal match: a derived route must
+  answer non-404 AND an unserved nonce path must answer 404. Caught in the field during
+  this validation: DynamoDB-local on port 8000 answers every path with 400, and a bare
+  "not 404" check adopted it as the target on the first attempt. The nonce check rejects
+  it and init boots the repo's own start script instead.
+- Re-running `reproit init`: exit 0, "reproit.yaml already exists; leaving it untouched
+  (use --force to regenerate)". No longer an error.
+
+### Fixture B: raw node `http.createServer`
+
+- Without package.json: exit 0 (was exit 1 with the framework-list error). Scaffolds the
+  backend shape with an empty draft, states the assumption, names the next input:
+
+```
+  no UI project or backend framework recognised here; assuming a backend service
+  (override with --platform flutter|web|rn|android)
+  write .../openapi.yaml
+  write .../reproit.yaml
+  write .../.reproit/.gitignore
+
+  reproit initialized.
+  1. add the routes your service serves to openapi.yaml
+     (or rerun `reproit init` from the service's source root, or
+     `reproit init <schema url or file>` to import a real schema)
+  2. reproit find   # find bugs once a target is running
+```
+
+- With a bare package.json: identical degrade, exit 0. The silent web misclassification
+  is gone: no `platform: web`, no guessed url, no `../reproit/runners/web` path. A
+  package.json now detects as web only on real UI markers (react/vue/svelte/angular/
+  next/vite/astro/solid-js dependency, or an index.html); `init --platform web` writes
+  the managed provisioned runner dir, never the monorepo-relative path.
+- `reproit list` parses both scaffolds, exit 0.
+
+### Fixture C: empty git repo
+
+Exit 0 (was exit 1, zero files). Same degrade output as fixture B's no-manifest case:
+empty draft schema, backend reproit.yaml, gitignore, assumption stated, next input named.
+`reproit list` exit 0. Re-run exit 0 with the already-exists notice.
+
+### Covered by CI
+
+`crates/reproit/tests/init_smoke.rs` pins all of the above: the three fixtures exit 0
+with a well-formed scaffold `list` can read, the express fixture derives 4 operations on
+3 paths (the `/search` query-param route included) and auto-enriches with no flags when
+node is present, the bare-package.json repo never degrades to web, and re-running init
+stays exit 0. `zero_derived_routes_still_scaffolds_an_empty_draft` (backend_learn) pins
+the in-process degrade path.
