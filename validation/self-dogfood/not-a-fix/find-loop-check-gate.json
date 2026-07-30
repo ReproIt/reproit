@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "find-loop-check-gate",
+  "changeType": "feature",
+  "detail": "Phase 3 of the init overhaul: `reproit check` in a backend project boots the target when nothing names one and replays every kept guard after the gate scan; the backend gate moves into its own module to stay under the file cap. Feature work, not a defect fix.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/check/backend_gate.rs",
+      "sha256": "sha256:74e74a7d6ff55d75ac2583970bb50c261b7fc65fe8137de6c6e211382b77390b"
+    }
+  ]
+}
