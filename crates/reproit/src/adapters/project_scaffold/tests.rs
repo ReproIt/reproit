@@ -87,24 +87,67 @@ fn web_url_init_persists_the_exact_target_for_bare_commands() {
 }
 
 #[test]
-fn schemaless_backend_repo_init_errors_with_a_framework_guide() {
+fn schemaless_backend_repo_init_degrades_to_an_empty_draft_scaffold() {
+    // The assumption guide still names the detected framework and its
+    // schema hint; the scaffold itself must exist afterwards, because bare
+    // init never dead-ends on a detection miss.
     let project = temporary_project("guided-backend");
     std::fs::write(
         project.join("Cargo.toml"),
         "[dependencies]\naxum = \"0.8\"\n",
     )
     .unwrap();
-    let generic = init(&project, None, false).unwrap_err().to_string();
-    assert!(generic.contains("axum"), "{generic}");
-    assert!(generic.contains("Cargo.toml"), "{generic}");
-    assert!(generic.contains("utoipa"), "{generic}");
-    assert!(generic.contains("reproit init http"), "{generic}");
-    let explicit = init(&project, Some("backend"), false)
-        .unwrap_err()
-        .to_string();
-    assert!(explicit.contains("axum"), "{explicit}");
-    assert!(!project.join("reproit.yaml").exists());
+    let guide = detection_assumption(&project);
+    assert!(guide.contains("axum"), "{guide}");
+    assert!(guide.contains("Cargo.toml"), "{guide}");
+    assert!(guide.contains("utoipa"), "{guide}");
+    assert!(guide.contains("--platform"), "{guide}");
+    init(&project, Some("backend"), false).unwrap();
+    let config = std::fs::read_to_string(project.join("reproit.yaml")).unwrap();
+    assert!(config.contains("backend:\n  enabled: true"), "{config}");
+    let draft = std::fs::read_to_string(project.join("openapi.yaml")).unwrap();
+    assert!(draft.contains("paths: {}"), "{draft}");
+    assert!(draft.contains("x-reproit-derived: true"), "{draft}");
     std::fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn unrecognised_and_bare_package_json_repos_degrade_instead_of_guessing_web() {
+    // Empty repo: nothing recognisable, no platform flag. Scaffolds the
+    // backend shape with an empty draft and exits cleanly.
+    let empty = temporary_project("degrade-empty");
+    init(&empty, None, false).unwrap();
+    let config = std::fs::read_to_string(empty.join("reproit.yaml")).unwrap();
+    assert!(config.contains("backend:\n  enabled: true"), "{config}");
+    assert!(empty.join("openapi.yaml").is_file());
+    std::fs::remove_dir_all(empty).unwrap();
+
+    // A bare package.json (name + start script, no UI framework) used to be
+    // silently misclassified as a web UI project, with a guessed URL and a
+    // webRunnerDir that only exists in the reproit monorepo.
+    let bare = temporary_project("degrade-bare-pkg");
+    std::fs::write(
+        bare.join("package.json"),
+        "{\"name\":\"svc\",\"scripts\":{\"start\":\"node server.js\"}}",
+    )
+    .unwrap();
+    assert_eq!(detect(&bare), None);
+    init(&bare, None, false).unwrap();
+    let config = std::fs::read_to_string(bare.join("reproit.yaml")).unwrap();
+    assert!(!config.contains("platform: web"), "{config}");
+    assert!(!config.contains("../reproit/runners/web"), "{config}");
+    assert!(config.contains("backend:\n  enabled: true"), "{config}");
+    std::fs::remove_dir_all(bare).unwrap();
+
+    // A package.json with a real UI dependency still detects as web.
+    let web = temporary_project("degrade-web-markers");
+    std::fs::write(
+        web.join("package.json"),
+        "{\"dependencies\":{\"react\":\"^19\"}}",
+    )
+    .unwrap();
+    assert_eq!(detect(&web), Some(Platform::Web));
+    std::fs::remove_dir_all(web).unwrap();
 }
 
 #[test]

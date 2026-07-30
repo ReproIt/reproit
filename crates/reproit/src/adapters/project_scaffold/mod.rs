@@ -119,10 +119,14 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
     // Checked BEFORE detection. An initialized project may declare its schemas
     // under names no conventional lookup finds, so detection would fail first
     // and report "no schema" about a project that has two. "Already
-    // initialized" is both accurate and the more useful thing to say.
+    // initialized" is both accurate and the more useful thing to say, and it
+    // is a statement, not an error: the scaffold the user asked for exists.
     let cfg_path = dir.join("reproit.yaml");
     if cfg_path.exists() && !force {
-        bail!("reproit.yaml already exists (use --force to overwrite)");
+        println!(
+            "  reproit.yaml already exists; leaving it untouched (use --force to regenerate)"
+        );
+        return Ok(());
     }
     let platform = match platform {
         Some("flutter") => Platform::Flutter,
@@ -135,15 +139,23 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         }
         None => match detect(dir) {
             Some(platform) => platform,
-            None => bail!("{}", detection_failure_guide(dir)),
+            // Detection read nothing it recognises. Bare init still ends in
+            // a usable scaffold: state the assumption, degrade to the backend
+            // shape with an empty draft, and name the next input. The flag
+            // stays an override, never a requirement.
+            None => {
+                println!("{}", detection_assumption(dir));
+                Platform::Backend
+            }
         },
     };
+    let mut empty_backend_draft = false;
     match platform {
         Platform::Flutter => init_flutter(dir, force)?,
         Platform::Web => init_web(dir, force)?,
         Platform::Rn => write(&cfg_path, RN_CONFIG, force)?,
         Platform::Android => write(&cfg_path, ANDROID_CONFIG, force)?,
-        Platform::Backend => init_backend(dir, &cfg_path, force)?,
+        Platform::Backend => empty_backend_draft = init_backend(dir, &cfg_path, force)?,
     }
     ensure_gitignore(dir)?;
     println!("\n  reproit initialized.");
@@ -151,14 +163,12 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
         Platform::Flutter => {
             println!("  1. confirm the app entry in integration_test/journey_explore.dart");
             println!("  2. reproit doctor");
-            println!("  3. reproit scan   # visible issues");
-            println!("     reproit fuzz   # deeper interaction bugs");
+            println!("  3. reproit find   # find bugs (surface scan, then deep fuzz)");
         }
         Platform::Web => {
             println!("  1. edit reproit.yaml: set app.url to your dev/staging URL");
             println!("  2. reproit doctor");
-            println!("  3. reproit scan   # visible issues");
-            println!("     reproit fuzz   # deeper interaction bugs");
+            println!("  3. reproit find   # find bugs (surface scan, then deep fuzz)");
             println!("     (the web runner auto-provisions on first run; needs Node 18+)");
         }
         Platform::Rn => {
@@ -178,10 +188,15 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
             println!("  3. boot an AVD (emulator -avd <name>); start an Appium server");
             println!("  4. reproit fuzz");
         }
+        Platform::Backend if empty_backend_draft => {
+            println!("  1. add the routes your service serves to {EMPTY_DRAFT_NAME}");
+            println!("     (or rerun `reproit init` from the service's source root, or");
+            println!("     `reproit init <schema url or file>` to import a real schema)");
+            println!("  2. reproit find   # find bugs once a target is running");
+        }
         Platform::Backend => {
             println!("  1. start a disposable local or staging service");
-            println!("  2. reproit scan   # read-only contract checks");
-            println!("     reproit fuzz   # stateful interaction bugs");
+            println!("  2. reproit find   # find bugs (surface scan, then deep fuzz)");
         }
     }
     Ok(())
@@ -198,11 +213,17 @@ fn detect(dir: &Path) -> Option<Platform> {
             Some(Platform::Rn)
         } else if backend_detect::detect_backend_framework(dir).is_some() {
             // A Node server without a frontend framework is a backend project
-            // with no schema yet: fall through to the guided error instead of
+            // with no schema yet: fall through to the degrade path instead of
             // silently writing a web config that would drive a browser at it.
             None
-        } else {
+        } else if web_markers(dir, &pkg) {
             Some(Platform::Web)
+        } else {
+            // A bare package.json is not evidence of a browser app. Guessing
+            // web here wrote a confident Playwright config pointed at a URL
+            // nothing serves; unknown degrades to the backend draft with the
+            // assumption stated instead.
+            None
         }
     } else if dir.join("index.html").exists() {
         Some(Platform::Web)
@@ -211,40 +232,77 @@ fn detect(dir: &Path) -> Option<Platform> {
     }
 }
 
-fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<()> {
-    let Some(schema) = detect_backend_schema(dir) else {
-        bail!(
-            "could not find an OpenAPI, GraphQL introspection, or protobuf descriptor \
-             schema.\n{}",
-            backend_schema_guide(dir)
-        );
-    };
-    let relative = schema
-        .strip_prefix(dir)
-        .unwrap_or(&schema)
-        .to_string_lossy()
-        .into_owned();
-    write(config, &backend_config(&relative, None)?, force)
+/// Frontend evidence beyond the mere existence of package.json: a UI
+/// framework dependency or an html entry point.
+fn web_markers(dir: &Path, pkg: &str) -> bool {
+    const UI_DEPS: [&str; 8] = [
+        "\"react\"",
+        "\"vue\"",
+        "\"svelte\"",
+        "\"@angular/core\"",
+        "\"next\"",
+        "\"vite\"",
+        "\"astro\"",
+        "\"solid-js\"",
+    ];
+    UI_DEPS.iter().any(|needle| pkg.contains(needle))
+        || dir.join("index.html").exists()
+        || dir.join("public/index.html").exists()
 }
 
-/// The `init` dead end, turned into a guide: say what backend framework the
-/// manifests reveal and the framework-specific way to get a schema. Falls back
-/// to the generic message for projects reproit cannot classify at all.
-fn detection_failure_guide(dir: &Path) -> String {
+const EMPTY_DRAFT_NAME: &str = "openapi.yaml";
+
+/// Returns true when no schema existed and the empty draft was scaffolded.
+fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<bool> {
+    if let Some(schema) = detect_backend_schema(dir) {
+        let relative = schema
+            .strip_prefix(dir)
+            .unwrap_or(&schema)
+            .to_string_lossy()
+            .into_owned();
+        write(config, &backend_config(&relative, None)?, force)?;
+        return Ok(false);
+    }
+    // No schema and nothing derivable: scaffold the shape anyway. An empty
+    // draft the user can fill beats an error whose only action is a flag.
+    write(&dir.join(EMPTY_DRAFT_NAME), &empty_draft_schema(dir), force)?;
+    write(config, &backend_config(EMPTY_DRAFT_NAME, None)?, force)?;
+    Ok(true)
+}
+
+/// What bare init assumed when detection read nothing, printed before the
+/// degraded scaffold: the assumption, its evidence, and the override.
+fn detection_assumption(dir: &Path) -> String {
     match backend_detect::detect_backend_framework(dir) {
         Some(found) => format!(
-            "detected a backend project using {} (from {}) but no schema to drive it \
-             with.\n  {}\n  A running service's schema URL also works: reproit init \
-             http://localhost:<port>/<schema-path>",
+            "  detected {} (from {}) but no schema; scaffolding a backend draft.\n  {}\n  \
+             (override with --platform flutter|web|rn|android)",
             found.name, found.manifest, found.schema_hint
         ),
-        None => "no supported UI project or backend framework recognised here. A manifest \
-                 may well be present: what is missing is a framework this can read \
-                 (axum, actix-web, rocket, warp, express, fastify, koa, hapi, NestJS, \
-                 FastAPI, Flask, Django, gin, echo, fiber, chi, gorilla/mux, net/http, Rails, \
-                 Sinatra, Laravel, Spring, ASP.NET). Pass --platform to override"
+        None => "  no UI project or backend framework recognised here; assuming a backend \
+                 service\n  (override with --platform flutter|web|rn|android)"
             .into(),
     }
+}
+
+/// A structurally valid, zero-claim draft schema for repos where no routes
+/// were readable. `paths: {}` keeps every downstream loader working; the
+/// header names the exact next input.
+pub fn empty_draft_schema(dir: &Path) -> String {
+    let title = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("service");
+    format!(
+        "# DRAFT schema scaffolded by `reproit init`: no routes could be read here yet.\n\
+         # Add the paths your service serves (methods, params, bodies), or rerun\n\
+         # `reproit init` from the service's source root, or import a real schema with\n\
+         # `reproit init <schema url or file>`.\n\
+         openapi: 3.1.0\n\
+         info:\n  title: {}\n  version: 0.1.0-draft\n\
+         x-reproit-derived: true\npaths: {{}}\n",
+        serde_json::to_string(title).unwrap_or_else(|_| "\"service\"".into())
+    )
 }
 
 /// The schema part of the guide, for `--platform backend` in a schemaless
@@ -302,8 +360,7 @@ pub fn init_backend_url(
     ensure_gitignore(dir)?;
     println!("\n  reproit initialized for the backend at {target_origin}.");
     println!("  1. reproit doctor         # schema, target, and adapter tier");
-    println!("  2. reproit scan           # read-only contract checks");
-    println!("     reproit fuzz           # stateful interaction bugs");
+    println!("  2. reproit find           # find bugs (surface scan, then deep fuzz)");
     Ok(())
 }
 
@@ -526,7 +583,12 @@ pub fn ensure_integration_test_dep(project_dir: &Path) -> Result<()> {
 }
 
 fn init_web(dir: &Path, force: bool) -> Result<()> {
-    write(&dir.join("reproit.yaml"), &web_config(None, None)?, force)?;
+    // The runner path written here must exist on the user's machine. The old
+    // default ("../reproit/runners/web") only exists in the reproit monorepo;
+    // the managed runner dir is provisioned on demand and always real.
+    let runner =
+        crate::adapters::config::ensure_web_runner_dir(crate::VERSION, &|line| println!("{line}"))?;
+    write(&dir.join("reproit.yaml"), &web_config(None, &runner)?, force)?;
     Ok(())
 }
 
@@ -537,22 +599,17 @@ pub fn init_web_url(dir: &Path, url: &str, runner: &Path, force: bool) -> Result
     if config.exists() && !force {
         bail!("reproit.yaml already exists (use --force to overwrite)");
     }
-    write(&config, &web_config(Some(url), Some(runner))?, force)?;
+    write(&config, &web_config(Some(url), runner)?, force)?;
     ensure_gitignore(dir)?;
     println!("\n  reproit initialized for {url}.");
     println!("  1. reproit doctor");
-    println!("  2. reproit scan   # visible issues");
-    println!("     reproit fuzz   # deeper interaction bugs");
+    println!("  2. reproit find   # find bugs (surface scan, then deep fuzz)");
     Ok(())
 }
 
-fn web_config(url: Option<&str>, runner: Option<&Path>) -> Result<String> {
+fn web_config(url: Option<&str>, runner: &Path) -> Result<String> {
     let url = serde_json::to_string(url.unwrap_or("http://localhost:3000"))?;
-    let runner = serde_json::to_string(
-        &runner
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "../reproit/runners/web".into()),
-    )?;
+    let runner = serde_json::to_string(&runner.display().to_string())?;
     Ok(WEB_CONFIG
         .replace("{{URL}}", &url)
         .replace("{{WEB_RUNNER_DIR}}", &runner))
