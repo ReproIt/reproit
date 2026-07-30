@@ -478,7 +478,9 @@ where
                 )
                 .await;
             }
-            let loaded = config::load(cli.config.as_deref())?;
+            // The read view accepts backend-only configs too, so a backend
+            // finding keeps with the same command as an app one.
+            let loaded = list::load_read_view(cli.config.as_deref())?;
             keep_repro(&ctx, &loaded, id.as_deref(), as_name.as_deref(), strict)?;
             Ok(ExitCode::SUCCESS)
         }

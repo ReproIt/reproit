@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "find-loop-keep-ci",
+  "changeType": "feature",
+  "detail": "Phase 3 of the init overhaul: `reproit keep` persists backend findings as committed guards and writes (or appends) the GitHub Actions workflow that runs `reproit check` in the same command. Feature work, not a defect fix.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/repro/keep.rs",
+      "sha256": "sha256:d34b5d2c3c495eda01861cf9548067d1024d364e8c774aee0cb5a88d4afdd089"
+    }
+  ]
+}
