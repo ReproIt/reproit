@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "find-loop-boot-reset",
+  "changeType": "feature",
+  "detail": "Phase 3 of the init overhaul: the init boot machinery becomes reusable by find/check and gains a process-restart reset for servers reproit booted itself. No runtime defect is corrected.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/boot.rs",
+      "sha256": "sha256:4327f848e4c89c3589996a71fe2171cbc71714b8e541ad643c7a242abe05b9f6"
+    }
+  ]
+}

@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::ExitCode;
 
-mod boot;
+pub(super) mod boot;
 mod discovery;
 mod django_urls;
 mod dotnet_ast;

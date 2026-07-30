@@ -1,4 +1,4 @@
-//! Zero-flag live target resolution for `reproit init`.
+//! Zero-flag live target resolution for `reproit init` and `reproit find`.
 //!
 //! Two sources, in order. A server already listening on a conventional dev
 //! port is trusted ONLY after one derived route answers with something other
@@ -7,10 +7,20 @@
 //! script is booted on a private port, awaited within a hard readiness
 //! budget, and torn down on every exit path (the group kill lives in Drop,
 //! so an error or early return cannot leak the server).
+//!
+//! A server this module booted itself can also serve as a RESET mechanism:
+//! a full process restart returns the service to its declared starting state,
+//! which is exactly what stateful finding confirmation needs and exactly what
+//! `REPROIT_BACKEND_RESET_URL` cannot provide for a process nobody else owns.
+//! The restart capability is installed process-wide (`install_process_reset`)
+//! so the backend executor can reach it without threading a handle through
+//! every replay signature.
 
 use crate::interface::cli::context::Ctx;
-use anyhow::{Context as _, Result};
-use std::path::Path;
+use anyhow::{bail, Context as _, Result};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// Ports dev servers conventionally bind, probed before booting anything.
@@ -23,13 +33,13 @@ const READY_POLL: Duration = Duration::from_millis(250);
 /// How long each of TERM and KILL may take before shutdown gives up waiting.
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
-/// A live target init resolved without flags. `server` is Some only when init
-/// booted the process itself and must tear it down after the probe pass.
-pub(super) struct AutoTarget {
-    pub(super) url: String,
+/// A live target resolved without flags. `server` is Some only when the caller
+/// booted the process itself and must tear it down after its run.
+pub(crate) struct AutoTarget {
+    pub(crate) url: String,
     /// Where the target came from, for the probe report line.
-    pub(super) source: String,
-    pub(super) server: Option<BootedServer>,
+    pub(crate) source: String,
+    pub(crate) server: Option<BootedServer>,
 }
 
 /// The HTTP status a bounded GET observed, or None when nothing answered
@@ -56,7 +66,7 @@ async fn nonce_is_absent(client: &reqwest::Client, port: u16) -> bool {
 /// Resolve a live target with zero flags, or None (with the reason said) when
 /// nothing can be trusted. `verify_path` is a derived parameterless GET route;
 /// with none there is nothing to verify against and nothing worth probing.
-pub(super) async fn auto_target(
+pub(crate) async fn auto_target(
     ctx: &Ctx,
     root: &Path,
     verify_path: Option<&str>,
@@ -103,7 +113,7 @@ pub(super) async fn auto_target(
     };
     ctx.say(format!(
         "  booting the package.json `{name}` script on port {port} to observe responses \
-         (torn down after init; override with --target <url>)"
+         (torn down when this run completes; override with --target <url>)"
     ));
     let started = Instant::now();
     while started.elapsed() < READY_BUDGET {
@@ -171,12 +181,17 @@ fn free_port() -> Option<u16> {
     listener.local_addr().ok().map(|address| address.port())
 }
 
-/// A server process init booted itself. The process group is killed in Drop,
-/// which is the teardown guarantee for every exit path, including errors and
-/// panics between boot and the explicit shutdown.
-pub(super) struct BootedServer {
+/// A server process this run booted itself. The process group is killed in
+/// Drop, which is the teardown guarantee for every exit path, including errors
+/// and panics between boot and the explicit shutdown.
+pub(crate) struct BootedServer {
     child: tokio::process::Child,
     process_id: u32,
+    /// The spawn parameters, kept so a `RestartableServer` can respawn the
+    /// exact same process for a clean-state reset.
+    root: PathBuf,
+    command: String,
+    port: u16,
 }
 
 impl BootedServer {
@@ -193,7 +208,13 @@ impl BootedServer {
         configure_process_group(&mut spawned);
         let child = spawned.spawn().context("spawning the start script")?;
         let process_id = child.id().context("booted server has no pid")?;
-        Ok(BootedServer { child, process_id })
+        Ok(BootedServer {
+            child,
+            process_id,
+            root: root.to_path_buf(),
+            command: command.to_string(),
+            port,
+        })
     }
 
     fn exited(&mut self) -> Option<std::process::ExitStatus> {
@@ -202,7 +223,7 @@ impl BootedServer {
 
     /// Orderly teardown: TERM the group, then KILL it, each waited briefly.
     /// Drop remains the backstop if a wait is cut short.
-    pub(super) async fn shutdown(mut self) {
+    pub(crate) async fn shutdown(mut self) {
         signal_group(self.process_id, false);
         if tokio::time::timeout(SHUTDOWN_WAIT, self.child.wait())
             .await
@@ -212,6 +233,113 @@ impl BootedServer {
         }
         signal_group(self.process_id, true);
         let _ = tokio::time::timeout(SHUTDOWN_WAIT, self.child.wait()).await;
+    }
+}
+
+/// A booted server plus everything needed to boot it again: the reset
+/// mechanism for a service reproit owns. A full process restart returns the
+/// service to its declared starting state, so stateful confirmation and shrink
+/// replays can run without a `REPROIT_BACKEND_RESET_URL`.
+pub(crate) struct RestartableServer {
+    /// The port the server actually answers on (it may differ from the spawn
+    /// port when a start script ignores `PORT` and binds a conventional one).
+    ready_port: u16,
+    /// A route the server is known to serve, polled for restart readiness.
+    ready_path: String,
+    server: Option<BootedServer>,
+}
+
+impl RestartableServer {
+    pub(crate) fn adopt(server: BootedServer, ready_port: u16, ready_path: String) -> Self {
+        RestartableServer {
+            ready_port,
+            ready_path,
+            server: Some(server),
+        }
+    }
+
+    /// Tear the current process down and boot an identical replacement,
+    /// waiting (bounded) until it serves the known route again.
+    async fn restart(&mut self) -> Result<()> {
+        let Some(previous) = self.server.take() else {
+            bail!("the booted server was already shut down");
+        };
+        let (root, command, port) = (
+            previous.root.clone(),
+            previous.command.clone(),
+            previous.port,
+        );
+        previous.shutdown().await;
+        let mut server =
+            BootedServer::spawn(&root, &command, port).context("restarting the booted server")?;
+        let client = reqwest::Client::builder().timeout(VERIFY_TIMEOUT).build()?;
+        let started = Instant::now();
+        while started.elapsed() < READY_BUDGET {
+            if let Some(status) = server.exited() {
+                bail!("the restarted server exited ({status}) before answering");
+            }
+            if probe_status(&client, self.ready_port, &self.ready_path)
+                .await
+                .is_some()
+            {
+                self.server = Some(server);
+                return Ok(());
+            }
+            tokio::time::sleep(READY_POLL).await;
+        }
+        // Keep the (possibly slow) replacement so teardown still reaps it.
+        self.server = Some(server);
+        bail!(
+            "the restarted server did not answer {} within {}s",
+            self.ready_path,
+            READY_BUDGET.as_secs()
+        )
+    }
+
+    async fn teardown(mut self) {
+        if let Some(server) = self.server.take() {
+            server.shutdown().await;
+        }
+    }
+}
+
+/// The process-wide restart-reset slot. One CLI invocation runs at most one
+/// booted backend target, so a single slot is the honest capacity.
+static PROCESS_RESET: OnceLock<tokio::sync::Mutex<Option<RestartableServer>>> = OnceLock::new();
+static PROCESS_RESET_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+fn process_reset_slot() -> &'static tokio::sync::Mutex<Option<RestartableServer>> {
+    PROCESS_RESET.get_or_init(|| tokio::sync::Mutex::new(None))
+}
+
+/// Whether a restart-reset is available to the current run. Sync so gating
+/// code inside the backend executor can consult it alongside the env check.
+pub(crate) fn process_reset_installed() -> bool {
+    PROCESS_RESET_INSTALLED.load(Ordering::SeqCst)
+}
+
+pub(crate) async fn install_process_reset(server: RestartableServer) {
+    *process_reset_slot().lock().await = Some(server);
+    PROCESS_RESET_INSTALLED.store(true, Ordering::SeqCst);
+}
+
+/// Reset the booted target by restarting its process. Errors when nothing is
+/// installed or the replacement never becomes ready; callers treat that as a
+/// failed reset (the finding stays a candidate), never as clean state.
+pub(crate) async fn run_process_reset() -> Result<()> {
+    let mut slot = process_reset_slot().lock().await;
+    match slot.as_mut() {
+        Some(server) => server.restart().await,
+        None => bail!("no reproit-booted server is installed as the reset target"),
+    }
+}
+
+/// Tear down the booted server and clear the reset capability. Called on every
+/// find/check exit path that booted a target.
+pub(crate) async fn shutdown_process_reset() {
+    PROCESS_RESET_INSTALLED.store(false, Ordering::SeqCst);
+    if let Some(server) = process_reset_slot().lock().await.take() {
+        server.teardown().await;
     }
 }
 
