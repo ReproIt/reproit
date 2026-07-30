@@ -271,6 +271,13 @@ pub(crate) struct FindArgs {
     /// Extra browser header, repeatable as `"Name: value"`.
     #[arg(long = "header", value_name = "NAME: VALUE")]
     pub(crate) headers: Vec<String>,
+    /// Restrict deep exploration to these detector categories (the default is
+    /// the stable set).
+    #[arg(long)]
+    pub(crate) only: Option<String>,
+    /// Exclude these detector categories after applying --only.
+    #[arg(long = "no")]
+    pub(crate) no_oracles: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

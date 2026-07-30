@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "find-loop-engine-select",
+  "changeType": "feature",
+  "detail": "Phase 3 of the init overhaul: bare `reproit find` picks scan/fuzz from the scaffold's operation mix and boots the configured backend when nothing names a live target. Feature work, not a defect fix.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/find_command.rs",
+      "sha256": "sha256:8fb8aac6f4d854c81578762f1cb477324feb1ae4c0c63b690bf6e733ace9cf42"
+    }
+  ]
+}

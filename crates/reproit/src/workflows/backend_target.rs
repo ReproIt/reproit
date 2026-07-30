@@ -160,6 +160,56 @@ pub(super) fn route_positional(
     }
 }
 
+/// Resolve a live target for a backend project with zero flags, booting the
+/// service when nothing names one: the same machinery bare `reproit init`
+/// uses (a verified already-running server, else a bounded boot of the
+/// package.json start script). Precedence is untouched: an explicit flag,
+/// `REPROIT_BACKEND_URL`, `backend.target`, or a schema `servers` URL all
+/// suppress the boot. Returns true when this call booted the process itself;
+/// the caller must then call `boot::shutdown_process_reset()` on every exit
+/// path. A booted process is also installed as the restart-reset mechanism so
+/// stateful confirmation works without a reset URL.
+pub(super) async fn ensure_live_target(
+    ctx: &crate::interface::cli::context::Ctx,
+    root: &Path,
+    flag: Option<&str>,
+    config_target: Option<&str>,
+    schemas: &[PathBuf],
+) -> Result<bool> {
+    use crate::workflows::backend_learn::boot;
+
+    let env = std::env::var("REPROIT_BACKEND_URL").ok();
+    if pick_target(flag, env.as_deref(), config_target).is_some() {
+        return Ok(false);
+    }
+    let surface = crate::workflows::backend_headless::schema_surface(schemas)?;
+    if surface.declares_server_url {
+        return Ok(false);
+    }
+    let Some(auto) = boot::auto_target(ctx, root, surface.probe_path.as_deref()).await else {
+        return Ok(false);
+    };
+    std::env::set_var("REPROIT_BACKEND_URL", &auto.url);
+    let Some(server) = auto.server else {
+        // An already-running server is the user's own: it is a target, not a
+        // process this run may restart as a reset.
+        return Ok(false);
+    };
+    let ready_port = auto
+        .url
+        .parse::<reqwest::Url>()
+        .ok()
+        .and_then(|url| url.port())
+        .context("booted target URL has no port")?;
+    let ready_path = surface
+        .probe_path
+        .clone()
+        .expect("auto_target requires a probe path");
+    boot::install_process_reset(boot::RestartableServer::adopt(server, ready_port, ready_path))
+        .await;
+    Ok(true)
+}
+
 pub(super) fn validate_target_url(value: &str) -> Result<()> {
     let url = value
         .parse::<reqwest::Url>()
