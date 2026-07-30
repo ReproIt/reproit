@@ -62,7 +62,7 @@ fn every_sdk_is_registered_against_one_capture_contract() {
 
     let fixture = include_bytes!("../../../sdk/capture-batch-v1.json");
     assert_eq!(
-        format!("{:x}", Sha256::digest(fixture)),
+        hex::encode(Sha256::digest(fixture)),
         manifest.fixture_sha256
     );
 
