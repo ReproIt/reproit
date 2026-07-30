@@ -118,14 +118,14 @@ where
                 if query.is_some() {
                     anyhow::bail!("--query applies only to `reproit list --state bugs`");
                 }
-                let loaded = config::load(cli.config.as_deref())?;
+                let loaded = list::load_read_view(cli.config.as_deref())?;
                 list::guards(&ctx, &loaded, "list")
             }
             ListState::Candidates => {
                 if query.is_some() {
                     anyhow::bail!("--query applies only to `reproit list --state bugs`");
                 }
-                let loaded = config::load(cli.config.as_deref())?;
+                let loaded = list::load_read_view(cli.config.as_deref())?;
                 list_candidates(&ctx, &loaded)?;
                 Ok(ExitCode::SUCCESS)
             }

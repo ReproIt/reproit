@@ -4,7 +4,29 @@ use crate::adapters::config;
 use crate::domain::repro;
 use crate::interface::cli::context::Ctx;
 use anyhow::Result;
+use std::path::Path;
 use std::process::ExitCode;
+
+/// Load the project for the read-only list projections. A backend-only
+/// reproit.yaml (what `reproit init` writes for a service) has no `app`
+/// section, so the app loader rejects it with "missing field 'app'" although
+/// repro and finding state live under the same root and default evidence
+/// layout. Stand in a minimal read-only view rooted at the backend project
+/// instead of erroring on a config init itself wrote.
+pub(super) fn load_read_view(config_path: Option<&Path>) -> Result<config::Loaded> {
+    let app_error = match config::load(config_path) {
+        Ok(loaded) => return Ok(loaded),
+        Err(error) => error,
+    };
+    let Some(project) = super::backend_target::find(config_path)? else {
+        return Err(app_error);
+    };
+    // The platform is a stand-in: list never launches a runner, it only needs
+    // the root and the default evidence layout the parse supplies.
+    let yaml = "app:\n  platform: web\n  defines: {}\ndevices:\n  namePrefix: backend\n\
+                journeys:\n  driver: \"\"\n  doneMarkers: [\"All tests passed\"]\n";
+    config::parse_str(yaml, project.root)
+}
 
 pub(super) fn guards(ctx: &Ctx, loaded: &config::Loaded, command: &str) -> Result<ExitCode> {
     let metas = repro::list(&loaded.root);
