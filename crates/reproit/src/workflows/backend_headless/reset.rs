@@ -11,6 +11,15 @@ use crate::domain::backend::{BackendReset, BackendResetStep};
 /// the several ordered steps a real service needs (clear one table, re-seed a
 /// pair, restore a counter) and is invisible to anyone reading reproit.yaml.
 ///
+/// Whether ANY clean-state mechanism exists for this run: the env reset URL,
+/// or a process restart of a server reproit booted itself. When reproit owns
+/// the target process, a full restart IS a legitimate reset, so stateful
+/// confirmation must not dead-end demanding a reset URL nobody can supply.
+pub(super) fn reset_capability_available() -> bool {
+    std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some()
+        || crate::workflows::backend_learn::boot::process_reset_installed()
+}
+
 /// Best-effort per step unless `required`. A failed required step aborts: a
 /// reset that silently did not happen is worse than none, because the run still
 /// presents its findings as reproducible from a clean state.

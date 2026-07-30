@@ -103,6 +103,7 @@ pub(super) async fn confirm_dependent(
         &chained.request,
         &violation.fingerprint,
         None,
+        None,
     )
     .await;
     Some(match replay {

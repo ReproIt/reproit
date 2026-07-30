@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "find-loop-backend-executor",
+  "changeType": "feature",
+  "detail": "Phase 3 of the init overhaul: the backend executor confirms stateful findings via the restart reset, replays kept guards, rebases recorded URLs onto the current target, and exposes the schema surface find inspects. Feature work, not a defect fix.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_headless/replay_command.rs",
+      "sha256": "sha256:093dd8c92494ce0839693a24070196292e3b5917a6c259891c83b777c2231024"
+    }
+  ]
+}

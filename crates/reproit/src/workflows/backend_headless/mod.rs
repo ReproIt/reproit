@@ -410,13 +410,14 @@ async fn run_target_with_policy(
                             "confirmation": reason,
                         })),
                     }
-                } else if std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some() {
+                } else if reset::reset_capability_available() {
                     match replay_sequence(
                         &client,
                         &setup,
                         endpoint,
                         &request,
                         &violation.fingerprint,
+                        None,
                         None,
                     )
                     .await
@@ -625,7 +626,7 @@ async fn exercise_resource_lifecycles(
             }));
             continue;
         }
-        if std::env::var_os("REPROIT_BACKEND_RESET_URL").is_none() {
+        if !reset::reset_capability_available() {
             run.skipped.push(json!({
                 "resource": resource.name,
                 "reason": "lifecycle replay needs REPROIT_BACKEND_RESET_URL; result is unknown",
@@ -857,6 +858,7 @@ async fn exercise_resource_lifecycles(
                     &read_request,
                     &violation.fingerprint,
                     None,
+                    None,
                 )
                 .await?
                     == ReplayVerdict::Reproduced
@@ -885,6 +887,7 @@ fn unique_endpoint<'a>(endpoints: &'a [Endpoint], operation: &str) -> Option<&'a
 }
 
 mod schema;
+pub(crate) use schema::schema_surface;
 use schema::*;
 mod generation;
 #[cfg(test)]
@@ -913,7 +916,7 @@ mod reset;
 mod retraction;
 use retraction::{ArtifactVerdict, ContractStatus, CurrentContracts};
 mod replay_command;
-pub use replay_command::try_replay;
+pub use replay_command::{replay_kept_guards, try_replay};
 mod verify;
 pub use verify::run as backend_verify;
 mod capture_replay;

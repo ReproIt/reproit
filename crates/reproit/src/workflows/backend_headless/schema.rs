@@ -115,6 +115,46 @@ pub(super) fn service_base_url(document: &Value) -> Result<String> {
     Ok(resolved.trim_end_matches('/').to_string())
 }
 
+/// The scaffold shape `find` inspects: how many operations each engine can
+/// evaluate, a parameterless GET route a live target can be verified against,
+/// and whether the schema itself already names an absolute server URL.
+pub(crate) struct SchemaSurface {
+    pub(crate) read_only: usize,
+    pub(crate) mutating: usize,
+    pub(crate) probe_path: Option<String>,
+    pub(crate) declares_server_url: bool,
+}
+
+pub(crate) fn schema_surface(targets: &[PathBuf]) -> Result<SchemaSurface> {
+    let ServiceSchemas {
+        endpoints, primary, ..
+    } = aggregate_service_endpoints(targets)?;
+    let read_only = endpoints
+        .iter()
+        .filter(|endpoint| endpoint.contract.read_only)
+        .count();
+    let probe_path = endpoints
+        .iter()
+        .find(|endpoint| {
+            endpoint.method == "GET" && !endpoint.path.is_empty() && !endpoint.path.contains('{')
+        })
+        .map(|endpoint| endpoint.path.clone());
+    // The declared URL is read from the document, never from the environment:
+    // the caller decides env/flag/config precedence separately.
+    let declares_server_url = primary
+        .get("servers")
+        .and_then(Value::as_array)
+        .and_then(|servers| servers.first())
+        .and_then(|server| server.get("url").and_then(Value::as_str))
+        .is_some_and(|url| validate_base_url(url).is_ok());
+    Ok(SchemaSurface {
+        read_only,
+        mutating: endpoints.len() - read_only,
+        probe_path,
+        declares_server_url,
+    })
+}
+
 pub(super) fn validate_base_url(value: &str) -> Result<()> {
     let url = value
         .parse::<reqwest::Url>()

@@ -262,6 +262,7 @@ pub(super) async fn probe_round_trips(
                                     &check_request,
                                     &violation.fingerprint,
                                     None,
+                                    None,
                                 )
                                 .await?
                                     == ReplayVerdict::Reproduced
@@ -476,6 +477,7 @@ pub(super) async fn probe_round_trips(
                     get,
                     &check_request,
                     &violation.fingerprint,
+                    None,
                     None,
                 )
                 .await?

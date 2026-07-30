@@ -16,13 +16,13 @@ pub(super) async fn shrink_findings(
         // nondeterminism) falls back to it instead of discarding a real finding
         // or aborting the whole run. Shrinking is only an optimization.
         let original = (request.clone(), setup.clone());
-        if std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some() {
+        if reset::reset_capability_available() {
             let mut index = 0;
             while index < setup.len() {
                 let mut candidate = setup.clone();
                 candidate.remove(index);
                 let verdict =
-                    replay_sequence(client, &candidate, &endpoint, &request, expected, None)
+                    replay_sequence(client, &candidate, &endpoint, &request, expected, None, None)
                         .await?;
                 if verdict == ReplayVerdict::Reproduced {
                     setup = candidate;
@@ -31,8 +31,7 @@ pub(super) async fn shrink_findings(
                 }
             }
         }
-        let safe_to_repeat =
-            endpoint.contract.read_only || std::env::var_os("REPROIT_BACKEND_RESET_URL").is_some();
+        let safe_to_repeat = endpoint.contract.read_only || reset::reset_capability_available();
         if safe_to_repeat {
             loop {
                 let mut accepted = None;
@@ -44,7 +43,7 @@ pub(super) async fn shrink_findings(
                         continue;
                     };
                     candidate.bindings = request.bindings.clone();
-                    if replay_sequence(client, &setup, &endpoint, &candidate, expected, None)
+                    if replay_sequence(client, &setup, &endpoint, &candidate, expected, None, None)
                         .await?
                         == ReplayVerdict::Reproduced
                     {
@@ -58,7 +57,7 @@ pub(super) async fn shrink_findings(
                 request = candidate;
             }
         }
-        if replay_sequence(client, &setup, &endpoint, &request, expected, None).await?
+        if replay_sequence(client, &setup, &endpoint, &request, expected, None, None).await?
             != ReplayVerdict::Reproduced
         {
             let (request, setup) = original;

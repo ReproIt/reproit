@@ -25,6 +25,13 @@ pub(super) fn has_fingerprint(result: &InvocationResult, expected: &str) -> bool
 /// run cannot leak the first artifact's reset target into every later one.
 /// Callers inside a live scan or fuzz run have no recorded artifact and pass
 /// `None`, which falls back to `REPROIT_BACKEND_RESET_URL` as before.
+///
+/// `expected_oracle` is the violation's oracle id when the caller knows it
+/// (a persisted artifact records it); it only widens what counts as a proven
+/// fix for `server-error` findings, where a deliberate 4xx rejection of the
+/// recorded input IS the fix. Callers that only consume `Reproduced` pass
+/// `None`.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn replay_sequence(
     client: &reqwest::Client,
     setup: &[ReplayStep],
@@ -32,6 +39,7 @@ pub(super) async fn replay_sequence(
     failing_request: &RequestArtifact,
     expected: &str,
     reset_url: Option<&str>,
+    expected_oracle: Option<&str>,
 ) -> Result<ReplayVerdict> {
     maybe_reset_target(client, &failing_request.url, reset_url).await?;
     let mut events = Vec::new();
@@ -80,10 +88,16 @@ pub(super) async fn replay_sequence(
     {
         return Ok(ReplayVerdict::Reproduced);
     }
-    // Not reproduced. Certify Fixed ONLY from an evaluable success; a non-2xx
-    // failing response means the contract could not be checked this run, so the
-    // finding is inconclusive rather than proven gone (fails closed).
-    Ok(if (200..400).contains(&failing_status) {
+    // Not reproduced. Certify Fixed ONLY from an evaluable outcome; a success
+    // always qualifies. For a SERVER-ERROR finding, a deliberate 4xx rejection
+    // of the recorded input is ALSO a proven fix: the defect was "the server
+    // crashes on this input" and the correct fix is precisely to reject it.
+    // Auth and rate statuses stay inconclusive because they mean the replay
+    // never reached the handler, not that the handler stopped crashing.
+    let rejected_cleanly = expected_oracle == Some("server-error")
+        && matches!(failing_status, 400..=499)
+        && !matches!(failing_status, 401 | 403 | 407 | 429);
+    Ok(if (200..400).contains(&failing_status) || rejected_cleanly {
         ReplayVerdict::Fixed
     } else {
         ReplayVerdict::Inconclusive

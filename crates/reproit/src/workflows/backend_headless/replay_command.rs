@@ -54,7 +54,25 @@ pub(super) async fn replay_artifact(
             finding: artifact.finding,
         });
     }
-    let artifact: BackendFindingArtifact = serde_json::from_slice(&std::fs::read(artifact_path)?)?;
+    let mut artifact: BackendFindingArtifact =
+        serde_json::from_slice(&std::fs::read(artifact_path)?)?;
+    // The artifact records ABSOLUTE request URLs from the discovering run.
+    // When the current run names a live target (REPROIT_BACKEND_URL, which
+    // wins everywhere else too), rebase the recorded requests onto it: a
+    // guard found against one ephemeral booted port must replay against the
+    // port this run booted, not against a dead one.
+    if let Ok(base) = std::env::var("REPROIT_BACKEND_URL") {
+        if let Ok(base) = base.parse::<reqwest::Url>() {
+            for step in artifact.setup.iter_mut() {
+                if let Some(url) = retarget_url(&step.request.url, &base) {
+                    step.request.url = url;
+                }
+            }
+            if let Some(url) = retarget_url(&artifact.failing.request.url, &base) {
+                artifact.failing.request.url = url;
+            }
+        }
+    }
     let operation = artifact.failing.contract.id.clone();
     let status = current.status(&artifact.failing);
     // An operation the schema no longer declares cannot be replayed into either
@@ -82,6 +100,7 @@ pub(super) async fn replay_artifact(
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
+    let expected_oracle = artifact.finding.get("kind").and_then(Value::as_str);
     let endpoint = replay_endpoint(&artifact.failing);
     let verdict = replay_sequence(
         &client,
@@ -90,6 +109,7 @@ pub(super) async fn replay_artifact(
         &artifact.failing.request,
         expected,
         artifact.reset_url.as_deref(),
+        expected_oracle,
     )
     .await?;
     let verdict = match verdict {
@@ -112,6 +132,7 @@ pub(super) async fn replay_artifact(
                     &artifact.failing.request,
                     expected,
                     artifact.reset_url.as_deref(),
+                    expected_oracle,
                 )
                 .await?;
                 // Only an evaluable non-reproduction retracts. A re-check that
@@ -133,7 +154,9 @@ pub(super) async fn replay_artifact(
 }
 
 pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
-    let Some(raw_id) = repro::raw_finding_id(id) else {
+    // A kept guard is addressed by its rpr_ id; the pending finding by fnd_.
+    // Both name the same content hash, so both replay the same artifact.
+    let Some(raw_id) = repro::raw_finding_id(id).or_else(|| repro::raw_repro_id(id)) else {
         return Ok(None);
     };
     let Some(artifact_path) = find_artifact(raw_id)? else {
@@ -180,6 +203,17 @@ pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
     ))
 }
 
+/// Rewrite a recorded absolute URL onto the current target's origin, keeping
+/// its path and query untouched. Returns None (leave the URL alone) when
+/// either side does not parse.
+fn retarget_url(recorded: &str, base: &reqwest::Url) -> Option<String> {
+    let mut url: reqwest::Url = recorded.parse().ok()?;
+    url.set_scheme(base.scheme()).ok()?;
+    url.set_host(base.host_str()).ok()?;
+    url.set_port(base.port()).ok()?;
+    Some(url.into())
+}
+
 pub(super) fn replay_endpoint(step: &ReplayStep) -> Endpoint {
     let graphql = step
         .request
@@ -223,7 +257,14 @@ pub(super) async fn maybe_reset_target(
         Ok(value) => (value, "REPROIT_BACKEND_RESET_URL"),
         Err(_) => match recorded {
             Some(value) => (value.to_string(), "the artifact's recorded reset url"),
-            None => return Ok(()),
+            None => {
+                // A server this run booted itself: a full process restart is
+                // the clean-state reset (there is no URL to demand for it).
+                if crate::workflows::backend_learn::boot::process_reset_installed() {
+                    return crate::workflows::backend_learn::boot::run_process_reset().await;
+                }
+                return Ok(());
+            }
         },
     };
     validate_base_url(&reset).context(source)?;
@@ -242,15 +283,86 @@ pub(super) async fn maybe_reset_target(
 pub(super) fn find_artifact(raw_id: &str) -> Result<Option<PathBuf>> {
     let cwd = std::env::current_dir()?;
     for root in cwd.ancestors() {
-        let directory = layout::finding_dir(root, raw_id);
-        for name in ["backend.json", "backend-schema.json"] {
-            let artifact = directory.join(name);
-            if artifact.is_file() {
-                return Ok(Some(artifact));
+        // The committed guard store first (it survives a fresh checkout),
+        // then the local findings store the fuzz run wrote.
+        for directory in [
+            crate::domain::repro::repro_dir(root, raw_id),
+            layout::finding_dir(root, raw_id),
+        ] {
+            for name in ["backend.json", "backend-schema.json"] {
+                let artifact = directory.join(name);
+                if artifact.is_file() {
+                    return Ok(Some(artifact));
+                }
             }
         }
     }
     Ok(None)
+}
+
+/// Replay every KEPT backend guard (`.reproit/repros/<id>/backend*.json`)
+/// against the live target: the committed regression suite behind `reproit
+/// check` in a backend project. Returns None when no backend guards are kept.
+/// A guard passes only on a proven Fixed (or an explicitly retracted claim);
+/// Reproduced means the bug is back and Inconclusive fails closed.
+pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCode>> {
+    let mut artifacts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(layout::repros_dir(root)) {
+        for entry in entries.flatten() {
+            let directory = entry.path();
+            for name in ["backend.json", "backend-schema.json"] {
+                let artifact = directory.join(name);
+                if artifact.is_file() {
+                    artifacts.push(artifact);
+                    break;
+                }
+            }
+        }
+    }
+    if artifacts.is_empty() {
+        return Ok(None);
+    }
+    artifacts.sort();
+    let current = CurrentContracts::load(None);
+    let mut failed = 0usize;
+    for artifact in &artifacts {
+        let raw_id = artifact
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown");
+        let label = repro::display_repro_id(raw_id);
+        let outcome = replay_artifact(artifact, &current).await?;
+        match &outcome.verdict {
+            ArtifactVerdict::Reproduced => {
+                failed += 1;
+                ctx.say(format!("  guard {label}: REPRODUCED (the bug is back)"));
+            }
+            ArtifactVerdict::Inconclusive => {
+                failed += 1;
+                ctx.say(format!(
+                    "  guard {label}: could not verify (unauthenticated, rate-limited, or \
+                     target down); fails closed"
+                ));
+            }
+            ArtifactVerdict::Fixed => {
+                ctx.say(format!("  guard {label}: held (does not reproduce)"));
+            }
+            ArtifactVerdict::Retracted(reason) => {
+                ctx.say(format!("  guard {label}: retracted, {reason}"));
+            }
+        }
+    }
+    ctx.say(format!(
+        "  guards: {} kept, {} failing",
+        artifacts.len(),
+        failed
+    ));
+    Ok(Some(if failed > 0 {
+        Exit::Regression.code()
+    } else {
+        ExitCode::SUCCESS
+    }))
 }
 
 pub(super) fn value_as_text(value: &Value) -> Option<String> {
@@ -259,5 +371,23 @@ pub(super) fn value_as_text(value: &Value) -> Option<String> {
         Value::Number(value) => Some(value.to_string()),
         Value::Bool(value) => Some(value.to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retarget_url;
+
+    #[test]
+    fn recorded_urls_rebase_onto_the_current_target_origin() {
+        // A guard found against one ephemeral booted port must replay against
+        // the port THIS run booted; path and query stay untouched.
+        let base: reqwest::Url = "http://127.0.0.1:60123".parse().unwrap();
+        assert_eq!(
+            retarget_url("http://127.0.0.1:54217/items?limit=2", &base).as_deref(),
+            Some("http://127.0.0.1:60123/items?limit=2")
+        );
+        // An unparseable recorded URL is left alone rather than guessed at.
+        assert_eq!(retarget_url("not a url", &base), None);
     }
 }
