@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "flutter-analyze-deprecations",
+  "changeType": "maintenance",
+  "detail": "This commit suppresses deprecated_member_use analyzer infos for SemanticsData.hasFlag and WidgetsBinding.pipelineOwner in the Flutter SDK. The package's minimum Flutter constraint (>=3.10.0) predates the replacement APIs, so migrating would break supported versions; no runtime behavior changes.",
+  "evidence": [
+    {
+      "path": "sdk/reproit_flutter/lib/src/runtime.dart",
+      "sha256": "sha256:c6d720628059a2d274f2c398d51d3dc6d4ee4567f7700db966638fcb790b5796"
+    }
+  ]
+}

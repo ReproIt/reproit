@@ -1,5 +1,12 @@
 part of '../reproit_flutter.dart';
 
+// The package supports Flutter >=3.10.0 (pubspec), which predates the
+// replacements for SemanticsData.hasFlag (flagsCollection) and
+// WidgetsBinding.pipelineOwner (rootPipelineOwner), so newer analyzers flag
+// both as deprecated here. Remove this suppression when the minimum Flutter
+// constraint moves past those replacements.
+// ignore_for_file: deprecated_member_use
+
 extension _ReproItRuntime on ReproIt {
   void _start() {
     final binding = WidgetsBinding.instance;
