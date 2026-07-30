@@ -328,3 +328,189 @@ exists` (pinned by the smoke test's raw-node fixture).
 - Query-param synthesis: no reader parses query parameter NAMES yet (the `q` gap from
   Phase 0 stands), so there is nothing honest to synthesize; `/search` is probed bare
   and observed as such. That is a reader gap, not a prober gap.
+
+## Phase 2 typed result (2026-07-30)
+
+Typed-language track: `reproit init` now derives the RESPONSE contract from handler
+return types and serializer structs, for Go and Rust. Method: one fixture app per
+language in the session scratchpad, real release binary built from this branch, server
+NOT running during init (so every responses entry is provenance "inferred", nothing
+observed), then the planted bug exercised live through bare `reproit scan --target`.
+Every run below is verbatim.
+
+Order of derivation inside each language, per the plan: status codes, then top-level
+body shape, then field types, then optionality. Everything stops at what the type
+system states; each abstention is listed under "left underived" with its reason.
+
+### Go fixture (net/http, Go 1.22 method patterns)
+
+Shape: `go.mod` + one `main.go`. Structs `Item` (id/name/price json-tagged,
+`tags []string json:"tags,omitempty"`, one unexported `cost int`) and `Stats`.
+Handlers: `listItems` encodes the package-level `var items []Item`; `getStats` encodes
+a `Stats{...}` literal; `createItem` decodes into `var body Item`, answers
+`http.Error(w, "bad json", 400)` or `WriteHeader(http.StatusCreated)` + encode.
+Planted bug: `items` stays nil until the first create, and encoding/json serializes a
+nil slice as `null`, not `[]`, so GET /items on a fresh store answers `null` where the
+type states a JSON array. Verified live via curl before any reproit run.
+
+Bare `reproit init` (no flags, no server): exit 0,
+`derived 3 operations on 2 paths from net/http source (1 files scanned)`, 0 enriched
+live. The draft's derived entries, verbatim from openapi.yaml:
+
+```
+  "/items":
+    get:
+      operationId: get_items
+      x-reproit-provenance: inferred
+      responses:
+        # inferred from `listItems` return types in source
+        "200":
+          description: inferred from the handler's return types; verify before relying on it
+          x-reproit-provenance: inferred
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    "id":
+                      type: string
+                    "name":
+                      type: string
+                    "price":
+                      type: number
+                    "tags":
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - "id"
+                    - "name"
+                    - "price"
+```
+
+POST /items carries `"201"` (typed Item body, from the WriteHeader/Encode pair) and
+`"400"` (status only, from `http.Error`); GET /stats carries `"200"` with
+`total: integer` + `currency: string`, both required. Every entry carries both the
+`# inferred from ... return types in source` comment and the machine-readable
+`x-reproit-provenance: inferred` marker (the dynamic track's one-way vocabulary);
+none claims observation.
+
+What was derived (Go): statuses from `c.JSON(status, v)`-family calls, fiber's chained
+`Status(n).JSON(v)`, `WriteHeader` paired with the next `Encode` (an unpaired Encode is
+net/http's implicit 200), and `http.Error`'s third argument; named constants resolve
+through one table (`http.StatusCreated` -> 201). Body shapes through typed locals,
+composite literals, and file-level `var` declarations, down to the serializer struct's
+json tags. Field types from Go types (string/bool/ints/floats/slices/maps, `time.Time`
+as string). Optionality: `omitempty` is not required; an untagged exported field
+serializes under its Go name and is required; unexported fields never serialize.
+
+What was honestly left underived (Go), each pinned by a unit test:
+- A status behind a computed expression (`c.JSON(statusFor(x), ...)`) states nothing.
+- A body behind an untyped local (`resp := fetch()`) or a `gin.H`/map literal states a
+  status but no shape (`gin.H` is `type: object` with no properties).
+- A bare pointer field (`*string` without omitempty) claims NO type: nil serializes as
+  null, and pointers are how Go states an intentionally absent value. With `omitempty`
+  the nil case is omitted, so the pointee's type is claimed.
+- An embedded (promoted) field makes the whole serializer abstain, same rule as serde
+  flatten; two conflicting declarations of one struct name resolve to neither.
+- A slice DOES claim `array` although nil serializes as null: that is what the type
+  means as a contract, and the nil case is exactly the divergence worth catching.
+
+End to end against the planted bug (fresh store, server booted, bare scan):
+
+```
+lifecycle: 1 new, 0 regressed, 0 persisting, 0 fixed
+backend scan: 2 operation(s) exercised, 1 confirmed finding(s), 0 candidate(s), 0 execution error(s)
+  tier: black-box (no adapter; response-level checks only)
+  coverage: 2/3 declared operation(s) evaluated
+    never sent (1):
+      POST post_items: scan executes read-only GET operations only
+  fnd_19746c9916d5  get_items: $output must be an array
+```
+
+Controls: with the responses blocks stripped from the same schema, the identical scan
+reports 0 findings (the bug is invisible without the inferred contract); after one POST
+populates the store, the full-schema scan reports 0 findings and `1 fixed` (the typed
+happy path passes, so the finding is the bug, not the contract).
+
+### Rust fixture (axum 0.8)
+
+Shape: Cargo.toml + one `src/main.rs`. `Item` derives Serialize/Deserialize;
+`Stats { total: u32, currency: String }` derives Serialize. Handlers:
+`list_items() -> Json<Vec<Item>>`, `get_stats() -> Result<Json<Stats>, StatusCode>`,
+`create_item(Json(body)) -> (StatusCode, Json<Item>)` returning
+`(StatusCode::CREATED, ...)`. Planted bug: a legacy guard answers
+`Err(StatusCode::NO_CONTENT)` when the store is empty, where the Ok arm of the return
+type states a 200 carrying Stats; an empty store is a valid state and a bodiless 204
+breaks every client parsing the promised JSON.
+
+Bare `reproit init` (no flags, no server): exit 0,
+`derived 3 operations on 2 paths from axum source (1 files scanned)`, 0 enriched live.
+GET /items gets `"200"` as `type: array` of the typed Item object (id/name/price all
+required); POST /items gets `"201"` (from the `StatusCode::CREATED` literal paired with
+the tuple return's `Json<Item>`); GET /stats gets `"200"` with `total: integer` +
+`currency: string` required. Provenance comment plus
+`x-reproit-provenance: inferred` on every entry, e.g.
+`# inferred from get_stats return types in source`.
+
+What was derived (Rust): a `Json<T>` return states a 200 carrying T (through `Result`'s
+Ok arm); a `(StatusCode, Json<T>)` return carries T at each `StatusCode::X` literal the
+body names; actix `HttpResponse::Created().json(v)` states both in one expression, with
+the value typed through struct-literal locals. Serializer fields read serde exactly:
+`rename_all`/`rename`, `skip`/`skip_serializing` excluded, `skip_serializing_if` as
+omitempty (optional, inner type claimed for Option), Vec/arrays/maps/Uuid mapped, and
+required = not-skippable.
+
+What was honestly left underived (Rust), each pinned by a unit test:
+- A tuple return naming no status literal abstains entirely (a computed status is not
+  a stated one).
+- A `Result`'s error arm states no status: `Err(StatusCode::NO_CONTENT)` in the fixture
+  is deliberately NOT claimed as a declared response, which is precisely why the scan
+  below can flag it.
+- A bare `Option<T>` field is required (always present) but claims no type, because
+  None serializes as null; a `serialize_with`/`with`/`serde_as` field claims no type
+  because a custom serializer rewrites the value.
+- `#[serde(flatten)]` makes the serializer abstain; a bare type name declared
+  differently in two modules resolves to neither.
+
+End to end against the planted bug (fresh store, bare scan; curl first confirmed
+`stats status: 204`):
+
+```
+lifecycle: 1 new, 0 regressed, 0 persisting, 0 fixed
+backend scan: 2 operation(s) exercised, 1 confirmed finding(s), 0 candidate(s), 0 execution error(s)
+  tier: black-box (no adapter; response-level checks only)
+  coverage: 2/3 declared operation(s) evaluated
+    never sent (1):
+      POST post_items: scan executes read-only GET operations only
+  fnd_7235664f25f4  get_stats: operation reported successful status 204 outside its declared success statuses [200]
+```
+
+Controls: responses stripped -> 0 findings, exit 0 (without the inferred success set
+the 204 is silent, exactly Phase 0's "no success to evaluate" dead end); store
+populated -> 0 findings, `1 fixed`.
+
+One attribution lesson from getting here: the first two Rust bug candidates were bad
+fixtures and were rejected after live runs. A 500 on a valid GET is confirmed by the
+generic server-error oracle WITH OR WITHOUT the inferred contract (verified both ways),
+so it proves nothing about this track; a 404 on a valid GET is deliberately silent in
+the evaluator (a 4xx can be a correct rejection, and flagging it would be a
+false-positive engine). What the inferred contract uniquely arms on the read-only path
+is the response-status oracle (a 2xx outside the declared success set) and the
+response-shape oracle (a 200 body violating the typed schema, the Go fixture's class).
+
+### Deliberately not done in this pass
+
+- Java and C#: untouched. Their readers (`java_ast.rs`, `dotnet_ast.rs`) collect
+  request-side facts only; the response pattern did not generalize cleanly enough to
+  land them honestly in this pass. Spring controller returns (`ResponseEntity<T>`,
+  `@ResponseStatus`) and ASP.NET (`ActionResult<T>`, `Ok(...)`/`CreatedAtAction`) each
+  need their own status/body pairing rules; half-reading them would emit contracts the
+  services do not state.
+- Dynamic languages: untouched here; their observe-not-infer track landed separately
+  (see the Phase 2 dynamic result above). Where both tracks speak about one status,
+  the emitter keeps the typed schema and the comment records both provenances.
+- Provenance hardening (plan 2.3) came with the dynamic track's one-way Provenance
+  vocabulary; the inferred entries here reuse it, and nothing upgrades a mark.
