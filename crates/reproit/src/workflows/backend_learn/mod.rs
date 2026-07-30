@@ -28,6 +28,7 @@ mod java_ast;
 mod node_ast;
 mod node_body;
 mod php_ast;
+mod probe_plan;
 mod python_ast;
 mod report;
 mod route_path;
