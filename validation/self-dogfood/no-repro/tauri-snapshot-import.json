@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "tauri-snapshot-import",
+  "detail": "The runner bundler copies import specifiers verbatim, so the source-relative '../../tauri-snapshot.mjs' shipped in tauri.mjs and the module graph never resolved; the parity gate is the stable reproduction authority (module resolution is deterministic). The commit also qualifies the ReproIt static calls that the same parent's extension split left unresolvable in reproit_flutter.",
+  "test": "runners/signature_test.mjs",
+  "command": [
+    "node",
+    "runners/signature_test.mjs"
+  ],
+  "timeoutSeconds": 120,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/tauri-snapshot-import.log",
+      "sha256": "sha256:f8eaf31b851c0fcd3bb9fe62072fccb401019301e84eed698e960372dfc26852"
+    }
+  ]
+}

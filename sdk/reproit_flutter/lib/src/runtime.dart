@@ -367,8 +367,10 @@ extension _ReproItRuntime on ReproIt {
     // to REPROIT_INVARIANT_FILE for the explorer to scrape. Runs on every
     // settle (independent of whether the signature changed); inert in
     // production (no such file), a no-op on web.
-    _maybeEmitInvariants();
-    _maybeEmitRelations();
+    // Statics on ReproIt are not in scope unqualified inside this extension
+    // (extension members resolve against the extension, not the on-type).
+    ReproIt._maybeEmitInvariants();
+    ReproIt._maybeEmitRelations();
     if (_currentSig == null) {
       // initial state
       _currentSig = snap.sig;

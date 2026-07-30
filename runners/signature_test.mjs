@@ -12,8 +12,21 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath } from 'node:path';
 
-import { signatureOf as electronSig, descriptorOf as electronDesc } from './electron.mjs';
-import { signatureOf as tauriSig, descriptorOf as tauriDesc } from './tauri.mjs';
+// The runners are imported dynamically so a bundle whose module graph does not
+// even RESOLVE (a bad relative specifier survives bundling verbatim; it once
+// shipped as `../../tauri-snapshot.mjs` and broke every extracted install)
+// fails this gate with a message naming the runner, not a bare loader trace.
+async function importRunner(name) {
+  try {
+    return await import(name);
+  } catch (error) {
+    console.error(`FAIL  ${name}: bundle does not import: ${error.message}`);
+    process.exit(1);
+  }
+}
+const { signatureOf: electronSig, descriptorOf: electronDesc } =
+  await importRunner('./electron.mjs');
+const { signatureOf: tauriSig, descriptorOf: tauriDesc } = await importRunner('./tauri.mjs');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // signature_vectors.json lives at the repo root; runners/ is one level down.

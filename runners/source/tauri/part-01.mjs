@@ -436,6 +436,6 @@ export { signatureOf, descriptorOf, valueClass };
 // (data-testid > id > name > aria-role + structural index); a tappable lacking
 // any stable id falls back to role+index and is flagged `nokey`. The host then
 // hashes the tree with the canonical signature, byte-identical to the oracle.
-import { snapshotJs } from '../../tauri-snapshot.mjs';
+import { snapshotJs } from './tauri-snapshot.mjs';
 
 async function snapshot(browser, valueNodeSelectors) {

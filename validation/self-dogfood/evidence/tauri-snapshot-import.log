@@ -1,0 +1,22 @@
+Affected: at 9acff42 (parent of the fix) the shipped runners/tauri.mjs imports
+'../../tauri-snapshot.mjs'. The specifier is source-relative (it is correct
+only from runners/source/tauri/ before bundling) and the concat bundler copies
+it verbatim, so the module graph never resolves: from runners/tauri.mjs it
+points two directories above the runner set, and from the extracted native
+runner dir (write_embedded_native_runner puts tauri-snapshot.mjs NEXT TO
+tauri.mjs) it escapes the managed dir entirely.
+
+Reproduction: node runners/signature_test.mjs at 9acff42 exits 1 with
+ERR_MODULE_NOT_FOUND for <two-dirs-up>/tauri-snapshot.mjs imported from
+runners/tauri.mjs. The signature-parity CI job on main failed identically
+(run 30503009684, job signature-parity). The fix rewrites the authored
+specifier to './tauri-snapshot.mjs' (output-relative, like the './web/*.mjs'
+oracle imports) and rebundles; the same command exits 0 with 25/25 vectors
+passing for both runners.
+
+The same parent commit also broke sdk/reproit_flutter (CI job flutter-sdk,
+5 failures): the split moved ReproIt instance plumbing into an
+`extension _ReproItRuntime on ReproIt` part file whose unqualified
+_maybeEmitInvariants()/_maybeEmitRelations() calls cannot see the class
+statics. Qualifying the calls restores compilation; flutter test passes
+38/38 after the fix.
