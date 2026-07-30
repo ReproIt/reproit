@@ -59,8 +59,8 @@ class CaptureTest {
         Map<String, Object> batch = batchFor(500, false);
         assertEquals("app-demo", batch.get("projectId"));
         assertEquals(Map.of("version", "1.2.3"), batch.get("deployment"));
-        assertEquals(5, events(batch).size());
-        Map<String, Object> finding = at(events(batch).get(4), "event");
+        assertEquals(6, events(batch).size());
+        Map<String, Object> finding = at(events(batch).get(5), "event");
         assertEquals("observation", finding.get("kind"));
         assertEquals(
             Capture.SERVER_ERROR_ORACLE + ":createOrder",
@@ -68,12 +68,20 @@ class CaptureTest {
         // Redaction happened before anything left the process boundary.
         Map<String, Object> trigger = at(events(batch).get(1), "event", "value", "value");
         assertEquals("widget", at(trigger, "body").get("item"));
+        // The raw return event is nested like the raw effects, under a
+        // subject that names the carrier for the protocol projection.
+        Map<String, Object> carrier = at(events(batch).get(3), "event");
+        assertEquals("effect", carrier.get("kind"));
+        assertEquals("operation-return", carrier.get("subject"));
+        Map<String, Object> rawReturn = at(carrier, "value", "value");
+        assertEquals("return", rawReturn.get("kind"));
+        assertEquals(500, rawReturn.get("status"));
     }
 
     @Test
     void healthyOperationsShipCausalEventsWithoutObservation() {
         Map<String, Object> batch = batchFor(201, true);
-        assertEquals(4, events(batch).size());
+        assertEquals(5, events(batch).size());
         for (Map<String, Object> event : events(batch)) {
             assertFalse("observation".equals(at(event, "event").get("kind")));
         }

@@ -285,6 +285,18 @@ class Capture {
         }
       }
       const returned = [...operation.events].reverse().find((event) => event.kind === 'return');
+      // Nest the raw return event exactly like the raw effect events, so the
+      // batch can be projected back to a replayable backend capture. The
+      // subject names the carrier: `backend_capture_from_batch` in
+      // reproit-protocol keys the inversion on "operation-return".
+      if (returned) {
+        parent = recorder.effect(
+          'operation-return',
+          'operation-return',
+          replayable(returned),
+          context(returned, parent === null ? [] : [parent]),
+        );
+      }
       parent = recorder.operationEnd(
         operation.operation,
         returned?.success === true ? 'succeeded' : 'failed',

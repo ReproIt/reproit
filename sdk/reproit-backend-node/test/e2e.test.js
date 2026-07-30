@@ -42,9 +42,15 @@ function assertServerErrorBatch(received) {
   const events = batch.events.map((captured) => captured.event);
   assert.deepStrictEqual(
     events.map((event) => event.kind),
-    ['operation-start', 'trigger', 'state-access', 'operation-end', 'observation'],
+    ['operation-start', 'trigger', 'state-access', 'effect', 'operation-end', 'observation'],
   );
   assert.strictEqual(events[2].subject, 'orders');
+  // The raw return event ships as the operation-return effect carrier.
+  assert.strictEqual(events[3].subject, 'operation-return');
+  assert.strictEqual(events[3].value.representation, 'replayable');
+  assert.strictEqual(events[3].value.value.kind, 'return');
+  assert.strictEqual(events[3].value.value.status, 500);
+  assert.strictEqual(events[3].value.value.success, false);
   assert.strictEqual(
     events.at(-1).failure.signature,
     'backend-server-error:POST /boom',

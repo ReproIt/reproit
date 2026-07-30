@@ -79,6 +79,16 @@ public class CaptureTests
         Assert.Equal("backend-server-error:createOrder", failure["signature"]);
         Assert.Equal("1.2.3",
             ((Dictionary<string, object?>)batch["deployment"]!)["version"]);
+        // The raw return event is nested like the raw effects, under a subject that names
+        // the carrier for the protocol projection.
+        var carrier = Event(events[^3]);
+        Assert.Equal("effect", carrier["kind"]);
+        Assert.Equal("operation-return", carrier["subject"]);
+        var carrierValue = (Dictionary<string, object?>)carrier["value"]!;
+        Assert.Equal("replayable", carrierValue["representation"]);
+        var rawReturn = (Dictionary<string, object?>)carrierValue["value"]!;
+        Assert.Equal("return", rawReturn["kind"]);
+        Assert.Equal(500L, rawReturn["status"]);
     }
 
     [Fact]

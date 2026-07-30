@@ -61,8 +61,8 @@ function validated(array $batch, string $label): void
 $batch = batch_for(500, false);
 validated($batch, 'server error batch validates');
 check_same('app-demo', $batch['projectId'], 'project identity attached');
-check_same(5, \count($batch['events']), 'server error batch has 5 causal events');
-$finding = $batch['events'][4]['event'];
+check_same(6, \count($batch['events']), 'server error batch has 6 causal events');
+$finding = $batch['events'][5]['event'];
 check_same('observation', $finding['kind'], 'last event is the observation');
 check_same(
     SERVER_ERROR_ORACLE . ':createOrder',
@@ -75,11 +75,19 @@ check_same(
     'redaction ran pre-queue'
 );
 check_same('1.2.3', $batch['deployment']['version'], 'deployment version attached');
+// The raw return event is nested like the raw effects, under a subject that
+// names the carrier for the protocol projection.
+$carrier = $batch['events'][3]['event'];
+check_same('effect', $carrier['kind'], 'carrier is an effect event');
+check_same('operation-return', $carrier['subject'], 'carrier subject names the return');
+check_same('replayable', $carrier['value']['representation'], 'carrier is replayable');
+check_same('return', $carrier['value']['value']['kind'], 'carrier nests the raw return event');
+check_same(500, $carrier['value']['value']['status'], 'raw return event keeps the status');
 
 // healthy operations ship causal events without an observation
 $batch = batch_for(201, true);
 validated($batch, 'healthy batch validates');
-check_same(4, \count($batch['events']), 'healthy batch has 4 causal events');
+check_same(5, \count($batch['events']), 'healthy batch has 5 causal events');
 $hasObservation = false;
 foreach ($batch['events'] as $event) {
     $hasObservation = $hasObservation || $event['event']['kind'] === 'observation';

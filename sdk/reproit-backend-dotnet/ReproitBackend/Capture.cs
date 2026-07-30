@@ -383,6 +383,18 @@ public sealed class Capture
         }
         var returned = operation.Events.LastOrDefault(evt =>
             evt.GetValueOrDefault("kind") as string == "return");
+        // Nest the raw return event exactly like the raw effect events, so the batch can be
+        // projected back to a replayable backend capture. The subject names the carrier:
+        // `backend_capture_from_batch` in reproit-protocol keys the inversion on
+        // "operation-return".
+        if (returned != null)
+        {
+            parent = recorder.Effect(
+                "operation-return",
+                "operation-return",
+                CaptureValues.Replayable(returned),
+                Context(returned, parent));
+        }
         var success = returned?.GetValueOrDefault("success") as bool? == true;
         parent = recorder.OperationEnd(
             operation.Operation,

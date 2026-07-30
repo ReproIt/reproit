@@ -2,7 +2,8 @@
 
 /*!
  * Production capture mode: config-gated self-sampling upload of finished
- * operation traces to the Reproit Cloud ingest endpoint (`/v1/events`).
+ * operation traces to the Reproit Cloud ingest endpoint
+ * (`/v1/capture-batches`).
  *
  * PHP port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
  * untouched: this module only adds a place to hand a finished BackendTrace
@@ -350,6 +351,22 @@ final class Capture
                 $returned = $source;
                 break;
             }
+        }
+        // Nest the raw return event exactly like the raw effect events, so
+        // the batch can be projected back to a replayable backend capture.
+        // The subject names the carrier: `backend_capture_from_batch` in
+        // reproit-protocol keys the inversion on "operation-return".
+        if ($returned !== []) {
+            $add([
+                'kind' => 'effect',
+                'effect' => 'operation-return',
+                'subject' => 'operation-return',
+                'value' => [
+                    'representation' => 'replayable',
+                    'value' => $returned,
+                    'redaction' => 'redacted-at-source',
+                ],
+            ]);
         }
         $add([
             'kind' => 'operation-end',

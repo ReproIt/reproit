@@ -1,5 +1,6 @@
 // Production capture mode: config-gated self-sampling upload of finished
-// operation traces to the Reproit Cloud ingest endpoint (`/v1/events`).
+// operation traces to the Reproit Cloud ingest endpoint
+// (`/v1/capture-batches`).
 //
 // Go port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
 // untouched: this file only adds a place to hand a finished BackendTrace when
@@ -45,7 +46,8 @@ const (
 // CaptureConfig configures capture mode. Build with NewCaptureConfig so the
 // defaults match the other backend SDKs.
 type CaptureConfig struct {
-	// Endpoint is the full ingest URL, e.g. `https://cloud.example.com/v1/events`.
+	// Endpoint is the full ingest URL, e.g.
+	// `https://cloud.example.com/v1/capture-batches`.
 	Endpoint string
 	// APIKey is the project API key, sent as `Authorization: Bearer`.
 	APIKey string
@@ -321,10 +323,7 @@ func (c *Capture) timedWait(limit time.Duration) {
 	timer.Stop()
 }
 
-// buildBatch builds one event-batch-v1 payload: every captured event ships
-// as a `backend` frame, and each 5xx operation additionally ships a
-// `finding` frame tagged `backend-server-error` whose context carries the
-// full replayable capture object.
+// buildBatch builds one source-neutral capture-batch-v1 payload.
 func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 	if len(operations) != 1 {
 		panic("a causal capture batch must contain exactly one operation")
@@ -396,6 +395,25 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 				"redaction":      "redacted-at-source",
 			},
 		})
+	}
+	// Nest the raw return event exactly like the raw effect events, so the
+	// batch can be projected back to a replayable backend capture. The
+	// subject names the carrier: `backend_capture_from_batch` in
+	// reproit-protocol keys the inversion on "operation-return".
+	for _, source := range operation.events {
+		if source["kind"] != "return" {
+			continue
+		}
+		add(map[string]any{
+			"kind": "effect", "effect": "operation-return",
+			"subject": "operation-return",
+			"value": map[string]any{
+				"representation": "replayable",
+				"value":          source,
+				"redaction":      "redacted-at-source",
+			},
+		})
+		break
 	}
 	outcome := "failed"
 	for index := len(operation.events) - 1; index >= 0; index-- {

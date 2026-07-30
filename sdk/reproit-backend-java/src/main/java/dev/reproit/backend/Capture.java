@@ -1,6 +1,7 @@
 /*
  * Production capture mode: config-gated self-sampling upload of finished
- * operation traces to the Reproit Cloud ingest endpoint (`/v1/events`).
+ * operation traces to the Reproit Cloud ingest endpoint
+ * (`/v1/capture-batches`).
  *
  * Java port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
  * untouched: this class only adds a place to hand a finished BackendTrace
@@ -363,11 +364,27 @@ public final class Capture {
             causal.put("value", captured);
             builder.add(causal);
         }
-        boolean success = operation.events().stream()
+        // Nest the raw return event exactly like the raw effect events, so
+        // the batch can be projected back to a replayable backend capture.
+        // The subject names the carrier: `backend_capture_from_batch` in
+        // reproit-protocol keys the inversion on "operation-return".
+        Map<String, Object> returned = operation.events().stream()
             .filter(event -> "return".equals(event.get("kind")))
             .reduce((left, right) -> right)
-            .map(event -> Boolean.TRUE.equals(event.get("success")))
-            .orElse(false);
+            .orElse(null);
+        if (returned != null) {
+            Map<String, Object> captured = new LinkedHashMap<>();
+            captured.put("representation", "replayable");
+            captured.put("value", returned);
+            captured.put("redaction", "redacted-at-source");
+            Map<String, Object> carrier = new LinkedHashMap<>();
+            carrier.put("kind", "effect");
+            carrier.put("effect", "operation-return");
+            carrier.put("subject", "operation-return");
+            carrier.put("value", captured);
+            builder.add(carrier);
+        }
+        boolean success = returned != null && Boolean.TRUE.equals(returned.get("success"));
         builder.add(new LinkedHashMap<>(Map.of(
             "kind", "operation-end",
             "name", operation.operation(),

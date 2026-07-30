@@ -43,8 +43,8 @@ class CaptureTest < Minitest::Test
     assert_equal "app-demo", batch["projectId"]
     assert_equal({ "version" => "1.2.3" }, batch["deployment"])
     events = batch["events"]
-    assert_equal [1, 2, 3, 4, 5], events.map { |event| event["sequence"] }
-    finding = events[4]["event"]
+    assert_equal [1, 2, 3, 4, 5, 6], events.map { |event| event["sequence"] }
+    finding = events[5]["event"]
     assert_equal "observation", finding["kind"]
     assert_equal(
       R::SERVER_ERROR_ORACLE + ":createOrder",
@@ -52,12 +52,20 @@ class CaptureTest < Minitest::Test
     )
     # Redaction happened before anything left the process boundary.
     assert_equal "widget", events[1]["event"]["value"]["value"]["body"]["item"]
+    # The raw return event is nested like the raw effects, under a subject
+    # that names the carrier for the protocol projection.
+    carrier = events[3]["event"]
+    assert_equal "effect", carrier["kind"]
+    assert_equal "operation-return", carrier["subject"]
+    raw_return = carrier["value"]["value"]
+    assert_equal "return", raw_return["kind"]
+    assert_equal 500, raw_return["status"]
   end
 
   def test_healthy_operations_ship_causal_events_without_an_observation
     batch = batch_for(201, true)
     events = batch["events"]
-    assert_equal 4, events.length
+    assert_equal 5, events.length
     assert(events.none? { |event| event["event"]["kind"] == "observation" })
   end
 

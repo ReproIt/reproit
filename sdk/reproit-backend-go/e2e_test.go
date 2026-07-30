@@ -129,14 +129,24 @@ func TestE2EPlanted500ShipsATaggedFindingBatch(t *testing.T) {
 			item.(map[string]any)["event"].(map[string]any)["kind"].(string),
 		)
 	}
-	if len(kinds) != 5 || kinds[0] != "operation-start" ||
+	if len(kinds) != 6 || kinds[0] != "operation-start" ||
 		kinds[1] != "trigger" || kinds[2] != "effect" ||
-		kinds[3] != "operation-end" || kinds[4] != "observation" {
+		kinds[3] != "effect" || kinds[4] != "operation-end" ||
+		kinds[5] != "observation" {
 		t.Fatalf("capture sequence wrong: %v", kinds)
 	}
 	effect := events[2].(map[string]any)["event"].(map[string]any)
 	if effect["subject"] != "orders" {
 		t.Fatalf("effect resource wrong: %v", effect)
+	}
+	// The raw return event ships as the operation-return effect carrier.
+	carrier := events[3].(map[string]any)["event"].(map[string]any)
+	if carrier["subject"] != "operation-return" {
+		t.Fatalf("operation-return carrier missing: %v", carrier)
+	}
+	rawReturn := carrier["value"].(map[string]any)["value"].(map[string]any)
+	if rawReturn["kind"] != "return" {
+		t.Fatalf("carrier does not hold the raw return event: %v", rawReturn)
 	}
 	// The secret-shaped input field was structurally redacted before upload.
 	trigger := events[1].(map[string]any)["event"].(map[string]any)

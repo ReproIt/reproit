@@ -52,6 +52,14 @@ test('server error batch is a source-neutral causal capture', () => {
     'widget',
   );
   assert.strictEqual(batch.deployment.version, '1.2.3');
+  // The raw return event is nested like the raw effects, under a subject
+  // that names the carrier for the protocol projection.
+  const carrier = batch.events[3].event;
+  assert.strictEqual(carrier.kind, 'effect');
+  assert.strictEqual(carrier.subject, 'operation-return');
+  assert.strictEqual(carrier.value.representation, 'replayable');
+  assert.strictEqual(carrier.value.value.kind, 'return');
+  assert.strictEqual(carrier.value.value.status, 500);
 });
 
 test('healthy operations ship causal facts without a failure observation', () => {

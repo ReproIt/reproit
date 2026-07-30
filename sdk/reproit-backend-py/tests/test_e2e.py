@@ -1,6 +1,6 @@
 """Functional end-to-end test: a real FastAPI app served by uvicorn with a
 planted 500, real HTTP requests via urllib, and a local stub ingest server.
-Asserts the finding batch arrives correctly tagged with the reproitCapture
+Asserts the capture batch arrives correctly tagged with the causal event
 sequence, and that a scan-time request round-trips x-reproit-events.
 
 Run explicitly: uv run --group e2e -m pytest tests/test_e2e.py
@@ -20,7 +20,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
 
-from reproit_backend_py import CAPTURE_FORMAT, SERVER_ERROR_ORACLE, Capture, ReproitMiddleware
+from reproit_backend_py import SERVER_ERROR_ORACLE, Capture, ReproitMiddleware
 
 
 class _StubIngest(BaseHTTPRequestHandler):
@@ -106,24 +106,26 @@ def test_fastapi_planted_500_ships_a_tagged_finding_batch():
         assert _StubIngest.received[0]["authorization"] == "Bearer sk_live_test"
         batch = _StubIngest.received[0]["batch"]
         assert batch["version"] == 1
-        assert batch["appId"] == "app-e2e"
+        assert batch["projectId"] == "app-e2e"
         assert batch["deployment"] == {"version": "9.9.9"}
-        findings = [f["event"] for f in batch["frames"] if f["event"]["kind"] == "finding"]
-        assert len(findings) == 1
-        finding = findings[0]
-        assert finding["identity"]["oracle"] == SERVER_ERROR_ORACLE
-        assert finding["context"]["capture"] == "reproit-backend-py"
-        replay = finding["context"]["reproitCapture"]
-        assert replay["format"] == CAPTURE_FORMAT
-        assert replay["oracle"] == SERVER_ERROR_ORACLE
-        assert [event["kind"] for event in replay["events"]] == ["start", "effect", "return"]
-        assert replay["events"][1]["resource"] == "orders"
-        assert replay["events"][2]["status"] == 500
-        assert replay["events"][2]["success"] is False
+        events = batch["events"]
+        assert [item["event"]["kind"] for item in events] == [
+            "operation-start", "trigger", "effect", "effect", "operation-end", "observation"
+        ]
+        finding = events[5]["event"]
+        assert finding["failure"]["signature"] == SERVER_ERROR_ORACLE + ":POST /boom"
+        assert events[2]["event"]["subject"] == "orders"
+        # The raw return event ships as the operation-return effect carrier.
+        carrier = events[3]["event"]
+        assert carrier["subject"] == "operation-return"
+        raw_return = carrier["value"]["value"]
+        assert raw_return["kind"] == "return"
+        assert raw_return["status"] == 500
+        assert raw_return["success"] is False
         # The secret-shaped input field was structurally redacted before upload.
-        start = replay["events"][0]
-        assert start["input"]["body"]["apiKey"]["$reproit"]["redacted"] is True
-        assert start["input"]["body"]["item"] == "widget"
+        input_body = events[1]["event"]["value"]["value"]["body"]
+        assert input_body["apiKey"]["$reproit"]["redacted"] is True
+        assert input_body["item"] == "widget"
 
         # Scan-time request: header round-trip, no capture of the healthy call.
         status, headers, _ = _request(

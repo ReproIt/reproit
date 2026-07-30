@@ -102,3 +102,48 @@ fn api_error(status: u16, body: &Value) -> Error {
             .map(String::from),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn api_error_extracts_the_wire_fields() {
+        let body = json!({
+            "type": "error",
+            "error": {"type": "rate_limit_error", "message": "slow down"},
+            "request_id": "req_123",
+        });
+        let Error::Api {
+            status,
+            error_type,
+            message,
+            request_id,
+        } = api_error(429, &body)
+        else {
+            panic!("api_error must build Error::Api");
+        };
+        assert_eq!(status, 429);
+        assert_eq!(error_type, "rate_limit_error");
+        assert_eq!(message, "slow down");
+        assert_eq!(request_id.as_deref(), Some("req_123"));
+    }
+
+    #[test]
+    fn api_error_tolerates_an_unparseable_body() {
+        let Error::Api {
+            status,
+            error_type,
+            message,
+            request_id,
+        } = api_error(500, &Value::Null)
+        else {
+            panic!("api_error must build Error::Api");
+        };
+        assert_eq!(status, 500);
+        assert_eq!(error_type, "unknown");
+        assert_eq!(message, "");
+        assert_eq!(request_id, None);
+    }
+}

@@ -1,5 +1,6 @@
 //! Production capture mode: config-gated self-sampling upload of finished
-//! operation traces to the Reproit Cloud ingest endpoint (`/v1/events`).
+//! operation traces to the Reproit Cloud ingest endpoint
+//! (`/v1/capture-batches`).
 //!
 //! Scan-time tracing stays untouched: this module only adds a place to hand a
 //! finished `BackendTrace` when no `x-reproit-trace` header exists. The
@@ -36,7 +37,7 @@ const MAX_RETRY_LIMIT: u8 = 5;
 
 #[derive(Debug, Clone)]
 pub struct CaptureConfig {
-    /// Full ingest URL, e.g. `https://cloud.example.com/v1/events`.
+    /// Full ingest URL, e.g. `https://cloud.example.com/v1/capture-batches`.
     pub endpoint: String,
     /// Project API key, sent as `Authorization: Bearer`.
     pub api_key: String,
