@@ -10,7 +10,6 @@ use std::time::Duration;
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const MAX_ATTEMPTS: u32 = 4;
 
 enum Auth {
     ApiKey(String),
@@ -60,46 +59,6 @@ impl Client {
             Auth::ApiKey(k) => rb.header("x-api-key", k),
             // OAuth tokens go on Authorization: Bearer plus the oauth beta.
             Auth::Bearer(t) => rb.bearer_auth(t).header("anthropic-beta", OAUTH_BETA),
-        }
-    }
-
-    /// Non-streaming request with retry on 429/5xx/529 (exponential backoff,
-    /// honoring retry-after). Keep max_tokens at or under ~16k here; stream
-    /// above that.
-    pub async fn messages(&self, req: &MessagesRequest) -> Result<MessagesResponse> {
-        let mut req = req.clone();
-        req.stream = None;
-        let mut attempt = 0u32;
-        loop {
-            attempt += 1;
-            match self.request(&req).send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        return Ok(resp.json::<MessagesResponse>().await?);
-                    }
-                    let retryable = matches!(status.as_u16(), 429 | 500 | 502 | 503 | 529);
-                    let retry_after = resp
-                        .headers()
-                        .get("retry-after")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|s| s.parse::<u64>().ok());
-                    let body: Value = resp.json().await.unwrap_or(Value::Null);
-                    if retryable && attempt < MAX_ATTEMPTS {
-                        let delay = retry_after.unwrap_or_else(|| 2u64.pow(attempt - 1));
-                        tokio::time::sleep(Duration::from_secs(delay)).await;
-                        continue;
-                    }
-                    return Err(api_error(status.as_u16(), &body));
-                }
-                Err(e) => {
-                    if attempt < MAX_ATTEMPTS && (e.is_connect() || e.is_timeout()) {
-                        tokio::time::sleep(Duration::from_secs(2u64.pow(attempt - 1))).await;
-                        continue;
-                    }
-                    return Err(e.into());
-                }
-            }
         }
     }
 

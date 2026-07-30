@@ -5,7 +5,7 @@
 
 use crate::adapters::config::Config;
 use anyhow::{bail, Context, Result};
-use llm::Task;
+use reproit_llm::Task;
 use std::path::{Path, PathBuf};
 
 pub async fn analyze(cfg: &Config, root: &Path, run: Option<&str>) -> Result<()> {
@@ -93,7 +93,7 @@ failed assertion. The most common triage error is calling a test bug "environmen
 {logs}"#
     );
 
-    let provider = llm::from_spec(&cfg.llm.to_spec())?;
+    let provider = reproit_llm::from_spec(&cfg.llm.to_spec())?;
     println!("  triaging via {} ...", provider.name());
     let report = provider
         .complete(&Task::new(prompt).system(

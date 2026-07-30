@@ -32,7 +32,7 @@ struct Finding {
 }
 
 pub async fn fix(cfg: &Config, root: &Path, run: Option<&str>) -> Result<()> {
-    let provider = llm::from_spec(&cfg.llm.to_spec())?;
+    let provider = reproit_llm::from_spec(&cfg.llm.to_spec())?;
     let runs_dir = root.join(&cfg.evidence.out_dir);
     let run_dir = match run {
         Some(name) => runs_dir.join(name),
@@ -98,7 +98,7 @@ pub async fn fix(cfg: &Config, root: &Path, run: Option<&str>) -> Result<()> {
         }
 
         let result = provider
-            .complete(&llm::Task::new(prompt).workdir(&project_dir).write())
+            .complete(&reproit_llm::Task::new(prompt).workdir(&project_dir).write())
             .await;
         match result {
             Ok(summary) => {

@@ -1,5 +1,5 @@
 [package]
-name = "llm"
+name = "reproit-llm"
 version = "1.0.0"
 edition = "2021"
 license.workspace = true

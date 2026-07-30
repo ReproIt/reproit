@@ -14,10 +14,6 @@ pub struct MessagesRequest {
     pub messages: Vec<MessageParam>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub tools: Vec<ToolDef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<Thinking>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,8 +29,6 @@ impl MessagesRequest {
             max_tokens,
             messages: Vec::new(),
             system: None,
-            tools: Vec::new(),
-            tool_choice: None,
             thinking: None,
             output_config: None,
             stream: None,
@@ -56,16 +50,6 @@ impl MessagesRequest {
             role: Role::User,
             content: Content::Text(text.into()),
         });
-        self
-    }
-
-    pub fn message(mut self, role: Role, content: Content) -> Self {
-        self.messages.push(MessageParam { role, content });
-        self
-    }
-
-    pub fn tools(mut self, tools: Vec<ToolDef>) -> Self {
-        self.tools = tools;
         self
     }
 
@@ -135,13 +119,6 @@ pub enum ContentBlock {
     Other(Value),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDef {
-    pub name: String,
-    pub description: String,
-    pub input_schema: Value,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Thinking {
@@ -179,18 +156,6 @@ impl MessagesResponse {
             }
         }
         out
-    }
-
-    pub fn tool_uses(&self) -> Vec<(&str, &str, &Value)> {
-        self.content
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::ToolUse { id, name, input } => {
-                    Some((id.as_str(), name.as_str(), input))
-                }
-                _ => None,
-            })
-            .collect()
     }
 
     /// Safety classifiers declined (HTTP 200 with stop_reason "refusal").

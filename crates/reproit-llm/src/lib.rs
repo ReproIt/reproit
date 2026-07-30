@@ -13,10 +13,8 @@
 //!     prod/CI
 //!   - openai-api  Chat Completions over raw HTTP, per-token (model required)
 
-// A self-contained Anthropic client (typed Messages API, retries, streaming,
-// tool loop). The `claude-api` provider drives only the streaming path today;
-// the rest is kept whole for a future agent provider. Exposed as the crate's
-// public API so the unused-but-intentional surface doesn't read as dead code.
+// A self-contained Anthropic client scoped to what the `claude-api` provider
+// drives: the streaming Messages API with retries.
 pub mod claude;
 mod providers;
 

@@ -144,8 +144,8 @@ pub struct LlmCfg {
 }
 
 impl LlmCfg {
-    pub fn to_spec(&self) -> llm::Spec {
-        llm::Spec {
+    pub fn to_spec(&self) -> reproit_llm::Spec {
+        reproit_llm::Spec {
             provider: self.provider.clone(),
             model: self.model.clone(),
             bin: self.bin.clone(),

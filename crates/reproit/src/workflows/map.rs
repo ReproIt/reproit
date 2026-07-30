@@ -82,7 +82,7 @@ async fn label_states(
     cfg: &Config,
     state_labels: &BTreeMap<String, Vec<String>>,
 ) -> Result<BTreeMap<String, String>> {
-    let provider = llm::from_spec(&cfg.llm.to_spec())?;
+    let provider = reproit_llm::from_spec(&cfg.llm.to_spec())?;
     let mut listing = String::new();
     for (sig, labels) in state_labels {
         listing.push_str(&format!("{sig}: {}\n", labels.join(" | ")));
@@ -93,7 +93,7 @@ async fn label_states(
          settings, ...). Reply with ONLY a JSON object mapping signature to name, no commentary, \
          no code fences.\n\n{listing}"
     );
-    let response = provider.complete(&llm::Task::new(prompt)).await?;
+    let response = provider.complete(&reproit_llm::Task::new(prompt)).await?;
     let json_str = response
         .find('{')
         // Guard the slice: an LLM reply could place `}` before its first `{`, and

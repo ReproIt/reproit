@@ -1707,20 +1707,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
-name = "llm"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "futures-util",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
-]
-
-[[package]]
 name = "local-waker"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2369,11 +2355,11 @@ dependencies = [
  "hmac",
  "image",
  "libc",
- "llm",
  "portable-pty",
  "prost-types",
  "protox",
  "regex",
+ "reproit-llm",
  "reproit-protocol",
  "reproit-recorder",
  "reproit-tui-sig",
@@ -2420,6 +2406,20 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+]
+
+[[package]]
+name = "reproit-llm"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
 ]
 
 [[package]]

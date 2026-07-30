@@ -1,8 +1,10 @@
 //! Thin internal Claude API client: the `claude-api` provider's wire layer.
 //!
 //! Scope rules (resist drift toward a general-purpose SDK):
-//!   - Only the surface reproit actually uses: Messages API, retries,
-//!     streaming, the tool loop.
+//!   - Only the surface reproit actually uses: the streaming Messages API.
+//!     The non-streaming call (with its retry loop) and the agentic tool
+//!     loop were removed when nothing drove them; recover them from history
+//!     if a future agent provider needs them.
 //!   - Types tolerate unknown content blocks (kept as raw JSON and echoed back
 //!     verbatim), so API additions and protected thinking blocks never break
 //!     us.
@@ -15,13 +17,11 @@
 
 mod client;
 mod error;
-mod runner;
 mod stream;
 mod types;
 
 pub use client::Client;
 pub use error::Error;
-pub use runner::{ToolOutcome, MAX_TOOL_ITERATIONS};
 pub use types::*;
 
 pub type Result<T> = std::result::Result<T, Error>;

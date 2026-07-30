@@ -20,7 +20,7 @@ required-features = ["perf-bench"]
 
 [dependencies]
 anyhow = { workspace = true }
-llm = { path = "../llm" }
+reproit-llm = { path = "../reproit-llm" }
 # A real Rust parser for the source reader. Route and type extraction used to be
 # regex over text, which cannot know what it failed to match: an unparsed route
 # and an absent one were indistinguishable, and that ambiguity was the source of

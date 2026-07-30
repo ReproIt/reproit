@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "reproit-llm-trim",
+  "changeType": "refactor",
+  "detail": "Deletes the llm crate surface nothing drives (the agentic tool loop, the non-streaming Messages call and its retry loop, the tool definition types) and renames the crate to reproit-llm to match the reproit-protocol naming and stop squatting a generic name. The live streaming provider path is unchanged; the full workspace suite passes 1045 tests.",
+  "evidence": [
+    {
+      "path": "crates/reproit-llm/src/lib.rs",
+      "sha256": "sha256:b6af8434188db4c245d534ff69d0c27d628bb0803956507dcb3532566024c1ad"
+    }
+  ]
+}

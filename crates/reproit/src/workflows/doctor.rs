@@ -480,7 +480,7 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
     );
 
     match &loaded {
-        Some(loaded) => match llm::from_spec(&loaded.config.llm.to_spec()) {
+        Some(loaded) => match reproit_llm::from_spec(&loaded.config.llm.to_spec()) {
             Ok(b) => match b.check().await {
                 Ok(()) => doctor_push(&mut checks, "llm", true, false, b.name(), None),
                 Err(e) => doctor_push(

@@ -128,7 +128,7 @@ fn collect_dart(dir: &Path, out: &mut Vec<PathBuf>) {
 /// simulator is the precision filter later), each tagged with evidence,
 /// confidence and a gap reason.
 async fn extract(cfg: &config::Config, source: &str) -> Result<CandidateMap> {
-    let provider = llm::from_spec(&cfg.llm.to_spec())?;
+    let provider = reproit_llm::from_spec(&cfg.llm.to_spec())?;
     let prompt = format!(
         "You are mapping a mobile app's SCREENS from its source. Read it through these lenses and \
          UNION the screens each finds (bias to recall: a wrong guess is cheap to refute, a missed \
@@ -144,7 +144,7 @@ async fn extract(cfg: &config::Config, source: &str) -> Result<CandidateMap> {
          single-user crawl might not reach it).\n\nReply with ONLY a JSON array of these objects: \
          no prose, no code fences.\n\nSOURCE:\n{source}"
     );
-    let response = provider.complete(&llm::Task::new(prompt)).await?;
+    let response = provider.complete(&reproit_llm::Task::new(prompt)).await?;
     let candidates = parse_candidates(&response)?;
     Ok(CandidateMap {
         app: String::new(),
