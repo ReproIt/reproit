@@ -35,9 +35,9 @@ An atomic target becomes Stable only when it has:
 
 Targets on the schema-3 promotion standard additionally require a clean
 corpus, an adversarial corpus, a clean installation of the distributed package,
-and a confirmed manual review. The four targets promoted before that standard
-existed are recorded as `schema-2` in the manifest; that set is frozen and can
-only shrink.
+and a confirmed manual review. Every target in the manifest is on schema-3;
+the grandfathered schema-2 set (`policy.grandfatheredStableTargets`) is empty
+and can only shrink, so no target can rejoin it.
 
 Families do not promote as a unit. Browsers, operating systems, desktop
 toolkits, mobile frameworks, and webview hosts qualify independently.
