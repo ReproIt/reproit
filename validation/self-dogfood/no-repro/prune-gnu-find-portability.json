@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "prune-gnu-find-portability",
+  "detail": "prune-target.sh paired -prune with -delete, which GNU findutils rejects (-delete implies -depth and disables -prune), so the prune exited 1 on every Linux runner while passing on BSD find. The failure is deterministic per find implementation, so the independent regression test running the prune in both modes is the stable reproduction authority; it must execute on GNU find to reproduce.",
+  "test": "scripts/test_prune_target.py",
+  "command": [
+    "python3",
+    "scripts/test_prune_target.py"
+  ],
+  "timeoutSeconds": 300,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/prune-gnu-find-portability.log",
+      "sha256": "sha256:99ce038ad4ea4fb18367b9c2cccf882472a19cc4dfea689e25412adf37069d24"
+    }
+  ]
+}

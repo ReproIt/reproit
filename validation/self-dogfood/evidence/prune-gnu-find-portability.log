@@ -1,0 +1,15 @@
+Affected: at fc4005f scripts/prune-target.sh pairs -prune with -delete in
+both find passes. GNU findutils makes -delete imply -depth, which disables
+-prune; find prints "The -delete action automatically turns on -depth, but
+-prune does nothing when -depth is in effect" and exits nonzero, so under
+set -e the prune aborts with exit 1 on every Linux runner. The protected
+subtrees were still protected (the -o short-circuit never reached -delete
+for matched paths), but the prune itself always failed, which is why the
+dogfood policy gate's fixed-test run exited 1 in CI run 30505584980 while
+the same test passed on macOS (BSD find accepts the pairing).
+
+Reproduction: scripts/test_prune_target.py runs the prune in both --dry-run
+and delete modes and requires exit 0 from each, alongside the existing
+survive/delete assertions. At fc4005f it exits 1 on GNU find (the delete
+pass aborts); with the fix (protected subtrees excluded via -not -path in
+place of -prune, portable across BSD and GNU) it exits 0 on both.

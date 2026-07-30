@@ -40,13 +40,17 @@ def main() -> int:
     for path in (OUT_FILE, FINGERPRINT, ARTIFACT):
         make_stale(path)
     try:
-        subprocess.run(
-            ["sh", str(ROOT / "scripts" / "prune-target.sh")],
-            cwd=ROOT,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            timeout=240,
-        )
+        # Both modes must exit 0 on BSD and GNU find alike: GNU's -delete
+        # implies -depth, which disables -prune and fails the run, so the
+        # script must not pair them (it broke on every Linux runner so).
+        for mode in (["--dry-run"], []):
+            subprocess.run(
+                ["sh", str(ROOT / "scripts" / "prune-target.sh"), *mode],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                timeout=240,
+            )
         failures = []
         if not OUT_FILE.exists():
             failures.append(f"{OUT_FILE} was pruned; OUT_DIRs must survive")

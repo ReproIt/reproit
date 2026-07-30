@@ -52,20 +52,24 @@ for candidate in target validation/backend/oss/target; do
     *) echo "refusing $candidate: resolves outside the repository" >&2; exit 1 ;;
   esac
 
+  # GNU find: -delete implies -depth, which silently disables -prune and
+  # exits nonzero, so the protected subtrees are excluded with -not -path
+  # (portable, and inert on neither BSD nor GNU) instead of pruned.
   before_kb="$(du -sk "$candidate" | cut -f1)"
   if [ "$dry_run" -eq 1 ]; then
     stale_kb="$(find "$candidate" \
-      -path '*/build/*' -prune -o -path '*/.fingerprint/*' -prune -o \
+      -not -path '*/build/*' -not -path '*/.fingerprint/*' \
       -type f -mtime +"$age_days" -print0 \
       | xargs -0 du -sk 2>/dev/null | awk '{s+=$1} END {print s+0}')"
     echo "$candidate: would free ${stale_kb}KB of files older than ${age_days}d"
     continue
   fi
   find "$candidate" \
-    -path '*/build/*' -prune -o -path '*/.fingerprint/*' -prune -o \
+    -not -path '*/build/*' -not -path '*/.fingerprint/*' \
     -type f -mtime +"$age_days" -delete
   find "$candidate" -mindepth 1 \
-    -path '*/build' -prune -o -path '*/.fingerprint' -prune -o \
+    -not -path '*/build' -not -path '*/build/*' \
+    -not -path '*/.fingerprint' -not -path '*/.fingerprint/*' \
     -type d -empty -delete
   after_kb="$(du -sk "$candidate" | cut -f1)"
   freed_kb=$((freed_kb + before_kb - after_kb))
