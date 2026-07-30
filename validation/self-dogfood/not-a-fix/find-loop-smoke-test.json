@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "find-loop-smoke-test",
+  "changeType": "feature",
+  "detail": "Phase 3 of the init overhaul: an integration smoke test pins the three-command loop (init, find, keep) plus check pass/fail on the ground-truth Express fixture, self-gated on node availability. Test coverage for new feature work, not a defect fix.",
+  "evidence": [
+    {
+      "path": "crates/reproit/tests/loop_smoke.rs",
+      "sha256": "sha256:321bf1bf05f0d4687c8afec20f69ac17f6c0b72ae7b90e077b9181ec4ff0ff0d"
+    }
+  ]
+}
