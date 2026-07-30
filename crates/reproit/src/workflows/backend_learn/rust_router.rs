@@ -48,6 +48,14 @@ pub(super) struct Crate {
     pub(super) attribute_routes: Vec<Route>,
     /// handler -> the value guards its body enforces.
     pub(super) handler_guards: BTreeMap<String, Guards>,
+    /// handler -> the response statuses and bodies its code states, with the
+    /// bare names that stated conflicting facts.
+    pub(super) handler_responses: BTreeMap<String, super::response_facts::ResponseFact>,
+    pub(super) responses_ambiguous: BTreeSet<String>,
+    /// bare serializer type name -> its wire fields, with the names declared
+    /// differently in two modules (which resolve to neither).
+    pub(super) serializers: super::response_facts::Serializers,
+    pub(super) serializers_ambiguous: BTreeSet<String>,
 }
 
 /// The routes a named function evaluates to, guarding against recursion.

@@ -73,7 +73,12 @@ pub(super) fn collect_struct(node: Node, text: &str, structs: &mut Structs) {
         collect_wire_field(declaration, text, field_name, json.as_deref(), &mut wire);
     }
     if !facts.is_empty() {
-        record(&mut structs.facts, &mut structs.facts_ambiguous, name.clone(), facts);
+        record(
+            &mut structs.facts,
+            &mut structs.facts_ambiguous,
+            name.clone(),
+            facts,
+        );
     }
     if !wire.is_empty() && !embedded {
         record(&mut structs.wire, &mut structs.wire_ambiguous, name, wire);
@@ -101,7 +106,10 @@ fn collect_wire_field(
             if name == "-" && !json.contains(',') {
                 return;
             }
-            (name.to_string(), json.split(',').any(|opt| opt == "omitempty"))
+            (
+                name.to_string(),
+                json.split(',').any(|opt| opt == "omitempty"),
+            )
         }
         None => (field_name.clone(), false),
     };
@@ -154,8 +162,8 @@ pub(super) fn shape_of(ty: &str) -> WireShape {
         "interface{}" | "any" | "json.RawMessage" => WireShape::Unknown,
         named => {
             let bare = named.rsplit('.').next().unwrap_or(named);
-            let identifier = !bare.is_empty()
-                && bare.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let identifier =
+                !bare.is_empty() && bare.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
             if identifier {
                 WireShape::Named(bare.to_string())
             } else {

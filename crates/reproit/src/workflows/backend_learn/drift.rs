@@ -557,6 +557,8 @@ mod tests {
             unreadable: 0,
             unscanned: 0,
             bodies: BTreeMap::new(),
+            responses: BTreeMap::new(),
+            serializers: BTreeMap::new(),
         }
     }
 

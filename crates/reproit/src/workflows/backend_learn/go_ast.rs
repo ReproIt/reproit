@@ -11,8 +11,10 @@
 //! only sound to follow when the binding is visible.
 
 use super::extract::Family;
-use super::field_facts::{drop_ambiguous, record, FieldFact};
-use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::field_facts::drop_ambiguous;
+use super::go_types;
+use super::grammar::{self, SourceRead};
+use super::response_facts::ResponseFact;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::Node;
@@ -33,10 +35,11 @@ const OPAQUE: &str = "\u{1}opaque";
 
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
-    let mut structs: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
-    let mut ambiguous: BTreeSet<String> = BTreeSet::new();
+    let mut structs = go_types::Structs::default();
     // handler fn -> the struct it binds its request body into.
     let mut handler_body: BTreeMap<String, String> = BTreeMap::new();
+    // handler fn -> the response statuses and bodies its code states.
+    let mut handler_responses: BTreeMap<String, ResponseFact> = BTreeMap::new();
     // Router builders and mount sites are collected independently, then joined
     // after every file is read. chi commonly declares a receiver method in one
     // file and mounts it from main.go.
@@ -49,9 +52,16 @@ pub(super) fn read(root: &Path) -> SourceRead {
         tree_sitter_go::LANGUAGE.into(),
         &mut source,
         |root_node, text, path| {
+            let file_vars = go_types::package_vars(root_node, text);
             grammar::walk(root_node, &mut |node| match node.kind() {
-                "type_spec" => collect_struct(node, text, &mut structs, &mut ambiguous),
-                "function_declaration" => collect_handler(node, text, &mut handler_body),
+                "type_spec" => go_types::collect_struct(node, text, &mut structs),
+                "function_declaration" | "method_declaration" => go_types::collect_handler(
+                    node,
+                    text,
+                    &file_vars,
+                    &mut handler_body,
+                    &mut handler_responses,
+                ),
                 _ => {}
             });
 
@@ -117,7 +127,8 @@ pub(super) fn read(root: &Path) -> SourceRead {
             }
         },
     );
-    drop_ambiguous(&mut structs, &ambiguous);
+    drop_ambiguous(&mut structs.facts, &structs.facts_ambiguous);
+    drop_ambiguous(&mut structs.wire, &structs.wire_ambiguous);
 
     for (builder, path, method, handler) in built {
         let prefixes = mounts
@@ -133,14 +144,18 @@ pub(super) fn read(root: &Path) -> SourceRead {
             if let Some(handler) = &handler {
                 if let Some(fields) = handler_body
                     .get(handler)
-                    .and_then(|name| structs.get(name))
+                    .and_then(|name| structs.facts.get(name))
                     .cloned()
                 {
                     source.bodies.insert(handler.clone(), fields);
                 }
+                if let Some(fact) = handler_responses.get(handler) {
+                    source.responses.insert(handler.clone(), fact.clone());
+                }
             }
         }
     }
+    source.serializers = structs.wire;
     source
 }
 
@@ -164,157 +179,6 @@ fn resolve_prefix(groups: &Groups, router: &str) -> Option<String> {
         parent = outer.clone();
     }
     Some(prefix)
-}
-
-/// `type BlockRequest struct { ... }` with its json/binding tags.
-fn collect_struct(
-    node: Node,
-    text: &str,
-    structs: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
-    ambiguous: &mut BTreeSet<String>,
-) {
-    let Some(name) = grammar::field(node, text, "name") else {
-        return;
-    };
-    let Some(body) = node
-        .child_by_field_name("type")
-        .filter(|ty| ty.kind() == "struct_type")
-        .and_then(|ty| grammar::find(ty, "field_declaration_list"))
-    else {
-        return;
-    };
-    let mut fields = BTreeMap::new();
-    let mut declarations = Vec::new();
-    grammar::children(body, &mut declarations);
-    for declaration in declarations.into_iter().take(MAX_FIELDS) {
-        if declaration.kind() != "field_declaration" {
-            continue;
-        }
-        let Some(tag) = declaration
-            .child_by_field_name("tag")
-            .map(|tag| grammar::text(tag, text).trim_matches('`').to_string())
-        else {
-            continue;
-        };
-        let Some(json) = tag_value(&tag, "json") else {
-            continue;
-        };
-        let json = json.split(',').next().unwrap_or(&json).to_string();
-        if json.is_empty() || json == "-" {
-            continue;
-        }
-        let rules = tag_value(&tag, "binding")
-            .or_else(|| tag_value(&tag, "validate"))
-            .unwrap_or_default();
-        fields.insert(json, fact(&rules));
-    }
-    if !fields.is_empty() {
-        record(structs, ambiguous, name, fields);
-    }
-}
-
-/// One key of a struct tag: `json:"blocked_id" binding:"required"`.
-fn tag_value(tag: &str, key: &str) -> Option<String> {
-    let at = tag.find(&format!("{key}:\""))? + key.len() + 2;
-    let rest = &tag[at..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-/// A `binding` / `validate` rule list: `required,oneof=user sponsor,min=-1`.
-fn fact(rules: &str) -> FieldFact {
-    let mut allowed = None;
-    let mut low = None;
-    let mut high = None;
-    let mut required = false;
-    for rule in rules.split(',') {
-        let rule = rule.trim();
-        if rule == "required" {
-            required = true;
-        } else if let Some(values) = rule.strip_prefix("oneof=") {
-            let values: Vec<String> = values.split_whitespace().map(str::to_string).collect();
-            if values.len() > 1 {
-                allowed = Some(values);
-            }
-        } else if let Some(value) = rule.strip_prefix("min=") {
-            low = grammar::number(value);
-        } else if let Some(value) = rule.strip_prefix("max=") {
-            high = grammar::number(value);
-        } else if let Some(value) = rule.strip_prefix("gte=") {
-            low = grammar::number(value);
-        } else if let Some(value) = rule.strip_prefix("lte=") {
-            high = grammar::number(value);
-        }
-    }
-    // `min=-1,max=1` on the SAME rule list is one range, and the grammar splits
-    // the rules but not the pairing, so the two bounds compose here.
-    let range = (low.is_some() || high.is_some()).then_some((low, high));
-    FieldFact {
-        required,
-        evidence: match (&allowed, &range) {
-            (Some(_), _) => Some("a struct tag `oneof` rule".to_string()),
-            (_, Some(_)) => Some("a struct tag min/max rule".to_string()),
-            _ => None,
-        },
-        allowed,
-        range,
-    }
-}
-
-/// `func createBlock(c *gin.Context) { var body BlockRequest; c.ShouldBindJSON(&body) }`
-///
-/// The bind call names a LOCAL, so the request type is whatever that local was
-/// declared as. Reading the declaration is the whole reason to be on a parse.
-fn collect_handler(node: Node, text: &str, handler_body: &mut BTreeMap<String, String>) {
-    let Some(name) = grammar::field(node, text, "name") else {
-        return;
-    };
-    let Some(body) = node.child_by_field_name("body") else {
-        return;
-    };
-    let mut locals: BTreeMap<String, String> = BTreeMap::new();
-    let mut bound: Option<String> = None;
-    grammar::walk(body, &mut |inner| match inner.kind() {
-        "var_spec" => {
-            if let (Some(local), Some(ty)) = (
-                grammar::field(inner, text, "name"),
-                grammar::field(inner, text, "type"),
-            ) {
-                locals.insert(local, ty);
-            }
-        }
-        "call_expression" => {
-            let callee = inner
-                .child_by_field_name("function")
-                .and_then(|f| grammar::field(f, text, "field"))
-                .unwrap_or_default();
-            if !matches!(
-                callee.as_str(),
-                "ShouldBindJSON" | "BindJSON" | "Bind" | "ShouldBind" | "BodyParser" | "Decode"
-            ) {
-                return;
-            }
-            if let Some(arguments) = inner.child_by_field_name("arguments") {
-                let mut args = Vec::new();
-                grammar::children(arguments, &mut args);
-                if let Some(first) = args.first() {
-                    let named = grammar::text(*first, text)
-                        .trim_start_matches('&')
-                        .to_string();
-                    // A composite literal binds its own type: `&BlockRequest{}`.
-                    let ty = locals
-                        .get(&named)
-                        .cloned()
-                        .or_else(|| named.split('{').next().map(str::to_string));
-                    bound = ty.filter(|ty| !ty.is_empty());
-                }
-            }
-        }
-        _ => {}
-    });
-    if let Some(ty) = bound {
-        handler_body.insert(name, ty);
-    }
 }
 
 /// `v1 := r.Group("/v1")`. The parent router is recorded with the prefix so a
@@ -700,6 +564,202 @@ func main() {
         assert_eq!(fields["rating"].range, Some((Some(-1.0), Some(1.0))));
         assert!(fields["blocked_id"].required);
         assert!(!fields["note"].required, "no binding rule is not required");
+    }
+
+    #[test]
+    fn a_gin_handler_states_its_response_statuses_and_typed_bodies() {
+        use super::super::response_facts::WireShape;
+        let source = read_source(
+            "gin_responses",
+            &[(
+                "main.go",
+                "package main\n\
+                 type Item struct {\n\
+                 \tID    string  `json:\"id\"`\n\
+                 \tPrice float64 `json:\"price\"`\n\
+                 \tNote  *string `json:\"note,omitempty\"`\n\
+                 \tcost  int\n\
+                 }\n\
+                 func listItems(c *gin.Context) {\n\
+                 \titems := []Item{}\n\
+                 \tc.JSON(http.StatusOK, items)\n\
+                 }\n\
+                 func createItem(c *gin.Context) {\n\
+                 \tvar body Item\n\
+                 \tif err := c.ShouldBindJSON(&body); err != nil {\n\
+                 \t\tc.JSON(400, gin.H{\"error\": \"bad\"})\n\
+                 \t\treturn\n\
+                 \t}\n\
+                 \tc.JSON(http.StatusCreated, body)\n\
+                 }\n\
+                 func main() {\n\
+                 \tr := gin.Default()\n\
+                 \tr.GET(\"/items\", listItems)\n\
+                 \tr.POST(\"/items\", createItem)\n\
+                 }\n",
+            )],
+        );
+        let list = source.responses.get("listItems").expect("stated");
+        assert_eq!(
+            list.statuses[&200],
+            WireShape::Array(Box::new(WireShape::Named("Item".into())))
+        );
+        let create = source.responses.get("createItem").expect("stated");
+        assert_eq!(create.statuses[&201], WireShape::Named("Item".into()));
+        assert_eq!(create.statuses[&400], WireShape::Object, "gin.H is a map");
+        let item = source.serializers.get("Item").expect("collected");
+        assert_eq!(item["id"].shape, WireShape::Primitive("string"));
+        assert!(item["id"].required);
+        assert_eq!(item["price"].shape, WireShape::Primitive("number"));
+        assert!(!item["note"].required, "omitempty is not required");
+        assert_eq!(
+            item["note"].shape,
+            WireShape::Primitive("string"),
+            "an omitempty pointer states its pointee's type when present"
+        );
+        assert!(
+            !item.contains_key("cost"),
+            "an unexported field never serializes: {:?}",
+            item.keys()
+        );
+    }
+
+    #[test]
+    fn a_net_http_handler_pairs_write_header_with_encode() {
+        use super::super::response_facts::WireShape;
+        let source = read_source(
+            "nethttp_responses",
+            &[(
+                "main.go",
+                "package main\n\
+                 type Health struct {\n\tOK bool `json:\"ok\"`\n}\n\
+                 var all []Health\n\
+                 func health(w http.ResponseWriter, r *http.Request) {\n\
+                 \tjson.NewEncoder(w).Encode(Health{OK: true})\n\
+                 }\n\
+                 func listAll(w http.ResponseWriter, r *http.Request) {\n\
+                 \tjson.NewEncoder(w).Encode(all)\n\
+                 }\n\
+                 func missing(w http.ResponseWriter, r *http.Request) {\n\
+                 \thttp.Error(w, \"gone\", http.StatusNotFound)\n\
+                 }\n\
+                 func created(w http.ResponseWriter, r *http.Request) {\n\
+                 \tw.WriteHeader(http.StatusCreated)\n\
+                 \tjson.NewEncoder(w).Encode(Health{OK: true})\n\
+                 }\n\
+                 func main() {\n\
+                 \tmux.HandleFunc(\"GET /healthz\", health)\n\
+                 \tmux.HandleFunc(\"GET /missing\", missing)\n\
+                 \tmux.HandleFunc(\"POST /created\", created)\n\
+                 \tmux.HandleFunc(\"GET /all\", listAll)\n\
+                 }\n",
+            )],
+        );
+        let health = source.responses.get("health").expect("stated");
+        assert_eq!(
+            health.statuses[&200],
+            WireShape::Named("Health".into()),
+            "an Encode with no WriteHeader is net/http's implicit 200"
+        );
+        let listed = source.responses.get("listAll").expect("stated");
+        assert_eq!(
+            listed.statuses[&200],
+            WireShape::Array(Box::new(WireShape::Named("Health".into()))),
+            "a package-level var's type reaches the handler that serves it"
+        );
+        let missing = source.responses.get("missing").expect("stated");
+        assert_eq!(missing.statuses[&404], WireShape::Unknown);
+        let created = source.responses.get("created").expect("stated");
+        assert_eq!(created.statuses[&201], WireShape::Named("Health".into()));
+        assert!(
+            !created.statuses.contains_key(&200),
+            "the pending WriteHeader status claims the Encode: {:?}",
+            created.statuses
+        );
+    }
+
+    #[test]
+    fn an_unreadable_status_or_body_states_nothing_rather_than_a_guess() {
+        use super::super::response_facts::WireShape;
+        let source = read_source(
+            "opaque_responses",
+            &[(
+                "main.go",
+                "package main\n\
+                 func opaque(c *gin.Context) {\n\
+                 \tc.JSON(statusFor(x), buildResponse())\n\
+                 }\n\
+                 func fetched(c *gin.Context) {\n\
+                 \tresp := fetch()\n\
+                 \tc.JSON(200, resp)\n\
+                 }\n\
+                 func main() {\n\
+                 \tr.GET(\"/opaque\", opaque)\n\
+                 \tr.GET(\"/fetched\", fetched)\n\
+                 }\n",
+            )],
+        );
+        assert!(
+            !source.responses.contains_key("opaque"),
+            "a computed status is not a stated one: {:?}",
+            source.responses
+        );
+        let fetched = source.responses.get("fetched").expect("status is stated");
+        assert_eq!(
+            fetched.statuses[&200],
+            WireShape::Unknown,
+            "an untyped local states no body shape"
+        );
+    }
+
+    #[test]
+    fn a_fiber_chained_status_claims_its_json_body() {
+        use super::super::response_facts::WireShape;
+        let source = read_source(
+            "fiber_responses",
+            &[(
+                "main.go",
+                "package main\n\
+                 type Todo struct {\n\tName string `json:\"name\"`\n}\n\
+                 func addTodo(c *fiber.Ctx) error {\n\
+                 \treturn c.Status(201).JSON(Todo{Name: \"x\"})\n\
+                 }\n\
+                 func listTodos(c *fiber.Ctx) error {\n\
+                 \treturn c.JSON([]Todo{})\n\
+                 }\n\
+                 func main() {\n\
+                 \tapp.Post(\"/todos\", addTodo)\n\
+                 \tapp.Get(\"/todos\", listTodos)\n\
+                 }\n",
+            )],
+        );
+        let add = source.responses.get("addTodo").expect("stated");
+        assert_eq!(add.statuses[&201], WireShape::Named("Todo".into()));
+        let list = source.responses.get("listTodos").expect("stated");
+        assert_eq!(
+            list.statuses[&200],
+            WireShape::Array(Box::new(WireShape::Named("Todo".into()))),
+            "an unchained fiber JSON is a 200"
+        );
+    }
+
+    #[test]
+    fn an_embedded_field_makes_the_serializer_abstain() {
+        let source = read_source(
+            "embedded",
+            &[(
+                "main.go",
+                "package main\n\
+                 type Base struct {\n\tID string `json:\"id\"`\n}\n\
+                 type Item struct {\n\tBase\n\tName string `json:\"name\"`\n}\n",
+            )],
+        );
+        assert!(
+            !source.serializers.contains_key("Item"),
+            "promoted fields cannot be enumerated here: {:?}",
+            source.serializers.keys()
+        );
+        assert!(source.serializers.contains_key("Base"));
     }
 
     #[test]

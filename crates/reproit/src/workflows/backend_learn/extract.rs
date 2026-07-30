@@ -99,6 +99,10 @@ pub(crate) struct Derived {
     pub(super) unscanned: usize,
     /// handler -> request body fields, where the family has a parser for them.
     pub(super) bodies: BTreeMap<String, BTreeMap<String, super::field_facts::FieldFact>>,
+    /// handler -> the response statuses and body shapes its code states.
+    pub(super) responses: BTreeMap<String, super::response_facts::ResponseFact>,
+    /// Serializer types the responses resolve named bodies against.
+    pub(super) serializers: super::response_facts::Serializers,
 }
 
 impl Derived {
@@ -177,6 +181,8 @@ pub(super) fn derive(root: &Path, framework: &str) -> Option<Derived> {
                 unreadable: parsed.files_unparsed,
                 unscanned: skipped_by_limit(root, Family::Rust),
                 bodies: parsed.bodies,
+                responses: parsed.responses,
+                serializers: parsed.serializers,
             });
         }
     };
@@ -191,6 +197,8 @@ fn from_parse(parsed: SourceRead) -> Derived {
         files_scanned: parsed.files_parsed,
         unreadable: parsed.files_unreadable,
         bodies: parsed.bodies,
+        responses: parsed.responses,
+        serializers: parsed.serializers,
         ..Derived::default()
     };
     for (raw, method, handler) in parsed.routes {

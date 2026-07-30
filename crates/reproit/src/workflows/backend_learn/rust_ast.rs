@@ -14,9 +14,11 @@
 //! Types are qualified by module path, so two modules declaring the same name
 //! are two types instead of one silently overwriting the other.
 
-use super::field_facts::FieldFact;
+use super::field_facts::{drop_ambiguous, record, FieldFact};
 use super::rust_router::{attribute_route, routes_of_fn, Crate, Route, MAX_ROUTES};
-use super::rust_types::{json_body_type, struct_fields, unit_variants, Guards};
+use super::rust_types::{
+    json_body_type, response_of, struct_fields, unit_variants, wire_fields, Guards,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use syn::Item;
@@ -29,6 +31,10 @@ pub(super) struct RustSource {
     pub(super) handlers: BTreeMap<(String, String), String>,
     /// handler -> request body fields.
     pub(super) bodies: BTreeMap<String, BTreeMap<String, FieldFact>>,
+    /// handler -> the response statuses and body shapes its code states.
+    pub(super) responses: BTreeMap<String, super::response_facts::ResponseFact>,
+    /// Serializer types the responses resolve named bodies against.
+    pub(super) serializers: super::response_facts::Serializers,
     pub(super) files_parsed: usize,
     /// Files `syn` could not parse. Non-zero means the reader has a blind spot
     /// and any absence it reports is unreliable, which the caller must say.
@@ -125,7 +131,15 @@ fn collect(items: &[Item], module: &str, krate: &mut Crate) {
                     krate.handler_body.insert(name.clone(), body);
                     let mut guards = Guards::default();
                     syn::visit::Visit::visit_block(&mut guards, &function.block);
-                    krate.handler_guards.insert(name, guards);
+                    krate.handler_guards.insert(name.clone(), guards);
+                }
+                if let Some(fact) = response_of(function) {
+                    record(
+                        &mut krate.handler_responses,
+                        &mut krate.responses_ambiguous,
+                        name,
+                        fact,
+                    );
                 }
             }
             Item::Struct(item) => {
@@ -138,6 +152,14 @@ fn collect(items: &[Item], module: &str, krate: &mut Crate) {
                         .or_default()
                         .insert(fingerprint(&fields));
                     krate.structs.insert(qualified, fields);
+                }
+                if let Some(wire) = wire_fields(item) {
+                    record(
+                        &mut krate.serializers,
+                        &mut krate.serializers_ambiguous,
+                        item.ident.to_string(),
+                        wire,
+                    );
                 }
             }
             Item::Enum(item) => {
@@ -264,6 +286,14 @@ fn resolve(krate: &Crate, source: &mut RustSource) {
         }
         source.bodies.insert(handler.clone(), fields);
     }
+    // Responses and serializers, ambiguity dropped: a handler or type name
+    // declared differently in two modules states no single fact.
+    let mut responses = krate.handler_responses.clone();
+    drop_ambiguous(&mut responses, &krate.responses_ambiguous);
+    source.responses = responses;
+    let mut serializers = krate.serializers.clone();
+    drop_ambiguous(&mut serializers, &krate.serializers_ambiguous);
+    source.serializers = serializers;
 }
 
 #[cfg(test)]

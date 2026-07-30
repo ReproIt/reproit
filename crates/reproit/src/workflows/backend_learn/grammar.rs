@@ -13,6 +13,7 @@
 
 use super::extract::Family;
 use super::field_facts::FieldFact;
+use super::response_facts::{ResponseFact, Serializers};
 use std::collections::BTreeMap;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -28,6 +29,10 @@ pub(super) struct SourceRead {
     pub(super) routes: Vec<(String, &'static str, Option<String>)>,
     /// handler -> the request body fields it accepts.
     pub(super) bodies: BTreeMap<String, BTreeMap<String, FieldFact>>,
+    /// handler -> the response statuses and bodies its code states.
+    pub(super) responses: BTreeMap<String, ResponseFact>,
+    /// Serializer types the responses resolve named bodies against.
+    pub(super) serializers: Serializers,
     pub(super) files_parsed: usize,
     /// Files the grammar could not read. Non-zero means the reader has a blind
     /// spot, and any absence over these sources is not evidence of anything.
