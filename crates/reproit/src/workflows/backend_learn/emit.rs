@@ -7,6 +7,7 @@
 use super::enrich::Observation;
 use super::extract::{path_params, Derived, METHODS};
 use super::probe_plan::{PlannedProbe, ProbePlan};
+use super::response_facts::{ResponseFact, Serializers, WireShape};
 use anyhow::{ensure, Result};
 use std::collections::BTreeMap;
 
@@ -107,14 +108,162 @@ fn render(
             if matches!(*method, "post" | "put" | "patch") {
                 push_request_body(&mut out, derived, method, path);
             }
-            if let Some(observed) = observations.get(&key) {
-                push_observed(&mut out, observed, plan.probe_for(method, path));
-            } else if let Some(reason) = plan.skip_reason(method, path) {
-                out.push_str(&format!("      # not probed during init: {reason}\n"));
+            let observed = observations.get(&key);
+            if observed.is_none() {
+                if let Some(reason) = plan.skip_reason(method, path) {
+                    out.push_str(&format!("      # not probed during init: {reason}\n"));
+                }
             }
+            let inferred = derived
+                .handlers
+                .get(&(method.to_uppercase(), path.clone()))
+                .and_then(|handler| derived.responses.get(handler).map(|fact| (handler, fact)));
+            push_responses(
+                &mut out,
+                inferred,
+                observed,
+                plan.probe_for(method, path),
+                &derived.serializers,
+            );
         }
     }
     out
+}
+
+/// The responses block for one operation, from either or both sources of
+/// evidence: statuses and body shapes INFERRED from the handler's source
+/// (typed languages), and the response OBSERVED once by the live probe. Each
+/// entry carries its own provenance, comment and marker; where both speak
+/// about one status, the inferred types carry the schema and the comment
+/// records both.
+fn push_responses(
+    out: &mut String,
+    inferred: Option<(&String, &ResponseFact)>,
+    observed: Option<&Observation>,
+    probe: Option<&PlannedProbe>,
+    serializers: &Serializers,
+) {
+    let mut statuses: Vec<u16> = inferred
+        .map(|(_, fact)| fact.statuses.keys().copied().collect())
+        .unwrap_or_default();
+    if let Some(observation) = observed {
+        if !statuses.contains(&observation.status) {
+            statuses.push(observation.status);
+            statuses.sort_unstable();
+        }
+    }
+    if statuses.is_empty() {
+        return;
+    }
+    // The observation comment states what was SENT as well as what was seen,
+    // so it sits above the block exactly as the observed-only draft wrote it.
+    if let Some(observation) = observed {
+        push_observed_comment(out, observation, probe);
+    }
+    out.push_str("      responses:\n");
+    for status in statuses {
+        let stated = inferred
+            .and_then(|(handler, fact)| fact.statuses.get(&status).map(|shape| (handler, shape)));
+        let seen = observed.filter(|observation| observation.status == status);
+        match (stated, seen) {
+            (Some((handler, shape)), seen) => {
+                let also = if seen.is_some() {
+                    "; also observed live during init"
+                } else {
+                    ""
+                };
+                out.push_str(&format!(
+                    "        # inferred from `{handler}` return types in source{also}\n"
+                ));
+                out.push_str(&format!(
+                    "        \"{status}\":\n          description: inferred from the \
+                     handler's return types; verify before relying on it\n          \
+                     x-reproit-provenance: {}\n",
+                    Provenance::Inferred.as_str()
+                ));
+                push_inferred_body(out, shape, serializers);
+            }
+            (None, Some(observation)) => {
+                out.push_str(&format!(
+                    "        \"{status}\":\n          description: observed once by the \
+                     init live probe; verify before relying on it\n          \
+                     x-reproit-provenance: {}\n",
+                    Provenance::Observed.as_str()
+                ));
+                if let Some(shape) = &observation.body {
+                    out.push_str(
+                        "          content:\n            application/json:\n              \
+                         schema:\n",
+                    );
+                    push_shape(out, shape, 16, 0);
+                }
+            }
+            (None, None) => {}
+        }
+    }
+}
+
+/// The content block for an inferred response body. An unknown shape states no
+/// content at all: the handler writes SOMETHING there, but the types do not
+/// say what, and an empty schema would read as a claim.
+fn push_inferred_body(out: &mut String, shape: &WireShape, serializers: &Serializers) {
+    if *shape == WireShape::Unknown {
+        return;
+    }
+    out.push_str("          content:\n            application/json:\n              schema:\n");
+    push_wire_shape(out, shape, serializers, 16, 0);
+}
+
+/// Render a wire shape as a schema. Named types resolve against the collected
+/// serializers; a name with no surviving declaration claims nothing. Depth is
+/// bounded, which also bounds self-referential types.
+fn push_wire_shape(
+    out: &mut String,
+    shape: &WireShape,
+    serializers: &Serializers,
+    indent: usize,
+    depth: usize,
+) {
+    let pad = " ".repeat(indent);
+    match shape {
+        WireShape::Primitive(name) => out.push_str(&format!("{pad}type: {name}\n")),
+        WireShape::Object => out.push_str(&format!("{pad}type: object\n")),
+        WireShape::Array(items) => {
+            out.push_str(&format!("{pad}type: array\n"));
+            if depth < SHAPE_MAX_DEPTH && **items != WireShape::Unknown {
+                out.push_str(&format!("{pad}items:\n"));
+                push_wire_shape(out, items, serializers, indent + 2, depth + 1);
+            }
+        }
+        WireShape::Named(name) => match serializers.get(name) {
+            Some(fields) if depth < SHAPE_MAX_DEPTH => {
+                out.push_str(&format!("{pad}type: object\n"));
+                out.push_str(&format!("{pad}properties:\n"));
+                for (field, wire) in fields.iter().take(SHAPE_MAX_PROPERTIES) {
+                    out.push_str(&format!("{pad}  {}:\n", quote(field)));
+                    push_wire_shape(out, &wire.shape, serializers, indent + 4, depth + 1);
+                }
+                // Required stays within the emitted property window: a field
+                // the width bound dropped must not be demanded by name.
+                let required: Vec<&String> = fields
+                    .iter()
+                    .take(SHAPE_MAX_PROPERTIES)
+                    .filter(|(_, wire)| wire.required)
+                    .map(|(field, _)| field)
+                    .collect();
+                if !required.is_empty() {
+                    out.push_str(&format!("{pad}required:\n"));
+                    for field in required {
+                        out.push_str(&format!("{pad}  - {}\n", quote(field)));
+                    }
+                }
+            }
+            // The name did not survive collection (undeclared here, or two
+            // conflicting declarations): claim nothing rather than guess.
+            _ => out.push_str(&format!("{pad}{{}}\n")),
+        },
+        WireShape::Unknown => out.push_str(&format!("{pad}{{}}\n")),
+    }
 }
 
 /// The request body for a mutating route: a bare object unless the source
@@ -152,10 +301,10 @@ fn push_request_body(out: &mut String, derived: &Derived, method: &str, path: &s
     }
 }
 
-/// The observed-response block for one probed route: a comment stating what
-/// was sent and seen (synthesized params and body, status, adapter effects),
-/// and the response entry itself, marked `observed`.
-fn push_observed(out: &mut String, observed: &Observation, probe: Option<&PlannedProbe>) {
+/// The comment above an observed responses block: what was sent (synthesized
+/// params and body) and what was seen (status, adapter effects). The response
+/// entry itself is written by `push_responses`, marked `observed`.
+fn push_observed_comment(out: &mut String, observed: &Observation, probe: Option<&PlannedProbe>) {
     let mut sent = String::new();
     if let Some(probe) = probe {
         if !probe.params.is_empty() {
@@ -181,16 +330,6 @@ fn push_observed(out: &mut String, observed: &Observation, probe: Option<&Planne
         "      # observed live during init: HTTP {}{sent}{effects}\n",
         observed.status
     ));
-    out.push_str(&format!(
-        "      responses:\n        \"{}\":\n          description: observed once by the \
-         init live probe; verify before relying on it\n          x-reproit-provenance: {}\n",
-        observed.status,
-        Provenance::Observed.as_str()
-    ));
-    if let Some(shape) = &observed.body {
-        out.push_str("          content:\n            application/json:\n              schema:\n");
-        push_shape(out, shape, 16, 0);
-    }
 }
 
 /// Types-only JSON shape, depth- and width-bounded. `indent` is the column of
@@ -252,4 +391,172 @@ fn operation_id(method: &str, path: &str) -> String {
 /// JSON string quoting is valid YAML and handles every special character.
 fn quote(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| format!("{value:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflows::backend_learn::response_facts::WireField;
+    use std::collections::BTreeSet;
+
+    /// One GET /items served by `listItems`, whose code states a 200 carrying
+    /// an array of Item, plus the Item serializer's typed fields.
+    fn derived_with_responses() -> Derived {
+        let mut derived = Derived::default();
+        derived
+            .routes
+            .insert("/items".into(), BTreeSet::from(["get"]));
+        derived
+            .handlers
+            .insert(("GET".into(), "/items".into()), "listItems".into());
+        let mut fact = ResponseFact::default();
+        fact.state(
+            200,
+            WireShape::Array(Box::new(WireShape::Named("Item".into()))),
+        );
+        derived.responses.insert("listItems".into(), fact);
+        let item = BTreeMap::from([
+            (
+                "id".to_string(),
+                WireField {
+                    shape: WireShape::Primitive("string"),
+                    required: true,
+                },
+            ),
+            (
+                "price".to_string(),
+                WireField {
+                    shape: WireShape::Primitive("number"),
+                    required: true,
+                },
+            ),
+            (
+                "note".to_string(),
+                WireField {
+                    shape: WireShape::Primitive("string"),
+                    required: false,
+                },
+            ),
+        ]);
+        derived.serializers.insert("Item".into(), item);
+        derived
+    }
+
+    #[test]
+    fn an_inferred_response_contract_lands_in_the_draft_with_its_provenance() {
+        // The typed-language track: what a reader inferred becomes a
+        // responses block the importer enforces, every entry marked inferred,
+        // statuses outside the source never claimed.
+        let derived = derived_with_responses();
+        let yaml = draft_yaml(
+            "fixture",
+            "gin",
+            &derived,
+            &ProbePlan::default(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(
+            yaml.contains("# inferred from `listItems` return types in source"),
+            "{yaml}"
+        );
+        assert!(yaml.contains("\"200\":"), "{yaml}");
+        assert!(yaml.contains("type: array"), "{yaml}");
+        assert!(
+            yaml.matches("x-reproit-provenance: inferred").count() >= 2,
+            "the operation and its response entry both carry the mark: {yaml}"
+        );
+        assert!(
+            yaml.contains("\"note\":") && !yaml.contains("- \"note\""),
+            "an optional field is stated but never demanded: {yaml}"
+        );
+        let document: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+        let operations = crate::domain::backend::import_service_schema(&document);
+        assert_eq!(operations.len(), 1);
+        let operation = &operations[0];
+        assert_eq!(operation.success_statuses, vec![200]);
+        let output = operation.outputs_by_status.get(&200).expect("enforced");
+        // The importer reads the inferred schema as a real output domain: a
+        // nil Go slice serialized as `null` violates it, which is the
+        // planted-bug class this contract exists to catch.
+        assert!(
+            output
+                .mismatch(&serde_json::Value::Null, "$output")
+                .is_some(),
+            "a null body must violate the inferred array contract"
+        );
+        assert!(
+            output.mismatch(&serde_json::json!([]), "$output").is_none(),
+            "an empty array satisfies it"
+        );
+        assert!(
+            output
+                .mismatch(&serde_json::json!([{"id": "a", "price": "9"}]), "$output")
+                .is_some(),
+            "a string price must violate the inferred field type"
+        );
+        assert!(
+            output
+                .mismatch(&serde_json::json!([{"id": "a", "price": 9.5}]), "$output")
+                .is_none(),
+            "the typed happy path satisfies it, `note` omitted"
+        );
+    }
+
+    #[test]
+    fn observed_and_inferred_provenance_share_one_responses_block() {
+        let derived = derived_with_responses();
+        let observations = BTreeMap::from([(
+            ("get".to_string(), "/items".to_string()),
+            Observation {
+                status: 200,
+                body: Some(serde_json::json!([])),
+                effects: Vec::new(),
+            },
+        )]);
+        let yaml = draft_yaml(
+            "fixture",
+            "gin",
+            &derived,
+            &ProbePlan::default(),
+            &observations,
+        )
+        .unwrap();
+        // One status both sources speak about: the typed schema wins, the
+        // comment records both provenances, and the block appears once.
+        assert!(
+            yaml.contains(
+                "# inferred from `listItems` return types in source; also observed live \
+                 during init"
+            ),
+            "{yaml}"
+        );
+        assert!(
+            yaml.contains("# observed live during init: HTTP 200"),
+            "{yaml}"
+        );
+        assert_eq!(yaml.matches("responses:").count(), 1, "{yaml}");
+        assert_eq!(yaml.matches("\"200\":").count(), 1, "{yaml}");
+        serde_yaml::from_str::<serde_json::Value>(&yaml).expect("valid yaml");
+    }
+
+    #[test]
+    fn an_unresolved_named_shape_claims_nothing() {
+        let mut derived = derived_with_responses();
+        derived.serializers.clear();
+        let yaml = draft_yaml(
+            "fixture",
+            "gin",
+            &derived,
+            &ProbePlan::default(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(yaml.contains("type: array"), "{yaml}");
+        assert!(
+            !yaml.contains("properties"),
+            "a name with no surviving declaration must not invent fields: {yaml}"
+        );
+        serde_yaml::from_str::<serde_json::Value>(&yaml).expect("valid yaml");
+    }
 }
