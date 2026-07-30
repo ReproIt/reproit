@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "target-prune-tooling",
+  "changeType": "tooling",
+  "detail": "Adds a bounded, fail-closed prune script for the gitignored cargo target directories, which had accumulated 216GB with no eviction policy. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "scripts/prune-target.sh",
+      "sha256": "sha256:532e1c9e084d06cdbd7d95702970e26a2a4e17e53caa1a2f91537969f71e52ee"
+    }
+  ]
+}
