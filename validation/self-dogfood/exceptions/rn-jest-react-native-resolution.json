@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "rn-jest-react-native-resolution",
+  "code": "environment-unreachable",
+  "detail": "The defect reproduces only under a clean npm ci on the CI runner's Node version, where react-native resolves to its Flow-typed ESM entry; the developer machine's Node and pre-existing node_modules resolve a parsable path, so no test executed inside this repository's policy worktrees reproduces it. The fix pins resolution with a jest moduleNameMapper stub, verified by wiping node_modules and running the CI job's exact steps locally.",
+  "issue": "CI run 30586599662, job react-native-sdk, step Parity + unit tests (jest)",
+  "missingCapability": "CI-runner Node and clean-install resolution inside a policy worktree",
+  "retainedEvidence": [
+    { "path": "validation/self-dogfood/evidence/rn-jest-react-native-resolution.log", "sha256": "sha256:ac1076a62ae1e9582d40e145a372a9b37511b57ab318c1cbdf4e1afe818db85b" }
+  ]
+}

@@ -1,0 +1,19 @@
+CI run 30586599662 (push aa7f44e), job "react-native-sdk", step
+"Parity + unit tests (jest)":
+
+  FAIL test/capture-gate.test.ts
+    Test suite failed to run
+    Jest encountered an unexpected token
+    Details:
+    .../node_modules/react-native/index.js:27
+    import typeof * as ReactNativePublicAPI from './index.js.flow';
+    SyntaxError: Cannot use import statement outside a module
+      at Object.<anonymous> (test/capture-gate.test.ts:3:1)
+  ##[error]Process completed with exit code 1.
+
+The new capture-gate suite is the first RN test to import the SDK entry
+point, which transitively resolves the real react-native package. That
+package ships Flow-typed ESM, and which export condition wins depends on
+the npm and Node version, so the suite passed on the developer machine
+(node 26, pre-existing node_modules) and failed on CI (node 24, fresh
+npm ci). A jest.mock factory in the test did not prevent the parse.
