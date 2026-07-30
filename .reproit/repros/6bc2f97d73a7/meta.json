@@ -4,7 +4,7 @@
   "status": "required",
   "seed": 0,
   "created": "2026-07-29T20:26:46.704787+00:00",
-  "last_checked": "2026-07-30T12:50:27.248160-07:00",
+  "last_checked": "2026-07-30T15:16:48.280597-07:00",
   "last_result": "pass",
   "trigger_index": 0,
   "trigger_sig": "ci:required-guard-corpus-dispatch",

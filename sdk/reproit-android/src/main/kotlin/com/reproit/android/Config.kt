@@ -46,4 +46,21 @@ data class ReproItConfig(
 
   /** Settle window: snapshot once the UI has been quiet this long, in ms. */
   val debounceMs: Long = 350,
+
+  /**
+   * Record outbound dependency exchanges (request AND response) made through
+   * [ReproIt.causalHttp], so a failure occurrence ships a capsule that can be
+   * re-executed hermetically instead of only re-evaluated.
+   *
+   * OFF by default and deliberately so: unlike a server, a mobile app holds its
+   * user's data, and recording response bodies on the device is a materially
+   * larger privacy decision than recording them in your own backend. Bodies are
+   * bounded and secret-named fields are redacted at source before anything
+   * leaves the process, but the app owner opts in.
+   *
+   * A failure captured with exchanges ships on `POST <endpoint>/v1/capture-batches`
+   * instead of the legacy event batch; everything else is unaffected. Inert
+   * while a ReproIt runner is driving the app.
+   */
+  val captureExchanges: Boolean = false,
 )

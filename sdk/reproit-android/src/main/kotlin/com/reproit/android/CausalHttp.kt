@@ -28,6 +28,39 @@ class CausalHttp {
   private var previousAction = -1
   private var ordinal = 0
 
+  /**
+   * Production exchange recording, opt in through
+   * [ReproItConfig.captureExchanges] and OFF by default. Independent of the
+   * runner signals above: when a runner is driving the app this stays false and
+   * the runner path below is byte-unchanged.
+   */
+  @Volatile private var capturing = false
+  private val captured = ArrayList<CapturedExchange>()
+  private val captureOrigin = System.nanoTime()
+
+  /** Enable or disable production recording. Called once from [ReproIt.init]. */
+  internal fun setCapturing(enabled: Boolean) {
+    capturing = enabled && !active
+  }
+
+  /** Whether production recording is live (false under a runner). */
+  internal fun capturing(): Boolean = capturing
+
+  /** Drain the recorded exchanges for one failure occurrence. */
+  internal fun drainCaptured(): List<CapturedExchange> =
+    synchronized(captured) {
+      val out = ArrayList(captured)
+      captured.clear()
+      out
+    }
+
+  private fun retain(exchange: CapturedExchange) {
+    synchronized(captured) {
+      captured.add(exchange)
+      while (captured.size > MAX_CAPTURED_EXCHANGES) captured.removeAt(0)
+    }
+  }
+
   init {
     exchanges =
       try {
@@ -55,7 +88,31 @@ class CausalHttp {
     readTimeoutMs: Int = 8000,
   ): Response {
     if (!active) {
-      return live(url, method, headers, body, connectTimeoutMs, readTimeoutMs)
+      val response = live(url, method, headers, body, connectTimeoutMs, readTimeoutMs)
+      // Production capture: record what replay will have to serve. Never lets a
+      // capture defect reach the caller; the response is already in hand.
+      if (capturing) {
+        try {
+          retain(
+            CapturedExchange(
+              subject = URI(url).host ?: url,
+              exchange =
+                captureHttpExchange(
+                  method = method,
+                  url = url,
+                  requestHeaders = headers,
+                  requestBody = body,
+                  status = response.status,
+                  responseHeaders = response.headers,
+                  responseBody = response.body,
+                ),
+              atMs = System.currentTimeMillis(),
+              monotonicNs = System.nanoTime() - captureOrigin,
+            )
+          )
+        } catch (_: Throwable) {}
+      }
+      return response
     }
     val action = actionIndex()
     val currentOrdinal =
@@ -217,46 +274,6 @@ class CausalHttp {
   }
 }
 
-internal fun causalSecretField(key: String): Boolean {
-  val compact =
-    key.lowercase(Locale.ROOT).filterNot { it == '-' || it == '_' || it == '.' || it == ' ' }
-  return listOf(
-      "password",
-      "passwd",
-      "secret",
-      "token",
-      "authorization",
-      "cookie",
-      "email",
-      "phone",
-      "apikey",
-      "publishablekey",
-      "privatekey",
-      "accesskey",
-      "signingkey",
-    )
-    .any(compact::contains)
-}
-
-internal fun redactCausalValue(value: Any?): Any? =
-  when (value) {
-    is List<*> -> value.map(::redactCausalValue)
-    is Map<*, *> ->
-      value.entries.associate { (key, child) ->
-        key.toString() to
-          if (causalSecretField(key.toString())) causalTypedValue(child)
-          else redactCausalValue(child)
-      }
-    else -> value
-  }
-
-private fun causalTypedValue(value: Any?): String =
-  when (value) {
-    null -> "<reproit:null>"
-    is String -> "<reproit:string:length=${value.codePointCount(0, value.length)}>"
-    is Boolean -> "<reproit:boolean>"
-    is Number -> "<reproit:number>"
-    is List<*> -> "<reproit:array:length=${value.size}>"
-    is Map<*, *> -> "<reproit:object:keys=${value.size}>"
-    else -> "<reproit:unknown>"
-  }
+// `causalSecretField` and `redactCausalValue` now live in Exchange.kt so the
+// runner's redaction rules compile and test on the host JVM. Behavior is
+// unchanged; only the file changed.

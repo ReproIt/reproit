@@ -170,6 +170,10 @@ object ReproIt {
       )
     )
 
+    // Opt-in production exchange recording. Stays off under a runner, so the
+    // runner's own capture and replay paths are untouched.
+    causalHttp.setCapturing(config.captureExchanges)
+
     application.registerActivityLifecycleCallbacks(Lifecycle)
     installErrorHandler()
     scheduleFlush()
@@ -955,27 +959,91 @@ object ReproIt {
           } else {
             null
           }
-        engine?.recordError(
-          message = throwable.toString(),
-          stack = stack,
-          source = top?.fileName ?: "",
-          line = top?.lineNumber ?: 0,
-          context = context,
-        )
-        // Flush synchronously on this thread before the process dies; the
-        // io executor may not get a chance to run during a crash.
-        engine?.flush()
+        // A crash with recorded exchanges is a re-executable occurrence, so it
+        // ships on the capture-batch contract instead of the legacy event
+        // batch. Without exchanges nothing changes.
+        val shipped = postFailureCapture(throwable)
+        if (!shipped) {
+          engine?.recordError(
+            message = throwable.toString(),
+            stack = stack,
+            source = top?.fileName ?: "",
+            line = top?.lineNumber ?: 0,
+            context = context,
+          )
+          // Flush synchronously on this thread before the process dies; the
+          // io executor may not get a chance to run during a crash.
+          engine?.flush()
+        }
       } catch (_: Throwable) {}
       prior?.uncaughtException(thread, throwable)
     }
   }
 
+  // ---- capture batches ----------------------------------------------------
+
+  private var captureBatchSequence = 0L
+
+  /**
+   * Ship one crash as a capture batch when production exchange recording is on
+   * and at least one exchange was recorded. Returns false when there is nothing
+   * re-executable to ship, so the caller keeps the legacy path.
+   */
+  private fun postFailureCapture(throwable: Throwable): Boolean {
+    val config = cfg ?: return false
+    if (!causalHttp.capturing()) return false
+    val endpoint = config.endpoint ?: return false
+    return try {
+      val exchanges = causalHttp.drainCaptured()
+      if (exchanges.isEmpty()) return false
+      val nowMs = System.currentTimeMillis()
+      val signature = engine?.currentSignature() ?: ""
+      val operation = "crash:" + (throwable.javaClass.simpleName ?: "Throwable")
+      val batch =
+        buildFailureCaptureBatch(
+          appId = config.appId,
+          sessionId = "session-android-$nowMs",
+          operation = operation,
+          triggerAction = signature,
+          signature = "crash:" + (throwable.javaClass.name ?: "Throwable"),
+          summary = throwable.toString(),
+          observationPoint = throwable.stackTrace.firstOrNull()?.toString() ?: operation,
+          exchanges = exchanges,
+          envelope =
+            determinismEnvelope(
+              observedAtMs = nowMs,
+              osRelease = android.os.Build.VERSION.RELEASE ?: "",
+              arch = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "",
+              replaySeed = replaySeedHex { Random.nextLong() },
+              imageDigest = System.getenv("REPROIT_IMAGE_DIGEST"),
+            ),
+          buildVersion = config.buildVersion,
+          buildCommit = config.buildCommit,
+          observedAtIso = isoTimestamp(nowMs),
+          batchSequence = ++captureBatchSequence,
+          observedAtMs = nowMs,
+        ) ?: return false
+      // Synchronous on the crashing thread: the io executor may never run.
+      post(config, Json.encode(batch), "/v1/capture-batches")
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
+  private fun isoTimestamp(epochMs: Long): String {
+    val format =
+      java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+      }
+    return format.format(java.util.Date(epochMs))
+  }
+
   // ---- transport ----------------------------------------------------------
 
-  private fun post(config: ReproItConfig, body: String): Boolean {
+  private fun post(config: ReproItConfig, body: String, path: String = "/v1/events"): Boolean {
     val endpoint = config.endpoint ?: return true
     return try {
-      val url = URL("$endpoint/v1/events")
+      val url = URL("$endpoint$path")
       val conn = url.openConnection() as HttpURLConnection
       conn.requestMethod = "POST"
       conn.connectTimeout = 8000

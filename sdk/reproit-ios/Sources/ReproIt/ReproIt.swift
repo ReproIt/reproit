@@ -33,7 +33,8 @@ public enum ReproIt {
 
     // Tier-1 auto context (platform/os/locale/tz), PII-safe, Foundation-only.
     e.seedAutoContext()
-    ReproItCausalURLProtocol.install(excluding: config.endpoint)
+    ReproItCausalURLProtocol.install(
+      excluding: config.endpoint, productionCapture: config.captureExchanges)
     e.startFlushTimer()
     // Fatal-signal capture (opt-in). Foundation/POSIX only, so it is wired
     // here (not in the UIKit/AppKit capture): drain any spooled crash from a
@@ -204,6 +205,8 @@ public enum ReproIt {
     engine = nil
     lock.unlock()
     e?.stop()
+    ReproItCausalURLProtocol.uninstall()
+    ReproItExchangeStore.shared.reset()
     reproitUninstallSignalHandlers()
     #if canImport(UIKit)
       ReproItCapture.detach()

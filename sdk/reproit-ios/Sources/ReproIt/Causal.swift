@@ -11,12 +11,32 @@ final class ReproItCausalURLProtocol: URLProtocol {
   private static var exchanges: [[String: Any]] = []
   private static var excludePrefix: String?
   private static var installed = false
+  /// True when the runner drove installation; production capture leaves the
+  /// marker and capsule paths entirely alone.
+  private static var runnerDriven = false
   private var loadingTask: URLSessionDataTask?
 
-  static func install(excluding endpoint: String?) {
-    guard !installed, ProcessInfo.processInfo.environment["REPROIT_CAUSAL"] == "1" else { return }
+  /// Install the URL adapter.
+  ///
+  /// Two independent activations, deliberately kept apart:
+  ///   - runner-driven (`REPROIT_CAUSAL=1`): unchanged behavior, including
+  ///     capsule replay and the `REPROIT:EXCHANGE` marker the fuzz harness
+  ///     consumes.
+  ///   - production (`captureExchanges: true` in the app's config): records
+  ///     exchanges into the in-process store for capsule emission. It never
+  ///     serves a capsule and never writes runner markers, because neither
+  ///     exists on a user's device.
+  static func install(excluding endpoint: String?, productionCapture: Bool = false) {
+    let runnerDriven = ProcessInfo.processInfo.environment["REPROIT_CAUSAL"] == "1"
+    guard !installed, runnerDriven || productionCapture else { return }
     installed = true
+    self.runnerDriven = runnerDriven
     excludePrefix = endpoint
+    if productionCapture && !runnerDriven {
+      ReproItExchangeStore.shared.enable()
+      URLProtocol.registerClass(Self.self)
+      return
+    }
     if let raw = ProcessInfo.processInfo.environment["REPROIT_CAPSULE_JSON"],
       let data = raw.data(using: .utf8),
       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -28,6 +48,19 @@ final class ReproItCausalURLProtocol: URLProtocol {
       "{\"http\":{\"status\":\"captured\"},\"http_replay\":{\"status\":\"captured\"}}"
     NSLog("REPROIT:CAPABILITIES %@", capabilities)
     mergeCapabilities(capabilities)
+  }
+
+  /// Test and teardown hook: uninstall so a later `install` can re-decide.
+  static func uninstall() {
+    guard installed else { return }
+    URLProtocol.unregisterClass(Self.self)
+    installed = false
+    runnerDriven = false
+    exchanges = []
+    used = []
+    actionIndex = 0
+    ordinal = 0
+    excludePrefix = nil
   }
 
   static func advanceAction() {
@@ -133,11 +166,29 @@ final class ReproItCausalURLProtocol: URLProtocol {
         "status": response.statusCode, "responseHeaders": responseHeaders,
         "responseBody": Self.bodyValue(data, headers: responseHeaders), "required": true,
       ]
-      if let raw = try? JSONSerialization.data(withJSONObject: exchange),
+      if Self.runnerDriven,
+        let raw = try? JSONSerialization.data(withJSONObject: exchange),
         let line = String(data: raw, encoding: .utf8)
       {
         NSLog("REPROIT:EXCHANGE %@", line)
         Self.appendExchange(line)
+      }
+      // Production capture: the bounded, redacted capsule contract. Distinct
+      // from the runner marker above, which stays byte-unchanged.
+      if ReproItExchangeStore.shared.isEnabled {
+        ReproItExchangeStore.shared.record(
+          ReproItExchange(
+            method: self.request.httpMethod ?? "GET",
+            url: url.absoluteString,
+            requestHeaders: self.request.allHTTPHeaderFields ?? [:],
+            requestBody: self.request.httpBody,
+            requestContentType: self.request.value(forHTTPHeaderField: "Content-Type"),
+            status: response.statusCode,
+            responseHeaders: response.allHeaderFields.reduce(into: [String: String]()) {
+              $0[String(describing: $1.key)] = String(describing: $1.value)
+            },
+            responseBody: data,
+            responseContentType: response.value(forHTTPHeaderField: "Content-Type")))
       }
       self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
       self.client?.urlProtocol(self, didLoad: data)

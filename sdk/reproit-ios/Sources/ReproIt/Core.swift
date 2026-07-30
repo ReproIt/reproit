@@ -74,6 +74,18 @@ public struct ReproItConfig {
   /// most severe crashes (see ``ReproItCrashSpool`` for the safety rationale).
   public var catchSignals: Bool
 
+  /// Opt-in production capture of outbound dependency exchanges (request AND
+  /// response) so a failure occurrence ships a capsule that can be
+  /// re-executed hermetically instead of only re-evaluated. OFF by default.
+  ///
+  /// This is the one switch that makes the SDK record response payloads from
+  /// a user's device, so it is never implicit: everything is redacted at
+  /// source (secret-shaped fields become a `$reproit` type+length stub) and
+  /// bounded (8 KiB inline per body, identity-only beyond), but the app still
+  /// decides. Runner-driven capture (`REPROIT_CAUSAL`) is unaffected either
+  /// way.
+  public var captureExchanges: Bool
+
   public init(
     appId: String,
     endpoint: String? = nil,
@@ -88,7 +100,8 @@ public struct ReproItConfig {
     flushInterval: TimeInterval = 5.0,
     redactLabels: Bool = false,
     debounce: TimeInterval = 0.350,
-    catchSignals: Bool = false
+    catchSignals: Bool = false,
+    captureExchanges: Bool = false
   ) {
     self.appId = appId
     self.endpoint = endpoint
@@ -104,6 +117,7 @@ public struct ReproItConfig {
     self.redactLabels = redactLabels
     self.debounce = debounce
     self.catchSignals = catchSignals
+    self.captureExchanges = captureExchanges
   }
 }
 

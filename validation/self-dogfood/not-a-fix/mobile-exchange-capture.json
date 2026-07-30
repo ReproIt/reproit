@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "mobile-exchange-capture",
+  "changeType": "feature",
+  "detail": "This commit gives the Android, iOS, and React Native SDKs opt-in production exchange capture with the backend SDKs' bounds, redaction, determinism envelope, and capture-batch-v1 emission. It corrects no shipped runtime defect: the mobile causal layers previously recorded exchanges only under runner control by design, and the legacy event path is unchanged for failures without exchanges. Each platform's behavior is proven by its own suite plus a round trip of a real emitted batch through the protocol validator.",
+  "evidence": [
+    { "path": "sdk/reproit-android/src/main/kotlin/com/reproit/android/Exchange.kt", "sha256": "sha256:9a5fa8a070a2f737f80afb01443aae9310ba5bbecfdf1c406d9fc00b71993435" },
+    { "path": "sdk/reproit-ios/Sources/ReproIt/Exchange.swift", "sha256": "sha256:41cd3ff835ab996e0303a6f3a70b172a566982d62d42486cb7e7bc155d6e2eb4" },
+    { "path": "sdk/reproit-react-native/src/exchange.ts", "sha256": "sha256:cb1a6aaa9508eca0faf41f67f4a590334f451f894f72346e235769985d509976" }
+  ]
+}

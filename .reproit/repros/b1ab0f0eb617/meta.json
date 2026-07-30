@@ -4,7 +4,7 @@
   "status": "required",
   "seed": 0,
   "created": "2026-07-28T16:00:35.184034+00:00",
-  "last_checked": "2026-07-30T12:50:27.520422-07:00",
+  "last_checked": "2026-07-30T15:16:48.525846-07:00",
   "last_result": "pass",
   "trigger_index": 0,
   "trigger_sig": "doctor:blank-backend-project-root",

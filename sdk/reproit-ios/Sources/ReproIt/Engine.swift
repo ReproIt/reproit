@@ -22,6 +22,11 @@ public final class ReproItEngine {
   // tier-1 auto dimensions at start and extended via identify/setContext.
   private var context: [String: Any] = [:]
   private var batchSequence: UInt64 = 0
+  /// Capture-batch (capsule) sequence, kept separate from the legacy event
+  /// batch counter so neither renumbers the other.
+  private var captureBatchSequence: UInt64 = 0
+  /// Stable session identity, also the capsule's trace id.
+  private let sessionId = "ses-\(reproitNowMs())-\(UInt32.random(in: 0...UInt32.max))"
   private var currentSig: String?
   private var pendingAction: String?  // set at tap/nav time, consumed by the next edge
   private var pendingLabel: String?  // display-only label for pendingAction
@@ -318,7 +323,50 @@ public final class ReproItEngine {
       stack: trimmed, source: source, line: line, context: context, t: reproitNowMs())
     lock.unlock()
     emit(ev)
+    // A failure that carries recorded dependency exchanges also ships as a
+    // capsule, so it can be re-executed locally rather than only re-read.
+    sendCaptureBatch(
+      operation: sig, triggerSubject: pathCopy.last?.action ?? "load", message: message)
     flushSync()
+  }
+
+  /// Build and POST the capture-batch-v1 capsule for a failure occurrence.
+  /// A no-op unless production exchange capture is on AND exchanges were
+  /// actually recorded: without them the capsule could not be re-executed, so
+  /// emitting one would over-claim.
+  func sendCaptureBatch(operation: String, triggerSubject: String, message: String) {
+    guard cfg.captureExchanges, let endpoint = cfg.endpoint,
+      let url = URL(string: "\(endpoint)/v1/capture-batches")
+    else { return }
+    let exchanges = ReproItExchangeStore.shared.snapshot()
+    guard !exchanges.isEmpty else { return }
+    lock.lock()
+    captureBatchSequence += 1
+    let sequence = captureBatchSequence
+    lock.unlock()
+    guard
+      let batch = ReproItCaptureBatch.build(
+        appId: cfg.appId,
+        sessionId: sessionId,
+        batchId: "cb-ios-\(reproitNowMs())-\(sequence)",
+        operation: operation.isEmpty ? "unknown-state" : operation,
+        triggerSubject: triggerSubject,
+        triggerValue: nil,
+        exchanges: exchanges,
+        failureSummary: message,
+        failureSignature: "crash:\(operation)",
+        buildVersion: cfg.buildVersion,
+        buildCommit: cfg.buildCommit),
+      let body = try? JSONSerialization.data(withJSONObject: batch, options: [.sortedKeys])
+    else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let apiKey = cfg.apiKey {
+      request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+    }
+    request.httpBody = body
+    session.dataTask(with: request).resume()
   }
 
   /// Capture the current structural state as a tester-observed bug.

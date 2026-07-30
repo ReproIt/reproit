@@ -36,6 +36,8 @@ import {
 } from './snapshot';
 import type { Node } from './signature';
 import { installCausalFetch, nativeCausalCapsule } from './causal';
+import type { ProductionExchange } from './exchange';
+import { buildCaptureBatch, buildEnvelope, replaySeed } from './capture-batch';
 import { fingerprintFields, FP_VERSION } from './fingerprint';
 import { IndicatorRelations, type ReproItIndicatorContract } from './indicator-relation';
 import { FocusVisibilityOracle, type FocusVisibilityContract } from './focus-visibility';
@@ -85,6 +87,24 @@ export type {
   StructuralObservation,
 } from './structural-contracts';
 export { installCausalFetch, redactCausal } from './causal';
+export {
+  buildHttpExchange,
+  redactExchangeValue,
+  boundedBody,
+  boundedHeaders,
+  sha256Hex,
+  MAX_EXCHANGE_BODY_BYTES,
+  MAX_EXCHANGE_HEADERS,
+} from './exchange';
+export type { ProductionExchange, ExchangeSide } from './exchange';
+export { buildCaptureBatch, buildEnvelope, replaySeed } from './capture-batch';
+export type { CaptureBatch, CaptureOccurrence } from './capture-batch';
+
+/**
+ * Exchanges retained per session. Drop-oldest: the calls nearest the failure
+ * are the ones a replay needs, and a long session must not grow memory.
+ */
+const MAX_CAPTURED_EXCHANGES = 32;
 
 function resolveConfig(opts: ReproItConfig): ResolvedConfig {
   return {
@@ -201,6 +221,11 @@ class ReproItImpl {
   // web SDK's `window.__reproit_invariants`.
   private invariants: Array<{ id: string; test: InvariantPredicate }> = [];
   private causalActionIndex = 0;
+  // Production exchange capture (opt-in). Bounded ring buffer drained into a
+  // capture batch when a failure is reported.
+  private exchanges: ProductionExchange[] = [];
+  private captureSequence = 0;
+  private captureSession = `rn-${Date.now()}`;
   private indicatorRelations = new IndicatorRelations();
   private relationRetryPending = false;
   private focusVisibility = new FocusVisibilityOracle();
@@ -238,6 +263,16 @@ class ReproItImpl {
         actionIndex: () => this.causalActionIndex,
         capsule: nativeCausalCapsule(),
         excludePrefix: cfg.endpoint,
+      });
+    } else if (cfg.captureExchanges) {
+      // Production capture: record what dependencies returned so a failure
+      // ships a re-executable capsule. The runner's console markers stay off
+      // in a shipping app.
+      installCausalFetch({
+        actionIndex: () => this.causalActionIndex,
+        excludePrefix: cfg.endpoint,
+        emitMarker: false,
+        record: (exchange) => this.recordExchange(exchange),
       });
     }
 
@@ -780,6 +815,76 @@ class ReproItImpl {
     return undefined;
   }
 
+  /**
+   * Ring-buffer one recorded exchange. Bounded and drop-oldest: a long-lived
+   * session must not grow memory, and the exchanges nearest the failure are
+   * the ones a replay needs.
+   */
+  private recordExchange(exchange: ProductionExchange): void {
+    this.exchanges.push(exchange);
+    if (this.exchanges.length > MAX_CAPTURED_EXCHANGES) this.exchanges.shift();
+  }
+
+  /**
+   * Ship one failure as a capture batch: the trigger, the recorded
+   * exchanges, the determinism envelope, and the observation. Only reached
+   * when exchange capture is on and something was actually recorded, so a
+   * capture batch never over-claims a completeness it does not have.
+   */
+  private sendCaptureBatch(event: ErrorEvent): void {
+    const cfg = this.cfg;
+    if (!cfg || !cfg.captureExchanges || !cfg.endpoint || this.exchanges.length === 0) return;
+    const exchanges = this.exchanges.slice();
+    this.exchanges = [];
+    try {
+      this.captureSequence += 1;
+      const observedAtMs = Date.now();
+      const identity = event.findingIdentity;
+      const operation = this.path.length
+        ? this.path[this.path.length - 1].action
+        : (event.sig ?? 'load');
+      const batch = buildCaptureBatch({
+        appId: cfg.appId,
+        sessionId: this.captureSession,
+        batchId: `cb-rn-${observedAtMs}-${this.captureSequence}`,
+        deployment: cfg.build,
+        occurrence: {
+          operation,
+          trigger: { path: this.path.map((step) => ({ sig: step.sig, action: step.action })) },
+          exchanges,
+          failure: {
+            oracle: event.oracle,
+            summary: event.message || 'react native failure',
+            signature: `${event.oracle}:${event.sig ?? '?'}`,
+            observationPoint: identity?.frame || operation,
+          },
+          envelope: buildEnvelope({
+            observedAtMs,
+            platform: typeof this.ctx.platform === 'string' ? this.ctx.platform : undefined,
+            osVersion: typeof this.ctx.osVersion === 'string' ? this.ctx.osVersion : undefined,
+            locale: typeof this.ctx.locale === 'string' ? this.ctx.locale : undefined,
+            timezone: typeof this.ctx.timezone === 'string' ? this.ctx.timezone : undefined,
+            replaySeed: replaySeed(),
+          }),
+        },
+      });
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
+      const f = (globalThis as { fetch?: typeof fetch }).fetch;
+      if (typeof f === 'function') {
+        f(`${cfg.endpoint}/v1/capture-batches`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(batch),
+        }).catch(() => {
+          /* best-effort: a dropped capsule must not break the app */
+        });
+      }
+    } catch {
+      /* capture emission must never surface into the host app */
+    }
+  }
+
   private emit(ev: ReproItEvent): void {
     if (!this.cfg) return;
     if (this.cfg.onEvent) {
@@ -790,6 +895,10 @@ class ReproItImpl {
       }
     }
     this.buf.push(ev);
+    // A failure with recorded exchanges also ships a capture batch, so the
+    // occurrence is re-executable and not merely groupable. Every error path
+    // funnels through here, so one hook covers them all.
+    if (ev.kind === 'error') this.sendCaptureBatch(ev);
     if (this.buf.length >= 50) this.flush();
   }
 
@@ -803,6 +912,8 @@ class ReproItImpl {
     this.cfg = null;
     this.buf = [];
     this.batchSequence = 0;
+    this.exchanges = [];
+    this.captureSequence = 0;
     this.path = [];
     this.ctx = {};
     this.cur = null;

@@ -34,8 +34,11 @@ TST="$HERE/src/test/kotlin/com/reproit/android"
   "$SRC/Signature.kt" "$SRC/Json.kt" "$SRC/Config.kt" "$SRC/Engine.kt" \
   "$SRC/Fingerprint.kt" "$SRC/Compose.kt" \
   "$SRC/IndicatorRelation.kt" "$SRC/StructuralContracts.kt" \
+  "$SRC/Exchange.kt" "$SRC/CaptureBatch.kt" \
   "$TST/SignatureParityTest.kt" "$TST/ComposeMappingTest.kt" "$TST/InvariantTest.kt" \
   "$TST/IndicatorRelationTest.kt" "$TST/StructuralContractsTest.kt" \
+  "$TST/CausalRedactionTest.kt" "$TST/ExchangeCaptureTest.kt" \
+  "$TST/CaptureBatchTest.kt" "$TST/EmitCaptureBatch.kt" \
   -d "$OUT/classes.jar"
 
 # Locate kotlin-stdlib next to the compiler. Resolve symlinks (Homebrew points
@@ -69,4 +72,20 @@ java -cp "$OUT/classes.jar:$JUNIT_JAR:$HAMCREST_JAR:$STDLIB" \
   com.reproit.android.ComposeMappingTest \
   com.reproit.android.InvariantTest \
   com.reproit.android.IndicatorRelationTest \
-  com.reproit.android.StructuralContractsTest
+  com.reproit.android.StructuralContractsTest \
+  com.reproit.android.CausalRedactionTest \
+  com.reproit.android.ExchangeCaptureTest \
+  com.reproit.android.CaptureBatchTest
+
+# Wire proof: the batch the SDK actually builds must satisfy the protocol
+# validator, not just our own assertions about its shape. Skipped with a loud
+# note when the Rust workspace is unavailable, never silently passed.
+CLI_ROOT=$(cd "$HERE/../.." && pwd)
+if [ -f "$CLI_ROOT/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+  echo "validating the emitted capture batch against reproit-protocol"
+  java -cp "$OUT/classes.jar:$JUNIT_JAR:$HAMCREST_JAR:$STDLIB" \
+    com.reproit.android.EmitCaptureBatch |
+    (cd "$CLI_ROOT" && cargo run -q -p reproit-protocol --bin capture-validate)
+else
+  echo "SKIP capture-validate: no cargo or Rust workspace at $CLI_ROOT" >&2
+fi

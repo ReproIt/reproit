@@ -1,3 +1,9 @@
+import {
+  buildHttpExchange,
+  headerRecord,
+  type ProductionExchange,
+} from './exchange';
+
 export type CausalExchange = {
   id: string;
   actor: string;
@@ -85,13 +91,23 @@ function headersOf(value: unknown): Record<string, string> {
 
 /** Install once under the fuzzer. Capture is automatic for global fetch; replay
  * is fail-closed when a capsule is supplied. The SDK emits the universal marker
- * consumed by the Appium runner and Rust host. */
+ * consumed by the Appium runner and Rust host.
+ *
+ * In production (opt-in, see `record`), the same wrapper additionally builds
+ * the backend-shaped `ProductionExchange` and hands it to the sink, so a
+ * captured failure ships what its dependencies returned and can be
+ * re-executed rather than only re-evaluated. `emitMarker: false` keeps the
+ * runner's console protocol out of a shipping app. */
 export function installCausalFetch(options: {
   actor?: string;
   actionIndex: () => number;
   emit?: (line: string) => void;
   capsule?: { exchanges?: CausalExchange[] };
   excludePrefix?: string | null;
+  /** Production sink for backend-shaped exchanges. Absent = no recording. */
+  record?: (exchange: ProductionExchange) => void;
+  /** Emit the runner's `REPROIT:EXCHANGE` console marker. Default true. */
+  emitMarker?: boolean;
 }): () => void {
   const g = globalThis as { fetch?: typeof fetch; XMLHttpRequest?: typeof XMLHttpRequest };
   const original = g.fetch;
@@ -99,6 +115,9 @@ export function installCausalFetch(options: {
   if (typeof original !== 'function') return () => {};
   const actor = options.actor ?? 'a';
   const emit = options.emit ?? ((line) => console.log(line));
+  const emitMarker = options.emitMarker !== false;
+  const record = options.record;
+  const originNs = Date.now() * 1e6;
   const used = new Set<number>();
   let ordinal = 0;
   let priorAction = options.actionIndex();
@@ -137,6 +156,36 @@ export function installCausalFetch(options: {
       );
     }
     const response = await original(input, init);
+    // Production capture: the backend-shaped exchange with the response the
+    // dependency actually returned, bounded and redacted at source. Failure
+    // here must never surface into the host app's request.
+    if (record) {
+      try {
+        const requestBody = typeof init?.body === 'string' ? init.body : null;
+        const responseText = await response.clone().text();
+        const at = Date.now();
+        record({
+          ...buildHttpExchange(
+            {
+              method,
+              url,
+              headers: headerRecord(init?.headers),
+              body: requestBody,
+            },
+            {
+              status: response.status,
+              headers: headerRecord(response.headers),
+              body: responseText,
+            },
+          ),
+          at,
+          monoNs: Math.max(0, at * 1e6 - originNs),
+        });
+      } catch {
+        /* capture is best effort; the app's request always wins */
+      }
+    }
+    if (!emitMarker) return response;
     let responseBody: unknown;
     try {
       const contentType = response.headers.get('content-type') || '';
@@ -259,11 +308,13 @@ export function installCausalFetch(options: {
     }
     g.XMLHttpRequest = ReproItXMLHttpRequest as unknown as typeof XMLHttpRequest;
   }
-  emit(
-    'REPROIT:CAPABILITIES {"http":{"status":"captured","detail":"global ' +
-      'fetch + XMLHttpRequest"},"http_replay":{"status":"captured","detail":' +
-      '"global fetch + XMLHttpRequest fail-closed adapter"}}',
-  );
+  if (emitMarker) {
+    emit(
+      'REPROIT:CAPABILITIES {"http":{"status":"captured","detail":"global ' +
+        'fetch + XMLHttpRequest"},"http_replay":{"status":"captured","detail":' +
+        '"global fetch + XMLHttpRequest fail-closed adapter"}}',
+    );
+  }
   return () => {
     g.fetch = original;
     g.XMLHttpRequest = originalXhr;

@@ -182,6 +182,17 @@ export interface ReproItConfig {
    * `value_nodes:` in reproit.yaml: `key:<id>` | `role:<role>#<idx>`.
    */
   valueNodes?: string[];
+  /**
+   * Record outbound HTTP exchanges (request AND response) so a captured
+   * failure can be RE-EXECUTED locally instead of only re-evaluated. OFF by
+   * default, and deliberately so: unlike a server, a device holds its user's
+   * data, and response bodies are that user's data. Secret-named fields are
+   * replaced with structure-preserving placeholders before anything leaves
+   * the device, bodies are bounded, and the failure ships to
+   * `<endpoint>/v1/capture-batches`. Turn this on only for an app whose API
+   * responses you are willing to store.
+   */
+  captureExchanges?: boolean;
 }
 
 /** Fully-resolved config (defaults applied). */
@@ -208,4 +219,7 @@ export const DEFAULTS: Omit<ResolvedConfig, 'appId'> = {
   redactLabels: false,
   debounceMs: 350,
   valueNodes: [],
+  // Exchange capture records the user's API responses on their device. It is
+  // opt-in, and stays opt-in.
+  captureExchanges: false,
 };
