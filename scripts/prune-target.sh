@@ -9,7 +9,12 @@
 # drop emptied directories. Bounded and fail-closed:
 #   - only directories git itself reports as ignored are eligible;
 #   - a candidate containing ANY tracked file aborts the run;
-#   - candidates must resolve inside the repository root.
+#   - candidates must resolve inside the repository root;
+#   - build-script output (*/build/*) and fingerprints (*/.fingerprint/*)
+#     are never touched: an OUT_DIR file can be old while its fingerprint is
+#     fresh, and deleting one without the other makes cargo consume a
+#     half-missing build without re-running the script (a pruned
+#     stdlib-symbols.txt broke the next tree-sitter compile exactly so).
 #
 # Usage: scripts/prune-target.sh [--dry-run]
 set -eu
@@ -49,13 +54,19 @@ for candidate in target validation/backend/oss/target; do
 
   before_kb="$(du -sk "$candidate" | cut -f1)"
   if [ "$dry_run" -eq 1 ]; then
-    stale_kb="$(find "$candidate" -type f -mtime +"$age_days" -print0 \
+    stale_kb="$(find "$candidate" \
+      -path '*/build/*' -prune -o -path '*/.fingerprint/*' -prune -o \
+      -type f -mtime +"$age_days" -print0 \
       | xargs -0 du -sk 2>/dev/null | awk '{s+=$1} END {print s+0}')"
     echo "$candidate: would free ${stale_kb}KB of files older than ${age_days}d"
     continue
   fi
-  find "$candidate" -type f -mtime +"$age_days" -delete
-  find "$candidate" -mindepth 1 -type d -empty -delete
+  find "$candidate" \
+    -path '*/build/*' -prune -o -path '*/.fingerprint/*' -prune -o \
+    -type f -mtime +"$age_days" -delete
+  find "$candidate" -mindepth 1 \
+    -path '*/build' -prune -o -path '*/.fingerprint' -prune -o \
+    -type d -empty -delete
   after_kb="$(du -sk "$candidate" | cut -f1)"
   freed_kb=$((freed_kb + before_kb - after_kb))
   echo "$candidate: $((before_kb / 1024))MB -> $((after_kb / 1024))MB"

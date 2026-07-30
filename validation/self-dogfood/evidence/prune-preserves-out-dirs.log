@@ -1,0 +1,15 @@
+Affected: at 092d76c scripts/prune-target.sh deletes ANY file older than the
+prune age, including build-script OUT_DIR contents and fingerprints. An
+OUT_DIR file can be old while its fingerprint is fresh, so cargo consumes the
+half-missing build without re-running the build script. Observed for real
+immediately after the first prune: compiling tree-sitter v0.26.11 failed with
+"couldn't read target/debug/build/tree-sitter-<hash>/out/stdlib-symbols.txt:
+No such file or directory" at binding_rust/lib.rs:3848 (include_str! of
+OUT_DIR output whose file the prune had deleted).
+
+Reproduction: scripts/test_prune_target.py seeds a stale OUT_DIR file, a
+stale fingerprint, and a stale deps artifact, runs the prune, and requires
+the first two to survive and the third to be deleted. At 092d76c it exits 1
+(both OUT_DIR file and fingerprint pruned); with the fix (build/ and
+.fingerprint/ subtrees excluded from the file-age prune) it exits 0.
+Recovery on the affected machine was a full cargo clean.

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "prune-preserves-out-dirs",
+  "detail": "The target prune deleted stale build-script OUT_DIR files while their fresh fingerprints told cargo not to re-run the build script, so the next compile consumed a half-missing build (tree-sitter's include_str! of stdlib-symbols.txt failed). The prune is deterministic, so its independent regression test is the stable reproduction authority.",
+  "test": "scripts/test_prune_target.py",
+  "command": [
+    "python3",
+    "scripts/test_prune_target.py"
+  ],
+  "timeoutSeconds": 300,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/prune-preserves-out-dirs.log",
+      "sha256": "sha256:5933258ef77e7b02d98c562b62643fc27b45f123815183ed1416f9f8ae2f1c7d"
+    }
+  ]
+}
