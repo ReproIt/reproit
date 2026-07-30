@@ -56,20 +56,41 @@ pub(super) async fn replay_artifact(
     }
     let mut artifact: BackendFindingArtifact =
         serde_json::from_slice(&std::fs::read(artifact_path)?)?;
-    // The artifact records ABSOLUTE request URLs from the discovering run.
-    // When the current run names a live target (REPROIT_BACKEND_URL, which
-    // wins everywhere else too), rebase the recorded requests onto it: a
-    // guard found against one ephemeral booted port must replay against the
-    // port this run booted, not against a dead one.
-    if let Ok(base) = std::env::var("REPROIT_BACKEND_URL") {
-        if let Ok(base) = base.parse::<reqwest::Url>() {
-            for step in artifact.setup.iter_mut() {
-                if let Some(url) = retarget_url(&step.request.url, &base) {
-                    step.request.url = url;
+    if !(1..=3).contains(&artifact.version) {
+        bail!(
+            "unsupported backend finding artifact version {}; this reproit is older than the \
+             artifact",
+            artifact.version
+        );
+    }
+    if artifact.version >= 3 {
+        // Version 3 stores origin-relative URLs plus the discovering origin,
+        // so the artifact replays from any checkout location. The current
+        // target wins (REPROIT_BACKEND_URL); the recorded origin is the
+        // fallback; with neither, fail with the exact next input.
+        let base = std::env::var("REPROIT_BACKEND_URL")
+            .ok()
+            .or_else(|| artifact.origin.clone());
+        for step in artifact.setup.iter_mut() {
+            resolve_relative_url(&mut step.request.url, base.as_deref())?;
+        }
+        resolve_relative_url(&mut artifact.failing.request.url, base.as_deref())?;
+    } else {
+        // Older artifacts record ABSOLUTE request URLs from the discovering
+        // run. When the current run names a live target (REPROIT_BACKEND_URL,
+        // which wins everywhere else too), rebase the recorded requests onto
+        // it: a guard found against one ephemeral booted port must replay
+        // against the port this run booted, not against a dead one.
+        if let Ok(base) = std::env::var("REPROIT_BACKEND_URL") {
+            if let Ok(base) = base.parse::<reqwest::Url>() {
+                for step in artifact.setup.iter_mut() {
+                    if let Some(url) = retarget_url(&step.request.url, &base) {
+                        step.request.url = url;
+                    }
                 }
-            }
-            if let Some(url) = retarget_url(&artifact.failing.request.url, &base) {
-                artifact.failing.request.url = url;
+                if let Some(url) = retarget_url(&artifact.failing.request.url, &base) {
+                    artifact.failing.request.url = url;
+                }
             }
         }
     }
@@ -206,6 +227,24 @@ pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
 /// Rewrite a recorded absolute URL onto the current target's origin, keeping
 /// its path and query untouched. Returns None (leave the URL alone) when
 /// either side does not parse.
+/// Resolve one version-3 origin-relative URL against the effective base. An
+/// absolute URL (a cross-origin step the writer left alone) passes through
+/// untouched; a relative URL with no base at all is an error naming the exact
+/// next input rather than a guess.
+fn resolve_relative_url(url: &mut String, base: Option<&str>) -> Result<()> {
+    if !url.starts_with('/') {
+        return Ok(());
+    }
+    let Some(base) = base else {
+        bail!(
+            "this artifact stores origin-relative request URLs but records no origin; set \
+             REPROIT_BACKEND_URL to the live target to replay it"
+        );
+    };
+    *url = format!("{}{}", base.trim_end_matches('/'), url);
+    Ok(())
+}
+
 fn retarget_url(recorded: &str, base: &reqwest::Url) -> Option<String> {
     let mut url: reqwest::Url = recorded.parse().ok()?;
     url.set_scheme(base.scheme()).ok()?;
@@ -307,9 +346,19 @@ pub(super) fn find_artifact(raw_id: &str) -> Result<Option<PathBuf>> {
 /// Reproduced means the bug is back and Inconclusive fails closed.
 pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCode>> {
     let mut artifacts = Vec::new();
+    let mut hermetic_guards = Vec::new();
     if let Ok(entries) = std::fs::read_dir(layout::repros_dir(root)) {
         for entry in entries.flatten() {
             let directory = entry.path();
+            // Hermetic capture guard: a kept capture plus the user-authored
+            // exec recipe (hermetic.json is repo config, like a package.json
+            // script; the capture itself never supplies the command).
+            let capture = directory.join("capture.json");
+            let recipe = directory.join("hermetic.json");
+            if capture.is_file() && recipe.is_file() {
+                hermetic_guards.push((capture, recipe));
+                continue;
+            }
             for name in ["backend.json", "backend-schema.json"] {
                 let artifact = directory.join(name);
                 if artifact.is_file() {
@@ -319,10 +368,84 @@ pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCod
             }
         }
     }
-    if artifacts.is_empty() {
+    if artifacts.is_empty() && hermetic_guards.is_empty() {
         return Ok(None);
     }
     artifacts.sort();
+    hermetic_guards.sort();
+    let mut hermetic_failed = 0usize;
+    let mut quarantined = 0usize;
+    for (capture, recipe) in &hermetic_guards {
+        let raw_id = capture
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown");
+        let label = repro::display_repro_id(raw_id);
+        let exec = std::fs::read_to_string(recipe)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|recipe| {
+                recipe
+                    .get("exec")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
+        let Some(exec) = exec else {
+            hermetic_failed += 1;
+            ctx.say(format!(
+                "  guard {label}: hermetic.json has no `exec` command; fails closed"
+            ));
+            continue;
+        };
+        let outcome = super::hermetic::run_hermetic(capture, &exec).await?;
+        match outcome.verdict {
+            super::hermetic::HermeticVerdict::Fixed => {
+                ctx.say(format!(
+                    "  guard {label}: held (hermetic re-execution clean)"
+                ));
+            }
+            super::hermetic::HermeticVerdict::Reproduced => {
+                hermetic_failed += 1;
+                ctx.say(format!(
+                    "  guard {label}: REPRODUCED hermetically (the bug is back)"
+                ));
+            }
+            super::hermetic::HermeticVerdict::Diverged => {
+                // Drift, not regression: the code no longer makes the captured
+                // calls. Quarantine (report, never block) so a refactor cannot
+                // turn the gate red; the guard needs a re-capture to matter
+                // again.
+                quarantined += 1;
+                ctx.say(format!(
+                    "  guard {label}: DRIFTED (quarantined, not blocking): the code's outbound \
+                     calls changed; re-capture to re-arm this guard"
+                ));
+                for report in &outcome.divergences {
+                    ctx.say(format!("    {report}"));
+                }
+            }
+            super::hermetic::HermeticVerdict::Inconclusive => {
+                hermetic_failed += 1;
+                ctx.say(format!(
+                    "  guard {label}: could not re-execute (boot or answer failed); fails closed"
+                ));
+            }
+        }
+    }
+    if artifacts.is_empty() {
+        ctx.say(format!(
+            "  guards: {} hermetic, {} failing, {} drifted (quarantined)",
+            hermetic_guards.len(),
+            hermetic_failed,
+            quarantined
+        ));
+        return Ok(Some(if hermetic_failed > 0 {
+            Exit::Regression.code()
+        } else {
+            ExitCode::SUCCESS
+        }));
+    }
     let current = CurrentContracts::load(None);
     let mut failed = 0usize;
     for artifact in &artifacts {
@@ -354,11 +477,14 @@ pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCod
         }
     }
     ctx.say(format!(
-        "  guards: {} kept, {} failing",
+        "  guards: {} kept, {} failing, {} hermetic ({} failing, {} drifted)",
         artifacts.len(),
-        failed
+        failed,
+        hermetic_guards.len(),
+        hermetic_failed,
+        quarantined
     ));
-    Ok(Some(if failed > 0 {
+    Ok(Some(if failed + hermetic_failed > 0 {
         Exit::Regression.code()
     } else {
         ExitCode::SUCCESS

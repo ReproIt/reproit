@@ -6,6 +6,10 @@ translate a production event into a test.
 
 ## Target journey
 
+Status: step 1's third-party connectors (Sentry, Datadog, OpenTelemetry) are
+PLANNED and not implemented; today the only production source is the ReproIt
+SDK's own capture mode. Steps 2 through 8 describe the shipped mechanism.
+
 1. The customer connects Sentry, Datadog, OpenTelemetry, or another source to a
    ReproIt project. The connection maps projects, releases, and environments.
 2. A new source event is normalized into an immutable ReproIt occurrence. ReproIt
@@ -53,6 +57,8 @@ must show why execution is blocked when no exact trusted adapter is available.
 | --- | --- |
 | Eligible UI replay | Run the occurrence in the trusted app adapter. |
 | Eligible process plan | Run the plan selected by the checkout's provider catalog. |
+| Backend capture with recorded exchanges | Re-execute hermetically (preview): `reproit check <capture.json> --exec "<command>"` boots the service with the SDK serving every recorded dependency exchange, and verdicts reproduced, fixed, diverged, or inconclusive from the live response. Node SDK only today. |
+| Backend capture without exchanges | Re-evaluate the recorded events offline; honest about not re-running code. |
 | Incomplete | Show the smallest missing fact and the action that can collect it. |
 | Environment-bound | Offer an approved disposable worker, simulator, or VM path. |
 | Unsupported | Preserve and link the evidence, with no false reproduce button. |

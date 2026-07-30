@@ -20,7 +20,7 @@
   "status": "passed",
   "exitCode": 0,
   "checks": {
-    "real reproit scan backend contract gate passed": true
+    "real reproit internal scan backend contract gate passed": true
   },
   "resetStrategy": "fresh loopback service and empty Reproit state per case",
   "cleanupStrategy": "owned service process and Reproit state removed by EXIT trap",

@@ -451,6 +451,39 @@ fn tool_defs() -> Value {
             } }
         },
         {
+            "name": "reproit_reproduce",
+            "description": concat!(
+                "Re-execute a captured production failure HERMETICALLY and return the ",
+                "verdict: `reproduced` (the bug fires again from re-executed code), ",
+                "`fixed` (the operation now answers cleanly, machine-checkable proof of ",
+                "the fix), `diverged` (the code no longer makes the captured dependency ",
+                "calls; drift, neither proof nor pass), or `inconclusive` (could not ",
+                "boot or answer; fails closed). The app boots under REPROIT_REPLAY with ",
+                "every recorded dependency exchange served in process, so no live ",
+                "database or network is needed. `reference` is an occurrence id ",
+                "(occ_...), a kept guard id, or a reproit-backend-capture file path. ",
+                "`exec` overrides the boot command; otherwise backend.exec in ",
+                "reproit.yaml (or the guard's stored recipe) is used. A capture can ",
+                "never supply the command."
+            ),
+            "inputSchema": { "type": "object", "properties": {
+                "reference": {
+                    "type": "string",
+                    "description": concat!(
+                        "occ_ id, kept guard id/@alias, or capture file path to ",
+                        "re-execute."
+                    )
+                },
+                "exec": {
+                    "type": "string",
+                    "description": concat!(
+                        "Boot command override for a capture file (the app must mount ",
+                        "the reproit SDK with instrument.install() and honor $PORT)."
+                    )
+                }
+            }, "required": ["reference"] }
+        },
+        {
             "name": "reproit_verify",
             "description": VERIFY_DESCRIPTION,
             "inputSchema": { "type": "object", "properties": {

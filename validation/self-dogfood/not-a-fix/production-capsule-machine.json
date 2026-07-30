@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "production-capsule-machine",
+  "changeType": "feature",
+  "detail": "This commit ships the production capsule machine (SDK exchange capture with responses, hermetic replay with the diverged verdict, hermetic guards with drift quarantine, portable v3 artifacts) and the minimal CLI vocabulary (six visible verbs plus one internal multiplex). It corrects no shipped runtime defect: the two temp-dir test-helper races it fixes are test infrastructure, and the projection's dependency/state carrier handling extends a surface that previously carried no exchange data. Behavior is proven by the three new end-to-end acceptance scripts listed as evidence.",
+  "evidence": [
+    { "path": "validation/backend/hermetic-e2e/run.sh", "sha256": "sha256:03c36f0301ed23d4b9d8462a4cb04994b11cd28728200ea9077d5bcb714c79bc" },
+    { "path": "validation/backend/gate-quarantine-e2e/run.sh", "sha256": "sha256:39154f7fb2462900954c4f2db975d2062f1e91c1712befed61637ea05b220707" },
+    { "path": "validation/backend/artifact-portability-e2e/run.sh", "sha256": "sha256:a14ffe21c66b7c99ce32c42d394549289747e760249076435b53e314f607a762" }
+  ]
+}

@@ -169,6 +169,8 @@ fn bootstrap_backend_finding_is_confirmable_without_ui_actions() {
         tenant: None,
         idempotency_key: None,
         selections: Vec::new(),
+        at: None,
+        mono_ns: None,
         event: crate::domain::backend::BackendEventKind::Start { input: Value::Null },
     });
     for name in ["ui_actions", "http", "backend_effects"] {
@@ -215,6 +217,8 @@ fn redaction_is_recursive_typed_and_manifested() {
         tenant: Some("team".into()),
         idempotency_key: Some("payment-retry-secret".into()),
         selections: Vec::new(),
+        at: None,
+        mono_ns: None,
         event: crate::domain::backend::BackendEventKind::Start {
             input: json!({"profile":{"email":"a@example.com"}}),
         },

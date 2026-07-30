@@ -34,6 +34,29 @@ fn the_full_cloud_loop_tools_are_present() {
 }
 
 #[test]
+fn reproduce_dispatches_hermetic_check_or_direct_reference() {
+    // With an exec override: the capture routes through check --exec --auto.
+    let with_exec = argv(
+        "reproit_reproduce",
+        json!({"reference": "capture.json", "exec": "node server.js"}),
+    );
+    assert!(with_exec.contains(&"check".to_string()));
+    assert!(with_exec.contains(&"capture.json".to_string()));
+    assert!(with_exec.contains(&"--exec".to_string()));
+    assert!(with_exec.contains(&"node server.js".to_string()));
+    assert!(with_exec.contains(&"--auto".to_string()));
+    assert!(with_exec.contains(&"--json".to_string()));
+    // Without: the reference resolves its own recipe (occ_ routing, kept
+    // guard hermetic.json), exactly like a human typing `reproit <ref>`.
+    let direct = argv(
+        "reproit_reproduce",
+        json!({"reference": "occ_0123456789abcdef"}),
+    );
+    assert!(direct.contains(&"occ_0123456789abcdef".to_string()));
+    assert!(!direct.contains(&"check".to_string()));
+}
+
+#[test]
 fn verify_dispatches_all_findings_and_named_ids() {
     // No ids => verify the whole persisted suite; the bridge globals are present.
     let all = argv("reproit_verify", json!({}));

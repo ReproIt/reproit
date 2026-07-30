@@ -163,7 +163,7 @@ fn run_with_timeout(mut cmd: Command, timeout: Duration) -> (bool, String, Strin
 #[test]
 fn scan_help_is_bounded() {
     let mut cmd = Command::new(reproit_bin());
-    cmd.arg("scan").arg("--help");
+    cmd.arg("internal").arg("scan").arg("--help");
     let (timed_out, stdout, stderr, code) = run_with_timeout(cmd, Duration::from_secs(5));
     assert!(!timed_out, "scan --help timed out\n{stdout}\n{stderr}");
     assert_eq!(code, Some(0), "scan --help failed\n{stdout}\n{stderr}");
@@ -191,6 +191,7 @@ fn fuzz_command_reports_artifact_and_guard_state_without_aggregate_cause() {
         .arg(&config)
         .arg("--json")
         .arg("--yes")
+        .arg("internal")
         .arg("fuzz")
         .arg("--runs")
         .arg("1")
@@ -242,6 +243,7 @@ fn clean_fuzz_json_does_not_leak_a_historical_finding() {
         .arg(&config)
         .arg("--json")
         .arg("--yes")
+        .arg("internal")
         .arg("fuzz")
         .arg("--runs")
         .arg("1")
@@ -315,6 +317,7 @@ fn tui_map_structural_exits_when_frontier_is_exhausted() {
     let mut cmd = Command::new(reproit_bin());
     cmd.arg("--config")
         .arg(&config)
+        .arg("internal")
         .arg("debug")
         .arg("map")
         .arg("structural")

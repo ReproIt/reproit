@@ -76,6 +76,15 @@ pub(super) struct BackendFindingArtifact {
     pub(super) version: u32,
     pub(super) schema: String,
     pub(super) schema_sha256: String,
+    /// Version 3: the discovering run's base URL. Request URLs are stored
+    /// origin-relative (path + query) against it, so the artifact replays
+    /// from any checkout location; `REPROIT_BACKEND_URL` overrides it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) origin: Option<String>,
+    /// Version 3: true when `schema` stayed absolute because the file lives
+    /// outside the project root that owns `.reproit/`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) schema_outside_root: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) reset_url: Option<String>,
     /// The declared reset contract this finding was found under. Recorded so a

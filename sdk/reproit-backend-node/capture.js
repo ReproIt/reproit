@@ -16,6 +16,8 @@
  */
 'use strict';
 
+const crypto = require('crypto');
+
 // Payload format identifier of the replayable capture object attached to the
 // finding context (`context.reproitCapture`).
 const CAPTURE_FORMAT = 'reproit-backend-capture';
@@ -61,7 +63,17 @@ class Capture {
     if (typeof config.apiKey !== 'string' || config.apiKey.trim() === '') return null;
     if (!validToken(config.appId)) return null;
     if (config.build != null && !validToken(config.build)) return null;
+    if (config.commit != null && !validToken(config.commit)) return null;
     return new Capture(config);
+  }
+
+  // Code identity for the capture, in priority order: explicit config, then
+  // the common CI/platform environment. Never shells out to git.
+  static resolveCommit(config, env = process.env) {
+    for (const candidate of [config.commit, env.REPROIT_COMMIT, env.GITHUB_SHA]) {
+      if (validToken(candidate)) return candidate;
+    }
+    return null;
   }
 
   constructor(config) {
@@ -70,6 +82,7 @@ class Capture {
       apiKey: config.apiKey,
       appId: config.appId,
       build: config.build ?? null,
+      commit: Capture.resolveCommit(config),
       healthySamplePerMille: Math.max(0, Math.floor(config.healthySamplePerMille ?? 0)),
       flushIntervalMs: Math.max(MIN_FLUSH_INTERVAL_MS, config.flushIntervalMs ?? 3000),
       requestTimeoutMs: config.requestTimeoutMs ?? 5000,
@@ -98,6 +111,9 @@ class Capture {
       actionIndex: 0,
       build: this._config.build,
       configContract: null,
+      // Capture-mode traces stamp per-event wall-clock and monotonic offsets
+      // (the determinism envelope); scan-time traces never do.
+      captureEnvelope: true,
     };
   }
 
@@ -211,6 +227,7 @@ class Capture {
     }
     const operation = operations[0];
     const batchId = 'cb-node-' + Date.now() + '-' + this._batchSeq++;
+    const hasExchanges = operation.events.some((event) => event.exchange !== undefined);
     const recorder = new Recorder({
       batchId,
       projectId: this._config.appId,
@@ -221,9 +238,12 @@ class Capture {
         component: 'backend',
         runtime: 'node',
       },
-      deployment: this._config.build === null
+      deployment: this._config.build === null && this._config.commit === null
         ? null
-        : { version: this._config.build },
+        : {
+            ...(this._config.build === null ? {} : { version: this._config.build }),
+            ...(this._config.commit === null ? {} : { commit: this._config.commit }),
+          },
       observedAt: new Date().toISOString(),
       policy: {
         consent: 'application-telemetry',
@@ -236,6 +256,16 @@ class Capture {
           completeness: 'partial',
           detail: 'effect records do not prove complete database state capture',
         },
+        // Declared only when instrument.js actually recorded exchanges, so
+        // the capsule completeness model never over-claims on captures from
+        // apps without the outbound wrappers installed.
+        ...(hasExchanges
+          ? [{
+              capability: 'network',
+              completeness: 'complete',
+              detail: 'outbound dependency exchanges recorded with responses',
+            }]
+          : []),
       ],
       maxEvents: 1024,
       maxArtifacts: 16,
@@ -245,6 +275,9 @@ class Capture {
       spanId: event.spanId,
       actor: event.actor,
       causalParentIds: parents,
+      // Real monotonic offsets from the trace's envelope stamps; the ordinal
+      // fallback only applies to traces recorded without capture mode.
+      ...(Number.isFinite(event.monoNs) ? { monotonicNs: event.monoNs } : {}),
     });
     const first = operation.events[0] ?? {};
     let parent = recorder.operationStart(operation.operation, context(first));
@@ -255,10 +288,32 @@ class Capture {
       input,
       context(first, parent === null ? [] : [parent]),
     );
+    // Determinism envelope: where and when the capture happened, and a seed
+    // that makes REPLAY runs deterministic. Honesty note: the seed does not
+    // reproduce the app's original randomness; it pins the replay's.
+    parent = recorder.checkpoint(
+      'determinism-envelope',
+      {
+        observedAtMs: Number.isFinite(first.at) ? first.at : Date.now(),
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        node: process.version,
+        os: process.platform,
+        arch: process.arch,
+        replaySeed: crypto.randomBytes(8).toString('hex'),
+        ...(validToken(process.env.REPROIT_IMAGE_DIGEST)
+          ? { imageDigest: process.env.REPROIT_IMAGE_DIGEST }
+          : {}),
+      },
+      context(first, parent === null ? [] : [parent]),
+    );
     for (const operation of operations) {
       for (const event of operation.events) {
         if (event.kind !== 'effect') continue;
-        const value = effectValue(event);
+        // An exchange-bearing effect nests the RAW event verbatim (like the
+        // return carrier) so `backend_capture_from_batch` can round-trip it
+        // into the replayable capture; plain effects keep the structural
+        // summary the existing wire shape pins.
+        const value = event.exchange === undefined ? effectValue(event) : replayable(event);
         if (event.effect === 'call') {
           parent = recorder.dependency(
             'service',
@@ -360,7 +415,7 @@ function effectValue(event) {
   return Object.keys(detail).length === 0 ? null : structural(detail);
 }
 
-// The replayable capture object (`reproit debug replay-capture` input).
+// The replayable capture object (`reproit internal debug replay-capture` input).
 // Trailing effect events are dropped first when the payload exceeds the
 // context budget; a payload that stays oversized with only start/return
 // left is omitted entirely (null).

@@ -29,57 +29,60 @@ pub(crate) fn expand_direct_reference_arg(
     let local_repro =
         first.starts_with("fnd_") || first.starts_with("rep_") || direct_alias.is_some();
     let inspectable = local_repro || first.starts_with("bkt_") || first.starts_with("occ_");
-    let direct_modes = [
-        ("--proof", "proof"),
-        ("--inspect", "inspect"),
-        ("--watch", "watch"),
-        ("--simplify", "simplify"),
-    ]
-    .into_iter()
-    .filter_map(|(flag, mode)| {
-        args.iter()
-            .position(|arg| arg == flag)
-            .map(|position| (position, mode))
-    })
-    .collect::<Vec<_>>();
+    let direct_modes = [("--proof", "proof"), ("--simplify", "simplify")]
+        .into_iter()
+        .filter_map(|(flag, mode)| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .map(|position| (position, mode))
+        })
+        .collect::<Vec<_>>();
     if direct_modes.len() == 1 {
         let (position, mode) = direct_modes[0];
         let supported = match mode {
-            "proof" | "inspect" => inspectable,
-            "watch" | "simplify" => local_repro,
+            "proof" => inspectable,
+            "simplify" => local_repro,
             _ => false,
         };
         if supported {
             args.remove(position);
+            args[index] = "internal".into();
             if mode == "simplify" {
-                args[index] = "repro".into();
-                args.insert(index + 1, "simplify".into());
-                args.insert(index + 2, normalized_reference.into());
+                args.insert(index + 1, "repro".into());
+                args.insert(index + 2, "simplify".into());
+                args.insert(index + 3, normalized_reference.into());
             } else {
-                args[index] = mode.into();
-                args.insert(index + 1, normalized_reference.into());
+                args.insert(index + 1, mode.into());
+                args.insert(index + 2, normalized_reference.into());
             }
             return args;
         }
     }
+    // Production/cloud references route through the internal multiplex; local
+    // repros and aliases stay on the visible check path.
     let command = if first.starts_with("bkt_") {
-        Some(("__replay-bucket", None))
+        Some((Some("__replay-bucket"), None))
     } else if first.starts_with("occ_") {
-        Some(("__occurrence", None))
+        Some((Some("__occurrence"), None))
     } else if first.starts_with("cap_") {
-        Some(("__capture", None))
+        Some((Some("__capture"), None))
     } else if first.starts_with("fnd_") || first.starts_with("rep_") || direct_alias.is_some() {
-        Some(("check", Some("--repro-id")))
+        Some((None, Some("--repro-id")))
     } else {
         None
     };
-    if let Some((command, internal_arg)) = command {
+    if let Some((internal_sub, repro_flag)) = command {
         if let Some(alias) = direct_alias {
             args[index] = alias.into();
         }
-        args.insert(index, command.into());
-        if let Some(internal_arg) = internal_arg {
-            args.insert(index + 1, internal_arg.into());
+        if let Some(sub) = internal_sub {
+            args.insert(index, "internal".into());
+            args.insert(index + 1, sub.into());
+        } else {
+            args.insert(index, "check".into());
+            if let Some(flag) = repro_flag {
+                args.insert(index + 1, flag.into());
+            }
         }
     }
     args
@@ -99,15 +102,21 @@ mod tests {
         };
         assert_eq!(
             expand(&["reproit", "cap_deadbeef00000000", "--watch"]),
-            ["reproit", "__capture", "cap_deadbeef00000000", "--watch"]
+            [
+                "reproit",
+                "internal",
+                "__capture",
+                "cap_deadbeef00000000",
+                "--watch"
+            ]
         );
         assert_eq!(
             expand(&["reproit", "bkt_deadbeef0001"]),
-            ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
+            ["reproit", "internal", "__replay-bucket", "bkt_deadbeef0001"]
         );
         assert_eq!(
             expand(&["reproit", "occ_deadbeef0001"]),
-            ["reproit", "__occurrence", "occ_deadbeef0001"]
+            ["reproit", "internal", "__occurrence", "occ_deadbeef0001"]
         );
         assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001"]),
@@ -129,7 +138,13 @@ mod tests {
         );
         assert_eq!(
             expand(&["reproit", "--json", "bkt_deadbeef0001"]),
-            ["reproit", "--json", "__replay-bucket", "bkt_deadbeef0001"]
+            [
+                "reproit",
+                "--json",
+                "internal",
+                "__replay-bucket",
+                "bkt_deadbeef0001"
+            ]
         );
         assert_eq!(expand(&["reproit", "scan"]), ["reproit", "scan"]);
         assert_eq!(expand(&["reproit", "@"]), ["reproit", "@"]);
@@ -145,15 +160,7 @@ mod tests {
         };
         assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001", "--proof"]),
-            ["reproit", "proof", "fnd_deadbeef0001"]
-        );
-        assert_eq!(
-            expand(&["reproit", "@checkout-crash", "--inspect"]),
-            ["reproit", "inspect", "checkout-crash"]
-        );
-        assert_eq!(
-            expand(&["reproit", "rep_deadbeef0001", "--watch"]),
-            ["reproit", "watch", "rep_deadbeef0001"]
+            ["reproit", "internal", "proof", "fnd_deadbeef0001"]
         );
         assert_eq!(
             expand(&[
@@ -165,6 +172,7 @@ mod tests {
             ]),
             [
                 "reproit",
+                "internal",
                 "repro",
                 "simplify",
                 "rep_deadbeef0001",
@@ -172,10 +180,8 @@ mod tests {
                 "[\"tap:key:add\"]",
             ]
         );
-        assert_eq!(
-            expand(&["reproit", "bkt_deadbeef0001", "--inspect"]),
-            ["reproit", "inspect", "bkt_deadbeef0001"]
-        );
+        // --inspect and --watch died with their verbs: reproduction is
+        // interactive by default, and the capture watch flag rides __capture.
     }
 
     #[test]

@@ -231,6 +231,7 @@ fn transaction_atomicity_proves_partial_commit_and_accepts_exact_rollback() {
             before: Some(json!({"amount":20})),
             after: Some(json!({"amount":10})),
             payload: None,
+            exchange: None,
         },
     );
     partial_write.action_index = 1;
@@ -271,6 +272,7 @@ fn transaction_atomicity_proves_partial_commit_and_accepts_exact_rollback() {
             before: Some(json!({"amount":10})),
             after: Some(json!({"amount":20})),
             payload: None,
+            exchange: None,
         },
     );
     let mut rolled_back_return = failed.clone();
@@ -366,6 +368,7 @@ fn concurrent_events(second_success: bool, stale_second_write: bool) -> Vec<Back
                 before: Some(json!({"balance":10})),
                 after: Some(json!({"balance":11})),
                 payload: None,
+                exchange: None,
             },
         ),
         principal_event(
@@ -393,6 +396,7 @@ fn concurrent_events(second_success: bool, stale_second_write: bool) -> Vec<Back
                 before: Some(json!({"balance":if stale_second_write {10} else {11}})),
                 after: Some(json!({"balance":if stale_second_write {11} else {12}})),
                 payload: None,
+                exchange: None,
             },
         ));
     }

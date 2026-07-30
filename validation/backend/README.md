@@ -104,13 +104,13 @@ The minimum invocation is:
 }
 ```
 
-`cli-e2e/run.sh` boots a disposable instrumented HTTP fixture and runs the real `reproit scan`
+`cli-e2e/run.sh` boots a disposable instrumented HTTP fixture and runs the real `reproit internal scan`
 command. The gate requires the CLI to report the schema-backed response violation and exit with
 regression status. This keeps the public scan path, not only the model evaluator, covered end to
 end.
 
-An OpenAPI file is also a direct CLI target. `reproit scan openapi.yaml` calls read-only GET
-operations without launching a browser. `reproit fuzz
+An OpenAPI file is also a direct CLI target. `reproit internal scan openapi.yaml` calls read-only GET
+operations without launching a browser. `reproit internal fuzz
 openapi.yaml` orders creates before reads,
 harvests structural resource IDs, and feeds those values into later operations. Confirmed findings
 save their setup requests and failing request together, so `reproit fnd_...` can rebuild the state
@@ -135,7 +135,7 @@ runtime witness exists, and removing the authored invariant removes the oracle.
 
 Backend-only projects need no UI scaffold. `reproit init` detects a conventional OpenAPI, GraphQL
 introspection, or protobuf descriptor filename and writes the smallest backend-only `reproit.yaml`.
-Bare `reproit scan` and `reproit fuzz` then resolve that schema automatically. Framework names are
+Bare `reproit internal scan` and `reproit internal fuzz` then resolve that schema automatically. Framework names are
 never part of the runtime contract.
 
 Financial and deployment invariants use structural paths and values:
@@ -244,7 +244,7 @@ backend:
           readOutputPath: $.status
 ```
 
-`reproit fuzz` exercises and shrinks create/read, create/update/read, and create/delete/read
+`reproit internal fuzz` exercises and shrinks create/read, create/update/read, and create/delete/read
 sequences. Publication requires a same-origin disposable reset endpoint and an exact clean-state
 replay of the final structural fingerprint. Removing any required setup step or reducing the failing
 request is accepted only when that same fingerprint still reproduces. Generated resource identities

@@ -3,6 +3,7 @@
 use super::*;
 use crate::adapters::credentials;
 use crate::domain::{map, repro};
+use crate::interface::cli::args::AuthAction;
 use std::path::PathBuf;
 
 mod config_edit;

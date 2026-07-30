@@ -1,8 +1,8 @@
-# Fault localization (`reproit repro why`)
+# Fault localization (`reproit internal repro why`)
 
 ```sh
-reproit repro why <id>  # rank suspect files for a finding
-reproit repro why       # rank for the current failing suite
+reproit internal repro why <id>  # rank suspect files for a finding
+reproit internal repro why       # rank for the current failing suite
 ```
 
 `why` uses **Ochiai** spectrum-based fault localization: it compares which code ran during failing

@@ -7,7 +7,7 @@ original failure.
 Users do not manage capsules directly:
 
 ```sh
-reproit fuzz
+reproit internal fuzz
 reproit bkt_...
 reproit fnd_...
 reproit keep fnd_...
@@ -66,7 +66,7 @@ portability claim.
 
 The accepted relaxed dimensions are then tested together. If that final combined replay is not an
 exact reproduction, all relaxed claims are cleared. Captured values remain pinned by default during
-normal replay; explicit command-line overrides still take precedence. `reproit proof <id>` displays
+normal replay; explicit command-line overrides still take precedence. `reproit internal proof <id>` displays
 the DAG size, environment replay count, portable dimensions, non-reproducing trials, and abstentions.
 
 Multi-actor capsules use actor-local 1-based action clocks. The authored checkpoint remains

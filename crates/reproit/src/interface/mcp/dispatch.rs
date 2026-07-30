@@ -33,13 +33,13 @@ pub(super) fn build_argv(
         "reproit_context" => {
             // Debug is an implementation surface; the command refreshes the
             // internal model before rendering it for the authoring agent.
-            argv.push("debug".into());
+            argv.extend(["internal".into(), "debug".into()]);
             argv.push("map".into());
             argv.push("show".into());
         }
         "reproit_accessibility" => {
             // The UI-vs-a11y diff, read from the map's operability gaps.
-            argv.push("debug".into());
+            argv.extend(["internal".into(), "debug".into()]);
             argv.push("map".into());
             argv.push("accessibility".into());
             if let Some(st) = s("state") {
@@ -50,12 +50,12 @@ pub(super) fn build_argv(
             }
         }
         "reproit_coverage" => {
-            argv.push("debug".into());
+            argv.extend(["internal".into(), "debug".into()]);
             argv.push("map".into());
             argv.push("semantic".into());
         }
         "reproit_fuzz" => {
-            argv.push("fuzz".into());
+            argv.extend(["internal".into(), "fuzz".into()]);
             // The agent wants the whole deduped work-list: collect findings
             // across the seed budget and group them into unique bugs (same bug
             // reached by different paths counts once).
@@ -68,7 +68,7 @@ pub(super) fn build_argv(
             }
         }
         "reproit_scan" => {
-            argv.push("scan".into());
+            argv.extend(["internal".into(), "scan".into()]);
             if let Some(t) = s("target") {
                 argv.push(t);
             }
@@ -114,11 +114,30 @@ pub(super) fn build_argv(
                 argv.push("--flicker".into());
             }
         }
+        "reproit_reproduce" => {
+            // Hermetic reproduce: verdict from re-executed code. A capture
+            // file with an exec override routes through check --exec; every
+            // other reference (occ_, guard id) resolves its recipe from
+            // repo-local config or the guard's stored hermetic.json.
+            let reference = args
+                .get("reference")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if let Some(exec) = args.get("exec").and_then(Value::as_str) {
+                argv.push("check".into());
+                argv.push(reference.to_string());
+                argv.push("--exec".into());
+                argv.push(exec.to_string());
+                argv.push("--auto".into());
+            } else {
+                argv.push(reference.to_string());
+            }
+        }
         "reproit_verify" => {
             // Batch proof-of-fix: replay every persisted backend finding (or the
             // named ids) and assert none still reproduces. A green result is
             // machine-checkable proof the agent's fix holds.
-            argv.push("verify".into());
+            argv.extend(["internal".into(), "verify".into()]);
             if let Some(ids) = args.get("ids").and_then(Value::as_array) {
                 for id in ids {
                     if let Some(id) = id.as_str() {
@@ -128,7 +147,7 @@ pub(super) fn build_argv(
             }
         }
         "reproit_accept" => {
-            argv.push("accept".into());
+            argv.extend(["internal".into(), "accept".into()]);
             if let Some(ids) = args.get("ids").and_then(Value::as_array) {
                 for id in ids {
                     if let Some(id) = id.as_str() {
@@ -149,7 +168,7 @@ pub(super) fn build_argv(
             }
         }
         "reproit_baseline" => {
-            argv.push("baseline".into());
+            argv.extend(["internal".into(), "baseline".into()]);
             // No positional `repro`: the CLI `baseline` command takes only
             // `--update` (the visual config selects what is compared). Pushing a
             // repro arg made clap reject the call with "unexpected argument".
@@ -167,7 +186,7 @@ pub(super) fn build_argv(
             }
         }
         "reproit_simplify" => {
-            argv.extend(["repro".into(), "simplify".into()]);
+            argv.extend(["internal".into(), "repro".into(), "simplify".into()]);
             let Some(r) = s("repro") else {
                 return Err((missing("repro"), true));
             };
@@ -177,7 +196,7 @@ pub(super) fn build_argv(
             };
             argv.extend(["--to".into(), actions.to_string()]);
         }
-        "reproit_repros" => argv.push("repros".into()),
+        "reproit_repros" => argv.extend(["internal".into(), "list".into()]),
         "reproit_journeys" => argv.extend(["journey".into(), "list".into()]),
         "reproit_journey_save" => {
             let Some(name) = s("name") else {
@@ -190,6 +209,7 @@ pub(super) fn build_argv(
                 ));
             };
             argv.extend([
+                "internal".into(),
                 "journey".into(),
                 "save".into(),
                 name,
@@ -200,7 +220,7 @@ pub(super) fn build_argv(
         "reproit_why" => {
             // `repro why` localizes over coverage under a dir; a repro scopes to
             // its own run dir so the contrast is that repro's passing vs failing.
-            argv.extend(["repro".into(), "why".into()]);
+            argv.extend(["internal".into(), "repro".into(), "why".into()]);
             if let Some(r) = s("repro") {
                 argv.extend(["--dir".into(), format!(".reproit/repros/{r}")]);
             }
@@ -212,6 +232,7 @@ pub(super) fn build_argv(
             // The impact-ranked list at GET /v1/apps/:app/buckets -- the ONLY
             // command that surfaces the `bucketId` the rest of the loop keys off.
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "buckets".into(),
                 "--app".into(),
@@ -229,6 +250,7 @@ pub(super) fn build_argv(
                 return Err((missing("bucket"), true));
             };
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "blast-radius".into(),
                 "--app".into(),
@@ -255,6 +277,7 @@ pub(super) fn build_argv(
             // bucket-based reproduce (pull -> check). The old `--idx <bucket>`
             // dispatch broke with real bucket ids (they are not integers).
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "__replay-dispatch".into(),
                 "--app".into(),
@@ -277,6 +300,7 @@ pub(super) fn build_argv(
                 return Err((missing("as"), true));
             };
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "__pull".into(),
                 "--app".into(),
@@ -295,6 +319,7 @@ pub(super) fn build_argv(
                 return Err((missing("bucket"), true));
             };
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "triage".into(),
                 "--app".into(),
@@ -320,6 +345,7 @@ pub(super) fn build_argv(
                 return Err((missing_app(), true));
             };
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "resolution-events".into(),
                 "--app".into(),
@@ -334,6 +360,7 @@ pub(super) fn build_argv(
                 return Err((missing("bucket"), true));
             };
             argv.extend([
+                "internal".into(),
                 "__cloud-internal".into(),
                 "timeline".into(),
                 "--app".into(),

@@ -15,6 +15,7 @@ const modes = ["clean", "broken", "incomplete"];
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(here, "target");
 const validator = join(
   targetDir,
+  "internal",
   "debug",
   process.platform === "win32"
     ? "reproit-real-backend-validator.exe"

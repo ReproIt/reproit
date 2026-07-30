@@ -93,7 +93,7 @@ Missing strong consistency, snapshot identity, complete effects, or an explicit 
 means `ABSTAIN`.
 
 Browser document access is a separate authored matrix. Run
-`reproit scan --only route-access`. A non-anonymous cell first proves its configured principal,
+`reproit internal scan --only route-access`. A non-anonymous cell first proves its configured principal,
 then directly navigates to the exact route in an isolated browser context. A violation is confirmed
 only when a second clean context produces the identical observation. Missing auth authority,
 incomplete navigation, external redirects, and unstable evidence return `ABSTAIN`.
@@ -122,9 +122,9 @@ repair context, and exact replay predicate.
 ## Commands
 
 ```sh
-reproit scan                 # one coverage walk
-reproit fuzz                 # deeper sequences and structural inputs
-reproit fuzz --only crash    # narrow observation to one category
+reproit internal scan                 # one coverage walk
+reproit internal fuzz                 # deeper sequences and structural inputs
+reproit internal fuzz --only crash    # narrow observation to one category
 reproit <finding-id>         # replay the saved minimized proof
 ```
 

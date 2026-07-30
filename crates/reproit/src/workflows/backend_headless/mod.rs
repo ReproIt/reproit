@@ -926,11 +926,9 @@ pub use replay_command::{replay_kept_guards, try_replay};
 mod verify;
 pub use verify::run as backend_verify;
 mod capture_replay;
-pub use capture_replay::{check_capture, is_capture_file, replay_capture};
-mod inspect;
-mod inspect_plan;
-mod inspect_report;
-pub use inspect::try_inspect;
+pub use capture_replay::{capture_has_exchanges, check_capture, is_capture_file, replay_capture};
+mod hermetic;
+pub use hermetic::{check_capture_exec, keep_capture_guard, try_replay_hermetic_guard};
 use replay_command::{
     escape_pointer, find_artifact, maybe_reset_target, replay_endpoint, value_as_text,
 };

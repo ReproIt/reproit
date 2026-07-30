@@ -12,6 +12,10 @@ pub(super) struct CaptureArtifact {
     pub(super) operation: String,
     pub(super) oracle: String,
     pub(super) events: Vec<BackendEvent>,
+    /// Determinism envelope (version 2): capture wall-clock, timezone,
+    /// runtime identity, and the replay seed hermetic replay pins to.
+    #[serde(default)]
+    pub(super) envelope: Option<Value>,
 }
 
 /// Parse and validate a captured-production payload. Shared by
@@ -23,7 +27,9 @@ pub(super) fn parse_capture(bytes: &[u8]) -> Result<CaptureArtifact> {
     if artifact.format != "reproit-backend-capture" {
         bail!("unsupported capture format {:?}", artifact.format);
     }
-    if artifact.version != 1 {
+    // Version 1: events only. Version 2 additionally carries dependency
+    // `exchange` records on effect events (the hermetic-replay inputs).
+    if !(1..=2).contains(&artifact.version) {
         bail!("unsupported capture version {}", artifact.version);
     }
     if artifact.events.is_empty() {
@@ -72,6 +78,24 @@ fn evaluate_capture_file(file: &Path) -> Result<CaptureEvaluation> {
         findings,
         reproduced,
     })
+}
+
+/// Sniff whether a capture file carries recorded dependency exchanges (the
+/// hermetic-replay inputs). Routing only; parse errors read as "no".
+pub fn capture_has_exchanges(path: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|value| {
+            value.get("events").and_then(Value::as_array).map(|events| {
+                events
+                    .iter()
+                    .any(|event| event.get("exchange").is_some_and(|value| !value.is_null()))
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// Sniff whether `path` holds a `reproit-backend-capture` payload. Routing

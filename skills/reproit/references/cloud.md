@@ -5,7 +5,7 @@ replay it **locally and deterministically**.
 
 ```sh
 reproit login
-reproit list --state bugs               # browse what production reported
+reproit internal list --state bugs               # browse what production reported
 reproit <bkt>
 ```
 
@@ -18,9 +18,9 @@ repro you can `check`, `why`, and fix exactly like any other.
 1. `reproit <bkt>` to pull and replay the crash.
 2. It lands as a local repro id, from here it is the normal loop: `check` to confirm, `why` to
    localize, fix, `check` to prove.
-3. `reproit list --state bugs` ranks confirmed bugs by impact so you know what to fix first.
-4. `reproit triage <bkt>` reads or updates its workflow state.
-5. `reproit timeline <bkt>` shows the bug history, and `reproit resolution-events` shows resolution
+3. `reproit internal list --state bugs` ranks confirmed bugs by impact so you know what to fix first.
+4. `reproit internal triage <bkt>` reads or updates its workflow state.
+5. `reproit internal timeline <bkt>` shows the bug history, and `reproit internal resolution-events` shows resolution
    evidence across the selected project.
 
 ## Notes

@@ -16,6 +16,18 @@
 'use strict';
 
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
+
+// Ambient trace for outbound-exchange capture: framework adapters run the
+// request handler inside `traceStorage.run(trace, ...)` so the instrumented
+// http/fetch/pg clients can find the trace without threading it through
+// application code.
+const traceStorage = new AsyncLocalStorage();
+
+function currentTrace() {
+  const trace = traceStorage.getStore();
+  return trace && trace.finished === false ? trace : null;
+}
 
 const MAX_EVENTS = 256;
 const MAX_HEADER_BYTES = 60000;
@@ -123,15 +135,20 @@ class BackendTrace {
     if (Array.isArray(opts.selections) && opts.selections.length > 0) {
       common.selections = opts.selections.slice(0, MAX_EVENTS);
     }
-    const trace = new BackendTrace(common);
+    const trace = new BackendTrace(common, context.captureEnvelope === true);
     trace._push('start', { input: redact(opts.input ?? null) });
     return trace;
   }
 
-  constructor(common) {
+  constructor(common, envelope = false) {
     this._common = common;
     this._events = [];
     this._finished = false;
+    // Capture-mode-only determinism envelope: real wall-clock and monotonic
+    // offsets per event. Scan-time traces (x-reproit-events header) never
+    // carry these fields so their wire shape stays byte-stable.
+    this._envelope = envelope;
+    this._originNs = envelope ? process.hrtime.bigint() : null;
   }
 
   // opts: { resource, key, tenant, event, detail }
@@ -155,6 +172,15 @@ class BackendTrace {
         for (const key of ['before', 'after', 'payload']) {
           if (key in detail) fields[key] = detail[key];
         }
+      }
+    }
+    // Captured dependency exchange (instrument.js): the request the app sent
+    // and the response the dependency returned, already bounded by the
+    // instrument layer. Redacted here so no caller can skip it.
+    if (opts.exchange !== undefined && opts.exchange !== null) {
+      const exchange = redact(opts.exchange);
+      if (exchange && typeof exchange === 'object' && !Array.isArray(exchange)) {
+        fields.exchange = exchange;
       }
     }
     this._push('effect', fields);
@@ -188,7 +214,12 @@ class BackendTrace {
 
   _push(kind, fields) {
     if (this._events.length >= MAX_EVENTS) throw new TraceError('TooManyEvents');
-    this._events.push({ ...this._common, sequence: sequenceCounter++, kind, ...fields });
+    const event = { ...this._common, sequence: sequenceCounter++, kind, ...fields };
+    if (this._envelope) {
+      event.at = Date.now();
+      event.monoNs = Number(process.hrtime.bigint() - this._originNs);
+    }
+    this._events.push(event);
   }
 }
 
@@ -277,6 +308,8 @@ module.exports = {
   httpInput,
   canonicalJson,
   redact,
+  traceStorage,
+  currentTrace,
   Capture: capture.Capture,
   CAPTURE_FORMAT: capture.CAPTURE_FORMAT,
   CAPTURE_VERSION: capture.CAPTURE_VERSION,

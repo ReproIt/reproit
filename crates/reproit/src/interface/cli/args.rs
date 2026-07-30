@@ -4,7 +4,6 @@ use super::context::Ctx;
 use super::rewrite;
 use crate::VERSION;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod actions;
@@ -257,19 +256,19 @@ pub(crate) struct FindArgs {
     #[arg(long)]
     pub(crate) budget: Option<u32>,
     /// Disposable backend service URL.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub(crate) service: Option<String>,
     /// Force URL routing through `web` or `backend`.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub(crate) platform: Option<String>,
     /// Same-origin reset endpoint for exact backend replay.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub(crate) reset: Option<String>,
     /// Record surface findings as short clips.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub(crate) record_video: bool,
     /// Extra browser header, repeatable as `"Name: value"`.
-    #[arg(long = "header", value_name = "NAME: VALUE")]
+    #[arg(long = "header", value_name = "NAME: VALUE", hide = true)]
     pub(crate) headers: Vec<String>,
     /// Restrict deep exploration to these detector categories (the default is
     /// the stable set).
@@ -315,54 +314,9 @@ pub(crate) enum Cmd {
     /// Find unknown failures through a fast surface pass followed by bounded
     /// deep exploration and exact confirmation.
     Find(FindArgs),
-    /// List local guards, blocked candidates, or confirmed production bugs.
-    List {
-        #[arg(long, value_enum, default_value = "guards")]
-        state: ListState,
-        /// Filter production bugs by message, identity, or bucket id.
-        #[arg(long)]
-        query: Option<String>,
-    },
-    /// Print the HTTP surface a backend serves, read from its source, and
-    /// write nothing. Works with no schema, no running service and no
-    /// credentials, and reports each service of a monorepo separately. Where a
-    /// schema is declared it also says where schema and source disagree.
-    #[command(hide = true)]
-    Surface,
-    /// Reset Reproit state for this project. The default removes only
-    /// regenerable state; --all also removes saved evidence and configuration.
-    #[command(hide = true)]
-    Reset {
-        /// Remove all project-local Reproit state and reproit.yaml. This
-        /// requires confirmation and never removes application source files.
-        #[arg(long)]
-        all: bool,
-        /// Initialize the project again after --all completes.
-        #[arg(long, requires = "all")]
-        init: bool,
-        /// Platform override for the initialization after reset.
-        #[arg(long, requires = "init")]
-        platform: Option<String>,
-    },
-    /// Check for or install the latest ReproIt CLI release.
-    #[command(hide = true)]
-    Update {
-        /// Report whether an update is available without installing it.
-        #[arg(long)]
-        check: bool,
-    },
-    /// Advanced diagnostics. Normal scan/fuzz/check workflows maintain their
-    /// internal app model automatically.
-    #[command(hide = true)]
-    Debug {
-        #[command(subcommand)]
-        action: DebugAction,
-    },
     /// Run the saved regression suite and classify each: pass (0) / fail (1) /
     /// flaky (2) / stale (3). To reproduce one bug, run `reproit <id>` or
     /// `reproit @saved-name`.
-    /// Add `--record-video` to save video evidence; the visual oracle is
-    /// `baseline`.
     Check {
         /// Internal direct-reference route. Users run `reproit <id>` or
         /// `reproit @saved-name`.
@@ -374,15 +328,9 @@ pub(crate) enum Cmd {
         /// finding with the same name still resolves as the saved artifact.
         #[arg(value_name = "CAPTURE", conflicts_with = "repro")]
         reference: Option<String>,
-        /// Number of concurrent devices (multi-actor)
-        #[arg(long, default_value_t = 1)]
-        devices: usize,
         /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
-        #[arg(long)]
+        #[arg(long, hide = true)]
         kind: Option<String>,
-        /// Override gate.runs from config (gate-style repeats)
-        #[arg(long)]
-        runs: Option<u32>,
         /// Write JUnit XML results to this path (for CI)
         #[arg(long)]
         junit: Option<PathBuf>,
@@ -395,24 +343,27 @@ pub(crate) enum Cmd {
         /// blocking too, so it gates the exit code like a required repro.
         #[arg(long)]
         strict: bool,
-        /// Comma-separated locale list to check across (e.g. de,ar,ja). Each
-        /// locale replays with REPROIT_LOCALE set; results are reported per
-        /// locale and a locale-specific failure (fails in one locale, passes in
-        /// another) is noted. Unset = the app default.
+        /// Headless reproduction: report the verdict and exit without holding
+        /// the replayed app for inspection. This is automatic for CI, agents,
+        /// and scripts (non-TTY, --json, --yes); the flag forces it on a TTY.
         #[arg(long)]
-        locale: Option<String>,
+        auto: bool,
+        /// Hermetic re-execution for a capture file: boot this command with
+        /// REPROIT_REPLAY pointed at the capture, fire the recorded request,
+        /// and verdict from the live response (reproduced / fixed / diverged /
+        /// inconclusive). The app must mount the reproit SDK with
+        /// instrument.install() and listen on $PORT.
+        #[arg(long, value_name = "COMMAND")]
+        exec: Option<String>,
         /// Device target: ios|android|web|all. Interactive picker when omitted
         /// on a TTY and not --yes.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         target: Option<String>,
-        /// Specific device name/id to route to (else the interactive picker).
-        #[arg(long)]
-        device: Option<String>,
         /// Save screen video as supporting evidence for each executed repro.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         record_video: bool,
         /// Scan recorded video for transient render glitches.
-        #[arg(long, requires = "record_video")]
+        #[arg(long, requires = "record_video", hide = true)]
         flicker: bool,
         /// Run repros connected to files changed since BASE first, then run the
         /// rest of the full suite. With no value, BASE defaults to HEAD^. This
@@ -431,193 +382,6 @@ pub(crate) enum Cmd {
         #[arg(long)]
         update_baseline: bool,
     },
-    /// Open one repro on its configured platform, step through its actions, and
-    /// write a structured fix packet. Inspection is diagnostic and never
-    /// promotes or updates the saved guard.
-    #[command(hide = true)]
-    Inspect {
-        /// Saved repro id or alias, or a production bucket id to pull first.
-        /// Backend projects also accept a finding id or a captured-production
-        /// payload file (the `debug replay-capture` artifact).
-        #[arg(value_name = "REPRO")]
-        reference: String,
-        /// Backend only: step through the recorded event trail without
-        /// re-sending any request to a live target.
-        #[arg(long)]
-        offline: bool,
-    },
-    /// Collect a signed, encrypted offline support bundle from bounded files.
-    #[command(hide = true)]
-    Collect {
-        /// Destination `.rpb` file. The command refuses to overwrite it.
-        #[arg(long, short)]
-        output: PathBuf,
-        /// Product identity recorded in the immutable occurrence envelope.
-        #[arg(long)]
-        product: String,
-        /// Component that observed the failure.
-        #[arg(long)]
-        component: String,
-        /// Optional operating system or runtime platform.
-        #[arg(long)]
-        platform: Option<String>,
-        /// Human failure observation. This is a source claim, not an oracle.
-        #[arg(long)]
-        summary: String,
-        /// Evidence file to include. Repeat for logs, dumps, traces, or reports.
-        #[arg(long = "artifact", value_name = "FILE")]
-        artifacts: Vec<PathBuf>,
-        /// Assert that every included artifact was redacted at source and may
-        /// cross the collection boundary.
-        #[arg(long)]
-        exportable: bool,
-        /// Retention policy label carried with the occurrence.
-        #[arg(long, default_value = "support-30d")]
-        retention_class: String,
-    },
-    /// Capture a known failure from a configured app, a command, or a signed
-    /// offline support bundle.
-    #[command(name = "capture", trailing_var_arg = true)]
-    CaptureCommand {
-        /// Signed offline support bundle to verify and import as an immutable
-        /// occurrence.
-        #[arg(long, value_name = "FILE")]
-        bundle: Option<PathBuf>,
-        /// Project identity used by Cloud grouping. Defaults to the checkout
-        /// directory name.
-        #[arg(long)]
-        project: Option<String>,
-        /// Component identity. Defaults to the executable name.
-        #[arg(long)]
-        component: Option<String>,
-        /// Exact semantic identity asserted by a trusted command verifier.
-        /// The command's exit status remains the replay matcher.
-        #[arg(long)]
-        identity: Option<String>,
-        /// Stop the command after this many milliseconds.
-        #[arg(long, default_value_t = 300_000)]
-        timeout_ms: u64,
-        /// Retain bounded stdout and stderr as local-only restricted artifacts.
-        #[arg(long)]
-        include_output: bool,
-        /// Keep the capture on this machine even when Cloud credentials exist.
-        #[arg(long)]
-        local_only: bool,
-        /// Capture an already-running configured application.
-        #[arg(long)]
-        attach: bool,
-        /// Short description for an application demonstration.
-        #[arg(long)]
-        title: Option<String>,
-        /// SDK action/state export for an application demonstration.
-        #[arg(long)]
-        actions_file: Option<PathBuf>,
-        /// Record screen video with an application demonstration.
-        #[arg(long)]
-        record_video: bool,
-        /// Review and push the application demonstration to Cloud.
-        #[arg(long)]
-        push: bool,
-        /// Print the Cloud review URL instead of opening it.
-        #[arg(long, requires = "push")]
-        no_open: bool,
-        /// Optional configured application sub-variant.
-        #[arg(long)]
-        kind: Option<String>,
-        /// Command and arguments. Use `--` before command flags.
-        #[arg(allow_hyphen_values = true, num_args = 0..)]
-        command: Vec<OsString>,
-    },
-    /// Internal direct occurrence route used by `reproit occ_...`.
-    #[command(name = "__occurrence", hide = true)]
-    Occurrence {
-        reference: String,
-        /// Download and validate the occurrence without executing it.
-        #[arg(long)]
-        no_run: bool,
-    },
-    /// Compile an imported occurrence against checkout-owned execution providers.
-    #[command(hide = true)]
-    Plan {
-        occurrence: String,
-        /// Bind one assessed requirement to a trusted provider, `REQ=PROVIDER`.
-        #[arg(long = "bind", value_name = "REQ=PROVIDER", required = true)]
-        bindings: Vec<String>,
-        /// Exact failure identity confirmed by the trusted provider.
-        #[arg(long)]
-        identity: String,
-    },
-    /// Create a bug report by demonstrating the problem in the configured app.
-    /// Repro It preserves the immutable original without claiming an unverified
-    /// detector result.
-    #[command(hide = true)]
-    Create {
-        /// Wait for a marked SDK capture, clean-run it, and derive a minimized
-        /// repro. Unlike the default human capture, this requires verification.
-        #[arg(
-            long,
-            conflicts_with_all = [
-                "attach",
-                "title",
-                "actions_file",
-                "record_video",
-                "push",
-                "no_open"
-            ]
-        )]
-        cloud_tester: bool,
-        /// Capture an app that is already running instead of launching the
-        /// configured target. Screen capture is currently supported on macOS;
-        /// structural actions require an SDK export via --actions-file.
-        #[arg(long)]
-        attach: bool,
-        /// Short description stored with the original capture.
-        #[arg(long)]
-        title: Option<String>,
-        /// Optional SDK export containing an action array, or an object with
-        /// `actions` and `states`. It is copied into the immutable original.
-        #[arg(long)]
-        actions_file: Option<PathBuf>,
-        /// Also record screen video as supporting evidence. Video is captured
-        /// automatically when no structural action export is supplied.
-        #[arg(long)]
-        record_video: bool,
-        /// Review and push the immutable original to Repro It Cloud after the
-        /// demonstration stops.
-        #[arg(long)]
-        push: bool,
-        /// Print the Cloud review link instead of opening a browser.
-        #[arg(long, requires = "push")]
-        no_open: bool,
-        /// Cloud project for --cloud-tester. Defaults to the selected project.
-        #[arg(long)]
-        app: Option<String>,
-        /// Stop waiting for a --cloud-tester SDK capture after this many seconds.
-        #[arg(long, default_value_t = 1800)]
-        timeout: u64,
-        /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
-        #[arg(long)]
-        kind: Option<String>,
-    },
-    /// Push a local human-created bug report to Repro It Cloud.
-    #[command(hide = true)]
-    Push {
-        /// Immutable local capture id (cap_...).
-        capture: String,
-        /// Print the Cloud review link instead of opening a browser.
-        #[arg(long)]
-        no_open: bool,
-    },
-    /// Visual-regression the current capture against the committed baseline:
-    /// per-pixel tolerance, ignore regions, and `--update` to accept the
-    /// current capture. What is compared is driven by the `visual` section
-    /// in reproit.yaml.
-    #[command(hide = true)]
-    Baseline {
-        /// Accept the current capture as the new baseline.
-        #[arg(long)]
-        update: bool,
-    },
     /// Keep a finding or occurrence in the committed regression suite. The
     /// store dir is the repro's CONTENT HASH (.reproit/repros/<id>/), stable
     /// across machines and self-deduping. `--as` assigns a human alias.
@@ -632,263 +396,15 @@ pub(crate) enum Cmd {
         /// quarantined-until-first-green.
         #[arg(long)]
         strict: bool,
-    },
-    /// Advanced operations on an existing repro: `simplify` (verify + adopt a
-    /// shorter action sequence) and `why` (rank suspect code for the failure).
-    #[command(hide = true)]
-    Repro {
-        #[command(subcommand)]
-        action: ReproAction,
-    },
-    /// Explain the immutable authority, evaluation, replay, minimization, and
-    /// promotion decision for a finding or saved repro.
-    #[command(hide = true)]
-    Proof {
-        /// Finding id, repro id, or saved repro alias.
-        reference: String,
-    },
-    /// Replay every persisted backend finding against the live target and assert
-    /// none still reproduces: a durable regression suite and batch proof-of-fix.
-    /// Exits non-zero if any finding reproduces. Pass ids to verify only those.
-    #[command(hide = true)]
-    Verify {
-        /// Finding ids to verify (default: all persisted findings).
-        ids: Vec<String>,
-        /// Write a JUnit report of held vs reproducing findings.
-        #[arg(long)]
-        junit: Option<PathBuf>,
-        /// Delete findings whose contract the schema no longer asserts.
-        #[arg(long)]
-        prune_retracted: bool,
-    },
-    /// Accept one backend finding so the CI gate stops blocking on it, with a
-    /// stated reason and an optional expiry. Unlike `check --update-baseline`,
-    /// this accepts ONLY the findings you name; everything else keeps blocking.
-    #[command(hide = true)]
-    Accept {
-        /// Finding ids to accept.
-        ids: Vec<String>,
-        /// Why this finding is being lived with. Required.
-        #[arg(long, default_value = "")]
-        reason: String,
-        /// Date the acceptance lapses (YYYY-MM-DD). After it, the finding
-        /// blocks again rather than staying silent forever.
-        #[arg(long, value_name = "YYYY-MM-DD")]
-        until: Option<String>,
-        /// Drop the acceptance instead of adding it.
-        #[arg(long)]
-        remove: bool,
-        /// Show what is currently accepted. Acceptances outlive a baseline, so
-        /// a cleared history can still be carrying one.
-        #[arg(long)]
-        list: bool,
-    },
-    /// Internal route for the direct `reproit bkt_...` form.
-    #[command(name = "__replay-bucket", hide = true)]
-    ReplayBucket {
-        /// Production bucket/finding id (bkt_...).
-        issue: String,
-        /// Local alias (default: the production issue id).
-        #[arg(long = "as", name = "name")]
-        as_name: Option<String>,
-        /// Download without running the local confirmation replay.
-        #[arg(long)]
-        no_run: bool,
-        /// Save screen video as supporting evidence for the executed repro.
-        #[arg(long, conflicts_with = "no_run")]
-        record_video: bool,
-        /// Scan recorded video for transient render glitches.
-        #[arg(long, requires = "record_video")]
-        flicker: bool,
-        /// Cloud base URL (default: persisted login / $REPROIT_CLOUD_URL).
-        #[arg(long)]
-        cloud: Option<String>,
-        /// Project key (default: persisted login / $REPROIT_CLOUD_KEY).
-        #[arg(long)]
-        key: Option<String>,
-    },
-    /// Internal route for the direct `reproit cap_...` form.
-    #[command(name = "__capture", hide = true)]
-    OriginalCapture {
-        /// Immutable original capture id (cap_...).
-        capture: String,
-        /// Open the original local video.
-        #[arg(long, conflicts_with = "open")]
-        watch: bool,
-        /// Open the uploaded capture page in a browser.
-        #[arg(long)]
-        open: bool,
-    },
-    /// Update a production bug's lifecycle state. Example:
-    /// `reproit triage bkt_... fixed --fixed-in-build 1.2.3`.
-    #[command(hide = true)]
-    Triage {
-        issue: String,
-        status: String,
-        #[arg(long = "fixed-in-build")]
-        fixed_in_build: Option<String>,
-        #[arg(long)]
-        assignee: Option<i64>,
-    },
-    /// Show a production bug's occurrence history and resolution state.
-    #[command(hide = true)]
-    Timeline { issue: String },
-    /// Match a bug report to a confirmed production bug.
-    #[command(hide = true)]
-    Diagnose {
-        report: String,
-        #[arg(long)]
-        run: bool,
-    },
-    /// List recent production confirmation and regression transitions.
-    #[command(hide = true)]
-    ResolutionEvents,
-    /// Open a repro's recorded video in your default player. Recordings live
-    /// under .reproit/recordings/repro/ (gitignored); make one with
-    /// `reproit @name --record-video`.
-    #[command(hide = true)]
-    Watch {
-        /// The repro to watch (id or alias).
-        repro: String,
-    },
-    /// Generate app-source fix patches from a run's findings (working-tree
-    /// diff for review; requires a write-capable CLI provider). Agent-only:
-    /// reached over MCP / a BYO-key path, not part of the public surface.
-    #[command(hide = true)]
-    Fix {
-        /// Run directory name under evidence.outDir (default: latest run)
-        run: Option<String>,
-    },
-    /// Triage a run's evidence bundle via the configured LLM provider.
-    /// Agent-only: reached over MCP, not part of the public surface.
-    #[command(hide = true)]
-    Analyze {
-        /// Run directory name under evidence.outDir (default: latest run)
-        run: Option<String>,
-    },
-    /// List the simulators reproit manages (by configured name prefix)
-    #[command(hide = true)]
-    Devices,
-    /// Scan each reachable screen once for state-present oracle findings.
-    /// Results retain an authoritative or specialist classification, but both
-    /// are reported when their oracle predicate holds.
-    /// `--record-video` saves quick audit clips; use
-    /// `reproit <id> --record-video` for a fuzz repro.
-    #[command(hide = true)]
-    Scan(ScanArgs),
-    /// Find confirmed, replayable bugs through deeper interaction exploration.
-    /// ReproIt learns and refreshes its internal app model automatically.
-    /// Stable, objective detectors are on by default. Specialist detectors are
-    /// opt-in with `--only`; `--soak` runs the leak cycle.
-    #[command(hide = true)]
-    Fuzz(FuzzArgs),
-    /// Serve reproit as an MCP server (stdio) for coding agents
-    #[command(hide = true)]
-    Mcp,
-    /// Show the platform support matrix: which UI frameworks map to which
-    /// introspection backend and capability source
-    #[command(hide = true)]
-    Platforms,
-    /// Install the bundled coding-agent skills (the reproit playbook) into
-    /// .claude/skills, so an agent drives reproit like an expert
-    #[command(hide = true)]
-    Skills {
-        #[command(subcommand)]
-        action: SkillsAction,
+        /// For a capture file: the boot command for hermetic re-execution
+        /// (stored as the guard's hermetic.json exec recipe). The app must
+        /// mount the reproit SDK with instrument.install() and honor $PORT.
+        #[arg(long, value_name = "COMMAND")]
+        exec: Option<String>,
     },
     /// Diagnose local setup: config, runner deps, app URL, and cloud
     /// credentials.
     Doctor,
-    /// Configure and verify one test login. `auth <account>` replays the
-    /// contract directly; `--discover` regenerates it first.
-    #[command(hide = true)]
-    Auth {
-        account: String,
-        #[arg(long, value_enum)]
-        strategy: Option<AuthStrategyArg>,
-        #[arg(long)]
-        email: Option<String>,
-        #[arg(long)]
-        phone: Option<String>,
-        #[arg(long)]
-        username: Option<String>,
-        #[arg(long)]
-        password: Option<String>,
-        #[arg(long)]
-        otp: Option<String>,
-        #[arg(long)]
-        totp_secret: Option<String>,
-        #[arg(long)]
-        session: Option<String>,
-        #[arg(long)]
-        user_id: Option<String>,
-        #[arg(long)]
-        validate_text: Option<String>,
-        #[arg(long)]
-        no_discover: bool,
-        /// Rebuild the login contract from exploration before verifying it.
-        #[arg(long, conflicts_with = "no_discover")]
-        discover: bool,
-    },
-    /// Run and manage scripted journeys (declarative YAML paths).
-    #[command(
-        after_help = "Run:     reproit journey <name>\nCreate:  reproit journey create \
-                      <name>\nList:    reproit journey list"
-    )]
-    #[command(hide = true)]
-    Journey {
-        #[command(subcommand)]
-        action: JourneyAction,
-    },
-    /// Capture store/marketing screenshots: drive a tour (a journey) across
-    /// locales and devices into a journey-led layout (or your own
-    /// --path-template). Reuses the SHOOT capture machinery; one
-    /// locale-invariant tour covers every locale.
-    #[command(hide = true)]
-    Screenshots {
-        /// Tour to drive (a journey file stem). Defaults to screenshots.tour.
-        tour: Option<String>,
-        /// Output root (default: screenshots.out, else `screenshots/`).
-        #[arg(long)]
-        out: Option<String>,
-        /// Comma-separated locales (e.g. de,ar,ja). Overrides config when set.
-        #[arg(long)]
-        locale: Option<String>,
-        /// Comma-separated platforms/engines to fan out (e.g. ios,android).
-        #[arg(long)]
-        target: Option<String>,
-        /// Comma-separated device names/ids. Overrides config when set.
-        #[arg(long)]
-        device: Option<String>,
-        /// Skip the cross-screen verification gate (it is on by default).
-        #[arg(long)]
-        no_verify: bool,
-        /// Per-shot directory template, overriding the auto layout.
-        /// Placeholders: {journey} {platform} {locale} {device}.
-        /// Example: "{locale}/{device}".
-        #[arg(long)]
-        path_template: Option<String>,
-    },
-    /// Import an offline `.rpb` support bundle or a flow from another tool.
-    #[command(hide = true)]
-    Import {
-        /// Bundle path, or source tool (`maestro`) when a second path follows.
-        source: String,
-        /// Source flow file for tool imports.
-        path: Option<PathBuf>,
-        /// Journey name (default: the source file stem).
-        #[arg(long)]
-        name: Option<String>,
-        /// Write the journey here (default: stdout).
-        #[arg(long, short)]
-        out: Option<PathBuf>,
-    },
-    /// Internal Cloud and CI plumbing. Human Cloud workflows are top-level.
-    #[command(name = "__cloud-internal", hide = true)]
-    Cloud {
-        #[command(subcommand)]
-        action: CloudAction,
-    },
     /// Sign in to ReproIt Cloud in your browser, then discover and select a
     /// project. Hosted Cloud is assumed; --cloud is only for a self-hosted
     /// deployment.
@@ -901,31 +417,14 @@ pub(crate) enum Cmd {
         #[arg(long)]
         key: Option<String>,
     },
-    /// (internal) PTY-driven terminal-UI runner; spawned by the tui backend
-    #[command(name = "__tui", hide = true)]
-    TuiRun,
-    /// (internal) Windows UI Automation runner; spawned by the desktop-uia
-    /// backend
-    #[command(name = "__uia", hide = true)]
-    UiaRun,
-    /// (internal) Linux AT-SPI runner; spawned by the desktop-atspi backend
-    #[command(name = "__atspi", hide = true)]
-    AtspiRun,
-    /// (internal) Replay one explicit Vitest assertion as an authored contract.
-    #[command(name = "__vitest-contract", hide = true)]
-    VitestContract {
-        #[arg(long)]
-        cwd: PathBuf,
-        #[arg(long)]
-        test_path: String,
-        #[arg(long)]
-        test_name: String,
-        #[arg(long)]
-        pnpm_version: String,
+    /// Implementation surface: engines, cloud plumbing, runner hosts, and the
+    /// agent bridge. Invoked by reproit itself, scripts, and MCP dispatch;
+    /// not part of the vocabulary.
+    #[command(hide = true)]
+    Internal {
+        #[command(subcommand)]
+        cmd: crate::interface::cli::internal::InternalCmd,
     },
-    /// Refresh the release cache without delaying the calling command.
-    #[command(name = "__update-check", hide = true)]
-    UpdateCheck,
 }
 
 impl Cli {

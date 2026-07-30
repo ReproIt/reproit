@@ -214,6 +214,7 @@ impl FrozenBackendGuard {
 
     pub fn reproduces(&self, log: &str) -> bool {
         let config = BackendConfig {
+            exec: None,
             enabled: true,
             origins: Vec::new(),
             schemas: Vec::new(),
@@ -249,7 +250,6 @@ use evaluate::{
     failed_atomicity_effect_outcome, selection_mismatch, AtomicityEffectOutcome, EffectEvent,
     Invocation,
 };
-pub use evaluate::{pending_obligations, PendingObligation};
 
 /// Whether a finding-level oracle id belongs to the backend contract family.
 pub fn is_backend_oracle(oracle: &str) -> bool {

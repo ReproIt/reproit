@@ -537,13 +537,21 @@ mod tests {
     use super::*;
 
     fn project(files: &[(&str, &str)]) -> std::path::PathBuf {
+        // A wall-clock name alone collides when two parallel tests hit the same
+        // clock tick (macOS resolves to microseconds, and the pid is shared
+        // across threads), so two tests share one directory and race each
+        // other's writes and cleanup. The process-wide counter makes each call
+        // unique regardless of clock resolution. Same fix as
+        // `workflows::backend_learn::tests::project`.
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "reproit-backend-detect-{}-{}",
+            "reproit-backend-detect-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         for (name, content) in files {

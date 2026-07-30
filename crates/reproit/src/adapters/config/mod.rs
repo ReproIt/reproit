@@ -708,17 +708,33 @@ pub struct Screenshots {
     pub path_template: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Gate {
     #[serde(default = "default_gate_runs")]
     pub runs: u32,
+    /// Concurrent devices for multi-actor replay.
+    #[serde(default = "default_gate_devices")]
+    pub devices: usize,
+    /// Comma-separated locale matrix (e.g. "de,ar,ja"); unset = app default.
+    #[serde(default)]
+    pub locale: Option<String>,
+    /// Specific device name/id to route to; unset = the interactive picker.
+    #[serde(default)]
+    pub device: Option<String>,
+}
+
+fn default_gate_devices() -> usize {
+    1
 }
 
 impl Default for Gate {
     fn default() -> Self {
         Gate {
             runs: default_gate_runs(),
+            devices: default_gate_devices(),
+            locale: None,
+            device: None,
         }
     }
 }

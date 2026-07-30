@@ -8,10 +8,10 @@ description: >-
   "presence/chat/handoff test", or editing a journey YAML.
 ---
 
-# Authoring a reproit journey
+# Authoring a reproit internal journey
 
 A journey is a declarative path: a `setup` (usually a login) plus ordered `steps`. Running a journey
-is `reproit journey <name>`; the `reproit journey` command manages the files. Unlike `fuzz` (which
+is `reproit internal journey <name>`; the `reproit internal journey` command manages the files. Unlike `fuzz` (which
 explores), a journey asserts a **specific** scripted flow, including flows that need more than one
 user.
 
@@ -44,7 +44,7 @@ Two or more users on **separate devices**, coordinated so they cannot collide.
 
 ## Secrets, never hardcode
 
-- Create account-backed creds with `reproit auth add <account> --strategy <kind>`.
+- Create account-backed creds with `reproit internal auth add <account> --strategy <kind>`.
 - Reference them in a step as `secret:<KEY>` (e.g. `type:secret:ALICE_PW`). reproit expands the
   placeholder just before delivery and redacts the value from all captured logs. Runners never see
   raw secrets.
@@ -60,7 +60,7 @@ Two or more users on **separate devices**, coordinated so they cannot collide.
 ## Workflow
 
 1. Write/adapt the YAML from the template.
-2. Save/validate it via `reproit journey` (manages the files).
-3. Run it: `reproit journey <name>`. Exit `0` pass, `1` fail, `2` flaky.
+2. Save/validate it via `reproit internal journey` (manages the files).
+3. Run it: `reproit internal journey <name>`. Exit `0` pass, `1` fail, `2` flaky.
 4. A flaky multi-user journey usually means a missing barrier/ordering, make the cross-actor
    dependency explicit rather than adding waits.

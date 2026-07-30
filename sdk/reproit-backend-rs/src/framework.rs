@@ -27,6 +27,19 @@ pub struct Recorder {
 }
 
 impl Recorder {
+    /// Wrap a hand-begun trace for ambient exchange recording outside the
+    /// framework middleware (capture fixtures, hand-rolled servers).
+    #[cfg(feature = "instrument")]
+    pub fn standalone(trace: BackendTrace) -> Self {
+        Self::new(trace)
+    }
+
+    /// Take the finished trace back out of a standalone recorder.
+    #[cfg(feature = "instrument")]
+    pub fn into_trace(self) -> Option<BackendTrace> {
+        self.take()
+    }
+
     pub(crate) fn new(trace: BackendTrace) -> Self {
         Self {
             trace: Arc::new(Mutex::new(Some(trace))),
@@ -50,6 +63,25 @@ impl Recorder {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match guard.as_mut() {
             Some(trace) => trace.effect(effect, resource, key, tenant, event, detail),
+            None => Err(TraceError::AlreadyFinished),
+        }
+    }
+
+    /// Record one captured dependency exchange on the in-flight trace.
+    /// Fails once the middleware has finished the trace.
+    pub fn exchange(
+        &self,
+        effect: EffectKind,
+        resource: Option<&str>,
+        key: Option<&str>,
+        exchange: Value,
+    ) -> Result<(), TraceError> {
+        let mut guard = self
+            .trace
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(trace) => trace.exchange(effect, resource, key, exchange),
             None => Err(TraceError::AlreadyFinished),
         }
     }

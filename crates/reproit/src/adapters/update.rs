@@ -74,6 +74,7 @@ pub fn notice_and_schedule(current: &str, quiet: bool, json: bool) {
     }
     let spawned = std::env::current_exe().and_then(|exe| {
         Command::new(exe)
+            .arg("internal")
             .arg("__update-check")
             .stdin(Stdio::null())
             .stdout(Stdio::null())

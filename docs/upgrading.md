@@ -4,7 +4,7 @@
 
 1. Commit or back up `reproit.yaml`, `.reproit/repros`, and authored journeys.
 2. Read [CHANGELOG.md](../CHANGELOG.md) for behavior and prerequisite changes.
-3. Run `reproit update`, or install an explicit immutable version.
+3. Run `reproit internal update`, or install an explicit immutable version.
 4. Run `reproit doctor` in each configured application.
 5. Run `reproit check` before accepting the upgrade in CI.
 

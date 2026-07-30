@@ -1,6 +1,7 @@
 //! Cloud credential, project-selection, and command workflows.
 
 use super::*;
+use crate::interface::cli::args::CloudAction;
 use crate::workflows::fuzz;
 
 /// Resolve the effective cloud (url, key) for a cloud subcommand. Precedence:

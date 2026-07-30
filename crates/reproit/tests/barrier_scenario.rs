@@ -120,7 +120,8 @@ fn spawn_actor(port: u16, label: Option<&str>) -> std::process::Child {
     const INERT_TUI_CMD: &str = "sleep 30";
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_reproit"));
-    cmd.arg("__tui")
+    cmd.arg("internal")
+        .arg("__tui")
         .env("REPROIT_TUI_CMD", INERT_TUI_CMD)
         .env(
             "REPROIT_SCENARIO_BARRIER",

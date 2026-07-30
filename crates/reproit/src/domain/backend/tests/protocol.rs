@@ -277,6 +277,8 @@ fn protocol_proofs_flow_through_evaluation_and_frozen_replay() {
         tenant: None,
         idempotency_key: None,
         selections: Vec::new(),
+        at: None,
+        mono_ns: None,
         event: BackendEventKind::Protocol {
             proof: ProtocolEvidence::HttpByteRange {
                 exchange: exchange(
@@ -322,6 +324,8 @@ fn authored_lifecycle_protocol_flows_through_backend_evaluation() {
         tenant: None,
         idempotency_key: None,
         selections: Vec::new(),
+        at: None,
+        mono_ns: None,
         event: BackendEventKind::Protocol {
             proof: ProtocolEvidence::Lifecycle {
                 contract: ProtocolLifecycleContract {

@@ -315,8 +315,6 @@ fn select_contracts(config: &BackendConfig) -> BTreeMap<&str, &OperationContract
 
 mod data_loss;
 use data_loss::{evaluate_data_loss, evaluate_no_shrink};
-mod pending;
-pub use pending::{pending_obligations, PendingObligation};
 mod lifecycle;
 use lifecycle::{evaluate_resource_lifecycles, scalar_at};
 mod invariants;

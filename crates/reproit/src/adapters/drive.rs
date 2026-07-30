@@ -433,7 +433,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let exe = std::env::current_exe()
                 .map_err(|e| anyhow::anyhow!("locating reproit binary for uia backend: {e}"))?;
             let mut c = Command::new(exe);
-            c.arg("__uia");
+            c.arg("internal").arg("__uia");
             c.env("REPROIT_TARGET", target_app(ctx)?);
             // --record-video: the in-process UIA driver films the target window and
             // writes clip.mov + box-spec.json here; host box-overlay draws the box.
@@ -448,7 +448,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let exe = std::env::current_exe()
                 .map_err(|e| anyhow::anyhow!("locating reproit binary for atspi backend: {e}"))?;
             let mut c = Command::new(exe);
-            c.arg("__atspi");
+            c.arg("internal").arg("__atspi");
             c.env("REPROIT_TARGET", target_app(ctx)?);
             if ctx.wants_video {
                 c.env("REPROIT_VIDEO_DIR", &video_dir);
@@ -462,7 +462,7 @@ fn build_command(ctx: &RunCtx, udid: &str, label: &str, no_build: bool) -> Resul
             let exe = std::env::current_exe()
                 .map_err(|e| anyhow::anyhow!("locating reproit binary for tui backend: {e}"))?;
             let mut c = Command::new(exe);
-            c.arg("__tui");
+            c.arg("internal").arg("__tui");
             c.env("REPROIT_TUI_CMD", target_app(ctx)?);
             // `__tui` opens a second child inside a PTY. Carry the configured
             // project directory explicitly across that intermediate process.

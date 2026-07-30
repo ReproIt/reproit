@@ -17,7 +17,15 @@ pub const OPERATION_RETURN_SUBJECT: &str = "operation-return";
 
 const BACKEND_CAPTURE_FORMAT: &str = "reproit-backend-capture";
 const BACKEND_CAPTURE_VERSION: u16 = 1;
+/// Version stamped when any projected effect event carries a captured
+/// dependency `exchange`. Older CLIs reject it with a named version error
+/// instead of silently evaluating a payload whose replay semantics they do
+/// not understand.
+const BACKEND_CAPTURE_VERSION_EXCHANGES: u16 = 2;
 const SERVER_ERROR_ORACLE: &str = "backend-server-error";
+/// Checkpoint name the backend SDKs use for the determinism envelope
+/// (capture wall-clock, timezone, runtime identity, replay seed).
+pub const DETERMINISM_ENVELOPE_CHECKPOINT: &str = "determinism-envelope";
 
 /// Envelope fields every raw backend SDK event carries. The synthesized
 /// `start` (and, for older batches, `return`) events copy them from a nested
@@ -46,8 +54,14 @@ pub fn backend_capture_from_batch(batch: &CaptureBatch) -> Option<Value> {
     let mut oracle = None;
     let mut effects: Vec<Value> = Vec::new();
     let mut returned: Option<Value> = None;
+    let mut envelope_attributes: Option<Value> = None;
     for event in &batch.events {
         match &event.event {
+            CaptureEventKind::Checkpoint { name, attributes }
+                if name == DETERMINISM_ENVELOPE_CHECKPOINT && envelope_attributes.is_none() =>
+            {
+                envelope_attributes = Some(attributes.clone());
+            }
             CaptureEventKind::OperationStart { name } if operation.is_none() => {
                 operation = Some(name.clone());
             }
@@ -63,6 +77,14 @@ pub fn backend_capture_from_batch(batch: &CaptureBatch) -> Option<Value> {
                 } else {
                     effects.extend(replayable(value.as_ref()));
                 }
+            }
+            // The SDK families that emit effects as dependency/state capture
+            // events (Node and its ports) nest exchange-bearing raw events the
+            // same way: unwrap them so the projection round-trips every
+            // replayable effect regardless of the carrier kind.
+            CaptureEventKind::Dependency { value, .. }
+            | CaptureEventKind::StateAccess { value, .. } => {
+                effects.extend(replayable(value.as_ref()));
             }
             CaptureEventKind::Observation { failure } if oracle.is_none() => {
                 oracle = failure
@@ -111,13 +133,29 @@ pub fn backend_capture_from_batch(batch: &CaptureBatch) -> Option<Value> {
     events.push(Value::Object(start));
     events.extend(effects);
     events.push(returned);
-    Some(json!({
+    // Exchanges and envelope stamps both require version-2-aware consumers:
+    // an older CLI must reject with a named version error rather than parse
+    // events whose fields it does not know.
+    let version = if events.iter().any(|event| {
+        event.get("exchange").is_some_and(|value| !value.is_null())
+            || event.get("at").is_some()
+            || event.get("monoNs").is_some()
+    }) {
+        BACKEND_CAPTURE_VERSION_EXCHANGES
+    } else {
+        BACKEND_CAPTURE_VERSION
+    };
+    let mut payload = json!({
         "format": BACKEND_CAPTURE_FORMAT,
-        "version": BACKEND_CAPTURE_VERSION,
+        "version": version,
         "operation": operation,
         "oracle": oracle,
         "events": events,
-    }))
+    });
+    if let Some(attributes) = envelope_attributes {
+        payload["envelope"] = attributes;
+    }
+    Some(payload)
 }
 
 fn replayable(value: Option<&CapturedValue>) -> Option<Value> {
@@ -277,6 +315,110 @@ mod tests {
         assert_eq!(events[2]["kind"], "return");
         assert_eq!(events[2]["status"], 500);
         assert_eq!(events[2]["output"]["error"], "boom");
+    }
+
+    #[test]
+    fn exchange_bearing_batches_project_at_version_2_from_any_carrier_kind() {
+        // The Node SDK family emits dependency/state capture events for
+        // effects; an exchange-bearing raw event nested under either kind
+        // must round-trip and bump the payload version.
+        let raw_exchange_effect = json!({
+            "traceId": "cap-1-1", "spanId": "cap-1-1:createOrder", "actionIndex": 0,
+            "operation": "createOrder", "sequence": 2,
+            "kind": "effect", "effect": "call", "resource": "pricing", "key": "GET /prices",
+            "exchange": {
+                "protocol": "http",
+                "request": {"method": "GET", "url": "http://pricing/prices"},
+                "response": {"status": 200, "body": {"prices": null}},
+            },
+        });
+        let mut batch = sdk_batch(true);
+        let template = batch
+            .events
+            .iter()
+            .find(|event| matches!(event.event, CaptureEventKind::Effect { .. }))
+            .expect("fixture has an effect event")
+            .clone();
+        for event in &mut batch.events {
+            if let CaptureEventKind::Effect { subject, value, .. } = &mut event.event {
+                if subject == "inventory" {
+                    *value = Some(
+                        serde_json::from_value(json!({
+                            "representation": "replayable",
+                            "value": raw_exchange_effect,
+                            "redaction": "redacted-at-source",
+                        }))
+                        .unwrap(),
+                    );
+                }
+            }
+        }
+        let payload = backend_capture_from_batch(&batch).expect("projects");
+        assert_eq!(payload["version"], 2);
+        let events = payload["events"].as_array().unwrap();
+        assert_eq!(events[1]["exchange"]["response"]["status"], 200);
+
+        // Same raw event under a dependency carrier: identical projection.
+        let mut dependency_batch = sdk_batch(true);
+        for event in &mut dependency_batch.events {
+            if let CaptureEventKind::Effect { subject, .. } = &event.event {
+                if subject == "inventory" {
+                    let mut replaced = template.clone();
+                    replaced.event = serde_json::from_value(json!({
+                        "kind": "dependency",
+                        "system": "service",
+                        "operation": "call",
+                        "subject": "pricing",
+                        "value": {
+                            "representation": "replayable",
+                            "value": raw_exchange_effect,
+                            "redaction": "redacted-at-source",
+                        },
+                    }))
+                    .unwrap();
+                    replaced.id = event.id.clone();
+                    replaced.sequence = event.sequence;
+                    replaced.monotonic_ns = event.monotonic_ns;
+                    replaced.causal_parent_ids = event.causal_parent_ids.clone();
+                    *event = replaced;
+                }
+            }
+        }
+        let payload = backend_capture_from_batch(&dependency_batch).expect("projects");
+        assert_eq!(payload["version"], 2);
+        assert_eq!(
+            payload["events"].as_array().unwrap()[1]["exchange"]["protocol"],
+            "http"
+        );
+    }
+
+    #[test]
+    fn determinism_envelope_checkpoint_projects_into_the_payload() {
+        let mut batch = sdk_batch(true);
+        let template = batch.events[0].clone();
+        let mut checkpoint = template.clone();
+        checkpoint.event = serde_json::from_value(json!({
+            "kind": "checkpoint",
+            "name": DETERMINISM_ENVELOPE_CHECKPOINT,
+            "attributes": {
+                "observedAtMs": 1753747200000u64,
+                "tz": "Europe/Berlin",
+                "node": "v26.5.0",
+                "replaySeed": "00ff00ff00ff00ff",
+            },
+        }))
+        .unwrap();
+        checkpoint.id = "evt_backend-rust_99".into();
+        checkpoint.sequence = batch.events.len() as u64 + 1;
+        checkpoint.monotonic_ns = checkpoint.sequence;
+        checkpoint.causal_parent_ids = Vec::new();
+        batch.events.push(checkpoint);
+        let payload = backend_capture_from_batch(&batch).expect("projects");
+        assert_eq!(payload["envelope"]["tz"], "Europe/Berlin");
+        assert_eq!(payload["envelope"]["replaySeed"], "00ff00ff00ff00ff");
+        // Envelope alone does not force version 2; only event-level stamps
+        // or exchanges do (older CLIs ignore the unknown payload field).
+        assert_eq!(payload["version"], 1);
     }
 
     #[test]

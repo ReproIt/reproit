@@ -68,32 +68,40 @@ async fn planted_500_ships_a_tagged_finding_batch() {
         .recv_timeout(Duration::from_secs(5))
         .expect("stub ingest received a batch");
     assert_eq!(authorization, "bearer sk_live_test");
-    assert_eq!(batch["appId"], "app-e2e");
-    let parsed: reproit_protocol::EventBatch =
-        serde_json::from_value(batch.clone()).expect("batch matches event-batch-v1");
+    assert_eq!(batch["projectId"], "app-e2e");
+    let parsed: reproit_protocol::CaptureBatch =
+        serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
     parsed.validate().expect("batch passes protocol validation");
-    let frames = batch["frames"].as_array().unwrap();
-    let findings: Vec<&Value> = frames
+    let events = batch["events"].as_array().unwrap();
+    let kinds: Vec<&str> = events
         .iter()
-        .map(|frame| &frame["event"])
-        .filter(|event| event["kind"] == "finding")
+        .map(|event| event["event"]["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(findings.len(), 1);
-    let finding = findings[0];
-    assert_eq!(finding["identity"]["oracle"], SERVER_ERROR_ORACLE);
-    let payload = &finding["context"]["reproitCapture"];
-    let kinds: Vec<&str> = payload["events"]
-        .as_array()
+    assert_eq!(
+        kinds,
+        [
+            "operation-start",
+            "trigger",
+            "checkpoint",
+            "effect",
+            "effect",
+            "operation-end",
+            "observation"
+        ]
+    );
+    assert_eq!(events[2]["event"]["name"], "determinism-envelope");
+    let observation = &events[6]["event"];
+    assert!(observation["failure"]["signature"]
+        .as_str()
         .unwrap()
-        .iter()
-        .map(|event| event["kind"].as_str().unwrap())
-        .collect();
-    assert_eq!(kinds, ["start", "effect", "return"]);
-    assert_eq!(payload["events"][1]["resource"], "orders");
-    assert_eq!(payload["events"][2]["status"], 500);
+        .starts_with(SERVER_ERROR_ORACLE));
+    let raw_effect = &events[3]["event"]["value"]["value"];
+    assert_eq!(raw_effect["resource"], "orders");
+    let raw_return = &events[4]["event"]["value"]["value"];
+    assert_eq!(raw_return["status"], 500);
     // The secret-shaped input field was structurally redacted before upload,
     // and the JSON extractor still saw the re-buffered payload.
-    let body = &payload["events"][0]["input"]["body"];
+    let body = &events[1]["event"]["value"]["value"]["body"];
     assert_eq!(body["apiKey"]["$reproit"]["redacted"], true);
     assert_eq!(body["item"], "widget");
 

@@ -1,5 +1,13 @@
 # Bare `reproit init` ground truth (Phase 0)
 
+
+> Vocabulary note (2026-07-30): this file is a verbatim record of runs made
+> before the CLI vocabulary purge. The commands it quotes as `reproit scan`,
+> `reproit fuzz`, and `reproit surface` are spelled `reproit internal scan`,
+> `reproit internal fuzz`, and `reproit internal surface` today; `reproit find`
+> is the discovery verb a human uses. The recorded outputs are unchanged
+> because rewriting a record would falsify it.
+
 Date: 2026-07-30. Binary: `target/release/reproit` built from main at 114c2b9.
 Method: three throwaway fixtures in a scratch directory, zero CLI code changes, every run
 non-interactive (`< /dev/null`). No prompt ever appeared on any path; init is fully

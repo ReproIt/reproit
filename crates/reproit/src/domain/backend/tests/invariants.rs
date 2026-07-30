@@ -75,6 +75,7 @@ fn reproit_cloud_schema_and_trace_contracts_catch_json_drift() {
 #[test]
 fn frozen_guard_preserves_exact_backend_violation_across_trace_positions() {
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -109,6 +110,7 @@ fn frozen_guard_preserves_exact_backend_violation_across_trace_positions() {
                 before: None,
                 after: Some(json!({"id":"m1"})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -145,6 +147,7 @@ fn frozen_guard_preserves_exact_backend_violation_across_trace_positions() {
 #[test]
 fn authored_invariants_require_a_successful_runtime_witness() {
     let mut config = BackendConfig {
+        exec: None,
         enabled: true,
         operations: vec![contract()],
         invariants: vec![BackendInvariant::Range {
@@ -188,6 +191,7 @@ fn financial_transition_and_fleet_invariants_are_structural() {
     let mut operation = contract();
     operation.output = None;
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         operations: vec![operation],
         invariants: vec![
@@ -295,6 +299,7 @@ fn unique_invariant_walks_arrays_structurally() {
     let mut operation = contract();
     operation.output = None;
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         operations: vec![operation],
         invariants: vec![BackendInvariant::Unique {

@@ -58,6 +58,17 @@ trusted local provider, and verifies commands, assertions, reset, cleanup, and
 artifact hashes. The compatibility validator rejects a state change when any
 binding is absent or inconsistent.
 
+## Sequencing: backend first
+
+Promotion effort is sequenced deliberately: no UI target is promoted out of
+Preview until the backend pillar holds IndependentQualified
+production-to-local qualification. The production-to-local loop is the
+product's core claim, and finishing it on one pillar outranks widening the
+Stable set. Preview targets keep shipping and keep their evidence gates; the
+freeze is on promotion work, not on support. This ordering decision lives
+here, not in the manifest: the promotion requirements above are unchanged and
+no target's recorded state moves because of it.
+
 ## Current promotion state
 
 <!-- generated:promotion-state -->

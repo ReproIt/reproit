@@ -21,6 +21,10 @@ categories = ["development-tools::testing", "web-programming"]
 # dependency-light.
 axum = ["dep:axum", "dep:http-body", "dep:tower-layer", "dep:tower-service"]
 actix = ["dep:actix-web", "dep:futures-core"]
+# Outbound-exchange capture and hermetic replay (instrument::http / db).
+# tokio provides the task-local ambient trace; apps using the framework
+# middleware already run on tokio.
+instrument = ["dep:tokio"]
 
 [dependencies]
 base64 = "0.22"
@@ -36,8 +40,15 @@ futures-core = { version = "0.3", optional = true }
 http-body = { version = "1", optional = true }
 tower-layer = { version = "0.3", optional = true }
 tower-service = { version = "0.3", optional = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
-axum = { version = "0.8", default-features = false, features = ["json"] }
+# Examples and middleware tests serve real sockets; the library dependency
+# above stays default-features = false.
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
 tokio.workspace = true
 tower = { version = "0.5", features = ["util"] }
+
+[[example]]
+name = "hermetic_fixture"
+required-features = ["axum", "instrument"]

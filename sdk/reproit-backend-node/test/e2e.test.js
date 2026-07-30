@@ -42,15 +42,27 @@ function assertServerErrorBatch(received) {
   const events = batch.events.map((captured) => captured.event);
   assert.deepStrictEqual(
     events.map((event) => event.kind),
-    ['operation-start', 'trigger', 'state-access', 'effect', 'operation-end', 'observation'],
+    [
+      'operation-start',
+      'trigger',
+      'checkpoint',
+      'state-access',
+      'effect',
+      'operation-end',
+      'observation',
+    ],
   );
-  assert.strictEqual(events[2].subject, 'orders');
+  // The determinism envelope rides as a named checkpoint.
+  assert.strictEqual(events[2].name, 'determinism-envelope');
+  assert.strictEqual(typeof events[2].attributes.observedAtMs, 'number');
+  assert.strictEqual(typeof events[2].attributes.replaySeed, 'string');
+  assert.strictEqual(events[3].subject, 'orders');
   // The raw return event ships as the operation-return effect carrier.
-  assert.strictEqual(events[3].subject, 'operation-return');
-  assert.strictEqual(events[3].value.representation, 'replayable');
-  assert.strictEqual(events[3].value.value.kind, 'return');
-  assert.strictEqual(events[3].value.value.status, 500);
-  assert.strictEqual(events[3].value.value.success, false);
+  assert.strictEqual(events[4].subject, 'operation-return');
+  assert.strictEqual(events[4].value.representation, 'replayable');
+  assert.strictEqual(events[4].value.value.kind, 'return');
+  assert.strictEqual(events[4].value.value.status, 500);
+  assert.strictEqual(events[4].value.value.success, false);
   assert.strictEqual(
     events.at(-1).failure.signature,
     'backend-server-error:POST /boom',
@@ -150,6 +162,79 @@ test('fastify: planted 500 ships a tagged finding batch to the stub ingest', asy
     assert.strictEqual(capture.stats().capturedOperations, 1);
   } finally {
     await app.close();
+    ingest.server.close();
+  }
+});
+
+test('express: outbound exchanges ship with responses in the capture batch', async () => {
+  const express = require('express');
+  const reproitExpress = require('../express.js');
+  const instrument = require('../instrument.js');
+  instrument.install();
+  const ingest = await startStubIngest();
+  // Planted upstream dependency: returns a payload the handler mishandles.
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ prices: null }));
+  });
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const upstreamUrl = 'http://127.0.0.1:' + upstream.address().port;
+  const fakePg = {
+    Client: class Client {
+      query() {
+        return Promise.resolve({ command: 'SELECT', rowCount: 1, rows: [{ id: 7 }] });
+      }
+    },
+  };
+  instrument.wrapPg(fakePg);
+  const pgClient = new fakePg.Client();
+  const capture = Capture.create({
+    endpoint: ingest.url,
+    apiKey: 'sk_live_test',
+    appId: 'app-e2e',
+    build: '9.9.9',
+    flushIntervalMs: 100,
+  });
+  const app = express();
+  app.use(express.json());
+  app.use(reproitExpress({ capture }));
+  app.get('/quote', async (req, res) => {
+    try {
+      await pgClient.query('SELECT id FROM issuers WHERE symbol = $1', ['ACME']);
+      const upstreamRes = await fetch(upstreamUrl + '/prices');
+      const body = await upstreamRes.json();
+      res.json({ first: body.prices[0] });
+    } catch (err) {
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+  const server = await new Promise((resolve) => {
+    const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
+  });
+  const baseUrl = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const failing = await fetch(baseUrl + '/quote?symbol=ACME');
+    assert.strictEqual(failing.status, 500);
+    assert.strictEqual(await capture.flush(5000), true);
+    assert.strictEqual(ingest.received.length, 1);
+    const { batch } = ingest.received[0];
+    // Both dependency calls ship raw exchange events nested replayable.
+    const raws = batch.events
+      .map((captured) => captured.event)
+      .filter((event) => event.value && event.value.representation === 'replayable')
+      .map((event) => event.value.value)
+      .filter((raw) => raw && raw.exchange);
+    assert.strictEqual(raws.length, 2);
+    const pg = raws.find((raw) => raw.exchange.protocol === 'pg');
+    assert.deepStrictEqual(pg.exchange.response.rows, [{ id: 7 }]);
+    const httpExchange = raws.find((raw) => raw.exchange.protocol === 'http');
+    assert.deepStrictEqual(httpExchange.exchange.response.body, { prices: null });
+    assert.strictEqual(httpExchange.exchange.response.status, 200);
+    const network = batch.capabilities.find((entry) => entry.capability === 'network');
+    assert.strictEqual(network.completeness, 'complete');
+  } finally {
+    server.close();
+    upstream.close();
     ingest.server.close();
   }
 });

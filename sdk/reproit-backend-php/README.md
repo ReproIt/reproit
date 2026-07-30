@@ -72,7 +72,7 @@ sequence for deterministic local replay:
 
 ```sh
 # fetch the finding from /v1/errors/:app, save context.reproitCapture as capture.json, then:
-reproit debug replay-capture capture.json
+reproit internal debug replay-capture capture.json
 ```
 
 ### The PHP flush model

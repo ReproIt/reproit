@@ -52,9 +52,14 @@ test('server error batch is a source-neutral causal capture', () => {
     'widget',
   );
   assert.strictEqual(batch.deployment.version, '1.2.3');
+  // The determinism envelope rides as a named checkpoint after the trigger.
+  const envelope = batch.events[2].event;
+  assert.strictEqual(envelope.kind, 'checkpoint');
+  assert.strictEqual(envelope.name, 'determinism-envelope');
+  assert.strictEqual(typeof envelope.attributes.replaySeed, 'string');
   // The raw return event is nested like the raw effects, under a subject
   // that names the carrier for the protocol projection.
-  const carrier = batch.events[3].event;
+  const carrier = batch.events[4].event;
   assert.strictEqual(carrier.kind, 'effect');
   assert.strictEqual(carrier.subject, 'operation-return');
   assert.strictEqual(carrier.value.representation, 'replayable');

@@ -3,6 +3,7 @@
 use super::*;
 use crate::adapters::config::Config;
 use crate::domain::map;
+use crate::interface::cli::args::MapAction;
 use std::collections::BTreeMap;
 
 pub(super) async fn ensure_app_map(

@@ -23,6 +23,8 @@ fn event(sequence: u64, span: &str, operation: &str, kind: BackendEventKind) -> 
         tenant: Some("tenant-a".into()),
         idempotency_key: None,
         selections: Vec::new(),
+        at: None,
+        mono_ns: None,
         event: kind,
     }
 }
@@ -65,6 +67,7 @@ fn contract() -> OperationContract {
 #[test]
 fn hard_oracles_require_concrete_authoritative_witnesses() {
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -101,6 +104,7 @@ fn hard_oracles_require_concrete_authoritative_witnesses() {
                 before: None,
                 after: Some(json!({"id":"m1"})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -126,6 +130,7 @@ fn inferred_contracts_never_create_findings() {
     let mut inferred = contract();
     inferred.authority = Authority::Inferred;
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],

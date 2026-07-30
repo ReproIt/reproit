@@ -20,12 +20,14 @@ pub mod actix;
 #[cfg(feature = "axum")]
 pub mod axum;
 mod capture;
-#[cfg(any(feature = "axum", feature = "actix"))]
+#[cfg(any(feature = "axum", feature = "actix", feature = "instrument"))]
 mod framework;
+#[cfg(feature = "instrument")]
+pub mod instrument;
 pub use capture::{
     Capture, CaptureConfig, CaptureStats, CAPTURE_FORMAT, CAPTURE_VERSION, SERVER_ERROR_ORACLE,
 };
-#[cfg(any(feature = "axum", feature = "actix"))]
+#[cfg(any(feature = "axum", feature = "actix", feature = "instrument"))]
 pub use framework::Recorder;
 
 const MAX_EVENTS: usize = 256;
@@ -39,6 +41,11 @@ pub struct TraceContext {
     pub action_index: u32,
     pub build: Option<String>,
     pub config_contract: Option<String>,
+    /// Capture-mode-only determinism envelope: real wall-clock (`at`) and
+    /// monotonic offsets (`monoNs`) per event. Scan-time traces
+    /// (x-reproit-events header) never carry these, so their wire shape
+    /// stays byte-stable.
+    pub capture_envelope: bool,
 }
 
 impl TraceContext {
@@ -57,6 +64,7 @@ impl TraceContext {
             action_index,
             build,
             config_contract,
+            capture_envelope: false,
         })
     }
 }
@@ -152,6 +160,8 @@ pub struct BackendTrace {
     common: Map<String, Value>,
     events: Vec<Value>,
     finished: bool,
+    envelope: bool,
+    origin: Option<std::time::Instant>,
 }
 
 impl BackendTrace {
@@ -170,6 +180,7 @@ impl BackendTrace {
             128,
         )
         .ok_or(TraceError::InvalidOperation)?;
+        let context_envelope = context.capture_envelope;
         let mut common = Map::from_iter([
             ("traceId".into(), Value::String(context.trace_id)),
             ("spanId".into(), Value::String(span_id)),
@@ -198,10 +209,13 @@ impl BackendTrace {
                     .expect("selection serialization"),
             );
         }
+        let envelope = context_envelope;
         let mut trace = Self {
             common,
             events: Vec::new(),
             finished: false,
+            envelope,
+            origin: envelope.then(std::time::Instant::now),
         };
         trace.push("start", Map::from_iter([("input".into(), redact(input))]))?;
         Ok(trace)
@@ -285,6 +299,38 @@ impl BackendTrace {
         &self.events
     }
 
+    /// Record a captured dependency exchange (the hermetic-replay input): the
+    /// request the app sent and the response the dependency returned, already
+    /// bounded by the instrument layer. Redacted here so no caller can skip
+    /// it.
+    pub fn exchange(
+        &mut self,
+        effect: EffectKind,
+        resource: Option<&str>,
+        key: Option<&str>,
+        exchange: Value,
+    ) -> Result<(), TraceError> {
+        if self.finished {
+            return Err(TraceError::AlreadyFinished);
+        }
+        let mut fields = Map::from_iter([(
+            "effect".into(),
+            serde_json::to_value(effect).expect("effect serialization"),
+        )]);
+        for (name, value) in [("resource", resource), ("key", key)] {
+            if let Some(value) = value {
+                fields.insert(
+                    name.into(),
+                    Value::String(value.chars().take(256).collect()),
+                );
+            }
+        }
+        if let redacted @ Value::Object(_) = redact(exchange) {
+            fields.insert("exchange".into(), redacted);
+        }
+        self.push("effect", fields)
+    }
+
     fn push(&mut self, kind: &str, fields: Map<String, Value>) -> Result<(), TraceError> {
         if self.events.len() >= MAX_EVENTS {
             return Err(TraceError::TooManyEvents);
@@ -296,6 +342,16 @@ impl BackendTrace {
         );
         event.insert("kind".into(), Value::String(kind.into()));
         event.extend(fields);
+        if self.envelope {
+            let at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0);
+            event.insert("at".into(), json!(at));
+            if let Some(origin) = self.origin {
+                event.insert("monoNs".into(), json!(origin.elapsed().as_nanos() as u64));
+            }
+        }
         self.events.push(Value::Object(event));
         Ok(())
     }

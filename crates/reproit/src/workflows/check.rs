@@ -38,7 +38,12 @@ pub(super) struct CheckArgs {
     pub(super) flicker: bool,
     pub(super) changed: Option<String>,
     pub(super) update_baseline: bool,
-    pub(super) inspect: bool,
+    /// Hermetic re-execution: boot this command with `REPROIT_REPLAY` set to
+    /// the capture and verdict from the live response. Capture files only.
+    pub(super) exec: Option<String>,
+    /// Headless: never hold the replayed app for inspection. Forced on for
+    /// non-TTY, `--json`, and `--yes` runs regardless of this flag.
+    pub(super) auto: bool,
 }
 
 pub(super) async fn run(
@@ -46,9 +51,6 @@ pub(super) async fn run(
     config_path: Option<&Path>,
     args: CheckArgs,
 ) -> Result<ExitCode> {
-    if args.inspect && args.repro.is_none() {
-        anyhow::bail!("inspection needs exactly one saved repro");
-    }
     if let Some(reference) = args.repro.as_deref() {
         if let Some((root, meta, package)) = execution::locate_package(config_path, reference) {
             return run_execution_plan(ctx, &root, &meta, &package, &args).await;
@@ -60,6 +62,14 @@ pub(super) async fn run(
         }
     }
     if let Some(id) = args.repro.as_deref() {
+        // A kept hermetic capture guard replays through its stored exec
+        // recipe, needing no live target at all.
+        if let Some(code) = backend_headless::try_replay_hermetic_guard(ctx, id, args.auto).await? {
+            if args.record_video {
+                anyhow::bail!("backend captures do not produce screen video evidence");
+            }
+            return Ok(code);
+        }
         if let Some(code) = backend_replay_with_boot(ctx, config_path, id).await? {
             if args.record_video {
                 anyhow::bail!("backend repros do not produce screen video evidence");
@@ -99,6 +109,15 @@ pub(super) async fn run(
                     if args.record_video {
                         anyhow::bail!("backend captures do not produce screen video evidence");
                     }
+                    if let Some(exec) = args.exec.as_deref() {
+                        return backend_headless::check_capture_exec(
+                            ctx,
+                            Path::new(reference),
+                            exec,
+                            args.auto,
+                        )
+                        .await;
+                    }
                     return backend_headless::check_capture(ctx, Path::new(reference));
                 }
             }
@@ -110,27 +129,24 @@ pub(super) async fn run(
             if args.record_video {
                 anyhow::bail!("backend captures do not produce screen video evidence");
             }
+            if let Some(exec) = args.exec.as_deref() {
+                return backend_headless::check_capture_exec(
+                    ctx,
+                    Path::new(reference),
+                    exec,
+                    args.auto,
+                )
+                .await;
+            }
             return backend_headless::check_capture(ctx, Path::new(reference));
         }
     }
     ensure_app_map(ctx, &loaded, "explore").await?;
-    let _inspect_env = if args.inspect {
-        Some(crate::adapters::scoped_env::ScopedEnv::set(vec![
-            ("REPROIT_HEADLESS".to_string(), "0".to_string()),
-            ("REPROIT_INSPECT".to_string(), "1".to_string()),
-        ]))
-    } else {
-        None
-    };
     if let Some(code) = try_multi_target(ctx, &loaded, &args).await? {
         return Ok(code);
     }
     select_device(ctx, &loaded, &args).await;
-    let times = if args.inspect {
-        1
-    } else {
-        args.runs.unwrap_or(loaded.config.gate.runs).max(1)
-    };
+    let times = args.runs.unwrap_or(loaded.config.gate.runs).max(1);
     if let Some(code) = try_journey(ctx, &loaded, &args, times).await? {
         return Ok(code);
     }
@@ -205,11 +221,7 @@ async fn run_execution_plan(
             "locale, device, and target overrides are not valid for a compiled reproduction plan"
         );
     }
-    let runs = if args.inspect {
-        1
-    } else {
-        args.runs.unwrap_or(1).max(1)
-    };
+    let runs = { args.runs.unwrap_or(1).max(1) };
     if runs > 100 {
         anyhow::bail!("plan execution is bounded to 100 runs");
     }
@@ -228,10 +240,8 @@ async fn run_execution_plan(
     }
     let outcome = aggregate_plan_runs(&results);
     let verification = plan_verification_summary(&results);
-    let promoted = !args.inspect
-        && outcome == repro::Outcome::Pass
-        && meta.status == repro::Status::Quarantined;
-    if !args.inspect {
+    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
+    {
         let mut updated = meta.clone();
         updated.last_checked = Some(chrono::Local::now().to_rfc3339());
         updated.last_result = Some(outcome.as_str().to_string());
@@ -241,7 +251,7 @@ async fn run_execution_plan(
         repro::save_meta(root, &updated)?;
     }
     ctx.emit(&serde_json::json!({
-        "command": if args.inspect { "inspect" } else { "check" },
+        "command": "check",
         "id": repro::display_repro_id(&meta.id),
         "plan": package.plan.as_ref().map(|plan| &plan.id),
         "occurrence": package.occurrence.occurrence_id,
@@ -496,7 +506,7 @@ async fn run_repro_matrix(
         "outcome": worst.as_str(),
         "exit": worst.exit_code(),
     }));
-    let verb = if args.inspect { "inspect" } else { "check" };
+    let verb = "check";
     ctx.say(format!(
         "\n{verb}: {} ({} repro(s))",
         worst.as_str().to_uppercase(),
@@ -527,7 +537,7 @@ async fn execute_case(
         || check_label(meta),
         |locale| format!("{} @{locale}", check_label(meta)),
     );
-    let verb = if args.inspect { "inspect" } else { "check" };
+    let verb = "check";
     ctx.say(format!("{verb} {label}"));
     let (result, run_dir) = check_repro(
         loaded,
@@ -557,17 +567,13 @@ async fn execute_case(
         repro::Outcome::Pass
     };
     let mut updated = meta.clone();
-    let promoted = !args.inspect
-        && outcome == repro::Outcome::Pass
-        && meta.status == repro::Status::Quarantined;
-    if !args.inspect {
-        updated.last_checked = Some(chrono::Local::now().to_rfc3339());
-        updated.last_result = Some(outcome.as_str().to_string());
-        if promoted {
-            updated.status = repro::Status::Required;
-        }
-        repro::save_meta(&loaded.root, &updated)?;
+    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
+    updated.last_checked = Some(chrono::Local::now().to_rfc3339());
+    updated.last_result = Some(outcome.as_str().to_string());
+    if promoted {
+        updated.status = repro::Status::Required;
     }
+    repro::save_meta(&loaded.root, &updated)?;
     ctx.say(format!(
         "  {} {} ({}){}",
         outcome.as_str().to_uppercase(),
@@ -579,9 +585,6 @@ async fn execute_case(
             ""
         }
     ));
-    if args.inspect {
-        super::inspect::write_fix_packet(loaded, meta, &result, &run_dir)?;
-    }
     let case = junit::Case {
         name: format!("{verb} {label}"),
         passed: outcome == repro::Outcome::Pass,
@@ -664,18 +667,14 @@ async fn execute_plan_guard(
     } else {
         repro::Outcome::Pass
     };
-    let promoted = !args.inspect
-        && outcome == repro::Outcome::Pass
-        && meta.status == repro::Status::Quarantined;
+    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
     let mut updated = meta.clone();
-    if !args.inspect {
-        updated.last_checked = Some(chrono::Utc::now().to_rfc3339());
-        updated.last_result = Some(outcome.as_str().to_string());
-        if promoted {
-            updated.status = repro::Status::Required;
-        }
-        repro::save_meta(root, &updated)?;
+    updated.last_checked = Some(chrono::Utc::now().to_rfc3339());
+    updated.last_result = Some(outcome.as_str().to_string());
+    if promoted {
+        updated.status = repro::Status::Required;
     }
+    repro::save_meta(root, &updated)?;
     let evidence = repro::repro_dir(root, &meta.id).join("plan-runs");
     let case = junit::Case {
         name: format!("check {label}"),

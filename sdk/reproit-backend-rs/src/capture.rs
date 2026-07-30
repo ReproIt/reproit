@@ -45,6 +45,9 @@ pub struct CaptureConfig {
     pub app_id: String,
     /// Optional build/version identity stamped on batches and contexts.
     pub build: Option<String>,
+    /// Code identity for the capture. When unset, REPROIT_COMMIT then
+    /// GITHUB_SHA are consulted; never derived by shelling out to git.
+    pub commit: Option<String>,
     /// Per-mille of healthy (successful, non-5xx) operations captured as
     /// baseline evidence. 0 disables healthy sampling entirely.
     pub healthy_sample_per_mille: u16,
@@ -67,6 +70,7 @@ impl CaptureConfig {
             api_key: api_key.into(),
             app_id: app_id.into(),
             build: None,
+            commit: None,
             healthy_sample_per_mille: 0,
             flush_interval: Duration::from_millis(3_000),
             request_timeout: Duration::from_millis(5_000),
@@ -132,6 +136,7 @@ impl Capture {
                 return None;
             }
         }
+        config.commit = resolve_commit(config.commit.take());
         let minimum = Duration::from_millis(MIN_FLUSH_INTERVAL_MS);
         if config.flush_interval < minimum {
             config.flush_interval = minimum;
@@ -172,6 +177,9 @@ impl Capture {
             action_index: 0,
             build: self.config.build.clone(),
             config_contract: None,
+            // Capture-mode traces stamp per-event wall-clock and monotonic
+            // offsets (the determinism envelope); scan-time traces never do.
+            capture_envelope: true,
         }
     }
 
@@ -355,13 +363,15 @@ impl Capture {
         let trace_id = first.get("traceId").and_then(Value::as_str);
         let mut events = Vec::new();
         let mut parent: Option<String> = None;
-        let mut push_event = |event: Value| {
+        let mut push_event = |event: Value, mono: Option<u64>| {
             let sequence = events.len() as u64 + 1;
             let event_id = format!("evt_backend-rust_{sequence}");
             let mut item = json!({
                 "id": event_id,
                 "sequence": sequence,
-                "monotonicNs": sequence,
+                // Real monotonic offsets from the trace's envelope stamps;
+                // the ordinal fallback only applies to envelope-less traces.
+                "monotonicNs": mono.unwrap_or(sequence),
                 "causalParentIds": parent.iter().collect::<Vec<_>>(),
                 "event": event,
             });
@@ -371,10 +381,14 @@ impl Capture {
             parent = Some(event_id);
             events.push(item);
         };
-        push_event(json!({
-            "kind": "operation-start",
-            "name": operation.operation,
-        }));
+        let mono_of = |event: &Value| event.get("monoNs").and_then(Value::as_u64);
+        push_event(
+            json!({
+                "kind": "operation-start",
+                "name": operation.operation,
+            }),
+            mono_of(&first),
+        );
         let input = first.get("input").filter(|value| !value.is_null());
         let captured_input = input.map_or_else(
             || json!({"representation": "structural", "shape": {"type": "unknown"}}),
@@ -386,12 +400,27 @@ impl Capture {
                 })
             },
         );
-        push_event(json!({
-            "kind": "trigger",
-            "trigger": "http-request",
-            "subject": operation.operation,
-            "value": captured_input,
-        }));
+        push_event(
+            json!({
+                "kind": "trigger",
+                "trigger": "http-request",
+                "subject": operation.operation,
+                "value": captured_input,
+            }),
+            mono_of(&first),
+        );
+        // Determinism envelope: where and when the capture happened, and a
+        // seed that makes REPLAY runs deterministic. Honesty note: the seed
+        // does not reproduce the app's original randomness; it pins the
+        // replay's.
+        push_event(
+            json!({
+                "kind": "checkpoint",
+                "name": "determinism-envelope",
+                "attributes": self.determinism_envelope(first.get("at").and_then(Value::as_u64)),
+            }),
+            mono_of(&first),
+        );
         for source in &operation.events {
             if source.get("kind").and_then(Value::as_str) != Some("effect") {
                 continue;
@@ -405,16 +434,19 @@ impl Capture {
                 .or_else(|| source.get("service"))
                 .and_then(Value::as_str)
                 .unwrap_or(&operation.operation);
-            push_event(json!({
-                "kind": "effect",
-                "effect": effect,
-                "subject": subject,
-                "value": {
-                    "representation": "replayable",
-                    "value": source,
-                    "redaction": "redacted-at-source",
-                },
-            }));
+            push_event(
+                json!({
+                    "kind": "effect",
+                    "effect": effect,
+                    "subject": subject,
+                    "value": {
+                        "representation": "replayable",
+                        "value": source,
+                        "redaction": "redacted-at-source",
+                    },
+                }),
+                mono_of(source),
+            );
         }
         // Nest the raw return event exactly like the raw effect events, so
         // the batch can be projected back to a replayable backend capture.
@@ -425,44 +457,54 @@ impl Capture {
             .iter()
             .find(|event| event.get("kind").and_then(Value::as_str) == Some("return"))
         {
-            push_event(json!({
-                "kind": "effect",
-                "effect": "operation-return",
-                "subject": "operation-return",
-                "value": {
-                    "representation": "replayable",
-                    "value": returned,
-                    "redaction": "redacted-at-source",
-                },
-            }));
+            push_event(
+                json!({
+                    "kind": "effect",
+                    "effect": "operation-return",
+                    "subject": "operation-return",
+                    "value": {
+                        "representation": "replayable",
+                        "value": returned,
+                        "redaction": "redacted-at-source",
+                    },
+                }),
+                mono_of(returned),
+            );
         }
         let succeeded = operation.events.iter().rev().find_map(|event| {
             (event.get("kind").and_then(Value::as_str) == Some("return"))
                 .then(|| event.get("success").and_then(Value::as_bool))
                 .flatten()
         }) == Some(true);
-        push_event(json!({
-            "kind": "operation-end",
-            "name": operation.operation,
-            "outcome": if succeeded { "succeeded" } else { "failed" },
-        }));
+        let last_mono = operation.events.iter().rev().find_map(mono_of);
+        push_event(
+            json!({
+                "kind": "operation-end",
+                "name": operation.operation,
+                "outcome": if succeeded { "succeeded" } else { "failed" },
+            }),
+            last_mono,
+        );
         if let Some(status) = operation.status.filter(|status| *status >= 500) {
             let signature = format!("{SERVER_ERROR_ORACLE}:{}", operation.operation);
             let message = format!(
                 "backend operation {} returned HTTP {status}",
                 operation.operation
             );
-            push_event(json!({
-                "kind": "observation",
-                "failure": {
-                    "observation": "exception",
-                    "authority": "runtime-diagnosis",
-                    "summary": message,
-                    "signature": signature,
-                    "observationPoint": operation.operation,
-                    "artifactIds": [],
-                },
-            }));
+            push_event(
+                json!({
+                    "kind": "observation",
+                    "failure": {
+                        "observation": "exception",
+                        "authority": "runtime-diagnosis",
+                        "summary": message,
+                        "signature": signature,
+                        "observationPoint": operation.operation,
+                        "artifactIds": [],
+                    },
+                }),
+                last_mono,
+            );
         }
         let mut batch = json!({
             "version": 1,
@@ -480,21 +522,55 @@ impl Capture {
                 "consent": "application-telemetry",
                 "retentionClass": "standard",
             },
-            "capabilities": [
-                {"capability": "http", "completeness": "complete"},
-                {
-                    "capability": "database",
-                    "completeness": "partial",
-                    "detail": "effect records do not prove complete database state capture",
-                },
-            ],
+            "capabilities": capabilities(operation),
             "events": events,
             "artifacts": [],
         });
+        let mut deployment = serde_json::Map::new();
         if let Some(build) = &self.config.build {
-            batch["deployment"] = json!({ "version": build });
+            deployment.insert("version".into(), json!(build));
+        }
+        if let Some(commit) = &self.config.commit {
+            deployment.insert("commit".into(), json!(commit));
+        }
+        if !deployment.is_empty() {
+            batch["deployment"] = Value::Object(deployment);
         }
         batch
+    }
+
+    /// Envelope attributes for one capture batch: capture wall-clock,
+    /// timezone (from TZ when set; Rust has no cheap IANA zone lookup),
+    /// runtime identity, and the replay seed.
+    fn determinism_envelope(&self, observed_at: Option<u64>) -> Value {
+        let mut seed = self
+            .shared
+            .rng
+            .fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let mut attributes = serde_json::Map::from_iter([
+            (
+                "observedAtMs".into(),
+                json!(observed_at.unwrap_or_else(now_millis)),
+            ),
+            ("runtime".into(), json!("rust")),
+            ("os".into(), json!(std::env::consts::OS)),
+            ("arch".into(), json!(std::env::consts::ARCH)),
+            ("replaySeed".into(), json!(format!("{seed:016x}"))),
+        ]);
+        if let Ok(tz) = std::env::var("TZ") {
+            if !tz.trim().is_empty() {
+                attributes.insert("tz".into(), json!(tz));
+            }
+        }
+        if let Ok(digest) = std::env::var("REPROIT_IMAGE_DIGEST") {
+            if valid_token(&digest) {
+                attributes.insert("imageDigest".into(), json!(digest));
+            }
+        }
+        Value::Object(attributes)
     }
 
     fn send(&self, client: &reqwest::blocking::Client, batch: &Value) -> bool {
@@ -518,7 +594,7 @@ impl Capture {
     }
 }
 
-/// The replayable capture object (`reproit debug replay-capture` input).
+/// The replayable capture object (`reproit internal debug replay-capture` input).
 /// Trailing effect events are dropped first when the payload exceeds the
 /// context budget; a payload that stays oversized with only start/return
 /// left is omitted entirely (`None`).
@@ -552,6 +628,50 @@ fn lock<'a>(mutex: &'a Mutex<QueueState>) -> MutexGuard<'a, QueueState> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Batch capabilities: the network claim is complete ONLY when the trace
+/// actually recorded outbound exchanges, so the capsule completeness model
+/// never over-claims for apps without the instrument layer.
+fn capabilities(operation: &CapturedOperation) -> Value {
+    let has_exchanges = operation
+        .events
+        .iter()
+        .any(|event| event.get("exchange").is_some_and(|value| !value.is_null()));
+    let mut list = vec![
+        json!({"capability": "http", "completeness": "complete"}),
+        json!({
+            "capability": "database",
+            "completeness": "partial",
+            "detail": "effect records do not prove complete database state capture",
+        }),
+    ];
+    if has_exchanges {
+        list.push(json!({
+            "capability": "network",
+            "completeness": "complete",
+            "detail": "outbound dependency exchanges recorded with responses",
+        }));
+    }
+    Value::Array(list)
+}
+
+/// Code identity in priority order: explicit config, then the common CI and
+/// platform environment. Never shells out to git.
+fn resolve_commit(configured: Option<String>) -> Option<String> {
+    if let Some(commit) = configured {
+        if valid_token(&commit) {
+            return Some(commit);
+        }
+    }
+    for name in ["REPROIT_COMMIT", "GITHUB_SHA"] {
+        if let Ok(value) = std::env::var(name) {
+            if valid_token(&value) {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -580,6 +700,7 @@ mod tests {
             action_index: 0,
             build: Some("1.2.3".into()),
             config_contract: None,
+            capture_envelope: true,
         };
         let mut trace = BackendTrace::begin(
             context,
@@ -646,8 +767,14 @@ mod tests {
             serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
         parsed.validate().expect("batch passes protocol validation");
         let events = batch["events"].as_array().unwrap();
-        assert_eq!(events.len(), 6);
-        let finding = &events[5]["event"];
+        assert_eq!(events.len(), 7);
+        // The determinism envelope rides as a named checkpoint after the
+        // trigger.
+        let envelope = &events[2]["event"];
+        assert_eq!(envelope["kind"], "checkpoint");
+        assert_eq!(envelope["name"], "determinism-envelope");
+        assert!(envelope["attributes"]["replaySeed"].is_string());
+        let finding = &events[6]["event"];
         assert_eq!(finding["kind"], "observation");
         assert_eq!(
             finding["failure"]["signature"],
@@ -661,7 +788,7 @@ mod tests {
         // The raw return event is nested like the raw effects, under a
         // subject that names it, and round-trips through the protocol
         // projection as the replayable capture's final return event.
-        let carrier = &events[3]["event"];
+        let carrier = &events[4]["event"];
         assert_eq!(carrier["kind"], "effect");
         assert_eq!(carrier["subject"], "operation-return");
         let raw_return = &carrier["value"]["value"];
@@ -681,7 +808,7 @@ mod tests {
     fn healthy_operations_ship_causal_events_without_an_observation() {
         let batch = batch_for(201, true);
         let events = batch["events"].as_array().unwrap();
-        assert_eq!(events.len(), 5);
+        assert_eq!(events.len(), 6);
         assert!(events
             .iter()
             .all(|event| event["event"]["kind"] != "observation"));

@@ -48,14 +48,6 @@ pub(crate) fn scan_recordings_dir(root: &Path, scan_run: &str) -> PathBuf {
     recordings_dir(root).join("scan").join(scan_run)
 }
 
-pub(crate) fn repro_recording_dir(root: &Path, id: &str) -> PathBuf {
-    recordings_dir(root).join("repro").join(id)
-}
-
-pub(crate) fn repro_video_path(root: &Path, id: &str, ext: &str) -> PathBuf {
-    repro_recording_dir(root, id).join(format!("video.{ext}"))
-}
-
 pub(crate) fn repros_dir(root: &Path) -> PathBuf {
     reproit_dir(root).join("repros")
 }
@@ -162,10 +154,6 @@ mod tests {
         assert_eq!(
             scan_recordings_dir(root, "run-1"),
             PathBuf::from("/project/.reproit/recordings/scan/run-1")
-        );
-        assert_eq!(
-            repro_video_path(root, "abc123", "webm"),
-            PathBuf::from("/project/.reproit/recordings/repro/abc123/video.webm")
         );
         assert_eq!(repros_dir(root), PathBuf::from("/project/.reproit/repros"));
         assert_eq!(

@@ -554,19 +554,6 @@ async fn pull_and_save(
     Ok(app)
 }
 
-/// Pull a bucket without asking the user for its app id. The authenticated
-/// global endpoint returns the owning app with the portable replay package.
-pub async fn pull_global(
-    root: &std::path::Path,
-    bucket: &str,
-    as_name: &str,
-    json: bool,
-    cloud: Option<String>,
-    key: Option<String>,
-) -> Result<String> {
-    pull_and_save(root, None, bucket, as_name, json, cloud, key).await
-}
-
 /// Fetch one bucket package without persisting it. With a known `app`, the
 /// content-addressed app route is authoritative (its error propagates);
 /// otherwise resolve globally via `fetch_bucket_package`.

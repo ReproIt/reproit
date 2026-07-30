@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn graph_joins_runtime_effects_to_declared_operations() {
     let mut config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -62,6 +63,7 @@ fn graph_joins_runtime_effects_to_declared_operations() {
             before: None,
             after: None,
             payload: None,
+            exchange: None,
         },
     )];
     let graph = build_graph(&config, &events);
@@ -100,6 +102,7 @@ fn read_only_and_missing_effect_oracles_are_exact() {
         at_most: None,
     }];
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -134,6 +137,7 @@ fn read_only_and_missing_effect_oracles_are_exact() {
                 before: None,
                 after: Some(json!({"seen":true})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -157,6 +161,7 @@ fn read_only_and_missing_effect_oracles_are_exact() {
 #[test]
 fn incomplete_effect_telemetry_cannot_create_an_absence_finding() {
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -199,6 +204,7 @@ fn upper_effect_bound_confirms_duplicate_side_effects() {
     let mut create = contract();
     create.promised_effects[0].at_most = Some(1);
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -233,6 +239,7 @@ fn upper_effect_bound_confirms_duplicate_side_effects() {
                 before: None,
                 after: Some(json!({"id":"m1"})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -248,6 +255,7 @@ fn upper_effect_bound_confirms_duplicate_side_effects() {
                 before: None,
                 after: Some(json!({"id":"m2"})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -273,6 +281,7 @@ fn idempotency_compares_persistent_effects_for_the_same_actor_and_tenant() {
     create.idempotent = true;
     create.output = None;
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -310,6 +319,7 @@ fn idempotency_compares_persistent_effects_for_the_same_actor_and_tenant() {
                     before: None,
                     after: Some(json!({"id":key})),
                     payload: None,
+                    exchange: None,
                 },
             ),
             event(
@@ -339,6 +349,7 @@ fn idempotent_cached_retry_without_a_second_effect_is_clean() {
     let mut create = contract();
     create.idempotent = true;
     let mut config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],
@@ -382,6 +393,7 @@ fn idempotent_cached_retry_without_a_second_effect_is_clean() {
                 before: None,
                 after: Some(json!({"id":"m1"})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -409,6 +421,7 @@ fn idempotent_cached_retry_without_a_second_effect_is_clean() {
                 before: None,
                 after: Some(json!({"id":"m1"})),
                 payload: None,
+                exchange: None,
             },
         ),
         event(
@@ -465,6 +478,7 @@ fn accepted_input_outside_declared_domain_is_a_hard_finding() {
     });
     create.promised_effects.clear();
     let config = BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],

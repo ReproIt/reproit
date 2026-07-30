@@ -19,6 +19,8 @@ fn codec_result(
         tenant: None,
         idempotency_key: None,
         selections: Vec::new(),
+        at: None,
+        mono_ns: None,
         event: BackendEventKind::Start { input },
     };
     let returned = BackendEvent {

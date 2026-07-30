@@ -35,7 +35,7 @@ Only `REPRODUCED` promotes a discovered violation into a confirmed finding. `ABS
 or failure and never becomes a finding. A failing test, unusual screenshot, timing spike, or
 different implementation is not automatically a bug.
 
-`reproit proof <id>` explains the complete ledger. `reproit list --state candidates` lists
+`reproit internal proof <id>` explains the complete ledger. `reproit internal list --state candidates` lists
 observations still
 blocked by missing authority, a non-violation, abstention, replay, identity, or minimization.
 
@@ -54,8 +54,8 @@ Other detectors are specialist observations or require explicit configuration. T
 with `--only`, but selecting one does not make a heuristic authoritative:
 
 ```sh
-reproit fuzz --only crash,jank
-reproit fuzz --no visual,occlusion
+reproit internal fuzz --only crash,jank
+reproit internal fuzz --no visual,occlusion
 ```
 
 ## UI oracles
@@ -275,7 +275,7 @@ framework diagnostics, and timing alone are not authority.
 | `concurrent-conservation` | Overlapping committed updates contradicted an authored conservation transition.                                |
 
 Browser document routes use the separate top-level `routeAccess` matrix. Each cell is identified by
-its exact route, principal, and authored outcome. `reproit scan --only route-access` proves the
+its exact route, principal, and authored outcome. `reproit internal scan --only route-access` proves the
 principal, navigates directly in an isolated browser context, and confirms any violation with an
 identical second observation. Incomplete principal or navigation evidence returns `ABSTAIN`.
 
@@ -319,8 +319,8 @@ The command changes how ReproIt obtains evidence, not what an oracle means:
 
 | Command                | Role                                                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `reproit scan`         | Walk each reachable state or operation once and evaluate applicable oracles.                                  |
-| `reproit fuzz`         | Explore deeper sequences and generated structural inputs, then evaluate the same oracles.                     |
+| `reproit internal scan`         | Walk each reachable state or operation once and evaluate applicable oracles.                                  |
+| `reproit internal fuzz`         | Explore deeper sequences and generated structural inputs, then evaluate the same oracles.                     |
 | `reproit <finding-id>` | Rebuild the saved setup, replay the minimized sequence, and require the same oracle identity and fingerprint. |
 
 Shrinking may remove actions, messages, or requests only while the same proof still reproduces. A

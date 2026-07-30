@@ -449,6 +449,8 @@ mod tests {
                 tenant: None,
                 idempotency_key: None,
                 selections: Vec::new(),
+                at: None,
+                mono_ns: None,
                 event: BackendEventKind::Start { input: Value::Null },
             },
             BackendEvent {
@@ -464,6 +466,8 @@ mod tests {
                 tenant: None,
                 idempotency_key: None,
                 selections: Vec::new(),
+                at: None,
+                mono_ns: None,
                 event: BackendEventKind::Effect {
                     effect: crate::domain::backend::EffectKind::Write,
                     resource: None,
@@ -473,6 +477,7 @@ mod tests {
                     before: None,
                     after: None,
                     payload: None,
+                    exchange: None,
                 },
             },
         ];

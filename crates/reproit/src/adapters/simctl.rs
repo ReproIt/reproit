@@ -53,23 +53,6 @@ pub async fn ensure_sim(name: &str, device_type: &str) -> Result<Sim> {
     })
 }
 
-/// List sims whose name starts with `prefix`.
-pub async fn list_sims(prefix: &str) -> Vec<(String, String, bool)> {
-    let re = udid_re();
-    let list = run("xcrun", &["simctl", "list", "devices"]).await;
-    let mut out = Vec::new();
-    for line in list.stdout.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with(prefix) {
-            if let Some(m) = re.find(trimmed) {
-                let name = trimmed[..trimmed.find(" (").unwrap_or(trimmed.len())].to_string();
-                out.push((name, m.as_str().to_string(), trimmed.contains("(Booted)")));
-            }
-        }
-    }
-    out
-}
-
 /// Pin determinism: fixed status bar (stable clock/battery for visual diffs),
 /// fixed GPS, keyboard intro off. All best-effort.
 pub async fn pin_determinism(sim: &Sim, cfg: &Determinism) {

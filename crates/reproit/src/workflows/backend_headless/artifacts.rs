@@ -1,5 +1,40 @@
 use super::*;
 
+/// Rewrite an absolute request URL to origin-relative (path + query) and
+/// record the shared origin once. The first origin seen wins; a step against
+/// a DIFFERENT origin keeps its absolute URL rather than being guessed onto
+/// the wrong base (the replay resolver treats non-`/` URLs as absolute).
+fn relativize_request(request: &mut RequestArtifact, origin: &mut Option<String>) {
+    let Ok(parsed) = request.url.parse::<reqwest::Url>() else {
+        return;
+    };
+    let base = parsed.origin().ascii_serialization();
+    match origin {
+        None => *origin = Some(base),
+        Some(existing) if *existing != base => return,
+        _ => {}
+    }
+    let mut relative = parsed.path().to_string();
+    if let Some(query) = parsed.query() {
+        relative.push('?');
+        relative.push_str(query);
+    }
+    request.url = relative;
+}
+
+/// The schema path as stored in a version-3 artifact: project-relative when
+/// the file lives under the root, absolute (flagged) when it does not.
+fn portable_schema(root: &Path, schema: &Path) -> (String, bool) {
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_schema = schema
+        .canonicalize()
+        .unwrap_or_else(|_| schema.to_path_buf());
+    match canonical_schema.strip_prefix(&canonical_root) {
+        Ok(relative) => (relative.to_string_lossy().into_owned(), false),
+        Err(_) => (canonical_schema.to_string_lossy().into_owned(), true),
+    }
+}
+
 pub(super) fn persist_findings(
     root: &Path,
     schema: &Path,
@@ -10,7 +45,7 @@ pub(super) fn persist_findings(
 ) -> Result<Vec<Value>> {
     let mut persisted = Vec::new();
     let mut seen = BTreeSet::new();
-    for (endpoint, request, setup, mut finding) in findings {
+    for (endpoint, request, mut setup, mut finding) in findings {
         let fingerprint = finding
             .get("fingerprint")
             .and_then(Value::as_str)
@@ -18,6 +53,8 @@ pub(super) fn persist_findings(
         if !seen.insert(fingerprint.to_string()) {
             continue;
         }
+        // The id is derived from the ABSOLUTE discovering URL exactly as
+        // before version 3, so portability changes storage, never identity.
         let raw_id = repro::finding_id(
             schema_sha256,
             fingerprint,
@@ -29,11 +66,20 @@ pub(super) fn persist_findings(
         finding["setupSteps"] = Value::from(setup.len());
         let directory = layout::finding_dir(root, &raw_id);
         std::fs::create_dir_all(&directory)?;
+        let mut request = request;
+        let mut origin = None;
+        for step in &mut setup {
+            relativize_request(&mut step.request, &mut origin);
+        }
+        relativize_request(&mut request, &mut origin);
+        let (schema_stored, schema_outside_root) = portable_schema(root, schema);
         let artifact = BackendFindingArtifact {
             format: "reproit-backend-finding".into(),
-            version: 2,
-            schema: schema.to_string_lossy().into_owned(),
+            version: 3,
+            schema: schema_stored,
             schema_sha256: schema_sha256.into(),
+            origin,
+            schema_outside_root,
             reset_url: std::env::var("REPROIT_BACKEND_RESET_URL").ok(),
             reset: reset.clone(),
             setup,

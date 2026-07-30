@@ -160,7 +160,7 @@ fn findings(root: &Path) -> Vec<String> {
 
 /// Scan with the claim in place and assert it produced exactly one finding.
 fn scan_one_finding(root: &Path) {
-    let scan = reproit(root, &["scan", "--yes"]);
+    let scan = reproit(root, &["internal", "scan", "--yes"]);
     assert!(
         scan.status.success() || scan.status.code() == Some(1),
         "scan failed: {}{}",
@@ -181,7 +181,7 @@ fn naming_an_id_does_not_replay_the_rest_of_the_suite() {
     // has never recorded must add nothing, because the filter has to run before
     // the replay rather than on its results.
     let before = service.requests();
-    let verify = reproit(&root, &["verify", "fnd_deadbeef0000"]);
+    let verify = reproit(&root, &["internal", "verify", "fnd_deadbeef0000"]);
     assert_eq!(
         service.requests(),
         before,
@@ -194,7 +194,7 @@ fn naming_an_id_does_not_replay_the_rest_of_the_suite() {
     // it, so the assertion above is about the filter and not about a fixture
     // that never counts anything.
     let recorded = findings(&root).pop().expect("one finding");
-    reproit(&root, &["verify", &format!("fnd_{recorded}")]);
+    reproit(&root, &["internal", "verify", &format!("fnd_{recorded}")]);
     assert!(
         service.requests() > before,
         "verifying the recorded id should have replayed it"
@@ -208,13 +208,13 @@ fn a_live_bug_blocks_and_a_real_server_fix_is_held() {
     write_project(&root, &service, true);
     scan_one_finding(&root);
 
-    let blocked = reproit(&root, &["verify"]);
+    let blocked = reproit(&root, &["internal", "verify"]);
     assert_eq!(blocked.status.code(), Some(1), "{}", stdout(&blocked));
     assert!(stdout(&blocked).contains("1 still reproducing"));
 
     // The implementation changes: the response now carries the promised field.
     service.start_returning_server_time();
-    let held = reproit(&root, &["verify"]);
+    let held = reproit(&root, &["internal", "verify"]);
     assert!(held.status.success(), "{}", stdout(&held));
     assert!(
         stdout(&held).contains("1 held"),
@@ -231,13 +231,16 @@ fn withdrawing_a_false_claim_retracts_instead_of_blocking_forever() {
     scan_one_finding(&root);
     let recorded = findings(&root);
 
-    assert_eq!(reproit(&root, &["verify"]).status.code(), Some(1));
+    assert_eq!(
+        reproit(&root, &["internal", "verify"]).status.code(),
+        Some(1)
+    );
 
     // The finding was true, but the contract was wrong: the API never promised
     // serverTime. The correct fix is to withdraw the claim, and the schema is
     // the authority for what the project asserts, so `scan` now reports nothing.
     write_project(&root, &service, false);
-    let clean = reproit(&root, &["scan", "--yes"]);
+    let clean = reproit(&root, &["internal", "scan", "--yes"]);
     assert!(
         stdout(&clean).contains("0 confirmed finding"),
         "scan should be clean after the claim is withdrawn: {}",
@@ -248,7 +251,7 @@ fn withdrawing_a_false_claim_retracts_instead_of_blocking_forever() {
     // violation under the recorded contract, so replaying it can never go green;
     // without a retracted state the only way to close it is deleting the
     // artifact by hand.
-    let retracted = reproit(&root, &["verify"]);
+    let retracted = reproit(&root, &["internal", "verify"]);
     assert!(retracted.status.success(), "{}", stdout(&retracted));
     let report = stdout(&retracted);
     assert!(
@@ -261,7 +264,7 @@ fn withdrawing_a_false_claim_retracts_instead_of_blocking_forever() {
         "verify must not delete by itself"
     );
 
-    let pruned = reproit(&root, &["verify", "--prune-retracted"]);
+    let pruned = reproit(&root, &["internal", "verify", "--prune-retracted"]);
     assert!(pruned.status.success(), "{}", stdout(&pruned));
     assert!(
         findings(&root).is_empty(),
@@ -281,7 +284,7 @@ fn an_operation_dropped_from_the_schema_retracts_without_calling_the_target() {
     write_schema(&root, &service, "/health", "getHealth", false);
 
     let before = service.requests();
-    let retracted = reproit(&root, &["verify"]);
+    let retracted = reproit(&root, &["internal", "verify"]);
     assert!(retracted.status.success(), "{}", stdout(&retracted));
     assert!(
         stdout(&retracted).contains("1 retracted"),

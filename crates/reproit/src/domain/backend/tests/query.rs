@@ -40,6 +40,7 @@ fn query_invariant(consistency: ResourceConsistency) -> BackendInvariant {
 
 fn query_config(consistency: ResourceConsistency) -> BackendConfig {
     BackendConfig {
+        exec: None,
         enabled: true,
         origins: vec![],
         schemas: vec![],

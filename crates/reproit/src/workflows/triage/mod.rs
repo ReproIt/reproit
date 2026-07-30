@@ -32,8 +32,7 @@ pub use lifecycle::{diagnose, resolution_events, timeline, triage};
 pub use presentation::{buckets, explain, filter_buckets, filter_errors, find, top_bucket_id};
 pub(crate) use reproduction::ReproVerdict;
 pub use reproduction::{
-    build_replay_json, fetch_bucket_package, pull_global, report_tester_capture, reproduce_bucket,
-    verify_tester_capture,
+    build_replay_json, report_tester_capture, reproduce_bucket, verify_tester_capture,
 };
 #[cfg(test)]
 use reproduction::{classify_repro, materialize_pull};

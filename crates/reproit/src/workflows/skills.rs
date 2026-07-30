@@ -194,7 +194,7 @@ mod tests {
         assert!(!section.contains("description: >-"));
         assert!(section.contains("# reproit (agent playbook)"));
         // The flattened playbook carries the core loop in (a core verb appears).
-        assert!(section.contains("reproit fuzz"));
+        assert!(section.contains("reproit find"));
     }
 
     #[test]
@@ -261,18 +261,18 @@ mod tests {
     // instead of leaving the skill pointing at a dead command.
     #[test]
     fn skill_core_commands_exist_and_are_documented() {
-        const CORE: &[&str] = &[
+        // The vocabulary a human types. Implementation subcommands live under
+        // `reproit internal <sub>` and are covered by the internal list below,
+        // so a skill teaching one still cannot drift from the parser.
+        const CORE: &[&str] = &["init", "find", "check", "keep", "doctor", "login"];
+        const CORE_INTERNAL: &[&str] = &[
             "scan",
             "fuzz",
-            "check",
-            "keep",
             "create",
             "push",
             "repro",
-            "watch",
             "auth",
             "journey",
-            "login",
             "triage",
             "timeline",
             "resolution-events",
@@ -288,6 +288,13 @@ mod tests {
             .map(|command| command.get_name())
             .filter(|name| !name.starts_with("__"))
             .collect();
+        let internal_names: Vec<&str> = cmd
+            .find_subcommand("internal")
+            .expect("internal multiplex")
+            .get_subcommands()
+            .map(|command| command.get_name())
+            .filter(|name| !name.starts_with("__"))
+            .collect();
         for verb in CORE {
             assert!(
                 names.contains(verb),
@@ -297,6 +304,17 @@ mod tests {
             assert!(
                 text.contains(&format!("reproit {verb}")),
                 "`reproit {verb}` is a core verb but no skill references it"
+            );
+        }
+        for verb in CORE_INTERNAL {
+            assert!(
+                internal_names.contains(verb),
+                "skills reference `reproit internal {verb}` but it is not an internal \
+                 subcommand (renamed/removed?); update the skills or the list"
+            );
+            assert!(
+                text.contains(&format!("reproit internal {verb}")),
+                "`reproit internal {verb}` is taught by no skill"
             );
         }
     }

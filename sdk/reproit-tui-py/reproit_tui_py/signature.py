@@ -14,7 +14,7 @@ CRITICAL: TUI signatures live in a SEPARATE NAMESPACE from the accessibility-tre
 rendered terminal screen (the VT cell grid), normalized to a locale-invariant
 layout skeleton, NOT a Node role tree. The parity target is
 tui_signature_vectors.json at the repo root. What IS shared with every other
-reproit surface is the HASH FAMILY: FNV-1a 32-bit (offset basis 0x811c9dc5, prime
+reproit internal surface is the HASH FAMILY: FNV-1a 32-bit (offset basis 0x811c9dc5, prime
 0x01000193, 8-char zero-padded lowercase hex) and the value-class buckets with the
 strict period-decimal grammar. So a TUI signature is in the same 8-hex namespace
 as an a11y signature, it just is not expected to equal an a11y vector.

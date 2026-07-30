@@ -71,7 +71,7 @@ sequence for deterministic local replay:
 
 ```sh
 # fetch the finding from /v1/errors/:app, save context.reproitCapture as capture.json, then:
-reproit debug replay-capture capture.json
+reproit internal debug replay-capture capture.json
 ```
 
 Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), 16 operations per batch,

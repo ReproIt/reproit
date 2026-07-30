@@ -97,6 +97,17 @@ where
         let config = self.config.clone();
         Box::pin(async move {
             let (request, pending) = begin(request, &config).await;
+            // The handler runs with the trace ambient so the instrumented
+            // outbound boundaries (instrument::http / db) can attach
+            // dependency exchanges to it.
+            #[cfg(feature = "instrument")]
+            let response = match &pending {
+                Some(pending) => {
+                    crate::instrument::scope(pending.recorder.clone(), inner.call(request)).await?
+                }
+                None => inner.call(request).await?,
+            };
+            #[cfg(not(feature = "instrument"))]
             let response = inner.call(request).await?;
             match pending {
                 None => Ok(response),

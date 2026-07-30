@@ -14,7 +14,9 @@ pub(super) struct InspectTrace {
 /// treating a broken header as an empty one.
 pub(super) enum AdapterTrail {
     Absent,
-    Events(Vec<BackendEvent>),
+    /// The trail decoded and parsed as backend events (payload validated,
+    /// then dropped: verdict fidelity only needs the proof it existed).
+    Events,
     Malformed,
 }
 
@@ -51,7 +53,7 @@ pub(super) async fn invoke(
     let (result, trail) = invoke_traced(client, endpoint, artifact, Some(trace)).await?;
     if http {
         TRACED_REQUESTS.store(true, Ordering::Relaxed);
-        if matches!(trail, AdapterTrail::Events(_)) {
+        if matches!(trail, AdapterTrail::Events) {
             ADAPTER_EVENTS.store(true, Ordering::Relaxed);
         }
     }
@@ -256,10 +258,7 @@ fn decode_adapter_trail(header: Option<&HeaderValue>) -> AdapterTrail {
         return AdapterTrail::Malformed;
     };
     match serde_json::from_slice::<Vec<BackendEvent>>(&bytes) {
-        Ok(mut events) => {
-            events.sort_by_key(|event| event.sequence);
-            AdapterTrail::Events(events)
-        }
+        Ok(_) => AdapterTrail::Events,
         Err(_) => AdapterTrail::Malformed,
     }
 }
@@ -286,6 +285,8 @@ pub(super) fn evaluate_invocation(
             tenant: None,
             idempotency_key: None,
             selections: Vec::new(),
+            at: None,
+            mono_ns: None,
             event: BackendEventKind::Start {
                 input: artifact.input.clone(),
             },
@@ -303,6 +304,8 @@ pub(super) fn evaluate_invocation(
             tenant: None,
             idempotency_key: None,
             selections: Vec::new(),
+            at: None,
+            mono_ns: None,
             event: BackendEventKind::Return {
                 output: output.clone(),
                 status: Some(status),

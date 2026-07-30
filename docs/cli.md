@@ -21,15 +21,15 @@ reproit --json doctor
 ## Capture a known failure
 
 ```sh
-reproit capture [OPTIONS] [-- COMMAND...]
+reproit internal capture [OPTIONS] [-- COMMAND...]
 ```
 
 Important forms:
 
 ```sh
-reproit capture --include-output -- cargo test failing_test
-reproit capture --attach --title "menu closes" --record-video
-reproit capture --bundle support.rpb
+reproit internal capture --include-output -- cargo test failing_test
+reproit internal capture --attach --title "menu closes" --record-video
+reproit internal capture --bundle support.rpb
 ```
 
 `--timeout-ms` bounds command execution. `--include-output` stores bounded stdout and stderr as
@@ -39,7 +39,7 @@ an executable mechanism.
 ## Find unknown failures
 
 ```sh
-reproit find [TARGET] [--record-video]
+reproit find [TARGET]
 ```
 
 `find` runs a fast surface pass, then bounded deep exploration, exact replay confirmation, and
@@ -70,14 +70,23 @@ A different failure never counts as a reproduction.
 ```sh
 reproit keep fnd_... [--as NAME]
 reproit check [CAPTURE]
-reproit check --runs N
-reproit check --changed [BASE]
+reproit check [CAPTURE] --exec "node server.js"
+reproit check --changed [BASE]   # repeat count and device matrix come from reproit.yaml `gate:`
 reproit check --junit report.xml
 ```
 
 `keep` preserves a confirmed case. `check` runs all saved guards unless a single capture reference
 is supplied. `--changed` changes execution order only and never skips the rest of the suite.
 `--strict` makes quarantined failures block the exit code.
+
+`check <capture.json>` alone re-evaluates the captured backend events offline.
+`--exec` (preview) re-executes them instead: it boots the named command with
+`REPROIT_REPLAY` pointed at the capture, the SDK serves every recorded
+dependency exchange in process, and the verdict comes from the live response:
+reproduced, fixed, diverged (the code no longer makes the captured calls), or
+inconclusive. Diverged and inconclusive fail closed. This needs a version-2
+capture with recorded exchanges, currently produced by the Node backend SDK
+with `instrument.install()`, and an app that listens on `$PORT`.
 
 Exit classifications are stable:
 
@@ -91,9 +100,9 @@ Infrastructure and different-failure results are reported separately in structur
 ## List current work
 
 ```sh
-reproit list
-reproit list --state candidates
-reproit list --state bugs [--query TEXT]
+reproit internal list
+reproit internal list --state candidates
+reproit internal list --state bugs [--query TEXT]
 ```
 
 The default lists local guards. Candidates include exact blockers. Bugs lists confirmed production

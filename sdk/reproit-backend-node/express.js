@@ -13,18 +13,25 @@
  */
 'use strict';
 
-const { BackendTrace, traceContextFromHeaders, httpInput } = require('./index.js');
+const { BackendTrace, traceContextFromHeaders, httpInput, traceStorage } = require('./index.js');
 
 // options: { capture, operation(req), tenant(req), effectsComplete }
 function reproitExpress(options = {}) {
   const capture = options.capture ?? null;
   return function reproit(req, res, next) {
+    let trace = null;
     try {
-      instrument(req, res, options, capture);
+      trace = instrument(req, res, options, capture);
     } catch (ignored) {
       // Fail closed: an instrumentation defect must not break the request.
     }
-    next();
+    // The handler runs with the trace ambient so instrumented outbound
+    // clients (instrument.js) can attach dependency exchanges to it.
+    if (trace !== null) {
+      traceStorage.run(trace, next);
+    } else {
+      next();
+    }
   };
 }
 
@@ -35,7 +42,7 @@ function instrument(req, res, options, capture) {
   };
   const scanContext = traceContextFromHeaders(header);
   const context = scanContext ?? (capture !== null ? capture.context() : null);
-  if (context === null) return;
+  if (context === null) return null;
   const operation =
     typeof options.operation === 'function'
       ? options.operation(req)
@@ -77,6 +84,7 @@ function instrument(req, res, options, capture) {
     }
     return writeHead(...args);
   };
+  return trace;
 }
 
 module.exports = reproitExpress;

@@ -2,5 +2,6 @@
 
 pub(crate) mod args;
 pub(crate) mod context;
+pub(crate) mod internal;
 pub(crate) mod rewrite;
 pub(crate) mod target;

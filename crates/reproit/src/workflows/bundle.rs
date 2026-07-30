@@ -17,7 +17,7 @@ use reproit_protocol::{
     UnresolvedRequirementReason, OCCURRENCE_VERSION, PACKAGE_VERSION, SUPPORT_BUNDLE_VERSION,
 };
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -55,8 +55,6 @@ struct CollectedArtifacts {
 
 struct PersistedCompilation {
     package: ReproductionPackage,
-    capsule_id: String,
-    capsule_directory: PathBuf,
     repro_id: String,
 }
 
@@ -346,7 +344,8 @@ pub(crate) async fn run_occurrence(
                 flicker: false,
                 changed: None,
                 update_baseline: false,
-                inspect: false,
+                exec: None,
+                auto: true,
             },
         )
         .await;
@@ -356,7 +355,31 @@ pub(crate) async fn run_occurrence(
     // of compiling an execution plan.
     let backend_capture = directory.join("backend-capture.json");
     if backend_capture.is_file() {
-        ctx.say("  replay:   re-evaluating the captured backend events offline");
+        // Hermetic re-execution when the capture recorded dependency
+        // exchanges AND the repo names a boot command. The exec recipe comes
+        // only from repo-local config (backend.exec in reproit.yaml); a
+        // capture can never supply a command.
+        if super::backend_headless::capture_has_exchanges(&backend_capture) {
+            let exec = super::backend_target::find(config_path)?
+                .and_then(|project| project.config.exec.clone());
+            if let Some(exec) = exec {
+                ctx.say("  replay:   hermetic re-execution with the recorded exchanges");
+                return super::backend_headless::check_capture_exec(
+                    ctx,
+                    &backend_capture,
+                    &exec,
+                    false,
+                )
+                .await;
+            }
+            ctx.say(
+                "  replay:   this capture carries recorded exchanges; set backend.exec in \
+                 reproit.yaml to re-execute it hermetically. Falling back to offline \
+                 re-evaluation",
+            );
+        } else {
+            ctx.say("  replay:   re-evaluating the captured backend events offline");
+        }
         return super::backend_headless::check_capture(ctx, &backend_capture);
     }
     let mut automatic_plan_id = None;
@@ -492,53 +515,6 @@ fn report_incomplete_occurrence(
     Ok(exit_with(Exit::Stale))
 }
 
-pub(crate) fn compile(
-    ctx: &Ctx,
-    reference: &str,
-    raw_bindings: &[String],
-    identity: &str,
-) -> Result<String> {
-    let (root, occurrence_directory) = find_occurrence(reference).with_context(|| {
-        format!("no imported occurrence `{reference}` in this directory or its ancestors")
-    })?;
-    let package_path = occurrence_directory.join("package.json");
-    let package: ReproductionPackage = serde_json::from_slice(&std::fs::read(&package_path)?)?;
-    let bindings = parse_bindings(raw_bindings)?;
-    let compiled =
-        crate::adapters::execution::compile_package(&root, &package, &bindings, identity)?;
-    let persisted = persist_compiled_package(
-        &root,
-        &occurrence_directory,
-        reference,
-        compiled,
-        crate::domain::repro::Status::Quarantined,
-    )?;
-    let plan = persisted
-        .package
-        .plan
-        .as_ref()
-        .context("compiled package omitted its plan")?;
-    ctx.emit(&serde_json::json!({
-        "command": "plan",
-        "occurrenceId": reference,
-        "packageId": persisted.package.id,
-        "planId": plan.id,
-        "capsuleId": persisted.capsule_id,
-        "reproId": crate::domain::repro::display_repro_id(&persisted.repro_id),
-        "providerCatalog": root.join("reproit.yaml"),
-        "capsuleDirectory": persisted.capsule_directory,
-    }));
-    ctx.say(format!("Compiled occurrence {reference}"));
-    ctx.say(format!("  plan:     {}", plan.id));
-    ctx.say(format!("  capsule:  {}", persisted.capsule_id));
-    ctx.say(format!(
-        "  guard:    {} (alias @{reference})",
-        crate::domain::repro::display_repro_id(&persisted.repro_id)
-    ));
-    ctx.say(format!("  run:      reproit {reference}"));
-    Ok(persisted.repro_id)
-}
-
 pub(crate) async fn keep_occurrence(
     ctx: &Ctx,
     reference: &str,
@@ -643,7 +619,7 @@ fn persist_compiled_package(
     capsule.occurrence = Some(compiled.occurrence.clone());
     capsule.assessment = Some(compiled.assessment.clone());
     capsule.reproduction_plan = Some(plan.clone());
-    let capsule_directory = capsule.persist(root)?;
+    capsule.persist(root)?;
     compiled.capsule = Some(serde_json::to_value(&capsule)?);
     compiled.finalize_id().map_err(protocol_error)?;
     compiled.validate().map_err(protocol_error)?;
@@ -687,27 +663,8 @@ fn persist_compiled_package(
     std::fs::write(repro_directory.join("capsule-id"), &capsule.id)?;
     Ok(PersistedCompilation {
         package: compiled,
-        capsule_id: capsule.id,
-        capsule_directory,
         repro_id,
     })
-}
-
-fn parse_bindings(raw_bindings: &[String]) -> Result<BTreeMap<String, String>> {
-    let mut bindings = BTreeMap::new();
-    for raw in raw_bindings {
-        let (requirement, provider) = raw
-            .split_once('=')
-            .filter(|(requirement, provider)| !requirement.is_empty() && !provider.is_empty())
-            .with_context(|| format!("invalid --bind `{raw}`; expected REQ=PROVIDER"))?;
-        if bindings
-            .insert(requirement.to_string(), provider.to_string())
-            .is_some()
-        {
-            anyhow::bail!("duplicate binding for requirement `{requirement}`");
-        }
-    }
-    Ok(bindings)
 }
 
 fn write_json_atomically(path: &Path, value: &impl serde::Serialize) -> Result<()> {

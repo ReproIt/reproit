@@ -429,7 +429,7 @@ jobs:
           sh install.sh
           test "$("$REPROIT_BIN_DIR/reproit" --version)" = \
             "reproit ${REPROIT_VERSION#v}"
-          "$REPROIT_BIN_DIR/reproit" --help | grep -q 'reproit scan'
+          "$REPROIT_BIN_DIR/reproit" --help | grep -q 'reproit find'
           test -f "$HOME/.local/share/reproit/web/package.json" \
             || test -f "$HOME/Library/Application Support/reproit/web/package.json"
       - name: Install into a clean Windows profile
@@ -449,7 +449,7 @@ jobs:
           $expected = 'reproit ' + $env:REPROIT_VERSION.TrimStart('v')
           if ($version.Trim() -ne $expected) { throw "installed $version, expected $expected" }
           $help = (& $installed --help) -join "`n"
-          if ($help -notmatch 'reproit scan') { throw 'installed CLI help is incomplete' }
+          if ($help -notmatch 'reproit find') { throw 'installed CLI help is incomplete' }
           if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'reproit\web\package.json'))) {
             throw 'web runner bundle was not installed'
           }

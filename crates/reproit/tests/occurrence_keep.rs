@@ -42,6 +42,7 @@ mod unix {
             &[
                 "--json",
                 "--yes",
+                "internal",
                 "capture",
                 "--local-only",
                 "--include-output",
@@ -84,7 +85,7 @@ mod unix {
         assert!(guard.join("providers.yaml").is_file());
         fs::remove_dir_all(root.join(".reproit/private-providers")).unwrap();
 
-        let check = run(&root, &["--json", "--yes", "check", id, "--runs", "1"]);
+        let check = run(&root, &["--json", "--yes", "check", id]);
         assert_eq!(check.status.code(), Some(1));
         assert_eq!(json(&check)["outcome"], "fail");
         fs::remove_dir_all(root).unwrap();

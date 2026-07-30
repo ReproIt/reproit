@@ -19,6 +19,11 @@ pub struct BackendConfig {
     /// entry. `reproit init <schema-url>` records the schema URL's origin.
     #[serde(default)]
     pub target: Option<String>,
+    /// Boot command for hermetic re-execution of pulled occurrences and
+    /// capture files (`REPROIT_REPLAY` + `$PORT`). Repo-local config is the
+    /// ONLY source of this command; a capture can never supply one.
+    #[serde(default)]
+    pub exec: Option<String>,
     #[serde(default)]
     pub operations: Vec<OperationContract>,
     /// Compiler and language adapters write normalized function summaries

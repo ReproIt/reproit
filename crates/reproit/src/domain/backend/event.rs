@@ -30,6 +30,14 @@ pub struct BackendEvent {
     /// Empty for non-GraphQL operations and for adapters without parser proof.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selections: Vec<GraphqlSelection>,
+    /// Determinism envelope (capture mode only): wall-clock epoch millis at
+    /// the event, and monotonic nanoseconds since the operation started.
+    /// Scan-time traces never carry these; hermetic replay pins its clock to
+    /// them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+    #[serde(default, rename = "monoNs", skip_serializing_if = "Option::is_none")]
+    pub mono_ns: Option<u64>,
     #[serde(flatten)]
     pub event: BackendEventKind,
 }
@@ -78,6 +86,12 @@ pub enum BackendEventKind {
         after: Option<Value>,
         #[serde(default)]
         payload: Option<Value>,
+        /// Captured dependency exchange (capture version 2): the request the
+        /// app sent and the response the dependency returned, recorded by the
+        /// SDK's outbound instrumentation. This is what hermetic local replay
+        /// stubs; evaluation oracles ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exchange: Option<Value>,
     },
     /// Complete transport evidence emitted by an adapter. The proof payload is
     /// self-contained so replay retains the exact oracle subtype and inputs.

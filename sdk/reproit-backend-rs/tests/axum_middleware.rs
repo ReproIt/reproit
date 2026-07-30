@@ -69,36 +69,55 @@ async fn planted_500_ships_a_tagged_finding_batch() {
         .recv_timeout(Duration::from_secs(5))
         .expect("stub ingest received a batch");
     assert_eq!(authorization, "bearer sk_live_test");
-    assert_eq!(batch["appId"], "app-e2e");
+    assert_eq!(batch["projectId"], "app-e2e");
     assert_eq!(batch["deployment"]["version"], "9.9.9");
-    let parsed: reproit_protocol::EventBatch =
-        serde_json::from_value(batch.clone()).expect("batch matches event-batch-v1");
+    let parsed: reproit_protocol::CaptureBatch =
+        serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
     parsed.validate().expect("batch passes protocol validation");
-    let frames = batch["frames"].as_array().unwrap();
-    let findings: Vec<&Value> = frames
+    let events = batch["events"].as_array().unwrap();
+    let kinds: Vec<&str> = events
         .iter()
-        .map(|frame| &frame["event"])
-        .filter(|event| event["kind"] == "finding")
+        .map(|event| event["event"]["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(findings.len(), 1);
-    let finding = findings[0];
-    assert_eq!(finding["identity"]["oracle"], SERVER_ERROR_ORACLE);
-    assert_eq!(finding["context"]["capture"], "reproit-backend-rs");
-    let payload = &finding["context"]["reproitCapture"];
-    let kinds: Vec<&str> = payload["events"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|event| event["kind"].as_str().unwrap())
-        .collect();
-    assert_eq!(kinds, ["start", "effect", "return"]);
-    assert_eq!(payload["events"][1]["resource"], "orders");
-    assert_eq!(payload["events"][2]["status"], 500);
-    assert_eq!(payload["events"][2]["success"], false);
+    assert_eq!(
+        kinds,
+        [
+            "operation-start",
+            "trigger",
+            "checkpoint",
+            "effect",
+            "effect",
+            "operation-end",
+            "observation"
+        ]
+    );
+    // The determinism envelope rides as a named checkpoint.
+    assert_eq!(events[2]["event"]["name"], "determinism-envelope");
+    assert!(events[2]["event"]["attributes"]["replaySeed"].is_string());
+    let observation = &events[6]["event"];
+    assert_eq!(
+        observation["failure"]["signature"],
+        format!("{SERVER_ERROR_ORACLE}:POST /boom")
+    );
+    // The raw effect and return events nest replayable for the projection.
+    let raw_effect = &events[3]["event"]["value"]["value"];
+    assert_eq!(raw_effect["resource"], "orders");
+    let raw_return = &events[4]["event"]["value"]["value"];
+    assert_eq!(raw_return["status"], 500);
+    assert_eq!(raw_return["success"], false);
     // The secret-shaped input field was structurally redacted before upload.
-    let body = &payload["events"][0]["input"]["body"];
+    let body = &events[1]["event"]["value"]["value"]["body"];
     assert_eq!(body["apiKey"]["$reproit"]["redacted"], true);
     assert_eq!(body["item"], "widget");
+    // The batch projects back to a replayable capture, version 2 (envelope
+    // stamps present on capture-mode events).
+    let capture_payload = reproit_protocol::backend_capture_from_batch(&parsed)
+        .expect("batch projects to a replayable capture");
+    assert_eq!(capture_payload["version"], 2);
+    assert_eq!(
+        capture_payload["envelope"]["replaySeed"],
+        events[2]["event"]["attributes"]["replaySeed"]
+    );
 
     // The healthy scan-time request must not have been captured.
     scan_header_round_trips(test_app(Some(capture.clone()))).await;

@@ -2,13 +2,19 @@ use super::extract::{derive, family_for, normalize_path, path_params};
 use std::path::PathBuf;
 
 pub(super) fn project(files: &[(&str, &str)]) -> PathBuf {
+    // A wall-clock name alone collides when two parallel tests hit the same
+    // clock tick; the merged fixture then derives BOTH tests' routes (seen as
+    // a rare probes.len() flake). The process-wide counter makes each call
+    // unique regardless of clock resolution.
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "reproit-learn-{}-{}",
+        "reproit-learn-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).unwrap();
     for (name, content) in files {
