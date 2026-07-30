@@ -13,14 +13,46 @@ unpadded base64url of that encoding.
 """
 
 import base64
+import contextvars
 import hashlib
 import itertools
 import json
 import re
+import time
 
 MAX_EVENTS = 256
 MAX_HEADER_BYTES = 60000
 EFFECT_KINDS = ("read", "write", "delete", "emit", "call")
+
+# Ambient trace for outbound-exchange capture: framework adapters run the
+# request handler inside `use_trace(trace)` so the instrumented http/db hooks
+# find the trace without threading it through application code. This is the
+# contextvars analogue of the Node adapter's AsyncLocalStorage, and it
+# propagates into asyncio tasks the same way.
+_AMBIENT_TRACE = contextvars.ContextVar("reproit_trace", default=None)
+
+
+def use_trace(trace):
+    """Install `trace` as the ambient trace. Returns the contextvars token the
+    caller passes to `clear_trace` to restore the previous value."""
+    return _AMBIENT_TRACE.set(trace)
+
+
+def clear_trace(token):
+    try:
+        _AMBIENT_TRACE.reset(token)
+    except ValueError:
+        # Reset from a different context (a handler that hopped executors);
+        # dropping the ambient trace is the safe direction.
+        _AMBIENT_TRACE.set(None)
+
+
+def current_trace():
+    """The ambient unfinished trace, or None."""
+    trace = _AMBIENT_TRACE.get()
+    if trace is None or getattr(trace, "finished", True):
+        return None
+    return trace
 
 _SEQUENCE = itertools.count(1)
 _PATH_SEGMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -170,10 +202,16 @@ def _metadata(value):
 class BackendTrace:
     """One traced operation: a start event, observed effects, one return."""
 
-    def __init__(self, common):
+    def __init__(self, common, envelope=False):
         self._common = common
         self._events = []
         self.finished = False
+        # Capture-mode-only determinism envelope: real wall-clock and
+        # monotonic offsets per event. Scan-time traces (the
+        # `x-reproit-events` header) never carry these, so their wire shape
+        # stays byte-stable.
+        self._envelope = bool(envelope)
+        self._origin_ns = time.monotonic_ns() if envelope else None
 
     @classmethod
     def begin(
@@ -211,11 +249,20 @@ class BackendTrace:
             common["idempotencyKey"] = _identity(str(idempotency_key))
         if selections:
             common["selections"] = list(selections)[:MAX_EVENTS]
-        trace = cls(common)
+        trace = cls(common, envelope=context.get("capture_envelope") is True)
         trace._push("start", {"input": redact(input)})
         return trace
 
-    def effect(self, kind, resource=None, key=None, tenant=None, event=None, detail=None):
+    def effect(
+        self,
+        kind,
+        resource=None,
+        key=None,
+        tenant=None,
+        event=None,
+        detail=None,
+        exchange=None,
+    ):
         if self.finished:
             raise TraceError("AlreadyFinished")
         if kind not in EFFECT_KINDS:
@@ -235,6 +282,13 @@ class BackendTrace:
                 for field in ("before", "after", "payload"):
                     if field in redacted:
                         fields[field] = redacted[field]
+        # Captured dependency exchange (instrument.py): the request the app
+        # sent and the response the dependency returned, already bounded by
+        # the instrument layer. Redacted here so no caller can skip it.
+        if exchange is not None:
+            redacted_exchange = redact(exchange)
+            if isinstance(redacted_exchange, dict):
+                fields["exchange"] = redacted_exchange
         self._push("effect", fields)
 
     def finish(self, output, status, success, effects_complete):
@@ -270,4 +324,7 @@ class BackendTrace:
         event["sequence"] = next(_SEQUENCE)
         event["kind"] = kind
         event.update(fields)
+        if self._envelope:
+            event["at"] = int(time.time() * 1000)
+            event["monoNs"] = time.monotonic_ns() - self._origin_ns
         self._events.append(event)

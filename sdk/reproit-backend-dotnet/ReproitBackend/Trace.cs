@@ -34,6 +34,9 @@ public sealed class TraceContext
     public long ActionIndex { get; init; }
     public string? Build { get; init; }
     public string? ConfigContract { get; init; }
+    // Capture-mode traces stamp per-event wall clock and monotonic offsets (the determinism
+    // envelope); scan-time traces never do, so their wire shape stays byte-stable.
+    public bool CaptureEnvelope { get; init; }
 }
 
 public sealed class BeginOptions
@@ -52,6 +55,10 @@ public sealed class EffectOptions
     public string? Tenant { get; init; }
     public string? Event { get; init; }
     public object? Detail { get; init; }
+    // Captured dependency exchange (Instrument): the request the app sent and the response
+    // the dependency returned, already bounded by the instrument layer. Redacted below so no
+    // caller can skip it.
+    public object? Exchange { get; init; }
 }
 
 // Module-level helpers shared by the trace core, capture mode, and framework adapters.
@@ -265,12 +272,16 @@ public sealed class BackendTrace
 
     private readonly Dictionary<string, object?> _common;
     private readonly List<Dictionary<string, object?>> _events = new();
+    private readonly bool _captureEnvelope;
+    private readonly long _originTicks;
 
     public bool Finished { get; private set; }
 
-    private BackendTrace(Dictionary<string, object?> common)
+    private BackendTrace(Dictionary<string, object?> common, bool captureEnvelope)
     {
         _common = common;
+        _captureEnvelope = captureEnvelope;
+        _originTicks = captureEnvelope ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
     }
 
     public static BackendTrace Begin(
@@ -305,7 +316,7 @@ public sealed class BackendTrace
             common["selections"] =
                 options.Selections.Take(Reproit.MaxEvents).ToList<object?>();
         }
-        var trace = new BackendTrace(common);
+        var trace = new BackendTrace(common, context.CaptureEnvelope);
         trace.Push("start", new Dictionary<string, object?>
         {
             ["input"] = Reproit.Redact(options.Input),
@@ -336,6 +347,11 @@ public sealed class BackendTrace
             {
                 if (detail.TryGetValue(key, out var value)) fields[key] = value;
             }
+        }
+        if (options.Exchange != null &&
+            Reproit.Redact(options.Exchange) is Dictionary<string, object?> exchange)
+        {
+            fields["exchange"] = exchange;
         }
         Push("effect", fields);
     }
@@ -372,6 +388,12 @@ public sealed class BackendTrace
             ["kind"] = kind,
         };
         foreach (var (key, value) in fields) evt[key] = value;
+        if (_captureEnvelope)
+        {
+            evt["at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            evt["monoNs"] = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - _originTicks)
+                * (1_000_000_000.0 / System.Diagnostics.Stopwatch.Frequency));
+        }
         _events.Add(evt);
     }
 }

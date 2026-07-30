@@ -4,5 +4,8 @@
 # without `x-reproit-trace`, plus an off-by-default production capture mode.
 
 require_relative "reproit_backend_rb/trace"
+require_relative "reproit_backend_rb/exchange"
+require_relative "reproit_backend_rb/replay"
+require_relative "reproit_backend_rb/instrument"
 require_relative "reproit_backend_rb/capture"
 require_relative "reproit_backend_rb/rack"

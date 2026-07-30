@@ -164,12 +164,15 @@ class E2eTest < Minitest::Test
         finding["failure"]["signature"]
       )
       assert_equal(
-        %w[operation-start trigger effect effect operation-end observation],
+        %w[operation-start trigger checkpoint effect effect operation-end observation],
         batch["events"].map { |event| event["event"]["kind"] }
       )
-      assert_equal "orders", batch["events"][2]["event"]["subject"]
+      # The determinism envelope rides as a named checkpoint after the trigger.
+      envelope = batch["events"][2]["event"]
+      assert_equal "determinism-envelope", envelope["name"]
+      assert_equal "orders", batch["events"][3]["event"]["subject"]
       # The raw return event ships as the operation-return effect carrier.
-      carrier = batch["events"][3]["event"]
+      carrier = batch["events"][4]["event"]
       assert_equal "operation-return", carrier["subject"]
       assert_equal "return", carrier["value"]["value"]["kind"]
       assert_equal 500, carrier["value"]["value"]["status"]

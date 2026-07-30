@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "backend-sdk-hermetic-parity",
+  "changeType": "feature",
+  "detail": "This commit brings the Python, Go, Java, .NET, Ruby, and PHP backend SDKs to the hermetic parity Node and Rust already had: outbound exchange capture with responses, identical bounds and at-source redaction, the determinism envelope and commit identity, and a REPROIT_REPLAY serve mode with the shared divergence marker. It corrects no shipped runtime defect in the product; the SDKs previously captured evidence and could not re-execute, which was their documented state. Each language proves the contract with its own four-verdict acceptance script driving the real CLI.",
+  "evidence": [
+    { "path": "sdk/reproit-backend-py/validation/hermetic-e2e.sh", "sha256": "sha256:5ec720da6e78435c39a83774ff05ae813ea0181750239451c5feea7cc1472c7f" },
+    { "path": "sdk/reproit-backend-go/validation/hermetic-e2e.sh", "sha256": "sha256:564232c210e01c35f6ba8edf089a57bffeeec37df3d275447bb1d5f4aca2872a" },
+    { "path": "sdk/reproit-backend-rb/validation/hermetic-e2e.sh", "sha256": "sha256:1e7faa26ecd1fa94a375615694219eb5191c7dc3e69277057f2c4d2be4a0ee4c" }
+  ]
+}

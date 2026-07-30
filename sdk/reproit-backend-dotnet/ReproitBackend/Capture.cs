@@ -23,6 +23,7 @@ public sealed class CaptureConfig
     public string? ApiKey { get; init; }
     public string? AppId { get; init; }
     public string? Build { get; init; }
+    public string? Commit { get; init; }
     public int HealthySamplePerMille { get; init; }
     public int FlushIntervalMs { get; init; } = 3000;
     public int RequestTimeoutMs { get; init; } = 5000;
@@ -67,6 +68,7 @@ public sealed class Capture
     private readonly string _apiKey;
     private readonly string _appId;
     private readonly string? _build;
+    private readonly string? _commit;
     private readonly int _healthySamplePerMille;
     private readonly int _flushIntervalMs;
     private readonly int _requestTimeoutMs;
@@ -98,6 +100,7 @@ public sealed class Capture
         if (string.IsNullOrWhiteSpace(config.ApiKey)) return null;
         if (config.AppId == null || !Token.IsMatch(config.AppId)) return null;
         if (config.Build != null && !Token.IsMatch(config.Build)) return null;
+        if (config.Commit != null && !Token.IsMatch(config.Commit)) return null;
         return new Capture(config, startWorker: true);
     }
 
@@ -105,12 +108,29 @@ public sealed class Capture
     internal static Capture CreateInert(CaptureConfig config) =>
         new(config, startWorker: false);
 
+    // Code identity for the capture, in priority order: explicit config, then the common CI
+    // and platform environment. Never shells out to git.
+    internal static string? ResolveCommit(CaptureConfig config)
+    {
+        foreach (var candidate in new[]
+        {
+            config.Commit,
+            Environment.GetEnvironmentVariable("REPROIT_COMMIT"),
+            Environment.GetEnvironmentVariable("GITHUB_SHA"),
+        })
+        {
+            if (candidate != null && Token.IsMatch(candidate)) return candidate;
+        }
+        return null;
+    }
+
     private Capture(CaptureConfig config, bool startWorker)
     {
         _endpoint = config.Endpoint!;
         _apiKey = config.ApiKey!;
         _appId = config.AppId!;
         _build = config.Build;
+        _commit = ResolveCommit(config);
         _healthySamplePerMille = Math.Max(0, config.HealthySamplePerMille);
         _flushIntervalMs = Math.Max(MinFlushIntervalMs, config.FlushIntervalMs);
         _requestTimeoutMs = config.RequestTimeoutMs;
@@ -136,6 +156,7 @@ public sealed class Capture
             TraceId = "cap-" + NowMs() + "-" + sequence,
             ActionIndex = 0,
             Build = _build,
+            CaptureEnvelope = true,
         };
     }
 
@@ -323,21 +344,8 @@ public sealed class Capture
             Component = "backend",
             Runtime = "dotnet",
             BuildVersion = _build,
-            Capabilities = new List<Dictionary<string, object?>>
-            {
-                new()
-                {
-                    ["capability"] = "http",
-                    ["completeness"] = "complete",
-                },
-                new()
-                {
-                    ["capability"] = "database",
-                    ["completeness"] = "partial",
-                    ["detail"] =
-                        "effect records do not prove complete database state capture",
-                },
-            },
+            BuildCommit = _commit,
+            Capabilities = Capabilities(operation),
         });
         UniversalEventContext Context(
             Dictionary<string, object?> evt,
@@ -347,6 +355,15 @@ public sealed class Capture
             SpanId = evt.GetValueOrDefault("spanId") as string,
             Actor = evt.GetValueOrDefault("actor") as string,
             CausalParentIds = parent == null ? Array.Empty<string>() : new[] { parent },
+            // Real monotonic offsets from the trace's envelope stamps; the ordinal fallback
+            // only applies to traces recorded without capture mode.
+            MonotonicNs = evt.GetValueOrDefault("monoNs") switch
+            {
+                long value when value > 0 => (ulong)value,
+                int value when value > 0 => (ulong)value,
+                double value when value > 0 => (ulong)value,
+                _ => 0,
+            },
         };
         var parent = recorder.OperationStart(operation.Operation, Context(first));
         var input = first.TryGetValue("input", out var capturedInput)
@@ -360,12 +377,22 @@ public sealed class Capture
             operation.Operation,
             input,
             Context(first, parent));
+        // Determinism envelope: where and when the capture happened, and a seed that makes
+        // REPLAY runs deterministic. Honesty note: the seed does not reproduce the app's
+        // original randomness; it pins the replay's.
+        parent = recorder.Checkpoint(
+            "determinism-envelope", EnvelopeAttributes(first), Context(first, parent));
         foreach (var evt in operation.Events)
         {
             if (evt.GetValueOrDefault("kind") as string != "effect") continue;
             var effect = evt.GetValueOrDefault("effect") as string ?? "call";
             var subject = EffectSubject(evt);
-            var value = EffectValue(evt);
+            // An exchange-bearing effect nests the RAW event verbatim (like the return
+            // carrier) so `backend_capture_from_batch` can round-trip it into the replayable
+            // capture; plain effects keep the structural summary the wire shape pins.
+            var value = evt.ContainsKey("exchange")
+                ? CaptureValues.Replayable(evt)
+                : EffectValue(evt);
             if (effect == "call")
             {
                 parent = recorder.Dependency(
@@ -427,6 +454,68 @@ public sealed class Capture
             }
         }
         return "backend-effect";
+    }
+
+    // Declared complete only when Instrument actually recorded exchanges, so the capsule
+    // completeness model never over-claims on captures from apps that never routed a call
+    // through the boundary.
+    private static List<Dictionary<string, object?>> Capabilities(CapturedOperation operation)
+    {
+        var capabilities = new List<Dictionary<string, object?>>
+        {
+            new() { ["capability"] = "http", ["completeness"] = "complete" },
+            new()
+            {
+                ["capability"] = "database",
+                ["completeness"] = "partial",
+                ["detail"] = "effect records do not prove complete database state capture",
+            },
+        };
+        var hasExchanges = operation.Events.Any(evt => evt.ContainsKey("exchange"));
+        if (hasExchanges)
+        {
+            capabilities.Add(new Dictionary<string, object?>
+            {
+                ["capability"] = "network",
+                ["completeness"] = "complete",
+                ["detail"] = "outbound dependency exchanges recorded with responses",
+            });
+        }
+        return capabilities;
+    }
+
+    private static Dictionary<string, object?> EnvelopeAttributes(
+        Dictionary<string, object?> first)
+    {
+        var attributes = new Dictionary<string, object?>
+        {
+            ["observedAtMs"] = first.GetValueOrDefault("at") switch
+            {
+                long value => value,
+                int value => (long)value,
+                _ => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            },
+            ["tz"] = TimeZoneInfo.Local.Id,
+            ["runtime"] = "dotnet " + Environment.Version,
+            ["os"] = Environment.OSVersion.Platform.ToString(),
+            ["arch"] = System.Runtime.InteropServices.RuntimeInformation
+                .ProcessArchitecture.ToString().ToLowerInvariant(),
+            ["replaySeed"] = ReplaySeed(),
+        };
+        var imageDigest = Environment.GetEnvironmentVariable("REPROIT_IMAGE_DIGEST");
+        if (imageDigest != null && Token.IsMatch(imageDigest))
+        {
+            attributes["imageDigest"] = imageDigest;
+        }
+        return attributes;
+    }
+
+    // 16 hex characters, the width the replay stream reads.
+    private static string ReplaySeed()
+    {
+        var seed = new byte[8];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(seed);
+        return Convert.ToHexString(seed).ToLowerInvariant();
     }
 
     private static Dictionary<string, object?>? EffectValue(

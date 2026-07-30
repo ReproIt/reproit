@@ -98,6 +98,7 @@ final class Capture
     private int $requestTimeoutMs;
     private int $retryLimit;
     private int $shutdownTimeoutMs;
+    private ?string $commit = null;
     private array $queue = [];
     private int $traceSeq = 1;
     private int $batchSeq = 1;
@@ -131,15 +132,39 @@ final class Capture
         if ($build !== null && !valid_token($build)) {
             return null;
         }
-        return new self($config, $endpoint, $apiKey, $build);
+        $commit = $config['commit'] ?? null;
+        if ($commit !== null && !valid_token($commit)) {
+            return null;
+        }
+        return new self($config, $endpoint, $apiKey, $build, self::resolveCommit($commit));
     }
 
-    private function __construct(array $config, string $endpoint, string $apiKey, ?string $build)
+    /**
+     * Code identity for the capture, in priority order: explicit config,
+     * then the common CI and platform environment. Never shells out to git.
+     */
+    public static function resolveCommit(?string $commit): ?string
     {
+        foreach ([$commit, getenv('REPROIT_COMMIT') ?: null, getenv('GITHUB_SHA') ?: null] as $c) {
+            if (valid_token($c)) {
+                return (string) $c;
+            }
+        }
+        return null;
+    }
+
+    private function __construct(
+        array $config,
+        string $endpoint,
+        string $apiKey,
+        ?string $build,
+        ?string $commit = null
+    ) {
         $this->endpoint = $endpoint;
         $this->apiKey = $apiKey;
         $this->appId = $config['appId'];
         $this->build = $build;
+        $this->commit = $commit;
         $this->healthySamplePerMille = max(0, (int) ($config['healthySamplePerMille'] ?? 0));
         $this->flushIntervalMs =
             max(MIN_FLUSH_INTERVAL_MS, (int) ($config['flushIntervalMs'] ?? 3000));
@@ -166,6 +191,9 @@ final class Capture
             'actionIndex' => 0,
             'build' => $this->build,
             'configContract' => null,
+            // Capture-mode traces stamp per-event wall-clock and monotonic
+            // offsets (the determinism envelope); scan-time traces never do.
+            'captureEnvelope' => true,
         ];
     }
 
@@ -298,13 +326,21 @@ final class Capture
         $traceId = \is_string($first['traceId'] ?? null) ? $first['traceId'] : null;
         $events = [];
         $parent = null;
-        $add = function (array $event) use (&$events, &$parent, $traceId): void {
+        // Real monotonic offsets from the trace's envelope stamps; the
+        // ordinal fallback only applies to traces recorded without capture
+        // mode.
+        $add = function (array $event, ?array $source = null) use (
+            &$events,
+            &$parent,
+            $traceId
+        ): void {
             $sequence = \count($events) + 1;
             $eventId = 'evt_backend-php_' . $sequence;
+            $mono = $source['monoNs'] ?? null;
             $item = [
                 'id' => $eventId,
                 'sequence' => $sequence,
-                'monotonicNs' => $sequence,
+                'monotonicNs' => \is_int($mono) ? $mono : $sequence,
                 'causalParentIds' => $parent === null ? [] : [$parent],
                 'event' => $event,
             ];
@@ -314,7 +350,7 @@ final class Capture
             $events[] = $item;
             $parent = $eventId;
         };
-        $add(['kind' => 'operation-start', 'name' => $operation['operation']]);
+        $add(['kind' => 'operation-start', 'name' => $operation['operation']], $first);
         $input = $first['input'] ?? null;
         $capturedInput = $input === null
             ? ['representation' => 'structural', 'shape' => ['type' => 'unknown']]
@@ -328,7 +364,16 @@ final class Capture
             'trigger' => 'http-request',
             'subject' => $operation['operation'],
             'value' => $capturedInput,
-        ]);
+        ], $first);
+        // Determinism envelope: where and when the capture happened, and a
+        // seed that makes REPLAY runs deterministic. Honesty note: the seed
+        // does not reproduce the app's original randomness; it pins the
+        // replay's.
+        $add([
+            'kind' => 'checkpoint',
+            'name' => 'determinism-envelope',
+            'attributes' => $this->envelopeAttributes($first),
+        ], $first);
         foreach ($operation['events'] as $source) {
             if (($source['kind'] ?? null) !== 'effect') {
                 continue;
@@ -343,7 +388,7 @@ final class Capture
                     'value' => $source,
                     'redaction' => 'redacted-at-source',
                 ],
-            ]);
+            ], $source);
         }
         $returned = [];
         foreach (array_reverse($operation['events']) as $source) {
@@ -366,13 +411,13 @@ final class Capture
                     'value' => $returned,
                     'redaction' => 'redacted-at-source',
                 ],
-            ]);
+            ], $returned);
         }
         $add([
             'kind' => 'operation-end',
             'name' => $operation['operation'],
             'outcome' => ($returned['success'] ?? false) === true ? 'succeeded' : 'failed',
-        ]);
+        ], $returned);
         $status = $operation['status'];
         if ($status !== null && $status >= 500) {
             $signature = SERVER_ERROR_ORACLE . ':' . $operation['operation'];
@@ -406,21 +451,68 @@ final class Capture
                 'consent' => 'application-telemetry',
                 'retentionClass' => 'standard',
             ],
-            'capabilities' => [
-                ['capability' => 'http', 'completeness' => 'complete'],
-                [
-                    'capability' => 'database',
-                    'completeness' => 'partial',
-                    'detail' => 'effect records do not prove complete database state capture',
-                ],
-            ],
+            'capabilities' => $this->capabilities($operation),
             'events' => $events,
             'artifacts' => [],
         ];
+        $deployment = [];
         if ($this->build !== null) {
-            $batch['deployment'] = ['version' => $this->build];
+            $deployment['version'] = $this->build;
+        }
+        if ($this->commit !== null) {
+            $deployment['commit'] = $this->commit;
+        }
+        if ($deployment !== []) {
+            $batch['deployment'] = $deployment;
         }
         return $batch;
+    }
+
+    /**
+     * `network: complete` is declared ONLY when the instrument layer
+     * actually recorded exchanges, so a capsule never claims a capability
+     * it lacks.
+     */
+    private function capabilities(array $operation): array
+    {
+        $capabilities = [
+            ['capability' => 'http', 'completeness' => 'complete'],
+            [
+                'capability' => 'database',
+                'completeness' => 'partial',
+                'detail' => 'effect records do not prove complete database state capture',
+            ],
+        ];
+        foreach ($operation['events'] as $event) {
+            if (\is_array($event) && \is_array($event['exchange'] ?? null)) {
+                $capabilities[] = [
+                    'capability' => 'network',
+                    'completeness' => 'complete',
+                    'detail' => 'outbound dependency exchanges recorded with responses',
+                ];
+                break;
+            }
+        }
+        return $capabilities;
+    }
+
+    private function envelopeAttributes(array $first): array
+    {
+        $attributes = [
+            'observedAtMs' => \is_int($first['at'] ?? null)
+                ? $first['at']
+                : (int) (microtime(true) * 1000),
+            'tz' => date_default_timezone_get(),
+            'runtime' => 'php ' . PHP_VERSION,
+            'os' => PHP_OS_FAMILY,
+            'arch' => php_uname('m'),
+            'replaySeed' => bin2hex(random_bytes(8)),
+        ];
+        $digest = getenv('REPROIT_IMAGE_DIGEST') ?: null;
+        if (valid_token($digest)) {
+            $attributes['imageDigest'] = (string) $digest;
+        }
+        return $attributes;
     }
 
     private function send(array $batch, float $deadline): bool

@@ -53,7 +53,7 @@ public final class ReproitFilter implements Filter {
     static final int MAX_BODY_BYTES = 64 * 1024;
     public static final String REQUEST_ATTRIBUTE = "reproit";
 
-    private final Capture capture;
+    private final TraceSink capture;
     private Function<HttpServletRequest, String> operation;
     private Function<HttpServletRequest, String> tenant;
     private boolean effectsComplete = false;
@@ -62,7 +62,7 @@ public final class ReproitFilter implements Filter {
         this(null);
     }
 
-    public ReproitFilter(Capture capture) {
+    public ReproitFilter(TraceSink capture) {
         this.capture = capture;
     }
 
@@ -120,11 +120,16 @@ public final class ReproitFilter implements Filter {
         HeldResponse held =
             new HeldResponse(response, trace, scanContext != null ? null : capture);
         try {
-            chain.doFilter(buffered, held);
+            // The handler runs with the trace ambient so instrumented
+            // outbound calls (Instrument.Http/Db) attach their exchanges to it.
+            Instrument.scopeRun(trace, () -> chain.doFilter(buffered, held));
             held.release(held.getStatus(), true);
         } catch (IOException | ServletException | RuntimeException failure) {
             held.release(500, false);
             throw failure;
+        } catch (Exception failure) {
+            held.release(500, false);
+            throw new ServletException(failure);
         }
     }
 
@@ -269,14 +274,14 @@ public final class ReproitFilter implements Filter {
     private final class HeldResponse extends HttpServletResponseWrapper {
         private final HttpServletResponse target;
         private final BackendTrace trace;
-        private final Capture record;
+        private final TraceSink record;
         private final ByteArrayOutputStream held = new ByteArrayOutputStream();
         private boolean released = false;
         private boolean complete = true;
         private PrintWriter writer;
         private ServletOutputStream stream;
 
-        HeldResponse(HttpServletResponse target, BackendTrace trace, Capture record) {
+        HeldResponse(HttpServletResponse target, BackendTrace trace, TraceSink record) {
             super(target);
             this.target = target;
             this.trace = trace;

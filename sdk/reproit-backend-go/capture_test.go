@@ -49,10 +49,22 @@ func TestServerErrorBatchUsesUniversalCausalContract(t *testing.T) {
 		t.Fatal("deployment version lost")
 	}
 	events := batch["events"].([]any)
-	if len(events) != 6 {
-		t.Fatalf("expected 6 causal events, got %d", len(events))
+	if len(events) != 7 {
+		t.Fatalf("expected 7 causal events, got %d", len(events))
 	}
-	finding := events[5].(map[string]any)["event"].(map[string]any)
+	// The determinism envelope rides as a named checkpoint after the trigger.
+	envelope := events[2].(map[string]any)["event"].(map[string]any)
+	if envelope["kind"] != "checkpoint" || envelope["name"] != "determinism-envelope" {
+		t.Fatalf("determinism envelope missing: %v", envelope)
+	}
+	attributes := envelope["attributes"].(map[string]any)
+	if seed, _ := attributes["replaySeed"].(string); len(seed) != 16 {
+		t.Fatalf("replay seed missing or malformed: %v", attributes)
+	}
+	if attributes["runtime"] != "go" {
+		t.Fatalf("envelope runtime wrong: %v", attributes)
+	}
+	finding := events[6].(map[string]any)["event"].(map[string]any)
 	if finding["kind"] != "observation" {
 		t.Fatal("observation event missing")
 	}
@@ -68,7 +80,7 @@ func TestServerErrorBatchUsesUniversalCausalContract(t *testing.T) {
 	}
 	// The raw return event is nested like the raw effects, under a subject
 	// that names the carrier for the protocol projection.
-	carrier := events[3].(map[string]any)["event"].(map[string]any)
+	carrier := events[4].(map[string]any)["event"].(map[string]any)
 	if carrier["kind"] != "effect" || carrier["subject"] != "operation-return" {
 		t.Fatalf("operation-return carrier missing: %v", carrier)
 	}
@@ -85,8 +97,8 @@ func TestServerErrorBatchUsesUniversalCausalContract(t *testing.T) {
 func TestHealthyOperationsShipCausalEventsWithoutObservation(t *testing.T) {
 	batch := batchFor(t, 201, true)
 	events := batch["events"].([]any)
-	if len(events) != 5 {
-		t.Fatalf("expected 5 causal events, got %d", len(events))
+	if len(events) != 6 {
+		t.Fatalf("expected 6 causal events, got %d", len(events))
 	}
 	for _, item := range events {
 		event := item.(map[string]any)["event"].(map[string]any)

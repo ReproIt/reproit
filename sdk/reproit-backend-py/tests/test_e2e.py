@@ -110,13 +110,22 @@ def test_fastapi_planted_500_ships_a_tagged_finding_batch():
         assert batch["deployment"] == {"version": "9.9.9"}
         events = batch["events"]
         assert [item["event"]["kind"] for item in events] == [
-            "operation-start", "trigger", "effect", "effect", "operation-end", "observation"
+            "operation-start",
+            "trigger",
+            "checkpoint",
+            "effect",
+            "effect",
+            "operation-end",
+            "observation",
         ]
-        finding = events[5]["event"]
+        finding = events[6]["event"]
         assert finding["failure"]["signature"] == SERVER_ERROR_ORACLE + ":POST /boom"
-        assert events[2]["event"]["subject"] == "orders"
+        # The determinism envelope rides as a named checkpoint.
+        assert events[2]["event"]["name"] == "determinism-envelope"
+        assert isinstance(events[2]["event"]["attributes"]["replaySeed"], str)
+        assert events[3]["event"]["subject"] == "orders"
         # The raw return event ships as the operation-return effect carrier.
-        carrier = events[3]["event"]
+        carrier = events[4]["event"]
         assert carrier["subject"] == "operation-return"
         raw_return = carrier["value"]["value"]
         assert raw_return["kind"] == "return"

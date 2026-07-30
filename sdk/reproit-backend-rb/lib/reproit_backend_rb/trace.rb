@@ -158,10 +158,15 @@ module ReproitBackendRb
 
   # One traced operation: a start event, observed effects, one return.
   class BackendTrace
-    def initialize(common)
+    def initialize(common, envelope = false)
       @common = common
       @events = []
       @finished = false
+      # Capture-mode-only determinism envelope: real wall-clock and monotonic
+      # offsets per event. Scan-time traces (the x-reproit-events header)
+      # never carry these, so their wire shape stays byte-stable.
+      @envelope = envelope
+      @origin_ns = envelope ? Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond) : nil
     end
 
     def self.begin(context, operation, span_id: nil, tenant: nil, idempotency_key: nil,
@@ -191,12 +196,13 @@ module ReproitBackendRb
       if selections && !selections.empty?
         common["selections"] = selections.take(MAX_EVENTS)
       end
-      trace = new(common)
+      trace = new(common, context["capture_envelope"] == true)
       trace.push("start", { "input" => ReproitBackendRb.redact(input) })
       trace
     end
 
-    def effect(kind, resource: nil, key: nil, tenant: nil, event: nil, detail: nil)
+    def effect(kind, resource: nil, key: nil, tenant: nil, event: nil, detail: nil,
+               exchange: nil)
       raise TraceError, "AlreadyFinished" if @finished
       raise TraceError, "InvalidOperation" unless EFFECT_KINDS.include?(kind)
       fields = { "effect" => kind }
@@ -211,6 +217,13 @@ module ReproitBackendRb
             fields[field] = redacted[field] if redacted.key?(field)
           end
         end
+      end
+      # Captured dependency exchange (instrument.rb): the request the app
+      # sent and the response the dependency returned, already bounded by the
+      # instrument layer. Redacted here so no caller can skip it.
+      unless exchange.nil?
+        redacted = ReproitBackendRb.redact(exchange)
+        fields["exchange"] = redacted if redacted.is_a?(Hash)
       end
       push("effect", fields)
     end
@@ -245,7 +258,13 @@ module ReproitBackendRb
       event = @common.dup
       event["sequence"] = ReproitBackendRb.next_sequence
       event["kind"] = kind
-      @events << event.merge(fields)
+      event = event.merge(fields)
+      if @envelope
+        event["at"] = (Time.now.to_f * 1000).to_i
+        event["monoNs"] =
+          Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond) - @origin_ns
+      end
+      @events << event
     end
   end
 end

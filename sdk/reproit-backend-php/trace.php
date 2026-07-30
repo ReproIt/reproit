@@ -275,10 +275,19 @@ final class BackendTrace
     private array $common;
     private array $events = [];
     private bool $finished = false;
+    /**
+     * Capture-mode-only determinism envelope: real wall-clock and monotonic
+     * offsets per event. Scan-time traces (the x-reproit-events header)
+     * never carry these, so their wire shape stays byte-stable.
+     */
+    private bool $envelope;
+    private float $originNs;
 
-    private function __construct(array $common)
+    private function __construct(array $common, bool $envelope)
     {
         $this->common = $common;
+        $this->envelope = $envelope;
+        $this->originNs = hrtime(true);
     }
 
     /** `$opts` keys: spanId, tenant, idempotencyKey, input, selections. */
@@ -313,7 +322,7 @@ final class BackendTrace
         if (\is_array($opts['selections'] ?? null) && $opts['selections'] !== []) {
             $common['selections'] = \array_slice(array_values($opts['selections']), 0, MAX_EVENTS);
         }
-        $trace = new self($common);
+        $trace = new self($common, ($context['captureEnvelope'] ?? false) === true);
         $trace->push('start', ['input' => redact($opts['input'] ?? null)]);
         return $trace;
     }
@@ -337,6 +346,15 @@ final class BackendTrace
         foreach ($names as $option => $field) {
             if (isset($opts[$option])) {
                 $fields[$field] = codepoint_slice((string) $opts[$option], 256);
+            }
+        }
+        // Captured dependency exchange (instrument.php): the request the app
+        // sent and the response the dependency returned, already bounded by
+        // the instrument layer. Redacted here so no caller can skip it.
+        if (isset($opts['exchange']) && \is_array($opts['exchange'])) {
+            $exchange = redact($opts['exchange']);
+            if (\is_array($exchange)) {
+                $fields['exchange'] = $exchange;
             }
         }
         if (isset($opts['detail'])) {
@@ -401,6 +419,10 @@ final class BackendTrace
         $event['kind'] = $kind;
         foreach ($fields as $name => $value) {
             $event[$name] = $value;
+        }
+        if ($this->envelope) {
+            $event['at'] = (int) (microtime(true) * 1000);
+            $event['monoNs'] = (int) (hrtime(true) - $this->originNs);
         }
         $this->events[] = $event;
     }

@@ -15,6 +15,7 @@ require "json"
 require "stringio"
 require "uri"
 
+require_relative "instrument"
 require_relative "trace"
 
 module ReproitBackendRb
@@ -64,7 +65,10 @@ module ReproitBackendRb
         return @app.call(env)
       end
 
-      status, response_headers, response_body = @app.call(env)
+      # The handler runs with the trace ambient so instrumented outbound
+      # clients (instrument.rb) can attach dependency exchanges to it.
+      status, response_headers, response_body =
+        Instrument.with_trace(trace) { @app.call(env) }
       begin
         unless trace.finished?
           buffered, response_body, complete = buffer_response_body(response_body)

@@ -33,7 +33,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
-public final class Capture {
+public final class Capture implements TraceSink {
     // Payload format identifier of the replayable capture object attached to
     // the finding context (`context.reproitCapture`).
     public static final String CAPTURE_FORMAT = "reproit-backend-capture";
@@ -58,6 +58,7 @@ public final class Capture {
         String apiKey;
         String appId;
         String build;
+        String commit;
         int healthySamplePerMille = 0;
         long flushIntervalMs = 3000;
         long requestTimeoutMs = 5000;
@@ -67,6 +68,7 @@ public final class Capture {
         public Config apiKey(String value) { this.apiKey = value; return this; }
         public Config appId(String value) { this.appId = value; return this; }
         public Config build(String value) { this.build = value; return this; }
+        public Config commit(String value) { this.commit = value; return this; }
         public Config healthySamplePerMille(int value) {
             this.healthySamplePerMille = value;
             return this;
@@ -85,6 +87,7 @@ public final class Capture {
     private final String apiKey;
     private final String appId;
     private final String build;
+    private final String commit;
     private final int healthySamplePerMille;
     private final long flushIntervalMs;
     private final long requestTimeoutMs;
@@ -114,6 +117,7 @@ public final class Capture {
         if (config.apiKey == null || config.apiKey.strip().isEmpty()) return null;
         if (config.appId == null || !TOKEN.matcher(config.appId).matches()) return null;
         if (config.build != null && !TOKEN.matcher(config.build).matches()) return null;
+        if (config.commit != null && !TOKEN.matcher(config.commit).matches()) return null;
         try {
             return new Capture(config);
         } catch (RuntimeException unusable) {
@@ -121,11 +125,26 @@ public final class Capture {
         }
     }
 
+    /**
+     * Code identity for the capture, in priority order: explicit config, then
+     * the common CI and platform environment. Never shells out to git.
+     */
+    static String resolveCommit(Config config) {
+        String[] candidates = {
+            config.commit, System.getenv("REPROIT_COMMIT"), System.getenv("GITHUB_SHA"),
+        };
+        for (String candidate : candidates) {
+            if (candidate != null && TOKEN.matcher(candidate).matches()) return candidate;
+        }
+        return null;
+    }
+
     private Capture(Config config) {
         this.endpoint = config.endpoint;
         this.apiKey = config.apiKey;
         this.appId = config.appId;
         this.build = config.build;
+        this.commit = resolveCommit(config);
         this.healthySamplePerMille = Math.max(0, config.healthySamplePerMille);
         this.flushIntervalMs = Math.max(MIN_FLUSH_INTERVAL_MS, config.flushIntervalMs);
         this.requestTimeoutMs = config.requestTimeoutMs;
@@ -142,10 +161,11 @@ public final class Capture {
      * Synthesized trace context for capture-mode operations, replacing the
      * scan-time `x-reproit-trace` header requirement.
      */
+    @Override
     public TraceContext context() {
         String traceId =
             "cap-" + System.currentTimeMillis() + "-" + traceSeq.getAndIncrement();
-        return new TraceContext(traceId, null, 0, build, null);
+        return new TraceContext(traceId, null, 0, build, null, true);
     }
 
     /**
@@ -153,6 +173,7 @@ public final class Capture {
      * Never blocks and never fails visibly; overflow drops the oldest queued
      * operation.
      */
+    @Override
     public void record(BackendTrace trace) {
         try {
             List<Map<String, Object>> events = trace.events();
@@ -315,12 +336,22 @@ public final class Capture {
             String parent;
 
             void add(Map<String, Object> event) {
+                add(event, null);
+            }
+
+            // Real monotonic offsets from the trace's envelope stamps; the
+            // ordinal fallback only applies to traces recorded without
+            // capture mode.
+            void add(Map<String, Object> event, Map<String, Object> source) {
                 int sequence = events.size() + 1;
                 String eventId = "evt_backend-java_" + sequence;
+                long monotonicNs = source != null && source.get("monoNs") instanceof Number stamp
+                    ? Math.max(1, stamp.longValue())
+                    : sequence;
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", eventId);
                 item.put("sequence", (long) sequence);
-                item.put("monotonicNs", (long) sequence);
+                item.put("monotonicNs", monotonicNs);
                 item.put("causalParentIds", parent == null ? List.of() : List.of(parent));
                 if (traceId != null) item.put("traceId", traceId);
                 item.put("event", event);
@@ -346,7 +377,29 @@ public final class Capture {
         trigger.put("trigger", "http-request");
         trigger.put("subject", operation.operation());
         trigger.put("value", value);
-        builder.add(trigger);
+        builder.add(trigger, first);
+        // Determinism envelope: where and when the capture happened, and a
+        // seed that makes REPLAY runs deterministic. Honesty note: the seed
+        // does not reproduce the app's original randomness; it pins the
+        // replay's.
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put(
+            "observedAtMs",
+            first.get("at") instanceof Number at ? at.longValue() : System.currentTimeMillis());
+        attributes.put("tz", java.util.TimeZone.getDefault().getID());
+        attributes.put("runtime", "java " + System.getProperty("java.version"));
+        attributes.put("os", System.getProperty("os.name"));
+        attributes.put("arch", System.getProperty("os.arch"));
+        attributes.put("replaySeed", replaySeed());
+        String imageDigest = System.getenv("REPROIT_IMAGE_DIGEST");
+        if (imageDigest != null && TOKEN.matcher(imageDigest).matches()) {
+            attributes.put("imageDigest", imageDigest);
+        }
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("kind", "checkpoint");
+        envelope.put("name", "determinism-envelope");
+        envelope.put("attributes", attributes);
+        builder.add(envelope, first);
         for (Map<String, Object> source : operation.events()) {
             if (!"effect".equals(source.get("kind"))) continue;
             String effect = source.get("effect") instanceof String text && !text.isEmpty()
@@ -362,7 +415,7 @@ public final class Capture {
             causal.put("effect", effect);
             causal.put("subject", subject);
             causal.put("value", captured);
-            builder.add(causal);
+            builder.add(causal, source);
         }
         // Nest the raw return event exactly like the raw effect events, so
         // the batch can be projected back to a replayable backend capture.
@@ -382,7 +435,7 @@ public final class Capture {
             carrier.put("effect", "operation-return");
             carrier.put("subject", "operation-return");
             carrier.put("value", captured);
-            builder.add(carrier);
+            builder.add(carrier, returned);
         }
         boolean success = returned != null && Boolean.TRUE.equals(returned.get("success"));
         builder.add(new LinkedHashMap<>(Map.of(
@@ -414,16 +467,42 @@ public final class Capture {
         batch.put("observedAt", Long.toString(System.currentTimeMillis()));
         batch.put("policy", Map.of(
             "consent", "application-telemetry", "retentionClass", "standard"));
-        batch.put("capabilities", List.of(
-            Map.of("capability", "http", "completeness", "complete"),
-            Map.of(
-                "capability", "database",
-                "completeness", "partial",
-                "detail", "effect records do not prove complete database state capture")));
+        List<Map<String, Object>> capabilities = new ArrayList<>();
+        capabilities.add(Map.of("capability", "http", "completeness", "complete"));
+        capabilities.add(Map.of(
+            "capability", "database",
+            "completeness", "partial",
+            "detail", "effect records do not prove complete database state capture"));
+        // Declared only when Instrument actually recorded exchanges, so the
+        // capsule completeness model never over-claims on captures from apps
+        // that never routed a call through the boundary.
+        boolean hasExchanges = operation.events().stream()
+            .anyMatch(event -> event.get("exchange") instanceof Map<?, ?>);
+        if (hasExchanges) {
+            capabilities.add(Map.of(
+                "capability", "network",
+                "completeness", "complete",
+                "detail", "outbound dependency exchanges recorded with responses"));
+        }
+        batch.put("capabilities", capabilities);
         batch.put("events", events);
         batch.put("artifacts", List.of());
-        if (build != null) batch.put("deployment", Map.of("version", build));
+        if (build != null || commit != null) {
+            Map<String, Object> deployment = new LinkedHashMap<>();
+            if (build != null) deployment.put("version", build);
+            if (commit != null) deployment.put("commit", commit);
+            batch.put("deployment", deployment);
+        }
         return batch;
+    }
+
+    // 16 hex characters, the width the replay stream reads.
+    private static String replaySeed() {
+        byte[] seed = new byte[8];
+        new java.security.SecureRandom().nextBytes(seed);
+        StringBuilder out = new StringBuilder(16);
+        for (byte value : seed) out.append(String.format("%02x", value));
+        return out.toString();
     }
 
     private static Map<String, Object> frame(String runId, int sequence, Object event) {

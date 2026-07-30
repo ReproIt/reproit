@@ -207,6 +207,17 @@ public sealed class UniversalRecorder
         return Record(evt, context);
     }
 
+    public string? Checkpoint(
+        string name,
+        Dictionary<string, object?> attributes,
+        UniversalEventContext? context = null) =>
+        Record(new()
+        {
+            ["kind"] = "checkpoint",
+            ["name"] = BoundedText(name, "name"),
+            ["attributes"] = attributes,
+        }, context);
+
     public string? Failure(
         string observation,
         string summary,

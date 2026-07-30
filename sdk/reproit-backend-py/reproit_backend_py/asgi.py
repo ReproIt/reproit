@@ -16,7 +16,13 @@ the canonical input here.
 import json
 import urllib.parse
 
-from .trace import BackendTrace, http_input, trace_context_from_headers
+from .trace import (
+    BackendTrace,
+    clear_trace,
+    http_input,
+    trace_context_from_headers,
+    use_trace,
+)
 
 MAX_BODY_BYTES = 64 * 1024
 
@@ -173,7 +179,11 @@ class ReproitMiddleware:
             await release(output_known=False)
             await send(message)
 
+        # The handler runs with the trace ambient so the instrumented HTTP and
+        # database hooks (instrument.py) can attach dependency exchanges to it.
+        token = use_trace(trace)
         try:
             await self.app(scope, wrapped_receive, wrapped_send)
         finally:
             await release(output_known=False)
+            clear_trace(token)

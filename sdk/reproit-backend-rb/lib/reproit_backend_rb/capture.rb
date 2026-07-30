@@ -14,6 +14,8 @@
 # blocks or raises.
 
 require "net/http"
+require "rbconfig"
+require "securerandom"
 require "uri"
 
 require_relative "trace"
@@ -71,15 +73,17 @@ module ReproitBackendRb
     # Start capture mode. Returns nil (capture disabled, host unaffected)
     # when the config is unusable: empty endpoint/key or identifiers the
     # ingest protocol would reject.
-    def self.create(endpoint:, api_key:, app_id:, build: nil, healthy_sample_per_mille: 0,
-                    flush_interval_ms: 3000, request_timeout_ms: 5000, retry_limit: 2)
+    def self.create(endpoint:, api_key:, app_id:, build: nil, commit: nil,
+                    healthy_sample_per_mille: 0, flush_interval_ms: 3000,
+                    request_timeout_ms: 5000, retry_limit: 2)
       return nil unless endpoint.is_a?(String) && !endpoint.strip.empty?
       return nil unless api_key.is_a?(String) && !api_key.strip.empty?
       return nil unless ReproitBackendRb.valid_token?(app_id)
       return nil if !build.nil? && !ReproitBackendRb.valid_token?(build)
+      return nil if !commit.nil? && !ReproitBackendRb.valid_token?(commit)
       begin
         new(
-          endpoint, api_key, app_id, build,
+          endpoint, api_key, app_id, build, resolve_commit(commit),
           [0, Integer(healthy_sample_per_mille)].max,
           [MIN_FLUSH_INTERVAL_MS, Integer(flush_interval_ms)].max,
           Integer(request_timeout_ms),
@@ -90,12 +94,22 @@ module ReproitBackendRb
       end
     end
 
-    def initialize(endpoint, api_key, app_id, build, healthy_sample_per_mille,
+    # Code identity for the capture, in priority order: explicit config, then
+    # the common CI and platform environment. Never shells out to git.
+    def self.resolve_commit(commit, env = ENV)
+      [commit, env["REPROIT_COMMIT"], env["GITHUB_SHA"]].each do |candidate|
+        return candidate if ReproitBackendRb.valid_token?(candidate)
+      end
+      nil
+    end
+
+    def initialize(endpoint, api_key, app_id, build, commit, healthy_sample_per_mille,
                    flush_interval_ms, request_timeout_ms, retry_limit)
       @endpoint = URI.parse(endpoint)
       @api_key = api_key
       @app_id = app_id
       @build = build
+      @commit = commit
       @healthy_sample_per_mille = healthy_sample_per_mille
       @flush_interval = flush_interval_ms / 1000.0
       @request_timeout = request_timeout_ms / 1000.0
@@ -128,6 +142,9 @@ module ReproitBackendRb
         "action_index" => 0,
         "build" => @build,
         "config_contract" => nil,
+        # Capture-mode traces stamp per-event wall-clock and monotonic
+        # offsets (the determinism envelope); scan-time traces never do.
+        "capture_envelope" => true,
       }
     end
 
@@ -251,13 +268,16 @@ module ReproitBackendRb
       trace_id = first["traceId"]
       events = []
       parent = nil
-      add = lambda do |event|
+      # Real monotonic offsets from the trace's envelope stamps; the ordinal
+      # fallback only applies to traces recorded without capture mode.
+      add = lambda do |event, source = nil|
         sequence = events.length + 1
         event_id = "evt_backend-ruby_#{sequence}"
+        mono = source.is_a?(Hash) ? source["monoNs"] : nil
         item = {
           "id" => event_id,
           "sequence" => sequence,
-          "monotonicNs" => sequence,
+          "monotonicNs" => mono.is_a?(Integer) ? mono : sequence,
           "causalParentIds" => parent.nil? ? [] : [parent],
           "event" => event,
         }
@@ -265,7 +285,7 @@ module ReproitBackendRb
         events << item
         parent = event_id
       end
-      add.call({ "kind" => "operation-start", "name" => operation["operation"] })
+      add.call({ "kind" => "operation-start", "name" => operation["operation"] }, first)
       input = first["input"]
       captured_input = if input.nil?
                          { "representation" => "structural", "shape" => { "type" => "unknown" } }
@@ -281,7 +301,15 @@ module ReproitBackendRb
         "trigger" => "http-request",
         "subject" => operation["operation"],
         "value" => captured_input,
-      })
+      }, first)
+      # Determinism envelope: where and when the capture happened, and a seed
+      # that makes REPLAY runs deterministic. Honesty note: the seed does not
+      # reproduce the app's original randomness; it pins the replay's.
+      add.call({
+        "kind" => "checkpoint",
+        "name" => "determinism-envelope",
+        "attributes" => envelope_attributes(first),
+      }, first)
       operation["events"].each do |source|
         next unless source["kind"] == "effect"
         add.call({
@@ -293,7 +321,7 @@ module ReproitBackendRb
             "value" => source,
             "redaction" => "redacted-at-source",
           },
-        })
+        }, source)
       end
       returned = operation["events"].reverse.find { |event| event["kind"] == "return" } || {}
       # Nest the raw return event exactly like the raw effect events, so the
@@ -310,13 +338,13 @@ module ReproitBackendRb
             "value" => returned,
             "redaction" => "redacted-at-source",
           },
-        })
+        }, returned)
       end
       add.call({
         "kind" => "operation-end",
         "name" => operation["operation"],
         "outcome" => returned["success"] == true ? "succeeded" : "failed",
-      })
+      }, returned)
       status = operation["status"]
       unless status.nil? || status < 500
         signature = SERVER_ERROR_ORACLE + ":" + operation["operation"]
@@ -351,19 +379,53 @@ module ReproitBackendRb
           "consent" => "application-telemetry",
           "retentionClass" => "standard",
         },
-        "capabilities" => [
-          { "capability" => "http", "completeness" => "complete" },
-          {
-            "capability" => "database",
-            "completeness" => "partial",
-            "detail" => "effect records do not prove complete database state capture",
-          },
-        ],
+        "capabilities" => capabilities(operation),
         "events" => events,
         "artifacts" => [],
       }
-      batch["deployment"] = { "version" => @build } unless @build.nil?
+      deployment = {}
+      deployment["version"] = @build unless @build.nil?
+      deployment["commit"] = @commit unless @commit.nil?
+      batch["deployment"] = deployment unless deployment.empty?
       batch
+    end
+
+    # `network: complete` is declared ONLY when the instrument layer actually
+    # recorded exchanges, so a capsule never claims a capability it lacks.
+    def capabilities(operation)
+      has_exchanges = operation["events"].any? do |event|
+        event.is_a?(Hash) && event["exchange"]
+      end
+      list = [
+        { "capability" => "http", "completeness" => "complete" },
+        {
+          "capability" => "database",
+          "completeness" => "partial",
+          "detail" => "effect records do not prove complete database state capture",
+        },
+      ]
+      if has_exchanges
+        list << {
+          "capability" => "network",
+          "completeness" => "complete",
+          "detail" => "outbound dependency exchanges recorded with responses",
+        }
+      end
+      list
+    end
+
+    def envelope_attributes(first)
+      attributes = {
+        "observedAtMs" => first["at"].is_a?(Integer) ? first["at"] : (Time.now.to_f * 1000).to_i,
+        "tz" => Time.now.zone.to_s,
+        "runtime" => "ruby #{RUBY_VERSION}",
+        "os" => RbConfig::CONFIG["host_os"].to_s,
+        "arch" => RbConfig::CONFIG["host_cpu"].to_s,
+        "replaySeed" => SecureRandom.hex(8),
+      }
+      digest = ENV["REPROIT_IMAGE_DIGEST"]
+      attributes["imageDigest"] = digest if ReproitBackendRb.valid_token?(digest)
+      attributes
     end
 
     def send_batch(batch)

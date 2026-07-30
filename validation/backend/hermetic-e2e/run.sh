@@ -16,7 +16,7 @@ MODE=capture CAPTURE_OUT="$WORK/capture.json" node "$FIXTURE/app.mjs" >/dev/null
 test -s "$WORK/capture.json"
 
 run_case() {
-  local capture="$1" command="$2" expected="$3" label="$4"
+  local capture="$1" command="$2" expected="$3" label="$4" marker="$5"
   set +e
   cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
     check "$capture" --exec "$command" >"$WORK/out.txt" 2>&1
@@ -27,12 +27,23 @@ run_case() {
     cat "$WORK/out.txt" >&2
     exit 1
   fi
+  # The exit code alone can lie: a capture the CLI cannot even resolve also
+  # exits 1, which would let a resolution error masquerade as a reproduction.
+  # Pin the verdict line too.
+  if ! grep -q "$marker" "$WORK/out.txt"; then
+    echo "FAIL $label: output lacks the verdict marker '$marker'" >&2
+    cat "$WORK/out.txt" >&2
+    exit 1
+  fi
   echo "PASS $label (exit $status)"
 }
 
-run_case "$WORK/capture.json" "node $FIXTURE/app.mjs" 1 "bug reproduces hermetically"
-run_case "$WORK/capture.json" "FIXED=1 node $FIXTURE/app.mjs" 0 "fix certifies"
-run_case "$WORK/capture.json" "node $FIXTURE/app.mjs" 1 "revert reproduces again"
+run_case "$WORK/capture.json" "node $FIXTURE/app.mjs" 1 "bug reproduces hermetically" \
+  "reproduced by re-execution"
+run_case "$WORK/capture.json" "FIXED=1 node $FIXTURE/app.mjs" 0 "fix certifies" \
+  "the operation now answers cleanly"
+run_case "$WORK/capture.json" "node $FIXTURE/app.mjs" 1 "revert reproduces again" \
+  "reproduced by re-execution"
 
 python3 - "$WORK/capture.json" "$WORK/tampered.json" << 'EOF'
 import json, sys
@@ -43,6 +54,7 @@ capture['events'] = [
 ]
 json.dump(capture, open(sys.argv[2], 'w'))
 EOF
-run_case "$WORK/tampered.json" "node $FIXTURE/app.mjs" 3 "missing exchange diverges"
+run_case "$WORK/tampered.json" "node $FIXTURE/app.mjs" 3 "missing exchange diverges" \
+  "DIVERGED"
 
 echo "hermetic-e2e: all four verdicts hold"

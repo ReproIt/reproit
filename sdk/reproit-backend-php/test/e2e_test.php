@@ -152,13 +152,22 @@ try {
     );
     $kinds = array_map(fn (array $event) => $event['event']['kind'], $batch['events']);
     check_same(
-        ['operation-start', 'trigger', 'effect', 'effect', 'operation-end', 'observation'],
+        [
+            'operation-start', 'trigger', 'checkpoint', 'effect', 'effect',
+            'operation-end', 'observation',
+        ],
         $kinds,
         'capture is a causal sequence',
     );
-    check_same('orders', $batch['events'][2]['event']['subject'], 'effect resource');
+    // The determinism envelope rides as a named checkpoint after the trigger.
+    check_same(
+        'determinism-envelope',
+        $batch['events'][2]['event']['name'],
+        'envelope checkpoint is named',
+    );
+    check_same('orders', $batch['events'][3]['event']['subject'], 'effect resource');
     // The raw return event ships as the operation-return effect carrier.
-    $carrier = $batch['events'][3]['event'];
+    $carrier = $batch['events'][4]['event'];
     check_same('operation-return', $carrier['subject'], 'carrier subject names the return');
     check_same('return', $carrier['value']['value']['kind'], 'carrier nests the raw return');
     check_same(500, $carrier['value']['value']['status'], 'raw return keeps the status');

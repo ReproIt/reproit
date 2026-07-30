@@ -16,8 +16,12 @@ package reproitbackend
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +59,9 @@ type CaptureConfig struct {
 	AppID string
 	// Build is an optional build/version identity stamped on batches.
 	Build string
+	// Commit is the code identity for the capture. When unset, REPROIT_COMMIT
+	// then GITHUB_SHA are consulted; never derived by shelling out to git.
+	Commit string
 	// HealthySamplePerMille is the per-mille of healthy (successful,
 	// non-5xx) operations captured as baseline evidence. 0 disables healthy
 	// sampling entirely.
@@ -140,6 +147,7 @@ func NewCapture(config CaptureConfig) *Capture {
 	if config.HealthySamplePerMille < 0 {
 		config.HealthySamplePerMille = 0
 	}
+	config.Commit = resolveCommit(config.Commit)
 	capture := &Capture{config: config}
 	capture.signal = sync.NewCond(&capture.mu)
 	capture.rng.Store(uint64(time.Now().UnixMilli()) | 1)
@@ -157,6 +165,9 @@ func (c *Capture) Context() *TraceContext {
 		TraceID: "cap-" + strconv.FormatInt(time.Now().UnixMilli(), 10) +
 			"-" + strconv.FormatUint(sequence, 10),
 		Build: c.config.Build,
+		// Capture-mode traces stamp per-event wall-clock and monotonic
+		// offsets (the determinism envelope); scan-time traces never do.
+		CaptureEnvelope: true,
 	}
 }
 
@@ -339,15 +350,21 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 		first = operation.events[0]
 		traceID, _ = first["traceId"].(string)
 	}
-	add := func(event map[string]any) {
+	add := func(event map[string]any, mono any) {
 		sequence := len(events) + 1
 		eventID := "evt_backend-go_" + strconv.Itoa(sequence)
 		parents := []any{}
 		if parent != "" {
 			parents = append(parents, parent)
 		}
+		// Real monotonic offsets from the trace's envelope stamps; the
+		// ordinal fallback only applies to envelope-less traces.
+		monotonic := any(sequence)
+		if mono != nil {
+			monotonic = mono
+		}
 		item := map[string]any{
-			"id": eventID, "sequence": sequence, "monotonicNs": sequence,
+			"id": eventID, "sequence": sequence, "monotonicNs": monotonic,
 			"causalParentIds": parents, "event": event,
 		}
 		if traceID != "" {
@@ -356,7 +373,14 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 		events = append(events, item)
 		parent = eventID
 	}
-	add(map[string]any{"kind": "operation-start", "name": operation.operation})
+	monoOf := func(event map[string]any) any {
+		if event == nil {
+			return nil
+		}
+		return event["monoNs"]
+	}
+	firstMono := monoOf(first)
+	add(map[string]any{"kind": "operation-start", "name": operation.operation}, firstMono)
 	input, hasInput := first["input"]
 	var inputValue map[string]any
 	if hasInput && input != nil {
@@ -374,7 +398,14 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 	add(map[string]any{
 		"kind": "trigger", "trigger": "http-request",
 		"subject": operation.operation, "value": inputValue,
-	})
+	}, firstMono)
+	// Determinism envelope: where and when the capture happened, and a seed
+	// that makes REPLAY runs deterministic. Honesty note: the seed does not
+	// reproduce the app's original randomness; it pins the replay's.
+	add(map[string]any{
+		"kind": "checkpoint", "name": "determinism-envelope",
+		"attributes": c.determinismEnvelope(first["at"]),
+	}, firstMono)
 	for _, source := range operation.events {
 		if source["kind"] != "effect" {
 			continue
@@ -394,7 +425,7 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 				"value":          source,
 				"redaction":      "redacted-at-source",
 			},
-		})
+		}, monoOf(source))
 	}
 	// Nest the raw return event exactly like the raw effect events, so the
 	// batch can be projected back to a replayable backend capture. The
@@ -412,7 +443,7 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 				"value":          source,
 				"redaction":      "redacted-at-source",
 			},
-		})
+		}, monoOf(source))
 		break
 	}
 	outcome := "failed"
@@ -426,7 +457,7 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 	}
 	add(map[string]any{
 		"kind": "operation-end", "name": operation.operation, "outcome": outcome,
-	})
+	}, nil)
 	if operation.status >= 500 {
 		signature := ServerErrorOracle + ":" + operation.operation
 		message := "backend operation " + operation.operation +
@@ -441,7 +472,7 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 				"observationPoint": operation.operation,
 				"artifactIds":      []any{},
 			},
-		})
+		}, nil)
 	}
 	batch := map[string]any{
 		"version": 1, "batchId": batchID, "projectId": c.config.AppID,
@@ -459,17 +490,18 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 		"policy": map[string]any{
 			"consent": "application-telemetry", "retentionClass": "standard",
 		},
-		"capabilities": []any{
-			map[string]any{"capability": "http", "completeness": "complete"},
-			map[string]any{
-				"capability": "database", "completeness": "partial",
-				"detail": "effect records do not prove complete database state capture",
-			},
-		},
-		"events": events, "artifacts": []any{},
+		"capabilities": captureCapabilities(operation),
+		"events":       events, "artifacts": []any{},
 	}
+	deployment := map[string]any{}
 	if c.config.Build != "" {
-		batch["deployment"] = map[string]any{"version": c.config.Build}
+		deployment["version"] = c.config.Build
+	}
+	if c.config.Commit != "" {
+		deployment["commit"] = c.config.Commit
+	}
+	if len(deployment) > 0 {
+		batch["deployment"] = deployment
 	}
 	return batch
 }
@@ -554,4 +586,72 @@ func validToken(value string) bool {
 		}
 	}
 	return true
+}
+
+// captureCapabilities declares what this capture proves. The network
+// capability is claimed only when outbound exchanges were actually recorded,
+// so a capsule never advertises replayability it does not have.
+func captureCapabilities(operation capturedOperation) []any {
+	hasExchanges := false
+	for _, event := range operation.events {
+		if exchange, ok := event["exchange"]; ok && exchange != nil {
+			hasExchanges = true
+			break
+		}
+	}
+	list := []any{
+		map[string]any{"capability": "http", "completeness": "complete"},
+		map[string]any{
+			"capability": "database", "completeness": "partial",
+			"detail": "effect records do not prove complete database state capture",
+		},
+	}
+	if hasExchanges {
+		list = append(list, map[string]any{
+			"capability": "network", "completeness": "complete",
+			"detail": "outbound dependency exchanges recorded with responses",
+		})
+	}
+	return list
+}
+
+// determinismEnvelope describes where and when the capture happened, plus the
+// seed a replay pins its randomness to. The timezone comes from TZ when set;
+// Go has no cheap IANA zone name for an unset TZ.
+func (c *Capture) determinismEnvelope(observedAt any) map[string]any {
+	seed := c.rng.Add(0x9e3779b97f4a7c15)
+	seed ^= seed << 13
+	seed ^= seed >> 7
+	seed ^= seed << 17
+	if observedAt == nil {
+		observedAt = json.Number(strconv.FormatInt(time.Now().UnixMilli(), 10))
+	}
+	attributes := map[string]any{
+		"observedAtMs": observedAt,
+		"runtime":      "go",
+		"os":           runtime.GOOS,
+		"arch":         runtime.GOARCH,
+		"replaySeed":   fmt.Sprintf("%016x", seed),
+	}
+	if tz := strings.TrimSpace(os.Getenv("TZ")); tz != "" {
+		attributes["tz"] = tz
+	}
+	if digest := os.Getenv("REPROIT_IMAGE_DIGEST"); validToken(digest) {
+		attributes["imageDigest"] = digest
+	}
+	return attributes
+}
+
+// resolveCommit reads code identity in priority order: explicit config, then
+// the common CI and platform environment. Never shells out to git.
+func resolveCommit(configured string) string {
+	if validToken(configured) {
+		return configured
+	}
+	for _, name := range []string{"REPROIT_COMMIT", "GITHUB_SHA"} {
+		if value := os.Getenv(name); validToken(value) {
+			return value
+		}
+	}
+	return ""
 }

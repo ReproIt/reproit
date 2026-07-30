@@ -64,20 +64,34 @@ public final class BackendTrace {
         String tenant;
         String event;
         Object detail;
+        Object exchange;
 
         public Effect resource(String value) { this.resource = value; return this; }
         public Effect key(String value) { this.key = value; return this; }
         public Effect tenant(String value) { this.tenant = value; return this; }
         public Effect event(String value) { this.event = value; return this; }
         public Effect detail(Object value) { this.detail = value; return this; }
+        /**
+         * Captured dependency exchange (Instrument): the request the app sent
+         * and the response the dependency returned, already bounded by the
+         * instrument layer. Redacted here so no caller can skip it.
+         */
+        public Effect exchange(Object value) { this.exchange = value; return this; }
     }
 
     private final Map<String, Object> common;
     private final List<Map<String, Object>> events = new ArrayList<>();
+    private final boolean captureEnvelope;
+    private final long originNanos;
     private boolean finished = false;
 
-    private BackendTrace(Map<String, Object> common) {
+    private BackendTrace(Map<String, Object> common, boolean captureEnvelope) {
         this.common = common;
+        // Capture-mode-only determinism envelope: real wall clock and
+        // monotonic offsets per event. Scan-time traces never carry these
+        // fields so their wire shape stays byte-stable.
+        this.captureEnvelope = captureEnvelope;
+        this.originNanos = captureEnvelope ? System.nanoTime() : 0;
     }
 
     // Trimmed, non-empty, at most `maximum` code points; null otherwise.
@@ -274,7 +288,7 @@ public final class BackendTrace {
             int take = Math.min(opts.selections.size(), MAX_EVENTS);
             common.put("selections", new ArrayList<>(opts.selections.subList(0, take)));
         }
-        BackendTrace trace = new BackendTrace(common);
+        BackendTrace trace = new BackendTrace(common, context.captureEnvelope());
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("input", redact(opts.input));
         trace.push("start", fields);
@@ -295,6 +309,9 @@ public final class BackendTrace {
             for (String key : List.of("before", "after", "payload")) {
                 if (detail.containsKey(key)) fields.put(key, detail.get(key));
             }
+        }
+        if (opts.exchange != null && redact(opts.exchange) instanceof Map<?, ?> exchange) {
+            fields.put("exchange", exchange);
         }
         push("effect", fields);
     }
@@ -340,6 +357,10 @@ public final class BackendTrace {
         event.put("sequence", SEQUENCE.getAndIncrement());
         event.put("kind", kind);
         event.putAll(fields);
+        if (captureEnvelope) {
+            event.put("at", System.currentTimeMillis());
+            event.put("monoNs", System.nanoTime() - originNanos);
+        }
         events.add(event);
     }
 }

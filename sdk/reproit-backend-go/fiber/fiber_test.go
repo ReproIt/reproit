@@ -84,33 +84,40 @@ func TestPlanted500ShipsATaggedFindingBatchAndScanHeaderRoundTrips(t *testing.T)
 	if authorization != "Bearer sk_live_test" {
 		t.Fatalf("wrong authorization: %q", authorization)
 	}
-	if batch["appId"] != "app-e2e" {
-		t.Fatalf("wrong appId: %v", batch["appId"])
+	// capture-batch-v1: the universal causal contract, not the legacy
+	// event batch. The observation carries the oracle identity and the
+	// trigger carries the redacted input.
+	if batch["projectId"] != "app-e2e" {
+		t.Fatalf("wrong projectId: %v", batch["projectId"])
 	}
-	var finding map[string]any
-	for _, item := range batch["frames"].([]any) {
+	events := batch["events"].([]any)
+	kinds := make([]string, 0, len(events))
+	var observation, trigger map[string]any
+	for _, item := range events {
 		event := item.(map[string]any)["event"].(map[string]any)
-		if event["kind"] == "finding" {
-			finding = event
+		kind := event["kind"].(string)
+		kinds = append(kinds, kind)
+		switch kind {
+		case "observation":
+			observation = event
+		case "trigger":
+			trigger = event
 		}
 	}
-	if finding == nil {
-		t.Fatal("no finding frame in the batch")
-	}
-	if finding["identity"].(map[string]any)["oracle"] != reproit.ServerErrorOracle {
-		t.Fatal("finding not tagged backend-server-error")
-	}
-	payload := finding["context"].(map[string]any)["reproitCapture"].(map[string]any)
-	events := payload["events"].([]any)
-	kinds := make([]string, 0, len(events))
-	for _, item := range events {
-		kinds = append(kinds, item.(map[string]any)["kind"].(string))
-	}
-	if len(kinds) != 3 || kinds[0] != "start" || kinds[1] != "effect" || kinds[2] != "return" {
+	if len(kinds) < 2 || kinds[0] != "operation-start" || kinds[1] != "trigger" {
 		t.Fatalf("capture sequence wrong: %v", kinds)
 	}
-	start := events[0].(map[string]any)
-	inputBody := start["input"].(map[string]any)["body"].(map[string]any)
+	if observation == nil {
+		t.Fatal("no failure observation in the batch")
+	}
+	signature := observation["failure"].(map[string]any)["signature"]
+	if signature != reproit.ServerErrorOracle+":POST /boom" {
+		t.Fatalf("observation not tagged %s: %v", reproit.ServerErrorOracle, signature)
+	}
+	if trigger == nil {
+		t.Fatal("no trigger event in the batch")
+	}
+	inputBody := trigger["value"].(map[string]any)["value"].(map[string]any)["body"].(map[string]any)
 	if inputBody["apiKey"].(map[string]any)["$reproit"] == nil {
 		t.Fatal("apiKey shipped unredacted")
 	}

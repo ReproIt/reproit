@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 )
 
@@ -66,6 +67,10 @@ type TraceContext struct {
 	ActionIndex    uint32
 	Build          string
 	ConfigContract string
+	// CaptureEnvelope stamps capture-mode-only determinism fields on every
+	// event: wall-clock `at` and monotonic `monoNs`. Scan-time traces never
+	// carry them, so the `x-reproit-events` wire stays byte-stable.
+	CaptureEnvelope bool
 }
 
 // TraceContextFromHeaders builds a context from a request header lookup
@@ -187,6 +192,15 @@ type EffectOptions struct {
 	Detail   any
 }
 
+// ExchangeOptions carries the captured dependency exchange: the request the
+// app sent and the response the dependency returned. This is what hermetic
+// local replay serves; evaluation oracles ignore it.
+type ExchangeOptions struct {
+	Resource string
+	Key      string
+	Exchange any
+}
+
 // BackendTrace records one operation as bounded, redacted events. Safe for
 // concurrent use by the request goroutine and the adapter.
 type BackendTrace struct {
@@ -194,6 +208,8 @@ type BackendTrace struct {
 	common   map[string]any
 	events   []map[string]any
 	finished bool
+	envelope bool
+	origin   time.Time
 }
 
 // Begin starts an operation trace with a redacted canonical start event.
@@ -245,7 +261,10 @@ func Begin(context *TraceContext, operation string, opts BeginOptions) (*Backend
 		}
 		common["selections"] = values
 	}
-	trace := &BackendTrace{common: common}
+	trace := &BackendTrace{common: common, envelope: context.CaptureEnvelope}
+	if trace.envelope {
+		trace.origin = time.Now()
+	}
 	err := trace.push("start", map[string]any{"input": redact(normalize(opts.Input))})
 	if err != nil {
 		return nil, err
@@ -284,6 +303,34 @@ func (t *BackendTrace) Effect(kind EffectKind, opts EffectOptions) error {
 				}
 			}
 		}
+	}
+	return t.push("effect", fields)
+}
+
+// Exchange records one captured dependency exchange as an effect event. The
+// exchange is redacted like every other value before it enters the trace.
+func (t *BackendTrace) Exchange(kind EffectKind, opts ExchangeOptions) error {
+	switch kind {
+	case EffectRead, EffectWrite, EffectDelete, EffectEmit, EffectCall:
+	default:
+		return ErrInvalidOperation
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished {
+		return ErrAlreadyFinished
+	}
+	fields := map[string]any{"effect": string(kind)}
+	for _, part := range []struct{ name, value string }{
+		{"resource", opts.Resource},
+		{"key", opts.Key},
+	} {
+		if part.value != "" {
+			fields[part.name] = truncate(part.value, 256)
+		}
+	}
+	if exchange, ok := redact(normalize(opts.Exchange)).(map[string]any); ok {
+		fields["exchange"] = exchange
 	}
 	return t.push("effect", fields)
 }
@@ -361,6 +408,11 @@ func (t *BackendTrace) push(kind string, fields map[string]any) error {
 	event["kind"] = kind
 	for key, value := range fields {
 		event[key] = value
+	}
+	if t.envelope {
+		now := time.Now()
+		event["at"] = json.Number(strconv.FormatInt(now.UnixMilli(), 10))
+		event["monoNs"] = json.Number(strconv.FormatInt(now.Sub(t.origin).Nanoseconds(), 10))
 	}
 	t.events = append(t.events, event)
 	return nil

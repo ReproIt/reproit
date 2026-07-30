@@ -169,6 +169,9 @@ namespace ReproitBackend {
                     'headers' => $headers,
                 ]),
             ]);
+            // The handler runs with the trace ambient so instrumented
+            // outbound clients (instrument.php) attach exchanges to it.
+            Instrument::setTrace($trace);
             return [$trace, $scanContext !== null, $request->withAttribute('reproit', $trace)];
         }
 

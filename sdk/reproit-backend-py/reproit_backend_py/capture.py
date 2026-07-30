@@ -15,7 +15,11 @@ or raises.
 """
 
 import itertools
+import os
+import platform
 import random
+import secrets
+import sys
 import threading
 import time
 import urllib.error
@@ -28,6 +32,11 @@ from .trace import canonical_json
 # finding context (`context.reproitCapture`).
 CAPTURE_FORMAT = "reproit-backend-capture"
 CAPTURE_VERSION = 1
+# Version stamped when any event carries a captured dependency `exchange` or
+# an envelope stamp. Older readers reject it with a named version error
+# instead of silently evaluating a payload whose replay semantics they do not
+# understand.
+CAPTURE_VERSION_EXCHANGES = 2
 # First-class registry oracle id for an operation that returned HTTP 5xx.
 SERVER_ERROR_ORACLE = "backend-server-error"
 
@@ -53,7 +62,36 @@ def _valid_token(value):
     )
 
 
-def _capture_payload(operation):
+def determinism_envelope(observed_at_ms=None):
+    """Where and when the capture happened, and a seed that makes REPLAY runs
+    deterministic. Honesty note: the seed does not reproduce the randomness
+    the app drew in production; it pins the replay's."""
+    envelope = {
+        "observedAtMs": observed_at_ms
+        if isinstance(observed_at_ms, int)
+        else int(time.time() * 1000),
+        "tz": time.tzname[0] if time.tzname else "UTC",
+        "runtime": "python " + platform.python_version(),
+        "os": sys.platform,
+        "arch": platform.machine(),
+        "replaySeed": secrets.token_hex(8),
+    }
+    image_digest = os.environ.get("REPROIT_IMAGE_DIGEST")
+    if _valid_token(image_digest):
+        envelope["imageDigest"] = image_digest
+    return envelope
+
+
+def _payload_version(events):
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("exchange") or "at" in event or "monoNs" in event:
+            return CAPTURE_VERSION_EXCHANGES
+    return CAPTURE_VERSION
+
+
+def _capture_payload(operation, envelope=None):
     """The replayable capture object (`reproit internal debug replay-capture` input).
     Trailing effect events are dropped first when the payload exceeds the
     context budget; a payload that stays oversized with only start/return
@@ -63,11 +101,13 @@ def _capture_payload(operation):
     while True:
         payload = {
             "format": CAPTURE_FORMAT,
-            "version": CAPTURE_VERSION,
+            "version": _payload_version(events),
             "operation": operation["operation"],
             "oracle": SERVER_ERROR_ORACLE,
             "events": events,
         }
+        if envelope is not None:
+            payload["envelope"] = envelope
         if len(canonical_json(payload).encode("utf-8")) <= MAX_CAPTURE_JSON_BYTES:
             return payload, dropped
         last_effect = None
@@ -85,12 +125,23 @@ class Capture:
     """Handle to the capture worker. Thread-safe; one queue, one upload thread."""
 
     @classmethod
+    def resolve_commit(cls, commit=None, env=None):
+        """Code identity, in priority order: explicit config, then the common
+        CI and platform environment. Never shells out to git."""
+        environment = os.environ if env is None else env
+        for candidate in (commit, environment.get("REPROIT_COMMIT"), environment.get("GITHUB_SHA")):
+            if _valid_token(candidate):
+                return candidate
+        return None
+
+    @classmethod
     def create(
         cls,
         endpoint,
         api_key,
         app_id,
         build=None,
+        commit=None,
         healthy_sample_per_mille=0,
         flush_interval_ms=3000,
         request_timeout_ms=5000,
@@ -107,12 +158,15 @@ class Capture:
             return None
         if build is not None and not _valid_token(build):
             return None
+        if commit is not None and not _valid_token(commit):
+            return None
         try:
             return cls(
                 endpoint,
                 api_key,
                 app_id,
                 build,
+                cls.resolve_commit(commit),
                 max(0, int(healthy_sample_per_mille)),
                 max(MIN_FLUSH_INTERVAL_MS, int(flush_interval_ms)),
                 int(request_timeout_ms),
@@ -127,6 +181,7 @@ class Capture:
         api_key,
         app_id,
         build,
+        commit,
         healthy_sample_per_mille,
         flush_interval_ms,
         request_timeout_ms,
@@ -136,6 +191,7 @@ class Capture:
         self._api_key = api_key
         self._app_id = app_id
         self._build = build
+        self._commit = commit
         self._healthy_sample_per_mille = healthy_sample_per_mille
         self._flush_interval = flush_interval_ms / 1000.0
         self._request_timeout = request_timeout_ms / 1000.0
@@ -165,6 +221,9 @@ class Capture:
             "action_index": 0,
             "build": self._build,
             "config_contract": None,
+            # Capture-mode traces stamp per-event wall-clock and monotonic
+            # offsets (the determinism envelope); scan-time traces never do.
+            "capture_envelope": True,
         }
 
     def record(self, trace):
@@ -280,14 +339,18 @@ class Capture:
         events = []
         parent = None
 
-        def event(kind):
+        def event(kind, source=None):
             nonlocal parent
             sequence = len(events) + 1
             event_id = "evt_backend-python_%d" % sequence
+            # Real monotonic offsets from the trace's envelope stamps; the
+            # ordinal fallback only applies to traces recorded without
+            # capture mode.
+            stamped = (source or {}).get("monoNs")
             item = {
                 "id": event_id,
                 "sequence": sequence,
-                "monotonicNs": sequence,
+                "monotonicNs": stamped if isinstance(stamped, int) else sequence,
                 "causalParentIds": [] if parent is None else [parent],
                 "event": kind,
             }
@@ -297,7 +360,7 @@ class Capture:
             events.append(item)
             parent = event_id
 
-        event({"kind": "operation-start", "name": operation["operation"]})
+        event({"kind": "operation-start", "name": operation["operation"]}, first)
         input_value = first.get("input")
         value = (
             {"representation": "structural", "shape": {"type": "unknown"}}
@@ -308,27 +371,45 @@ class Capture:
                 "redaction": "redacted-at-source",
             }
         )
-        event({
-            "kind": "trigger",
-            "trigger": "http-request",
-            "subject": operation["operation"],
-            "value": value,
-        })
+        event(
+            {
+                "kind": "trigger",
+                "trigger": "http-request",
+                "subject": operation["operation"],
+                "value": value,
+            },
+            first,
+        )
+        # Determinism envelope: where and when the capture happened, and the
+        # seed that makes a replay of it repeatable.
+        event(
+            {
+                "kind": "checkpoint",
+                "name": "determinism-envelope",
+                "attributes": determinism_envelope(
+                    first.get("at") if isinstance(first.get("at"), int) else None
+                ),
+            },
+            first,
+        )
         for source in source_events:
             if source.get("kind") != "effect":
                 continue
             effect = source.get("effect") or "backend-effect"
             subject = source.get("resource") or source.get("service") or operation["operation"]
-            event({
-                "kind": "effect",
-                "effect": effect,
-                "subject": subject,
-                "value": {
-                    "representation": "replayable",
-                    "value": source,
-                    "redaction": "redacted-at-source",
+            event(
+                {
+                    "kind": "effect",
+                    "effect": effect,
+                    "subject": subject,
+                    "value": {
+                        "representation": "replayable",
+                        "value": source,
+                        "redaction": "redacted-at-source",
+                    },
                 },
-            })
+                source,
+            )
         returned = next(
             (item for item in reversed(source_events) if item.get("kind") == "return"),
             {},
@@ -338,35 +419,44 @@ class Capture:
         # The subject names the carrier: `backend_capture_from_batch` in
         # reproit-protocol keys the inversion on "operation-return".
         if returned:
-            event({
-                "kind": "effect",
-                "effect": "operation-return",
-                "subject": "operation-return",
-                "value": {
-                    "representation": "replayable",
-                    "value": returned,
-                    "redaction": "redacted-at-source",
+            event(
+                {
+                    "kind": "effect",
+                    "effect": "operation-return",
+                    "subject": "operation-return",
+                    "value": {
+                        "representation": "replayable",
+                        "value": returned,
+                        "redaction": "redacted-at-source",
+                    },
                 },
-            })
-        event({
-            "kind": "operation-end",
-            "name": operation["operation"],
-            "outcome": "succeeded" if returned.get("success") is True else "failed",
-        })
+                returned,
+            )
+        event(
+            {
+                "kind": "operation-end",
+                "name": operation["operation"],
+                "outcome": "succeeded" if returned.get("success") is True else "failed",
+            },
+            returned,
+        )
         status = operation["status"]
         if status is not None and status >= 500:
             message = "backend operation %s returned HTTP %d" % (operation["operation"], status)
-            event({
-                "kind": "observation",
-                "failure": {
-                    "observation": "exception",
-                    "authority": "runtime-diagnosis",
-                    "summary": message,
-                    "signature": SERVER_ERROR_ORACLE + ":" + operation["operation"],
-                    "observationPoint": operation["operation"],
-                    "artifactIds": [],
+            event(
+                {
+                    "kind": "observation",
+                    "failure": {
+                        "observation": "exception",
+                        "authority": "runtime-diagnosis",
+                        "summary": message,
+                        "signature": SERVER_ERROR_ORACLE + ":" + operation["operation"],
+                        "observationPoint": operation["operation"],
+                        "artifactIds": [],
+                    },
                 },
-            })
+                returned,
+            )
         batch = {
             "version": 1,
             "batchId": batch_id,
@@ -394,8 +484,24 @@ class Capture:
             "events": events,
             "artifacts": [],
         }
+        # Declared only when the instrument layer actually recorded
+        # exchanges, so the capsule completeness model never over-claims on
+        # captures from apps without the outbound hooks installed.
+        if any(isinstance(item, dict) and item.get("exchange") for item in source_events):
+            batch["capabilities"].append(
+                {
+                    "capability": "network",
+                    "completeness": "complete",
+                    "detail": "outbound dependency exchanges recorded with responses",
+                }
+            )
+        deployment = {}
         if self._build is not None:
-            batch["deployment"] = {"version": self._build}
+            deployment["version"] = self._build
+        if self._commit is not None:
+            deployment["commit"] = self._commit
+        if deployment:
+            batch["deployment"] = deployment
         return batch
 
     def _send(self, batch):

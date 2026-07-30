@@ -9,4 +9,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/trace.php';
+require_once __DIR__ . '/exchange.php';
+require_once __DIR__ . '/replay.php';
+require_once __DIR__ . '/instrument.php';
 require_once __DIR__ . '/capture.php';

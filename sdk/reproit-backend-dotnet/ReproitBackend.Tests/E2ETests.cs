@@ -80,16 +80,21 @@ public class E2ETests
             {
                 "operation-start",
                 "trigger",
+                "checkpoint",
                 "state-access",
                 "effect",
                 "operation-end",
                 "observation",
             },
             events.Select(evt => (string)evt["kind"]!).ToArray());
-        Assert.Equal("orders", events[2]["subject"]);
+        // The determinism envelope rides as a named checkpoint after the trigger.
+        Assert.Equal("determinism-envelope", events[2]["name"]);
+        var envelope = (Dictionary<string, object?>)events[2]["attributes"]!;
+        Assert.Equal(16, ((string)envelope["replaySeed"]!).Length);
+        Assert.Equal("orders", events[3]["subject"]);
         // The raw return event ships as the operation-return effect carrier.
-        Assert.Equal("operation-return", events[3]["subject"]);
-        var carrierValue = (Dictionary<string, object?>)events[3]["value"]!;
+        Assert.Equal("operation-return", events[4]["subject"]);
+        var carrierValue = (Dictionary<string, object?>)events[4]["value"]!;
         Assert.Equal("replayable", carrierValue["representation"]);
         var rawReturn = (Dictionary<string, object?>)carrierValue["value"]!;
         Assert.Equal("return", rawReturn["kind"]);

@@ -144,12 +144,12 @@ class E2eTest {
             for (Object event : events) kinds.add(at(event, "event").get("kind"));
             assertEquals(
                 List.of(
-                    "operation-start", "trigger", "effect", "effect",
+                    "operation-start", "trigger", "checkpoint", "effect", "effect",
                     "operation-end", "observation"),
                 kinds);
-            assertEquals("orders", at(events.get(2), "event").get("subject"));
+            assertEquals("orders", at(events.get(3), "event").get("subject"));
             // The raw return event ships as the operation-return effect carrier.
-            Map<String, Object> carrier = at(events.get(3), "event");
+            Map<String, Object> carrier = at(events.get(4), "event");
             assertEquals("operation-return", carrier.get("subject"));
             Map<String, Object> rawReturn = at(carrier, "value", "value");
             assertEquals("return", rawReturn.get("kind"));

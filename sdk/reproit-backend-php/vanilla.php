@@ -87,12 +87,17 @@ function handle_request(?Capture $capture, callable $handler, array $options = [
         $trace = null;
     }
 
+    // The handler runs with the trace ambient so instrumented outbound
+    // clients (instrument.php) can attach dependency exchanges to it.
+    Instrument::setTrace($trace);
     try {
         [$status, $output] = $handler($trace);
         $status = (int) $status;
     } catch (\Throwable $error) {
         $status = 500;
         $output = ['error' => 'internal server error'];
+    } finally {
+        Instrument::setTrace(null);
     }
 
     try {

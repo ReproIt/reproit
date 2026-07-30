@@ -43,9 +43,15 @@ def test_server_error_batch_uses_the_universal_causal_contract():
     assert finding["failure"]["signature"] == SERVER_ERROR_ORACLE + ":createOrder"
     # Redaction happened before anything left the process boundary.
     assert events[1]["event"]["value"]["value"]["body"]["item"] == "widget"
+    # The determinism envelope rides as a named checkpoint after the trigger.
+    envelope = events[2]["event"]
+    assert envelope["kind"] == "checkpoint"
+    assert envelope["name"] == "determinism-envelope"
+    assert isinstance(envelope["attributes"]["replaySeed"], str)
+    assert isinstance(envelope["attributes"]["observedAtMs"], int)
     # The raw return event is nested like the raw effects, under a subject
     # that names the carrier for the protocol projection.
-    carrier = events[3]["event"]
+    carrier = events[4]["event"]
     assert carrier["kind"] == "effect"
     assert carrier["subject"] == "operation-return"
     raw_return = carrier["value"]["value"]
@@ -56,7 +62,7 @@ def test_server_error_batch_uses_the_universal_causal_contract():
 def test_healthy_operations_ship_causal_events_without_an_observation():
     batch = _batch_for(201, True)
     assert [item["event"]["kind"] for item in batch["events"]] == [
-        "operation-start", "trigger", "effect", "effect", "operation-end"
+        "operation-start", "trigger", "checkpoint", "effect", "effect", "operation-end"
     ]
 
 
