@@ -53,7 +53,7 @@ fn path_param(path: &str) -> Option<&str> {
 /// The scalar identity in a create output, tried at the conventional spots.
 pub(super) fn create_identity(output: &Value, param: &str) -> Option<(String, Value)> {
     for path in [param, "id", "data.id"] {
-        if let Some(value) = json_path_value(output, path).filter(|v| is_scalar_identity(v)) {
+        if let Some(value) = json_path(output, path).filter(|v| is_scalar_identity(v)) {
             return Some((path.to_string(), value.clone()));
         }
     }

@@ -94,7 +94,7 @@ pub(super) fn apply_request_bindings(request: &mut RequestArtifact, outputs: &[V
     for binding in request.bindings.clone() {
         let Some(value) = outputs
             .get(binding.source_step)
-            .and_then(|output| json_path_value(output, &binding.source_output_path))
+            .and_then(|output| json_path(output, &binding.source_output_path))
             .filter(|value| is_scalar_identity(value))
             .cloned()
         else {
@@ -112,7 +112,7 @@ pub(super) fn rebind_request_input(
     path: &str,
     replacement: Value,
 ) -> bool {
-    let Some(previous) = json_path_value(&request.input, path).cloned() else {
+    let Some(previous) = json_path(&request.input, path).cloned() else {
         return false;
     };
     if !is_scalar_identity(&previous)

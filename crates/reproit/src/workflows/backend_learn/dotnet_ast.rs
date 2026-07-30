@@ -12,8 +12,9 @@
 //! class body only.
 
 use super::extract::Family;
-use super::field_facts::{drop_ambiguous, record, FieldFact};
+use super::field_facts::{bare_type, drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::route_path::join_segments as join;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::Node;
@@ -430,22 +431,6 @@ fn attributes_of(node: Node, text: &str) -> Vec<(String, Option<String>)> {
 fn substitute_tokens(route: &str, class: &str) -> String {
     let controller = class.strip_suffix("Controller").unwrap_or(class);
     route.replace("[controller]", &controller.to_lowercase())
-}
-
-fn join(prefix: &str, suffix: &str) -> String {
-    let base = format!("/{}", prefix.trim_matches('/'));
-    let suffix = suffix.trim_matches('/');
-    if suffix.is_empty() {
-        base
-    } else if base == "/" {
-        format!("/{suffix}")
-    } else {
-        format!("{base}/{suffix}")
-    }
-}
-
-fn bare_type(raw: &str) -> String {
-    raw.rsplit('.').next().unwrap_or(raw).trim().to_string()
 }
 
 #[cfg(test)]

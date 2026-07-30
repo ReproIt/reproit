@@ -90,6 +90,7 @@ fn absorb_run_writes_map_files_to_documented_layout() {
             r#""label":"Sign in","bounds":[10,20,100,32]}],"#,
             r#""texts":[{"text":"Sign in","bounds":[22,28,44,14]}]}"#
         ),
+        Utc::now(),
     )
     .unwrap();
 
@@ -153,23 +154,35 @@ fn provenance_detects_real_inputs_and_ignores_build_output() {
     std::fs::write(root.join("reproit.yaml"), "app: {}\n").unwrap();
     let map = AppMap::empty("test-app".to_string());
     let mut visits = Visits::default();
-    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+    with_map_lock(&root, || {
+        save_snapshot(&root, &map, &mut visits, Utc::now())
+    })
+    .unwrap();
 
-    assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
+    assert_eq!(
+        map_freshness(&root, Utc::now()).unwrap(),
+        MapFreshness::Current
+    );
 
     std::fs::write(root.join("target/generated.js"), "ignored").unwrap();
-    assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
+    assert_eq!(
+        map_freshness(&root, Utc::now()).unwrap(),
+        MapFreshness::Current
+    );
 
     std::fs::write(root.join("src/app.ts"), "export const screen = 'settings';").unwrap();
     assert_eq!(
-        map_freshness(&root).unwrap(),
+        map_freshness(&root, Utc::now()).unwrap(),
         MapFreshness::Stale(vec!["application source changed"])
     );
 
-    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+    with_map_lock(&root, || {
+        save_snapshot(&root, &map, &mut visits, Utc::now())
+    })
+    .unwrap();
     std::fs::write(root.join("reproit.yaml"), "app: { platform: web }\n").unwrap();
     assert_eq!(
-        map_freshness(&root).unwrap(),
+        map_freshness(&root, Utc::now()).unwrap(),
         MapFreshness::Stale(vec!["reproit configuration changed"])
     );
     std::fs::remove_dir_all(root).ok();
@@ -194,21 +207,24 @@ fn source_free_url_map_reuses_target_config_and_runner_identity() {
     .unwrap();
     let map = AppMap::empty("https://one.test".to_string());
     let mut visits = Visits::default();
-    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+    // The clock is injected, so staleness is asserted by moving `now`, not by
+    // rewriting the persisted stamp or waiting out the TTL.
+    let generated = chrono::Utc::now();
+    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits, generated)).unwrap();
 
-    assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
-
-    let provenance_path = persistence::provenance_path(&root);
-    let mut provenance: MapProvenance =
-        serde_json::from_slice(&std::fs::read(&provenance_path).unwrap()).unwrap();
-    provenance.generated_at = (chrono::Utc::now() - chrono::Duration::minutes(16)).to_rfc3339();
-    persistence::atomic_write_json(&provenance_path, &provenance).unwrap();
     assert_eq!(
-        map_freshness(&root).unwrap(),
+        map_freshness(&root, generated).unwrap(),
+        MapFreshness::Current
+    );
+    assert_eq!(
+        map_freshness(&root, generated + chrono::Duration::minutes(16)).unwrap(),
         MapFreshness::Stale(vec!["remote runtime revalidation due"])
     );
 
-    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+    with_map_lock(&root, || {
+        save_snapshot(&root, &map, &mut visits, Utc::now())
+    })
+    .unwrap();
 
     std::fs::write(
         &config_path,
@@ -216,25 +232,31 @@ fn source_free_url_map_reuses_target_config_and_runner_identity() {
     )
     .unwrap();
     assert_eq!(
-        map_freshness(&root).unwrap(),
+        map_freshness(&root, Utc::now()).unwrap(),
         MapFreshness::Stale(vec!["reproit configuration changed"])
     );
 
-    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+    with_map_lock(&root, || {
+        save_snapshot(&root, &map, &mut visits, Utc::now())
+    })
+    .unwrap();
     std::fs::write(
         &config_path,
         "app: { platform: web, url: https://two.test, webRunnerDir: /runner/v2 }\n",
     )
     .unwrap();
     assert_eq!(
-        map_freshness(&root).unwrap(),
+        map_freshness(&root, Utc::now()).unwrap(),
         MapFreshness::Stale(vec!["reproit configuration changed"])
     );
 
-    with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+    with_map_lock(&root, || {
+        save_snapshot(&root, &map, &mut visits, Utc::now())
+    })
+    .unwrap();
     std::fs::write(root.join("app.ts"), "export const screen = 'home';").unwrap();
     assert_eq!(
-        map_freshness(&root).unwrap(),
+        map_freshness(&root, Utc::now()).unwrap(),
         MapFreshness::Stale(vec!["application source changed"])
     );
     std::fs::remove_dir_all(root).ok();
@@ -266,17 +288,20 @@ fn completed_scan_run_can_commit_the_map_without_another_drive() {
         ),
     )
     .unwrap();
-    assert!(commit_run(&root, &loaded.config, &run_dir, false, true).unwrap());
+    assert!(commit_run(&root, &loaded.config, &run_dir, false, true, Utc::now()).unwrap());
     let map = load_map(&root, &loaded.config).unwrap();
     assert_eq!(map.states.len(), 1);
-    assert_eq!(map_freshness(&root).unwrap(), MapFreshness::Current);
+    assert_eq!(
+        map_freshness(&root, Utc::now()).unwrap(),
+        MapFreshness::Current
+    );
 
     std::fs::write(
         run_dir.join("drive-a.log"),
         "EXPLORE:STATE {\"sig\":\"partial\",\"labels\":[\"Partial\"]}\n",
     )
     .unwrap();
-    assert!(!commit_run(&root, &loaded.config, &run_dir, true, false).unwrap());
+    assert!(!commit_run(&root, &loaded.config, &run_dir, true, false, Utc::now()).unwrap());
     let preserved = load_map(&root, &loaded.config).unwrap();
     assert!(preserved
         .states
@@ -284,7 +309,7 @@ fn completed_scan_run_can_commit_the_map_without_another_drive() {
         .any(|state| { state.signature.semantics_hash.as_deref() == Some("home") }));
 
     std::fs::write(run_dir.join("drive-a.log"), "EXPLORE:UNSCANNABLE {}\n").unwrap();
-    assert!(!commit_run(&root, &loaded.config, &run_dir, true, true).unwrap());
+    assert!(!commit_run(&root, &loaded.config, &run_dir, true, true, Utc::now()).unwrap());
     let preserved = load_map(&root, &loaded.config).unwrap();
     assert!(preserved
         .states

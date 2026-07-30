@@ -149,7 +149,7 @@ async fn run_app_scan(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -> 
             exit_with(Exit::Regression)
         });
     }
-    let freshness = crate::domain::map::map_freshness(&loaded.root)?;
+    let freshness = crate::domain::map::map_freshness(&loaded.root, chrono::Utc::now())?;
     report_freshness(ctx, &freshness);
     let scan_args = fuzz::ScanArgs {
         journey,
@@ -168,6 +168,7 @@ async fn run_app_scan(ctx: &Ctx, config_path: Option<&Path>, args: ScanArgs) -> 
             &summary.run_dir,
             replace_map,
             summary.complete,
+            chrono::Utc::now(),
         )?;
     }
     Ok(if summary.complete && summary.issues == 0 {

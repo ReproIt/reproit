@@ -878,51 +878,6 @@ pub(super) fn paired_transition<'a>(
     }
 }
 
-pub(super) fn json_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
-    if path.is_empty() || path == "$" {
-        return Some(value);
-    }
-    path.trim_start_matches('$')
-        .trim_start_matches('.')
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .try_fold(value, |current, part| current.get(part))
-}
-
-pub(super) fn json_path_values<'a>(value: &'a Value, path: &str) -> Vec<&'a Value> {
-    let parts = path
-        .trim_start_matches('$')
-        .trim_start_matches('.')
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
-    fn descend<'a>(value: &'a Value, parts: &[&str], values: &mut Vec<&'a Value>) {
-        if parts.is_empty() {
-            match value {
-                Value::Array(items) => values.extend(items),
-                _ => values.push(value),
-            }
-            return;
-        }
-        match value {
-            Value::Array(items) => {
-                for item in items {
-                    descend(item, parts, values);
-                }
-            }
-            Value::Object(object) => {
-                if let Some(next) = object.get(parts[0]) {
-                    descend(next, &parts[1..], values);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut values = Vec::new();
-    descend(value, &parts, &mut values);
-    values
-}
-
 pub(in crate::domain::backend) fn selection_mismatch(
     domain: &ValueDomain,
     output: &Value,

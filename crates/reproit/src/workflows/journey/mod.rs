@@ -44,15 +44,11 @@ use std::path::{Path, PathBuf};
 
 mod spec;
 use spec::{parse_setup, resolve_fill_value, ActorAuth, SetupKind};
-#[allow(unused_imports)]
-pub use spec::{ActorList, Expect, IndependentActionPair, Journey, Step};
+pub use spec::{IndependentActionPair, Journey, Step};
 /// Where journeys live, relative to the project root.
 mod persistence;
 use persistence::*;
-#[allow(unused_imports)]
-pub use persistence::{
-    discover_login_spec, exists, journey_path, journeys_dir, list, save, JourneySummary,
-};
+pub use persistence::{discover_login_spec, exists, journey_path, journeys_dir, list, save};
 /// Load the committed app map, if one has been built.
 mod planning;
 use planning::*;
@@ -61,15 +57,13 @@ mod execution;
 mod schedule;
 #[cfg(test)]
 use execution::*;
-#[allow(unused_imports)]
-pub use execution::{fuzz_multi_checkpoint, run, verify_account, MultiFuzzSummary};
+pub use execution::{fuzz_multi_checkpoint, run, verify_account};
 mod replay;
 use replay::*;
 mod verification;
+pub use verification::verify_map;
 #[cfg(test)]
 use verification::*;
-#[allow(unused_imports)]
-pub use verification::{verify_map, Drift, VerifyReport};
 #[cfg(test)]
 mod tests {
     use super::*;

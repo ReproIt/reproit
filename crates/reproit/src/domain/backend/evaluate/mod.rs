@@ -322,11 +322,11 @@ use lifecycle::{evaluate_resource_lifecycles, scalar_at};
 mod invariants;
 use invariants::{evaluate_authored_invariants, evaluate_query_pagination};
 mod proofs;
+use crate::domain::json_path::{json_path, json_path_values};
 pub(in crate::domain::backend) use proofs::selection_mismatch;
 use proofs::{
     common_query_scalar_input, effect_matches, evaluate_proof_contracts,
-    idempotent_group_satisfies, json_path, json_path_values, optional_query_scalar,
-    paired_transition,
+    idempotent_group_satisfies, optional_query_scalar, paired_transition,
 };
 #[cfg(test)]
 pub(in crate::domain::backend) use proofs::{

@@ -45,7 +45,6 @@ use findings::{
 };
 #[cfg(test)]
 use log::exceptions_in_log;
-#[allow(unused_imports)] // Preserve the existing crate-level log-splitting façade.
 pub(crate) use log::split_log_segments;
 #[cfg(test)]
 use log::trace_in_log;
@@ -58,8 +57,7 @@ use reporting::{
 use scan::state_present_footer;
 #[cfg(test)]
 use scan::{boxed_drew, broken_route_for_finding, url_origin};
-#[allow(unused_imports)] // Preserve the existing scan façade for crate callers.
-pub use scan::{scan, ScanArgs, ScanSummary};
+pub use scan::{scan, ScanArgs};
 
 const MAX_SHRINK_REPLAYS: usize = 10;
 /// Perf oracle: a walk whose jank exceeds this is a finding. Generous on

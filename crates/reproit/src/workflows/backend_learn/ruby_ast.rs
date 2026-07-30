@@ -11,6 +11,7 @@
 use super::extract::Family;
 use super::field_facts::{drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::route_path::join_mount as join_path;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::Node;
@@ -281,10 +282,6 @@ fn verb_route(args: &[Node], text: &str) -> Option<(String, Option<String>)> {
         return Some((path, action));
     }
     None
-}
-
-fn join_path(prefix: &str, path: &str) -> String {
-    format!("{}{path}", prefix.trim_end_matches('/'))
 }
 
 /// `to: 'blocks#create'` -> `create`, the action serving the route.

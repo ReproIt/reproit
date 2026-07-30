@@ -22,10 +22,134 @@ fn project(files: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
+/// Removes the fixture directory even when the assertion under test panics, so
+/// a failing run does not leak a directory per case into the system temp dir.
+struct TempProject(PathBuf);
+impl Drop for TempProject {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Wrap a route-declaration fragment in the entry-point shape a real service in
+/// that family is written in: imports, a bound `main`, a serve/listen call.
+///
+/// Snippet fixtures are how a totally inert reader shipped: every axum case
+/// declared its router as `fn app() -> Router`, a real binary binds it in
+/// `main` and hands it to `serve`, and the reader that passed nine snippet
+/// tests extracted zero routes from any real program. Every fixture that goes
+/// through `routes()` therefore gets the whole-program shape; content that
+/// already carries its family's entry marker passes through unchanged.
+fn entry_point(framework: &str, content: &str) -> String {
+    match framework {
+        "axum" | "actix-web" if content.contains("fn main") => content.to_string(),
+        "axum" => format!(
+            "{content}\n#[tokio::main]\nasync fn main() {{\n    let listener = \
+             tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    \
+             axum::serve(listener, app()).await.unwrap();\n}}\n"
+        ),
+        "actix-web" => format!(
+            "use actix_web::{{get, web, App, HttpServer}};\n\n{content}\n\
+             #[actix_web::main]\nasync fn main() -> std::io::Result<()> {{\n    \
+             HttpServer::new(app).bind((\"0.0.0.0\", 3000))?.run().await\n}}\n"
+        ),
+        "gin" | "echo" | "chi" | "fiber" | "net/http" if content.contains("func main") => {
+            content.to_string()
+        }
+        "gin" => format!(
+            "package main\n\nimport \"github.com/gin-gonic/gin\"\n\nfunc main() {{\n\
+             \tr := gin.Default()\n{content}\tr.Run(\":3000\")\n}}\n"
+        ),
+        "echo" => format!(
+            "package main\n\nimport \"github.com/labstack/echo/v4\"\n\nfunc main() {{\n\
+             \te := echo.New()\n{content}\te.Start(\":3000\")\n}}\n"
+        ),
+        "chi" => format!(
+            "package main\n\nimport (\n\t\"net/http\"\n\n\t\"github.com/go-chi/chi/v5\"\n)\n\n\
+             func main() {{\n\tr := chi.NewRouter()\n{content}\
+             \thttp.ListenAndServe(\":3000\", r)\n}}\n"
+        ),
+        "fiber" => format!(
+            "package main\n\nimport \"github.com/gofiber/fiber/v2\"\n\nfunc main() {{\n\
+             \tapp := fiber.New()\n{content}\tapp.Listen(\":3000\")\n}}\n"
+        ),
+        "net/http" => format!(
+            "package main\n\nimport \"net/http\"\n\nfunc main() {{\n\
+             \tmux := http.NewServeMux()\n{content}\
+             \thttp.ListenAndServe(\":3000\", mux)\n}}\n"
+        ),
+        "express" | "koa" | "fastify" if content.contains(".listen(") => content.to_string(),
+        "express" => {
+            let app = if content.contains("const app") {
+                ""
+            } else {
+                "const app = express();\n"
+            };
+            format!("const express = require('express');\n{app}{content}app.listen(3000);\n")
+        }
+        "koa" => {
+            let router = if content.contains("const router") {
+                ""
+            } else {
+                "const router = new Router();\n"
+            };
+            format!(
+                "const Koa = require('koa');\nconst Router = require('@koa/router');\n\
+                 const app = new Koa();\n{router}{content}\
+                 app.use(router.routes());\napp.listen(3000);\n"
+            )
+        }
+        "fastify" => format!(
+            "const fastify = require('fastify')();\n{content}\
+             fastify.listen({{ port: 3000 }});\n"
+        ),
+        "fastapi" if content.contains("FastAPI(") => content.to_string(),
+        "fastapi" => {
+            let router = if content.contains("= APIRouter") {
+                ""
+            } else {
+                "router = APIRouter()\n"
+            };
+            let include = if content.contains("include_router") {
+                ""
+            } else {
+                "app.include_router(router)\n"
+            };
+            format!(
+                "from fastapi import FastAPI, APIRouter\n\napp = FastAPI()\n{router}\n\
+                 {content}\n{include}"
+            )
+        }
+        "flask" if content.contains("Flask(") => content.to_string(),
+        "flask" => format!(
+            "from flask import Flask\n\napp = Flask(__name__)\n\n{content}\n\
+             if __name__ == \"__main__\":\n    app.run()\n"
+        ),
+        // A `urls.py`, `routes.rb`, or `routes/api.php` fragment IS the file
+        // shape those frameworks route from; only missing imports are added.
+        "django" if content.contains("django.urls") => content.to_string(),
+        "django" => format!("from django.urls import path\n\nfrom . import views\n\n{content}"),
+        "laravel" if content.contains("use Illuminate") => content.to_string(),
+        "laravel" => content.replacen(
+            "<?php\n",
+            "<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n",
+            1,
+        ),
+        // A Spring controller class is a real file; the entry point lives in
+        // another file, so only the package/import header is completed.
+        "spring" if content.contains("package ") => content.to_string(),
+        "spring" => format!(
+            "package com.example;\n\nimport java.util.List;\n\
+             import org.springframework.web.bind.annotation.*;\n\n{content}"
+        ),
+        _ => content.to_string(),
+    }
+}
+
 fn routes(framework: &str, file: &str, content: &str) -> Vec<(String, Vec<&'static str>)> {
-    let dir = project(&[(file, content)]);
-    let derived = derive(&dir, framework).unwrap();
-    std::fs::remove_dir_all(&dir).unwrap();
+    let whole = entry_point(framework, content);
+    let guard = TempProject(project(&[(file, &whole)]));
+    let derived = derive(&guard.0, framework).unwrap();
     derived
         .routes
         .into_iter()

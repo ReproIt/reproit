@@ -12,6 +12,7 @@
 use super::extract::Family;
 use super::field_facts::{drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::route_path::join_segments as join;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use tree_sitter::Node;
@@ -242,18 +243,6 @@ fn group_of<'a>(node: Node<'a>, text: &str, outer: &str) -> Option<(String, Node
     let composed = join(outer, &inner);
     let body = node.child_by_field_name("arguments")?;
     Some((composed, body))
-}
-
-/// Compose two Laravel path fragments, either of which may omit its slashes.
-fn join(outer: &str, inner: &str) -> String {
-    let outer = outer.trim_matches('/');
-    let inner = inner.trim_matches('/');
-    match (outer.is_empty(), inner.is_empty()) {
-        (true, true) => String::new(),
-        (true, false) => format!("/{inner}"),
-        (false, true) => format!("/{outer}"),
-        (false, false) => format!("/{outer}/{inner}"),
-    }
 }
 
 /// The operations declared by `resource`, including the action name Laravel

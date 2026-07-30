@@ -6,6 +6,7 @@ use crate::adapters::config::Config;
 use crate::domain::appmap::AppMap;
 use crate::runtime::project_layout as layout;
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
@@ -178,9 +179,14 @@ pub(super) fn save_visits(root: &Path, v: &Visits) -> Result<()> {
     atomic_write_json(&out, v)
 }
 
-pub(super) fn save_snapshot(root: &Path, map: &AppMap, visits: &mut Visits) -> Result<()> {
+pub(super) fn save_snapshot(
+    root: &Path,
+    map: &AppMap,
+    visits: &mut Visits,
+    now: DateTime<Utc>,
+) -> Result<()> {
     visits.map_revision = map.revision;
-    let provenance = build_map_provenance(root, map.revision)?;
+    let provenance = build_map_provenance(root, map.revision, now)?;
     let pending = pending_snapshot_path(root);
     atomic_write_json(
         &pending,
@@ -388,7 +394,10 @@ mod tests {
         let root = test_root("map-recovery");
         let old_map = AppMap::empty("app".to_string());
         let mut old_visits = Visits::default();
-        with_map_lock(&root, || save_snapshot(&root, &old_map, &mut old_visits)).unwrap();
+        with_map_lock(&root, || {
+            save_snapshot(&root, &old_map, &mut old_visits, Utc::now())
+        })
+        .unwrap();
 
         let mut new_map = AppMap::empty("app".to_string());
         new_map.revision = old_map.revision + 1;
@@ -396,7 +405,7 @@ mod tests {
             map_revision: new_map.revision,
             ..Visits::default()
         };
-        let provenance = build_map_provenance(&root, new_map.revision).unwrap();
+        let provenance = build_map_provenance(&root, new_map.revision, Utc::now()).unwrap();
         atomic_write_json(
             &pending_snapshot_path(&root),
             &PendingSnapshotRef {
@@ -424,7 +433,10 @@ mod tests {
         let map = AppMap::empty("app".to_string());
         let initial_revision = map.revision;
         let mut visits = Visits::default();
-        with_map_lock(&root, || save_snapshot(&root, &map, &mut visits)).unwrap();
+        with_map_lock(&root, || {
+            save_snapshot(&root, &map, &mut visits, Utc::now())
+        })
+        .unwrap();
 
         let roots = (0..4).map(|_| root.clone()).collect::<Vec<_>>();
         let threads = roots.into_iter().map(|root| {
@@ -433,7 +445,7 @@ mod tests {
                     let mut map = load_existing_map_unlocked(&root)?.unwrap();
                     let mut visits = load_visits_unlocked(&root, map.revision)?;
                     map.mark_changed();
-                    save_snapshot(&root, &map, &mut visits)
+                    save_snapshot(&root, &map, &mut visits, Utc::now())
                 })
                 .unwrap();
             })

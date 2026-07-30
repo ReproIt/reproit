@@ -208,8 +208,13 @@ impl PersistenceWorkload {
 
     pub fn run(&mut self) -> usize {
         self.map.mark_changed();
-        crate::domain::map::benchmark_save_snapshot(&self.root, &self.map, &mut self.visits)
-            .expect("benchmark snapshot");
+        crate::domain::map::benchmark_save_snapshot(
+            &self.root,
+            &self.map,
+            &mut self.visits,
+            chrono::Utc::now(),
+        )
+        .expect("benchmark snapshot");
         self.map.revision as usize
     }
 }
@@ -236,12 +241,13 @@ impl FingerprintWorkload {
             std::fs::write(root.join(format!("src/file-{index:05}.rs")), &body)
                 .expect("benchmark source file");
         }
-        crate::domain::map::benchmark_fingerprint(&root, 1).expect("prime fingerprint cache");
+        crate::domain::map::benchmark_fingerprint(&root, 1, chrono::Utc::now())
+            .expect("prime fingerprint cache");
         Self { root }
     }
 
     pub fn run(&self) -> usize {
-        crate::domain::map::benchmark_fingerprint(&self.root, 1)
+        crate::domain::map::benchmark_fingerprint(&self.root, 1, chrono::Utc::now())
             .expect("benchmark fingerprint")
             .len()
     }

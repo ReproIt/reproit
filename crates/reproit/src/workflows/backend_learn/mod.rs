@@ -25,6 +25,7 @@ mod node_ast;
 mod php_ast;
 mod python_ast;
 mod report;
+mod route_path;
 mod ruby_ast;
 mod rust_ast;
 mod rust_router;

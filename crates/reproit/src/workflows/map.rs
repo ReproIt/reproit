@@ -1,14 +1,16 @@
 //! App-map lifecycle and explicit debug-map workflows.
 
 use super::*;
+use crate::adapters::config::Config;
 use crate::domain::map;
+use std::collections::BTreeMap;
 
 pub(super) async fn ensure_app_map(
     ctx: &Ctx,
     loaded: &config::Loaded,
     journey: &str,
 ) -> Result<()> {
-    let replace = match map::map_freshness(&loaded.root)? {
+    let replace = match map::map_freshness(&loaded.root, chrono::Utc::now())? {
         map::MapFreshness::Current => return Ok(()),
         map::MapFreshness::Missing => {
             ctx.say("  learning app structure (first run)...");
@@ -47,13 +49,87 @@ pub(super) async fn rebuild_app_map(
     replace: bool,
 ) -> Result<()> {
     let run_dir = acquire_map_run(loaded, journey, budget, from).await?;
-    let result = map::commit_map_run(&loaded.config, &loaded.root, &run_dir, label, replace).await;
+    let result = map::commit_map_run(
+        &loaded.config,
+        &loaded.root,
+        &run_dir,
+        replace,
+        chrono::Utc::now(),
+    );
     if result.is_ok() && replace && !map::appmap_path(&loaded.root).is_file() {
         return Err(anyhow::anyhow!(
             "could not refresh the internal app model; the app was not reachable"
         ));
     }
+    if result.is_ok() && label {
+        let committed = map::load_map(&loaded.root, &loaded.config)?;
+        let state_labels = map::state_semantic_labels(&committed);
+        match label_states(&loaded.config, &state_labels).await {
+            Ok(names) => {
+                map::apply_state_labels(&loaded.root, &loaded.config, &names, chrono::Utc::now())?
+            }
+            Err(e) => eprintln!("  warn: labeling pass failed ({e}); keeping current names"),
+        }
+    }
     result
+}
+
+/// Ask the LLM to name states from their visible labels. Resilient: any
+/// parse failure keeps the current names. Lives here and not in the domain:
+/// naming calls a nondeterministic remote service, and the domain's map commit
+/// must stay decidable from its inputs.
+async fn label_states(
+    cfg: &Config,
+    state_labels: &BTreeMap<String, Vec<String>>,
+) -> Result<BTreeMap<String, String>> {
+    let provider = llm::from_spec(&cfg.llm.to_spec())?;
+    let mut listing = String::new();
+    for (sig, labels) in state_labels {
+        listing.push_str(&format!("{sig}: {}\n", labels.join(" | ")));
+    }
+    let prompt = format!(
+        "These are screens of a mobile app, identified by signature, with the visible semantic \
+         labels observed on each. Give each a short snake_case name (login, meet_feed, profile, \
+         settings, ...). Reply with ONLY a JSON object mapping signature to name, no commentary, \
+         no code fences.\n\n{listing}"
+    );
+    let response = provider.complete(&llm::Task::new(prompt)).await?;
+    let json_str = response
+        .find('{')
+        // Guard the slice: an LLM reply could place `}` before its first `{`, and
+        // `&response[s..=e]` would panic when e < s. Require e >= s.
+        .and_then(|s| {
+            response
+                .rfind('}')
+                .filter(|&e| e >= s)
+                .map(|e| &response[s..=e])
+        })
+        .context("no JSON object in labeling response")?;
+    let parsed: BTreeMap<String, String> = serde_json::from_str(json_str)?;
+    let mut used = std::collections::HashSet::new();
+    let mut out = BTreeMap::new();
+    for (sig, name) in parsed {
+        let mut clean: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+            .trim_matches('_')
+            .to_string();
+        if clean.is_empty() || clean.chars().next().unwrap().is_ascii_digit() {
+            clean = format!("s_{sig}");
+        }
+        while !used.insert(clean.clone()) {
+            clean.push('_');
+        }
+        out.insert(sig, clean);
+    }
+    Ok(out)
 }
 
 async fn acquire_map_run(

@@ -10,6 +10,7 @@
 use super::field_facts::FieldFact;
 use super::grammar;
 use super::grammar::SourceRead;
+use super::route_path::join_segments as join_nest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use tree_sitter::Node;
@@ -229,6 +230,18 @@ fn walk(node: Node, text: &str, server: bool, state: &mut WalkState<'_>) {
                         state
                             .routes
                             .push((object.clone(), path, method, handler, None));
+                    }
+                }
+                // A prefix-less mount (`app.use(router)`, koa's
+                // `app.use(router.routes())`) mounts the router at the root.
+                // Without recording it, a locally declared AND locally mounted
+                // router read as "exported for another module to mount" and
+                // every one of its routes was dropped; the koa idiom never
+                // passes a path string, so the whole family was inert on real
+                // programs while its path-carrying snippets kept passing.
+                if property == "use" && first.is_none() {
+                    if let Some(name) = args.first().and_then(|node| mounted_router(*node, text)) {
+                        state.mounts.entry(name).or_default();
                     }
                 }
                 if let Some(path) = first.filter(|path| path.starts_with('/')) {
@@ -474,17 +487,6 @@ fn decorator_argument(node: Node, name: &str, text: &str) -> Option<String> {
     None
 }
 
-fn join_nest(prefix: &str, suffix: &str) -> String {
-    let base = prefix.trim_matches('/');
-    let suffix = suffix.trim_matches('/');
-    match (base.is_empty(), suffix.is_empty()) {
-        (true, true) => "/".to_string(),
-        (true, false) => format!("/{suffix}"),
-        (false, true) => format!("/{base}"),
-        (false, false) => format!("/{base}/{suffix}"),
-    }
-}
-
 fn grammar_children<'a>(node: Node<'a>, into: &mut Vec<Node<'a>>) {
     super::grammar::children(node, into);
 }
@@ -575,6 +577,23 @@ fn wrapped_argument(node: Node, text: &str) -> Option<String> {
     found
 }
 
+/// The router a prefix-less `.use(...)` argument mounts: a bare identifier
+/// (`app.use(router)`) or the object of a call chain, which is how koa mounts
+/// (`app.use(router.routes())`, `app.use(router.allowedMethods())`).
+fn mounted_router(node: Node, text: &str) -> Option<String> {
+    if let Some(name) = identifier(node, text) {
+        return Some(name);
+    }
+    if node.kind() != "call_expression" {
+        return None;
+    }
+    let callee = node.child_by_field_name("function")?;
+    if callee.kind() != "member_expression" {
+        return None;
+    }
+    identifier(callee.child_by_field_name("object")?, text)
+}
+
 fn identifier(node: Node, text: &str) -> Option<String> {
     (node.kind() == "identifier")
         .then(|| node.utf8_text(text.as_bytes()).ok())
@@ -590,19 +609,8 @@ fn string_value(node: Node, text: &str) -> Option<String> {
 }
 
 fn literal_values(inner: &str) -> Option<Vec<String>> {
-    let mut values = Vec::new();
-    for part in inner.split(',') {
-        let item = part.trim();
-        if item.is_empty() {
-            continue;
-        }
-        let unquoted = item.trim_matches(['"', '\'', '`']);
-        if unquoted == item {
-            return None;
-        }
-        values.push(unquoted.to_string());
-    }
-    (values.len() > 1).then_some(values)
+    // JS strings add the backtick; a bare number in an enum list is not idiomatic.
+    super::field_facts::literal_values(inner, &['"', '\'', '`'], false)
 }
 
 /// fastify's `route({ method: 'PUT', url: '/users/:id', handler: h })`, where

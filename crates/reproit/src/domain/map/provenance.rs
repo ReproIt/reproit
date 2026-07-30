@@ -305,7 +305,9 @@ fn remote_snapshot_expired(generated_at: &str, now: DateTime<Utc>) -> bool {
         .unwrap_or(true)
 }
 
-pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
+/// `now` is the caller's clock: the domain never reads wall time itself, so
+/// freshness is decidable in a test without waiting out a TTL.
+pub(crate) fn map_freshness(root: &Path, now: DateTime<Utc>) -> Result<MapFreshness> {
     let Some((map, _visits)) = load_existing_snapshot(root)? else {
         return Ok(MapFreshness::Missing);
     };
@@ -336,7 +338,7 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     if old.map_revision != map_revision {
         reasons.push("map snapshot is incomplete");
     }
-    if source_file_count == 0 && remote_snapshot_expired(&old.generated_at, Utc::now()) {
+    if source_file_count == 0 && remote_snapshot_expired(&old.generated_at, now) {
         reasons.push("remote runtime revalidation due");
     }
     Ok(if reasons.is_empty() {
@@ -346,7 +348,11 @@ pub(crate) fn map_freshness(root: &Path) -> Result<MapFreshness> {
     })
 }
 
-pub(super) fn build_map_provenance(root: &Path, map_revision: u64) -> Result<MapProvenance> {
+pub(super) fn build_map_provenance(
+    root: &Path,
+    map_revision: u64,
+    generated_at: DateTime<Utc>,
+) -> Result<MapProvenance> {
     let (source_fingerprint, config_fingerprint, source_file_count) = project_fingerprints(root)?;
     let (git_commit, git_dirty) = git_metadata(root);
     let provenance = MapProvenance {
@@ -356,7 +362,7 @@ pub(super) fn build_map_provenance(root: &Path, map_revision: u64) -> Result<Map
         source_file_count,
         config_fingerprint,
         reproit_version: crate::VERSION.to_string(),
-        generated_at: Utc::now().to_rfc3339(),
+        generated_at: generated_at.to_rfc3339(),
         git_commit,
         git_dirty,
     };

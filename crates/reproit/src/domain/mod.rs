@@ -13,6 +13,7 @@ pub(crate) mod fault;
 pub(crate) mod fixture;
 pub(crate) mod hash;
 pub(crate) mod invariants;
+pub(crate) mod json_path;
 pub(crate) mod locale;
 pub(crate) mod map;
 pub(crate) mod observation;

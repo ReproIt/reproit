@@ -694,7 +694,7 @@ async fn exercise_resource_lifecycles(
                 continue;
             }
             let Some(identity) =
-                json_path_value(&create_result.output, &resource.create.output_identity_path)
+                json_path(&create_result.output, &resource.create.output_identity_path)
                     .filter(|value| is_scalar_identity(value))
                     .cloned()
             else {
@@ -730,7 +730,7 @@ async fn exercise_resource_lifecycles(
                             field
                                 .update_input_path
                                 .as_deref()
-                                .and_then(|path| json_path_value(&input, path))
+                                .and_then(|path| json_path(&input, path))
                                 .is_some()
                         })
                     {
@@ -925,8 +925,9 @@ pub use inspect::try_inspect;
 use replay_command::{
     escape_pointer, find_artifact, maybe_reset_target, replay_endpoint, value_as_text,
 };
-mod util;
-use util::{hex_hash, is_scalar_identity, json_path_value, percent_encode, set_json_path};
+mod encoding;
+use crate::domain::json_path::{is_scalar_identity, json_path, set_json_path};
+use encoding::{hex_hash, percent_encode};
 
 #[cfg(test)]
 mod tests;

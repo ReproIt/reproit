@@ -13,8 +13,9 @@
 //! that happens to follow it in the file.
 
 use super::extract::Family;
-use super::field_facts::{apply_rename_all, drop_ambiguous, record, FieldFact};
+use super::field_facts::{apply_rename_all, bare_type, drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::route_path::join_segments as join;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::Node;
@@ -247,19 +248,6 @@ fn request_verbs(node: Node, text: &str) -> Vec<&'static str> {
         }
     }
     verbs
-}
-
-/// Compose a class template with a method template, either of which may be
-/// written with or without slashes.
-fn join(prefix: &str, suffix: &str) -> String {
-    let prefix = prefix.trim_matches('/');
-    let suffix = suffix.trim_matches('/');
-    match (prefix.is_empty(), suffix.is_empty()) {
-        (true, true) => "/".to_string(),
-        (true, false) => format!("/{suffix}"),
-        (false, true) => format!("/{prefix}"),
-        (false, false) => format!("/{prefix}/{suffix}"),
-    }
 }
 
 /// A field or record component, with whatever its annotations constrain.
@@ -496,22 +484,6 @@ fn annotation_arguments<'tree>(node: Node<'tree>, text: &str, wanted: &str) -> O
 fn first_string(node: Node, text: &str) -> Option<String> {
     let literal = grammar::find(node, "string_literal")?;
     Some(grammar::unquote(grammar::text(literal, text)).to_string())
-}
-
-/// `List<BlockRequest>` -> `BlockRequest`, `com.x.T` -> `T`.
-fn bare_type(raw: &str) -> String {
-    let inner = raw
-        .split_once('<')
-        .and_then(|(_, rest)| rest.rsplit_once('>'))
-        .map(|(inner, _)| inner)
-        .unwrap_or(raw);
-    inner
-        .rsplit('.')
-        .next()
-        .unwrap_or(inner)
-        .trim()
-        .trim_end_matches("[]")
-        .to_string()
 }
 
 fn is_builtin(name: &str) -> bool {

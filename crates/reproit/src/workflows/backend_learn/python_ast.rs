@@ -458,19 +458,8 @@ fn enum_values(node: Node, text: &str) -> Vec<String> {
 }
 
 fn literal_values(inner: &str) -> Option<Vec<String>> {
-    let mut values = Vec::new();
-    for part in inner.split(',') {
-        let item = part.trim();
-        if item.is_empty() {
-            continue;
-        }
-        let unquoted = item.trim_matches(['"', '\'']);
-        if unquoted == item && item.parse::<f64>().is_err() {
-            return None;
-        }
-        values.push(unquoted.to_string());
-    }
-    (values.len() > 1).then_some(values)
+    // Pydantic `Literal[1, 2]` lists bare numbers as members.
+    super::field_facts::literal_values(inner, &['"', '\''], true)
 }
 
 pub(super) fn string_value(node: Node, text: &str) -> Option<String> {

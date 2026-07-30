@@ -255,7 +255,14 @@ fn every_barrier_speaking_backend_ships_a_conductor_client() {
             "",
             "Appium (react-native/swift-ios/android)",
         ),
-        ("runners/macos-ax.swift", "", "DesktopAx"),
+        // macos-ax.swift is a compile shim since the responsibility split; the
+        // conductor URL is read in main.swift and the poll loop lives in
+        // runtime.swift.
+        (
+            "runners/macos-ax/main.swift",
+            "runners/macos-ax/runtime.swift",
+            "DesktopAx",
+        ),
         (
             "crates/reproit/src/adapters/uia/scenario.rs",
             "crates/reproit/src/adapters/uia/mod.rs",

@@ -308,7 +308,7 @@ pub(super) async fn discover_and_verify_login(
     account: &str,
 ) -> Result<()> {
     let loaded = config::load(config_path)?;
-    let freshness = map::map_freshness(&loaded.root)?;
+    let freshness = map::map_freshness(&loaded.root, chrono::Utc::now())?;
     if !matches!(&freshness, map::MapFreshness::Current) {
         println!("  updating login structure from the current app...");
         rebuild_app_map(

@@ -11,7 +11,8 @@ use crate::domain::appmap::{
     Action, OperabilityGaps, Reversibility, State, StateSignature, Transition,
     APP_MAP_SCHEMA_VERSION,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
+use chrono::{DateTime, Utc};
 #[cfg(test)]
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,36 +34,38 @@ pub(crate) use frontier::frontier_path;
 pub(crate) use frontier::frontier_path_with_index;
 #[cfg(test)]
 use frontier::VISIT_WEIGHT_CAP;
-#[allow(unused_imports)] // Compatibility façade; several helpers are agent-facing APIs.
-pub(crate) use frontier::{edges_summary, entry_state, path_to_label, Visits};
+#[cfg(test)]
+use frontier::{edges_summary, path_to_label};
+pub(crate) use frontier::{entry_state, Visits};
 pub(crate) use index::GraphIndex;
 pub(crate) use merge::{action_str, merge};
 use merge::{parse_action, sig_index};
-#[allow(unused_imports)]
-// Types remain reachable at their pre-split `crate::domain::map` paths.
-pub(crate) use parse::{
-    parse_run, parse_runner_events, AccessibilityStateCheck, EscapableRoutes, LeakMetric,
-    RelationCheck, RelationViolation, RunObs,
-};
+#[cfg(test)]
+pub(crate) use parse::RelationViolation;
+pub(crate) use parse::{parse_run, parse_runner_events, EscapableRoutes, RunObs};
 #[cfg(test)]
 use persistence::load_visits;
 pub(crate) use persistence::{appmap_path, load_existing_map, load_map, load_snapshot};
 use persistence::{load_existing_map_unlocked, load_visits_unlocked, save_snapshot, with_map_lock};
-#[allow(unused_imports)] // MapProvenance is part of the existing façade contract.
-pub(crate) use provenance::{map_freshness, MapFreshness, MapProvenance};
+pub(crate) use provenance::{map_freshness, MapFreshness};
 
 #[cfg(feature = "perf-bench")]
 pub(crate) fn benchmark_save_snapshot(
     root: &Path,
     map: &AppMap,
     visits: &mut Visits,
+    now: DateTime<Utc>,
 ) -> Result<()> {
-    with_map_lock(root, || save_snapshot(root, map, visits))
+    with_map_lock(root, || save_snapshot(root, map, visits, now))
 }
 
 #[cfg(feature = "perf-bench")]
-pub(crate) fn benchmark_fingerprint(root: &Path, revision: u64) -> Result<String> {
-    Ok(provenance::build_map_provenance(root, revision)?.source_fingerprint)
+pub(crate) fn benchmark_fingerprint(
+    root: &Path,
+    revision: u64,
+    now: DateTime<Utc>,
+) -> Result<String> {
+    Ok(provenance::build_map_provenance(root, revision, now)?.source_fingerprint)
 }
 
 /// Merge one run's observations into an IN-MEMORY map + visits, returning the
@@ -139,16 +142,22 @@ fn unsupported_edge_summary(obs: &RunObs) -> (usize, BTreeSet<String>) {
 /// across invocations as visit counts accumulate); it uses
 /// [`absorb_obs_inmem`].
 #[cfg(test)]
-fn absorb_run(root: &Path, cfg: &Config, log: &str) -> Result<RunObs> {
+fn absorb_run(root: &Path, cfg: &Config, log: &str, now: DateTime<Utc>) -> Result<RunObs> {
     let obs = parse_run(log);
-    commit_observations(root, cfg, &obs, false)?;
+    commit_observations(root, cfg, &obs, false, now)?;
     Ok(obs)
 }
 
 /// Commit parsed observations. A replacement is assembled entirely in memory,
 /// leaving the last good on-disk graph untouched until a usable new graph is
 /// ready to commit.
-fn commit_observations(root: &Path, cfg: &Config, obs: &RunObs, replace: bool) -> Result<()> {
+fn commit_observations(
+    root: &Path,
+    cfg: &Config,
+    obs: &RunObs,
+    replace: bool,
+    now: DateTime<Utc>,
+) -> Result<()> {
     if obs.states.is_empty() {
         return Ok(());
     }
@@ -169,7 +178,7 @@ fn commit_observations(root: &Path, cfg: &Config, obs: &RunObs, replace: bool) -
             load_visits_unlocked(root, map.revision)?
         };
         absorb_obs_inmem(&mut map, &mut visits, obs);
-        save_snapshot(root, &map, &mut visits)
+        save_snapshot(root, &map, &mut visits, now)
     })
 }
 
@@ -237,6 +246,7 @@ pub(crate) fn commit_run(
     run_dir: &Path,
     replace: bool,
     complete: bool,
+    now: DateTime<Utc>,
 ) -> Result<bool> {
     if replace && !complete {
         return Ok(false);
@@ -246,16 +256,16 @@ pub(crate) fn commit_run(
     if obs.states.is_empty() {
         return Ok(false);
     }
-    commit_observations(root, cfg, &obs, replace)?;
+    commit_observations(root, cfg, &obs, replace, now)?;
     Ok(true)
 }
 
-pub(crate) async fn commit_map_run(
+pub(crate) fn commit_map_run(
     cfg: &Config,
     root: &Path,
     run_dir: &Path,
-    label: bool,
     replace: bool,
+    now: DateTime<Utc>,
 ) -> Result<()> {
     // Fold in EVERY device's log, not just device a: a multi-actor scenario run
     // has each actor traverse different (often deeper) screens, and a scenario
@@ -297,45 +307,7 @@ pub(crate) async fn commit_map_run(
             unsupported_edge_kinds.into_iter().collect::<Vec<_>>().join(", ")
         );
     }
-    commit_observations(root, cfg, &obs, replace)?;
-
-    if label {
-        let map = load_map(root, cfg)?;
-        let state_labels: BTreeMap<String, Vec<String>> = map
-            .states
-            .values()
-            .filter_map(|s| {
-                let sig = s.signature.semantics_hash.clone()?;
-                Some((sig, s.description.split(", ").map(String::from).collect()))
-            })
-            .collect();
-        match label_states(cfg, &state_labels).await {
-            Ok(names) => {
-                with_map_lock(root, || {
-                    let mut current = persistence::load_map_unlocked(root, cfg)?;
-                    let mut visits = load_visits_unlocked(root, current.revision)?;
-                    let index = sig_index(&current);
-                    let mut changed = false;
-                    for (sig, name) in &names {
-                        if let Some(state_id) = index.get(sig) {
-                            if let Some(state) = current.states.get_mut(state_id) {
-                                if state.name.as_deref() != Some(name.as_str()) {
-                                    state.name = Some(name.clone());
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                    if changed {
-                        current.mark_changed();
-                        save_snapshot(root, &current, &mut visits)?;
-                    }
-                    Ok(())
-                })?;
-            }
-            Err(e) => eprintln!("  warn: labeling pass failed ({e}); keeping current names"),
-        }
-    }
+    commit_observations(root, cfg, &obs, replace, now)?;
 
     // The graph, visits, and provenance are committed as one recoverable
     // snapshot. The next graph-consuming command compares actual project inputs
@@ -353,60 +325,48 @@ pub(crate) async fn commit_map_run(
     Ok(())
 }
 
-/// Ask the LLM to name states from their visible labels. Resilient: any
-/// parse failure keeps the current names.
-async fn label_states(
-    cfg: &Config,
-    state_labels: &BTreeMap<String, Vec<String>>,
-) -> Result<BTreeMap<String, String>> {
-    let provider = llm::from_spec(&cfg.llm.to_spec())?;
-    let mut listing = String::new();
-    for (sig, labels) in state_labels {
-        listing.push_str(&format!("{sig}: {}\n", labels.join(" | ")));
-    }
-    let prompt = format!(
-        "These are screens of a mobile app, identified by signature, with the visible semantic \
-         labels observed on each. Give each a short snake_case name (login, meet_feed, profile, \
-         settings, ...). Reply with ONLY a JSON object mapping signature to name, no commentary, \
-         no code fences.\n\n{listing}"
-    );
-    let response = provider.complete(&llm::Task::new(prompt)).await?;
-    let json_str = response
-        .find('{')
-        // Guard the slice: an LLM reply could place `}` before its first `{`, and
-        // `&response[s..=e]` would panic when e < s. Require e >= s.
-        .and_then(|s| {
-            response
-                .rfind('}')
-                .filter(|&e| e >= s)
-                .map(|e| &response[s..=e])
+/// The visible semantic labels per state signature, the input a naming pass
+/// (an LLM in the workflow layer) turns into `apply_state_labels` names.
+pub(crate) fn state_semantic_labels(map: &AppMap) -> BTreeMap<String, Vec<String>> {
+    map.states
+        .values()
+        .filter_map(|s| {
+            let sig = s.signature.semantics_hash.clone()?;
+            Some((sig, s.description.split(", ").map(String::from).collect()))
         })
-        .context("no JSON object in labeling response")?;
-    let parsed: BTreeMap<String, String> = serde_json::from_str(json_str)?;
-    let mut used = std::collections::HashSet::new();
-    let mut out = BTreeMap::new();
-    for (sig, name) in parsed {
-        let mut clean: String = name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_lowercase()
-                } else {
-                    '_'
+        .collect()
+}
+
+/// Commit externally produced state names (signature -> name) into the map.
+/// The names' origin is the caller's business; the domain only applies them
+/// under the map lock, as one recoverable snapshot.
+pub(crate) fn apply_state_labels(
+    root: &Path,
+    cfg: &Config,
+    names: &BTreeMap<String, String>,
+    now: DateTime<Utc>,
+) -> Result<()> {
+    with_map_lock(root, || {
+        let mut current = persistence::load_map_unlocked(root, cfg)?;
+        let mut visits = load_visits_unlocked(root, current.revision)?;
+        let index = sig_index(&current);
+        let mut changed = false;
+        for (sig, name) in names {
+            if let Some(state_id) = index.get(sig) {
+                if let Some(state) = current.states.get_mut(state_id) {
+                    if state.name.as_deref() != Some(name.as_str()) {
+                        state.name = Some(name.clone());
+                        changed = true;
+                    }
                 }
-            })
-            .collect::<String>()
-            .trim_matches('_')
-            .to_string();
-        if clean.is_empty() || clean.chars().next().unwrap().is_ascii_digit() {
-            clean = format!("s_{sig}");
+            }
         }
-        while !used.insert(clean.clone()) {
-            clean.push('_');
+        if changed {
+            current.mark_changed();
+            save_snapshot(root, &current, &mut visits, now)?;
         }
-        out.insert(sig, clean);
-    }
-    Ok(out)
+        Ok(())
+    })
 }
 
 #[cfg(test)]

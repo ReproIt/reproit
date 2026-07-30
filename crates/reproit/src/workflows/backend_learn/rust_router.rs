@@ -10,6 +10,7 @@
 //! reads downstream as a route the service does not serve.
 
 use super::field_facts::FieldFact;
+use super::route_path::join_mount as join;
 use super::rust_types::Guards;
 use std::collections::{BTreeMap, BTreeSet};
 use syn::{Expr, Lit, Stmt};
@@ -742,14 +743,6 @@ fn pattern_names(pat: &syn::Pat) -> Vec<String> {
         syn::Pat::Paren(inner) => pattern_names(&inner.pat),
         _ => Vec::new(),
     }
-}
-
-fn join(prefix: &str, path: &str) -> String {
-    let base = prefix.trim_end_matches('/');
-    if path.is_empty() || path == "/" {
-        return base.to_string();
-    }
-    format!("{base}{path}")
 }
 
 /// `#[get("/status")]` on a handler, as actix and rocket declare routes.

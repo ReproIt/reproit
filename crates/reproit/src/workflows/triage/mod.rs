@@ -30,20 +30,17 @@ mod transport;
 use lifecycle::first_line;
 pub use lifecycle::{diagnose, resolution_events, timeline, triage};
 pub use presentation::{buckets, explain, filter_buckets, filter_errors, find, top_bucket_id};
-#[allow(unused_imports)]
-// Preserve pure materialization helpers on `crate::workflows::triage`.
+pub(crate) use reproduction::ReproVerdict;
 pub use reproduction::{
-    build_replay_json, fetch_bucket_package, materialize_pull, pull_global, report_tester_capture,
-    reproduce_bucket, verify_tester_capture, PulledRepro,
+    build_replay_json, fetch_bucket_package, pull_global, report_tester_capture, reproduce_bucket,
+    verify_tester_capture,
 };
-#[allow(unused_imports)] // Preserve the existing crate-level verdict façade.
-pub(crate) use reproduction::{classify_repro, ReproVerdict};
+#[cfg(test)]
+use reproduction::{classify_repro, materialize_pull};
 pub use setup::{git_toplevel, setup};
 use transport::Cloud;
-#[allow(unused_imports)] // Preserve the device-login response type façade.
 pub use transport::{
     bucket_app, device_login, pending_captures, raw, raw_buckets, validate_login, CloudProject,
-    DeviceLogin,
 };
 
 #[cfg(test)]

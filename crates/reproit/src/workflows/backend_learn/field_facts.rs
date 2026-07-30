@@ -84,6 +84,51 @@ pub(super) fn attribute_range(attributes: &[String]) -> Option<(Option<f64>, Opt
     let max = bound("max");
     (min.is_some() || max.is_some()).then_some((min, max))
 }
+/// The payload type a handler accepts, reduced to the bare name shape keys use:
+/// generics unwrapped (`ResponseEntity<Widget>` and `List<Widget>` both name `Widget`),
+/// the package or namespace qualifier dropped, and array suffixes stripped. Java and
+/// C# once had separate copies; the C# one kept generics intact, so a generic
+/// `[FromBody]` type could never match its declaration.
+pub(super) fn bare_type(raw: &str) -> String {
+    let inner = raw
+        .split_once('<')
+        .and_then(|(_, rest)| rest.rsplit_once('>'))
+        .map(|(inner, _)| inner)
+        .unwrap_or(raw);
+    inner
+        .rsplit('.')
+        .next()
+        .unwrap_or(inner)
+        .trim()
+        .trim_end_matches("[]")
+        .to_string()
+}
+
+/// The members of a comma-separated literal list (`"a", "b"`), or None when any
+/// member is not a literal: a variable in the list means the accepted set is not
+/// knowable from this expression. `quotes` names the language's string delimiters
+/// (JS adds the backtick), and `bare_numbers` accepts unquoted numeric members
+/// where the language's idiom uses them. Fewer than two members is not a set.
+pub(super) fn literal_values(
+    inner: &str,
+    quotes: &[char],
+    bare_numbers: bool,
+) -> Option<Vec<String>> {
+    let mut values = Vec::new();
+    for part in inner.split(',') {
+        let item = part.trim();
+        if item.is_empty() {
+            continue;
+        }
+        let unquoted = item.trim_matches(quotes);
+        if unquoted == item && !(bare_numbers && item.parse::<f64>().is_ok()) {
+            return None;
+        }
+        values.push(unquoted.to_string());
+    }
+    (values.len() > 1).then_some(values)
+}
+
 pub(super) fn apply_rename_all(variant: &str, rule: Option<&str>) -> String {
     match rule {
         Some("snake_case") => to_snake(variant),

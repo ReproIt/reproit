@@ -13,15 +13,17 @@ use std::path::Path;
 pub const EVENT_MARKER: &str = "REPROIT:BACKEND ";
 
 mod contracts;
-#[allow(unused_imports)]
 pub use contracts::{
-    AuthorizationDecision, AuthorizationDenyPolicy, AuthorizationPrincipal, BackendAccount,
-    BackendAuth, BackendConfig, BackendInvariant, BackendLogin, BackendProofContract, BackendReset,
-    BackendResetStep, CodecProjection, ConcurrencyPolicy, ControlledFailureWitness, FleetInvariant,
-    QueryComparison, QueryFilterContract, QueryPaginationContract, QuerySortContract,
-    QuerySortDirection, QuerySortType, ResourceConsistency, ResourceCreateContract,
-    ResourceFieldContract, ResourceLifecycleContract, ResourceMutationContract,
-    ResourceReadContract, RoundTripCheck,
+    AuthorizationDecision, BackendAuth, BackendConfig, BackendInvariant, BackendLogin,
+    BackendProofContract, BackendReset, BackendResetStep, CodecProjection, ConcurrencyPolicy,
+    FleetInvariant, QueryComparison, QueryFilterContract, QueryPaginationContract,
+    QuerySortContract, QuerySortDirection, QuerySortType, ResourceConsistency,
+    ResourceLifecycleContract, ResourceMutationContract, RoundTripCheck,
+};
+#[cfg(test)]
+use contracts::{
+    AuthorizationDenyPolicy, AuthorizationPrincipal, ControlledFailureWitness,
+    ResourceCreateContract, ResourceFieldContract, ResourceReadContract,
 };
 
 mod config;
@@ -32,11 +34,9 @@ use schema_document::graphql_sdl_document;
 pub use schema_document::load_service_document;
 pub(crate) use schema_document::MAX_SCHEMA_FILE_BYTES;
 mod operation;
-#[allow(unused_imports)]
-pub use operation::{
-    Authority, FunctionSummary, IdempotencyResponseReplay, OperationContract, ProgramSummary,
-    StaticEffect, ValueSlot,
-};
+pub use operation::{Authority, IdempotencyResponseReplay, OperationContract, ProgramSummary};
+#[cfg(test)]
+use operation::{FunctionSummary, StaticEffect, ValueSlot};
 
 mod domain;
 use domain::default_true;
@@ -319,10 +319,9 @@ pub fn write_evidence(
 }
 
 mod graph;
-#[allow(unused_imports)]
-pub use graph::{
-    build_graph, CausalContractGraph, GraphEdge, GraphNode, GraphNodeKind, GraphRelation,
-};
+pub use graph::build_graph;
+#[cfg(test)]
+use graph::GraphRelation;
 mod schema_import;
 #[cfg(test)]
 use schema_import::import_graphql;
@@ -330,13 +329,15 @@ pub use schema_import::{import_openapi, import_service_schema};
 mod schema_validation;
 pub use schema_validation::{validate_openapi_parameter_uniqueness, BackendSchemaViolation};
 mod protocol;
-#[allow(unused_imports)]
+#[cfg(test)]
+use protocol::{
+    validate_http_byte_range, validate_http_redirect_transition, validate_websocket_contract,
+    WebSocketContract, WebSocketEvidence,
+};
 pub use protocol::{
-    validate_http_byte_range, validate_http_conditional_cache, validate_http_redirect_transition,
-    validate_http_response_media_type, validate_protocol_lifecycle, validate_websocket_contract,
-    HttpExchangeEvidence, ProtocolEvidence, ProtocolLifecycleContract, ProtocolLifecycleEvent,
-    ProtocolLifecycleEvidence, ProtocolLifecycleRule, ProtocolViolation, WebSocketContract,
-    WebSocketEvidence,
+    validate_http_conditional_cache, validate_http_response_media_type,
+    validate_protocol_lifecycle, HttpExchangeEvidence, ProtocolEvidence, ProtocolLifecycleContract,
+    ProtocolLifecycleEvent, ProtocolLifecycleEvidence, ProtocolLifecycleRule,
 };
 
 fn canonical_json(value: &Value) -> String {

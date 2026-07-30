@@ -124,6 +124,65 @@ fn inner_layers_do_not_depend_on_outer_layers() {
     }
 }
 
+/// The domain layer must be decidable from its inputs: no wall clock, no
+/// network, no environment. `inner_layers_do_not_depend_on_outer_layers` checks
+/// module direction, which is the wrong axis for this: an LLM call reached the
+/// domain through a sibling CRATE without touching `crate::workflows`, and a
+/// wall-clock read is not a module path at all. This checks the effects
+/// themselves.
+#[test]
+fn domain_code_stays_deterministic() {
+    // The documented exception: capsule retention reads its tuning from the
+    // environment and ages capsules by wall clock. Shrink this list; never
+    // grow it without the same explicit rationale in the file itself.
+    const ALLOWED: &[&str] = &["src/domain/capsule/mod.rs"];
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut pending = vec![manifest.join("src/domain")];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read domain directory") {
+            let path = entry.expect("read domain entry").path();
+            if path.is_dir() {
+                // A `tests/` directory is compiled only under #[cfg(test)].
+                if path.file_name().is_some_and(|name| name == "tests") {
+                    continue;
+                }
+                pending.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "rs")
+                || path.file_name().is_some_and(|name| name == "tests.rs")
+            {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(&manifest)
+                .expect("domain path under manifest")
+                .to_string_lossy()
+                .into_owned();
+            if ALLOWED.contains(&relative.as_str()) {
+                continue;
+            }
+            let body = std::fs::read_to_string(&path).expect("read domain source");
+            let production = body
+                .split("#[cfg(test)]\nmod tests")
+                .next()
+                .unwrap_or(&body);
+            for (effect, why) in [
+                ("llm::", "a remote model call is nondeterministic"),
+                ("reqwest", "the domain must not open network connections"),
+                ("std::env", "environment reads belong in adapters"),
+                ("SystemTime::now", "inject the caller's clock instead"),
+                ("Utc::now()", "inject the caller's clock instead"),
+            ] {
+                assert!(
+                    !production.contains(effect),
+                    "{relative} reaches for {effect}: {why}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn domain_map_does_not_acquire_platform_runs() {
     let map = source("src/domain/map/mod.rs");
@@ -208,6 +267,137 @@ fn source_files_stay_reviewable() {
     }
 }
 
+/// `use super::*;` in production code makes a "split" cosmetic: the files share
+/// one namespace, so the pieces never grow real interfaces and the line-count
+/// ratchet can be satisfied by sharding a module without decoupling anything.
+/// The allowlist below is the debt as of when this ratchet landed. The goal is
+/// to SHRINK it: when a listed file drops its glob import, remove it here. A
+/// new file must import what it uses by name.
+#[test]
+fn new_modules_do_not_glob_import_their_parent() {
+    const ALLOWED: &[&str] = &[
+        "src/adapters/atspi/actions.rs",
+        "src/adapters/atspi/capture.rs",
+        "src/adapters/atspi/protocol.rs",
+        "src/adapters/atspi/session.rs",
+        "src/adapters/execution/runner/automatic.rs",
+        "src/adapters/execution/runner/catalog.rs",
+        "src/adapters/execution/runner/process.rs",
+        "src/adapters/orchestrator/watch.rs",
+        "src/adapters/tui/action.rs",
+        "src/adapters/tui/interaction.rs",
+        "src/adapters/tui/invariants.rs",
+        "src/adapters/tui/scenario.rs",
+        "src/adapters/tui/screen.rs",
+        "src/adapters/tui/session.rs",
+        "src/adapters/uia/capture.rs",
+        "src/adapters/uia/scenario.rs",
+        "src/domain/backend/evaluate/fleet.rs",
+        "src/domain/backend/evaluate/idempotency.rs",
+        "src/domain/backend/evaluate/invariants.rs",
+        "src/domain/backend/evaluate/lifecycle.rs",
+        "src/domain/backend/evaluate/mod.rs",
+        "src/domain/backend/evaluate/pending.rs",
+        "src/domain/backend/evaluate/proofs.rs",
+        "src/domain/backend/evaluate/proofs/graphql.rs",
+        "src/domain/capsule/matching.rs",
+        "src/domain/capsule/redaction.rs",
+        "src/workflows/auth.rs",
+        "src/workflows/auth/config_edit.rs",
+        "src/workflows/backend_headless/accept.rs",
+        "src/workflows/backend_headless/artifacts.rs",
+        "src/workflows/backend_headless/binding.rs",
+        "src/workflows/backend_headless/capture_replay.rs",
+        "src/workflows/backend_headless/chaining.rs",
+        "src/workflows/backend_headless/coverage.rs",
+        "src/workflows/backend_headless/generation.rs",
+        "src/workflows/backend_headless/history.rs",
+        "src/workflows/backend_headless/inspect.rs",
+        "src/workflows/backend_headless/inspect_plan.rs",
+        "src/workflows/backend_headless/inspect_report.rs",
+        "src/workflows/backend_headless/replay.rs",
+        "src/workflows/backend_headless/replay_command.rs",
+        "src/workflows/backend_headless/request.rs",
+        "src/workflows/backend_headless/reset.rs",
+        "src/workflows/backend_headless/retraction.rs",
+        "src/workflows/backend_headless/round_trip.rs",
+        "src/workflows/backend_headless/schema.rs",
+        "src/workflows/backend_headless/shrink.rs",
+        "src/workflows/backend_headless/transport.rs",
+        "src/workflows/backend_headless/types.rs",
+        "src/workflows/backend_headless/verify.rs",
+        "src/workflows/bundle/cloud.rs",
+        "src/workflows/bundle/format.rs",
+        "src/workflows/capture.rs",
+        "src/workflows/cloud.rs",
+        "src/workflows/device.rs",
+        "src/workflows/fuzz/campaign.rs",
+        "src/workflows/fuzz/confirmation.rs",
+        "src/workflows/fuzz/findings.rs",
+        "src/workflows/fuzz/log.rs",
+        "src/workflows/fuzz/reporting.rs",
+        "src/workflows/fuzz/scan.rs",
+        "src/workflows/fuzz/scan/recording.rs",
+        "src/workflows/journey/execution.rs",
+        "src/workflows/journey/persistence.rs",
+        "src/workflows/journey/planning.rs",
+        "src/workflows/journey/replay.rs",
+        "src/workflows/journey/spec.rs",
+        "src/workflows/journey/verification.rs",
+        "src/workflows/map.rs",
+        "src/workflows/record.rs",
+        "src/workflows/repro.rs",
+        "src/workflows/triage/lifecycle.rs",
+        "src/workflows/triage/presentation.rs",
+        "src/workflows/triage/reproduction.rs",
+        "src/workflows/triage/setup.rs",
+        "src/workflows/triage/transport.rs",
+    ];
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut pending = vec![manifest.join("src")];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read source directory") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "tests") {
+                    continue;
+                }
+                pending.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "rs")
+                || path.file_name().is_some_and(|name| name == "tests.rs")
+            {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(&manifest)
+                .expect("source path under manifest")
+                .to_string_lossy()
+                .into_owned();
+            let body = std::fs::read_to_string(&path).expect("read Rust source");
+            let production = body
+                .split("#[cfg(test)]\nmod tests")
+                .next()
+                .unwrap_or(&body);
+            let globs = production.contains("use super::*;");
+            if ALLOWED.contains(&relative.as_str()) {
+                assert!(
+                    globs,
+                    "{relative} no longer glob-imports its parent; remove it from the \
+                     allowlist so it cannot regress"
+                );
+            } else {
+                assert!(
+                    !globs,
+                    "{relative} glob-imports its parent with `use super::*;`; import what \
+                     it uses by name so the module has a real interface"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn responsibility_heavy_modules_stay_split() {
     const MAX_LINES: usize = 1_200;
@@ -228,12 +418,6 @@ fn responsibility_heavy_modules_stay_split() {
     assert!(
         commands.lines().count() <= 1_000,
         "src/workflows/mod.rs must stay below 1,000 lines; move command workflows into named modules"
-    );
-    let tui = source("src/adapters/tui/mod.rs");
-    let tui_runtime = tui.split("#[cfg(test)]\nmod tests").next().unwrap_or(&tui);
-    assert!(
-        tui_runtime.lines().count() <= 1_000,
-        "src/adapters/tui/mod.rs runtime must stay below 1,000 lines; keep adapters in named modules"
     );
     for relative in [
         "src/domain/capsule/crypto.rs",

@@ -41,8 +41,8 @@ mod graph;
 mod recheck;
 
 pub use evaluate::evaluate;
-#[allow(unused_imports)] // Preserve the existing finding-constructor façade for callers/tests.
-pub use finding::{advisory_finding, finding};
+#[cfg(test)]
+use finding::advisory_finding;
 #[cfg(test)]
 use graph::permission_traps;
 pub use recheck::{
