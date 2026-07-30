@@ -182,6 +182,23 @@ def git_bytes(repo: Path, *args: str) -> bytes:
 
 
 def commits(repo: Path, base: str, head: str) -> list[str]:
+    # A force-push hands CI a `before` sha that no longer exists (the amended
+    # commit orphaned it). The declarations of reachable history were already
+    # gated when they first landed, so the honest fallback is to gate the head
+    # commit alone rather than fail on an unevaluable range.
+    base_reachable = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-e", f"{base}^{{commit}}"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if base_reachable.returncode != 0:
+        print(
+            f"self-dogfood fix policy: base {base} is unreachable "
+            "(force-push); gating the head commit only",
+            file=sys.stderr,
+        )
+        return [git(repo, "rev-parse", head).strip()]
     listed = git(repo, "rev-list", "--no-merges", f"{base}..{head}").split()
     if len(listed) > MAX_COMMITS:
         raise PolicyError(

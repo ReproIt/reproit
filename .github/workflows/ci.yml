@@ -54,7 +54,7 @@ jobs:
           REPROIT_NO_UPDATE_CHECK: "1"
         run: |
           target/debug/reproit --json --yes check \
-            self-dogfood-cli-backend-root --runs 3
+            self-dogfood-cli-backend-root
       - name: Replay the complete required self-dogfood guard corpus
         env:
           REPROIT_NO_UPDATE_CHECK: "1"

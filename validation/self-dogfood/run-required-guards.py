@@ -65,8 +65,6 @@ def replay_required_guards(repo: Path, binary: str, guards: list[str]) -> int:
             "check",
             guard,
             "--strict",
-            "--runs",
-            "3",
         ]
         try:
             result = subprocess.run(

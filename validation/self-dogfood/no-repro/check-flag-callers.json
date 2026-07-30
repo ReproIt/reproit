@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "check-flag-callers",
+  "detail": "The vocabulary purge moved check's per-project knobs (--runs and friends) into gate config but left four repo callers passing the deleted flag, so the guard replay step exited 2 with a usage error in CI; separately the policy gate errored on the force-pushed range whose before-sha was orphaned. Both defects live in CI wiring, so no runtime guard can hold them; the bounded regression test greps every workflow and self-dogfood runner for dead check flags, failing on the parent (the callers still pass --runs) and passing on the fix (callers rely on gate.runs: 3 in the project config, pinned by the ci-enforcement contract).",
+  "test": "validation/self-dogfood/test_check_flag_callers.py",
+  "command": [
+    "python3",
+    "validation/self-dogfood/test_check_flag_callers.py"
+  ],
+  "timeoutSeconds": 60,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/check-flag-callers.log",
+      "sha256": "sha256:27316d20216603511eabc1feed407dc7df1d56c0821f26b6a966a845de422333"
+    }
+  ]
+}

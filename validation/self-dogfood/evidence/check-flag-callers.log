@@ -1,0 +1,20 @@
+CI run 30573479153 (push of d957df54040a7b60e39d7d71889ca633ef949997), job
+"rust", step "Replay changed Reproit self-dogfood guards first":
+
+  target/debug/reproit --json --yes check \
+    self-dogfood-cli-backend-root --runs 3
+  error: unexpected argument '--runs' found
+  Usage: reproit check <CAPTURE>
+  ##[error]Process completed with exit code 2.
+
+Job "dogfood-policy", step "Enforce the self-dogfood bug-fix declaration
+policy" (same push):
+
+  self-dogfood fix policy: git rev-list --no-merges
+  8540ea2ce75fb6a4d10718612d0f90a11b7b2894..d957df54040a7b60e39d7d71889ca633ef949997
+  failed: fatal: Invalid revision range
+  ##[error]Process completed with exit code 1.
+
+Cause: the vocabulary purge removed check's --runs flag (moved to gate
+config) but four repo callers still passed it, and the policy gate could
+not evaluate a force-push whose before-sha was orphaned.

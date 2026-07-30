@@ -20,3 +20,5 @@ journeys:
 evidence:
   outDir: .reproit/runs
   video: false
+gate:
+  runs: 3
