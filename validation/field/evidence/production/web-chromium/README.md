@@ -4,13 +4,14 @@ This directory retains the sanitized D5 production-to-local chain for
 `web-chromium`.
 
 - Qualification: `FixtureQualified`
-- CLI revision: `git:52407f4d58671e05ac541cc8c674785032a2f3af`
-- SDK revision: `git:52407f4d58671e05ac541cc8c674785032a2f3af`
+- CLI revision: `git:d47b153d3f37c2ec3e9e703bd13d7d633a8d532e`
+- SDK revision: `git:d47b153d3f37c2ec3e9e703bd13d7d633a8d532e`
 - Playwright engine: `chromium`
-- Cloud endpoint: `https://cloud.reproit.com`
+- Cloud endpoint: `https://cloud.reproit.com` (Fly release v82, the build that
+  serves the occurrence id the bucket detail advertises)
 - Retained record: `record.json`
 - Chain SHA-256:
-  `sha256:7eb2bae030139dbe47bb4b1f05b509d9856e1f7600b5900fba3748eeccfeb790`
+  `sha256:860a019751d380bdfd18bf55fc94c7e1c0e22089ab55cadab1e93fdd07f3564f`
 
 The run created a disposable project, ingested 500 strict protocol-v1
 occurrences, retained redaction markers, materialized the resulting bucket,

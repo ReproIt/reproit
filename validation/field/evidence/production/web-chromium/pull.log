@@ -1,10 +1,4 @@
-Pulled bucket bkt_a3a6b74fec06 from 'release-gate-web-chromium-52407f4-2531a1' as a local repro.
-  structural bug: bug_a3a6b74fec06
-  expected:  TypeError: ReproitContractError
-  signature: crash:ReproitContractError:production-gate
-  replay:    tap:key:testid:contract-crash
-  fixture:   checkout-name<-32 chars
-  saved:     rep_8b938a73ba53 (quarantined, alias bkt_a3a6b74fec06)
-  files:     /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.NLnJPB0Smm/.reproit/repros/8b938a73ba53/meta.json
-
-Next: run `reproit @bkt_a3a6b74fec06` to execute the saved replay against this target.
+Pulled occurrence occ_8533cc14471314d8 from Cloud
+Pulled occurrence occ_8533cc14471314d8
+  evidence: /private/var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.KF45iG4NYs/.reproit/occurrences/occ_8533cc14471314d8
+  run:      reproit occ_8533cc14471314d8

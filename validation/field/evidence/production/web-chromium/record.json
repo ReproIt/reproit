@@ -5,24 +5,24 @@
   "qualification": "FixtureQualified",
   "origin": {
     "kind": "fixture",
-    "summary": "hosted Cloud disposable project ingesting strict protocol-v1 production findings through the real SDK boundary, replayed locally from the returned bucket"
+    "summary": "hosted Cloud disposable project ingesting strict protocol-v1 production findings through the real SDK boundary, replayed locally from the returned occurrence"
   },
   "revisions": {
     "application": "sha256:8098ebc5c8cf00147de2bc7e6f61d2400e16bae793fdd373194616781bca050b",
-    "cli": "git:52407f4d58671e05ac541cc8c674785032a2f3af",
+    "cli": "git:d47b153d3f37c2ec3e9e703bd13d7d633a8d532e",
     "sdk": {
       "name": "reproit-web-protocol-v1",
-      "revision": "git:52407f4d58671e05ac541cc8c674785032a2f3af"
+      "revision": "git:d47b153d3f37c2ec3e9e703bd13d7d633a8d532e"
     }
   },
   "cloud": {
     "baseUrl": "https://cloud.reproit.com",
-    "projectId": "release-gate-web-chromium-52407f4-2531a1",
-    "occurrenceId": "release-gate-warmup-0-0-86dc2f9c30934848ba189b3267e008ac",
+    "projectId": "release-gate-20260730-070448-1bc578",
+    "occurrenceId": "occ_8533cc14471314d8",
     "bucketId": "bkt_a3a6b74fec06"
   },
   "local": {
-    "provider": "reproit-bucket-v1",
+    "provider": "reproit-occurrence-v1",
     "trusted": true
   },
   "execution": {
@@ -61,7 +61,7 @@
       },
       {
         "assertions": [
-          "bucket package materializes locally"
+          "occurrence package materializes locally"
         ],
         "command": "reproit BUCKET --no-run",
         "stage": "local-materialization"
@@ -70,14 +70,14 @@
         "assertions": [
           "outcome is fail and exit code is 1"
         ],
-        "command": "REPROIT_ENGINE=chromium reproit check --repro-id BUCKET --json",
+        "command": "REPROIT_ENGINE=chromium reproit --json OCCURRENCE",
         "stage": "exact-local-reproduction"
       },
       {
         "assertions": [
           "output contains REPRODUCED"
         ],
-        "command": "REPROIT_ENGINE=chromium reproit BUCKET",
+        "command": "REPROIT_ENGINE=chromium reproit OCCURRENCE",
         "stage": "direct-replay"
       },
       {
@@ -114,10 +114,10 @@
       "present": true,
       "required": true,
       "file": "project.json",
-      "bytes": 255,
+      "bytes": 245,
       "malformed": false,
-      "rawSha256": "sha256:d675d1d68c5ded696e8b1fe50c1b8332385000bed82699799061b86aad049ed0",
-      "sanitizedSha256": "sha256:458a09d186e8678528c6436dd76d30c22e656271552f88fcfa9ee2a6476f2ebf"
+      "rawSha256": "sha256:85536d386c9d374b6f8680bf1b9bb70f99c5759157e528d8463781278c30015f",
+      "sanitizedSha256": "sha256:4c324f36f03571d8dbad99055bd7f478ac533687decb6f86b29415e5e3063c9d"
     },
     {
       "id": "cloud-ingestion",
@@ -125,21 +125,21 @@
       "present": true,
       "required": true,
       "file": "hosted.json",
-      "bytes": 574,
+      "bytes": 532,
       "malformed": false,
-      "rawSha256": "sha256:009cad22ca17c5eb22b84b7f64ec4bc6d4784bf4bb7c726a266d3ff5c9c1692e",
-      "sanitizedSha256": "sha256:009cad22ca17c5eb22b84b7f64ec4bc6d4784bf4bb7c726a266d3ff5c9c1692e"
+      "rawSha256": "sha256:0644d35c5fe378ffe87027064d83afcd02e131d4f2008bc34c56668bad7fc61d",
+      "sanitizedSha256": "sha256:0644d35c5fe378ffe87027064d83afcd02e131d4f2008bc34c56668bad7fc61d"
     },
     {
       "id": "local-materialization",
-      "summary": "replay package pulled into a clean developer workspace",
+      "summary": "occurrence package pulled into a clean developer workspace",
       "present": true,
       "required": true,
       "file": "pull.log",
-      "bytes": 593,
+      "bytes": 256,
       "malformed": false,
-      "rawSha256": "sha256:f3e603d8799274addc9c724b164b02943abc61a4fa58d476c89f29ebb19ed183",
-      "sanitizedSha256": "sha256:f3e603d8799274addc9c724b164b02943abc61a4fa58d476c89f29ebb19ed183"
+      "rawSha256": "sha256:0d57bc38581188ad273c2bf7e92f5c2d2e70bb0830074cac3b216178383f7f70",
+      "sanitizedSha256": "sha256:0d57bc38581188ad273c2bf7e92f5c2d2e70bb0830074cac3b216178383f7f70"
     },
     {
       "id": "exact-local-reproduction",
@@ -147,21 +147,21 @@
       "present": true,
       "required": true,
       "file": "check.json",
-      "bytes": 691,
+      "bytes": 695,
       "malformed": false,
-      "rawSha256": "sha256:a11fabcc4bd41151a34bb4140f9648749769f26407e15f540d7cce78806ffa31",
-      "sanitizedSha256": "sha256:a11fabcc4bd41151a34bb4140f9648749769f26407e15f540d7cce78806ffa31"
+      "rawSha256": "sha256:44bcceb94ed0145c7ba022794d9efde6c011ec6e3cceee2a2cccc1a4b99e67de",
+      "sanitizedSha256": "sha256:44bcceb94ed0145c7ba022794d9efde6c011ec6e3cceee2a2cccc1a4b99e67de"
     },
     {
       "id": "direct-replay",
-      "summary": "direct bucket command confirmed the failure",
+      "summary": "direct occurrence command confirmed the failure",
       "present": true,
       "required": true,
       "file": "direct-replay.log",
-      "bytes": 777,
+      "bytes": 300,
       "malformed": false,
-      "rawSha256": "sha256:630428246cb53f0e519bc472fb8f7fd51baab41349cbb28a94c631fcb3bc4c97",
-      "sanitizedSha256": "sha256:630428246cb53f0e519bc472fb8f7fd51baab41349cbb28a94c631fcb3bc4c97"
+      "rawSha256": "sha256:74af300182e12991a3cd939975bde1815f0fc22f45100dda35a93e1991e9e6d6",
+      "sanitizedSha256": "sha256:74af300182e12991a3cd939975bde1815f0fc22f45100dda35a93e1991e9e6d6"
     },
     {
       "id": "reproduction-stderr",
@@ -169,10 +169,10 @@
       "present": true,
       "required": false,
       "file": "check.err",
-      "bytes": 620,
+      "bytes": 619,
       "malformed": false,
-      "rawSha256": "sha256:4e18117d7e2c066c7f0de8c95bd83dede5e820d19d78838463fc17bc212b3076",
-      "sanitizedSha256": "sha256:4e18117d7e2c066c7f0de8c95bd83dede5e820d19d78838463fc17bc212b3076"
+      "rawSha256": "sha256:8cbce15e01d63919abdfa1b1156f4724ce3eaef01228bb7b4e481cbf912c32a3",
+      "sanitizedSha256": "sha256:8cbce15e01d63919abdfa1b1156f4724ce3eaef01228bb7b4e481cbf912c32a3"
     },
     {
       "id": "retention-and-deletion",
@@ -180,13 +180,13 @@
       "present": true,
       "required": true,
       "file": "delete.json",
-      "bytes": 62,
+      "bytes": 57,
       "malformed": false,
-      "rawSha256": "sha256:c1c7f215e558c1f47921605bdbddc16f9028662005f055456c4cce98286e228e",
-      "sanitizedSha256": "sha256:c1c7f215e558c1f47921605bdbddc16f9028662005f055456c4cce98286e228e"
+      "rawSha256": "sha256:1652efb2b775cff5f9d77fa55fcb7027ff1667335e540004714732059641a96f",
+      "sanitizedSha256": "sha256:1652efb2b775cff5f9d77fa55fcb7027ff1667335e540004714732059641a96f"
     }
   ],
   "missingRequiredStages": [],
   "qualificationBlockers": [],
-  "chainSha256": "sha256:7eb2bae030139dbe47bb4b1f05b509d9856e1f7600b5900fba3748eeccfeb790"
+  "chainSha256": "sha256:860a019751d380bdfd18bf55fc94c7e1c0e22089ab55cadab1e93fdd07f3564f"
 }
