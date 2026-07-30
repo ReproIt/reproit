@@ -13,7 +13,8 @@ mod unix {
     use std::process::Command;
 
     fn empty_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("reproit-bare-capture-{tag}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("reproit-bare-capture-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

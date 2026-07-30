@@ -16,7 +16,8 @@ fn reproit_bin() -> PathBuf {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("reproit-init-smoke-{name}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("reproit-init-smoke-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -81,7 +82,10 @@ fn assert_backend_scaffold(dir: &std::path::Path, stdout: &str, stderr: &str) {
         config.contains("backend:\n  enabled: true"),
         "not a backend scaffold:\n{config}"
     );
-    assert!(dir.join("openapi.yaml").is_file(), "no schema draft written");
+    assert!(
+        dir.join("openapi.yaml").is_file(),
+        "no schema draft written"
+    );
     assert!(dir.join(".reproit/.gitignore").is_file());
     // The scaffold init writes must be readable by init's own sibling
     // commands: `reproit list` failed on it with "missing field 'app'".

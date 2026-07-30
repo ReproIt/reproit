@@ -123,9 +123,7 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
     // is a statement, not an error: the scaffold the user asked for exists.
     let cfg_path = dir.join("reproit.yaml");
     if cfg_path.exists() && !force {
-        println!(
-            "  reproit.yaml already exists; leaving it untouched (use --force to regenerate)"
-        );
+        println!("  reproit.yaml already exists; leaving it untouched (use --force to regenerate)");
         return Ok(());
     }
     let platform = match platform {
@@ -588,7 +586,11 @@ fn init_web(dir: &Path, force: bool) -> Result<()> {
     // the managed runner dir is provisioned on demand and always real.
     let runner =
         crate::adapters::config::ensure_web_runner_dir(crate::VERSION, &|line| println!("{line}"))?;
-    write(&dir.join("reproit.yaml"), &web_config(None, &runner)?, force)?;
+    write(
+        &dir.join("reproit.yaml"),
+        &web_config(None, &runner)?,
+        force,
+    )?;
     Ok(())
 }
 
