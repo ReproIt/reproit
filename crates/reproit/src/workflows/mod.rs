@@ -114,6 +114,7 @@ where
             repro,
             reference,
             kind,
+            runs,
             junit,
             service,
             strict,
@@ -140,7 +141,10 @@ where
                     repro: repro.or(reference),
                     devices: gate.devices,
                     kind,
-                    runs: None,
+                    // The hidden contract flag wins; otherwise each path
+                    // applies its own default (gate.runs under a config,
+                    // one run for config-less suites).
+                    runs,
                     junit,
                     service,
                     strict,

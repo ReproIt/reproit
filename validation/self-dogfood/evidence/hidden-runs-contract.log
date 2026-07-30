@@ -1,0 +1,12 @@
+reproit-cloud CI run 30573495911 (push fca19af), job "test", step
+"self-dogfood migration-history guard":
+
+  cloud self-dogfood gate: guard check failed: error: unexpected argument
+  '--runs' found
+  ##[error]Process completed with exit code 1.
+
+Cause: the vocabulary purge deleted check's --runs flag entirely, but
+reproit-cloud's guard corpus is a config-less suite (no reproit.yaml to
+hold gate.runs), so its migration gate lost its only way to pin the
+repeat count. Restored as a hidden contract flag; each path's default is
+unchanged (gate.runs under a config, one run for config-less suites).

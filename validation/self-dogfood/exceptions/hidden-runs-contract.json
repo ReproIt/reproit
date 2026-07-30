@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "hidden-runs-contract",
+  "code": "environment-unreachable",
+  "detail": "The defect (check rejecting --runs) manifests only in the reproit-cloud repository's CI, whose config-less guard corpus calls this CLI; no test executed inside this repository's policy worktrees can reach that environment to reproduce the failure, so the retained evidence is the failing cloud run's log and the fix is the restored hidden contract flag with per-path defaults unchanged.",
+  "issue": "reproit-cloud CI run 30573479830 and 30573495911, job test, step self-dogfood migration-history guard",
+  "missingCapability": "cross-repository CI execution from a policy worktree",
+  "retainedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/hidden-runs-contract.log",
+      "sha256": "sha256:2b85b4252c49e3e92116f03abaf7ab6b6d8f96932890545ed63a634521bfc2f8"
+    }
+  ]
+}

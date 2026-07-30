@@ -343,6 +343,11 @@ pub(crate) enum Cmd {
         /// blocking too, so it gates the exit code like a required repro.
         #[arg(long)]
         strict: bool,
+        /// Contract override for config-less suite gates (the cloud repo's
+        /// guard corpus has no reproit.yaml to hold gate.runs). Projects use
+        /// the `gate:` config section instead.
+        #[arg(long, hide = true)]
+        runs: Option<u32>,
         /// Headless reproduction: report the verdict and exit without holding
         /// the replayed app for inspection. This is automatic for CI, agents,
         /// and scripts (non-TTY, --json, --yes); the flag forces it on a TTY.
