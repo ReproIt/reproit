@@ -204,11 +204,11 @@ pub(in crate::workflows) fn keep_repro(
             "  write {ci_workflow} (CI runs `reproit check`: 0 pass, 1 regression, 2 flaky, \
              3 stale)"
         )),
-        CiWiring::Appended => ctx.say(format!(
-            "  appended the reproit-check job to {ci_workflow}"
+        CiWiring::Appended => ctx.say(format!("  appended the reproit-check job to {ci_workflow}")),
+        CiWiring::AlreadyWired => ctx.say(format!(
+            "  CI already runs `reproit check` \
+             ({ci_workflow})"
         )),
-        CiWiring::AlreadyWired => ctx.say(format!("  CI already runs `reproit check` \
-             ({ci_workflow})")),
     }
     Ok(())
 }
@@ -301,7 +301,8 @@ mod tests {
     use super::*;
 
     fn temp_root(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("reproit-keep-ci-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("reproit-keep-ci-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -314,7 +315,10 @@ mod tests {
         assert_eq!(wiring, CiWiring::Written);
         let body = std::fs::read_to_string(root.join(&path)).unwrap();
         assert!(body.contains("run: reproit check"), "{body}");
-        assert!(body.contains("0 pass, 1 regression, 2 flaky, 3 stale"), "{body}");
+        assert!(
+            body.contains("0 pass, 1 regression, 2 flaky, 3 stale"),
+            "{body}"
+        );
         assert!(body.contains("pull_request:"), "{body}");
         // A repo without a package.json gets no npm step.
         assert!(!body.contains("npm install"), "{body}");

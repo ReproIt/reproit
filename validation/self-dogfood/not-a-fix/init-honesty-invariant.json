@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "init-honesty-invariant",
+  "changeType": "feature",
+  "detail": "Phase 4 of the init overhaul: sweep every init/doctor/find/check gap message into (what is known, then the exact next input), degrade the multi-service init bail to an honest exit-0 listing, teach doctor to report the zero-flag target plan instead of demanding a flag, and encode the invariant as the a_gap_is_always_phrased_as_the_next_input architecture test. Planned feature and message work, not a defect fix.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/doctor/backend.rs",
+      "sha256": "sha256:06caef7498c1da5fe7bea2abd8eb737b700747e5fe92bf90cb049531e05cb185"
+    },
+    {
+      "path": "crates/reproit/tests/architecture.rs",
+      "sha256": "sha256:a548380c4f7c2fe057202f874e831b524972b057d8fa1493c5203beb2a9e858d"
+    },
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/mod.rs",
+      "sha256": "sha256:91a80811f8f7fb4cd0382d1b740910e49ab4991c1ba61396c337d67bbe005cd5"
+    },
+    {
+      "path": "crates/reproit/src/workflows/backend_headless/schema.rs",
+      "sha256": "sha256:3a7ab89a1f473690e2b97acbebcb9683768a41b78b670f15b007a168880a9ce1"
+    }
+  ]
+}

@@ -19,13 +19,21 @@ impl BackendProject {
     /// scan, fuzz, and doctor load the full list.
     pub(crate) fn schema_paths(&self) -> Result<Vec<PathBuf>> {
         if self.config.schemas.is_empty() {
-            bail!("backend.enabled is true but backend.schemas is empty");
+            bail!(
+                "backend.enabled is true but backend.schemas lists nothing yet; add \
+                 your schema file(s) there, or run `reproit init` to derive a draft \
+                 from source"
+            );
         }
         let mut paths = Vec::with_capacity(self.config.schemas.len());
         for schema in &self.config.schemas {
             let target = self.root.join(schema);
             if !target.is_file() {
-                bail!("backend schema {} does not exist", target.display());
+                bail!(
+                    "backend schema {} is not on disk; fix its path under \
+                     backend.schemas, or run `reproit init` to regenerate the draft",
+                    target.display()
+                );
             }
             paths.push(target);
         }
@@ -205,8 +213,10 @@ pub(super) async fn ensure_live_target(
         .probe_path
         .clone()
         .expect("auto_target requires a probe path");
-    boot::install_process_reset(boot::RestartableServer::adopt(server, ready_port, ready_path))
-        .await;
+    boot::install_process_reset(boot::RestartableServer::adopt(
+        server, ready_port, ready_path,
+    ))
+    .await;
     Ok(true)
 }
 

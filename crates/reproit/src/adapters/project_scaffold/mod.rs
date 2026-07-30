@@ -273,7 +273,8 @@ fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<bool> {
 fn detection_assumption(dir: &Path) -> String {
     match backend_detect::detect_backend_framework(dir) {
         Some(found) => format!(
-            "  detected {} (from {}) but no schema; scaffolding a backend draft.\n  {}\n  \
+            "  detected {} (from {}); the schema is still to-write, so scaffolding a \
+             backend draft.\n  {}\n  \
              (override with --platform flutter|web|rn|android)",
             found.name, found.manifest, found.schema_hint
         ),

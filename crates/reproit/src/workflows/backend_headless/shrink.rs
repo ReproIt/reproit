@@ -21,9 +21,10 @@ pub(super) async fn shrink_findings(
             while index < setup.len() {
                 let mut candidate = setup.clone();
                 candidate.remove(index);
-                let verdict =
-                    replay_sequence(client, &candidate, &endpoint, &request, expected, None, None)
-                        .await?;
+                let verdict = replay_sequence(
+                    client, &candidate, &endpoint, &request, expected, None, None,
+                )
+                .await?;
                 if verdict == ReplayVerdict::Reproduced {
                     setup = candidate;
                 } else {

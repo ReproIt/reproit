@@ -675,6 +675,156 @@ fn absence_never_merges_with_a_negative_result() {
     );
 }
 
+/// A first-run user must never bounce off a dead end.
+///
+/// The Phase 0 ground truth (validation/field/init-ground-truth.md) recorded
+/// the bounce precisely: doctor exited 1 over "no target: the schema has no
+/// servers entry", scan errored with "the schema has no absolute server URL",
+/// an empty schema was "nothing to scan or fuzz", and the planted 500 hid
+/// behind "confirmation requires REPROIT_BACKEND_RESET_URL". Each was a
+/// statement of absence whose only action was a flag, and each cost the first
+/// run. The law the rewrites encoded: every gap is phrased as the exact next
+/// input, what is known first, then the command or file that provides the
+/// rest. A bug is never impossible, it is a to-do; a contract is never
+/// absent, it is a to-confirm.
+///
+/// This scans the user-facing init/doctor/find/check surfaces for the banned
+/// dead-end phrasings, and pins the next-input wording that replaced them so
+/// a reworded message cannot quietly restore the bounce. Comments may quote
+/// the old wording to explain a rewrite, so only non-comment lines are read,
+/// same as absence_never_merges_with_a_negative_result.
+#[test]
+fn a_gap_is_always_phrased_as_the_next_input() {
+    const SURFACES: &[&str] = &[
+        "src/workflows/doctor.rs",
+        "src/workflows/doctor/backend.rs",
+        "src/workflows/init_command.rs",
+        "src/workflows/find_command.rs",
+        "src/workflows/check.rs",
+        "src/workflows/check/backend_gate.rs",
+        "src/workflows/backend_target.rs",
+        "src/workflows/backend_learn/mod.rs",
+        "src/workflows/backend_learn/boot.rs",
+        "src/workflows/backend_learn/report.rs",
+        "src/workflows/backend_headless/mod.rs",
+        "src/workflows/backend_headless/schema.rs",
+        "src/adapters/project_scaffold/mod.rs",
+        "src/adapters/config/mod.rs",
+        "src/adapters/config/loader.rs",
+    ];
+    // Matched case-insensitively against non-comment production lines.
+    const BANNED: &[(&str, &str)] = &[
+        (
+            "no schema",
+            "a schema is never absent, it is a to-confirm: name the file to fill or \
+             the command that derives it",
+        ),
+        (
+            "unreproducible",
+            "a bug is never impossible, it is a to-do: name the missing capture",
+        ),
+        (
+            "not reproducible",
+            "a bug is never impossible, it is a to-do: name the missing capture",
+        ),
+        (
+            "has no servers entry",
+            "say what target resolution will do or needs, not what the schema lacks",
+        ),
+        (
+            "no absolute server url",
+            "name the next input (--target <url> / a running service), not the \
+             missing field",
+        ),
+        (
+            "nothing to scan or fuzz",
+            "an empty surface is a draft to fill, not a dead end",
+        ),
+        (
+            "not supported",
+            "state what IS read and the input that would extend it, never a bare \
+             unsupported",
+        ),
+        (
+            "unsupported",
+            "state what IS read and the input that would extend it, never a bare \
+             unsupported",
+        ),
+        (
+            "confirmation requires reproit_backend_reset_url",
+            "the reset also exists by letting reproit boot the service; name both \
+             routes",
+        ),
+        (
+            "pass --platform to override",
+            "a flag is an override on a working degrade, never the only action in \
+             an error",
+        ),
+    ];
+    for relative in SURFACES {
+        let body = source(relative);
+        let production = body
+            .split("#[cfg(test)]\nmod tests")
+            .next()
+            .unwrap_or(&body);
+        let printed: String = production
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_lowercase();
+        for (phrase, law) in BANNED {
+            assert!(
+                !printed.contains(phrase),
+                "{relative} says {phrase:?}, which is a dead end: {law}"
+            );
+        }
+    }
+
+    // The rewrites are pinned, not just the bans: each gap surface must keep
+    // naming the concrete next input alongside what it already knows.
+    for (relative, needle, why) in [
+        (
+            "src/workflows/doctor/backend.rs",
+            "boots the package.json",
+            "with no explicit target, doctor states the plan find executes rather \
+             than demanding a flag",
+        ),
+        (
+            "src/workflows/doctor/backend.rs",
+            "start your service and name it",
+            "when nothing can boot, the failing check names the exact next input",
+        ),
+        (
+            "src/workflows/backend_headless/schema.rs",
+            "reproit find",
+            "the unresolved-target error names the command that resolves it unflagged",
+        ),
+        (
+            "src/workflows/backend_headless/mod.rs",
+            "run bare `reproit find`",
+            "an unconfirmed candidate is a to-do naming both confirmation routes",
+        ),
+        (
+            "src/workflows/backend_learn/mod.rs",
+            "nothing was scaffolded",
+            "a multi-service root degrades honestly: list the services found, write \
+             nothing, and say so",
+        ),
+        (
+            "src/workflows/backend_learn/mod.rs",
+            "&& reproit init",
+            "the monorepo degrade names the exact command to run next",
+        ),
+    ] {
+        let body = source(relative);
+        assert!(
+            body.contains(needle),
+            "{relative} no longer says {needle:?}: {why}"
+        );
+    }
+}
+
 #[test]
 fn a_multi_schema_project_is_never_narrowed_to_one() {
     // Three bugs have had this exact shape: one code path counts every declared
@@ -684,6 +834,7 @@ fn a_multi_schema_project_is_never_narrowed_to_one() {
     // and fixing one leaves the other silently narrowed.
     for relative in [
         "src/workflows/doctor.rs",
+        "src/workflows/doctor/backend.rs",
         "src/workflows/backend_target.rs",
         "src/workflows/backend_learn/drift.rs",
     ] {

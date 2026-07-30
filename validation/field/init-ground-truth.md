@@ -653,3 +653,124 @@ workflow written, check exit 1 on the broken app and exit 0 on the fixed one.
 Engine selection, the oracle expert door, CI wiring idempotence, and URL rebasing are
 pinned by colocated tests (find_command, repro::keep, backend replay_command).
 
+
+## Phase 4 result (2026-07-30)
+
+The honesty invariant, encoded: `reproit init`, `reproit doctor`, and the find/check
+surfaces never state a bare absence. Every gap now reads as (what is known, then the
+exact next input, with the command or file that provides it). Rebuilt the three
+fixtures in scratch space plus a two-service monorepo, re-ran the rebuilt release
+binary, and captured every changed message verbatim, before against after.
+
+### Fixture A (stock Express): doctor no longer fails over the target
+
+Init unchanged in shape (exit 0, boots, probes 4 of 4, `find` next step). Doctor,
+which in Phase 0 was the first dead end, now exits 0. Before (Phase 0):
+
+```
+  MISSING target
+          no target: the schema has no servers entry
+          fix: pass `--target <url>` to scan/fuzz, set REPROIT_BACKEND_URL, or set backend.target in reproit.yaml
+doctor: required checks failed   (exit 1)
+```
+
+After (verbatim):
+
+```
+  ok      target
+          no explicit target; `reproit find` boots the package.json `start` script itself and tears it down after the run (override with --target <url>, REPROIT_BACKEND_URL, or backend.target)
+doctor: required checks passed   (exit 0)
+```
+
+Doctor decides this with the same two-signal trust the boot machinery uses, without
+booting anything (`boot::auto_target_plan`): a verified already-running server
+reports as "a server on port N answers <route> and matches this schema, so runs will
+use it" and is then probed for reachability and adapter tier.
+
+### Bare `reproit scan` with no target (fixture A, nothing running)
+
+Before: `Error: the schema has no absolute server URL; set REPROIT_BACKEND_URL to
+the disposable service`. After (verbatim):
+
+```
+Error: no service URL is named yet. Run bare `reproit find` (it boots the service itself from the package.json start script), or start your service and pass --target <url> (or set REPROIT_BACKEND_URL / backend.target)
+```
+
+### Fixtures B and C (raw node / empty repo): the failing checks name the next input
+
+Doctor still exits 1 on the empty-draft scaffold (there is genuinely nothing to run
+yet), but both required failures are now phrased as the next input. Before:
+`MISSING schema ... fix: the schema parses but declares no executable operations`
+and the servers-entry target failure above. After (verbatim):
+
+```
+  MISSING schema
+          openapi.yaml (0 operation(s))
+          fix: the schema parses but declares 0 operations so far; add the routes your service serves, or rerun `reproit init` from the service's source root to derive them
+  MISSING target
+          no target named yet, and nothing here to boot one from
+          fix: start your service and name it: `reproit find --target <url>` (or set REPROIT_BACKEND_URL / backend.target, or add a servers entry to the schema)
+```
+
+Init's degrade wording for a detected-but-schemaless framework also dropped its
+"but no schema" phrasing: it now prints "detected <framework> (from <manifest>);
+the schema is still to-write, so scaffolding a backend draft." with the same hint
+and override lines.
+
+### Monorepo root: the multi-service Ambiguous bail is now an honest degrade
+
+Two express services under one root with a root package.json. Before, init exited 1:
+`Error: init found 2 services under this root (svc-a, svc-b). Run it from one
+service's directory, so the derived schema describes a single service`. After,
+exit 0, nothing written (verified: no reproit.yaml/openapi.yaml/.reproit), verbatim:
+
+```
+  found 2 services under this root: svc-a, svc-b.
+  One derived schema would merge routes no single service serves, so nothing was scaffolded.
+  Next: run `reproit init` inside the service you want (e.g. `cd svc-a && reproit init`)
+```
+
+### Other rewrites in the same sweep (old -> new, all verbatim)
+
+- fuzz candidate confirmation (user-owned target): "stateful or non-idempotent
+  confirmation requires REPROIT_BACKEND_RESET_URL" -> "to confirm from clean state,
+  run bare `reproit find` (a service reproit boots itself restarts as the reset), or
+  set REPROIT_BACKEND_RESET_URL to a state-reset endpoint".
+- scan/fuzz over an empty schema: "the backend schema(s) contain no executable
+  operations" -> "the schema (<files>) declares 0 executable operations so far; add
+  the routes your service serves (paths and methods), or rerun `reproit init` from
+  the service's source root to derive them".
+- `reproit init <url>` on an empty schema: "declares no executable operations;
+  nothing to scan or fuzz" -> "declares 0 executable operations so far; point init
+  at the schema that lists your operations (e.g. /openapi.json), or run bare
+  `reproit init` from the service's source root to derive one".
+- check gate with no configured schema: "backend project has no schema; set
+  backend.schemas" -> "the backend schema for this check is still to-configure:
+  list your schema file(s) under backend.schemas in reproit.yaml, or run
+  `reproit init` to derive a draft from source".
+- schema_paths: "backend.enabled is true but backend.schemas is empty" and
+  "backend schema <path> does not exist" both gained the same to-do phrasing with
+  the file/command to provide.
+- `reproit surface`: "no schema in this service: nothing declares this surface, so
+  nothing tests it" -> "the schema for this service is still to-write: nothing
+  declares this surface yet (run `reproit init` here to derive a draft from these
+  routes)".
+- config loader: "unsupported platform <p>; known: <list>" -> "app.platform <p> is
+  not one reproit knows; set it to one of: <list>".
+
+### Encoded as an architecture test
+
+`a_gap_is_always_phrased_as_the_next_input` (crates/reproit/tests/architecture.rs)
+scans the non-comment production text of the init/doctor/find/check surfaces for the
+banned dead-end phrasings ("no schema", "unreproducible", "not reproducible",
+"has no servers entry", "no absolute server URL", "nothing to scan or fuzz",
+"not supported", "unsupported", "confirmation requires REPROIT_BACKEND_RESET_URL",
+"pass --platform to override") and pins the replacement next-input wordings so a
+reword cannot quietly restore the bounce. Its docstring names the failure it
+prevents: a first-run user bouncing off a dead-end error.
+
+### Structure
+
+doctor.rs crossed the 1000-line reviewability cap during the sweep and was split at
+the backend/app boundary (workflows/doctor/backend.rs), the same split check.rs
+uses; the multi-schema narrowing ratchet now covers both files.

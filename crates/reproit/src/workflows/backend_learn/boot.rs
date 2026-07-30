@@ -63,6 +63,62 @@ async fn nonce_is_absent(client: &reqwest::Client, port: u16) -> bool {
     probe_status(client, port, &nonce).await == Some(404)
 }
 
+/// The bounded client every verification probe uses.
+fn probe_client() -> Option<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(VERIFY_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()
+        .ok()
+}
+
+/// Scan the conventional dev ports for a server passing the two-signal match
+/// on `path`. Returns the matched port (if any) plus the ports that were
+/// silent, the only acceptable fallback addresses for a boot whose start
+/// script ignores `PORT`.
+async fn scan_conventional_ports(client: &reqwest::Client, path: &str) -> (Option<u16>, Vec<u16>) {
+    let mut silent = Vec::new();
+    for port in CONVENTIONAL_PORTS {
+        match probe_status(client, port, path).await {
+            None => silent.push(port),
+            // Occupied by something that does not serve this repo's routes:
+            // never trusted, and never reused as a boot fallback either.
+            Some(404) => {}
+            Some(_) if nonce_is_absent(client, port).await => return (Some(port), silent),
+            Some(_) => {}
+        }
+    }
+    (None, silent)
+}
+
+/// What zero-flag target resolution WOULD do, decided without booting
+/// anything: the already-running match (same two-signal trust as
+/// `auto_target`) or the package.json script a run would boot. Doctor reports
+/// this so "no explicit target" reads as the plan find/check execute, never
+/// as a demand for a flag.
+pub(crate) enum AutoTargetPlan {
+    /// A server already answering the verify path with the two-signal match.
+    Running(u16),
+    /// The package.json script (`start` or `dev`) a run would boot.
+    Boot(String),
+}
+
+pub(crate) async fn auto_target_plan(
+    root: &Path,
+    verify_path: Option<&str>,
+) -> Option<AutoTargetPlan> {
+    // Same precondition as auto_target: with no parameterless GET route there
+    // is nothing to verify a server against and nothing to await a boot on,
+    // so no plan may be promised.
+    let path = verify_path?;
+    if let Some(client) = probe_client() {
+        if let (Some(port), _) = scan_conventional_ports(&client, path).await {
+            return Some(AutoTargetPlan::Running(port));
+        }
+    }
+    start_script(root).map(|(name, _)| AutoTargetPlan::Boot(name))
+}
+
 /// Resolve a live target with zero flags, or None (with the reason said) when
 /// nothing can be trusted. `verify_path` is a derived parameterless GET route;
 /// with none there is nothing to verify against and nothing worth probing.
@@ -72,32 +128,19 @@ pub(crate) async fn auto_target(
     verify_path: Option<&str>,
 ) -> Option<AutoTarget> {
     let path = verify_path?;
-    let client = reqwest::Client::builder()
-        .timeout(VERIFY_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::limited(3))
-        .build()
-        .ok()?;
-    let mut silent = Vec::new();
-    for port in CONVENTIONAL_PORTS {
-        match probe_status(&client, port, path).await {
-            None => silent.push(port),
-            // Occupied by something that does not serve this repo's routes:
-            // never trusted, and never reused as a boot fallback either.
-            Some(404) => {}
-            Some(_) if nonce_is_absent(&client, port).await => {
-                ctx.say(format!(
-                    "  found a server on port {port} answering {path} (it matches the \
-                     derived routes); assuming it is this service. Override with --target \
-                     <url>"
-                ));
-                return Some(AutoTarget {
-                    url: format!("http://127.0.0.1:{port}"),
-                    source: "already running, matched a derived route".to_string(),
-                    server: None,
-                });
-            }
-            Some(_) => {}
-        }
+    let client = probe_client()?;
+    let (matched, silent) = scan_conventional_ports(&client, path).await;
+    if let Some(port) = matched {
+        ctx.say(format!(
+            "  found a server on port {port} answering {path} (it matches the \
+             derived routes); assuming it is this service. Override with --target \
+             <url>"
+        ));
+        return Some(AutoTarget {
+            url: format!("http://127.0.0.1:{port}"),
+            source: "already running, matched a derived route".to_string(),
+            server: None,
+        });
     }
     let (name, command) = start_script(root)?;
     let port = free_port()?;

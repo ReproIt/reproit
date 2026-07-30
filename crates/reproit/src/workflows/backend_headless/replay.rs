@@ -97,11 +97,13 @@ pub(super) async fn replay_sequence(
     let rejected_cleanly = expected_oracle == Some("server-error")
         && matches!(failing_status, 400..=499)
         && !matches!(failing_status, 401 | 403 | 407 | 429);
-    Ok(if (200..400).contains(&failing_status) || rejected_cleanly {
-        ReplayVerdict::Fixed
-    } else {
-        ReplayVerdict::Inconclusive
-    })
+    Ok(
+        if (200..400).contains(&failing_status) || rejected_cleanly {
+            ReplayVerdict::Fixed
+        } else {
+            ReplayVerdict::Inconclusive
+        },
+    )
 }
 
 pub(super) fn apply_request_bindings(request: &mut RequestArtifact, outputs: &[Value]) -> bool {

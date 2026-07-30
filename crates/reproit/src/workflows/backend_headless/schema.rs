@@ -97,8 +97,9 @@ pub(super) fn service_base_url(document: &Value) -> Result<String> {
         .and_then(|servers| servers.first())
         .and_then(|server| server.get("url").and_then(Value::as_str))
         .context(
-            "the schema has no absolute server URL; set REPROIT_BACKEND_URL to the disposable \
-             service",
+            "no service URL is named yet. Run bare `reproit find` (it boots the service \
+             itself from the package.json start script), or start your service and pass \
+             --target <url> (or set REPROIT_BACKEND_URL / backend.target)",
         )?;
     let mut resolved = server.to_string();
     if let Some(variables) = document

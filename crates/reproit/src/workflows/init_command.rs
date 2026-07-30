@@ -71,8 +71,10 @@ pub(super) async fn run(
                     )?;
                 }
                 Classified::EmptySchema { kind } => bail!(
-                    "{url} parses as {kind} but declares no executable operations; nothing to \
-                     scan or fuzz"
+                    "{url} parses as {kind} but declares 0 executable operations so far; \
+                     point init at the schema that lists your operations (e.g. \
+                     /openapi.json), or run bare `reproit init` from the service's \
+                     source root to derive one"
                 ),
                 Classified::Html if backend_only => bail!(
                     "{url} returned an HTML page, not a backend schema. For the web UI workflow \

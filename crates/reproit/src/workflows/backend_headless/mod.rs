@@ -153,7 +153,12 @@ async fn run_target_with_policy(
         endpoint.policy = policy.clone();
     }
     if endpoints.is_empty() {
-        bail!("the backend schema(s) contain no executable operations");
+        bail!(
+            "the schema ({}) declares 0 executable operations so far; add the routes \
+             your service serves (paths and methods), or rerun `reproit init` from the \
+             service's source root to derive them",
+            schema_labels.join(", ")
+        );
     }
     if endpoints.len() > MAX_ENDPOINTS {
         bail!(
@@ -444,8 +449,9 @@ async fn run_target_with_policy(
                         "operation": endpoint.contract.id,
                         "reason": violation.reason,
                         "confirmation": concat!(
-                            "stateful or non-idempotent confirmation requires ",
-                            "REPROIT_BACKEND_RESET_URL"
+                            "to confirm from clean state, run bare `reproit find` (a ",
+                            "service reproit boots itself restarts as the reset), or ",
+                            "set REPROIT_BACKEND_RESET_URL to a state-reset endpoint"
                         ),
                     }));
                 }

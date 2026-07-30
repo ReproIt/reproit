@@ -18,7 +18,8 @@ fn reproit_bin() -> PathBuf {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("reproit-loop-smoke-{name}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("reproit-loop-smoke-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -184,11 +185,19 @@ fn three_command_loop_confirms_keeps_and_checks_the_planted_500() {
         .flatten()
         .map(|entry| entry.path())
         .find(|path| path.join("backend.json").is_file())
-        .unwrap_or_else(|| panic!("no kept backend guard under {}:\n{combined}", repros.display()));
+        .unwrap_or_else(|| {
+            panic!(
+                "no kept backend guard under {}:\n{combined}",
+                repros.display()
+            )
+        });
     assert!(guard.join("meta.json").is_file());
     let workflow = dir.join(".github/workflows/reproit.yml");
     let workflow_body = fs::read_to_string(&workflow).expect("CI workflow written");
-    assert!(workflow_body.contains("run: reproit check"), "{workflow_body}");
+    assert!(
+        workflow_body.contains("run: reproit check"),
+        "{workflow_body}"
+    );
     assert!(
         workflow_body.contains("0 pass, 1 regression, 2 flaky, 3 stale"),
         "{workflow_body}"
@@ -197,7 +206,11 @@ fn three_command_loop_confirms_keeps_and_checks_the_planted_500() {
     // `reproit check` against the BROKEN app: the guard reproduces, exit 1.
     let (stdout, stderr, code) = run_reproit(&dir, &["check"], Duration::from_secs(180));
     let combined = format!("{stdout}\n{stderr}");
-    assert_eq!(code, Some(1), "check must fail while the bug exists:\n{combined}");
+    assert_eq!(
+        code,
+        Some(1),
+        "check must fail while the bug exists:\n{combined}"
+    );
     assert!(
         combined.contains("REPRODUCED"),
         "the guard must name the returning bug:\n{combined}"

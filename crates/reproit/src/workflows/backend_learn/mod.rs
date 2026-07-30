@@ -60,14 +60,18 @@ pub(super) async fn run(
 ) -> Result<ExitCode> {
     // Deriving one schema from a root that holds several services merges their
     // routes into a contract no single service serves. Same reason the doctor
-    // contract check abstains there.
+    // contract check abstains there. Degrade honestly instead of erroring:
+    // state what was found, write nothing, and name the exact next input.
     if let drift::SourceRoot::Ambiguous(services) = drift::source_root(root, None) {
-        bail!(
-            "init found {} services under this root ({}). Run it from one service's \
-             directory, so the derived schema describes a single service",
+        ctx.say(format!(
+            "  found {} services under this root: {}.\n  One derived schema would merge \
+             routes no single service serves, so nothing was scaffolded.\n  Next: run \
+             `reproit init` inside the service you want (e.g. `cd {} && reproit init`)",
             services.len(),
-            services.join(", ")
-        );
+            services.join(", "),
+            services[0]
+        ));
+        return Ok(ExitCode::SUCCESS);
     }
     let Some(framework) = backend_detect::detect_backend_framework(root) else {
         bail!(

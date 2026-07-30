@@ -144,7 +144,8 @@ fn report_service(ctx: &Ctx, root: &Path, service: &Path) -> serde_json::Value {
     let schemas = declared_schemas(service);
     let schema = if schemas.is_empty() {
         ctx.say(
-            "  no schema in this service: nothing declares this surface, so nothing tests it"
+            "  the schema for this service is still to-write: nothing declares this \
+             surface yet (run `reproit init` here to derive a draft from these routes)"
                 .to_string(),
         );
         schema_absent()

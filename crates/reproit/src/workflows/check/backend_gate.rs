@@ -53,7 +53,11 @@ pub(super) async fn run_backend_gate(
 ) -> Result<ExitCode> {
     let root = backend_target::find(config_path)?.map(|project| project.root);
     let Some((schemas, config)) = backend_target::resolve(config_path)? else {
-        anyhow::bail!("backend project has no schema; set backend.schemas");
+        anyhow::bail!(
+            "the backend schema for this check is still to-configure: list your schema \
+             file(s) under backend.schemas in reproit.yaml, or run `reproit init` to \
+             derive a draft from source"
+        );
     };
     let root_path = match &root {
         Some(root) => root.clone(),

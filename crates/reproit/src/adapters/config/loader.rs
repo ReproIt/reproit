@@ -47,7 +47,7 @@ pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     let mut config: Config = serde_yaml::from_value(value)?;
     if crate::adapters::platform::resolve(&config.app.platform).is_none() {
         bail!(
-            "unsupported platform {:?}; known: {}",
+            "app.platform {:?} is not one reproit knows; set it to one of: {}",
             config.app.platform,
             crate::adapters::platform::known_ids()
         );
