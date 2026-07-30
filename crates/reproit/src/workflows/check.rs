@@ -85,17 +85,15 @@ pub(super) async fn run(
     }
     let loaded = match config::load(config_path) {
         Ok(loaded) => loaded,
-        // A backend-only project has no app config, and the capture-file
-        // re-evaluation needs none: route the file (unless a saved repro of
-        // the same name exists) instead of failing on the missing app section.
+        // A capture file is self-describing (its own operation, oracle, and
+        // events), so re-evaluating it needs no project at all: route it on the
+        // format marker alone rather than demanding a reproit.yaml. This is what
+        // makes `reproit check occurrence.json` a true one-command reproduction
+        // in a fresh directory. A same-named saved repro cannot exist here: with
+        // no config there is no project to resolve one against.
         Err(error) => {
-            if let (Some(reference), Some(project)) = (
-                args.repro.as_deref(),
-                super::backend_target::find(config_path)?,
-            ) {
-                if backend_headless::is_capture_file(Path::new(reference))
-                    && repro::resolve(&project.root, reference).is_none()
-                {
+            if let Some(reference) = args.repro.as_deref() {
+                if backend_headless::is_capture_file(Path::new(reference)) {
                     if args.record_video {
                         anyhow::bail!("backend captures do not produce screen video evidence");
                     }
