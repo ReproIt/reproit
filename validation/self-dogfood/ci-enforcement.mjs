@@ -47,14 +47,12 @@ async function requiredCorpusIsEnforced(root) {
     resolve(root, 'validation/self-dogfood/run-required-guards.py'),
     MAX_RUNNER_BYTES,
   );
-  // Replay repetition moved from a per-call flag into the project's gate
-  // config; the contract pins BOTH halves so neither can silently vanish.
-  const gate = await readBounded(resolve(root, '.reproit/reproit.yaml'), MAX_RUNNER_BYTES);
   return (
     runner.includes('"check"') &&
     runner.includes('"--strict"') &&
-    runner.includes('status == "required"') &&
-    /gate:\s*\n\s*runs:\s*3/.test(gate)
+    runner.includes('"--runs"') &&
+    runner.includes('"3"') &&
+    runner.includes('status == "required"')
   );
 }
 

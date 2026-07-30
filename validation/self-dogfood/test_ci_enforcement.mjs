@@ -9,7 +9,7 @@ import test from 'node:test';
 const execFileAsync = promisify(execFile);
 const verifier = new URL('./ci-enforcement.mjs', import.meta.url);
 
-async function fixture(workflow, runner = null, gate = null) {
+async function fixture(workflow, runner = null) {
   const root = await mkdtemp(join(tmpdir(), 'reproit-ci-enforcement-'));
   await mkdir(join(root, '.github/workflows'), { recursive: true });
   await writeFile(join(root, '.github/workflows/ci.yml'), workflow);
@@ -19,10 +19,6 @@ async function fixture(workflow, runner = null, gate = null) {
       join(root, 'validation/self-dogfood/run-required-guards.py'),
       runner,
     );
-  }
-  if (gate !== null) {
-    await mkdir(join(root, '.reproit'), { recursive: true });
-    await writeFile(join(root, '.reproit/reproit.yaml'), gate);
   }
   return root;
 }
@@ -53,9 +49,8 @@ test('required corpus dispatch distinguishes affected and fixed workflows', asyn
   `,
     `
 if status == "required":
-command = ["check", guard, "--strict"]
+command = ["check", guard, "--strict", "--runs", "3"]
   `,
-    'gate:\n  runs: 3\n',
   );
 
   assert.equal((await run('required-guard-corpus-dispatch', affected)).code, 17);

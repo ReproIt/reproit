@@ -63,7 +63,7 @@ class RequiredGuardReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.CorpusError, "missing meta.json"):
             MODULE.required_guard_references(self.repo)
 
-    def test_replay_is_explicit_and_strict_for_every_guard(self) -> None:
+    def test_replay_is_explicit_strict_and_runs_every_guard_three_times(self) -> None:
         guards = ["rep_111111111111", "rep_bbbbbbbbbbbb"]
         completed = [
             mock.Mock(returncode=1),
@@ -88,6 +88,8 @@ class RequiredGuardReplayTests(unittest.TestCase):
                     "check",
                     guard,
                     "--strict",
+                    "--runs",
+                    "3",
                 ],
             )
             self.assertEqual(

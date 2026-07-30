@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Regression test: no repo caller passes a deleted flag to `reproit check`.
 
-The vocabulary purge moved check's per-project knobs (runs, devices, locale,
-device, kind) into gate config; a caller still passing them makes check exit
-2 with a usage error, which read as a flaky guard in CI. This test fails
-while any workflow or self-dogfood script still passes one of the dead flags
-to a check invocation, and passes once every caller relies on gate config.
+The vocabulary purge moved check's per-project knobs (devices, locale,
+device, kind) into the reproit.yaml gate section; a caller still passing one
+makes check exit 2 with a usage error, which reads as a flaky guard in CI.
+This test fails while any workflow or self-dogfood script still passes a
+deleted flag to a check invocation.
 """
 
 from __future__ import annotations
@@ -15,7 +15,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEAD_CHECK_FLAGS = ("--runs", "--devices", "--locale", "--device", "--kind")
+# --runs survives as a hidden contract flag for config-less suite gates
+# (the cloud guard corpus has no reproit.yaml); these four are truly gone,
+# their project-shaped values living in the reproit.yaml `gate:` section.
+DEAD_CHECK_FLAGS = ("--devices", "--locale", "--device", "--kind")
 CALLER_GLOBS = (
     ".github/workflows/*.yml",
     ".github/actions/**/*.yml",
