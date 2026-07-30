@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "runner-shared-core",
+  "changeType": "refactor",
+  "detail": "Extracts the byte-identical host-side canonical-signature and scenario plumbing duplicated by the Electron and Tauri runner sources into runners/source/shared/, shipped as runtime-imported modules and pinned by a new architecture ratchet. No runtime behavior changes; the golden-vector parity gate passes 25/25 for both runners before and after.",
+  "evidence": [
+    {
+      "path": "runners/source/shared/signature.mjs",
+      "sha256": "sha256:18a691986c3619e40b82a99237ba6356b408b6326c0f7ffff0a02cd7c6823503"
+    }
+  ]
+}

@@ -371,14 +371,6 @@ function remuxToMov(webm, mov) {
 // host conductor owns identity (`GET /claim`) and ordering (`GET /next` +
 // `POST /done`); this process plays ONE actor and only executes actions.
 
-// Substitute ${VAR} from the environment (same contract as the web runner):
-// journeys encode `secret:` fills as ${REPROIT_SECRET_<ACCT>_<FIELD>}
-// placeholders so plaintext credentials never touch disk. Unset vars expand
-// to "" (a missing credential types blank, which the app rejects).
-function expandEnv(s) {
-  return String(s).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => process.env[name] || '');
-}
-
 // Count VISIBLE elements matching a journey finder, for `expect: count`. Runs
 // in the renderer (passed to page.evaluate). Same key grammar as tap(); any
 // other finder is treated as a raw CSS selector. Byte-identical to the web
@@ -418,10 +410,6 @@ function countMatching(finder) {
 // typeInto; Electron's renderer is a Playwright Page, so the same API drives
 // it). A missing/unreachable/non-text target returns false so the caller
 // reports a MISS rather than silently passing.
-// Provenance ledger for the broken-asset oracle: every value the fuzzer types is
-// recorded so brokenAssetScan can exclude an asset that only exists because a
-// fuzzer-injected value was reflected into the DOM (mirrors the web runner).
-const INJECTED_VALUES = new Set();
 async function typeInto(page, sel, value) {
   if (value != null && String(value).length > 0) INJECTED_VALUES.add(String(value));
   const found = await page

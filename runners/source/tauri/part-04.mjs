@@ -1,15 +1,6 @@
-  return String(s).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => process.env[name] || '');
-}
-
 // Fill a field located by the same key:/role: grammar as TAP_JS, entirely
 // in-page: WebDriver has no way to hand our custom locator an element handle
 // without an extra tagging round-trip, and the native-setter + input/change
-// Provenance ledger for the broken-asset oracle: every value the fuzzer TYPES is
-// recorded so brokenAssetScan can exclude an asset (or tofu) that exists only
-// because a fuzzer-injected value was reflected into the DOM, not the app's own
-// rendered content. Session-wide.
-const INJECTED_VALUES = new Set();
-
 // dispatch below is the standard way to update framework-bound fields (React
 // tracks the native value descriptor). Returns true when a visible text-holding
 // target was filled; false is a MISS.

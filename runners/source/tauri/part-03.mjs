@@ -783,7 +783,3 @@ async function stopClipCapture(proc) {
 // tui backend: the host conductor owns identity (`GET /claim`) and ordering
 // (`GET /next` + `POST /done`); this process plays ONE actor.
 
-// Substitute ${VAR} from the environment (same contract as the web runner):
-// journeys encode `secret:` fills as ${REPROIT_SECRET_<ACCT>_<FIELD>}
-// placeholders so plaintext credentials never touch disk.
-function expandEnv(s) {

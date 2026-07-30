@@ -152,6 +152,14 @@ const NATIVE_RUNNER_FILES: &[(&str, &str)] = &[
         include_str!("../../../../../runners/tauri-snapshot.mjs"),
     ),
     (
+        "shared/signature.mjs",
+        include_str!("../../../../../runners/shared/signature.mjs"),
+    ),
+    (
+        "shared/fuzz.mjs",
+        include_str!("../../../../../runners/shared/fuzz.mjs"),
+    ),
+    (
         "inspect-control.mjs",
         include_str!("../../../../../runners/inspect-control.mjs"),
     ),

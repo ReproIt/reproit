@@ -497,6 +497,68 @@ fn flutter_explorer_scaffold_stays_modular() {
     }
 }
 
+/// The runner JS is authored as modules under runners/source/ and shipped as
+/// generated single-file bundles (build-runner-bundles.mjs; CI rebuilds and
+/// diffs, so the bundles cannot drift from the sources). The authored modules
+/// carry the same reviewability cap as owned Rust; the generated bundles are
+/// exempt, exactly like target/ output.
+#[test]
+fn runner_source_modules_stay_reviewable() {
+    const MAX_LINES: usize = 1_000;
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runners/source");
+    let mut seen = 0usize;
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(dir).expect("read runners/source") {
+            let path = entry.expect("read runners/source entry").path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "mjs") {
+                continue;
+            }
+            let body = std::fs::read_to_string(&path).expect("read runner source module");
+            let lines = body.lines().count();
+            assert!(
+                lines <= MAX_LINES,
+                "{} has {lines} lines; split the module before exceeding {MAX_LINES}",
+                path.display()
+            );
+            seen += 1;
+        }
+    }
+    assert!(
+        seen >= 30,
+        "expected the authored runner modules, found {seen} files"
+    );
+}
+
+/// The Electron and Tauri runners share one host-side canonical-signature and
+/// scenario-plumbing implementation (runners/source/shared/). A runner that
+/// stops importing it has started growing a private copy of the signature
+/// algorithm, which is exactly the divergence the golden-vector parity gate
+/// exists to prevent; fail here first, with a name.
+#[test]
+fn native_runners_compose_the_shared_signature_core() {
+    let runners = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runners");
+    for entry in ["source/electron/part-01.mjs", "source/tauri/part-01.mjs"] {
+        let body = std::fs::read_to_string(runners.join(entry)).expect("read runner entry");
+        for module in ["./shared/signature.mjs", "./shared/fuzz.mjs"] {
+            assert!(
+                body.contains(module),
+                "{entry} no longer imports {module}; the runner is forking the shared core"
+            );
+        }
+        for private_copy in ["function signatureOf", "function fnv1a", "const ROLES"] {
+            assert!(
+                !body.contains(private_copy),
+                "{entry} declares a private `{private_copy}`; use the shared module"
+            );
+        }
+    }
+}
+
 /// Every path that can fail to observe keeps a distinct not-observed state.
 ///
 /// One bug shape has produced nearly every correctness defect in this tool: an
