@@ -1,7 +1,8 @@
 //! `reproit init`: derive a draft schema for a backend project that
 //! has none. Routes are extracted statically from the framework's source
-//! patterns; a running target enriches parameterless GET routes with one
-//! observed response each. The target is the --target flag or
+//! patterns; a live target enriches them with one observed response per
+//! operation, from a request synthesized out of the parsed params (probe_plan
+//! decides what may honestly be sent). The target is the --target flag or
 //! REPROIT_BACKEND_URL when given, else init resolves one itself (boot.rs):
 //! a verified already-running server, or a bounded boot of the package.json
 //! start script. The result is an honestly-marked draft `openapi.yaml` plus
@@ -37,6 +38,8 @@ mod rust_ast;
 mod rust_router;
 mod rust_types;
 
+#[cfg(test)]
+mod probe_tests;
 #[cfg(test)]
 mod tests;
 
@@ -145,12 +148,11 @@ pub(super) async fn run(
     // after the probe pass on every exit path).
     let env = std::env::var("REPROIT_BACKEND_URL").ok();
     let target = super::backend_target::pick_target(target_flag, env.as_deref(), None);
-    let probe_paths: Vec<String> = derived
+    let verify_path: Option<String> = derived
         .routes
         .iter()
-        .filter(|(path, methods)| methods.contains("get") && !path.contains('{'))
-        .map(|(path, _)| path.clone())
-        .collect();
+        .find(|(path, methods)| methods.contains("get") && !path.contains('{'))
+        .map(|(path, _)| path.clone());
     let mut booted = None;
     let resolved = match target {
         Some((url, source)) => {
@@ -158,8 +160,7 @@ pub(super) async fn run(
             // A user-named target is worth recording as backend.target.
             Some((url.to_string(), source.to_string(), true))
         }
-        None => match boot::auto_target(ctx, root, probe_paths.first().map(String::as_str)).await
-        {
+        None => match boot::auto_target(ctx, root, verify_path.as_deref()).await {
             Some(auto) => {
                 // An init-booted server dies with init, so its ephemeral URL
                 // must not be recorded as the project's target. A verified
@@ -171,14 +172,47 @@ pub(super) async fn run(
             None => None,
         },
     };
+    let mut plan = probe_plan::ProbePlan::default();
     let mut observations = std::collections::BTreeMap::new();
     let mut target_url = None;
     if let Some((url, source, record)) = resolved {
-        let outcome = enrich::probe(&url, &probe_paths).await;
+        // Mutating probes exist only for a server init booted itself and
+        // tears down afterwards; a server that was already running (or one
+        // the user named) is theirs, and only safe requests may touch it.
+        plan = probe_plan::plan(&derived, booted.is_some(), enrich::MAX_PROBED_ROUTES);
+        let outcome = enrich::probe(&url, &plan.probes).await;
+        let skipped = if plan.skipped.is_empty() {
+            String::new()
+        } else {
+            let reasons: Vec<String> = plan
+                .skipped
+                .iter()
+                .take(3)
+                .map(|skip| {
+                    format!(
+                        "{} {}: {}",
+                        skip.method.to_uppercase(),
+                        skip.path,
+                        skip.reason
+                    )
+                })
+                .collect();
+            let more = plan.skipped.len().saturating_sub(3);
+            format!(
+                "; {} skipped ({}{})",
+                plan.skipped.len(),
+                reasons.join("; "),
+                if more > 0 {
+                    format!("; and {more} more")
+                } else {
+                    String::new()
+                }
+            )
+        };
         ctx.say(format!(
-            "  probed {} of {} parameterless GET routes at {url} ({source}): {} answered{}",
+            "  probed {} of {} derived operations at {url} ({source}): {} answered{}{skipped}",
             outcome.attempted,
-            probe_paths.len(),
+            derived.operation_count(),
             outcome.observations.len(),
             if outcome.adapter {
                 ", adapter effect trail recorded"
@@ -204,7 +238,7 @@ pub(super) async fn run(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("backend-service");
-    let yaml = emit::draft_yaml(title, framework.name, &derived, &observations)?;
+    let yaml = emit::draft_yaml(title, framework.name, &derived, &plan, &observations)?;
     project_scaffold::init_backend_learned(
         root,
         DRAFT_SCHEMA_NAME,

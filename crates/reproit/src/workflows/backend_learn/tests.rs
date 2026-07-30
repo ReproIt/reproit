@@ -1,10 +1,7 @@
 use super::extract::{derive, family_for, normalize_path, path_params};
-use super::{emit, enrich};
-use std::collections::BTreeMap;
-use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 
-fn project(files: &[(&str, &str)]) -> PathBuf {
+pub(super) fn project(files: &[(&str, &str)]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "reproit-learn-{}-{}",
         std::process::id(),
@@ -634,132 +631,16 @@ fn zero_derived_routes_still_scaffolds_an_empty_draft() {
         .unwrap()
         .block_on(super::run(&ctx, &dir, None, false))
         .unwrap();
-    assert_eq!(format!("{code:?}"), format!("{:?}", std::process::ExitCode::SUCCESS));
+    assert_eq!(
+        format!("{code:?}"),
+        format!("{:?}", std::process::ExitCode::SUCCESS)
+    );
     let config = std::fs::read_to_string(dir.join("reproit.yaml")).unwrap();
     assert!(config.contains("backend:\n  enabled: true"), "{config}");
     let draft = std::fs::read_to_string(dir.join("openapi.yaml")).unwrap();
     assert!(draft.contains("paths: {}"), "{draft}");
     assert!(draft.contains("x-reproit-derived: true"), "{draft}");
     std::fs::remove_dir_all(&dir).unwrap();
-}
-
-#[test]
-fn draft_yaml_round_trips_through_the_schema_importer() {
-    let dir = project(&[(
-        "src/main.rs",
-        "fn app() -> Router {\n    Router::new()\n        .route(\"/orders\", \
-         post(create).get(list))\n        .route(\"/orders/{id}\", get(show))\n}\n",
-    )]);
-    let derived = derive(&dir, "axum").unwrap();
-    std::fs::remove_dir_all(&dir).unwrap();
-    let yaml = emit::draft_yaml("fixture", "axum", &derived, &BTreeMap::new()).unwrap();
-    assert!(yaml.contains("x-reproit-derived: true"));
-    assert!(yaml.starts_with("# DRAFT schema derived by `reproit init`"));
-    assert!(yaml.contains("operationId: get_orders_id"));
-    // Path params are typed string; mutating routes get a free-form body.
-    assert!(yaml.contains("in: path"));
-    assert!(yaml.contains("requestBody"));
-    // No responses claimed without live observation: no invented statuses.
-    assert!(!yaml.contains("responses"));
-    let document: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
-    assert_eq!(
-        crate::domain::backend::import_service_schema(&document).len(),
-        3
-    );
-}
-
-/// A one-shot HTTP/1.1 stub: accepts connections until dropped, answering each
-/// with the given response bytes, and returns the requests it saw.
-fn stub_server(
-    response: &'static str,
-    connections: usize,
-) -> (String, std::thread::JoinHandle<Vec<String>>) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let handle = std::thread::spawn(move || {
-        let mut seen = Vec::new();
-        for _ in 0..connections {
-            let Ok((mut stream, _)) = listener.accept() else {
-                break;
-            };
-            let mut buffer = [0u8; 4096];
-            let read = stream.read(&mut buffer).unwrap_or(0);
-            seen.push(String::from_utf8_lossy(&buffer[..read]).into_owned());
-            let _ = stream.write_all(response.as_bytes());
-        }
-        seen
-    });
-    (base, handle)
-}
-
-#[tokio::test]
-async fn live_enrichment_records_status_shape_and_effects() {
-    use base64::Engine as _;
-    let events = serde_json::json!([{
-        "sequence": 1, "traceId": "t", "spanId": "s", "operation": "health",
-        "kind": "effect", "effect": "read", "resource": "inventory"
-    }]);
-    let trail = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(serde_json::to_vec(&events).unwrap());
-    let body = r#"{"ok":true,"items":[{"id":1}],"note":null}"#;
-    let response = format!(
-        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nx-reproit-events: {trail}\r\n\
-         content-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let response: &'static str = Box::leak(response.into_boxed_str());
-    let (base, handle) = stub_server(response, 1);
-    let outcome = enrich::probe(&base, &["/health".to_string()]).await;
-    let requests = handle.join().unwrap();
-    assert!(requests[0].starts_with("GET /health HTTP/1.1"));
-    assert!(requests[0].to_lowercase().contains("x-reproit-trace"));
-    assert!(outcome.adapter);
-    let observed = &outcome.observations["/health"];
-    assert_eq!(observed.status, 200);
-    assert_eq!(observed.effects, vec!["read(inventory)".to_string()]);
-    let shape = observed.body.as_ref().unwrap();
-    assert_eq!(shape["ok"], serde_json::json!(true));
-    // The observation lands in the draft as a recorded response + comment.
-    let dir = project(&[(
-        "src/main.rs",
-        "fn app() -> Router { Router::new().route(\"/health\", get(health)) }\n",
-    )]);
-    let derived = derive(&dir, "axum").unwrap();
-    std::fs::remove_dir_all(&dir).unwrap();
-    let yaml = emit::draft_yaml("fixture", "axum", &derived, &outcome.observations).unwrap();
-    let note = "# observed live during init: HTTP 200; adapter effects: read(inventory)";
-    assert!(yaml.contains(note));
-    assert!(yaml.contains("\"200\":"));
-    assert!(yaml.contains("type: boolean"));
-    let document: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
-    assert_eq!(
-        crate::domain::backend::import_service_schema(&document).len(),
-        1
-    );
-}
-
-#[tokio::test]
-async fn probe_bounds_cap_routes_and_survive_a_dead_target() {
-    // More derived routes than the probe cap: only the cap is attempted.
-    let paths: Vec<String> = (0..40).map(|index| format!("/r{index}")).collect();
-    assert!(paths.len() > enrich::MAX_PROBED_ROUTES);
-    // A closed port: every probe fails soft and nothing is recorded.
-    let dead = {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        format!("http://{}", listener.local_addr().unwrap())
-    };
-    let outcome = enrich::probe(&dead, &paths).await;
-    assert!(outcome.attempted <= enrich::MAX_PROBED_ROUTES);
-    assert!(outcome.observations.is_empty());
-    assert!(!outcome.adapter);
-}
-
-#[test]
-fn malformed_adapter_trails_note_nothing() {
-    assert!(enrich::decode_effects("not base64url !!!").is_empty());
-    use base64::Engine as _;
-    let not_events = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"{\"nope\":1}");
-    assert!(enrich::decode_effects(&not_events).is_empty());
 }
 
 /// The report exists so it can be run on someone else's repo. If it writes

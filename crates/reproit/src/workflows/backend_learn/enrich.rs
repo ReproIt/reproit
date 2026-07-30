@@ -1,8 +1,11 @@
-//! Optional live enrichment for `reproit init`: one bounded GET per
-//! parameterless derived GET route against the resolved target. Non-GET
-//! methods are never sent. Every probe is fail-soft; the whole pass has a
-//! hard route cap and time budget.
+//! Optional live enrichment for `reproit init`: exactly the requests the
+//! probe plan synthesized, one bounded request per derived operation, against
+//! the resolved target. Which methods may be sent is the PLAN's decision
+//! (mutating probes exist only for a server init booted itself); this pass
+//! sends nothing the plan does not state. Every probe is fail-soft; the
+//! whole pass has a hard route cap and time budget.
 
+use super::probe_plan::PlannedProbe;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -25,15 +28,16 @@ pub(super) struct Observation {
 }
 
 pub(super) struct ProbeOutcome {
-    pub(super) observations: BTreeMap<String, Observation>,
+    /// (lowercase method, path template) -> what the one probe observed.
+    pub(super) observations: BTreeMap<(String, String), Observation>,
     pub(super) attempted: usize,
     /// True when any probed route returned an adapter effect trail.
     pub(super) adapter: bool,
 }
 
-/// Probe up to [`MAX_PROBED_ROUTES`] parameterless GET paths within the total
-/// budget. Errors and timeouts skip the route, never the pass.
-pub(super) async fn probe(base: &str, paths: &[String]) -> ProbeOutcome {
+/// Send up to [`MAX_PROBED_ROUTES`] planned probes within the total budget.
+/// Errors and timeouts skip the route, never the pass.
+pub(super) async fn probe(base: &str, probes: &[PlannedProbe]) -> ProbeOutcome {
     let mut outcome = ProbeOutcome {
         observations: BTreeMap::new(),
         attempted: 0,
@@ -48,16 +52,23 @@ pub(super) async fn probe(base: &str, paths: &[String]) -> ProbeOutcome {
     };
     let base = base.trim_end_matches('/');
     let started = Instant::now();
-    for (index, path) in paths.iter().take(MAX_PROBED_ROUTES).enumerate() {
+    for (index, planned) in probes.iter().take(MAX_PROBED_ROUTES).enumerate() {
         if started.elapsed() >= TOTAL_BUDGET {
             break;
         }
+        let Ok(method) = reqwest::Method::from_bytes(planned.method.to_uppercase().as_bytes())
+        else {
+            continue;
+        };
         outcome.attempted += 1;
-        let url = format!("{base}{path}");
-        let request = client
-            .get(&url)
+        let url = format!("{base}{}", planned.request_path);
+        let mut request = client
+            .request(method, &url)
             .header("x-reproit-trace", format!("learn{index:08}"))
             .header("x-reproit-action", "1");
+        if let Some(body) = &planned.body {
+            request = request.json(body);
+        }
         let Ok(response) = request.send().await else {
             continue;
         };
@@ -75,7 +86,7 @@ pub(super) async fn probe(base: &str, paths: &[String]) -> ProbeOutcome {
         let effects = trail.as_deref().map(decode_effects).unwrap_or_default();
         let body = read_json_body(response).await;
         outcome.observations.insert(
-            path.clone(),
+            (planned.method.to_string(), planned.path.clone()),
             Observation {
                 status,
                 body,
