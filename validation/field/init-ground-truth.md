@@ -231,3 +231,100 @@ with a well-formed scaffold `list` can read, the express fixture derives 4 opera
 node is present, the bare-package.json repo never degrades to web, and re-running init
 stays exit 0. `zero_derived_routes_still_scaffolds_an_empty_draft` (backend_learn) pins
 the in-process degrade path.
+
+## Phase 2 dynamic result (2026-07-30)
+
+Rebuilt fixture A (stock Express, same shape and planted bug as Phase 0) in a scratch
+directory and re-ran the rebuilt release binary. The dynamic-language track turns the
+Phase 1 "parameterless GET probe" into one synthesized bounded request per derived
+operation, recorded as an observed baseline contract with first-class provenance.
+
+### Fixture A, bare `reproit init` (no server running: init boots and tears down)
+
+Exit 0, no flags. Verbatim stdout:
+
+```
+  derived 4 operations on 3 paths from express source (1 files scanned)
+  booting the package.json `start` script on port 64345 to observe responses (torn down after init; override with --target <url>)
+  probed 4 of 4 derived operations at http://127.0.0.1:64345 (booted from the package.json `start` script): 4 answered, no adapter detected (black-box observations)
+  write .../openapi.yaml (derived draft)
+  write .../reproit.yaml
+  write .../.reproit/.gitignore
+
+  reproit initialized from a DERIVED DRAFT schema (4 operations on 3 paths from source, 4 enriched live).
+  1. review openapi.yaml: it is a draft, not your service's contract
+  2. tighten param/body/response types for the routes you rely on
+  3. reproit doctor         # schema, target, and adapter tier
+  4. reproit find           # find bugs (surface scan, then deep fuzz)
+```
+
+All 4 operations now carry observed baseline contracts (Phase 1 recorded 2):
+
+- `GET /items` and `GET /search`: `200` responses with sampled body shapes, as before.
+- `GET /items/{id}`: probed with a synthesized param, recorded in the draft:
+  `# observed live during init: HTTP 200; path params synthesized: id=1`.
+- `POST /items`: the inline handler's `const { name, price } = req.body` is parsed by
+  the new destructure reader, so init synthesized one minimal body and observed the
+  contract: `# observed live during init: HTTP 201; request body synthesized from
+  parsed source fields: {"name":"reproit","price":"reproit"}`, with the `201` response
+  shape sampled. The parsed field names also land in the requestBody schema (untyped:
+  a name read from a destructure carries no type claim).
+- Every operation is marked `x-reproit-provenance: inferred`; every observed response
+  block is marked `x-reproit-provenance: observed`. The header states the one-way rule:
+  only the user may mark an entry `confirmed`, and no code path writes that value
+  (pinned by test).
+- No leftover node process after init on any run.
+
+### The planted 500 violates the observed contract
+
+Server booted by hand on 3555, `REPROIT_BACKEND_URL=... reproit fuzz`, verbatim:
+
+```
+lifecycle: 0 new, 0 regressed, 0 persisting, 0 fixed
+backend fuzz: 12 operation(s) exercised, 0 confirmed finding(s), 3 candidate(s), 0 execution error(s)
+  tier: black-box (no adapter; response-level checks only)
+  coverage: 2/4 declared operation(s) evaluated
+    no success to evaluate (2):
+      GET get_items_id: 3 attempt(s), last 404 - {"error":"not found"}
+      POST post_items: 3 attempt(s), last 500 - <!DOCTYPE html> ... TypeError: Cannot read properties of null (reading &#39;trim&#39;) ...
+```
+
+Every candidate in the report carries `"reason": "contract-valid request returned
+HTTP 500"`: with `201` recorded as the observed success status, the missing-field 500
+is a violation of the observed/derived contract, which is the Phase 2 acceptance bar.
+(Confirmation still demands a reset URL; surfacing candidates as first-class findings
+remains the known Phase 3/4 gap recorded in the Phase 0 section.)
+
+### Safety invariant: mutating probes only against an init-booted server
+
+With the fixture already running on the conventional port 3000 (a user-owned server
+that passes the two-signal repo match), bare init probes read-only and holds the POST
+back entirely, saying so in both the output and the draft. Verbatim:
+
+```
+  derived 4 operations on 3 paths from express source (1 files scanned)
+  found a server on port 3000 answering /items (it matches the derived routes); assuming it is this service. Override with --target <url>
+  probed 3 of 4 derived operations at http://127.0.0.1:3000 (already running, matched a derived route): 3 answered, no adapter detected (black-box observations); 1 skipped (POST /items: init never sends mutating requests to a server it did not boot itself)
+```
+
+The draft carries `# not probed during init: init never sends mutating requests to a
+server it did not boot itself` on the POST, and the server's item list was unchanged
+after init (verified by count). A POST whose body fields no reader can parse is skipped
+the same way, with `request body fields not parseable from source, so no honest request
+exists` (pinned by the smoke test's raw-node fixture).
+
+### Scope landed vs deferred
+
+- Landed: probe planning (`probe_plan.rs`, pure and colocated-tested), any-method
+  bounded sending in `enrich.rs`, provenance-marked emission in `emit.rs`, and the
+  Node inline `req.body` destructure reader (`node_body.rs`). Boot/teardown machinery
+  from Phase 1 is reused unchanged.
+- Python/Ruby/PHP: the planner and emitter are language-agnostic (they work off the
+  shared `Derived` shape, which python_ast already fills with pydantic body fields), so
+  safe-method observed contracts work today against a running or `--target` server.
+  Mutating observation requires an init-booted server, and Phase 1's boot machinery
+  only knows package.json start scripts; teaching it Procfiles/uvicorn is the next
+  increment, deliberately not smuggled into this one.
+- Query-param synthesis: no reader parses query parameter NAMES yet (the `q` gap from
+  Phase 0 stands), so there is nothing honest to synthesize; `/search` is probed bare
+  and observed as such. That is a reader gap, not a prober gap.
