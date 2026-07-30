@@ -271,6 +271,23 @@ fn walk(node: Node, text: &str, server: bool, state: &mut WalkState<'_>) {
                             .iter()
                             .skip(1)
                             .find_map(|node| wrapped_argument(*node, text));
+                        // No named handler and no schema: a plain inline
+                        // handler still states its body field names in its own
+                        // source (`const { name } = req.body`), which is what
+                        // the probe planner synthesizes an honest request from.
+                        let handler = handler.or_else(|| {
+                            args.iter().skip(1).rev().find_map(|argument| {
+                                let fields = super::node_body::inline_fields(*argument, text)?;
+                                let name = format!("{method} {path} inline handler");
+                                super::field_facts::record(
+                                    state.shapes,
+                                    state.ambiguous,
+                                    name.clone(),
+                                    fields,
+                                );
+                                Some(name)
+                            })
+                        });
                         state.routes.push((object, path, *method, handler, schema));
                     }
                 }

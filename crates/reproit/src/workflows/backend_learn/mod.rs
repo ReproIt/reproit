@@ -26,6 +26,7 @@ mod go_ast;
 mod grammar;
 mod java_ast;
 mod node_ast;
+mod node_body;
 mod php_ast;
 mod python_ast;
 mod report;
