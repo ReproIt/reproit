@@ -120,6 +120,12 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
     let persist_result = (|| -> Result<()> {
         if let Some(capture) = &localized.capture {
             write_json_atomically(&staging.join("capture.json"), capture)?;
+            // A backend SDK batch projects back to the replayable
+            // `reproit-backend-capture` payload; persist it so the occurrence
+            // can be re-evaluated offline without an execution plan.
+            if let Some(backend) = backend_capture_from_batch(capture) {
+                write_json_atomically(&staging.join("backend-capture.json"), &backend)?;
+            }
         }
         write_json_atomically(&staging.join("package.json"), &localized.package)?;
         if !artifacts.is_empty() {

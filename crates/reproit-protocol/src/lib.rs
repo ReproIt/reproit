@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod capture;
+mod capture_backend;
 mod capture_compiler;
 mod causal;
 mod environment;
@@ -19,6 +20,7 @@ pub use capture::{
     ProcessIdentity, StateOperation, CAPTURE_BATCH_VERSION, MAX_CAPTURE_ARTIFACTS,
     MAX_CAPTURE_CAPABILITIES, MAX_CAPTURE_EVENTS, MAX_CAPTURE_EVENT_BYTES, MAX_CAUSAL_PARENTS,
 };
+pub use capture_backend::{backend_capture_from_batch, OPERATION_RETURN_SUBJECT};
 pub use capture_compiler::{compile_capture_failure, CaptureAssessmentScope, CaptureCompilation};
 pub use causal::{
     CausalEdge, CausalEdgeKind, CausalGraph, CausalNode, CausalNodeKind, CausalTarget,

@@ -415,6 +415,26 @@ impl Capture {
                 },
             }));
         }
+        // Nest the raw return event exactly like the raw effect events, so
+        // the batch can be projected back to a replayable backend capture.
+        // The subject names the carrier: `backend_capture_from_batch` in
+        // reproit-protocol keys the inversion on "operation-return".
+        if let Some(returned) = operation
+            .events
+            .iter()
+            .find(|event| event.get("kind").and_then(Value::as_str) == Some("return"))
+        {
+            push_event(json!({
+                "kind": "effect",
+                "effect": "operation-return",
+                "subject": "operation-return",
+                "value": {
+                    "representation": "replayable",
+                    "value": returned,
+                    "redaction": "redacted-at-source",
+                },
+            }));
+        }
         let succeeded = operation.events.iter().rev().find_map(|event| {
             (event.get("kind").and_then(Value::as_str) == Some("return"))
                 .then(|| event.get("success").and_then(Value::as_bool))
@@ -625,8 +645,8 @@ mod tests {
             serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
         parsed.validate().expect("batch passes protocol validation");
         let events = batch["events"].as_array().unwrap();
-        assert_eq!(events.len(), 5);
-        let finding = &events[4]["event"];
+        assert_eq!(events.len(), 6);
+        let finding = &events[5]["event"];
         assert_eq!(finding["kind"], "observation");
         assert_eq!(
             finding["failure"]["signature"],
@@ -637,13 +657,30 @@ mod tests {
             events[1]["event"]["value"]["value"]["body"]["item"],
             json!("widget")
         );
+        // The raw return event is nested like the raw effects, under a
+        // subject that names it, and round-trips through the protocol
+        // projection as the replayable capture's final return event.
+        let carrier = &events[3]["event"];
+        assert_eq!(carrier["kind"], "effect");
+        assert_eq!(carrier["subject"], "operation-return");
+        let raw_return = &carrier["value"]["value"];
+        assert_eq!(raw_return["kind"], "return");
+        assert_eq!(raw_return["status"], 500);
+        let capture = reproit_protocol::backend_capture_from_batch(&parsed)
+            .expect("server-error batch projects to a replayable capture");
+        assert_eq!(capture["operation"], "createOrder");
+        assert_eq!(capture["oracle"], SERVER_ERROR_ORACLE);
+        assert_eq!(
+            capture["events"].as_array().unwrap().last().unwrap(),
+            raw_return
+        );
     }
 
     #[test]
     fn healthy_operations_ship_causal_events_without_an_observation() {
         let batch = batch_for(201, true);
         let events = batch["events"].as_array().unwrap();
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 5);
         assert!(events
             .iter()
             .all(|event| event["event"]["kind"] != "observation"));

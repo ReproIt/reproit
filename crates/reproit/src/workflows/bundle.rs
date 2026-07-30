@@ -7,11 +7,11 @@ use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use reproit_protocol::{
-    compile_capture_failure, ArtifactPolicy, AssessmentStatus, BundleEncryption,
-    BundleEncryptionAlgorithm, BundleSignature, BundleSignatureAlgorithm, CapabilityAssessment,
-    CaptureAssessmentScope, CaptureBatch, CaptureDefect, CaptureDefectKind, CollectionMethod,
-    ConsentClass, EvidenceArtifact, EvidenceArtifactKind, EvidencePolicy, EvidenceSource,
-    FailureObservation, ObservationAuthority, ObservationKind, OccurrenceEnvelope,
+    backend_capture_from_batch, compile_capture_failure, ArtifactPolicy, AssessmentStatus,
+    BundleEncryption, BundleEncryptionAlgorithm, BundleSignature, BundleSignatureAlgorithm,
+    CapabilityAssessment, CaptureAssessmentScope, CaptureBatch, CaptureDefect, CaptureDefectKind,
+    CollectionMethod, ConsentClass, EvidenceArtifact, EvidenceArtifactKind, EvidencePolicy,
+    EvidenceSource, FailureObservation, ObservationAuthority, ObservationKind, OccurrenceEnvelope,
     ProcessOperation, RedactionState, ReproductionPackage, ReproductionRequirement,
     RequirementKind, RequirementLevel, SubjectIdentity, UnresolvedRequirement,
     UnresolvedRequirementReason, OCCURRENCE_VERSION, PACKAGE_VERSION, SUPPORT_BUNDLE_VERSION,
@@ -350,6 +350,14 @@ pub(crate) async fn run_occurrence(
             },
         )
         .await;
+    }
+    // A backend occurrence carries its own replayable evidence: re-evaluate
+    // the projected capture offline under `check`'s verdict contract instead
+    // of compiling an execution plan.
+    let backend_capture = directory.join("backend-capture.json");
+    if backend_capture.is_file() {
+        ctx.say("  replay:   re-evaluating the captured backend events offline");
+        return super::backend_headless::check_capture(ctx, &backend_capture);
     }
     let mut automatic_plan_id = None;
     if package.assessment.status != AssessmentStatus::Eligible || package.plan.is_none() {
