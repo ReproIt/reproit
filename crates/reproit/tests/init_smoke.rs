@@ -166,6 +166,22 @@ fn express_style_fixture_scaffolds_derives_routes_and_auto_enriches() {
                 schema.contains("observed live during init"),
                 "no observed response recorded:\n{schema}"
             );
+            // Observed responses carry their provenance; a synthesized path
+            // param lets the by-id route be observed too, and the POST, whose
+            // body fields no reader could parse from this source, is skipped
+            // with the reason stated in the draft instead of being guessed at.
+            assert!(
+                schema.contains("x-reproit-provenance: observed"),
+                "no observed provenance mark:\n{schema}"
+            );
+            assert!(
+                schema.contains("path params synthesized: id=1"),
+                "the path-param route was not probed:\n{schema}"
+            );
+            assert!(
+                schema.contains("# not probed during init: request body fields not parseable"),
+                "the unparseable POST must be skipped honestly:\n{schema}"
+            );
         }
     }
     let _ = fs::remove_dir_all(&dir);
