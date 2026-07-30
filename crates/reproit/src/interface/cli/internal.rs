@@ -25,6 +25,17 @@ pub(crate) enum InternalCmd {
         #[arg(long)]
         query: Option<String>,
     },
+    /// Record a program's reads of the outside world into a process capsule
+    /// (the general-program sibling of a backend capture). Requires
+    /// REPROIT_PROCESS_SHIM to name a built runners/process-shim library.
+    ProcessCapture {
+        /// Where to write the capsule.
+        #[arg(long = "out", value_name = "CAPSULE")]
+        out: PathBuf,
+        /// The command to run, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Print the HTTP surface a backend serves, read from its source, and
     /// write nothing. Works with no schema, no running service and no
     /// credentials, and reports each service of a monorepo separately. Where a

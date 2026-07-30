@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Process capsule acceptance, driven end to end by the CLI.
+#
+# Captures a native program's failure into a process capsule, then re-executes
+# it with the config file DELETED, the upstream DOWN, and no network, and
+# asserts the four verdicts: reproduced (1), fixed (0), reproduced again (1),
+# and diverged (3) when the capsule is missing the socket bytes.
+#
+# LINUX ONLY. On macOS, SIP strips DYLD_INSERT_LIBRARIES when the CLI spawns
+# the command through /bin/sh, so the shim never reaches the subject; that is
+# a platform fact, not a bug in this script.
+set -u
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+REPROIT="${REPROIT_BINARY:-$ROOT/target/debug/reproit}"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-process.XXXXXX")"
+UPSTREAM_PID=""
+cleanup() {
+  [[ -n "$UPSTREAM_PID" ]] && kill "$UPSTREAM_PID" 2>/dev/null
+  rm -rf "$WORK" /tmp/reproit-subject
+}
+trap cleanup EXIT
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "SKIP process-e2e: LD_PRELOAD injection through sh is Linux only"
+  exit 0
+fi
+if [[ ! -x "$REPROIT" ]]; then
+  echo "SKIP process-e2e: no CLI binary at $REPROIT (set REPROIT_BINARY)"
+  exit 0
+fi
+
+gcc -shared -fPIC -O1 -o "$WORK/reproit_shim.so" "$ROOT/runners/process-shim/reproit_shim.c" \
+  "$ROOT/runners/process-shim/reproit_shim_capsule.c" \
+  "$ROOT/runners/process-shim/reproit_shim_movers.c" -ldl
+gcc -O1 -o "$WORK/subject" "$ROOT/validation/process/subject.c"
+export REPROIT_PROCESS_SHIM="$WORK/reproit_shim.so"
+
+start_upstream() {
+  python3 - <<'PY' &
+import socket
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", 19981))
+srv.listen(8)
+while True:
+    try:
+        conn, _ = srv.accept()
+    except OSError:
+        break
+    try:
+        conn.recv(4096)
+        conn.sendall(b'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{"quote":42,"limit":null}')
+    finally:
+        conn.close()
+PY
+  UPSTREAM_PID=$!
+  sleep 0.6
+}
+
+# RECORD: config present, upstream up, defect fires.
+mkdir -p /tmp/reproit-subject
+printf '{ "strict": true }' > /tmp/reproit-subject/config.json
+start_upstream
+"$REPROIT" --yes internal process-capture --out "$WORK/capsule.json" -- "$WORK/subject" \
+  > "$WORK/capture.txt" 2>&1
+kill "$UPSTREAM_PID" 2>/dev/null; UPSTREAM_PID=""
+if ! grep -q "fatal signal" "$WORK/capture.txt"; then
+  echo "FAIL capture: the subject did not fail as planted" >&2
+  cat "$WORK/capture.txt" >&2
+  exit 1
+fi
+echo "PASS captured the planted abort into a process capsule"
+
+# HERMETIC STATE: no config file, no upstream, for every run below.
+rm -rf /tmp/reproit-subject
+
+run_case() {
+  local capsule="$1" command="$2" expected="$3" label="$4" marker="$5"
+  set +e
+  "$REPROIT" --yes check "$capsule" --exec "$command" > "$WORK/out.txt" 2>&1
+  local status=$?
+  set -e
+  if [[ "$status" -ne "$expected" ]]; then
+    echo "FAIL $label: expected exit $expected, got $status" >&2
+    cat "$WORK/out.txt" >&2
+    exit 1
+  fi
+  if ! grep -q "$marker" "$WORK/out.txt"; then
+    echo "FAIL $label: output lacks the verdict marker '$marker'" >&2
+    cat "$WORK/out.txt" >&2
+    exit 1
+  fi
+  echo "PASS $label (exit $status)"
+}
+
+run_case "$WORK/capsule.json" "$WORK/subject" 1 \
+  "bug reproduces with the file deleted and the upstream down" "reproduced by re-execution"
+run_case "$WORK/capsule.json" "REPROIT_FIXED=1 $WORK/subject" 0 \
+  "fix certifies" "the program now exits cleanly"
+run_case "$WORK/capsule.json" "$WORK/subject" 1 \
+  "revert reproduces again" "reproduced by re-execution"
+
+python3 - "$WORK/capsule.json" "$WORK/tampered.json" <<'PY'
+import json, sys
+capsule = json.load(open(sys.argv[1]))
+capsule["entries"] = [e for e in capsule["entries"] if not e.startswith("recv\t")]
+json.dump(capsule, open(sys.argv[2], "w"))
+PY
+run_case "$WORK/tampered.json" "$WORK/subject" 3 \
+  "missing socket bytes diverges" "DIVERGED"
+
+echo "process-e2e: all four verdicts hold"

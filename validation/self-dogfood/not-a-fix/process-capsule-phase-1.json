@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "process-capsule-phase-1",
+  "changeType": "feature",
+  "detail": "This commit adds the phase 1 process capsule: an LD_PRELOAD boundary that records an arbitrary native program's external reads and serves them back under replay, wired to the existing four-way verdict vocabulary. It corrects no shipped runtime defect; it is a new capability whose central bet was deliberately measured rather than assumed, and the retained MEASUREMENT.md records where the boundary succeeds, where it fails closed, and what stays unmeasured.",
+  "evidence": [
+    { "path": "validation/process/MEASUREMENT.md", "sha256": "sha256:62a9a00053d877250eb886f403d915dd3dd5d8b8b98f3bd49e24aa0de3288742" },
+    { "path": "validation/process/run.sh", "sha256": "sha256:845964c2809cea7dc0d4691b45976da50e33dd47e076f84931a5266d7c878eb4" },
+    { "path": "validation/process/measure.sh", "sha256": "sha256:510c631cdaf31f65893439bcb2cc14817570560b01d3a2734cf0c73a2a3b1a01" }
+  ]
+}

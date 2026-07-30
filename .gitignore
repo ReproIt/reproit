@@ -58,3 +58,6 @@ sdk/reproit-windows/**/obj/
 # Claude Code local state
 .claude/
 runners/node_modules
+
+# Linux build output from container verification runs
+target-linux/

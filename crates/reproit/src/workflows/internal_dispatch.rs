@@ -64,6 +64,9 @@ pub(super) async fn run(
                 Ok(ExitCode::SUCCESS)
             }
         },
+        InternalCmd::ProcessCapture { out, command } => {
+            super::process_capsule::capture(ctx, &out, &command)
+        }
         InternalCmd::Surface => backend_learn::surface(ctx, &std::env::current_dir()?),
         InternalCmd::Reset {
             all,

@@ -39,6 +39,7 @@ mod keep_command;
 mod list;
 mod map;
 mod platforms;
+mod process_capsule;
 mod proof;
 mod record;
 mod repro;

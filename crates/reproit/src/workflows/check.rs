@@ -105,6 +105,23 @@ pub(super) async fn run(
         // no config there is no project to resolve one against.
         Err(error) => {
             if let Some(reference) = args.repro.as_deref() {
+                // A process capsule is a sibling format: same verdict
+                // vocabulary, different trigger and oracle.
+                if super::process_capsule::is_process_capsule(Path::new(reference)) {
+                    let Some(exec) = args.exec.as_deref() else {
+                        anyhow::bail!(
+                            "a process capsule re-executes a command: pass --exec \"<command>\" \
+                             naming how to run the program"
+                        );
+                    };
+                    return super::process_capsule::check_exec(
+                        ctx,
+                        Path::new(reference),
+                        exec,
+                        args.auto,
+                    )
+                    .await;
+                }
                 if backend_headless::is_capture_file(Path::new(reference)) {
                     if args.record_video {
                         anyhow::bail!("backend captures do not produce screen video evidence");
@@ -125,6 +142,16 @@ pub(super) async fn run(
         }
     };
     if let Some(reference) = args.repro.as_deref() {
+        if super::process_capsule::is_process_capsule(Path::new(reference)) {
+            let Some(exec) = args.exec.as_deref() else {
+                anyhow::bail!(
+                    "a process capsule re-executes a command: pass --exec \"<command>\" naming \
+                     how to run the program"
+                );
+            };
+            return super::process_capsule::check_exec(ctx, Path::new(reference), exec, args.auto)
+                .await;
+        }
         if routes_to_capture_file(&loaded, reference) {
             if args.record_video {
                 anyhow::bail!("backend captures do not produce screen video evidence");
