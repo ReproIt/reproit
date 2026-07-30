@@ -514,3 +514,142 @@ response-shape oracle (a 200 body violating the typed schema, the Go fixture's c
   the emitter keeps the typed schema and the comment records both provenances.
 - Provenance hardening (plan 2.3) came with the dynamic track's one-way Provenance
   vocabulary; the inferred entries here reuse it, and nothing upgrades a mark.
+
+## Phase 3 result (2026-07-30)
+
+Fixture A rebuilt from scratch in scratch space (same shape as Phase 0: express-style
+routes, `start: node server.js`, planted 500 on POST /items without `name`; the 500 is
+an HTML stack trace served as text/html, as real Express does). Release binary built
+from this branch (on top of the Phase 2 dynamic/typed work), zero flags, no env vars.
+The loop closes in exactly three user commands.
+
+### `reproit init` (command 1 of 3)
+
+Exit 0. Verbatim stdout (paths elided):
+
+```
+  derived 4 operations on 3 paths from express source (1 files scanned)
+  booting the package.json `start` script on port 64089 to observe responses (torn
+  down when this run completes; override with --target <url>)
+  probed 3 of 4 derived operations at http://127.0.0.1:64089 (booted from the
+  package.json `start` script): 3 answered, no adapter detected (black-box
+  observations); 1 skipped (POST /items: request body fields not parseable from
+  source, so no honest request exists)
+  write .../openapi.yaml (derived draft)
+  write .../reproit.yaml
+  write .../.reproit/.gitignore
+
+  reproit initialized from a DERIVED DRAFT schema (4 operations on 3 paths from
+  source, 3 enriched live).
+  1. review openapi.yaml: it is a draft, not your service's contract
+  2. tighten param/body/response types for the routes you rely on
+  3. reproit doctor         # schema, target, and adapter tier
+  4. reproit find           # find bugs (surface scan, then deep fuzz)
+```
+
+(This fixture's POST handler reads `body.name` without a destructure, so the Phase 2
+body reader abstains and init skips the mutating probe with the reason stated; the
+Phase 2 result above shows the destructured variant probing 4 of 4.)
+
+### `reproit find` (command 2 of 3)
+
+Exit 1 (a bug was found). No target flag, no REPROIT_BACKEND_URL, no reset URL. find
+inspected the scaffold (3 safe operations, 1 mutation), booted the service itself, ran
+scan for the safe routes and fuzz for the mutation, and CONFIRMED the planted 500 via
+boot-restart reset. Verbatim stdout:
+
+```
+  booting the package.json `start` script on port 64128 to observe responses (torn
+  down when this run completes; override with --target <url>)
+find: fast surface pass
+lifecycle: 0 new, 0 regressed, 0 persisting, 0 fixed
+backend scan: 3 operation(s) exercised, 0 confirmed finding(s), 0 candidate(s), 0
+execution error(s)
+  tier: black-box (no adapter; response-level checks only)
+  coverage: 3/4 declared operation(s) evaluated
+    never sent (1):
+      POST post_items: scan executes read-only GET operations only
+find: deep interaction pass
+lifecycle: 1 new, 0 regressed, 0 persisting, 0 fixed
+backend fuzz: 12 operation(s) exercised, 1 confirmed finding(s), 0 candidate(s), 0
+execution error(s)
+  tier: black-box (no adapter; response-level checks only)
+  coverage: 3/4 declared operation(s) evaluated
+    no success to evaluate (1):
+      POST post_items: 3 attempt(s), last 500 - <!DOCTYPE html><pre>TypeError: Cannot
+      read properties of undefined (reading 'trim') at IncomingMessage.<anonymous> ...
+  fnd_9b38629236ad  post_items: contract-valid request returned HTTP 500
+EXIT=1
+```
+
+The Phase 0 dead-end (`0 confirmed finding(s), 3 candidate(s)` plus "stateful or
+non-idempotent confirmation requires REPROIT_BACKEND_RESET_URL") is gone: when the run
+booted the process itself, a full process restart IS the reset, so confirmation
+replays from clean state without any reset URL. The finding prints first-class with
+its id, not as a coverage footnote.
+
+### `reproit keep` (command 3 of 3)
+
+Exit 0. Verbatim stdout:
+
+```
+  kept rep_9b38629236ad (quarantined)
+  verify: reproit rep_9b38629236ad
+  write .github/workflows/reproit.yml (CI runs `reproit check`: 0 pass, 1 regression,
+  2 flaky, 3 stale)
+```
+
+Committed-ready state after keep:
+
+```
+.github/workflows/reproit.yml
+.reproit/repros/9b38629236ad/backend.json
+.reproit/repros/9b38629236ad/fuzz.md
+.reproit/repros/9b38629236ad/meta.json
+.reproit/repros/9b38629236ad/replay.json
+```
+
+The workflow checks out, npm-installs (the fixture has a package.json), installs the
+released binary via install.sh, and runs `reproit check`; the four-way exit-code
+mapping is stated in the file. An existing `reproit.yml` with a `jobs:` map gets the
+job appended instead; one that already runs `reproit check` is left untouched.
+
+### `reproit check` against broken vs fixed
+
+Broken app (the planted 500 still present), exit 1:
+
+```
+  guard rep_9b38629236ad: REPRODUCED (the bug is back)
+  guards: 1 kept, 1 failing
+```
+
+Fixed app (missing `name` now rejected with a 400), exit 0:
+
+```
+  guard rep_9b38629236ad: held (does not reproduce)
+  guards: 1 kept, 0 failing
+```
+
+check boots the service the same way find does, replays the kept guard with its
+recorded requests rebased onto the current target origin (a guard found on one
+ephemeral booted port must replay on the port this run booted), and tears the process
+down; `pgrep` confirms no leftover node process after every command.
+
+### Defects fixed on the way (found by this validation)
+
+- The kept guard replayed against the DISCOVERING run's absolute URL and died with
+  `tcp connect error` on the dead port. Recorded requests now rebase onto
+  `REPROIT_BACKEND_URL` (the same precedence every live run honors).
+- The fix (500 -> 400 rejection) initially verified as `could not verify ... fails
+  closed`: the generic proof-of-fix demanded a 2xx. For a server-error finding a
+  deliberate 4xx rejection of the recorded input IS the fix, so the replay verdict
+  accepts it (auth/rate statuses 401/403/407/429 stay inconclusive).
+
+### Covered by CI
+
+`crates/reproit/tests/loop_smoke.rs` pins the whole loop on the rebuilt fixture
+(self-gated on node): three commands, the 500 confirmed (not a candidate), guard +
+workflow written, check exit 1 on the broken app and exit 0 on the fixed one.
+Engine selection, the oracle expert door, CI wiring idempotence, and URL rebasing are
+pinned by colocated tests (find_command, repro::keep, backend replay_command).
+
