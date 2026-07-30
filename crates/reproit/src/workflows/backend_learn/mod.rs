@@ -1,8 +1,11 @@
 //! `reproit init`: derive a draft schema for a backend project that
 //! has none. Routes are extracted statically from the framework's source
-//! patterns; a resolvable running target optionally enriches parameterless GET
-//! routes with one observed response each. The result is an honestly-marked
-//! draft `openapi.yaml` plus the standard backend `reproit.yaml`.
+//! patterns; a running target enriches parameterless GET routes with one
+//! observed response each. The target is the --target flag or
+//! REPROIT_BACKEND_URL when given, else init resolves one itself (boot.rs):
+//! a verified already-running server, or a bounded boot of the package.json
+//! start script. The result is an honestly-marked draft `openapi.yaml` plus
+//! the standard backend `reproit.yaml`.
 
 use crate::adapters::project_scaffold::{self, backend_detect};
 use crate::interface::cli::context::Ctx;
@@ -10,6 +13,7 @@ use anyhow::{bail, Result};
 use std::path::Path;
 use std::process::ExitCode;
 
+mod boot;
 mod discovery;
 mod django_urls;
 mod dotnet_ast;
@@ -75,12 +79,13 @@ pub(super) async fn run(
         }
     }
     let Some(derived) = extract::derive(root, framework.name) else {
-        bail!(
-            "detected {} (from {}), which init cannot extract routes for yet.\n{}",
+        ctx.say(format!(
+            "  detected {} (from {}), which init cannot extract routes for yet.\n{}",
             framework.name,
             framework.manifest,
             project_scaffold::backend_schema_guide(root)
-        );
+        ));
+        return scaffold_empty(ctx, root, force);
     };
     if derived.routes.is_empty() {
         // Naming the unreadable count is the difference between "this service
@@ -107,8 +112,8 @@ pub(super) async fn run(
                 reasons.join(", ")
             )
         };
-        bail!(
-            "detected {} (from {}) but no routes could be derived from its source \
+        ctx.say(format!(
+            "  detected {} (from {}) but no routes could be derived from its source \
              ({} files read, {} unconfident matches skipped{}).\n{}",
             framework.name,
             framework.manifest,
@@ -116,7 +121,8 @@ pub(super) async fn run(
             derived.skipped,
             blind,
             project_scaffold::backend_schema_guide(root)
-        );
+        ));
+        return scaffold_empty(ctx, root, force);
     }
     ctx.say(format!(
         "  derived {} operations on {} paths from {} source ({} files scanned{})",
@@ -131,21 +137,42 @@ pub(super) async fn run(
         }
     ));
 
-    // Live enrichment only when a target is resolvable now: the --target flag
-    // or REPROIT_BACKEND_URL (there is no reproit.yaml yet to consult).
+    // Live enrichment. A --target flag or REPROIT_BACKEND_URL wins; with
+    // neither, init resolves a target itself: a verified already-running
+    // server, or a bounded boot of the package.json start script (torn down
+    // after the probe pass on every exit path).
     let env = std::env::var("REPROIT_BACKEND_URL").ok();
     let target = super::backend_target::pick_target(target_flag, env.as_deref(), None);
+    let probe_paths: Vec<String> = derived
+        .routes
+        .iter()
+        .filter(|(path, methods)| methods.contains("get") && !path.contains('{'))
+        .map(|(path, _)| path.clone())
+        .collect();
+    let mut booted = None;
+    let resolved = match target {
+        Some((url, source)) => {
+            super::backend_target::validate_target_url(url)?;
+            // A user-named target is worth recording as backend.target.
+            Some((url.to_string(), source.to_string(), true))
+        }
+        None => match boot::auto_target(ctx, root, probe_paths.first().map(String::as_str)).await
+        {
+            Some(auto) => {
+                // An init-booted server dies with init, so its ephemeral URL
+                // must not be recorded as the project's target. A verified
+                // already-running server is the user's own and is recorded.
+                let record = auto.server.is_none();
+                booted = auto.server;
+                Some((auto.url, auto.source, record))
+            }
+            None => None,
+        },
+    };
     let mut observations = std::collections::BTreeMap::new();
     let mut target_url = None;
-    if let Some((url, source)) = target {
-        super::backend_target::validate_target_url(url)?;
-        let probe_paths: Vec<String> = derived
-            .routes
-            .iter()
-            .filter(|(path, methods)| methods.contains("get") && !path.contains('{'))
-            .map(|(path, _)| path.clone())
-            .collect();
-        let outcome = enrich::probe(url, &probe_paths).await;
+    if let Some((url, source, record)) = resolved {
+        let outcome = enrich::probe(&url, &probe_paths).await;
         ctx.say(format!(
             "  probed {} of {} parameterless GET routes at {url} ({source}): {} answered{}",
             outcome.attempted,
@@ -158,12 +185,17 @@ pub(super) async fn run(
             }
         ));
         observations = outcome.observations;
-        target_url = Some(url.to_string());
+        if record {
+            target_url = Some(url);
+        }
     } else {
         ctx.say(
-            "  no running target (pass --target <url> or set REPROIT_BACKEND_URL to also \
-             record observed responses)",
+            "  no live enrichment this run (start your service, or pass --target <url> or \
+             set REPROIT_BACKEND_URL, to also record observed responses)",
         );
+    }
+    if let Some(server) = booted {
+        server.shutdown().await;
     }
 
     let title = root
@@ -178,9 +210,12 @@ pub(super) async fn run(
         target_url.as_deref(),
         force,
     )?;
+    // The counts repeat the derivation line's own scheme (operations on
+    // paths); a second scheme here ("N routes") misread as a contradiction.
     ctx.say(format!(
-        "\n  reproit initialized from a DERIVED DRAFT schema ({} routes from source, {} \
-         enriched live).",
+        "\n  reproit initialized from a DERIVED DRAFT schema ({} operations on {} paths \
+         from source, {} enriched live).",
+        derived.operation_count(),
         derived.routes.len(),
         observations.len()
     ));
@@ -189,7 +224,21 @@ pub(super) async fn run(
     ));
     ctx.say("  2. tighten param/body/response types for the routes you rely on");
     ctx.say("  3. reproit doctor         # schema, target, and adapter tier");
-    ctx.say("  4. reproit scan           # read-only contract checks");
-    ctx.say("     reproit fuzz           # stateful interaction bugs");
+    ctx.say("  4. reproit find           # find bugs (surface scan, then deep fuzz)");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The degrade path: nothing derivable still ends in a usable scaffold. The
+/// draft is structurally valid with zero claims, and the caller has already
+/// said why derivation came up empty; this names the exact next input.
+fn scaffold_empty(ctx: &Ctx, root: &Path, force: bool) -> Result<ExitCode> {
+    let yaml = project_scaffold::empty_draft_schema(root);
+    project_scaffold::init_backend_learned(root, DRAFT_SCHEMA_NAME, &yaml, None, force)?;
+    ctx.say("\n  reproit initialized with an EMPTY draft schema (0 routes derived).");
+    ctx.say(format!(
+        "  1. add the routes your service serves to {DRAFT_SCHEMA_NAME} (paths, methods, \
+         params)"
+    ));
+    ctx.say("  2. reproit find           # find bugs once a target is running");
     Ok(ExitCode::SUCCESS)
 }

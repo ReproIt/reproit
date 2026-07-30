@@ -618,7 +618,10 @@ fn fiber_suffixed_catch_all_survives_a_whole_entry_point() {
 }
 
 #[test]
-fn zero_derived_routes_fails_closed_without_writing_config() {
+fn zero_derived_routes_still_scaffolds_an_empty_draft() {
+    // The old behavior was a hard fail whose only action was a flag; bare
+    // init now degrades to a zero-claim draft the user can fill, and the
+    // scaffold stays self-consistent (config + draft both written).
     let dir = project(&[
         ("Cargo.toml", "[dependencies]\naxum = \"0.8\"\n"),
         (
@@ -627,13 +630,16 @@ fn zero_derived_routes_fails_closed_without_writing_config() {
         ),
     ]);
     let ctx = crate::interface::cli::context::Ctx::default();
-    let error = tokio::runtime::Runtime::new()
+    let code = tokio::runtime::Runtime::new()
         .unwrap()
         .block_on(super::run(&ctx, &dir, None, false))
-        .unwrap_err();
-    assert!(error.to_string().contains("no routes could be derived"));
-    assert!(!dir.join("reproit.yaml").exists());
-    assert!(!dir.join("openapi.yaml").exists());
+        .unwrap();
+    assert_eq!(format!("{code:?}"), format!("{:?}", std::process::ExitCode::SUCCESS));
+    let config = std::fs::read_to_string(dir.join("reproit.yaml")).unwrap();
+    assert!(config.contains("backend:\n  enabled: true"), "{config}");
+    let draft = std::fs::read_to_string(dir.join("openapi.yaml")).unwrap();
+    assert!(draft.contains("paths: {}"), "{draft}");
+    assert!(draft.contains("x-reproit-derived: true"), "{draft}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
