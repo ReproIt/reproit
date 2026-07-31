@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "ruby-test-dependencies",
   "changeType": "tooling",
-  "detail": "sdk/reproit-backend-rb/test/e2e_test.rb states in its own header that it needs the webrick and rack gems, and nothing in CI installed them. It had never mattered because that file was not gated: the Ruby SDK ran no CI job at all before support tiers were abolished. The first run that included it died on 'cannot load such file -- rack (LoadError)', after every capture assertion had already passed, so the visible failure was a missing dependency rather than a defect in the SDK. This is the same family as the junit jars arriving corrupt and being reported as a compile error: a gate that does not state what it needs blames the wrong thing when it does not get it. The workflow now installs both gems before the ruby files run, with versions pinned rather than floating, for the same reason the junit jars are digest verified. Verified locally: e2e_test.rb exits 0 with 1 run and 25 assertions. No product code changes.",
+  "detail": "sdk/reproit-backend-rb/test/e2e_test.rb states in its own header that it needs the webrick and rack gems, and nothing in CI installed them. It had never mattered because that file was not gated: the Ruby SDK ran no CI job at all before support tiers were abolished. The first run that included it died on 'cannot load such file -- rack (LoadError)', after every capture assertion had already passed, so the visible failure was a missing dependency rather than a defect in the SDK. This is the same family as the junit jars arriving corrupt and being reported as a compile error: a gate that does not state what it needs blames the wrong thing when it does not get it. The workflow now installs both gems before the ruby files run, with versions pinned rather than floating, for the same reason the junit jars are digest verified. Verified locally: e2e_test.rb exits 0 with 1 run and 25 assertions. No product code changes. Follow-up: the first version of the install step used 'gem install webrick -v X rack -v Y', which gem rejects with \"Can't use --version with multiple gems\". I had verified the TEST passed locally but not the COMMAND I put in the workflow, which is the same before-and-after gap that has bitten me repeatedly today. The corrected form, gem install 'webrick:1.9.1' 'rack:3.2.6', was run before pushing and installed both gems with exit 0.",
   "evidence": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "sha256:b107111925ac6d2b8da3b9f88aedfea48fc8b360930b70894b531da4ee347a17"
+      "sha256": "sha256:8ee4e6d3fe5360c6942f722578dd6948273d1a12f72762e0a8df81f7fdbf756a"
     }
   ]
 }

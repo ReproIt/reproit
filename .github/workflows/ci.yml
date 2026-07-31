@@ -409,7 +409,7 @@ jobs:
       # for the same reason the junit jars are digest-verified: a gate should
       # state what it needs, not accept whatever the registry serves that day.
       - name: Install the ruby SDK's declared test dependencies
-        run: gem install --no-document webrick -v 1.9.1 rack -v 3.2.6
+        run: gem install --no-document 'webrick:1.9.1' 'rack:3.2.6'
       - name: ruby (reproit-backend-rb)
         run: |
           ruby sdk/reproit-backend-rb/test/trace_test.rb
