@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "dogfood-policy-toolchain",
+  "code": "environment-unreachable",
+  "detail": "The defect is a missing toolchain and missing system libraries in one GitHub Actions job, and it only manifests when that job executes a cargo test. A policy worktree on a developer machine already has both, so no test run inside this repository can reproduce it; the retained evidence is the failing CI log next to a worktree run proving the test itself passes at the fix commit.",
+  "issue": "CI run 30628406406, job dogfood-policy, fixed no-repro test exited 101",
+  "missingCapability": "a GitHub Actions runner without the Rust toolchain inside a policy worktree",
+  "retainedEvidence": [
+    { "path": "validation/self-dogfood/evidence/dogfood-policy-toolchain.log", "sha256": "sha256:057382bf21ff5a5971e87bf8cc24ab3df3c9753a0e2b87989d4532cb26baf256" }
+  ]
+}

@@ -122,6 +122,16 @@ jobs:
         with:
           # The immutable event endpoints can be outside a shallow checkout.
           fetch-depth: 0
+      # A no-repro declaration carries an executable regression test, and the
+      # gate runs it at both the parent and the fix. Some of those tests are
+      # cargo tests, so this job needs the same toolchain and system libraries
+      # the rust job installs; without them the test cannot link and the gate
+      # reports a fixed-side failure that is really a missing dependency.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the linux system libraries the CLI links
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatspi2.0-dev
       - name: Enforce the self-dogfood bug-fix declaration policy
         run: |
           python3 validation/self-dogfood/check-fix-policy.py \

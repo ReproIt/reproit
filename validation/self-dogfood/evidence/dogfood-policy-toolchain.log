@@ -1,0 +1,16 @@
+CI run 30628406406 (push 5648d90), job "dogfood-policy":
+
+  self-dogfood fix policy: 5648d9037329: fixed no-repro test exited 101
+
+The contract-null-optional declaration is the first no-repro record whose
+test is a cargo test, so the policy job compiled Rust for the first time.
+That job installs no toolchain and none of the linux system libraries the
+CLI links, so the build failed and exit 101 was reported as a fixed-side
+test failure rather than a missing dependency.
+
+Verified the test itself is sound by running it exactly as the gate does,
+in a detached worktree at the fix commit:
+
+  Finished `test` profile [unoptimized + debuginfo] target(s) in 54.23s
+  test domain::backend::tests::query::an_explicit_null_optional_field_reads_as_absent ... ok
+  test result: ok. 1 passed; 0 failed

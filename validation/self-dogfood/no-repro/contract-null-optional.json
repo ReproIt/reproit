@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "contract-null-optional",
-  "detail": "A kept guard's contract serializes optional fields as explicit nulls, and the hand written deserializer read a present-but-null key as a malformed struct, so any guard carrying a query-semantics invariant could not load and silently stopped guarding. The defect lives in one deserializer with no runtime dependency, so a bounded unit test over the exact contract JSON is the stable reproduction authority; it fails on the parent with the verbatim error and passes on the fix.",
+  "detail": "A kept guard's contract serializes optional fields as explicit nulls, and the hand written deserializer read a present-but-null key as a malformed struct, so any guard carrying a query-semantics invariant could not load and silently stopped guarding. The defect lives in one deserializer with no runtime dependency, so a bounded unit test over the exact contract JSON is the stable reproduction authority; it fails on the parent with the verbatim error and passes on the fix. The gate compiles this test from scratch in a worktree, so the dogfood-policy job installs the Rust toolchain and the CLI's linux system libraries; without them the build fails and the gate misreports it as a fixed-side test failure.",
   "test": "crates/reproit/src/domain/backend/tests/query.rs",
   "command": [
     "cargo",
@@ -14,6 +14,9 @@
   "timeoutSeconds": 300,
   "affectedExitCode": 101,
   "affectedEvidence": [
-    { "path": "validation/self-dogfood/evidence/contract-null-optional.log", "sha256": "sha256:4344f3bfc9edbc0177984da346ecf91cb1045330bd9f04c5f57b0bd0175337d9" }
+    {
+      "path": "validation/self-dogfood/evidence/contract-null-optional.log",
+      "sha256": "sha256:4344f3bfc9edbc0177984da346ecf91cb1045330bd9f04c5f57b0bd0175337d9"
+    }
   ]
 }
