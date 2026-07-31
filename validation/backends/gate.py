@@ -125,10 +125,22 @@ def stop_process_group(process: subprocess.Popen[bytes]) -> None:
         os.killpg(process.pid, signal.SIGKILL)
 
 
-def execute(command: list[str], timeout_seconds: int) -> tuple[str, int | None, bytes]:
+def execute(
+    command: list[str],
+    timeout_seconds: int,
+    environment: dict[str, str] | None = None,
+) -> tuple[str, int | None, bytes]:
+    # A gate's declared `environment` is APPLIED, not documentation. Two gates
+    # share one script here and differ only by REPROIT_CHECKPOINT_SCOPE, so a
+    # declaration the runner ignores means invoking the narrow gate by name
+    # silently runs the wide one and then fails its requiredOutput.
+    child_env = None
+    if environment:
+        child_env = {**os.environ, **environment}
     process = subprocess.Popen(
         command,
         cwd=ROOT,
+        env=child_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=os.name != "nt",
@@ -246,7 +258,9 @@ def run(gate_id: str, architectures: list[str] | None, output_dir: Path) -> int:
     # manifest's declared list.
     recorded_architectures = architectures or [observed_architecture()]
     started_at = timestamp()
-    status, exit_code, output = execute(command, timeout_seconds)
+    status, exit_code, output = execute(
+        command, timeout_seconds, gate.get("environment")
+    )
     finished_at = timestamp()
     result_path = write_result(
         gate_id,

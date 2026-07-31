@@ -77,8 +77,7 @@ jobs:
           python3 validation/backends/gate.py tauri
           python3 validation/backends/gate.py linux-atspi-gtk
           python3 validation/backends/gate.py linux-atspi-toolkits
-          REPROIT_CHECKPOINT_SCOPE=replay-only \
-            python3 validation/backends/gate.py process-capsule-longrun
+          python3 validation/backends/gate.py process-capsule-longrun
       - uses: actions/upload-artifact@v7
         if: always()
         with:

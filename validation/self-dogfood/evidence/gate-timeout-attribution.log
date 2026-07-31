@@ -28,3 +28,22 @@ reproduces the traceback. The guard is correct by construction, since a
 closed pipe means there is nothing left to stream, rather than proven
 against the failure it was written for. Recorded as unproven rather than
 presented as fixed.
+
+FOLLOW-UP: the declared environment was decorative.
+
+process-capsule-longrun and process-checkpoint share one script and differ
+only by REPROIT_CHECKPOINT_SCOPE, which the workflow set on the command line
+while the gate entry ALSO declared it in an 'environment' block that gate.py
+never read. Invoking the narrow gate by name alone therefore ran the WIDE
+harness and then failed its requiredOutput:
+
+  python3 validation/backends/gate.py process-capsule-longrun   -> exit 1
+
+gate.py now applies a gate's declared environment to the child. After:
+
+  process-capsule-longrun -> exit 0, NOT EVALUATED lines printed
+  process-checkpoint      -> exit 0, all 7 cases
+
+and the workflow no longer has to remember the variable. A declaration the
+runner ignores is the same failure as a gate that cannot be scheduled: it
+reads as configuration and behaves as nothing.
